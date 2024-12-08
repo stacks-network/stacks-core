@@ -3404,7 +3404,7 @@ fn vote_for_aggregate_key_burn_op() {
 /// This test boots a follower node using the block downloader
 #[test]
 #[ignore]
-fn follower_bootup() {
+fn follower_bootup_simple() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
