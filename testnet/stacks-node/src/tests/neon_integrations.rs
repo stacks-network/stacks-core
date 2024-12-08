@@ -5766,7 +5766,7 @@ fn cost_voting_integration() {
     let transactions = block.get("transactions").unwrap().as_array().unwrap();
     eprintln!("{}", transactions.len());
     let mut tested = false;
-    let mut exec_cost = ExecutionCost::zero();
+    let mut exec_cost = ExecutionCost::ZERO;
     for tx in transactions.iter() {
         let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
         if raw_tx == "0x00" {

@@ -4304,7 +4304,7 @@ impl StacksChainState {
                                     post_condition_aborted: false,
                                     stx_burned: 0,
                                     contract_analysis: None,
-                                    execution_cost: ExecutionCost::zero(),
+                                    execution_cost: ExecutionCost::ZERO,
                                     microblock_header: None,
                                     tx_index: 0,
                                     vm_error: None,
@@ -5107,7 +5107,7 @@ impl StacksChainState {
             );
             cost
         } else {
-            ExecutionCost::zero()
+            ExecutionCost::ZERO
         };
 
         let mut clarity_tx = StacksChainState::chainstate_block_begin(
@@ -5194,7 +5194,7 @@ impl StacksChainState {
 
         // if we get here, then we need to reset the block-cost back to 0 since this begins the
         // epoch defined by this miner.
-        clarity_tx.reset_cost(ExecutionCost::zero());
+        clarity_tx.reset_cost(ExecutionCost::ZERO);
 
         // is this stacks block the first of a new epoch?
         let (applied_epoch_transition, mut tx_receipts) =

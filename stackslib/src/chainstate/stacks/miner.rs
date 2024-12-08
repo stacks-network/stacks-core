@@ -1190,7 +1190,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         }
         if self.runtime.disable_cost_check {
             warn!("Fault injection: disabling miner limit on microblock runtime cost");
-            clarity_tx.reset_cost(ExecutionCost::zero());
+            clarity_tx.reset_cost(ExecutionCost::ZERO);
         }
 
         self.runtime.bytes_so_far = bytes_so_far;
@@ -1418,7 +1418,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         }
         if self.runtime.disable_cost_check {
             warn!("Fault injection: disabling miner limit on microblock runtime cost");
-            clarity_tx.reset_cost(ExecutionCost::zero());
+            clarity_tx.reset_cost(ExecutionCost::ZERO);
         }
 
         self.runtime.bytes_so_far = bytes_so_far;

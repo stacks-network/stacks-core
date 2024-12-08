@@ -5064,7 +5064,7 @@ fn paramaterized_mempool_walk_test(
                                         available_tx.tx.tx.clone(),
                                         vec![],
                                         Value::okay(Value::Bool(true)).unwrap(),
-                                        ExecutionCost::zero(),
+                                        ExecutionCost::ZERO,
                                     ),
                                 )
                                 .convert_to_event(),
