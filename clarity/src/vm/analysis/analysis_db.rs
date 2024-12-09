@@ -24,7 +24,7 @@ use crate::vm::database::{
     ClarityBackingStore, ClarityDeserializable, ClaritySerializable, RollbackWrapper,
 };
 use crate::vm::representations::ClarityName;
-use crate::vm::types::signatures::FunctionSignature;
+use crate::vm::types::signatures::{FunctionSignature, MethodSignature};
 use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
 use crate::vm::ClarityVersion;
 
@@ -207,7 +207,7 @@ impl<'a> AnalysisDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
         trait_name: &str,
         epoch: &StacksEpochId,
-    ) -> CheckResult<Option<BTreeMap<ClarityName, FunctionSignature>>> {
+    ) -> CheckResult<Option<BTreeMap<ClarityName, MethodSignature>>> {
         // TODO: this function loads the whole contract to obtain the function type.
         //         but it doesn't need to -- rather this information can just be
         //         stored as its own entry. the analysis cost tracking currently only

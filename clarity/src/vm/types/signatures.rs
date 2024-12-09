@@ -262,6 +262,20 @@ pub struct FunctionSignature {
     pub returns: TypeSignature,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum MethodType {
+    ReadOnly,
+    Public,
+    NotDefined,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MethodSignature {
+    pub args: Vec<TypeSignature>,
+    pub returns: TypeSignature,
+    pub define_type: MethodType,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FixedFunction {
     pub args: Vec<FunctionArg>,
@@ -1027,6 +1041,48 @@ impl FunctionSignature {
     }
 }
 
+impl MethodSignature {
+    pub fn total_type_size(&self) -> Result<u64> {
+        let mut function_type_size = u64::from(self.returns.type_size()?);
+        for arg in self.args.iter() {
+            function_type_size =
+                function_type_size.cost_overflow_add(u64::from(arg.type_size()?))?;
+        }
+        Ok(function_type_size)
+    }
+
+    pub fn check_args_trait_compliance(
+        &self,
+        epoch: &StacksEpochId,
+        args: Vec<TypeSignature>,
+    ) -> Result<bool> {
+        if args.len() != self.args.len() {
+            return Ok(false);
+        }
+        let args_iter = self.args.iter().zip(args.iter());
+        for (expected_arg, arg) in args_iter {
+            if !arg.admits_type(epoch, expected_arg)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    pub fn canonicalize(&self, epoch: &StacksEpochId) -> Self {
+        let canonicalized_args = self
+            .args
+            .iter()
+            .map(|arg| arg.canonicalize(epoch))
+            .collect();
+
+        Self {
+            args: canonicalized_args,
+            returns: self.returns.canonicalize(epoch),
+            define_type: self.define_type.clone(),
+        }
+    }
+}
+
 impl FunctionArg {
     pub fn new(signature: TypeSignature, name: ClarityName) -> FunctionArg {
         FunctionArg { signature, name }
@@ -1657,8 +1713,8 @@ impl TypeSignature {
         accounting: &mut A,
         epoch: StacksEpochId,
         clarity_version: ClarityVersion,
-    ) -> Result<BTreeMap<ClarityName, FunctionSignature>> {
-        let mut trait_signature: BTreeMap<ClarityName, FunctionSignature> = BTreeMap::new();
+    ) -> Result<BTreeMap<ClarityName, MethodSignature>> {
+        let mut trait_signature: BTreeMap<ClarityName, MethodSignature> = BTreeMap::new();
         let functions_types = type_args
             .get(0)
             .ok_or_else(|| CheckErrors::InvalidTypeDescription)?
@@ -1669,40 +1725,22 @@ impl TypeSignature {
             let args = function_type
                 .match_list()
                 .ok_or(CheckErrors::DefineTraitBadSignature)?;
-            if args.len() != 3 {
+
+            let (fn_name, fn_args, fn_return, method_type) = if args.len() == 3 {
+                TypeSignature::parse_method(args, epoch, accounting)?
+            } else if args.len() == 4 {
+                TypeSignature::parse_method_access_modifier(args, epoch, accounting)?
+            } else {
                 return Err(CheckErrors::InvalidTypeDescription);
-            }
-
-            // Extract function's name
-            let fn_name = args[0]
-                .match_atom()
-                .ok_or(CheckErrors::DefineTraitBadSignature)?;
-
-            // Extract function's arguments
-            let fn_args_exprs = args[1]
-                .match_list()
-                .ok_or(CheckErrors::DefineTraitBadSignature)?;
-            let mut fn_args = Vec::with_capacity(fn_args_exprs.len());
-            for arg_type in fn_args_exprs.into_iter() {
-                let arg_t = TypeSignature::parse_type_repr(epoch, arg_type, accounting)?;
-                fn_args.push(arg_t);
-            }
-
-            // Extract function's type return - must be a response
-            let fn_return = match TypeSignature::parse_type_repr(epoch, &args[2], accounting) {
-                Ok(response) => match response {
-                    TypeSignature::ResponseType(_) => Ok(response),
-                    _ => Err(CheckErrors::DefineTraitBadSignature),
-                },
-                _ => Err(CheckErrors::DefineTraitBadSignature),
-            }?;
+            };
 
             if trait_signature
                 .insert(
                     fn_name.clone(),
-                    FunctionSignature {
+                    MethodSignature {
                         args: fn_args,
                         returns: fn_return,
+                        define_type: method_type,
                     },
                 )
                 .is_some()
@@ -1712,6 +1750,82 @@ impl TypeSignature {
             }
         }
         Ok(trait_signature)
+    }
+
+    fn parse_method<'a, A: CostTracker>(
+        args: &'a [SymbolicExpression],
+        epoch:StacksEpochId,
+        accounting: &'a mut A, 
+    ) -> Result<(&'a ClarityName, Vec<TypeSignature>, TypeSignature, MethodType)> {
+        // Extract function's name
+        let fn_name = args[0]
+        .match_atom()
+        .ok_or(CheckErrors::DefineTraitBadSignature)?;
+
+        // Extract function's arguments
+        let fn_args_exprs = args[1]
+            .match_list()
+            .ok_or(CheckErrors::DefineTraitBadSignature)?;
+        let mut fn_args = Vec::with_capacity(fn_args_exprs.len());
+        for arg_type in fn_args_exprs.into_iter() {
+            let arg_t = TypeSignature::parse_type_repr(epoch, arg_type, accounting)?;
+            fn_args.push(arg_t);
+        }
+
+        // Extract function's type return - must be a response
+        let fn_return = match TypeSignature::parse_type_repr(epoch, &args[2], accounting) {
+            Ok(response) => match response {
+                TypeSignature::ResponseType(_) => Ok(response),
+                _ => Err(CheckErrors::DefineTraitBadSignature),
+            },
+            _ => Err(CheckErrors::DefineTraitBadSignature),
+        }?;
+
+        Ok((fn_name, fn_args, fn_return, MethodType::NotDefined))
+    }
+
+    fn parse_method_access_modifier<'a, A: CostTracker>(
+        args: &'a [SymbolicExpression],
+        epoch:StacksEpochId,
+        accounting: &'a mut A, 
+    ) -> Result<(&'a ClarityName, Vec<TypeSignature>, TypeSignature, MethodType)> {
+
+        // Extract acccess modifier type
+        let access_modifier = args[0].
+        match_atom()
+        .ok_or(CheckErrors::DefineTraitBadSignature)?;
+
+        let method_type = match access_modifier.as_str() {
+            "public" => Ok(MethodType::Public),
+            "read-only" => Ok(MethodType::ReadOnly),
+            _ => Err(CheckErrors::DefineTraitBadSignature)
+        }?;
+
+        // Extract function's name
+        let fn_name = args[1]
+        .match_atom()
+        .ok_or(CheckErrors::DefineTraitBadSignature)?;
+
+        // Extract function's arguments
+        let fn_args_exprs = args[2]
+            .match_list()
+            .ok_or(CheckErrors::DefineTraitBadSignature)?;
+        let mut fn_args = Vec::with_capacity(fn_args_exprs.len());
+        for arg_type in fn_args_exprs.into_iter() {
+            let arg_t = TypeSignature::parse_type_repr(epoch, arg_type, accounting)?;
+            fn_args.push(arg_t);
+        }
+
+        // Extract function's type return - must be a response
+        let fn_return = match TypeSignature::parse_type_repr(epoch, &args[3], accounting) {
+            Ok(response) => match response {
+                TypeSignature::ResponseType(_) => Ok(response),
+                _ => Err(CheckErrors::DefineTraitBadSignature),
+            },
+            _ => Err(CheckErrors::DefineTraitBadSignature),
+        }?;
+
+        Ok((fn_name, fn_args, fn_return, method_type))
     }
 
     #[cfg(test)]

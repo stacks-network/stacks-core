@@ -44,7 +44,7 @@ use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
 use crate::vm::representations::{depth_traverse, ClarityName, SymbolicExpression};
-use crate::vm::types::signatures::{FunctionSignature, BUFF_20};
+use crate::vm::types::signatures::{FunctionSignature, MethodSignature, BUFF_20};
 use crate::vm::types::{
     parse_name_type_pairs, FixedFunction, FunctionArg, FunctionType, PrincipalData,
     QualifiedContractIdentifier, TupleTypeSignature, TypeSignature, Value,
@@ -299,7 +299,7 @@ impl FunctionType {
     }
 }
 
-fn trait_type_size(trait_sig: &BTreeMap<ClarityName, FunctionSignature>) -> CheckResult<u64> {
+fn trait_type_size(trait_sig: &BTreeMap<ClarityName, MethodSignature>) -> CheckResult<u64> {
     let mut total_size = 0;
     for (_func_name, value) in trait_sig.iter() {
         total_size = total_size.cost_overflow_add(value.total_type_size()?)?;
@@ -808,7 +808,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         trait_name: &ClarityName,
         function_types: &[SymbolicExpression],
         _context: &mut TypingContext,
-    ) -> CheckResult<(ClarityName, BTreeMap<ClarityName, FunctionSignature>)> {
+    ) -> CheckResult<(ClarityName, BTreeMap<ClarityName, MethodSignature>)> {
         let trait_signature = TypeSignature::parse_trait_type_repr(
             function_types,
             &mut (),
