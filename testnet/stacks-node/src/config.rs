@@ -50,7 +50,7 @@ use stacks::cost_estimates::metrics::{CostMetric, ProportionalDotProduct, UnitMe
 use stacks::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator, UnitEstimator};
 use stacks::net::atlas::AtlasConfig;
 use stacks::net::connection::ConnectionOptions;
-use stacks::net::{Neighbor, NeighborKey};
+use stacks::net::{Neighbor, NeighborAddress, NeighborKey};
 use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks::types::EpochList;
 use stacks::util::hash::to_hex;
@@ -2235,6 +2235,7 @@ pub struct ConnectionOptionsFile {
     pub auth_token: Option<String>,
     pub antientropy_retry: Option<u64>,
     pub reject_blocks_pushed: Option<bool>,
+    pub stackerdb_hint_replicas: Option<String>,
 }
 
 impl ConnectionOptionsFile {
@@ -2364,12 +2365,25 @@ impl ConnectionOptionsFile {
             handshake_timeout: self.handshake_timeout.unwrap_or(5),
             max_sockets: self.max_sockets.unwrap_or(800) as usize,
             antientropy_public: self.antientropy_public.unwrap_or(true),
-            private_neighbors: self.private_neighbors.unwrap_or(true),
+            private_neighbors: self.private_neighbors.unwrap_or(false),
             auth_token: self.auth_token,
             antientropy_retry: self.antientropy_retry.unwrap_or(default.antientropy_retry),
             reject_blocks_pushed: self
                 .reject_blocks_pushed
                 .unwrap_or(default.reject_blocks_pushed),
+            stackerdb_hint_replicas: self
+                .stackerdb_hint_replicas
+                .map(|stackerdb_hint_replicas_json| {
+                    let hint_replicas_res: Result<
+                        Vec<(QualifiedContractIdentifier, Vec<NeighborAddress>)>,
+                        String,
+                    > = serde_json::from_str(&stackerdb_hint_replicas_json)
+                        .map_err(|e| format!("Failed to decode `stackerdb_hint_replicas`: {e:?}"));
+                    hint_replicas_res
+                })
+                .transpose()?
+                .map(HashMap::from_iter)
+                .unwrap_or(default.stackerdb_hint_replicas),
             ..default
         })
     }
