@@ -27,7 +27,6 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - **SIP-029 consensus rules, activating in epoch 3.1 at block 875,000** (see [SIP-029](https://github.com/will-corcoran/sips/blob/feat/sip-029-halving-alignment/sips/sip-029/sip-029-halving-alignment.md) for details)
 
 ### Changed
->>>>>>> chore/3.1.0.0.0_changelog
 
 ## [3.0.0.0.4.0]
 
