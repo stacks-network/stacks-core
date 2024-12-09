@@ -682,15 +682,6 @@ impl BlockMinerThread {
         reward_set: &RewardSet,
         stackerdbs: &StackerDBs,
     ) -> Result<(), NakamotoNodeError> {
-        let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
-            .expect("FATAL: could not open chainstate DB");
-        let sort_db = SortitionDB::open(
-            &self.config.get_burn_db_file_path(),
-            true,
-            self.burnchain.pox_constants.clone(),
-        )
-        .expect("FATAL: could not open sortition DB");
-
         if self.config.get_node_config(false).mock_mining {
             // If we're mock mining, we don't actually broadcast the block.
             return Ok(());
@@ -701,6 +692,15 @@ impl BlockMinerThread {
                 "No mining key configured, cannot mine",
             ));
         };
+
+        let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
+            .expect("FATAL: could not open chainstate DB");
+        let sort_db = SortitionDB::open(
+            &self.config.get_burn_db_file_path(),
+            true,
+            self.burnchain.pox_constants.clone(),
+        )
+        .expect("FATAL: could not open sortition DB");
 
         // push block via p2p block push
         self.broadcast_p2p(&sort_db, &mut chain_state, &block, reward_set)
