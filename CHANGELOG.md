@@ -9,8 +9,20 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
+- New RPC endpoints
+  - `/v2/clarity/marf/:marf_key_hash`
+  - `/v2/clarity/metadata/:principal/:contract_name/:clarity_metadata_key`
+- When a proposed block is validated by a node, the block can be validated even when the block version is different than the node's default ([#5539](https://github.com/stacks-network/stacks-core/pull/5539))
+
 ### Changed
 
+## [3.0.0.0.4]
+
+### Added
+
+### Changed
+
+- Use the same burn view loader in both block validation and block processing
 
 ## [3.0.0.0.3]
 
