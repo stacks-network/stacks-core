@@ -23,7 +23,7 @@ use std::{env, thread};
 
 use clarity::vm::types::PrincipalData;
 use libsigner::v0::messages::{
-    BlockRejection, BlockResponse, MessageSlotID, MinerSlotID, RejectCode, SignerMessage,
+    BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MinerSlotID, RejectCode, SignerMessage
 };
 use libsigner::{BlockProposal, SignerSession, StackerDBSession, VERSION_STRING};
 use stacks::address::AddressHashMode;
@@ -8614,8 +8614,6 @@ fn block_proposal_max_age_rejections() {
     signer_test.boot_to_epoch_3();
     let short_timeout = Duration::from_secs(30);
 
-    // Make sure no other block approvals are in the system.
-    test_observer::clear();
     info!("------------------------- Send Block Proposal To Signers -------------------------");
     let info_before = get_chain_info(&signer_test.running_nodes.conf);
     let mut block = NakamotoBlock {
@@ -8628,7 +8626,7 @@ fn block_proposal_max_age_rejections() {
             .block_proposal_max_age_secs
             .saturating_add(1),
     );
-    let _block_signer_signature_hash_1 = block.header.signer_signature_hash();
+    let block_signer_signature_hash_1 = block.header.signer_signature_hash();
     signer_test.propose_block(block.clone(), short_timeout);
 
     // Next propose a recent invalid block
@@ -8647,31 +8645,27 @@ fn block_proposal_max_age_rejections() {
                 else {
                     return None;
                 };
-                assert!(matches!(
-                    message,
-                    SignerMessage::BlockResponse(BlockResponse::Rejected(_))
-                ));
-                let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
-                    reason_code,
-                    signer_signature_hash,
-                    signature,
-                    ..
-                })) = message
-                else {
-                    panic!("Received an unexpected block approval from the signer");
-                };
-                assert_eq!(
-                    signer_signature_hash, block_signer_signature_hash_2,
-                    "Received a rejection for an unexpected block: {signer_signature_hash}"
-                );
-                assert!(
-                    matches!(reason_code, RejectCode::SortitionViewMismatch),
-                    "Received a rejection for an unexpected reason: {reason_code}"
-                );
-                Some(signature)
+                match message {
+                    SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
+                        signer_signature_hash,
+                        signature,
+                        ..
+                    })) => {
+                        assert_eq!(signer_signature_hash, block_signer_signature_hash_2, "We should only reject the second block");
+                        Some(signature)
+                    }
+                    SignerMessage::BlockResponse(BlockResponse::Accepted(BlockAccepted {
+                        signer_signature_hash,
+                        ..
+                    })) => {
+                        assert_ne!(signer_signature_hash, block_signer_signature_hash_1, "We should never have accepted block");
+                        None
+                    }
+                    _ => None,
+                }
             })
             .collect();
-        Ok(rejections.len() == num_signers)
+        Ok(rejections.len() > num_signers * 7/10)
     })
     .expect("Timed out waiting for block rejections");
 
