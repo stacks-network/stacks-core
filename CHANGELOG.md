@@ -9,6 +9,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
+- A miner will now generate a tenure-extend when at least 70% of the signers have confirmed that they are willing to allow one, via the new timestamp included in block responses. This allows the miner to refresh its budget in between Bitcoin blocks. ([#5476](https://github.com/stacks-network/stacks-core/discussions/5476))
 - New RPC endpoints
   - `/v2/clarity/marf/:marf_key_hash`
   - `/v2/clarity/metadata/:principal/:contract_name/:clarity_metadata_key`
