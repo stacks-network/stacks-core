@@ -43,6 +43,7 @@ use stacks::net::api::postblock_proposal::{ValidateRejectCode, TEST_VALIDATE_STA
 use stacks::net::relay::fault_injection::set_ignore_block;
 use stacks::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey};
 use stacks::types::PublicKey;
+use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::{hex_bytes, Hash160, MerkleHashFunc};
 use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks::util_lib::boot::boot_code_id;
@@ -811,14 +812,8 @@ fn reloads_signer_set_in() {
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
-        num_signers,
-        vec![(sender_addr, send_amt + send_fee)],
-        |_config| {},
-        |_| {},
-        None,
-        None,
-    );
+    let mut signer_test: SignerTest<SpawnedSigner> =
+        SignerTest::new(num_signers, vec![(sender_addr, send_amt + send_fee)]);
 
     setup_epoch_3_reward_set(
         &signer_test.running_nodes.conf,
@@ -8572,5 +8567,117 @@ fn tenure_extend_after_2_bad_commits() {
         .stop_chains_coordinator();
     run_loop_stopper_2.store(false, Ordering::SeqCst);
     run_loop_2_thread.join().unwrap();
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// Test the block_proposal_max_age_secs signer configuration option. It should reject blocks that are
+/// invalid but within the max age window, otherwise it should simply drop the block without further processing.
+///
+/// Test Setup:
+/// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
+///
+/// Test Execution:
+/// The stacks node is advanced to epoch 3.0 reward set calculation to ensure the signer set is determined.
+/// An invalid block proposal with a recent timestamp is forcibly written to the miner's slot to simulate the miner proposing a block.
+/// The signers process the invalid block and broadcast a block response rejection to the respective .signers-XXX-YYY contract.
+/// A second block proposal with an outdated timestamp is then submitted to the miner's slot to simulate the miner proposing a very old block.
+/// The test confirms no further block rejection response is submitted to the .signers-XXX-YYY contract.
+///
+/// Test Assertion:
+/// - Each signer successfully rejects the recent invalid block proposal.
+/// - No signer submits a block proposal response for the outdated block proposal.
+/// - The stacks tip does not advance
+fn block_proposal_max_age_rejections() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![],
+        |config| {
+            config.block_proposal_max_age_secs = 30;
+        },
+        |_| {},
+        None,
+        None,
+    );
+    signer_test.boot_to_epoch_3();
+    let short_timeout = Duration::from_secs(30);
+
+    // Make sure no other block approvals are in the system.
+    test_observer::clear();
+    info!("------------------------- Send Block Proposal To Signers -------------------------");
+    let info_before = get_chain_info(&signer_test.running_nodes.conf);
+    let mut block = NakamotoBlock {
+        header: NakamotoBlockHeader::empty(),
+        txs: vec![],
+    };
+    // First propose a stale block that is older than the block_proposal_max_age_secs
+    block.header.timestamp = get_epoch_time_secs().saturating_sub(
+        signer_test.signer_configs[0]
+            .block_proposal_max_age_secs
+            .saturating_add(1),
+    );
+    let _block_signer_signature_hash_1 = block.header.signer_signature_hash();
+    signer_test.propose_block(block.clone(), short_timeout);
+
+    // Next propose a recent invalid block
+    block.header.timestamp = get_epoch_time_secs();
+    let block_signer_signature_hash_2 = block.header.signer_signature_hash();
+    signer_test.propose_block(block, short_timeout);
+
+    info!("------------------------- Test Block Proposal Rejected -------------------------");
+    // Verify the signers rejected only the SECOND block proposal. The first was not even processed.
+    wait_for(30, || {
+        let rejections: Vec<_> = test_observer::get_stackerdb_chunks()
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+            .map(|chunk| {
+                let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                else {
+                    return None;
+                };
+                assert!(matches!(
+                    message,
+                    SignerMessage::BlockResponse(BlockResponse::Rejected(_))
+                ));
+                let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
+                    reason_code,
+                    signer_signature_hash,
+                    signature,
+                    ..
+                })) = message
+                else {
+                    panic!("Received an unexpected block approval from the signer");
+                };
+                assert_eq!(
+                    signer_signature_hash, block_signer_signature_hash_2,
+                    "Received a rejection for an unexpected block: {signer_signature_hash}"
+                );
+                assert!(
+                    matches!(reason_code, RejectCode::SortitionViewMismatch),
+                    "Received a rejection for an unexpected reason: {reason_code}"
+                );
+                Some(signature)
+            })
+            .collect();
+        Ok(rejections.len() == num_signers)
+    })
+    .expect("Timed out waiting for block rejections");
+
+    info!("------------------------- Test Peer Info-------------------------");
+    assert_eq!(info_before, get_chain_info(&signer_test.running_nodes.conf));
+
+    info!("------------------------- Test Shutdown-------------------------");
     signer_test.shutdown();
 }

@@ -92,6 +92,8 @@ pub struct Signer {
     pub block_proposal_validation_timeout: Duration,
     /// The current submitted block proposal and its submission time
     pub submitted_block_proposal: Option<(BlockProposal, Instant)>,
+    /// Maximum age of a block proposal in seconds before it is dropped without processing
+    pub block_proposal_max_age_secs: u64,
 }
 
 impl std::fmt::Display for Signer {
@@ -284,6 +286,7 @@ impl From<SignerConfig> for Signer {
             proposal_config,
             submitted_block_proposal: None,
             block_proposal_validation_timeout: signer_config.block_proposal_validation_timeout,
+            block_proposal_max_age_secs: signer_config.block_proposal_max_age_secs,
         }
     }
 }
@@ -327,6 +330,23 @@ impl Signer {
             debug!(
                 "{self}: Received a block proposal for a different reward cycle. Ignore it.";
                 "requested_reward_cycle" => block_proposal.reward_cycle
+            );
+            return;
+        }
+
+        if block_proposal
+            .block
+            .header
+            .timestamp
+            .saturating_add(self.block_proposal_max_age_secs)
+            < get_epoch_time_secs()
+        {
+            // Block is too old. Drop it with a warning. Don't even bother broadcasting to the node.
+            warn!("{self}: Received a block proposal that is more than {} secs old. Ignoring...", self.block_proposal_max_age_secs;
+                "block_id" => %block_proposal.block.block_id(),
+                "block_height" => block_proposal.block.header.chain_length,
+                "burn_height" => block_proposal.burn_height,
+                "timestamp" => block_proposal.block.header.timestamp,
             );
             return;
         }
