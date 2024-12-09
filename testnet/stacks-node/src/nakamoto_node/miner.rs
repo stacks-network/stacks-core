@@ -691,6 +691,11 @@ impl BlockMinerThread {
         )
         .expect("FATAL: could not open sortition DB");
 
+        if self.config.get_node_config(false).mock_mining {
+            // If we're mock mining, we don't actually broadcast the block.
+            return Ok(());
+        }
+
         if self.config.miner.mining_key.is_none() {
             return Err(NakamotoNodeError::MinerConfigurationFailed(
                 "No mining key configured, cannot mine",
