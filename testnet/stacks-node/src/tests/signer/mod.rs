@@ -49,6 +49,7 @@ use stacks::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks::types::PublicKey;
 use stacks::util::hash::MerkleHashFunc;
 use stacks::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
+use stacks::util::TestFlag;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::StacksEpochId;
@@ -60,7 +61,7 @@ use stacks_signer::{Signer, SpawnedSigner};
 
 use super::nakamoto_integrations::{check_nakamoto_empty_block_heuristics, wait_for};
 use crate::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
-use crate::neon::{Counters, TestFlag};
+use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::nakamoto_integrations::{
@@ -88,7 +89,7 @@ pub struct RunningNodes {
     pub nakamoto_blocks_mined: Arc<AtomicU64>,
     pub nakamoto_blocks_rejected: Arc<AtomicU64>,
     pub nakamoto_blocks_signer_pushed: Arc<AtomicU64>,
-    pub nakamoto_test_skip_commit_op: TestFlag,
+    pub nakamoto_test_skip_commit_op: TestFlag<bool>,
     pub coord_channel: Arc<Mutex<CoordinatorChannels>>,
     pub conf: NeonConfig,
 }

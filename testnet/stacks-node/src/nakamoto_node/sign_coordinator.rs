@@ -20,6 +20,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use hashbrown::{HashMap, HashSet};
+#[cfg(any(test, feature = "testing"))]
+use lazy_static::lazy_static;
 use libsigner::v0::messages::{
     BlockAccepted, BlockResponse, MinerSlotID, SignerMessage as SignerMessageV0,
 };
@@ -37,6 +39,8 @@ use stacks::net::stackerdb::StackerDBs;
 use stacks::types::PublicKey;
 use stacks::util::hash::MerkleHashFunc;
 use stacks::util::secp256k1::MessageSignature;
+#[cfg(any(test, feature = "testing"))]
+use stacks::util::TestFlag;
 use stacks::util_lib::boot::boot_code_id;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
@@ -47,10 +51,12 @@ use crate::event_dispatcher::StackerDBChannel;
 use crate::neon::Counters;
 use crate::Config;
 
-/// Fault injection flag to prevent the miner from seeing enough signer signatures.
-/// Used to test that the signers will broadcast a block if it gets enough signatures
-#[cfg(test)]
-pub static TEST_IGNORE_SIGNERS: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+#[cfg(any(test, feature = "testing"))]
+lazy_static! {
+    /// Fault injection flag to prevent the miner from seeing enough signer signatures.
+    /// Used to test that the signers will broadcast a block if it gets enough signatures
+    pub static ref TEST_IGNORE_SIGNERS: TestFlag<bool> = TestFlag::default();
+}
 
 /// How long should the coordinator poll on the event receiver before
 /// waking up to check timeouts?
@@ -256,10 +262,7 @@ impl SignCoordinator {
     /// Do we ignore signer signatures?
     #[cfg(test)]
     fn fault_injection_ignore_signatures() -> bool {
-        if *TEST_IGNORE_SIGNERS.lock().unwrap() == Some(true) {
-            return true;
-        }
-        false
+        TEST_IGNORE_SIGNERS.get()
     }
 
     #[cfg(not(test))]

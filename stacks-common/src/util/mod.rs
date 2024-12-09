@@ -35,6 +35,30 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{error, fmt, thread, time};
 
+#[cfg(any(test, feature = "testing"))]
+#[derive(Clone)]
+pub struct TestFlag<T>(pub std::sync::Arc<std::sync::Mutex<Option<T>>>);
+
+#[cfg(any(test, feature = "testing"))]
+impl<T: Default + Clone> Default for TestFlag<T> {
+    fn default() -> Self {
+        Self(std::sync::Arc::new(std::sync::Mutex::new(None)))
+    }
+}
+
+#[cfg(any(test, feature = "testing"))]
+impl<T: Default + Clone> TestFlag<T> {
+    /// Set the test flag to the given value
+    pub fn set(&self, value: T) {
+        *self.0.lock().unwrap() = Some(value);
+    }
+
+    /// Get the test flag value. Defaults otherwise.
+    pub fn get(&self) -> T {
+        self.0.lock().unwrap().clone().unwrap_or_default().clone()
+    }
+}
+
 pub fn get_epoch_time_secs() -> u64 {
     let start = SystemTime::now();
     let since_the_epoch = start
