@@ -422,58 +422,64 @@ impl BlockMinerThread {
 
         if let Some(mut new_block) = new_block {
             Self::fault_injection_block_broadcast_stall(&new_block);
-            let mut chain_state =
-                neon_node::open_chainstate_with_faults(&self.config).map_err(|e| {
-                    NakamotoNodeError::SigningCoordinatorFailure(format!(
-                        "Failed to open chainstate DB. Cannot mine! {e:?}"
-                    ))
-                })?;
-            let signer_signature = match coordinator.propose_block(
-                &mut new_block,
-                &self.burn_block,
-                &self.burnchain,
-                &sortdb,
-                &mut chain_state,
-                stackerdbs,
-                &self.globals.counters,
-                &self.burn_election_block.consensus_hash,
-            ) {
-                Ok(x) => x,
-                Err(e) => match e {
-                    NakamotoNodeError::StacksTipChanged => {
-                        info!("Stacks tip changed while waiting for signatures";
-                            "signer_sighash" => %new_block.header.signer_signature_hash(),
-                            "block_height" => new_block.header.chain_length,
-                            "consensus_hash" => %new_block.header.consensus_hash,
-                        );
-                        return Err(e);
-                    }
-                    NakamotoNodeError::BurnchainTipChanged => {
-                        info!("Burnchain tip changed while waiting for signatures";
-                            "signer_sighash" => %new_block.header.signer_signature_hash(),
-                            "block_height" => new_block.header.chain_length,
-                            "consensus_hash" => %new_block.header.consensus_hash,
-                        );
-                        return Err(e);
-                    }
-                    _ => {
-                        // Sleep for a bit to allow signers to catch up
-                        let pause_ms = if *last_block_rejected {
-                            self.config.miner.subsequent_rejection_pause_ms
-                        } else {
-                            self.config.miner.first_rejection_pause_ms
-                        };
 
-                        error!("Error while gathering signatures: {e:?}. Will try mining again in {pause_ms}.";
-                            "signer_sighash" => %new_block.header.signer_signature_hash(),
-                            "block_height" => new_block.header.chain_length,
-                            "consensus_hash" => %new_block.header.consensus_hash,
-                        );
-                        thread::sleep(Duration::from_millis(pause_ms));
-                        *last_block_rejected = true;
-                        return Ok(());
-                    }
-                },
+            let signer_signature = if self.config.get_node_config(false).mock_mining {
+                // If we're mock mining, we don't actually propose the block.
+                Vec::new()
+            } else {
+                let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
+                    .map_err(|e| {
+                        NakamotoNodeError::SigningCoordinatorFailure(format!(
+                            "Failed to open chainstate DB. Cannot mine! {e:?}"
+                        ))
+                    })?;
+                match coordinator.propose_block(
+                    &mut new_block,
+                    &self.burn_block,
+                    &self.burnchain,
+                    &sortdb,
+                    &mut chain_state,
+                    stackerdbs,
+                    &self.globals.counters,
+                    &self.burn_election_block.consensus_hash,
+                ) {
+                    Ok(x) => x,
+                    Err(e) => match e {
+                        NakamotoNodeError::StacksTipChanged => {
+                            info!("Stacks tip changed while waiting for signatures";
+                                "signer_sighash" => %new_block.header.signer_signature_hash(),
+                                "block_height" => new_block.header.chain_length,
+                                "consensus_hash" => %new_block.header.consensus_hash,
+                            );
+                            return Err(e);
+                        }
+                        NakamotoNodeError::BurnchainTipChanged => {
+                            info!("Burnchain tip changed while waiting for signatures";
+                                "signer_sighash" => %new_block.header.signer_signature_hash(),
+                                "block_height" => new_block.header.chain_length,
+                                "consensus_hash" => %new_block.header.consensus_hash,
+                            );
+                            return Err(e);
+                        }
+                        _ => {
+                            // Sleep for a bit to allow signers to catch up
+                            let pause_ms = if *last_block_rejected {
+                                self.config.miner.subsequent_rejection_pause_ms
+                            } else {
+                                self.config.miner.first_rejection_pause_ms
+                            };
+
+                            error!("Error while gathering signatures: {e:?}. Will try mining again in {pause_ms}.";
+                                "signer_sighash" => %new_block.header.signer_signature_hash(),
+                                "block_height" => new_block.header.chain_length,
+                                "consensus_hash" => %new_block.header.consensus_hash,
+                            );
+                            thread::sleep(Duration::from_millis(pause_ms));
+                            *last_block_rejected = true;
+                            return Ok(());
+                        }
+                    },
+                }
             };
             *last_block_rejected = false;
 
