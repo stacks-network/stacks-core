@@ -538,6 +538,10 @@ impl NakamotoBlockProposal {
         }
 
         let mut block = builder.mine_nakamoto_block(&mut tenure_tx);
+        // Override the block version with the one from the proposal. This must be
+        // done before computing the block hash, because the block hash includes the
+        // version in its computation.
+        block.header.version = self.block.header.version;
         let size = builder.get_bytes_so_far();
         let cost = builder.tenure_finish(tenure_tx)?;
 
