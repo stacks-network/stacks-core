@@ -4809,7 +4809,7 @@ impl StacksNode {
                 &mut chainstate,
                 &sortdb,
                 stackerdb_configs,
-                config.connection_options.num_neighbors,
+                &config.connection_options,
             )
             .unwrap();
 
