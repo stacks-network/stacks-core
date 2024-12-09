@@ -217,6 +217,14 @@ impl ChainsCoordinatorConfig {
             assume_present_anchor_blocks: true,
         }
     }
+
+    pub fn test_new() -> ChainsCoordinatorConfig {
+        ChainsCoordinatorConfig {
+            always_use_affirmation_maps: false,
+            require_affirmed_anchor_blocks: false,
+            assume_present_anchor_blocks: false,
+        }
+    }
 }
 
 pub struct ChainsCoordinator<
@@ -704,7 +712,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader
             notifier: (),
             atlas_config,
             atlas_db: Some(atlas_db),
-            config: ChainsCoordinatorConfig::new(),
+            config: ChainsCoordinatorConfig::test_new(),
             burnchain_indexer,
             refresh_stacker_db: Arc::new(AtomicBool::new(false)),
             in_nakamoto_epoch: false,
