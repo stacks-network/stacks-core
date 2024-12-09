@@ -16,8 +16,9 @@
 
 //! Subcommands used by `stacks-inspect` binary
 
+use std::any::type_name;
 use std::cell::LazyCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 use std::{env, fs, io, process, thread};
 
@@ -28,9 +29,12 @@ use regex::Regex;
 use rusqlite::{Connection, OpenFlags};
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
 use stacks_common::types::sqlite::NO_PARAMS;
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::vrf::VRFProof;
 
 use crate::burnchains::db::BurnchainDB;
-use crate::burnchains::PoxConstants;
+use crate::burnchains::{Burnchain, PoxConstants};
 use crate::chainstate::burn::db::sortdb::{
     get_ancestor_sort_id, SortitionDB, SortitionHandle, SortitionHandleContext,
 };
@@ -43,6 +47,8 @@ use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::{Error as ChainstateError, *};
 use crate::clarity_vm::clarity::ClarityInstance;
 use crate::core::*;
+use crate::cost_estimates::metrics::UnitMetric;
+use crate::cost_estimates::UnitEstimator;
 use crate::util_lib::db::IndexDBTx;
 
 /// Can be used with CLI commands to support non-mainnet chainstate
@@ -58,6 +64,10 @@ pub struct StacksChainConfig {
 }
 
 impl StacksChainConfig {
+    pub fn type_name() -> &'static str {
+        type_name::<Self>()
+    }
+
     pub fn default_mainnet() -> Self {
         Self {
             chain_id: CHAIN_ID_MAINNET,
@@ -106,6 +116,18 @@ impl StacksChainConfig {
             pox_constants,
             epochs,
         }
+    }
+
+    pub fn from_file(path: &str) -> Self {
+        let text = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("Failed to read file '{path}': {e}"));
+        let config: Self = toml::from_str(&text).unwrap_or_else(|e| {
+            panic!(
+                "Failed to parse file '{path}' as `{t}`: {e}",
+                t = Self::type_name()
+            )
+        });
+        config
     }
 }
 
@@ -367,6 +389,143 @@ pub fn command_replay_mock_mining(argv: &[String], conf: Option<&StacksChainConf
         );
         replay_mock_mined_block(&db_path, block, conf);
     }
+}
+
+/// Replay mock mined blocks from JSON files
+/// Terminates on error using `process::exit()`
+///
+/// Arguments:
+///  - `argv`: Args in CLI format: `<command-name> [args...]`
+///  - `conf`: Optional config for running on non-mainnet chainstate
+pub fn command_try_mine(argv: &[String], conf: Option<&StacksChainConfig>) {
+    let print_help_and_exit = || -> ! {
+        let n = &argv[0];
+        eprintln!("Usage: {n} <working-dir> [min-fee [max-time]]");
+        eprintln!("");
+        eprintln!("Given a <working-dir>, try to ''mine'' an anchored block. This invokes the miner block");
+        eprintln!("assembly, but does not attempt to broadcast a block commit. This is useful for determining");
+        eprintln!(
+            "what transactions a given chain state would include in an anchor block, or otherwise"
+        );
+        eprintln!("simulating a miner.");
+        process::exit(1);
+    };
+
+    let default_conf = STACKS_CHAIN_CONFIG_DEFAULT_MAINNET;
+    let conf = conf.unwrap_or(&default_conf);
+
+    let start = get_epoch_time_ms();
+    let db_path = &argv[2];
+    let burnchain_path = format!("{db_path}/burnchain");
+    let sort_db_path = format!("{db_path}/burnchain/sortition");
+    let chain_state_path = format!("{db_path}/chainstate/");
+
+    let mut min_fee = u64::MAX;
+    let mut max_time = u64::MAX;
+
+    if argv.len() < 2 {
+        print_help_and_exit();
+    }
+    if argv.len() >= 3 {
+        min_fee = argv[3].parse().expect("Could not parse min_fee");
+    }
+    if argv.len() >= 4 {
+        max_time = argv[4].parse().expect("Could not parse max_time");
+    }
+
+    let sort_db = SortitionDB::open(&sort_db_path, false, conf.pox_constants.clone())
+        .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
+    let (chain_state, _) = StacksChainState::open(true, conf.chain_id, &chain_state_path, None)
+        .expect("Failed to open stacks chain state");
+    let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
+        .expect("Failed to get sortition chain tip");
+
+    let estimator = Box::new(UnitEstimator);
+    let metric = Box::new(UnitMetric);
+
+    let mut mempool_db = MemPoolDB::open(true, conf.chain_id, &chain_state_path, estimator, metric)
+        .expect("Failed to open mempool db");
+
+    let header_tip = NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)
+        .unwrap()
+        .unwrap();
+    let parent_header = StacksChainState::get_anchored_block_header_info(
+        chain_state.db(),
+        &header_tip.consensus_hash,
+        &header_tip.anchored_header.block_hash(),
+    )
+    .expect("Failed to load chain tip header info")
+    .expect("Failed to load chain tip header info");
+
+    let sk = StacksPrivateKey::new();
+    let mut tx_auth = TransactionAuth::from_p2pkh(&sk).unwrap();
+    tx_auth.set_origin_nonce(0);
+
+    let mut coinbase_tx = StacksTransaction::new(
+        TransactionVersion::Mainnet,
+        tx_auth,
+        TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
+    );
+
+    coinbase_tx.chain_id = conf.chain_id;
+    coinbase_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+    let mut tx_signer = StacksTransactionSigner::new(&coinbase_tx);
+    tx_signer.sign_origin(&sk).unwrap();
+    let coinbase_tx = tx_signer.get_tx().unwrap();
+
+    let mut settings = BlockBuilderSettings::limited();
+    settings.max_miner_time_ms = max_time;
+
+    let result = StacksBlockBuilder::build_anchored_block(
+        &chain_state,
+        &sort_db.index_handle(&chain_tip.sortition_id),
+        &mut mempool_db,
+        &parent_header,
+        chain_tip.total_burn,
+        VRFProof::empty(),
+        Hash160([0; 20]),
+        &coinbase_tx,
+        settings,
+        None,
+        &Burnchain::new(&burnchain_path, "bitcoin", "main").unwrap(),
+    );
+
+    let stop = get_epoch_time_ms();
+
+    println!(
+        "{} mined block @ height = {} off of {} ({}/{}) in {}ms. Min-fee: {}, Max-time: {}",
+        if result.is_ok() {
+            "Successfully"
+        } else {
+            "Failed to"
+        },
+        parent_header.stacks_block_height + 1,
+        StacksBlockHeader::make_index_block_hash(
+            &parent_header.consensus_hash,
+            &parent_header.anchored_header.block_hash()
+        ),
+        &parent_header.consensus_hash,
+        &parent_header.anchored_header.block_hash(),
+        stop.saturating_sub(start),
+        min_fee,
+        max_time
+    );
+
+    if let Ok((block, execution_cost, size)) = result {
+        let mut total_fees = 0;
+        for tx in block.txs.iter() {
+            total_fees += tx.get_tx_fee();
+        }
+        println!(
+            "Block {}: {} uSTX, {} bytes, cost {:?}",
+            block.block_hash(),
+            total_fees,
+            size,
+            &execution_cost
+        );
+    }
+
+    process::exit(0);
 }
 
 /// Fetch and process a `StagingBlock` from database and call `replay_block()` to validate
