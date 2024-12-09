@@ -42,6 +42,7 @@ use stacks::net::p2p::NetworkHandle;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::net::{NakamotoBlocksData, StacksMessageType};
 use stacks::util::get_epoch_time_secs;
+use stacks::util::secp256k1::MessageSignature;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::vrf::VRFProof;
@@ -449,15 +450,11 @@ impl BlockMinerThread {
 
         if let Some(mut new_block) = new_block {
             Self::fault_injection_block_broadcast_stall(&new_block);
-            let signer_signature = match coordinator.propose_block(
+            let signer_signature = match self.propose_block(
+                coordinator,
                 &mut new_block,
-                &self.burn_block,
-                &self.burnchain,
-                &sortdb,
-                &mut chain_state,
+                sortdb,
                 stackerdbs,
-                &self.globals.counters,
-                &self.burn_election_block.consensus_hash,
             ) {
                 Ok(x) => x,
                 Err(e) => match e {
@@ -547,6 +544,36 @@ impl BlockMinerThread {
         }
 
         Ok(())
+    }
+
+    fn propose_block(
+        &self,
+        coordinator: &mut SignerCoordinator,
+        new_block: &mut NakamotoBlock,
+        sortdb: &SortitionDB,
+        stackerdbs: &mut StackerDBs,
+    ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
+        if self.config.get_node_config(false).mock_mining {
+            // If we're mock mining, we don't actually propose the block.
+            return Ok(Vec::new());
+        }
+
+        let mut chain_state =
+            neon_node::open_chainstate_with_faults(&self.config).map_err(|e| {
+                NakamotoNodeError::SigningCoordinatorFailure(format!(
+                    "Failed to open chainstate DB. Cannot mine! {e:?}"
+                ))
+            })?;
+        coordinator.propose_block(
+            new_block,
+            &self.burn_block,
+            &self.burnchain,
+            sortdb,
+            &mut chain_state,
+            stackerdbs,
+            &self.globals.counters,
+            &self.burn_election_block.consensus_hash,
+        )
     }
 
     /// Load the signer set active for this miner's blocks. This is the
@@ -703,6 +730,17 @@ impl BlockMinerThread {
         reward_set: &RewardSet,
         stackerdbs: &StackerDBs,
     ) -> Result<(), NakamotoNodeError> {
+        if self.config.get_node_config(false).mock_mining {
+            // If we're mock mining, we don't actually broadcast the block.
+            return Ok(());
+        }
+
+        if self.config.miner.mining_key.is_none() {
+            return Err(NakamotoNodeError::MinerConfigurationFailed(
+                "No mining key configured, cannot mine",
+            ));
+        };
+
         let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
             .expect("FATAL: could not open chainstate DB");
         let sort_db = SortitionDB::open(
@@ -711,12 +749,6 @@ impl BlockMinerThread {
             self.burnchain.pox_constants.clone(),
         )
         .expect("FATAL: could not open sortition DB");
-
-        if self.config.miner.mining_key.is_none() {
-            return Err(NakamotoNodeError::MinerConfigurationFailed(
-                "No mining key configured, cannot mine",
-            ));
-        };
 
         // push block via p2p block push
         self.broadcast_p2p(&sort_db, &mut chain_state, &block, reward_set)

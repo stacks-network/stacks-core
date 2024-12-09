@@ -1020,14 +1020,22 @@ impl SignerDb {
         ))
     }
 
-    /// Calculate the tenure extend timestamp
+    /// Calculate the tenure extend timestamp. If determine the timestamp for a block rejection, check_tenure_extend should be set to false to avoid recalculating
+    /// the tenure extend timestamp for a tenure extend block.
     pub fn calculate_tenure_extend_timestamp(
         &self,
         tenure_idle_timeout: Duration,
-        tenure: &ConsensusHash,
+        block: &NakamotoBlock,
+        check_tenure_extend: bool,
     ) -> u64 {
+        if check_tenure_extend && block.get_tenure_tx_payload().is_some() {
+            let tenure_extend_timestamp =
+                get_epoch_time_secs().wrapping_add(tenure_idle_timeout.as_secs());
+            debug!("Calculated tenure extend timestamp for a tenure extend block. Rolling over timestamp: {tenure_extend_timestamp}");
+            return tenure_extend_timestamp;
+        }
         let tenure_idle_timeout_secs = tenure_idle_timeout.as_secs();
-        let (tenure_start_time, tenure_process_time_ms) = self.get_tenure_times(tenure).inspect_err(|e| error!("Error occurred calculating tenure extend timestamp: {e:?}. Defaulting to {tenure_idle_timeout_secs} from now.")).unwrap_or((get_epoch_time_secs(), 0));
+        let (tenure_start_time, tenure_process_time_ms) = self.get_tenure_times(&block.header.consensus_hash).inspect_err(|e| error!("Error occurred calculating tenure extend timestamp: {e:?}. Defaulting to {tenure_idle_timeout_secs} from now.")).unwrap_or((get_epoch_time_secs(), 0));
         // Plus (ms + 999)/1000 to round up to the nearest second
         let tenure_extend_timestamp = tenure_start_time
             .saturating_add(tenure_idle_timeout_secs)
@@ -1038,7 +1046,7 @@ impl SignerDb {
             "tenure_process_time_ms" => tenure_process_time_ms,
             "tenure_idle_timeout_secs" => tenure_idle_timeout_secs,
             "tenure_extend_in" => tenure_extend_timestamp.saturating_sub(get_epoch_time_secs()),
-            "consensus_hash" => %tenure,
+            "consensus_hash" => %block.header.consensus_hash,
         );
         tenure_extend_timestamp
     }
@@ -1705,9 +1713,8 @@ mod tests {
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
 
         let block_infos = generate_tenure_blocks();
-        let consensus_hash_1 = block_infos[0].block.header.consensus_hash;
-        let consensus_hash_2 = block_infos.last().unwrap().block.header.consensus_hash;
-        let consensus_hash_3 = ConsensusHash([0x03; 20]);
+        let mut unknown_block = block_infos[0].block.clone();
+        unknown_block.header.consensus_hash = ConsensusHash([0x03; 20]);
 
         db.insert_block(&block_infos[0]).unwrap();
         db.insert_block(&block_infos[1]).unwrap();
@@ -1715,7 +1722,7 @@ mod tests {
         let tenure_idle_timeout = Duration::from_secs(10);
         // Verify tenure consensus_hash_1
         let timestamp_hash_1_before =
-            db.calculate_tenure_extend_timestamp(tenure_idle_timeout, &consensus_hash_1);
+            db.calculate_tenure_extend_timestamp(tenure_idle_timeout, &block_infos[0].block, true);
         assert_eq!(
             timestamp_hash_1_before,
             block_infos[0]
@@ -1728,7 +1735,8 @@ mod tests {
         db.insert_block(&block_infos[3]).unwrap();
 
         let timestamp_hash_1_after =
-            db.calculate_tenure_extend_timestamp(tenure_idle_timeout, &consensus_hash_1);
+            db.calculate_tenure_extend_timestamp(tenure_idle_timeout, &block_infos[0].block, true);
+
         assert_eq!(
             timestamp_hash_1_after,
             block_infos[2]
@@ -1741,8 +1749,11 @@ mod tests {
         db.insert_block(&block_infos[5]).unwrap();
 
         // Verify tenure consensus_hash_2
-        let timestamp_hash_2 =
-            db.calculate_tenure_extend_timestamp(tenure_idle_timeout, &consensus_hash_2);
+        let timestamp_hash_2 = db.calculate_tenure_extend_timestamp(
+            tenure_idle_timeout,
+            &block_infos.last().unwrap().block,
+            true,
+        );
         assert_eq!(
             timestamp_hash_2,
             block_infos[4]
@@ -1751,9 +1762,15 @@ mod tests {
                 .saturating_add(20)
         );
 
+        let now = get_epoch_time_secs().saturating_add(tenure_idle_timeout.as_secs());
+        let timestamp_hash_2_no_tenure_extend =
+            db.calculate_tenure_extend_timestamp(tenure_idle_timeout, &block_infos[0].block, false);
+        assert_ne!(timestamp_hash_2, timestamp_hash_2_no_tenure_extend);
+        assert!(now < timestamp_hash_2_no_tenure_extend);
+
         // Verify tenure consensus_hash_3 (unknown hash)
         let timestamp_hash_3 =
-            db.calculate_tenure_extend_timestamp(tenure_idle_timeout, &consensus_hash_3);
+            db.calculate_tenure_extend_timestamp(tenure_idle_timeout, &unknown_block, true);
         assert!(
             timestamp_hash_3.saturating_add(tenure_idle_timeout.as_secs())
                 < block_infos[0].proposed_time

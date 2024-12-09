@@ -305,7 +305,8 @@ impl Signer {
                 signature,
                 self.signer_db.calculate_tenure_extend_timestamp(
                     self.proposal_config.tenure_idle_timeout,
-                    &block_info.block.header.consensus_hash,
+                    &block_info.block,
+                    true,
                 ),
             )
         } else {
@@ -317,7 +318,8 @@ impl Signer {
                 self.mainnet,
                 self.signer_db.calculate_tenure_extend_timestamp(
                     self.proposal_config.tenure_idle_timeout,
-                    &block_info.block.header.consensus_hash,
+                    &block_info.block,
+                    false,
                 ),
             )
         };
@@ -422,7 +424,8 @@ impl Signer {
                         self.mainnet,
                         self.signer_db.calculate_tenure_extend_timestamp(
                             self.proposal_config.tenure_idle_timeout,
-                            &block_proposal.block.header.consensus_hash,
+                            &block_proposal.block,
+                            false,
                         ),
                     ))
                 }
@@ -440,7 +443,8 @@ impl Signer {
                         self.mainnet,
                         self.signer_db.calculate_tenure_extend_timestamp(
                             self.proposal_config.tenure_idle_timeout,
-                            &block_proposal.block.header.consensus_hash,
+                            &block_proposal.block,
+                            false,
                         ),
                     ))
                 }
@@ -460,7 +464,8 @@ impl Signer {
                 self.mainnet,
                 self.signer_db.calculate_tenure_extend_timestamp(
                     self.proposal_config.tenure_idle_timeout,
-                    &block_proposal.block.header.consensus_hash,
+                    &block_proposal.block,
+                    false,
                 ),
             ))
         };
@@ -602,7 +607,8 @@ impl Signer {
             signature,
             self.signer_db.calculate_tenure_extend_timestamp(
                 self.proposal_config.tenure_idle_timeout,
-                &block_info.block.header.consensus_hash,
+                &block_info.block,
+                true,
             ),
         );
         // have to save the signature _after_ the block info
@@ -657,7 +663,8 @@ impl Signer {
             self.mainnet,
             self.signer_db.calculate_tenure_extend_timestamp(
                 self.proposal_config.tenure_idle_timeout,
-                &block_info.block.header.consensus_hash,
+                &block_info.block,
+                false,
             ),
         );
         self.signer_db
@@ -755,7 +762,8 @@ impl Signer {
             self.mainnet,
             self.signer_db.calculate_tenure_extend_timestamp(
                 self.proposal_config.tenure_idle_timeout,
-                &block_proposal.block.header.consensus_hash,
+                &block_proposal.block,
+                false,
             ),
         );
         if let Err(e) = block_info.mark_locally_rejected() {
@@ -1131,7 +1139,8 @@ impl Signer {
                 self.mainnet,
                 self.signer_db.calculate_tenure_extend_timestamp(
                     self.proposal_config.tenure_idle_timeout,
-                    &block_proposal.block.header.consensus_hash,
+                    &block_proposal.block,
+                    false,
                 ),
             ))
         } else {
