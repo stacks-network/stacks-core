@@ -140,7 +140,7 @@ impl CostTracker for () {
         _cost_function: ClarityCostFunction,
         _input: &[u64],
     ) -> std::result::Result<ExecutionCost, CostErrors> {
-        Ok(ExecutionCost::zero())
+        Ok(ExecutionCost::ZERO)
     }
     fn add_cost(&mut self, _cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
         Ok(())
@@ -707,7 +707,7 @@ impl LimitedCostTracker {
             contract_call_circuits: HashMap::new(),
             limit,
             memory_limit: CLARITY_MEMORY_LIMIT,
-            total: ExecutionCost::zero(),
+            total: ExecutionCost::ZERO,
             memory: 0,
             epoch,
             mainnet,
@@ -731,7 +731,7 @@ impl LimitedCostTracker {
             contract_call_circuits: HashMap::new(),
             limit,
             memory_limit: CLARITY_MEMORY_LIMIT,
-            total: ExecutionCost::zero(),
+            total: ExecutionCost::ZERO,
             memory: 0,
             epoch,
             mainnet,
@@ -880,7 +880,7 @@ impl LimitedCostTracker {
     pub fn get_total(&self) -> ExecutionCost {
         match self {
             Self::Limited(TrackerData { total, .. }) => total.clone(),
-            Self::Free => ExecutionCost::zero(),
+            Self::Free => ExecutionCost::ZERO,
         }
     }
     #[allow(clippy::panic)]
@@ -1050,7 +1050,7 @@ impl CostTracker for LimitedCostTracker {
         match self {
             Self::Free => {
                 // tracker is free, return zero!
-                return Ok(ExecutionCost::zero());
+                return Ok(ExecutionCost::ZERO);
             }
             Self::Limited(ref mut data) => {
                 if cost_function == ClarityCostFunction::Unimplemented {
@@ -1195,15 +1195,13 @@ impl CostOverflowingMath<u64> for u64 {
 }
 
 impl ExecutionCost {
-    pub fn zero() -> ExecutionCost {
-        Self {
-            runtime: 0,
-            write_length: 0,
-            read_count: 0,
-            write_count: 0,
-            read_length: 0,
-        }
-    }
+    pub const ZERO: Self = Self {
+        runtime: 0,
+        write_length: 0,
+        read_count: 0,
+        write_count: 0,
+        read_length: 0,
+    };
 
     /// Returns the percentage of self consumed in `numerator`'s largest proportion dimension.
     pub fn proportion_largest_dimension(&self, numerator: &ExecutionCost) -> u64 {
@@ -1327,6 +1325,10 @@ impl ExecutionCost {
             read_count: first.read_count.max(second.read_count),
             read_length: first.read_length.max(second.read_length),
         }
+    }
+
+    pub fn is_zero(&self) -> bool {
+        *self == Self::ZERO
     }
 }
 
