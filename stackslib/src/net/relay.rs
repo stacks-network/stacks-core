@@ -1077,7 +1077,7 @@ impl Relayer {
             sort_handle,
             &staging_db_tx,
             headers_conn,
-            reward_set,
+            &reward_set,
             obtained_method,
         )?;
         staging_db_tx.commit()?;
