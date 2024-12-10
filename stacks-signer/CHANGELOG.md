@@ -10,6 +10,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ## Added
 
 ## Changed
+- Signers now listen to new block events from the stacks node to determine whether a block has been successfully appended to the chain tip
 
 ## [3.1.0.0.1.0]
 

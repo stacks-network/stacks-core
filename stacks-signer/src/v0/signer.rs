@@ -15,6 +15,8 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::mpsc::Sender;
+#[cfg(any(test, feature = "testing"))]
+use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
@@ -33,8 +35,12 @@ use libsigner::v0::messages::{
 use libsigner::{BlockProposal, SignerEvent};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::types::chainstate::StacksAddress;
+#[cfg(any(test, feature = "testing"))]
+use stacks_common::types::chainstate::StacksPublicKey;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::secp256k1::MessageSignature;
+#[cfg(any(test, feature = "testing"))]
+use stacks_common::util::TestFlag;
 use stacks_common::{debug, error, info, warn};
 
 use crate::chainstate::{ProposalEvalConfig, SortitionsView};
@@ -46,23 +52,21 @@ use crate::Signer as SignerTrait;
 
 #[cfg(any(test, feature = "testing"))]
 /// A global variable that can be used to reject all block proposals if the signer's public key is in the provided list
-pub static TEST_REJECT_ALL_BLOCK_PROPOSAL: std::sync::Mutex<
-    Option<Vec<stacks_common::types::chainstate::StacksPublicKey>>,
-> = std::sync::Mutex::new(None);
+pub static TEST_REJECT_ALL_BLOCK_PROPOSAL: LazyLock<TestFlag<Vec<StacksPublicKey>>> =
+    LazyLock::new(TestFlag::default);
 
 #[cfg(any(test, feature = "testing"))]
 /// A global variable that can be used to ignore block proposals if the signer's public key is in the provided list
-pub static TEST_IGNORE_ALL_BLOCK_PROPOSALS: std::sync::Mutex<
-    Option<Vec<stacks_common::types::chainstate::StacksPublicKey>>,
-> = std::sync::Mutex::new(None);
+pub static TEST_IGNORE_ALL_BLOCK_PROPOSALS: LazyLock<TestFlag<Vec<StacksPublicKey>>> =
+    LazyLock::new(TestFlag::default);
 
 #[cfg(any(test, feature = "testing"))]
 /// Pause the block broadcast
-pub static TEST_PAUSE_BLOCK_BROADCAST: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+pub static TEST_PAUSE_BLOCK_BROADCAST: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
 #[cfg(any(test, feature = "testing"))]
 /// Skip broadcasting the block to the network
-pub static TEST_SKIP_BLOCK_BROADCAST: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+pub static TEST_SKIP_BLOCK_BROADCAST: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
 /// The stacks signer registered for the reward cycle
 #[derive(Debug)]
@@ -126,6 +130,7 @@ impl SignerTrait<SignerMessage> for Signer {
             Some(SignerEvent::BlockValidationResponse(_))
             | Some(SignerEvent::MinerMessages(..))
             | Some(SignerEvent::NewBurnBlock { .. })
+            | Some(SignerEvent::NewBlock { .. })
             | Some(SignerEvent::StatusCheck)
             | None => None,
             Some(SignerEvent::SignerMessages(msg_parity, ..)) => Some(u64::from(*msg_parity) % 2),
@@ -168,9 +173,8 @@ impl SignerTrait<SignerMessage> for Signer {
                     match message {
                         SignerMessage::BlockProposal(block_proposal) => {
                             #[cfg(any(test, feature = "testing"))]
-                            if let Some(public_keys) =
-                                &*TEST_IGNORE_ALL_BLOCK_PROPOSALS.lock().unwrap()
                             {
+                                let public_keys = TEST_IGNORE_ALL_BLOCK_PROPOSALS.get();
                                 if public_keys.contains(
                                     &stacks_common::types::chainstate::StacksPublicKey::from_private(
                                         &self.private_key,
@@ -245,6 +249,33 @@ impl SignerTrait<SignerMessage> for Signer {
                         panic!("{self} Failed to write burn block event to signerdb: {e}");
                     });
                 *sortition_state = None;
+            }
+            SignerEvent::NewBlock {
+                block_hash,
+                block_height,
+            } => {
+                debug!(
+                    "{self}: Received a new block event.";
+                    "block_hash" => %block_hash,
+                    "block_height" => block_height
+                );
+                if let Ok(Some(mut block_info)) = self
+                    .signer_db
+                    .block_lookup(block_hash)
+                    .inspect_err(|e| warn!("{self}: Failed to load block state: {e:?}"))
+                {
+                    if block_info.state == BlockState::GloballyAccepted {
+                        // We have already globally accepted this block. Do nothing.
+                        return;
+                    }
+                    if let Err(e) = block_info.mark_globally_accepted() {
+                        warn!("{self}: Failed to mark block as globally accepted: {e:?}");
+                        return;
+                    }
+                    if let Err(e) = self.signer_db.insert_block(&block_info) {
+                        warn!("{self}: Failed to update block state to globally accepted: {e:?}");
+                    }
+                }
             }
         }
     }
@@ -385,7 +416,10 @@ impl Signer {
             "burn_height" => block_proposal.burn_height,
         );
         crate::monitoring::increment_block_proposals_received();
+        #[cfg(any(test, feature = "testing"))]
         let mut block_info = BlockInfo::from(block_proposal.clone());
+        #[cfg(not(any(test, feature = "testing")))]
+        let block_info = BlockInfo::from(block_proposal.clone());
 
         // Get sortition view if we don't have it
         if sortition_state.is_none() {
@@ -475,10 +509,7 @@ impl Signer {
             self.test_reject_block_proposal(block_proposal, &mut block_info, block_response);
 
         if let Some(block_response) = block_response {
-            // We know proposal is invalid. Send rejection message, do not do further validation
-            if let Err(e) = block_info.mark_locally_rejected() {
-                warn!("{self}: Failed to mark block as locally rejected: {e:?}",);
-            };
+            // We know proposal is invalid. Send rejection message, do not do further validation and do not store it.
             debug!("{self}: Broadcasting a block response to stacks node: {block_response:?}");
             let res = self
                 .stackerdb
@@ -885,7 +916,7 @@ impl Signer {
             // Not enough rejection signatures to make a decision
             return;
         }
-        debug!("{self}: {total_reject_weight}/{total_weight} signers voteed to reject the block {block_hash}");
+        debug!("{self}: {total_reject_weight}/{total_weight} signers voted to reject the block {block_hash}");
         if let Err(e) = block_info.mark_globally_rejected() {
             warn!("{self}: Failed to mark block as globally rejected: {e:?}",);
         }
@@ -1007,7 +1038,7 @@ impl Signer {
             return;
         };
         // move block to LOCALLY accepted state.
-        // We only mark this GLOBALLY accepted if we manage to broadcast it...
+        // It is only considered globally accepted IFF we receive a new block event confirming it OR see the chain tip of the node advance to it.
         if let Err(e) = block_info.mark_locally_accepted(true) {
             // Do not abort as we should still try to store the block signature threshold
             warn!("{self}: Failed to mark block as locally accepted: {e:?}");
@@ -1020,22 +1051,8 @@ impl Signer {
             panic!("{self} Failed to write block to signerdb: {e}");
         });
         #[cfg(any(test, feature = "testing"))]
-        {
-            if *TEST_PAUSE_BLOCK_BROADCAST.lock().unwrap() == Some(true) {
-                // Do an extra check just so we don't log EVERY time.
-                warn!("Block broadcast is stalled due to testing directive.";
-                    "block_id" => %block_info.block.block_id(),
-                    "height" => block_info.block.header.chain_length,
-                );
-                while *TEST_PAUSE_BLOCK_BROADCAST.lock().unwrap() == Some(true) {
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                }
-                info!("Block validation is no longer stalled due to testing directive.";
-                    "block_id" => %block_info.block.block_id(),
-                    "height" => block_info.block.header.chain_length,
-                );
-            }
-        }
+        self.test_pause_block_broadcast(&block_info);
+
         self.broadcast_signed_block(stacks_client, block_info.block, &addrs_to_sigs);
         if self
             .submitted_block_proposal
@@ -1085,7 +1102,7 @@ impl Signer {
 
     #[cfg(any(test, feature = "testing"))]
     fn test_skip_block_broadcast(&self, block: &NakamotoBlock) -> bool {
-        if *TEST_SKIP_BLOCK_BROADCAST.lock().unwrap() == Some(true) {
+        if TEST_SKIP_BLOCK_BROADCAST.get() {
             let block_hash = block.header.signer_signature_hash();
             warn!(
                 "{self}: Skipping block broadcast due to testing directive";
@@ -1112,9 +1129,7 @@ impl Signer {
         block_info: &mut BlockInfo,
         block_response: Option<BlockResponse>,
     ) -> Option<BlockResponse> {
-        let Some(public_keys) = &*TEST_REJECT_ALL_BLOCK_PROPOSAL.lock().unwrap() else {
-            return block_response;
-        };
+        let public_keys = TEST_REJECT_ALL_BLOCK_PROPOSAL.get();
         if public_keys.contains(
             &stacks_common::types::chainstate::StacksPublicKey::from_private(&self.private_key),
         ) {
@@ -1144,7 +1159,25 @@ impl Signer {
                 ),
             ))
         } else {
-            None
+            block_response
+        }
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    fn test_pause_block_broadcast(&self, block_info: &BlockInfo) {
+        if TEST_PAUSE_BLOCK_BROADCAST.get() {
+            // Do an extra check just so we don't log EVERY time.
+            warn!("{self}: Block broadcast is stalled due to testing directive.";
+                "block_id" => %block_info.block.block_id(),
+                "height" => block_info.block.header.chain_length,
+            );
+            while TEST_PAUSE_BLOCK_BROADCAST.get() {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            info!("{self}: Block validation is no longer stalled due to testing directive.";
+                "block_id" => %block_info.block.block_id(),
+                "height" => block_info.block.header.chain_length,
+            );
         }
     }
 
