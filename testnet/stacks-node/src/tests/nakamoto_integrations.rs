@@ -57,6 +57,7 @@ use stacks::chainstate::stacks::{
     TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSpendingCondition,
     TransactionVersion, MAX_BLOCK_LEN,
 };
+use stacks::config::{EventKeyType, InitialBalance};
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use stacks::core::{
     EpochList, StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_10, HELIUM_BLOCK_LIMIT_20,
@@ -95,7 +96,6 @@ use stacks_signer::signerdb::{BlockInfo, BlockState, ExtraBlockInfo, SignerDb};
 use stacks_signer::v0::SpawnedSigner;
 
 use super::bitcoin_regtest::BitcoinCoreController;
-use crate::config::{EventKeyType, InitialBalance};
 use crate::nakamoto_node::miner::{
     TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL, TEST_SKIP_P2P_BROADCAST,
 };
@@ -9658,7 +9658,7 @@ fn test_shadow_recovery() {
     let coord_channel = signer_test.running_nodes.coord_channel.clone();
     let commits_submitted = signer_test.running_nodes.commits_submitted.clone();
 
-    let burnchain = naka_conf.get_burnchain();
+    let _burnchain = naka_conf.get_burnchain();
 
     // make another tenure
     next_block_and_mine_commit(
