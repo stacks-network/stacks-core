@@ -102,7 +102,7 @@ fn make_dummy_transfer_tx() -> StacksTransactionReceipt {
         tx,
         vec![],
         Value::okay(Value::Bool(true)).unwrap(),
-        ExecutionCost::zero(),
+        ExecutionCost::ZERO,
     )
 }
 

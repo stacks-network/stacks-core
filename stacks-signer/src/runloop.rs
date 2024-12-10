@@ -285,6 +285,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             block_proposal_timeout: self.config.block_proposal_timeout,
             tenure_last_block_proposal_timeout: self.config.tenure_last_block_proposal_timeout,
             block_proposal_validation_timeout: self.config.block_proposal_validation_timeout,
+            tenure_idle_timeout: self.config.tenure_idle_timeout,
             block_proposal_max_age_secs: self.config.block_proposal_max_age_secs,
         }))
     }
