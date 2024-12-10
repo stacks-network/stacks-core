@@ -538,7 +538,10 @@ impl BlockMinerThread {
         let wait_start = Instant::now();
         while wait_start.elapsed() < self.config.miner.wait_on_interim_blocks {
             thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
-            if self.check_burn_tip_changed(&sort_db, &mut chain_state).is_err() {
+            if self
+                .check_burn_tip_changed(&sort_db, &mut chain_state)
+                .is_err()
+            {
                 return Err(NakamotoNodeError::BurnchainTipChanged);
             }
         }

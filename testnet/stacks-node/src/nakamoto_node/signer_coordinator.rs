@@ -313,7 +313,12 @@ impl SignerCoordinator {
                         return Ok(stored_block.header.signer_signature);
                     }
 
-                    if Self::check_burn_tip_changed(sortdb, chain_state, burn_tip, self.needs_initial_block) {
+                    if Self::check_burn_tip_changed(
+                        sortdb,
+                        chain_state,
+                        burn_tip,
+                        self.needs_initial_block,
+                    ) {
                         debug!("SignCoordinator: Exiting due to new burnchain tip");
                         return Err(NakamotoNodeError::BurnchainTipChanged);
                     }
