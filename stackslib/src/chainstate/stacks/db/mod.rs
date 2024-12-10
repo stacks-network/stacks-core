@@ -322,6 +322,7 @@ impl DBConfig {
             StacksEpochId::Epoch24 => version_u32 >= 3 && version_u32 <= 8,
             StacksEpochId::Epoch25 => version_u32 >= 3 && version_u32 <= 8,
             StacksEpochId::Epoch30 => version_u32 >= 3 && version_u32 <= 8,
+            StacksEpochId::Epoch31 => version_u32 >= 3 && version_u32 <= 8,
         }
     }
 }
@@ -1638,7 +1639,7 @@ impl StacksChainState {
                 allocations_tx,
                 allocation_events,
                 Value::okay_true(),
-                ExecutionCost::zero(),
+                ExecutionCost::ZERO,
             );
             receipts.push(allocations_receipt);
 
@@ -1739,7 +1740,7 @@ impl StacksChainState {
                 &mut tx,
                 &parent_hash,
                 &first_tip_info,
-                &ExecutionCost::zero(),
+                &ExecutionCost::ZERO,
                 0,
             )?;
             tx.commit()?;

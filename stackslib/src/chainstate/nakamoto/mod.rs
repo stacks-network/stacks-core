@@ -1789,6 +1789,73 @@ impl NakamotoChainState {
         }
     }
 
+    /// Get the current burnchain view
+    /// This is either:
+    ///    (1)  set by the tenure change tx if one exists
+    ///    (2)  the same as parent block id
+    pub fn get_block_burn_view(
+        sort_db: &SortitionDB,
+        next_ready_block: &NakamotoBlock,
+        parent_header_info: &StacksHeaderInfo,
+    ) -> Result<ConsensusHash, ChainstateError> {
+        let burnchain_view = if let Some(tenure_change) = next_ready_block.get_tenure_tx_payload() {
+            if let Some(ref parent_burn_view) = parent_header_info.burn_view {
+                // check that the tenure_change's burn view descends from the parent
+                let parent_burn_view_sn = SortitionDB::get_block_snapshot_consensus(
+                    sort_db.conn(),
+                    parent_burn_view,
+                )?
+                .ok_or_else(|| {
+                    warn!(
+                        "Cannot process Nakamoto block: could not find parent block's burnchain view";
+                        "consensus_hash" => %next_ready_block.header.consensus_hash,
+                        "stacks_block_hash" => %next_ready_block.header.block_hash(),
+                        "stacks_block_id" => %next_ready_block.header.block_id(),
+                        "parent_block_id" => %next_ready_block.header.parent_block_id
+                    );
+                    ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())
+                })?;
+                let handle = sort_db.index_handle_at_ch(&tenure_change.burn_view_consensus_hash)?;
+                let connected_sort_id = get_ancestor_sort_id(&handle, parent_burn_view_sn.block_height, &handle.context.chain_tip)?
+                    .ok_or_else(|| {
+                        warn!(
+                            "Cannot process Nakamoto block: could not find parent block's burnchain view";
+                            "consensus_hash" => %next_ready_block.header.consensus_hash,
+                            "stacks_block_hash" => %next_ready_block.header.block_hash(),
+                            "stacks_block_id" => %next_ready_block.header.block_id(),
+                            "parent_block_id" => %next_ready_block.header.parent_block_id
+                        );
+                        ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())
+                    })?;
+                if connected_sort_id != parent_burn_view_sn.sortition_id {
+                    warn!(
+                        "Cannot process Nakamoto block: parent block's burnchain view does not connect to own burn view";
+                        "consensus_hash" => %next_ready_block.header.consensus_hash,
+                        "stacks_block_hash" => %next_ready_block.header.block_hash(),
+                        "stacks_block_id" => %next_ready_block.header.block_id(),
+                        "parent_block_id" => %next_ready_block.header.parent_block_id
+                    );
+                    return Err(ChainstateError::InvalidStacksBlock(
+                        "Does not connect to burn view of parent block ID".into(),
+                    ));
+                }
+            }
+            tenure_change.burn_view_consensus_hash
+        } else {
+            parent_header_info.burn_view.clone().ok_or_else(|| {
+                warn!(
+                    "Cannot process Nakamoto block: parent block does not have a burnchain view and current block has no tenure tx";
+                    "consensus_hash" => %next_ready_block.header.consensus_hash,
+                    "stacks_block_hash" => %next_ready_block.header.block_hash(),
+                    "stacks_block_id" => %next_ready_block.header.block_id(),
+                    "parent_block_id" => %next_ready_block.header.parent_block_id
+                );
+                ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())
+            })?
+        };
+        Ok(burnchain_view)
+    }
+
     /// Process the next ready block.
     /// If there exists a ready Nakamoto block, then this method returns Ok(Some(..)) with the
     /// receipt.  Otherwise, it returns Ok(None).
@@ -1921,62 +1988,8 @@ impl NakamotoChainState {
         //   this is either:
         //    (1)  set by the tenure change tx if one exists
         //    (2)  the same as parent block id
-
-        let burnchain_view = if let Some(tenure_change) = next_ready_block.get_tenure_tx_payload() {
-            if let Some(ref parent_burn_view) = parent_header_info.burn_view {
-                // check that the tenure_change's burn view descends from the parent
-                let parent_burn_view_sn = SortitionDB::get_block_snapshot_consensus(
-                    sort_db.conn(),
-                    parent_burn_view,
-                )?
-                .ok_or_else(|| {
-                    warn!(
-                        "Cannot process Nakamoto block: could not find parent block's burnchain view";
-                        "consensus_hash" => %next_ready_block.header.consensus_hash,
-                        "stacks_block_hash" => %next_ready_block.header.block_hash(),
-                        "stacks_block_id" => %next_ready_block.header.block_id(),
-                        "parent_block_id" => %next_ready_block.header.parent_block_id
-                    );
-                    ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())
-                })?;
-                let handle = sort_db.index_handle_at_ch(&tenure_change.burn_view_consensus_hash)?;
-                let connected_sort_id = get_ancestor_sort_id(&handle, parent_burn_view_sn.block_height, &handle.context.chain_tip)?
-                    .ok_or_else(|| {
-                        warn!(
-                            "Cannot process Nakamoto block: could not find parent block's burnchain view";
-                            "consensus_hash" => %next_ready_block.header.consensus_hash,
-                            "stacks_block_hash" => %next_ready_block.header.block_hash(),
-                            "stacks_block_id" => %next_ready_block.header.block_id(),
-                            "parent_block_id" => %next_ready_block.header.parent_block_id
-                        );
-                        ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())
-                    })?;
-                if connected_sort_id != parent_burn_view_sn.sortition_id {
-                    warn!(
-                        "Cannot process Nakamoto block: parent block's burnchain view does not connect to own burn view";
-                        "consensus_hash" => %next_ready_block.header.consensus_hash,
-                        "stacks_block_hash" => %next_ready_block.header.block_hash(),
-                        "stacks_block_id" => %next_ready_block.header.block_id(),
-                        "parent_block_id" => %next_ready_block.header.parent_block_id
-                    );
-                    return Err(ChainstateError::InvalidStacksBlock(
-                        "Does not connect to burn view of parent block ID".into(),
-                    ));
-                }
-            }
-            tenure_change.burn_view_consensus_hash
-        } else {
-            parent_header_info.burn_view.clone().ok_or_else(|| {
-                warn!(
-                    "Cannot process Nakamoto block: parent block does not have a burnchain view and current block has no tenure tx";
-                    "consensus_hash" => %next_ready_block.header.consensus_hash,
-                    "stacks_block_hash" => %next_ready_block.header.block_hash(),
-                    "stacks_block_id" => %next_ready_block.header.block_id(),
-                    "parent_block_id" => %next_ready_block.header.parent_block_id
-                );
-                ChainstateError::InvalidStacksBlock("Failed to load burn view of parent block ID".into())
-            })?
-        };
+        let burnchain_view =
+            Self::get_block_burn_view(sort_db, &next_ready_block, &parent_header_info)?;
         let Some(burnchain_view_sn) =
             SortitionDB::get_block_snapshot_consensus(sort_db.conn(), &burnchain_view)?
         else {
@@ -2453,7 +2466,7 @@ impl NakamotoChainState {
         db_handle: &mut SortitionHandleConn,
         staging_db_tx: &NakamotoStagingBlocksTx,
         headers_conn: &Connection,
-        reward_set: RewardSet,
+        reward_set: &RewardSet,
         obtain_method: NakamotoBlockObtainMethod,
     ) -> Result<bool, ChainstateError> {
         test_debug!("Consider Nakamoto block {}", &block.block_id());
@@ -2523,7 +2536,7 @@ impl NakamotoChainState {
             return Ok(false);
         };
 
-        let signing_weight = match block.header.verify_signer_signatures(&reward_set) {
+        let signing_weight = match block.header.verify_signer_signatures(reward_set) {
             Ok(x) => x,
             Err(e) => {
                 warn!("Received block, but the signer signatures are invalid";
@@ -3884,7 +3897,7 @@ impl NakamotoChainState {
         // Nakamoto must load block cost from parent if this block isn't a tenure change.
         // If this is a tenure-extend, then the execution cost is reset.
         let initial_cost = if new_tenure || tenure_extend {
-            ExecutionCost::zero()
+            ExecutionCost::ZERO
         } else {
             let parent_cost_total =
                 Self::get_total_tenure_cost_at(chainstate_tx.as_tx(), &parent_index_hash)?
@@ -4211,7 +4224,7 @@ impl NakamotoChainState {
             tx_receipts,
             matured_rewards,
             matured_rewards_info: matured_rewards_info_opt,
-            parent_microblocks_cost: ExecutionCost::zero(),
+            parent_microblocks_cost: ExecutionCost::ZERO,
             anchored_block_cost: block_execution_cost,
             parent_burn_block_hash,
             parent_burn_block_height: u32::try_from(parent_burn_block_height).unwrap_or(0), // shouldn't be fatal
@@ -4701,7 +4714,7 @@ impl NakamotoChainState {
             tx_receipts,
             matured_rewards,
             matured_rewards_info: matured_rewards_info_opt,
-            parent_microblocks_cost: ExecutionCost::zero(),
+            parent_microblocks_cost: ExecutionCost::ZERO,
             anchored_block_cost: block_execution_cost,
             parent_burn_block_hash,
             parent_burn_block_height: u32::try_from(parent_burn_block_height).unwrap_or(0), // shouldn't be fatal

@@ -432,7 +432,7 @@ impl<'a> TestRPC<'a> {
         let tip =
             SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
                 .unwrap();
-        let mut anchor_cost = ExecutionCost::zero();
+        let mut anchor_cost = ExecutionCost::ZERO;
         let mut anchor_size = 0;
 
         // make a block
