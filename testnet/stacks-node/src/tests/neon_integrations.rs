@@ -5,7 +5,6 @@ use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 use std::{cmp, env, fs, io, thread};
 
-use clarity::consts::BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP;
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
@@ -39,7 +38,7 @@ use stacks::chainstate::stacks::{
     StacksPublicKey, StacksTransaction, TransactionContractCall, TransactionPayload,
 };
 use stacks::clarity_cli::vm_execute as execute;
-use stacks::cli::{self, StacksChainConfig};
+use stacks::cli;
 use stacks::codec::StacksMessageCodec;
 use stacks::config::{EventKeyType, EventObserverConfig, FeeEstimatorName, InitialBalance};
 use stacks::core::mempool::MemPoolWalkTxTypes;
@@ -12691,22 +12690,9 @@ fn mock_miner_replay() {
     let blocks_dir = blocks_dir.into_os_string().into_string().unwrap();
     let db_path = format!("{}/neon", conf.node.working_dir);
     let args: Vec<String> = vec!["replay-mock-mining".into(), db_path, blocks_dir];
-    let SortitionDB {
-        first_block_height,
-        first_burn_header_hash,
-        ..
-    } = *btc_regtest_controller.sortdb_mut();
-    let replay_config = StacksChainConfig {
-        chain_id: conf.burnchain.chain_id,
-        first_block_height,
-        first_burn_header_hash,
-        first_burn_header_timestamp: BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP.into(),
-        pox_constants: burnchain_config.pox_constants,
-        epochs: conf.burnchain.epochs.expect("Missing `epochs` in config"),
-    };
 
     info!("Replaying mock mined blocks...");
-    cli::command_replay_mock_mining(&args, Some(&replay_config));
+    cli::command_replay_mock_mining(&args, Some(&conf));
 
     // ---------- Test finished, clean up ----------
 
