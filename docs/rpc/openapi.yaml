@@ -866,3 +866,40 @@ paths:
               schema:
                 type: integer
                 example: 7
+
+  /v3/transactions/{txid}:
+    post:
+      summary: Returns index_block_hash and Transaction body given a TXID
+      tags:
+        - Transactions
+      description: Get a JSON with the index_block_hash and the Transaction body as hex.
+      operationId: get_transaction
+      parameters:
+      - name: txid
+        in: path
+        required: true
+        description: Transaction ID
+        schema:
+          type: string
+      - name: tip
+        in: query
+        schema:
+          type: string
+        description: The Stacks chain tip to check for the block containing the transaction. 
+          If tip == latest (the default), the latest known tip will be used.
+      responses:
+        "200":
+          description: Transaction ID of successful post of a raw tx to the node's mempool
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: '"e161978626f216b2141b156ade10501207ae535fa365a13ef5d7a7c9310a09f2"'
+        "400":
+          description: Rejections result in a 400 error
+          content:
+            application/json:
+              schema:
+                $ref: ./api/transaction/post-core-node-transactions-error.schema.json
+              example:
+                $ref: ./api/transaction/post-core-node-transactions-error.example.json

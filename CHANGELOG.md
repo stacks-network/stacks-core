@@ -8,6 +8,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ## [Unreleased]
 
 ### Added
+- Add `/v3/transactions/:txid` rpc endpoint
 
 ### Changed
 
@@ -38,6 +39,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Changed
 
 - Use the same burn view loader in both block validation and block processing
+>>>>>>> develop
 
 ## [3.0.0.0.3]
 

@@ -107,6 +107,12 @@ impl FromRow<ConsensusHash> for ConsensusHash {
     }
 }
 
+impl FromRow<StacksBlockId> for StacksBlockId {
+    fn from_row<'a>(row: &'a Row) -> Result<StacksBlockId, db_error> {
+        StacksBlockId::from_column(row, "index_block_hash")
+    }
+}
+
 impl FromRow<BurnchainHeaderHash> for BurnchainHeaderHash {
     fn from_row<'a>(row: &'a Row) -> Result<BurnchainHeaderHash, db_error> {
         BurnchainHeaderHash::from_column(row, "burn_header_hash")

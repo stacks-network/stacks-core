@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cell::RefCell;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashSet};
 use std::io::prelude::*;
@@ -97,9 +98,23 @@ pub mod headers;
 pub mod transactions;
 pub mod unconfirmed;
 
+#[cfg(not(test))]
 lazy_static! {
     pub static ref TRANSACTION_LOG: bool =
         std::env::var("STACKS_TRANSACTION_LOG") == Ok("1".into());
+}
+#[cfg(not(test))]
+pub fn is_transaction_log_enabled() -> bool {
+    *TRANSACTION_LOG
+}
+
+#[cfg(test)]
+thread_local! {
+    pub static TRANSACTION_LOG: RefCell<bool> = RefCell::new(false);
+}
+#[cfg(test)]
+pub fn is_transaction_log_enabled() -> bool {
+    TRANSACTION_LOG.with(|v| *v.borrow())
 }
 
 /// Fault injection struct for various kinds of faults we'd like to introduce into the system
@@ -646,7 +661,7 @@ impl<'a> ChainstateTx<'a> {
         block_id: &StacksBlockId,
         events: &[StacksTransactionReceipt],
     ) {
-        if *TRANSACTION_LOG {
+        if is_transaction_log_enabled() {
             let insert =
                 "INSERT INTO transactions (txid, index_block_hash, tx_hex, result) VALUES (?, ?, ?, ?)";
             for tx_event in events.iter() {

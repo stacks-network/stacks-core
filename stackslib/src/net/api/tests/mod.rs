@@ -84,6 +84,7 @@ mod getstxtransfercost;
 mod gettenure;
 mod gettenureinfo;
 mod gettenuretip;
+mod gettransaction;
 mod gettransaction_unconfirmed;
 mod liststackerdbreplicas;
 mod postblock;
