@@ -1757,8 +1757,8 @@ mod test {
         let parent_burn_block_hash = BurnchainHeaderHash([0; 32]);
         let parent_burn_block_height = 0;
         let parent_burn_block_timestamp = 0;
-        let anchored_consumed = ExecutionCost::zero();
-        let mblock_confirmed_consumed = ExecutionCost::zero();
+        let anchored_consumed = ExecutionCost::ZERO;
+        let mblock_confirmed_consumed = ExecutionCost::ZERO;
         let pox_constants = PoxConstants::testnet_default();
         let signer_bitvec = BitVec::zeros(2).expect("Failed to create BitVec with length 2");
         let block_timestamp = Some(123456);
@@ -1827,8 +1827,8 @@ mod test {
         let parent_burn_block_hash = BurnchainHeaderHash([0; 32]);
         let parent_burn_block_height = 0;
         let parent_burn_block_timestamp = 0;
-        let anchored_consumed = ExecutionCost::zero();
-        let mblock_confirmed_consumed = ExecutionCost::zero();
+        let anchored_consumed = ExecutionCost::ZERO;
+        let mblock_confirmed_consumed = ExecutionCost::ZERO;
         let pox_constants = PoxConstants::testnet_default();
         let signer_bitvec = BitVec::zeros(2).expect("Failed to create BitVec with length 2");
         let block_timestamp = Some(123456);

@@ -50,7 +50,7 @@ use stacks::cost_estimates::metrics::{CostMetric, ProportionalDotProduct, UnitMe
 use stacks::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator, UnitEstimator};
 use stacks::net::atlas::AtlasConfig;
 use stacks::net::connection::ConnectionOptions;
-use stacks::net::{Neighbor, NeighborKey};
+use stacks::net::{Neighbor, NeighborAddress, NeighborKey};
 use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks::types::EpochList;
 use stacks::util::hash::to_hex;
@@ -660,6 +660,8 @@ impl Config {
                 Ok(StacksEpochId::Epoch25)
             } else if epoch_name == EPOCH_CONFIG_3_0_0 {
                 Ok(StacksEpochId::Epoch30)
+            } else if epoch_name == EPOCH_CONFIG_3_1_0 {
+                Ok(StacksEpochId::Epoch31)
             } else {
                 Err(format!("Unknown epoch name specified: {epoch_name}"))
             }?;
@@ -686,6 +688,7 @@ impl Config {
             StacksEpochId::Epoch24,
             StacksEpochId::Epoch25,
             StacksEpochId::Epoch30,
+            StacksEpochId::Epoch31,
         ];
         for (expected_epoch, configured_epoch) in expected_list
             .iter()
@@ -1297,6 +1300,7 @@ pub const EPOCH_CONFIG_2_3_0: &str = "2.3";
 pub const EPOCH_CONFIG_2_4_0: &str = "2.4";
 pub const EPOCH_CONFIG_2_5_0: &str = "2.5";
 pub const EPOCH_CONFIG_3_0_0: &str = "3.0";
+pub const EPOCH_CONFIG_3_1_0: &str = "3.1";
 
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct AffirmationOverride {
@@ -2229,6 +2233,7 @@ pub struct ConnectionOptionsFile {
     pub auth_token: Option<String>,
     pub antientropy_retry: Option<u64>,
     pub reject_blocks_pushed: Option<bool>,
+    pub stackerdb_hint_replicas: Option<String>,
 }
 
 impl ConnectionOptionsFile {
@@ -2358,12 +2363,25 @@ impl ConnectionOptionsFile {
             handshake_timeout: self.handshake_timeout.unwrap_or(5),
             max_sockets: self.max_sockets.unwrap_or(800) as usize,
             antientropy_public: self.antientropy_public.unwrap_or(true),
-            private_neighbors: self.private_neighbors.unwrap_or(true),
+            private_neighbors: self.private_neighbors.unwrap_or(false),
             auth_token: self.auth_token,
             antientropy_retry: self.antientropy_retry.unwrap_or(default.antientropy_retry),
             reject_blocks_pushed: self
                 .reject_blocks_pushed
                 .unwrap_or(default.reject_blocks_pushed),
+            stackerdb_hint_replicas: self
+                .stackerdb_hint_replicas
+                .map(|stackerdb_hint_replicas_json| {
+                    let hint_replicas_res: Result<
+                        Vec<(QualifiedContractIdentifier, Vec<NeighborAddress>)>,
+                        String,
+                    > = serde_json::from_str(&stackerdb_hint_replicas_json)
+                        .map_err(|e| format!("Failed to decode `stackerdb_hint_replicas`: {e:?}"));
+                    hint_replicas_res
+                })
+                .transpose()?
+                .map(HashMap::from_iter)
+                .unwrap_or(default.stackerdb_hint_replicas),
             ..default
         })
     }

@@ -75,6 +75,18 @@ impl Default for RunLoopCounter {
     }
 }
 
+impl RunLoopCounter {
+    #[cfg(test)]
+    pub fn get(&self) -> u64 {
+        self.0.load(Ordering::SeqCst)
+    }
+
+    #[cfg(test)]
+    pub fn load(&self, ordering: Ordering) -> u64 {
+        self.0.load(ordering)
+    }
+}
+
 #[cfg(test)]
 impl std::ops::Deref for RunLoopCounter {
     type Target = Arc<AtomicU64>;
