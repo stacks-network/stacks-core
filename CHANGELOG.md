@@ -11,14 +11,23 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Changed
 
+## [3.1.0.0.1]
+
+### Added
+
+- A miner will now generate a tenure-extend when at least 70% of the signers have confirmed that they are willing to allow one, via the new timestamp included in block responses. This allows the miner to refresh its budget in between Bitcoin blocks. ([#5476](https://github.com/stacks-network/stacks-core/discussions/5476))
+
+### Changed
+
 ## [3.1.0.0.0]
 
 ### Added
 
-- **SIP-029 consensus rules, activating in epoch 3.1 at block 875,000** (see [SIP-029](https://github.com/will-corcoran/sips/blob/feat/sip-029-halving-alignment/sips/sip-029/sip-029-halving-alignment.md) for details)
+- **SIP-029 consensus rules, activating in epoch 3.1 at block 875,000** (see [SIP-029](https://github.com/stacksgov/sips/blob/main/sips/sip-029/sip-029-halving-alignment.md) for details)
 - New RPC endpoints
   - `/v2/clarity/marf/:marf_key_hash`
   - `/v2/clarity/metadata/:principal/:contract_name/:clarity_metadata_key`
+- When a proposed block is validated by a node, the block can be validated even when the block version is different than the node's default ([#5539](https://github.com/stacks-network/stacks-core/pull/5539))
 
 ### Changed
 

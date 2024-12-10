@@ -459,7 +459,7 @@ fn simple_pox_lockup_transition_pox_2() {
                     bob_txs.insert(t.auth.get_origin_nonce(), r);
                 } else if addr == key_to_stacks_addr(&charlie) {
                     assert!(
-                        r.execution_cost != ExecutionCost::zero(),
+                        r.execution_cost != ExecutionCost::ZERO,
                         "Execution cost is not zero!"
                     );
                     charlie_txs.insert(t.auth.get_origin_nonce(), r);

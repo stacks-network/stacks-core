@@ -528,7 +528,7 @@ fn test_valid_and_invalid_stackerdb_configs() {
             ContractName::try_from(format!("test-{}", i)).unwrap(),
         );
         peer.with_db_state(|sortdb, chainstate, _, _| {
-            match StackerDBConfig::from_smart_contract(chainstate, sortdb, &contract_id, 32) {
+            match StackerDBConfig::from_smart_contract(chainstate, sortdb, &contract_id, 32, None) {
                 Ok(config) => {
                     let expected = result
                         .clone()
@@ -550,4 +550,123 @@ fn test_valid_and_invalid_stackerdb_configs() {
         })
         .unwrap();
     }
+}
+
+#[test]
+fn test_hint_replicas_override() {
+    let AUTO_UNLOCK_HEIGHT = 12;
+    let EXPECTED_FIRST_V2_CYCLE = 8;
+    // the sim environment produces 25 empty sortitions before
+    //  tenures start being tracked.
+    let EMPTY_SORTITIONS = 25;
+
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
+    burnchain.pox_constants.reward_cycle_length = 5;
+    burnchain.pox_constants.prepare_length = 2;
+    burnchain.pox_constants.anchor_threshold = 1;
+    burnchain.pox_constants.v1_unlock_height = AUTO_UNLOCK_HEIGHT + EMPTY_SORTITIONS;
+
+    let first_v2_cycle = burnchain
+        .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
+        .unwrap()
+        + 1;
+
+    assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
+
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+
+    let observer = TestEventObserver::new();
+
+    let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
+        &burnchain,
+        "test_valid_and_invalid_stackerdb_configs",
+        Some(epochs.clone()),
+        Some(&observer),
+    );
+
+    let contract_owner = keys.pop().unwrap();
+    let contract_id = QualifiedContractIdentifier::new(
+        StacksAddress::from_public_keys(
+            26,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(&contract_owner)],
+        )
+        .unwrap()
+        .into(),
+        ContractName::try_from("test-0").unwrap(),
+    );
+
+    peer.config.check_pox_invariants =
+        Some((EXPECTED_FIRST_V2_CYCLE, EXPECTED_FIRST_V2_CYCLE + 10));
+
+    let override_replica = NeighborAddress {
+        addrbytes: PeerAddress([2u8; 16]),
+        port: 123,
+        public_key_hash: Hash160([3u8; 20]),
+    };
+
+    let mut coinbase_nonce = 0;
+    let mut txs = vec![];
+
+    let config_contract = r#"
+        (define-public (stackerdb-get-signer-slots)
+            (ok (list { signer: 'ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B, num-slots: u3 })))
+
+        (define-public (stackerdb-get-config)
+            (ok {
+                chunk-size: u123,
+                write-freq: u4,
+                max-writes: u56,
+                max-neighbors: u7,
+                hint-replicas: (list
+                    {
+                        addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u142 u150 u80 u100),
+                        port: u8901,
+                        public-key-hash: 0x0123456789abcdef0123456789abcdef01234567
+                    })
+            }))
+        "#;
+
+    let expected_config = StackerDBConfig {
+        chunk_size: 123,
+        signers: vec![(
+            StacksAddress {
+                version: 26,
+                bytes: Hash160::from_hex("b4fdae98b64b9cd6c9436f3b965558966afe890b").unwrap(),
+            },
+            3,
+        )],
+        write_freq: 4,
+        max_writes: 56,
+        hint_replicas: vec![override_replica.clone()],
+        max_neighbors: 7,
+    };
+
+    let tx = make_smart_contract("test-0", &config_contract, &contract_owner, 0, 10000);
+    txs.push(tx);
+
+    peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+
+    peer.with_db_state(|sortdb, chainstate, _, _| {
+        match StackerDBConfig::from_smart_contract(
+            chainstate,
+            sortdb,
+            &contract_id,
+            32,
+            Some(vec![override_replica.clone()]),
+        ) {
+            Ok(config) => {
+                assert_eq!(config, expected_config);
+            }
+            Err(e) => {
+                panic!("Unexpected error: {:?}", &e);
+            }
+        }
+        Ok(())
+    })
+    .unwrap();
 }

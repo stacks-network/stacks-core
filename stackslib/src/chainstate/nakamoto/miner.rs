@@ -649,7 +649,7 @@ impl NakamotoBlockBuilder {
             "parent_block_id" => %block.header.parent_block_id,
             "block_size" => size,
             "execution_consumed" => %consumed,
-            "%-full" => block_limit.proportion_largest_dimension(&consumed),
+            "percent_full" => block_limit.proportion_largest_dimension(&consumed),
             "assembly_time_ms" => ts_end.saturating_sub(ts_start),
             "consensus_hash" => %block.header.consensus_hash
         );

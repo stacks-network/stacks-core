@@ -353,7 +353,7 @@ mod test {
         ) -> std::result::Result<ExecutionCost, CostErrors> {
             self.invoked_functions.push((cost_f, input.to_vec()));
             self.invocation_count += 1;
-            Ok(ExecutionCost::zero())
+            Ok(ExecutionCost::ZERO)
         }
         fn add_cost(&mut self, _cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
             self.cost_addition_count += 1;

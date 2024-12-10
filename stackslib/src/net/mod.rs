@@ -3141,7 +3141,7 @@ pub mod test {
                     &mut stacks_node.chainstate,
                     &sortdb,
                     old_stackerdb_configs,
-                    config.connection_opts.num_neighbors,
+                    &config.connection_opts,
                 )
                 .expect("Failed to refresh stackerdb configs");
 
