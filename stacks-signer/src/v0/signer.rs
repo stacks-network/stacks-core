@@ -356,7 +356,7 @@ impl Signer {
         {
             // Block is too old. Drop it with a warning. Don't even bother broadcasting to the node.
             warn!("{self}: Received a block proposal that is more than {} secs old. Ignoring...", self.block_proposal_max_age_secs;
-                "signer_signature_hash" => %block_proposal.block.header.signer_signature_hash(),
+                "signer_sighash" => %block_proposal.block.header.signer_signature_hash(),
                 "block_id" => %block_proposal.block.block_id(),
                 "block_height" => block_proposal.block.header.chain_length,
                 "burn_height" => block_proposal.burn_height,
