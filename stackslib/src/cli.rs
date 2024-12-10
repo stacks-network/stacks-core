@@ -53,7 +53,7 @@ use crate::util_lib::db::IndexDBTx;
 
 /// Can be used with CLI commands to support non-mainnet chainstate
 /// Allows integration testing of these functions
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 pub struct StacksChainConfig {
     pub chain_id: u32,
     pub first_block_height: u64,
@@ -131,8 +131,62 @@ impl StacksChainConfig {
     }
 }
 
+// Can't be initialized as `const`, so this is the next best option
 const STACKS_CHAIN_CONFIG_DEFAULT_MAINNET: LazyCell<StacksChainConfig> =
     LazyCell::new(StacksChainConfig::default_mainnet);
+
+/// Options common to many `stacks-inspect` subcommands
+/// Returned by `process_common_opts()`
+#[derive(Debug, Default, PartialEq)]
+pub struct CommonOpts {
+    pub config: Option<StacksChainConfig>,
+}
+
+/// Process arguments common to many `stacks-inspect` subcommands and drain them from `argv`
+///
+/// Args:
+///  - `argv`: Full CLI args `Vec`
+///  - `start_at`: Position in args vec where to look for common options.
+///    For example, if `start_at` is `1`, then look for these options **before** the subcommand:
+///    ```console
+///    stacks-inspect --config testnet.toml replay-block path/to/chainstate
+///    ```
+pub fn drain_common_opts(argv: &mut Vec<String>, start_at: usize) -> CommonOpts {
+    let mut i = start_at;
+    let mut opts = CommonOpts::default();
+    while let Some(arg) = argv.get(i) {
+        let (prefix, opt) = arg.split_at(2);
+        if prefix != "--" {
+            break;
+        }
+        i += 1;
+        match opt {
+            "config" => {
+                let path = &argv[i];
+                i += 1;
+                let config = StacksChainConfig::from_file(&path);
+                opts.config.replace(config);
+            }
+            "network" => {
+                let network = &argv[i];
+                i += 1;
+                let config = match network.to_lowercase().as_str() {
+                    "testnet" => StacksChainConfig::default_testnet(),
+                    "mainnet" => StacksChainConfig::default_mainnet(),
+                    other => {
+                        eprintln!("Unknown network choice `{other}`");
+                        process::exit(1);
+                    }
+                };
+                opts.config.replace(config);
+            }
+            _ => panic!("Unrecognized option: {opt}"),
+        }
+    }
+    // Remove options processed
+    argv.drain(start_at..i);
+    opts
+}
 
 /// Replay blocks from chainstate database
 /// Terminates on error using `process::exit()`
@@ -398,7 +452,7 @@ pub fn command_replay_mock_mining(argv: &[String], conf: Option<&StacksChainConf
 ///  - `argv`: Args in CLI format: `<command-name> [args...]`
 ///  - `conf`: Optional config for running on non-mainnet chainstate
 pub fn command_try_mine(argv: &[String], conf: Option<&StacksChainConfig>) {
-    let print_help_and_exit = || -> ! {
+    let print_help_and_exit = || {
         let n = &argv[0];
         eprintln!("Usage: {n} <working-dir> [min-fee [max-time]]");
         eprintln!("");
@@ -411,27 +465,25 @@ pub fn command_try_mine(argv: &[String], conf: Option<&StacksChainConfig>) {
         process::exit(1);
     };
 
+    // Parse subcommand-specific args
+    let db_path = argv.get(1).unwrap_or_else(print_help_and_exit);
+    let min_fee = argv
+        .get(2)
+        .map(|arg| arg.parse().expect("Could not parse min_fee"))
+        .unwrap_or(u64::MAX);
+    let max_time = argv
+        .get(3)
+        .map(|arg| arg.parse().expect("Could not parse max_time"))
+        .unwrap_or(u64::MAX);
+
+    let start = get_epoch_time_ms();
+
     let default_conf = STACKS_CHAIN_CONFIG_DEFAULT_MAINNET;
     let conf = conf.unwrap_or(&default_conf);
 
-    let start = get_epoch_time_ms();
-    let db_path = &argv[2];
     let burnchain_path = format!("{db_path}/burnchain");
     let sort_db_path = format!("{db_path}/burnchain/sortition");
     let chain_state_path = format!("{db_path}/chainstate/");
-
-    let mut min_fee = u64::MAX;
-    let mut max_time = u64::MAX;
-
-    if argv.len() < 2 {
-        print_help_and_exit();
-    }
-    if argv.len() >= 3 {
-        min_fee = argv[3].parse().expect("Could not parse min_fee");
-    }
-    if argv.len() >= 4 {
-        max_time = argv[4].parse().expect("Could not parse max_time");
-    }
 
     let sort_db = SortitionDB::open(&sort_db_path, false, conf.pox_constants.clone())
         .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
@@ -1098,4 +1150,37 @@ fn replay_block_nakamoto(
     };
 
     Ok(())
+}
+
+#[cfg(test)]
+pub mod test {
+    use super::{drain_common_opts, CommonOpts};
+
+    fn parse_cli_command(s: &str) -> Vec<String> {
+        s.split(' ').map(String::from).collect()
+    }
+
+    #[test]
+    pub fn test_drain_common_opts() {
+        // Should find/remove no options
+        let mut argv = parse_cli_command(
+            "stacks-inspect try-mine --config my_config.toml /tmp/chainstate/mainnet",
+        );
+        let argv_init = argv.clone();
+        let opts = drain_common_opts(&mut argv, 0);
+        let opts = drain_common_opts(&mut argv, 1);
+
+        assert_eq!(argv, argv_init);
+        assert_eq!(opts, CommonOpts::default());
+
+        // Should find config opts and remove from vec
+        let mut argv = parse_cli_command(
+            "stacks-inspect --network testnet --network mainnet try-mine /tmp/chainstate/mainnet",
+        );
+        let opts = drain_common_opts(&mut argv, 1);
+        let argv_expected = parse_cli_command("stacks-inspect try-mine /tmp/chainstate/mainnet");
+
+        assert_eq!(argv, argv_expected);
+        assert!(opts.config.is_some());
+    }
 }

@@ -25,7 +25,6 @@ extern crate stacks_common;
 #[macro_use(slog_debug, slog_info, slog_warn)]
 extern crate slog;
 
-use blockstack_lib::cli::StacksChainConfig;
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
@@ -302,59 +301,6 @@ fn check_shadow_network(network: &str) {
     }
 }
 
-/// Options common to many `stacks-inspect` subcommands
-/// Returned by `process_common_opts()`
-#[derive(Default)]
-struct CommonOpts {
-    config: Option<StacksChainConfig>,
-}
-
-/// Process arguments common to many `stacks-inspect` subcommands and drain them from `argv`
-///
-/// Args:
-///  - `argv`: Full CLI args `Vec`
-///  - `start_at`: Position in args vec where to look for common options.
-///    For example, if `start_at` is `1`, then look for these options **before** the subcommand:
-///    ```console
-///    stacks-inspect --config testnet.toml replay-block path/to/chainstate
-///    ```
-fn drain_common_opts<'a>(argv: &mut Vec<String>, start_at: usize) -> CommonOpts {
-    let mut i = start_at;
-    let mut opts = CommonOpts::default();
-    while let Some(arg) = argv.get(i) {
-        let (prefix, opt) = arg.split_at(2);
-        if prefix != "--" {
-            break;
-        }
-        i += 1;
-        match opt {
-            "config" => {
-                let path = &argv[i];
-                i += 1;
-                let config = StacksChainConfig::from_file(&path);
-                opts.config.replace(config);
-            }
-            "network" => {
-                let network = &argv[i];
-                i += 1;
-                let config = match network.to_lowercase().as_str() {
-                    "testnet" => cli::StacksChainConfig::default_testnet(),
-                    "mainnet" => cli::StacksChainConfig::default_mainnet(),
-                    other => {
-                        eprintln!("Unknown network choice `{other}`");
-                        process::exit(1);
-                    }
-                };
-                opts.config.replace(config);
-            }
-            _ => panic!("Unrecognized option: {opt}"),
-        }
-    }
-    // Remove options processed
-    argv.drain(start_at..i);
-    opts
-}
-
 #[cfg_attr(test, mutants::skip)]
 fn main() {
     let mut argv: Vec<String> = env::args().collect();
@@ -363,7 +309,7 @@ fn main() {
         process::exit(1);
     }
 
-    let common_opts = drain_common_opts(&mut argv, 1);
+    let common_opts = cli::drain_common_opts(&mut argv, 1);
 
     if argv[1] == "--version" {
         println!(
