@@ -45,6 +45,7 @@ extern crate stacks_common;
 #[macro_use]
 pub extern crate clarity;
 
+use stacks_common::versions::STACKS_NODE_VERSION;
 pub use stacks_common::{address, codec, types, util};
 
 #[macro_use]
@@ -78,7 +79,8 @@ const BUILD_TYPE: &'static str = "debug";
 #[cfg(not(debug_assertions))]
 const BUILD_TYPE: &'static str = "release";
 
-pub fn version_string(pkg_name: &str, pkg_version: &str) -> String {
+pub fn version_string(pkg_name: &str, pkg_version: Option<&str>) -> String {
+    let pkg_version = pkg_version.unwrap_or(STACKS_NODE_VERSION);
     let git_branch = GIT_BRANCH
         .map(|x| format!("{}", x))
         .unwrap_or("".to_string());
