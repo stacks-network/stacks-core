@@ -66,6 +66,9 @@ use crate::run_loop::nakamoto::{Globals, RunLoop};
 use crate::run_loop::RegisteredKey;
 use crate::BitcoinRegtestController;
 
+#[cfg(test)]
+pub static TEST_MINER_THREAD_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+
 /// Command types for the Nakamoto relayer thread, issued to it by other threads
 #[allow(clippy::large_enum_variant)]
 pub enum RelayerDirective {
@@ -236,6 +239,8 @@ pub struct RelayerThread {
     /// Information about the last-sent block commit, and the relayer's view of the chain at the
     /// time it was sent.
     last_committed: Option<LastCommit>,
+    /// Last burnchain view for which we considered starting a miner
+    last_burn_view: Option<BlockSnapshot>,
     /// Timeout for waiting for the first block in a tenure before submitting a block commit
     new_tenure_timeout: Option<Instant>,
 }
@@ -295,6 +300,7 @@ impl RelayerThread {
             is_miner,
             next_initiative: Instant::now() + Duration::from_millis(next_initiative_delay),
             last_committed: None,
+            last_burn_view: None,
             new_tenure_timeout: None,
         }
     }
@@ -487,6 +493,7 @@ impl RelayerThread {
         }
         self.globals.set_last_sortition(sn.clone());
         self.globals.counters.bump_blocks_processed();
+        self.globals.counters.bump_sortitions_processed();
 
         // there may be a bufferred stacks block to process, so wake up the coordinator to check
         self.globals.coord_comms.announce_new_stacks_block();
@@ -512,6 +519,10 @@ impl RelayerThread {
         }
 
         let directive_opt = self.choose_miner_directive(sn, won_sortition, committed_index_hash);
+        debug!(
+            "Relayer: Processed sortition {}: Miner directive is {:?}",
+            &consensus_hash, &directive_opt
+        );
         Ok(directive_opt)
     }
 
@@ -767,6 +778,23 @@ impl RelayerThread {
         ))
     }
 
+    #[cfg(test)]
+    fn fault_injection_stall_miner_startup() {
+        if *TEST_MINER_THREAD_STALL.lock().unwrap() == Some(true) {
+            // Do an extra check just so we don't log EVERY time.
+            warn!("Miner thread startup is stalled due to testing directive");
+            while *TEST_MINER_THREAD_STALL.lock().unwrap() == Some(true) {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            warn!(
+                "Miner thread startup is no longer stalled due to testing directive. Continuing..."
+            );
+        }
+    }
+
+    #[cfg(not(test))]
+    fn fault_injection_stall_miner_startup() {}
+
     /// Create the block miner thread state.
     /// Only proceeds if all of the following are true:
     /// * the miner is not blocked
@@ -779,6 +807,7 @@ impl RelayerThread {
         &mut self,
         registered_key: RegisteredKey,
         burn_election_block: BlockSnapshot,
+        burn_view: BlockSnapshot,
         burn_tip: BlockSnapshot,
         parent_tenure_id: StacksBlockId,
         reason: MinerReason,
@@ -790,6 +819,7 @@ impl RelayerThread {
             );
             return Err(NakamotoNodeError::FaultInjection);
         }
+        Self::fault_injection_stall_miner_startup();
 
         let burn_header_hash = burn_tip.burn_header_hash;
         let burn_chain_sn = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn())
@@ -812,6 +842,7 @@ impl RelayerThread {
             "parent_tenure_id" => %parent_tenure_id,
             "reason" => %reason,
             "burn_election_block.consensus_hash" => %burn_election_block.consensus_hash,
+            "burn_view.consensus_hash" => %burn_view.consensus_hash,
             "burn_tip.consensus_hash" => %burn_tip.consensus_hash,
         );
 
@@ -819,7 +850,7 @@ impl RelayerThread {
             self,
             registered_key,
             burn_election_block,
-            burn_tip,
+            burn_view,
             parent_tenure_id,
             reason,
         );
@@ -830,6 +861,7 @@ impl RelayerThread {
         &mut self,
         parent_tenure_start: StacksBlockId,
         block_election_snapshot: BlockSnapshot,
+        burn_view: BlockSnapshot,
         burn_tip: BlockSnapshot,
         reason: MinerReason,
     ) -> Result<(), NakamotoNodeError> {
@@ -847,6 +879,7 @@ impl RelayerThread {
         let new_miner_state = self.create_block_miner(
             vrf_key,
             block_election_snapshot,
+            burn_view.clone(),
             burn_tip,
             parent_tenure_start,
             reason,
@@ -874,7 +907,7 @@ impl RelayerThread {
             new_miner_handle.thread().id()
         );
         self.miner_thread.replace(new_miner_handle);
-
+        self.last_burn_view.replace(burn_view);
         Ok(())
     }
 
@@ -940,28 +973,35 @@ impl RelayerThread {
     }
 
     /// Determine the type of tenure change to issue based on whether this
-    /// miner was the last successful miner (miner of the canonical tip).
+    /// miner was the last successful miner (miner of the canonical Stacks tip).
     fn determine_tenure_type(
         &self,
-        canonical_snapshot: BlockSnapshot,
-        last_snapshot: BlockSnapshot,
-        new_burn_view: ConsensusHash,
+        canonical_stacks_snapshot: BlockSnapshot,
+        last_good_block_election_snapshot: BlockSnapshot,
+        burn_view_snapshot: BlockSnapshot,
         mining_pkh: Hash160,
-    ) -> (StacksBlockId, BlockSnapshot, MinerReason) {
-        if canonical_snapshot.miner_pk_hash != Some(mining_pkh) {
-            debug!("Relayer: Miner was not the last successful miner. Issue a new tenure change payload.");
+    ) -> (StacksBlockId, BlockSnapshot, BlockSnapshot, MinerReason) {
+        let mining_pkh_opt = Some(mining_pkh);
+        if canonical_stacks_snapshot.miner_pk_hash != mining_pkh_opt {
+            debug!("Relayer(determine_tenure_type): Miner was not the last successful Stacks miner, but it won the last sortition. Issue a new tenure change payload.");
             (
-                StacksBlockId(last_snapshot.winning_stacks_block_hash.0),
-                last_snapshot,
+                StacksBlockId(
+                    last_good_block_election_snapshot
+                        .winning_stacks_block_hash
+                        .0,
+                ),
+                last_good_block_election_snapshot.clone(),
+                last_good_block_election_snapshot,
                 MinerReason::EmptyTenure,
             )
         } else {
-            debug!("Relayer: Miner was the last successful miner. Issue a tenure extend from the chain tip.");
+            debug!("Relayer(determine_tenure_type): Miner was the last successful miner. Issue a tenure extend from the chain tip.");
             (
                 self.sortdb.get_canonical_stacks_tip_block_id(),
-                canonical_snapshot,
+                canonical_stacks_snapshot,
+                burn_view_snapshot.clone(),
                 MinerReason::Extended {
-                    burn_view_consensus_hash: new_burn_view,
+                    burn_view_consensus_hash: burn_view_snapshot.consensus_hash,
                 },
             )
         }
@@ -1016,7 +1056,7 @@ impl RelayerThread {
             error!("Relayer: Failed to stop tenure: {e:?}");
             return Ok(());
         }
-        debug!("Relayer: successfully stopped tenure.");
+        debug!("Relayer: successfully stopped tenure; will try to continue.");
 
         // Get the necessary snapshots and state
         let burn_tip =
@@ -1058,7 +1098,7 @@ impl RelayerThread {
             return Ok(());
         }
 
-        let canonical_snapshot = SortitionDB::get_block_snapshot_consensus(
+        let canonical_stacks_snapshot = SortitionDB::get_block_snapshot_consensus(
             self.sortdb.conn(),
             &canonical_stacks_tip_ch,
         )?
@@ -1066,22 +1106,30 @@ impl RelayerThread {
             error!("Relayer: failed to get block snapshot for canonical tip");
             NakamotoNodeError::SnapshotNotFoundForChainTip
         })?;
-        let (parent_tenure_start, block_election_snapshot, reason) = self.determine_tenure_type(
-            canonical_snapshot,
-            last_good_block_election_snapshot,
-            new_burn_view,
-            mining_pkh,
-        );
+
+        let (parent_tenure_start, block_election_snapshot, burn_view_snapshot, reason) = self
+            .determine_tenure_type(
+                canonical_stacks_snapshot,
+                last_good_block_election_snapshot,
+                burn_tip.clone(),
+                mining_pkh,
+            );
 
         if let Err(e) = self.start_new_tenure(
-            parent_tenure_start,
-            block_election_snapshot,
-            burn_tip,
-            reason,
+            parent_tenure_start.clone(),
+            block_election_snapshot.clone(),
+            burn_view_snapshot.clone(),
+            burn_tip.clone(),
+            reason.clone(),
         ) {
             error!("Relayer: Failed to start new tenure: {e:?}");
         } else {
-            debug!("Relayer: successfully started new tenure.");
+            debug!("Relayer: successfully started new tenure.";
+                   "parent_tenure_start" => %parent_tenure_start,
+                   "burn_tip" => %burn_tip.consensus_hash,
+                   "burn_view_snapshot" => %burn_view_snapshot.consensus_hash,
+                   "block_election_snapshot" => %block_election_snapshot.consensus_hash,
+                   "reason" => %reason);
         }
         Ok(())
     }
@@ -1110,6 +1158,7 @@ impl RelayerThread {
                 burnchain_tip,
             } => match self.start_new_tenure(
                 parent_tenure_start,
+                burnchain_tip.clone(),
                 burnchain_tip.clone(),
                 burnchain_tip,
                 MinerReason::BlockFound,
@@ -1142,6 +1191,7 @@ impl RelayerThread {
             },
         }
 
+        self.globals.counters.bump_naka_miner_directives();
         true
     }
 
@@ -1239,6 +1289,8 @@ impl RelayerThread {
     /// * If this isn't a miner, then it's always nothing.
     /// * Otherwise, if we haven't done so already, go register a VRF public key
     /// * If the stacks chain tip or burnchain tip has changed, then issue a block-commit
+    /// * If the last burn view we started a miner for is not the canonical burn view, then
+    /// try and start a new tenure (or continue an existing one).
     fn initiative(&mut self) -> Option<RelayerDirective> {
         if !self.is_miner {
             return None;
@@ -1281,6 +1333,20 @@ impl RelayerThread {
             return None;
         };
         let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
+
+        // see if we have to try and continue a tenure
+        if let Ok(ongoing_tenure_id) =
+            BlockMinerThread::get_ongoing_tenure_id(&self.sortdb, &mut self.chainstate).map_err(
+                |e| {
+                    error!("Failed to get ongoing tenure ID: {:?}", &e);
+                    e
+                },
+            )
+        {
+            if ongoing_tenure_id.burn_view_consensus_hash != sort_tip.consensus_hash {
+                todo!();
+            }
+        }
 
         // check stacks and sortition tips to see if any chainstate change has happened.
         // did our view of the sortition history change?

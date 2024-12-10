@@ -37,6 +37,7 @@ use stacks::util_lib::boot::boot_code_id;
 use super::stackerdb_listener::StackerDBListenerComms;
 use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::StackerDBChannel;
+use crate::nakamoto_node::miner::BlockMinerThread;
 use crate::nakamoto_node::stackerdb_listener::{StackerDBListener, EVENT_RECEIVER_POLL};
 use crate::neon::Counters;
 use crate::Config;
@@ -60,6 +61,8 @@ pub struct SignerCoordinator {
     keep_running: Arc<AtomicBool>,
     /// Handle for the signer DB listener thread
     listener_thread: Option<JoinHandle<()>>,
+    /// whether or not we need to wait for the signer to receive the initial block from this tenure
+    needs_initial_block: bool,
 }
 
 impl SignerCoordinator {
@@ -70,6 +73,7 @@ impl SignerCoordinator {
         node_keep_running: Arc<AtomicBool>,
         reward_set: &RewardSet,
         burn_tip: &BlockSnapshot,
+        needs_initial_block: bool,
         burnchain: &Burnchain,
         message_key: StacksPrivateKey,
         config: &Config,
@@ -101,6 +105,7 @@ impl SignerCoordinator {
             total_weight: listener.total_weight,
             weight_threshold: listener.weight_threshold,
             stackerdb_comms: listener.get_comms(),
+            needs_initial_block,
             keep_running,
             listener_thread: None,
         };
@@ -308,7 +313,12 @@ impl SignerCoordinator {
                         return Ok(stored_block.header.signer_signature);
                     }
 
-                    if Self::check_burn_tip_changed(sortdb, burn_tip) {
+                    if Self::check_burn_tip_changed(
+                        sortdb,
+                        chain_state,
+                        burn_tip,
+                        self.needs_initial_block,
+                    ) {
                         debug!("SignCoordinator: Exiting due to new burnchain tip");
                         return Err(NakamotoNodeError::BurnchainTipChanged);
                     }
@@ -350,12 +360,27 @@ impl SignerCoordinator {
     }
 
     /// Check if the tenure needs to change
-    fn check_burn_tip_changed(sortdb: &SortitionDB, burn_block: &BlockSnapshot) -> bool {
+    fn check_burn_tip_changed(
+        sortdb: &SortitionDB,
+        chain_state: &mut StacksChainState,
+        burn_block: &BlockSnapshot,
+        needs_initial_block: bool,
+    ) -> bool {
+        if BlockMinerThread::check_burn_view_changed(sortdb, chain_state, burn_block).is_err() {
+            // can't continue mining -- burn view changed, or a DB error occurred
+            return true;
+        }
+
+        if needs_initial_block {
+            // must get that first initial block in, assuming the burn view is still valid.
+            return false;
+        }
+
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
         if cur_burn_chain_tip.consensus_hash != burn_block.consensus_hash {
-            info!("SignerCoordinator: Cancel signature aggregation; burnchain tip has changed");
+            info!("SignCoordinator: Cancel signature aggregation; burnchain tip has changed");
             true
         } else {
             false
