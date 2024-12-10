@@ -489,6 +489,7 @@ fn block_proposal_rejection() {
         header: NakamotoBlockHeader::empty(),
         txs: vec![],
     };
+    block.header.timestamp = get_epoch_time_secs();
 
     // First propose a block to the signers that does not have the correct consensus hash or BitVec. This should be rejected BEFORE
     // the block is submitted to the node for validation.
@@ -7509,6 +7510,7 @@ fn block_validation_response_timeout() {
         header: NakamotoBlockHeader::empty(),
         txs: vec![],
     };
+    block.header.timestamp = get_epoch_time_secs();
 
     let info_before = get_chain_info(&signer_test.running_nodes.conf);
     // Propose a block to the signers that passes initial checks but will not be submitted to the stacks node due to the submission stall
