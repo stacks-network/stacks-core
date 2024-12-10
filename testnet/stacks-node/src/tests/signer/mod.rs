@@ -44,6 +44,7 @@ use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
 use stacks::chainstate::stacks::StacksPrivateKey;
+use stacks::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
 use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
@@ -61,7 +62,6 @@ use stacks_signer::runloop::{SignerResult, State, StateInfo};
 use stacks_signer::{Signer, SpawnedSigner};
 
 use super::nakamoto_integrations::{check_nakamoto_empty_block_heuristics, wait_for};
-use crate::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
 use crate::neon::{Counters, RunLoopCounter, TestFlag};
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;

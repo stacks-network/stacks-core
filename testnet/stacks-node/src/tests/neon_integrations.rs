@@ -41,6 +41,7 @@ use stacks::chainstate::stacks::{
 use stacks::clarity_cli::vm_execute as execute;
 use stacks::cli::{self, StacksChainConfig};
 use stacks::codec::StacksMessageCodec;
+use stacks::config::{EventKeyType, EventObserverConfig, FeeEstimatorName, InitialBalance};
 use stacks::core::mempool::MemPoolWalkTxTypes;
 use stacks::core::{
     self, EpochList, StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_20, BLOCK_LIMIT_MAINNET_205,
@@ -83,7 +84,6 @@ use super::{
     SK_2, SK_3,
 };
 use crate::burnchains::bitcoin_regtest_controller::{self, addr2str, BitcoinRPCRequest, UTXO};
-use crate::config::{EventKeyType, EventObserverConfig, FeeEstimatorName, InitialBalance};
 use crate::neon_node::RelayerThread;
 use crate::operations::BurnchainOpSigner;
 use crate::stacks_common::types::PrivateKey;
@@ -199,13 +199,13 @@ pub mod test_observer {
     use stacks::chainstate::stacks::events::StackerDBChunksEvent;
     use stacks::chainstate::stacks::StacksTransaction;
     use stacks::codec::StacksMessageCodec;
+    use stacks::config::{EventKeyType, EventObserverConfig};
     use stacks::net::api::postblock_proposal::BlockValidateResponse;
     use stacks::util::hash::hex_bytes;
     use stacks_common::types::chainstate::StacksBlockId;
     use warp::Filter;
     use {tokio, warp};
 
-    use crate::config::{EventKeyType, EventObserverConfig};
     use crate::event_dispatcher::{MinedBlockEvent, MinedMicroblockEvent, MinedNakamotoBlockEvent};
     use crate::Config;
 

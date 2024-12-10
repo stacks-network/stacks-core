@@ -1154,7 +1154,7 @@ fn replay_block_nakamoto(
 
 #[cfg(test)]
 pub mod test {
-    use super::{drain_common_opts, CommonOpts};
+    use super::*;
 
     fn parse_cli_command(s: &str) -> Vec<String> {
         s.split(' ').map(String::from).collect()

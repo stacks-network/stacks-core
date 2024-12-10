@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+pub mod chain_data;
+
 use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
@@ -27,35 +29,6 @@ use clarity::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdenti
 use lazy_static::lazy_static;
 use rand::RngCore;
 use serde::Deserialize;
-use stacks::burnchains::affirmation::AffirmationMap;
-use stacks::burnchains::bitcoin::BitcoinNetworkType;
-use stacks::burnchains::{Burnchain, MagicBytes, PoxConstants, BLOCKSTACK_MAGIC_MAINNET};
-use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
-use stacks::chainstate::stacks::boot::MINERS_NAME;
-use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
-use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
-use stacks::chainstate::stacks::miner::{BlockBuilderSettings, MinerStatus};
-use stacks::chainstate::stacks::MAX_BLOCK_LEN;
-use stacks::core::mempool::{MemPoolWalkSettings, MemPoolWalkTxTypes};
-use stacks::core::{
-    MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId,
-    BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT, BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT,
-    BITCOIN_TESTNET_STACKS_25_REORGED_HEIGHT, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET,
-    PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
-};
-use stacks::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
-use stacks::cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
-use stacks::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
-use stacks::cost_estimates::metrics::{CostMetric, ProportionalDotProduct, UnitMetric};
-use stacks::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator, UnitEstimator};
-use stacks::net::atlas::AtlasConfig;
-use stacks::net::connection::ConnectionOptions;
-use stacks::net::{Neighbor, NeighborAddress, NeighborKey};
-use stacks::types::chainstate::BurnchainHeaderHash;
-use stacks::types::EpochList;
-use stacks::util::hash::to_hex;
-use stacks::util_lib::boot::boot_code_id;
-use stacks::util_lib::db::Error as DBError;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerAddress;
@@ -64,7 +37,36 @@ use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
-use crate::chain_data::MinerStats;
+use crate::burnchains::affirmation::AffirmationMap;
+use crate::burnchains::bitcoin::BitcoinNetworkType;
+use crate::burnchains::{Burnchain, MagicBytes, PoxConstants, BLOCKSTACK_MAGIC_MAINNET};
+use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
+use crate::chainstate::stacks::boot::MINERS_NAME;
+use crate::chainstate::stacks::index::marf::MARFOpenOpts;
+use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
+use crate::chainstate::stacks::miner::{BlockBuilderSettings, MinerStatus};
+use crate::chainstate::stacks::MAX_BLOCK_LEN;
+use crate::config::chain_data::MinerStats;
+use crate::core::mempool::{MemPoolWalkSettings, MemPoolWalkTxTypes};
+use crate::core::{
+    MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId,
+    BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT, BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT,
+    BITCOIN_TESTNET_STACKS_25_REORGED_HEIGHT, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET,
+    PEER_VERSION_MAINNET, PEER_VERSION_TESTNET, STACKS_EPOCHS_REGTEST, STACKS_EPOCHS_TESTNET,
+};
+use crate::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
+use crate::cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
+use crate::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
+use crate::cost_estimates::metrics::{CostMetric, ProportionalDotProduct, UnitMetric};
+use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator, UnitEstimator};
+use crate::net::atlas::AtlasConfig;
+use crate::net::connection::ConnectionOptions;
+use crate::net::{Neighbor, NeighborAddress, NeighborKey};
+use crate::types::chainstate::BurnchainHeaderHash;
+use crate::types::EpochList;
+use crate::util::hash::to_hex;
+use crate::util_lib::boot::boot_code_id;
+use crate::util_lib::db::Error as DBError;
 
 pub const DEFAULT_SATS_PER_VB: u64 = 50;
 pub const OP_TX_BLOCK_COMMIT_ESTIM_SIZE: u64 = 380;
@@ -636,8 +638,8 @@ impl Config {
             BitcoinNetworkType::Mainnet => {
                 Err("Cannot configure epochs in mainnet mode".to_string())
             }
-            BitcoinNetworkType::Testnet => Ok(stacks::core::STACKS_EPOCHS_TESTNET.to_vec()),
-            BitcoinNetworkType::Regtest => Ok(stacks::core::STACKS_EPOCHS_REGTEST.to_vec()),
+            BitcoinNetworkType::Testnet => Ok(STACKS_EPOCHS_TESTNET.to_vec()),
+            BitcoinNetworkType::Regtest => Ok(STACKS_EPOCHS_REGTEST.to_vec()),
         }?;
         let mut matched_epochs = vec![];
         for configured_epoch in conf_epochs.iter() {
