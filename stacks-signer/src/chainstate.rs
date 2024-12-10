@@ -367,7 +367,7 @@ impl SortitionsView {
                 tenure_extend.burn_view_consensus_hash != sortition_consensus_hash;
             let extend_timestamp = signer_db.calculate_tenure_extend_timestamp(
                 self.config.tenure_idle_timeout,
-                &block,
+                block,
                 false,
             );
             let epoch_time = get_epoch_time_secs();
