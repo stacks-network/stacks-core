@@ -2875,6 +2875,7 @@ fn block_proposal_api_endpoint() {
     const HTTP_ACCEPTED: u16 = 202;
     const HTTP_TOO_MANY: u16 = 429;
     const HTTP_NOT_AUTHORIZED: u16 = 401;
+    const HTTP_UNPROCESSABLE: u16 = 422;
     let test_cases = [
         (
             "Valid Nakamoto block proposal",
@@ -2924,6 +2925,16 @@ fn block_proposal_api_endpoint() {
             Some(Err(ValidateRejectCode::ChainstateError)),
         ),
         ("Not authorized", sign(&proposal), HTTP_NOT_AUTHORIZED, None),
+        (
+            "Unprocessable entity",
+            {
+                let mut p = proposal.clone();
+                p.block.header.timestamp = 0;
+                sign(&p)
+            },
+            HTTP_UNPROCESSABLE,
+            None,
+        ),
     ];
 
     // Build HTTP client

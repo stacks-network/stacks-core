@@ -48,6 +48,9 @@ use crate::net::{
     StacksHttp, StacksP2P,
 };
 
+/// The default maximum age in seconds of a block that can be validated by the block proposal endpoint
+pub const BLOCK_PROPOSAL_MAX_AGE_SECS: u64 = 600;
+
 /// Receiver notification handle.
 /// When a message with the expected `seq` value arrives, send it to an expected receiver (possibly
 /// in another thread) via the given `receiver_input` channel.
@@ -434,6 +437,8 @@ pub struct ConnectionOptions {
     pub nakamoto_unconfirmed_downloader_interval_ms: u128,
     /// The authorization token to enable privileged RPC endpoints
     pub auth_token: Option<String>,
+    /// The maximum age in seconds of a block that can be validated by the block proposal endpoint
+    pub block_proposal_max_age_secs: u64,
     /// StackerDB replicas to talk to for a particular smart contract
     pub stackerdb_hint_replicas: HashMap<QualifiedContractIdentifier, Vec<NeighborAddress>>,
 
@@ -568,6 +573,7 @@ impl std::default::Default for ConnectionOptions {
             nakamoto_inv_sync_burst_interval_ms: 1_000, // wait 1 second after a sortition before running inventory sync
             nakamoto_unconfirmed_downloader_interval_ms: 5_000, // run unconfirmed downloader once every 5 seconds
             auth_token: None,
+            block_proposal_max_age_secs: BLOCK_PROPOSAL_MAX_AGE_SECS,
             stackerdb_hint_replicas: HashMap::new(),
 
             // no faults on by default

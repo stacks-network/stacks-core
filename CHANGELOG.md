@@ -8,8 +8,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ## [Unreleased]
 
 ### Added
+- Added configuration option `connections.block_proposal_max_age_secs` to prevent processing stale block proposals
 
 ### Changed
+- The RPC endpoint `/v3/block_proposal` no longer will evaluate block proposals more than `block_proposal_max_age_secs` old
 
 ## [3.1.0.0.1]
 
