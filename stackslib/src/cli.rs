@@ -74,8 +74,10 @@ pub fn drain_common_opts(argv: &mut Vec<String>, start_at: usize) -> CommonOpts 
     while let Some(arg) = argv.get(i) {
         let (prefix, opt) = arg.split_at(2);
         if prefix != "--" {
+            // No args left to take
             break;
         }
+        // "Take" arg
         i += 1;
         match opt {
             "config" => {
