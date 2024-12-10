@@ -279,7 +279,7 @@ impl SignerTest<SpawnedSigner> {
         // could be other miners mining blocks.
         let height_before = get_chain_info(&self.running_nodes.conf).stacks_tip_height;
         info!("Waiting for first Nakamoto block: {}", height_before + 1);
-        self.mine_nakamoto_block(Duration::from_secs(30));
+        self.mine_nakamoto_block(Duration::from_secs(30), false);
         wait_for(30, || {
             Ok(get_chain_info(&self.running_nodes.conf).stacks_tip_height > height_before)
         })
@@ -288,12 +288,17 @@ impl SignerTest<SpawnedSigner> {
     }
 
     // Only call after already past the epoch 3.0 boundary
-    fn mine_and_verify_confirmed_naka_block(&mut self, timeout: Duration, num_signers: usize) {
+    fn mine_and_verify_confirmed_naka_block(
+        &mut self,
+        timeout: Duration,
+        num_signers: usize,
+        use_nakamoto_blocks_mined: bool,
+    ) {
         info!("------------------------- Try mining one block -------------------------");
 
         let reward_cycle = self.get_current_reward_cycle();
 
-        self.mine_nakamoto_block(timeout);
+        self.mine_nakamoto_block(timeout, use_nakamoto_blocks_mined);
 
         // Verify that the signers accepted the proposed block, sending back a validate ok response
         let proposed_signer_signature_hash = self
@@ -376,7 +381,7 @@ impl SignerTest<SpawnedSigner> {
         let total_nmb_blocks_to_mine = burnchain_height.saturating_sub(current_block_height);
         debug!("Mining {total_nmb_blocks_to_mine} Nakamoto block(s) to reach burnchain height {burnchain_height}");
         for _ in 0..total_nmb_blocks_to_mine {
-            self.mine_and_verify_confirmed_naka_block(timeout, num_signers);
+            self.mine_and_verify_confirmed_naka_block(timeout, num_signers, false);
         }
     }
 
@@ -588,7 +593,7 @@ fn miner_gather_signatures() {
     signer_test.boot_to_epoch_3();
 
     info!("------------------------- Test Mine and Verify Confirmed Nakamoto Block -------------------------");
-    signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers);
+    signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers, true);
 
     // Test prometheus metrics response
     #[cfg(feature = "monitoring_prom")]
@@ -1331,7 +1336,7 @@ fn bitcoind_forking_test() {
 
     for i in 0..pre_fork_tenures {
         info!("Mining pre-fork tenure {} of {pre_fork_tenures}", i + 1);
-        signer_test.mine_nakamoto_block(Duration::from_secs(30));
+        signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
     }
 
     let pre_fork_1_nonce = get_account(&http_origin, &miner_address).nonce;
@@ -1403,7 +1408,7 @@ fn bitcoind_forking_test() {
 
     for i in 0..5 {
         info!("Mining post-fork tenure {} of 5", i + 1);
-        signer_test.mine_nakamoto_block(Duration::from_secs(30));
+        signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
     }
 
     let pre_fork_2_nonce = get_account(&http_origin, &miner_address).nonce;
@@ -1479,7 +1484,7 @@ fn bitcoind_forking_test() {
 
     for i in 0..5 {
         info!("Mining post-fork tenure {} of 5", i + 1);
-        signer_test.mine_nakamoto_block(Duration::from_secs(30));
+        signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
     }
 
     let test_end_nonce = get_account(&http_origin, &miner_address).nonce;
@@ -2512,7 +2517,7 @@ fn signers_broadcast_signed_blocks() {
         .running_nodes
         .nakamoto_blocks_mined
         .load(Ordering::SeqCst);
-    signer_test.mine_nakamoto_block(Duration::from_secs(30));
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
     wait_for(30, || {
         let blocks_mined = signer_test
@@ -2613,7 +2618,7 @@ fn tenure_extend_after_idle() {
     signer_test.boot_to_epoch_3();
 
     info!("---- Nakamoto booted, starting test ----");
-    signer_test.mine_nakamoto_block(Duration::from_secs(30));
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
     info!("---- Waiting for a tenure extend ----");
 
@@ -2675,7 +2680,7 @@ fn stx_transfers_dont_effect_idle_timeout() {
         "info_height" => info_before.stacks_tip_height,
         "blocks_before" => blocks_before,
     );
-    signer_test.mine_nakamoto_block(Duration::from_secs(30));
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
     info!("---- Getting current idle timeout ----");
 
@@ -2813,7 +2818,7 @@ fn idle_tenure_extend_active_mining() {
     // Add a delay to the block validation process
     TEST_VALIDATE_DELAY_DURATION_SECS.lock().unwrap().replace(3);
 
-    signer_test.mine_nakamoto_block(Duration::from_secs(30));
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
     info!("---- Getting current idle timeout ----");
 
@@ -2881,7 +2886,7 @@ fn idle_tenure_extend_active_mining() {
 
     info!("----- Submitted deploy txs, mining BTC block -----");
 
-    signer_test.mine_nakamoto_block(Duration::from_secs(30));
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
     let mut last_response = signer_test.get_latest_block_response(slot_id);
 
     // Make multiple tenures that get extended through idle timeouts
@@ -3994,7 +3999,7 @@ fn signer_set_rollover() {
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
-    signer_test.mine_nakamoto_block(short_timeout);
+    signer_test.mine_nakamoto_block(short_timeout, true);
     let mined_block = test_observer::get_mined_nakamoto_blocks().pop().unwrap();
     let block_sighash = mined_block.signer_signature_hash;
     let signer_signatures = mined_block.signer_signature;
@@ -4068,7 +4073,7 @@ fn signer_set_rollover() {
     })
     .expect("Timed out waiting for stacking txs to be mined");
 
-    signer_test.mine_nakamoto_block(short_timeout);
+    signer_test.mine_nakamoto_block(short_timeout, true);
 
     let next_reward_cycle = reward_cycle.saturating_add(1);
 
@@ -4121,7 +4126,7 @@ fn signer_set_rollover() {
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
-    signer_test.mine_nakamoto_block(short_timeout);
+    signer_test.mine_nakamoto_block(short_timeout, true);
     let mined_block = test_observer::get_mined_nakamoto_blocks().pop().unwrap();
 
     info!("---- Verifying that the new signers signed the block -----");
@@ -4308,7 +4313,7 @@ fn duplicate_signers() {
 
     info!("------------------------- Try mining one block -------------------------");
 
-    signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers);
+    signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers, true);
 
     info!("------------------------- Read all `BlockResponse::Accepted` messages -------------------------");
 
@@ -6820,7 +6825,7 @@ fn continue_after_tenure_extend() {
     signer_test.boot_to_epoch_3();
 
     info!("------------------------- Mine Normal Tenure -------------------------");
-    signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers);
+    signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers, true);
 
     info!("------------------------- Extend Tenure -------------------------");
     signer_test
@@ -7466,7 +7471,7 @@ fn block_validation_response_timeout() {
     signer_test.boot_to_epoch_3();
 
     info!("------------------------- Test Mine and Verify Confirmed Nakamoto Block -------------------------");
-    signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers);
+    signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers, true);
     info!("------------------------- Test Block Validation Stalled -------------------------");
     TEST_VALIDATE_STALL.lock().unwrap().replace(true);
     let validation_stall_start = Instant::now();
@@ -7583,7 +7588,7 @@ fn block_validation_response_timeout() {
     );
     info!("------------------------- Test Mine and Verify Confirmed Nakamoto Block -------------------------");
     let info_before = info_after;
-    signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers);
+    signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers, true);
 
     wait_for(30, || {
         let info = get_chain_info(&signer_test.running_nodes.conf);
