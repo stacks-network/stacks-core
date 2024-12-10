@@ -46,100 +46,17 @@ use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, St
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::{Error as ChainstateError, *};
 use crate::clarity_vm::clarity::ClarityInstance;
+use crate::config::{Config, ConfigFile, DEFAULT_MAINNET_CONFIG};
 use crate::core::*;
 use crate::cost_estimates::metrics::UnitMetric;
 use crate::cost_estimates::UnitEstimator;
 use crate::util_lib::db::IndexDBTx;
 
-/// Can be used with CLI commands to support non-mainnet chainstate
-/// Allows integration testing of these functions
-#[derive(Debug, Deserialize, PartialEq)]
-pub struct StacksChainConfig {
-    pub chain_id: u32,
-    pub first_block_height: u64,
-    pub first_burn_header_hash: BurnchainHeaderHash,
-    pub first_burn_header_timestamp: u64,
-    pub pox_constants: PoxConstants,
-    pub epochs: EpochList,
-}
-
-impl StacksChainConfig {
-    pub fn type_name() -> &'static str {
-        type_name::<Self>()
-    }
-
-    pub fn default_mainnet() -> Self {
-        Self {
-            chain_id: CHAIN_ID_MAINNET,
-            first_block_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
-            first_burn_header_hash: BurnchainHeaderHash::from_hex(BITCOIN_MAINNET_FIRST_BLOCK_HASH)
-                .unwrap(),
-            first_burn_header_timestamp: BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP.into(),
-            pox_constants: PoxConstants::mainnet_default(),
-            epochs: (*STACKS_EPOCHS_MAINNET).clone(),
-        }
-    }
-
-    pub fn default_testnet() -> Self {
-        let mut pox_constants = PoxConstants::regtest_default();
-        pox_constants.prepare_length = 100;
-        pox_constants.reward_cycle_length = 900;
-        pox_constants.v1_unlock_height = 3;
-        pox_constants.v2_unlock_height = 5;
-        pox_constants.pox_3_activation_height = 5;
-        pox_constants.pox_4_activation_height = 6;
-        pox_constants.v3_unlock_height = 7;
-        let mut epochs = EpochList::new(&*STACKS_EPOCHS_REGTEST);
-        epochs[StacksEpochId::Epoch10].start_height = 0;
-        epochs[StacksEpochId::Epoch10].end_height = 0;
-        epochs[StacksEpochId::Epoch20].start_height = 0;
-        epochs[StacksEpochId::Epoch20].end_height = 1;
-        epochs[StacksEpochId::Epoch2_05].start_height = 1;
-        epochs[StacksEpochId::Epoch2_05].end_height = 2;
-        epochs[StacksEpochId::Epoch21].start_height = 2;
-        epochs[StacksEpochId::Epoch21].end_height = 3;
-        epochs[StacksEpochId::Epoch22].start_height = 3;
-        epochs[StacksEpochId::Epoch22].end_height = 4;
-        epochs[StacksEpochId::Epoch23].start_height = 4;
-        epochs[StacksEpochId::Epoch23].end_height = 5;
-        epochs[StacksEpochId::Epoch24].start_height = 5;
-        epochs[StacksEpochId::Epoch24].end_height = 6;
-        epochs[StacksEpochId::Epoch25].start_height = 6;
-        epochs[StacksEpochId::Epoch25].end_height = 56_457;
-        epochs[StacksEpochId::Epoch30].start_height = 56_457;
-        Self {
-            chain_id: CHAIN_ID_TESTNET,
-            first_block_height: 0,
-            first_burn_header_hash: BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH)
-                .unwrap(),
-            first_burn_header_timestamp: BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP.into(),
-            pox_constants,
-            epochs,
-        }
-    }
-
-    pub fn from_file(path: &str) -> Self {
-        let text = fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("Failed to read file '{path}': {e}"));
-        let config: Self = toml::from_str(&text).unwrap_or_else(|e| {
-            panic!(
-                "Failed to parse file '{path}' as `{t}`: {e}",
-                t = Self::type_name()
-            )
-        });
-        config
-    }
-}
-
-// Can't be initialized as `const`, so this is the next best option
-const STACKS_CHAIN_CONFIG_DEFAULT_MAINNET: LazyCell<StacksChainConfig> =
-    LazyCell::new(StacksChainConfig::default_mainnet);
-
 /// Options common to many `stacks-inspect` subcommands
 /// Returned by `process_common_opts()`
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default)]
 pub struct CommonOpts {
-    pub config: Option<StacksChainConfig>,
+    pub config: Option<Config>,
 }
 
 /// Process arguments common to many `stacks-inspect` subcommands and drain them from `argv`
@@ -164,20 +81,30 @@ pub fn drain_common_opts(argv: &mut Vec<String>, start_at: usize) -> CommonOpts 
             "config" => {
                 let path = &argv[i];
                 i += 1;
-                let config = StacksChainConfig::from_file(&path);
+                let config_file = ConfigFile::from_path(&path).unwrap_or_else(|e| {
+                    panic!("Failed to read '{path}' as stacks-node config: {e}")
+                });
+                let config = Config::from_config_file(config_file, false).unwrap_or_else(|e| {
+                    panic!("Failed to convert config file into node config: {e}")
+                });
                 opts.config.replace(config);
             }
             "network" => {
                 let network = &argv[i];
                 i += 1;
-                let config = match network.to_lowercase().as_str() {
-                    "testnet" => StacksChainConfig::default_testnet(),
-                    "mainnet" => StacksChainConfig::default_mainnet(),
+                let config_file = match network.to_lowercase().as_str() {
+                    "helium" => ConfigFile::helium(),
+                    "mainnet" => ConfigFile::mainnet(),
+                    "mocknet" => ConfigFile::mocknet(),
+                    "xenon" => ConfigFile::xenon(),
                     other => {
                         eprintln!("Unknown network choice `{other}`");
                         process::exit(1);
                     }
                 };
+                let config = Config::from_config_file(config_file, false).unwrap_or_else(|e| {
+                    panic!("Failed to convert config file into node config: {e}")
+                });
                 opts.config.replace(config);
             }
             _ => panic!("Unrecognized option: {opt}"),
@@ -193,7 +120,7 @@ pub fn drain_common_opts(argv: &mut Vec<String>, start_at: usize) -> CommonOpts 
 ///
 /// Arguments:
 ///  - `argv`: Args in CLI format: `<command-name> [args...]`
-pub fn command_replay_block(argv: &[String], conf: Option<&StacksChainConfig>) {
+pub fn command_replay_block(argv: &[String], conf: Option<&Config>) {
     let print_help_and_exit = || -> ! {
         let n = &argv[0];
         eprintln!("Usage:");
@@ -271,7 +198,7 @@ pub fn command_replay_block(argv: &[String], conf: Option<&StacksChainConfig>) {
 ///
 /// Arguments:
 ///  - `argv`: Args in CLI format: `<command-name> [args...]`
-pub fn command_replay_block_nakamoto(argv: &[String], conf: Option<&StacksChainConfig>) {
+pub fn command_replay_block_nakamoto(argv: &[String], conf: Option<&Config>) {
     let print_help_and_exit = || -> ! {
         let n = &argv[0];
         eprintln!("Usage:");
@@ -288,12 +215,15 @@ pub fn command_replay_block_nakamoto(argv: &[String], conf: Option<&StacksChainC
 
     let chain_state_path = format!("{db_path}/chainstate/");
 
-    let default_conf = STACKS_CHAIN_CONFIG_DEFAULT_MAINNET;
-    let conf = conf.unwrap_or(&default_conf);
+    let conf = conf.unwrap_or(&DEFAULT_MAINNET_CONFIG);
 
-    let mainnet = conf.chain_id == CHAIN_ID_MAINNET;
-    let (chainstate, _) =
-        StacksChainState::open(mainnet, conf.chain_id, &chain_state_path, None).unwrap();
+    let (chainstate, _) = StacksChainState::open(
+        conf.is_mainnet(),
+        conf.burnchain.chain_id,
+        &chain_state_path,
+        None,
+    )
+    .unwrap();
 
     let conn = chainstate.nakamoto_blocks_db();
 
@@ -357,7 +287,7 @@ pub fn command_replay_block_nakamoto(argv: &[String], conf: Option<&StacksChainC
 /// Arguments:
 ///  - `argv`: Args in CLI format: `<command-name> [args...]`
 ///  - `conf`: Optional config for running on non-mainnet chainstate
-pub fn command_replay_mock_mining(argv: &[String], conf: Option<&StacksChainConfig>) {
+pub fn command_replay_mock_mining(argv: &[String], conf: Option<&Config>) {
     let print_help_and_exit = || -> ! {
         let n = &argv[0];
         eprintln!("Usage:");
@@ -451,7 +381,7 @@ pub fn command_replay_mock_mining(argv: &[String], conf: Option<&StacksChainConf
 /// Arguments:
 ///  - `argv`: Args in CLI format: `<command-name> [args...]`
 ///  - `conf`: Optional config for running on non-mainnet chainstate
-pub fn command_try_mine(argv: &[String], conf: Option<&StacksChainConfig>) {
+pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
     let print_help_and_exit = || {
         let n = &argv[0];
         eprintln!("Usage: {n} <working-dir> [min-fee [max-time]]");
@@ -478,25 +408,36 @@ pub fn command_try_mine(argv: &[String], conf: Option<&StacksChainConfig>) {
 
     let start = get_epoch_time_ms();
 
-    let default_conf = STACKS_CHAIN_CONFIG_DEFAULT_MAINNET;
-    let conf = conf.unwrap_or(&default_conf);
+    let conf = conf.unwrap_or(&DEFAULT_MAINNET_CONFIG);
 
     let burnchain_path = format!("{db_path}/burnchain");
     let sort_db_path = format!("{db_path}/burnchain/sortition");
     let chain_state_path = format!("{db_path}/chainstate/");
 
-    let sort_db = SortitionDB::open(&sort_db_path, false, conf.pox_constants.clone())
+    let burnchain = conf.get_burnchain();
+    let sort_db = SortitionDB::open(&sort_db_path, false, burnchain.pox_constants.clone())
         .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
-    let (chain_state, _) = StacksChainState::open(true, conf.chain_id, &chain_state_path, None)
-        .expect("Failed to open stacks chain state");
+    let (chain_state, _) = StacksChainState::open(
+        conf.is_mainnet(),
+        conf.burnchain.chain_id,
+        &chain_state_path,
+        None,
+    )
+    .expect("Failed to open stacks chain state");
     let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
         .expect("Failed to get sortition chain tip");
 
     let estimator = Box::new(UnitEstimator);
     let metric = Box::new(UnitMetric);
 
-    let mut mempool_db = MemPoolDB::open(true, conf.chain_id, &chain_state_path, estimator, metric)
-        .expect("Failed to open mempool db");
+    let mut mempool_db = MemPoolDB::open(
+        conf.is_mainnet(),
+        conf.burnchain.chain_id,
+        &chain_state_path,
+        estimator,
+        metric,
+    )
+    .expect("Failed to open mempool db");
 
     let header_tip = NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)
         .unwrap()
@@ -519,7 +460,7 @@ pub fn command_try_mine(argv: &[String], conf: Option<&StacksChainConfig>) {
         TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
     );
 
-    coinbase_tx.chain_id = conf.chain_id;
+    coinbase_tx.chain_id = conf.burnchain.chain_id;
     coinbase_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
     let mut tx_signer = StacksTransactionSigner::new(&coinbase_tx);
     tx_signer.sign_origin(&sk).unwrap();
@@ -581,31 +522,32 @@ pub fn command_try_mine(argv: &[String], conf: Option<&StacksChainConfig>) {
 }
 
 /// Fetch and process a `StagingBlock` from database and call `replay_block()` to validate
-fn replay_staging_block(
-    db_path: &str,
-    index_block_hash_hex: &str,
-    conf: Option<&StacksChainConfig>,
-) {
+fn replay_staging_block(db_path: &str, index_block_hash_hex: &str, conf: Option<&Config>) {
     let block_id = StacksBlockId::from_hex(index_block_hash_hex).unwrap();
     let chain_state_path = format!("{db_path}/chainstate/");
     let sort_db_path = format!("{db_path}/burnchain/sortition");
     let burn_db_path = format!("{db_path}/burnchain/burnchain.sqlite");
     let burnchain_blocks_db = BurnchainDB::open(&burn_db_path, false).unwrap();
 
-    let default_conf = STACKS_CHAIN_CONFIG_DEFAULT_MAINNET;
-    let conf = conf.unwrap_or(&default_conf);
+    let conf = conf.unwrap_or(&DEFAULT_MAINNET_CONFIG);
 
-    let mainnet = conf.chain_id == CHAIN_ID_MAINNET;
-    let (mut chainstate, _) =
-        StacksChainState::open(mainnet, conf.chain_id, &chain_state_path, None).unwrap();
+    let (mut chainstate, _) = StacksChainState::open(
+        conf.is_mainnet(),
+        conf.burnchain.chain_id,
+        &chain_state_path,
+        None,
+    )
+    .unwrap();
 
+    let burnchain = conf.get_burnchain();
+    let epochs = conf.burnchain.epochs.as_ref().expect("No Epochs found");
     let mut sortdb = SortitionDB::connect(
         &sort_db_path,
-        conf.first_block_height,
-        &conf.first_burn_header_hash,
-        conf.first_burn_header_timestamp,
-        &conf.epochs,
-        conf.pox_constants.clone(),
+        burnchain.first_block_height,
+        &burnchain.first_block_hash,
+        u64::from(burnchain.first_block_timestamp),
+        epochs,
+        burnchain.pox_constants.clone(),
         None,
         true,
     )
@@ -659,30 +601,31 @@ fn replay_staging_block(
 }
 
 /// Process a mock mined block and call `replay_block()` to validate
-fn replay_mock_mined_block(
-    db_path: &str,
-    block: AssembledAnchorBlock,
-    conf: Option<&StacksChainConfig>,
-) {
+fn replay_mock_mined_block(db_path: &str, block: AssembledAnchorBlock, conf: Option<&Config>) {
     let chain_state_path = format!("{db_path}/chainstate/");
     let sort_db_path = format!("{db_path}/burnchain/sortition");
     let burn_db_path = format!("{db_path}/burnchain/burnchain.sqlite");
     let burnchain_blocks_db = BurnchainDB::open(&burn_db_path, false).unwrap();
 
-    let default_conf = STACKS_CHAIN_CONFIG_DEFAULT_MAINNET;
-    let conf = conf.unwrap_or(&default_conf);
+    let conf = conf.unwrap_or(&DEFAULT_MAINNET_CONFIG);
 
-    let mainnet = conf.chain_id == CHAIN_ID_MAINNET;
-    let (mut chainstate, _) =
-        StacksChainState::open(mainnet, conf.chain_id, &chain_state_path, None).unwrap();
+    let (mut chainstate, _) = StacksChainState::open(
+        conf.is_mainnet(),
+        conf.burnchain.chain_id,
+        &chain_state_path,
+        None,
+    )
+    .unwrap();
 
+    let burnchain = conf.get_burnchain();
+    let epochs = conf.burnchain.epochs.as_ref().expect("No Epochs found");
     let mut sortdb = SortitionDB::connect(
         &sort_db_path,
-        conf.first_block_height,
-        &conf.first_burn_header_hash,
-        conf.first_burn_header_timestamp,
-        &conf.epochs,
-        conf.pox_constants.clone(),
+        burnchain.first_block_height,
+        &burnchain.first_block_hash,
+        u64::from(burnchain.first_block_timestamp),
+        epochs,
+        burnchain.pox_constants.clone(),
         None,
         true,
     )
@@ -861,22 +804,28 @@ fn replay_block(
 }
 
 /// Fetch and process a NakamotoBlock from database and call `replay_block_nakamoto()` to validate
-fn replay_naka_staging_block(db_path: &str, index_block_hash_hex: &str, conf: &StacksChainConfig) {
+fn replay_naka_staging_block(db_path: &str, index_block_hash_hex: &str, conf: &Config) {
     let block_id = StacksBlockId::from_hex(index_block_hash_hex).unwrap();
     let chain_state_path = format!("{db_path}/chainstate/");
     let sort_db_path = format!("{db_path}/burnchain/sortition");
 
-    let mainnet = conf.chain_id == CHAIN_ID_MAINNET;
-    let (mut chainstate, _) =
-        StacksChainState::open(mainnet, conf.chain_id, &chain_state_path, None).unwrap();
+    let (mut chainstate, _) = StacksChainState::open(
+        conf.is_mainnet(),
+        conf.burnchain.chain_id,
+        &chain_state_path,
+        None,
+    )
+    .unwrap();
 
+    let burnchain = conf.get_burnchain();
+    let epochs = conf.burnchain.epochs.as_ref().expect("No Epochs found");
     let mut sortdb = SortitionDB::connect(
         &sort_db_path,
-        conf.first_block_height,
-        &conf.first_burn_header_hash,
-        conf.first_burn_header_timestamp,
-        &conf.epochs,
-        conf.pox_constants.clone(),
+        burnchain.first_block_height,
+        &burnchain.first_block_hash,
+        u64::from(burnchain.first_block_timestamp),
+        epochs,
+        burnchain.pox_constants.clone(),
         None,
         true,
     )
@@ -1171,11 +1120,11 @@ pub mod test {
         let opts = drain_common_opts(&mut argv, 1);
 
         assert_eq!(argv, argv_init);
-        assert_eq!(opts, CommonOpts::default());
+        assert!(opts.config.is_none());
 
         // Should find config opts and remove from vec
         let mut argv = parse_cli_command(
-            "stacks-inspect --network testnet --network mainnet try-mine /tmp/chainstate/mainnet",
+            "stacks-inspect --network mocknet --network mainnet try-mine /tmp/chainstate/mainnet",
         );
         let opts = drain_common_opts(&mut argv, 1);
         let argv_expected = parse_cli_command("stacks-inspect try-mine /tmp/chainstate/mainnet");
