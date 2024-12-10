@@ -488,6 +488,7 @@ fn block_proposal_rejection() {
         header: NakamotoBlockHeader::empty(),
         txs: vec![],
     };
+    block.header.timestamp = get_epoch_time_secs();
 
     // First propose a block to the signers that does not have the correct consensus hash or BitVec. This should be rejected BEFORE
     // the block is submitted to the node for validation.
