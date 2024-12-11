@@ -3338,7 +3338,6 @@ dependencies = [
  "tikv-jemallocator",
  "tiny_http",
  "tokio",
- "toml",
  "tracing",
  "tracing-subscriber",
  "url",
