@@ -496,7 +496,10 @@ pub static STACKS_EPOCH_3_0_MARKER: u8 = 0x0b;
 
 /// Stacks 3.1 epoch marker.  All block-commits in 3.1 must have a memo bitfield with this value
 /// *or greater*.
-pub static STACKS_EPOCH_3_1_MARKER: u8 = 0x0c;
+/// NOTE: it has to be 0x0d because a prior release of 3.1 with 0x0c before activation had a
+/// consensus bug. This forces miners with this buggy release off the network if they are still
+/// running it prior to 3.1 activation.
+pub static STACKS_EPOCH_3_1_MARKER: u8 = 0x0d;
 
 #[test]
 fn test_ord_for_stacks_epoch() {
