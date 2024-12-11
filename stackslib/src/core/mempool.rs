@@ -1712,7 +1712,7 @@ impl MemPoolDB {
                             let tx = MemPoolTxInfoPartial::from_row(row)?;
                             let update_estimate = tx.fee_rate.is_none();
                             (tx, update_estimate)
-                        },
+                        }
                         None => {
                             debug!("No more transactions to consider in mempool");
                             break MempoolIterationStopReason::NoMoreCandidates;
