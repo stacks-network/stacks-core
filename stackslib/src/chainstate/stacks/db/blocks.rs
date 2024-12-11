@@ -4104,8 +4104,7 @@ impl StacksChainState {
                         current_epoch = StacksEpochId::Epoch30;
                     }
                     StacksEpochId::Epoch30 => {
-                        // no special initialization is needed, since only the coinbase emission
-                        // schedule is changing.
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_3_1()?);
                         current_epoch = StacksEpochId::Epoch31;
                     }
                     StacksEpochId::Epoch31 => {
