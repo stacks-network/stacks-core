@@ -521,10 +521,7 @@ impl Config {
     }
 
     fn check_nakamoto_config(&self, burnchain: &Burnchain) {
-        let epochs = StacksEpoch::get_epochs(
-            self.burnchain.get_bitcoin_network().1,
-            self.burnchain.epochs.as_ref(),
-        );
+        let epochs = self.burnchain.get_epoch_list();
         let Some(epoch_30) = epochs.get(StacksEpochId::Epoch30) else {
             // no Epoch 3.0, so just return
             return;
@@ -1287,6 +1284,10 @@ impl BurnchainConfig {
             }
             other => panic!("Invalid stacks-node mode: {other}"),
         }
+    }
+
+    pub fn get_epoch_list(&self) -> EpochList<ExecutionCost> {
+        StacksEpoch::get_epochs(self.get_bitcoin_network().1, self.epochs.as_ref())
     }
 }
 

@@ -2701,10 +2701,12 @@ impl NakamotoChainState {
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
         let sql = "SELECT * FROM block_headers WHERE index_block_hash = ?1";
+        println!("get_block_header_epoch2(): Looking for block {index_block_hash}");
         let result = query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
             "FATAL: multiple rows for the same block hash".to_string()
         })?;
 
+        println!("get_block_header_epoch2(): Found {result:?}");
         Ok(result)
     }
 
@@ -2713,6 +2715,7 @@ impl NakamotoChainState {
         chainstate_conn: &Connection,
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
+        println!("get_block_header(): Looking for block {index_block_hash}");
         if let Some(header) = Self::get_block_header_nakamoto(chainstate_conn, index_block_hash)? {
             return Ok(Some(header));
         }

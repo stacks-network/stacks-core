@@ -390,10 +390,8 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
         eprintln!("");
         eprintln!("Given a <working-dir>, try to ''mine'' an anchored block. This invokes the miner block");
         eprintln!("assembly, but does not attempt to broadcast a block commit. This is useful for determining");
-        eprintln!(
-            "what transactions a given chain state would include in an anchor block, or otherwise"
-        );
-        eprintln!("simulating a miner.");
+        eprintln!("what transactions a given chain state would include in an anchor block,");
+        eprintln!("or otherwise simulating a miner.");
         process::exit(1);
     };
 
@@ -418,16 +416,16 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
 
     let burnchain = conf.get_burnchain();
     let sort_db = SortitionDB::open(&sort_db_path, false, burnchain.pox_constants.clone())
-        .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
+        .unwrap_or_else(|e| panic!("Failed to open {sort_db_path}: {e}"));
     let (chain_state, _) = StacksChainState::open(
         conf.is_mainnet(),
         conf.burnchain.chain_id,
         &chain_state_path,
         None,
     )
-    .expect("Failed to open stacks chain state");
+    .unwrap_or_else(|e| panic!("Failed to open stacks chain state: {e}"));
     let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
-        .expect("Failed to get sortition chain tip");
+        .unwrap_or_else(|e| panic!("Failed to get sortition chain tip: {e}"));
 
     let estimator = Box::new(UnitEstimator);
     let metric = Box::new(UnitMetric);
@@ -439,7 +437,7 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
         estimator,
         metric,
     )
-    .expect("Failed to open mempool db");
+    .unwrap_or_else(|e| panic!("Failed to open mempool db: {e}"));
 
     let header_tip = NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)
         .unwrap()
@@ -449,7 +447,7 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
         &header_tip.consensus_hash,
         &header_tip.anchored_header.block_hash(),
     )
-    .expect("Failed to load chain tip header info")
+    .unwrap_or_else(|e| panic!("Failed to load chain tip header info: {e}"))
     .expect("Failed to load chain tip header info");
 
     let sk = StacksPrivateKey::new();
@@ -482,7 +480,12 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
         &coinbase_tx,
         settings,
         None,
-        &Burnchain::new(&burnchain_path, "bitcoin", "main").unwrap(),
+        &Burnchain::new(
+            &burnchain_path,
+            &burnchain.chain_name,
+            &burnchain.network_name,
+        )
+        .unwrap(),
     );
 
     let stop = get_epoch_time_ms();
@@ -542,13 +545,13 @@ fn replay_staging_block(db_path: &str, index_block_hash_hex: &str, conf: Option<
     .unwrap();
 
     let burnchain = conf.get_burnchain();
-    let epochs = conf.burnchain.epochs.as_ref().expect("No Epochs found");
+    let epochs = conf.burnchain.get_epoch_list();
     let mut sortdb = SortitionDB::connect(
         &sort_db_path,
         burnchain.first_block_height,
         &burnchain.first_block_hash,
         u64::from(burnchain.first_block_timestamp),
-        epochs,
+        &epochs,
         burnchain.pox_constants.clone(),
         None,
         true,
@@ -620,13 +623,13 @@ fn replay_mock_mined_block(db_path: &str, block: AssembledAnchorBlock, conf: Opt
     .unwrap();
 
     let burnchain = conf.get_burnchain();
-    let epochs = conf.burnchain.epochs.as_ref().expect("No Epochs found");
+    let epochs = conf.burnchain.get_epoch_list();
     let mut sortdb = SortitionDB::connect(
         &sort_db_path,
         burnchain.first_block_height,
         &burnchain.first_block_hash,
         u64::from(burnchain.first_block_timestamp),
-        epochs,
+        &epochs,
         burnchain.pox_constants.clone(),
         None,
         true,
@@ -820,13 +823,13 @@ fn replay_naka_staging_block(db_path: &str, index_block_hash_hex: &str, conf: &C
     .unwrap();
 
     let burnchain = conf.get_burnchain();
-    let epochs = conf.burnchain.epochs.as_ref().expect("No Epochs found");
+    let epochs = conf.burnchain.get_epoch_list();
     let mut sortdb = SortitionDB::connect(
         &sort_db_path,
         burnchain.first_block_height,
         &burnchain.first_block_hash,
         u64::from(burnchain.first_block_timestamp),
-        epochs,
+        &epochs,
         burnchain.pox_constants.clone(),
         None,
         true,
