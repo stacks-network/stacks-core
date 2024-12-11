@@ -226,6 +226,21 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             None => None,
         }
     }
+
+    /// Load the epoch ID from the clarity DB.
+    /// Used to sanity-check epoch transitions.
+    pub fn get_clarity_db_epoch_version(
+        &mut self,
+        burn_state_db: &dyn BurnStateDB,
+    ) -> Result<StacksEpochId, Error> {
+        let mut db = self.datastore.as_clarity_db(self.header_db, burn_state_db);
+        // NOTE: the begin/roll_back shouldn't be necessary with how this gets used in practice,
+        // but is put here defensively.
+        db.begin();
+        let result = db.get_clarity_epoch_version();
+        db.roll_back()?;
+        Ok(result?)
+    }
 }
 
 impl ClarityInstance {

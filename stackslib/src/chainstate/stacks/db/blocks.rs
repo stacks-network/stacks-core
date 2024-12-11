@@ -4044,6 +4044,7 @@ impl StacksChainState {
     /// Return (applied?, receipts)
     pub fn process_epoch_transition(
         clarity_tx: &mut ClarityTx,
+        burn_dbconn: &dyn BurnStateDB,
         chain_tip_burn_header_height: u32,
     ) -> Result<(bool, Vec<StacksTransactionReceipt>), Error> {
         // is this stacks block the first of a new epoch?
@@ -4110,6 +4111,22 @@ impl StacksChainState {
                     StacksEpochId::Epoch31 => {
                         panic!("No defined transition from Epoch31 forward")
                     }
+                }
+
+                if current_epoch > StacksEpochId::Epoch2_05 {
+                    // clarity tx should now have the current epoch
+                    assert_eq!(
+                        clarity_tx.block.get_epoch(),
+                        current_epoch,
+                        "FATAL: clarity_tx does not have the current epoch"
+                    );
+
+                    // clarity DB should now have the current epoch
+                    assert_eq!(
+                        clarity_tx.block.get_clarity_db_epoch_version(burn_dbconn)?,
+                        current_epoch,
+                        "FATAL: clarity DB does not report the current epoch"
+                    );
                 }
             }
         }
@@ -5197,7 +5214,11 @@ impl StacksChainState {
 
         // is this stacks block the first of a new epoch?
         let (applied_epoch_transition, mut tx_receipts) =
-            StacksChainState::process_epoch_transition(&mut clarity_tx, burn_tip_height)?;
+            StacksChainState::process_epoch_transition(
+                &mut clarity_tx,
+                burn_dbconn,
+                burn_tip_height,
+            )?;
 
         debug!(
             "Setup block: Processed epoch transition at {}/{}",
