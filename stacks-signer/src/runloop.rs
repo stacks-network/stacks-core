@@ -423,7 +423,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         let mut to_delete = Vec::new();
         for (idx, signer) in &mut self.stacks_signers {
             let reward_cycle = signer.reward_cycle();
-            if current_reward_cycle >= reward_cycle {
+            if reward_cycle >= current_reward_cycle {
                 // We are either the current or a future reward cycle, so we are not stale.
                 continue;
             }
