@@ -7,9 +7,18 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+## Added
+
+## Changed
+
+## [3.1.0.0.1.0]
+
 ### Added
 
 ### Changed
+
+- Added tenure extend timestamp to signer block responses
+- Added tenure_idle_timeout_secs configuration option for determining when a time-based tenure extend will be accepted
 
 ## [3.1.0.0.0.0]
 

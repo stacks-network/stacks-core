@@ -1192,7 +1192,7 @@ mod test {
             new_tip.microblock_tail.clone(),
             &block_reward,
             None,
-            &ExecutionCost::zero(),
+            &ExecutionCost::ZERO,
             123,
             false,
             vec![],
