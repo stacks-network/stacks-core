@@ -205,7 +205,7 @@ where
 }
 
 impl<'a> RollbackWrapper<'a> {
-    pub fn new(store: &'a mut dyn ClarityBackingStore) -> RollbackWrapper {
+    pub fn new(store: &'a mut dyn ClarityBackingStore) -> RollbackWrapper<'a> {
         RollbackWrapper {
             store,
             lookup_map: HashMap::new(),
@@ -218,7 +218,7 @@ impl<'a> RollbackWrapper<'a> {
     pub fn from_persisted_log(
         store: &'a mut dyn ClarityBackingStore,
         log: RollbackWrapperPersistedLog,
-    ) -> RollbackWrapper {
+    ) -> RollbackWrapper<'a> {
         RollbackWrapper {
             store,
             lookup_map: log.lookup_map,
