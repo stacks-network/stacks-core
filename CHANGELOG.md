@@ -9,6 +9,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
+- Set the epoch to 3.1 in the Clarity DB upon activation.
+
 ### Changed
 
 ## [3.1.0.0.1]
