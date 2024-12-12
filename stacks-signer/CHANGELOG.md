@@ -10,6 +10,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ## Added
 
 ## Changed
+- Improvements to the stale signer cleanup logic: deletes the prior signer if it has no remaining unprocessed blocks in its database
 
 ## [3.1.0.0.1.0]
 
