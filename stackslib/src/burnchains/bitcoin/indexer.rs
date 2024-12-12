@@ -924,7 +924,7 @@ impl BitcoinIndexer {
             return Ok(());
         }
         warn!(
-            "Header at height {} is not wihtin 2 hours of now (is at {})",
+            "Header at height {} is not within 2 hours of now (is at {})",
             highest_header_height, highest_header.block_header.header.time
         );
         self.drop_headers(highest_header_height.saturating_sub(1))?;
