@@ -62,7 +62,7 @@ use stacks::net::httpcore::{send_http_request, StacksHttpRequest};
 use stacks::net::stackerdb::StackerDBEventDispatcher;
 use stacks::util::hash::to_hex;
 #[cfg(any(test, feature = "testing"))]
-use stacks::util::TestFlag;
+use stacks::util::tests::TestFlag;
 use stacks::util_lib::db::Error as db_error;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;

@@ -22,7 +22,7 @@ use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_rea
 use stacks::core::StacksEpochId;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
 #[cfg(test)]
-use stacks::util::TestFlag;
+use stacks::util::tests::TestFlag;
 use stacks::util_lib::db::Error as db_error;
 use stacks_common::deps_common::ctrlc as termination;
 use stacks_common::deps_common::ctrlc::SignalId;

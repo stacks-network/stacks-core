@@ -15,8 +15,6 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::mpsc::Sender;
-#[cfg(any(test, feature = "testing"))]
-use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
@@ -35,12 +33,8 @@ use libsigner::v0::messages::{
 use libsigner::{BlockProposal, SignerEvent};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::types::chainstate::StacksAddress;
-#[cfg(any(test, feature = "testing"))]
-use stacks_common::types::chainstate::StacksPublicKey;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::secp256k1::MessageSignature;
-#[cfg(any(test, feature = "testing"))]
-use stacks_common::util::TestFlag;
 use stacks_common::{debug, error, info, warn};
 
 use crate::chainstate::{ProposalEvalConfig, SortitionsView};
@@ -50,27 +44,13 @@ use crate::runloop::SignerResult;
 use crate::signerdb::{BlockInfo, BlockState, SignerDb};
 use crate::Signer as SignerTrait;
 
-#[cfg(any(test, feature = "testing"))]
-/// A global variable that can be used to reject all block proposals if the signer's public key is in the provided list
-pub static TEST_REJECT_ALL_BLOCK_PROPOSAL: LazyLock<TestFlag<Vec<StacksPublicKey>>> =
-    LazyLock::new(TestFlag::default);
-
-#[cfg(any(test, feature = "testing"))]
-/// A global variable that can be used to ignore block proposals if the signer's public key is in the provided list
-pub static TEST_IGNORE_ALL_BLOCK_PROPOSALS: LazyLock<TestFlag<Vec<StacksPublicKey>>> =
-    LazyLock::new(TestFlag::default);
-
-#[cfg(any(test, feature = "testing"))]
-/// Pause the block broadcast
-pub static TEST_PAUSE_BLOCK_BROADCAST: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
-
-#[cfg(any(test, feature = "testing"))]
-/// Skip broadcasting the block to the network
-pub static TEST_SKIP_BLOCK_BROADCAST: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
-
 /// The stacks signer registered for the reward cycle
 #[derive(Debug)]
 pub struct Signer {
+    /// The private key of the signer
+    #[cfg(any(test, feature = "testing"))]
+    pub private_key: StacksPrivateKey,
+    #[cfg(not(any(test, feature = "testing")))]
     /// The private key of the signer
     private_key: StacksPrivateKey,
     /// The stackerdb client
@@ -175,20 +155,8 @@ impl SignerTrait<SignerMessage> for Signer {
                     match message {
                         SignerMessage::BlockProposal(block_proposal) => {
                             #[cfg(any(test, feature = "testing"))]
-                            {
-                                let public_keys = TEST_IGNORE_ALL_BLOCK_PROPOSALS.get();
-                                if public_keys.contains(
-                                    &stacks_common::types::chainstate::StacksPublicKey::from_private(
-                                        &self.private_key,
-                                    ),
-                                ) {
-                                        warn!("{self}: Ignoring block proposal due to testing directive";
-                                            "block_id" => %block_proposal.block.block_id(),
-                                            "height" => block_proposal.block.header.chain_length,
-                                            "consensus_hash" => %block_proposal.block.header.consensus_hash
-                                        );
-                                        continue;
-                                }
+                            if self.test_ignore_all_block_proposals(block_proposal) {
+                                continue;
                             }
                             self.handle_block_proposal(
                                 stacks_client,
@@ -1121,87 +1089,6 @@ impl Signer {
         }
     }
 
-    #[cfg(any(test, feature = "testing"))]
-    fn test_skip_block_broadcast(&self, block: &NakamotoBlock) -> bool {
-        if TEST_SKIP_BLOCK_BROADCAST.get() {
-            let block_hash = block.header.signer_signature_hash();
-            warn!(
-                "{self}: Skipping block broadcast due to testing directive";
-                "block_id" => %block.block_id(),
-                "height" => block.header.chain_length,
-                "consensus_hash" => %block.header.consensus_hash
-            );
-
-            if let Err(e) = self
-                .signer_db
-                .set_block_broadcasted(&block_hash, get_epoch_time_secs())
-            {
-                warn!("{self}: Failed to set block broadcasted for {block_hash}: {e:?}");
-            }
-            return true;
-        }
-        false
-    }
-
-    #[cfg(any(test, feature = "testing"))]
-    fn test_reject_block_proposal(
-        &mut self,
-        block_proposal: &BlockProposal,
-        block_info: &mut BlockInfo,
-        block_response: Option<BlockResponse>,
-    ) -> Option<BlockResponse> {
-        let public_keys = TEST_REJECT_ALL_BLOCK_PROPOSAL.get();
-        if public_keys.contains(
-            &stacks_common::types::chainstate::StacksPublicKey::from_private(&self.private_key),
-        ) {
-            warn!("{self}: Rejecting block proposal automatically due to testing directive";
-                "block_id" => %block_proposal.block.block_id(),
-                "height" => block_proposal.block.header.chain_length,
-                "consensus_hash" => %block_proposal.block.header.consensus_hash
-            );
-            if let Err(e) = block_info.mark_locally_rejected() {
-                warn!("{self}: Failed to mark block as locally rejected: {e:?}",);
-            };
-            // We must insert the block into the DB to prevent subsequent repeat proposals being accepted (should reject
-            // as invalid since we rejected in a prior round if this crops up again)
-            // in case this is the first time we saw this block. Safe to do since this is testing case only.
-            self.signer_db
-                .insert_block(block_info)
-                .unwrap_or_else(|e| self.handle_insert_block_error(e));
-            Some(BlockResponse::rejected(
-                block_proposal.block.header.signer_signature_hash(),
-                RejectCode::TestingDirective,
-                &self.private_key,
-                self.mainnet,
-                self.signer_db.calculate_tenure_extend_timestamp(
-                    self.proposal_config.tenure_idle_timeout,
-                    &block_proposal.block,
-                    false,
-                ),
-            ))
-        } else {
-            block_response
-        }
-    }
-
-    #[cfg(any(test, feature = "testing"))]
-    fn test_pause_block_broadcast(&self, block_info: &BlockInfo) {
-        if TEST_PAUSE_BLOCK_BROADCAST.get() {
-            // Do an extra check just so we don't log EVERY time.
-            warn!("{self}: Block broadcast is stalled due to testing directive.";
-                "block_id" => %block_info.block.block_id(),
-                "height" => block_info.block.header.chain_length,
-            );
-            while TEST_PAUSE_BLOCK_BROADCAST.get() {
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
-            info!("{self}: Block validation is no longer stalled due to testing directive.";
-                "block_id" => %block_info.block.block_id(),
-                "height" => block_info.block.header.chain_length,
-            );
-        }
-    }
-
     /// Send a mock signature to stackerdb to prove we are still alive
     fn mock_sign(&mut self, mock_proposal: MockProposal) {
         info!("{self}: Mock signing mock proposal: {mock_proposal:?}");
@@ -1216,7 +1103,7 @@ impl Signer {
     }
 
     /// Helper for logging insert_block error
-    fn handle_insert_block_error(&self, e: DBError) {
+    pub fn handle_insert_block_error(&self, e: DBError) {
         error!("{self}: Failed to insert block into signer-db: {e:?}");
         panic!("{self} Failed to write block to signerdb: {e}");
     }

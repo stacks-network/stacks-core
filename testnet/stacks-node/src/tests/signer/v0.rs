@@ -59,7 +59,7 @@ use stacks_common::util::sleep_ms;
 use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
 use stacks_signer::client::{SignerSlotID, StackerDB};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
-use stacks_signer::v0::signer::{
+use stacks_signer::v0::tests::{
     TEST_IGNORE_ALL_BLOCK_PROPOSALS, TEST_PAUSE_BLOCK_BROADCAST, TEST_REJECT_ALL_BLOCK_PROPOSAL,
     TEST_SKIP_BLOCK_BROADCAST,
 };

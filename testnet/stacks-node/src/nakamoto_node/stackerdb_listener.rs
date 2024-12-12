@@ -36,7 +36,7 @@ use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::{MerkleHashFunc, Sha512Trunc256Sum};
 use stacks::util::secp256k1::MessageSignature;
 #[cfg(test)]
-use stacks::util::TestFlag;
+use stacks_common::util::tests::TestFlag;
 
 use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::StackerDBChannel;
