@@ -355,7 +355,7 @@ impl NakamotoBootPlan {
     fn boot_nakamoto_peers<'a>(
         mut self,
         observer: Option<&'a TestEventObserver>,
-    ) -> (TestPeer<'a>, Vec<TestPeer>) {
+    ) -> (TestPeer<'a>, Vec<TestPeer<'a>>) {
         let mut peer_config = TestPeerConfig::new(&self.test_name, 0, 0);
         peer_config.network_id = self.network_id;
         peer_config.private_key = self.private_key.clone();
@@ -666,7 +666,7 @@ impl NakamotoBootPlan {
         self,
         boot_plan: Vec<NakamotoBootTenure>,
         observer: Option<&'a TestEventObserver>,
-    ) -> (TestPeer<'a>, Vec<TestPeer>) {
+    ) -> (TestPeer<'a>, Vec<TestPeer<'a>>) {
         let test_signers = self.test_signers.clone();
         let pox_constants = self.pox_constants.clone();
         let test_stackers = self.test_stackers.clone();
