@@ -1655,34 +1655,44 @@ impl MemPoolDB {
         // Iterate pending mempool transactions using a heuristic that maximizes miner fee profitability and minimizes CPU time
         // wasted on already-mined or not-yet-mineable transactions. This heuristic takes the following steps:
         //
-        // 1. Tries to filter out transactions that have nonces smaller than the origin address' next expected nonce as stated in
-        //    the `nonces` table, if available
-        // 2. Groups remaining transactions by origin address and ranks them prioritizing those with smaller nonces and higher
-        //    fees
-        // 3. Sorts all ranked transactions by fee and returns them for evaluation
+        // 1. Filters out transactions that have nonces smaller than the origin address' next expected nonce as stated in the
+        //    `nonces` table, when possible
+        // 2. Adds a "simulated" fee rate to transactions that don't have it by multiplying the mempool's maximum current fee rate
+        //    by a random number. This helps us mix these transactions with others to guarantee they get processed in a reasonable
+        //    order
+        // 3. Ranks transactions by prioritizing those with next nonces and higher fees (per origin address)
+        // 4. Sorts all ranked transactions by fee and returns them for evaluation
         //
         // This logic prevents miners from repeatedly visiting (and then skipping) high fee transactions that would get evaluated
         // first based on their `fee_rate` but are otherwise non-mineable because they have very high or invalid nonces. A large
         // volume of these transactions would cause considerable slowness when selecting valid transactions to mine.
         //
         // This query also makes sure transactions that have NULL `fee_rate`s are visited, because they will also get ranked
-        // according to their nonce and then sub-sorted by their total `tx_fee` to determine which of them gets evaluated first.
+        // according to their origin address nonce.
         let sql = "
             WITH nonce_filtered AS (
                 SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate, tx_fee
                 FROM mempool
                 LEFT JOIN nonces ON nonces.address = mempool.origin_address AND origin_nonce >= nonces.nonce
             ),
+            null_compensated AS (
+              SELECT *,
+                CASE
+                  WHEN fee_rate IS NULL THEN (ABS(RANDOM()) % 10000 / 10000.0) * (SELECT MAX(fee_rate) AS max FROM nonce_filtered)
+                  ELSE fee_rate
+                END AS sort_fee_rate
+              FROM nonce_filtered
+            ),
             address_nonce_ranked AS (
                 SELECT *, ROW_NUMBER() OVER (
                     PARTITION BY origin_address
-                    ORDER BY origin_nonce ASC, fee_rate DESC, tx_fee DESC
+                    ORDER BY origin_nonce ASC, sort_fee_rate DESC
                 ) AS rank
-                FROM nonce_filtered
+                FROM null_compensated
             )
             SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
             FROM address_nonce_ranked
-            ORDER BY rank ASC, fee_rate DESC, tx_fee DESC
+            ORDER BY rank ASC, sort_fee_rate DESC
             ";
         let mut query_stmt = self
             .db
@@ -1712,7 +1722,7 @@ impl MemPoolDB {
                             let tx = MemPoolTxInfoPartial::from_row(row)?;
                             let update_estimate = tx.fee_rate.is_none();
                             (tx, update_estimate)
-                        },
+                        }
                         None => {
                             debug!("No more transactions to consider in mempool");
                             break MempoolIterationStopReason::NoMoreCandidates;
