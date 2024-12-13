@@ -1998,10 +1998,7 @@ mod test {
         let timeout = Duration::from_secs(5);
 
         // Create a mock server
-        let mut server = mockito::Server::new_with_opts(mockito::ServerOpts {
-            port: 0,
-            ..Default::default()
-        });
+        let mut server = mockito::Server::new();
         let _m = server
             .mock("POST", "/api")
             .match_header("content-type", Matcher::Regex("application/json.*".into()))
@@ -2069,10 +2066,7 @@ mod test {
         let payload = json!({"key": "value"});
 
         // Create a mock server
-        let mut server = mockito::Server::new_with_opts(mockito::ServerOpts {
-            port: 0,
-            ..Default::default()
-        });
+        let mut server = mockito::Server::new();
         let _m = server
             .mock("POST", "/test")
             .match_header("content-type", Matcher::Regex("application/json.*".into()))
@@ -2108,10 +2102,7 @@ mod test {
         let payload = json!({"key": "value"});
 
         // Create a mock server
-        let mut server = mockito::Server::new_with_opts(mockito::ServerOpts {
-            port: 0,
-            ..Default::default()
-        });
+        let mut server = mockito::Server::new();
         let _m = server
             .mock("POST", "/test")
             .match_header("content-type", Matcher::Regex("application/json.*".into()))
