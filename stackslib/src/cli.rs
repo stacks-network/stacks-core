@@ -861,7 +861,7 @@ fn replay_block_nakamoto(
                 )
             });
 
-    debug!("Process staging Nakamoto block";
+    info!("Process staging Nakamoto block";
            "consensus_hash" => %block.header.consensus_hash,
            "stacks_block_hash" => %block.header.block_hash(),
            "stacks_block_id" => %block.header.block_id(),
