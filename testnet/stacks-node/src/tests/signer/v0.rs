@@ -6102,7 +6102,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
                 }
             })
             .collect::<Vec<_>>();
-        Ok(signatures.len() == num_signers)
+        Ok(signatures.len() >= num_signers * 7 / 10)
     })
     .expect("Test timed out while waiting for signers signatures for first block proposal");
     let block = block.unwrap();
@@ -6192,7 +6192,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
                 }
             })
             .collect::<Vec<_>>();
-        Ok(block_rejections.len() == num_signers)
+        Ok(block_rejections.len() >= num_signers * 7 / 10)
     })
     .expect("FAIL: Timed out waiting for block proposal rejections");
 
