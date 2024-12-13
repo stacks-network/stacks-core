@@ -820,6 +820,20 @@ const MEMPOOL_SCHEMA_7_TIME_ESTIMATES: &'static [&'static str] = &[
     "#,
 ];
 
+const MEMPOOL_SCHEMA_8_NONCE_SORTING: &'static [&'static str] = &[
+    r#"
+    -- Drop redundant mempool indexes, covered by unique constraints
+    DROP INDEX IF EXISTS "by_txid";
+    DROP INDEX IF EXISTS "by_sponsor";
+    DROP INDEX IF EXISTS "by_origin";
+    -- Add index to help comparing address nonces against mempool content
+    CREATE INDEX IF NOT EXISTS by_address_nonce ON nonces(address, nonce);
+    "#,
+    r#"
+    INSERT INTO schema_version (version) VALUES (8)
+    "#,
+];
+
 const MEMPOOL_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS by_txid ON mempool(txid);",
     "CREATE INDEX IF NOT EXISTS by_height ON mempool(height);",
@@ -1393,6 +1407,16 @@ impl MemPoolDB {
         Ok(())
     }
 
+    /// Optimize indexes for mempool visits
+    #[cfg_attr(test, mutants::skip)]
+    fn instantiate_schema_8(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in MEMPOOL_SCHEMA_8_NONCE_SORTING {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        Ok(())
+    }
+
     #[cfg_attr(test, mutants::skip)]
     pub fn db_path(chainstate_root_path: &str) -> Result<String, db_error> {
         let mut path = PathBuf::from(chainstate_root_path);
@@ -1671,24 +1695,20 @@ impl MemPoolDB {
         // according to their origin address nonce.
         let sql = "
             WITH nonce_filtered AS (
-                SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate, tx_fee
+                SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate, tx_fee,
+                    CASE
+                        WHEN fee_rate IS NULL THEN (ABS(RANDOM()) % 10000 / 10000.0) * (SELECT MAX(fee_rate) FROM mempool)
+                        ELSE fee_rate
+                    END AS sort_fee_rate
                 FROM mempool
-                LEFT JOIN nonces ON nonces.address = mempool.origin_address AND origin_nonce >= nonces.nonce
-            ),
-            null_compensated AS (
-              SELECT *,
-                CASE
-                  WHEN fee_rate IS NULL THEN (ABS(RANDOM()) % 10000 / 10000.0) * (SELECT MAX(fee_rate) AS max FROM nonce_filtered)
-                  ELSE fee_rate
-                END AS sort_fee_rate
-              FROM nonce_filtered
+                LEFT JOIN nonces ON mempool.origin_address = nonces.address AND mempool.origin_nonce >= nonces.nonce
             ),
             address_nonce_ranked AS (
                 SELECT *, ROW_NUMBER() OVER (
                     PARTITION BY origin_address
                     ORDER BY origin_nonce ASC, sort_fee_rate DESC
                 ) AS rank
-                FROM null_compensated
+                FROM nonce_filtered
             )
             SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
             FROM address_nonce_ranked
