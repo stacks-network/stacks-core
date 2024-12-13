@@ -1695,7 +1695,7 @@ impl MemPoolDB {
         // according to their origin address nonce.
         let sql = "
             WITH nonce_filtered AS (
-                SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate, tx_fee,
+                SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate,
                     CASE
                         WHEN fee_rate IS NULL THEN (ABS(RANDOM()) % 10000 / 10000.0) * (SELECT MAX(fee_rate) FROM mempool)
                         ELSE fee_rate
