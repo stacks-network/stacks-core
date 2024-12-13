@@ -443,6 +443,15 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
         .unwrap_or_else(|e| panic!("Error looking up chain tip: {e}"))
         .expect("No chain tip found");
 
+    // Fail if Nakamoto chainstate detected. `try-mine` cannot mine Nakamoto blocks yet
+    // TODO: Add Nakamoto block support
+    if matches!(
+        &tip_header.anchored_header,
+        StacksBlockHeaderTypes::Nakamoto(..)
+    ) {
+        panic!("Attempting to mine Nakamoto block. Nakamoto blocks not supported yet!");
+    };
+
     let sk = StacksPrivateKey::new();
     let mut tx_auth = TransactionAuth::from_p2pkh(&sk).unwrap();
     tx_auth.set_origin_nonce(0);
