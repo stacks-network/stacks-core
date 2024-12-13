@@ -139,7 +139,7 @@ pub struct BlockMinerThread {
     burnchain: Burnchain,
     /// Last block mined
     last_block_mined: Option<NakamotoBlock>,
-    /// Number of blocks mined since a tenure change/extend
+    /// Number of blocks mined since a tenure change/extend was attempted
     mined_blocks: u64,
     /// Copy of the node's registered VRF key
     registered_key: RegisteredKey,
@@ -160,7 +160,7 @@ pub struct BlockMinerThread {
     /// Handle to the p2p thread for block broadcast
     p2p_handle: NetworkHandle,
     signer_set_cache: Option<RewardSet>,
-    /// The time at which tenure change was issued
+    /// The time at which tenure change/extend was attempted
     tenure_change_time: Instant,
 }
 
