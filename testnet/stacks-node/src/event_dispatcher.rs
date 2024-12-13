@@ -66,6 +66,7 @@ use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, Sta
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
+use std::cell::RefCell;
 use url::Url;
 
 use super::config::{EventKeyType, EventObserverConfig};
@@ -320,7 +321,7 @@ impl RewardSetEventPayload {
 }
 
 #[cfg(test)]
-static TEST_EVENT_OBSERVER_SKIP_RETRY: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+thread_local! { static TEST_EVENT_OBSERVER_SKIP_RETRY: RefCell<bool> = RefCell::new(false); }
 
 impl EventObserver {
     fn init_db(db_path: &str) -> Result<Connection, db_error> {
@@ -430,11 +431,7 @@ impl EventObserver {
             Self::send_payload_directly(&payload, &url, timeout);
 
             #[cfg(test)]
-            if TEST_EVENT_OBSERVER_SKIP_RETRY
-                .lock()
-                .unwrap()
-                .unwrap_or(false)
-            {
+            if TEST_EVENT_OBSERVER_SKIP_RETRY.with(|v| *v.borrow()) {
                 warn!("Fault injection: delete_payload");
                 return;
             }
@@ -499,11 +496,7 @@ impl EventObserver {
             }
 
             #[cfg(test)]
-            if TEST_EVENT_OBSERVER_SKIP_RETRY
-                .lock()
-                .unwrap()
-                .unwrap_or(false)
-            {
+            if TEST_EVENT_OBSERVER_SKIP_RETRY.with(|v| *v.borrow()) {
                 warn!("Fault injection: skipping retry of payload");
                 return;
             }
@@ -1272,6 +1265,12 @@ impl EventDispatcher {
         block_timestamp: Option<u64>,
         coinbase_height: u64,
     ) {
+        let interested_observers =
+            self.filter_observers(&self.block_proposal_observers_lookup, true);
+        if interested_observers.is_empty() {
+            return;
+        }
+
         let all_receipts = receipts.to_owned();
         let (dispatch_matrix, events) = self.create_dispatch_matrix_and_event_vector(&all_receipts);
 
@@ -1592,7 +1591,8 @@ impl EventDispatcher {
     }
 
     pub fn process_new_attachments(&self, attachments: &[(AttachmentInstance, Attachment)]) {
-        let interested_observers: Vec<_> = self.registered_observers.iter().enumerate().collect();
+        let interested_observers = self.filter_observers(&self.mempool_observers_lookup, true);
+
         if interested_observers.is_empty() {
             return;
         }
@@ -1603,7 +1603,7 @@ impl EventDispatcher {
             serialized_attachments.push(payload);
         }
 
-        for (_, observer) in interested_observers.iter() {
+        for observer in interested_observers.iter() {
             observer.send_new_attachments(&json!(serialized_attachments));
         }
     }
@@ -1998,7 +1998,10 @@ mod test {
         let timeout = Duration::from_secs(5);
 
         // Create a mock server
-        let mut server = mockito::Server::new();
+        let mut server = mockito::Server::new_with_opts(mockito::ServerOpts {
+            port: 0,
+            ..Default::default()
+        });
         let _m = server
             .mock("POST", "/api")
             .match_header("content-type", Matcher::Regex("application/json.*".into()))
@@ -2066,7 +2069,10 @@ mod test {
         let payload = json!({"key": "value"});
 
         // Create a mock server
-        let mut server = mockito::Server::new();
+        let mut server = mockito::Server::new_with_opts(mockito::ServerOpts {
+            port: 0,
+            ..Default::default()
+        });
         let _m = server
             .mock("POST", "/test")
             .match_header("content-type", Matcher::Regex("application/json.*".into()))
@@ -2102,7 +2108,10 @@ mod test {
         let payload = json!({"key": "value"});
 
         // Create a mock server
-        let mut server = mockito::Server::new();
+        let mut server = mockito::Server::new_with_opts(mockito::ServerOpts {
+            port: 0,
+            ..Default::default()
+        });
         let _m = server
             .mock("POST", "/test")
             .match_header("content-type", Matcher::Regex("application/json.*".into()))
@@ -2338,7 +2347,7 @@ mod test {
 
         // Disable retrying so that it sends the payload only once
         // and that payload will be ignored by the test server.
-        TEST_EVENT_OBSERVER_SKIP_RETRY.lock().unwrap().replace(true);
+        TEST_EVENT_OBSERVER_SKIP_RETRY.with(|v| *v.borrow_mut() = true);
 
         info!("Sending payload 1");
 
@@ -2346,10 +2355,7 @@ mod test {
         observer.send_payload(&payload, "/test");
 
         // Re-enable retrying
-        TEST_EVENT_OBSERVER_SKIP_RETRY
-            .lock()
-            .unwrap()
-            .replace(false);
+        TEST_EVENT_OBSERVER_SKIP_RETRY.with(|v| *v.borrow_mut() = false);
 
         info!("Sending payload 2");
 
