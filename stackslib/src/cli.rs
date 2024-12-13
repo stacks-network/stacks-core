@@ -439,16 +439,9 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
     )
     .unwrap_or_else(|e| panic!("Failed to open mempool db: {e}"));
 
-    let header_tip = NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)
-        .unwrap()
-        .unwrap();
-    let parent_header = StacksChainState::get_anchored_block_header_info(
-        chain_state.db(),
-        &header_tip.consensus_hash,
-        &header_tip.anchored_header.block_hash(),
-    )
-    .unwrap_or_else(|e| panic!("Failed to load chain tip header info: {e}"))
-    .expect("Failed to load chain tip header info");
+    let tip_header = NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)
+        .unwrap_or_else(|e| panic!("Error looking up chain tip: {e}"))
+        .expect("No chain tip found");
 
     let sk = StacksPrivateKey::new();
     let mut tx_auth = TransactionAuth::from_p2pkh(&sk).unwrap();
@@ -473,7 +466,7 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
         &chain_state,
         &sort_db.index_handle(&chain_tip.sortition_id),
         &mut mempool_db,
-        &parent_header,
+        &tip_header,
         chain_tip.total_burn,
         VRFProof::empty(),
         Hash160([0; 20]),
@@ -497,13 +490,13 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
         } else {
             "Failed to"
         },
-        parent_header.stacks_block_height + 1,
+        tip_header.stacks_block_height + 1,
         StacksBlockHeader::make_index_block_hash(
-            &parent_header.consensus_hash,
-            &parent_header.anchored_header.block_hash()
+            &tip_header.consensus_hash,
+            &tip_header.anchored_header.block_hash()
         ),
-        &parent_header.consensus_hash,
-        &parent_header.anchored_header.block_hash(),
+        &tip_header.consensus_hash,
+        &tip_header.anchored_header.block_hash(),
         stop.saturating_sub(start),
         min_fee,
         max_time
