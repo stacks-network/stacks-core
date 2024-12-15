@@ -111,11 +111,6 @@ pub enum MinerReason {
         /// sortition.
         burn_view_consensus_hash: ConsensusHash,
     },
-    /// The miner thread was spawned to initialize a prior empty tenure.
-    /// It may be the case that the tenure to be initialized is no longer the canonical burnchain
-    /// tip, so if this is the miner reason, the miner thread will not exit on its own unless it
-    /// first mines a `BlockFound` tenure change.
-    EmptyTenure,
 }
 
 impl std::fmt::Display for MinerReason {
@@ -128,7 +123,6 @@ impl std::fmt::Display for MinerReason {
                 f,
                 "Extended: burn_view_consensus_hash = {burn_view_consensus_hash:?}",
             ),
-            MinerReason::EmptyTenure => write!(f, "EmptyTenure"),
         }
     }
 }
@@ -162,9 +156,6 @@ pub struct BlockMinerThread {
     event_dispatcher: EventDispatcher,
     /// The reason the miner thread was spawned
     reason: MinerReason,
-    /// Whether or not we sent our initial block with a tenure-change
-    /// (only applies if self.reason is MinerReason::EmptyTenure)
-    sent_initial_block: bool,
     /// Handle to the p2p thread for block broadcast
     p2p_handle: NetworkHandle,
     signer_set_cache: Option<RewardSet>,
@@ -193,7 +184,6 @@ impl BlockMinerThread {
             event_dispatcher: rt.event_dispatcher.clone(),
             parent_tenure_id,
             reason,
-            sent_initial_block: false,
             p2p_handle: rt.get_p2p_handle(),
             signer_set_cache: None,
         }
@@ -258,11 +248,6 @@ impl BlockMinerThread {
     #[cfg(not(test))]
     fn fault_injection_skip_block_broadcast() -> bool {
         false
-    }
-
-    /// Does this miner need to send its tenure's initial block still?
-    fn needs_initial_block(&self) -> bool {
-        !self.sent_initial_block && self.reason == MinerReason::EmptyTenure
     }
 
     /// Stop a miner tenure by blocking the miner and then joining the tenure thread
@@ -346,7 +331,6 @@ impl BlockMinerThread {
             self.globals.should_keep_running.clone(),
             &reward_set,
             &burn_tip,
-            self.needs_initial_block(),
             &self.burnchain,
             miner_privkey,
             &self.config,
@@ -450,6 +434,7 @@ impl BlockMinerThread {
 
         if let Some(mut new_block) = new_block {
             Self::fault_injection_block_broadcast_stall(&new_block);
+
             let signer_signature = match self.propose_block(
                 coordinator,
                 &mut new_block,
@@ -521,7 +506,6 @@ impl BlockMinerThread {
             Self::fault_injection_block_announce_stall(&new_block);
             self.globals.coord().announce_new_stacks_block();
 
-            self.sent_initial_block = true;
             self.last_block_mined = Some(new_block);
             self.mined_blocks += 1;
         }
@@ -538,7 +522,10 @@ impl BlockMinerThread {
         let wait_start = Instant::now();
         while wait_start.elapsed() < self.config.miner.wait_on_interim_blocks {
             thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
-            if self.check_burn_tip_changed(&sort_db, &mut chain_state).is_err() {
+            if self
+                .check_burn_tip_changed(&sort_db, &mut chain_state)
+                .is_err()
+            {
                 return Err(NakamotoNodeError::BurnchainTipChanged);
             }
         }
@@ -967,7 +954,6 @@ impl BlockMinerThread {
         match ParentStacksBlockInfo::lookup(
             chain_state,
             burn_db,
-            &self.reason,
             &self.burn_block,
             miner_address,
             &self.parent_tenure_id,
@@ -994,6 +980,7 @@ impl BlockMinerThread {
                 self.burn_election_block.sortition_hash.as_bytes(),
             )
         } else {
+            // TODO: shouldn't this be self.burn_block.sortition_hash?
             self.keychain.generate_proof(
                 self.registered_key.target_block_height,
                 self.burn_election_block.sortition_hash.as_bytes(),
@@ -1246,7 +1233,7 @@ impl BlockMinerThread {
         };
 
         let (tenure_change_tx, coinbase_tx) = match &self.reason {
-            MinerReason::BlockFound | MinerReason::EmptyTenure => {
+            MinerReason::BlockFound => {
                 let tenure_change_tx =
                     self.generate_tenure_change_tx(current_miner_nonce, payload)?;
                 let coinbase_tx =
@@ -1366,10 +1353,6 @@ impl BlockMinerThread {
         chain_state: &mut StacksChainState,
     ) -> Result<(), NakamotoNodeError> {
         Self::check_burn_view_changed(sortdb, chain_state, &self.burn_block)?;
-        if self.needs_initial_block() {
-            // don't abandon this tenure until our tenure-change has been mined!
-            return Ok(());
-        }
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
@@ -1402,7 +1385,6 @@ impl ParentStacksBlockInfo {
     pub fn lookup(
         chain_state: &mut StacksChainState,
         burn_db: &mut SortitionDB,
-        reason: &MinerReason,
         check_burn_block: &BlockSnapshot,
         miner_address: StacksAddress,
         parent_tenure_id: &StacksBlockId,
@@ -1416,21 +1398,19 @@ impl ParentStacksBlockInfo {
         .expect("Failed to look up block's parent snapshot")
         .expect("Failed to look up block's parent snapshot");
 
-        if *reason != MinerReason::EmptyTenure {
-            // don't mine off of an old burnchain block
-            let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
-                .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
+        // don't mine off of an old burnchain block
+        let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
+            .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
-            if burn_chain_tip.consensus_hash != check_burn_block.consensus_hash {
-                info!(
-                    "New canonical burn chain tip detected. Will not try to mine.";
-                    "new_consensus_hash" => %burn_chain_tip.consensus_hash,
-                    "old_consensus_hash" => %check_burn_block.consensus_hash,
-                    "new_burn_height" => burn_chain_tip.block_height,
-                    "old_burn_height" => check_burn_block.block_height
-                );
-                return Err(NakamotoNodeError::BurnchainTipChanged);
-            }
+        if burn_chain_tip.consensus_hash != check_burn_block.consensus_hash {
+            info!(
+                "New canonical burn chain tip detected. Will not try to mine.";
+                "new_consensus_hash" => %burn_chain_tip.consensus_hash,
+                "old_consensus_hash" => %check_burn_block.consensus_hash,
+                "new_burn_height" => burn_chain_tip.block_height,
+                "old_burn_height" => check_burn_block.block_height
+            );
+            return Err(NakamotoNodeError::BurnchainTipChanged);
         }
 
         let Ok(Some(parent_tenure_header)) =
