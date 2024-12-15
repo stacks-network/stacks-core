@@ -97,9 +97,12 @@ use stacks_signer::v0::SpawnedSigner;
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::config::{EventKeyType, InitialBalance};
 use crate::nakamoto_node::miner::{
-    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL, TEST_SKIP_P2P_BROADCAST,
+    MinerReason, TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL,
+    TEST_SKIP_P2P_BROADCAST,
 };
-use crate::nakamoto_node::relayer::TEST_MINER_THREAD_STALL;
+use crate::nakamoto_node::relayer::{
+    RelayerThread, TEST_MINER_THREAD_STALL, TEST_MINER_THREAD_START_STALL,
+};
 use crate::neon::{Counters, RunLoopCounter};
 use crate::operations::BurnchainOpSigner;
 use crate::run_loop::boot_nakamoto;
@@ -10351,11 +10354,14 @@ fn clarity_cost_spend_down() {
     run_loop_thread.join().unwrap();
 }
 
-/// If we get a flash block -- a sortition in which we win, immediately followed by a different
-/// sortition, make sure we first mine a tenure-change block and then a tenure-extend block.
+/// Miner wins sortition at Bitcoin height N
+/// Relayer processes sortition N
+/// Miner wins sortition at Bitcoin height N+1
+/// A flash block at height N+2 happens before the miner can publish its block-found for N+1
+/// Result: the miner issues a tenure-extend from N+1 with burn view for N+2
 #[test]
 #[ignore]
-fn test_tenure_change_and_extend_from_flashblocks() {
+fn test_tenure_extend_from_flashblocks() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -10385,6 +10391,9 @@ fn test_tenure_change_and_extend_from_flashblocks() {
     signer_test.boot_to_epoch_3();
 
     let naka_conf = signer_test.running_nodes.conf.clone();
+    let mining_key = naka_conf.miner.mining_key.clone().unwrap();
+    let mining_key_pkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(&mining_key));
+
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     let btc_regtest_controller = &mut signer_test.running_nodes.btc_regtest_controller;
     let coord_channel = signer_test.running_nodes.coord_channel.clone();
@@ -10399,7 +10408,7 @@ fn test_tenure_change_and_extend_from_flashblocks() {
     let tx_fee = 1_000;
 
     let burnchain = naka_conf.get_burnchain();
-    let mut sortdb = burnchain.open_sortition_db(true).unwrap();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
     for _ in 0..3 {
         next_block_and_mine_commit(
             btc_regtest_controller,
@@ -10461,7 +10470,6 @@ fn test_tenure_change_and_extend_from_flashblocks() {
     .unwrap();
 
     // stall miner and relayer
-    TEST_MINE_STALL.lock().unwrap().replace(true);
 
     // make tenure but don't wait for a stacks block
     next_block_and_commits_only(
@@ -10472,15 +10480,21 @@ fn test_tenure_change_and_extend_from_flashblocks() {
     )
     .unwrap();
 
-    // prevent the relayer from spawning a new thread just yet
-    TEST_MINER_THREAD_STALL.lock().unwrap().replace(true);
+    // prevent the mienr from sending another block-commit
     nakamoto_test_skip_commit_op.set(true);
+
+    // make sure we get a block-found tenure change
+    let blocks_processed_before = coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .get_stacks_blocks_processed();
+
+    // make sure the relayer processes both sortitions
+    let sortitions_processed_before = sortitions_processed.load(Ordering::SeqCst);
 
     // mine another Bitcoin block right away, since it will contain a block-commit
     btc_regtest_controller.bootstrap_chain(1);
 
-    // make sure the relayer processes both sortitions
-    let sortitions_processed_before = sortitions_processed.load(Ordering::SeqCst);
     wait_for(60, || {
         sleep_ms(100);
         let sortitions_cnt = sortitions_processed.load(Ordering::SeqCst);
@@ -10488,27 +10502,38 @@ fn test_tenure_change_and_extend_from_flashblocks() {
     })
     .unwrap();
 
-    // HACK: simulate the presence of a different miner.
-    // Make it so that from the perspective of this node's miner, a *different* miner produced the
-    // canonical Stacks chain tip.  This triggers the `None` return value in
-    // `Relayer::determine_tenure_type`.
-    {
-        let tx = sortdb.tx_begin().unwrap();
+    wait_for(120, || {
+        let blocks_processed = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        Ok(blocks_processed > blocks_processed_before)
+    })
+    .expect("Timed out waiting for interim blocks to be mined");
 
-        let (canonical_stacks_tip_ch, _) =
-            SortitionDB::get_canonical_stacks_chain_tip_hash(&tx).unwrap();
-        tx.execute(
-            "UPDATE snapshots SET miner_pk_hash = ?1 WHERE consensus_hash = ?2",
-            rusqlite::params![&Hash160([0x11; 20]), &canonical_stacks_tip_ch],
-        )
-        .unwrap();
-        tx.commit().unwrap();
-    }
+    let (canonical_stacks_tip_ch, _) =
+        SortitionDB::get_canonical_stacks_chain_tip_hash(&sortdb.conn()).unwrap();
+    let election_tip =
+        SortitionDB::get_block_snapshot_consensus(&sortdb.conn(), &canonical_stacks_tip_ch)
+            .unwrap()
+            .unwrap();
+    let sort_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+
+    // Stacks chain tip originates from the tenure started at the burnchain tip
+    assert!(sort_tip.sortition);
+    assert_eq!(sort_tip.consensus_hash, election_tip.consensus_hash);
+
+    // stop the relayer thread from starting a miner thread, and stop the miner thread from mining
+    TEST_MINE_STALL.lock().unwrap().replace(true);
+    TEST_MINER_THREAD_STALL.lock().unwrap().replace(true);
 
     // mine another Bitcoin block right away, and force it to be a flash block
     btc_regtest_controller.bootstrap_chain(1);
 
     let miner_directives_before = nakamoto_miner_directives.load(Ordering::SeqCst);
+
+    // unblock the relayer so it can process the flash block sortition.
+    // Given the above, this will be an `Extend` tenure.
     TEST_MINER_THREAD_STALL.lock().unwrap().replace(false);
 
     let sortitions_processed_before = sortitions_processed.load(Ordering::SeqCst);
@@ -10518,6 +10543,41 @@ fn test_tenure_change_and_extend_from_flashblocks() {
         Ok(sortitions_cnt > sortitions_processed_before)
     })
     .unwrap();
+
+    let (new_canonical_stacks_tip_ch, _) =
+        SortitionDB::get_canonical_stacks_chain_tip_hash(&sortdb.conn()).unwrap();
+    let election_tip =
+        SortitionDB::get_block_snapshot_consensus(&sortdb.conn(), &new_canonical_stacks_tip_ch)
+            .unwrap()
+            .unwrap();
+    let sort_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+
+    // this was a flash block -- no sortition
+    assert!(!sort_tip.sortition);
+    // canonical stacks tip burn view has not advanced
+    assert_eq!(new_canonical_stacks_tip_ch, canonical_stacks_tip_ch);
+    // the sortition that elected the ongoing tenure is not the canonical sortition tip
+    assert_ne!(sort_tip.consensus_hash, election_tip.consensus_hash);
+
+    // we can, however, continue the tenure
+    let canonical_stacks_tip = RelayerThread::can_continue_tenure(
+        &sortdb,
+        sort_tip.consensus_hash.clone(),
+        Some(mining_key_pkh.clone()),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(canonical_stacks_tip, election_tip);
+
+    // if we didn't win the last block -- tantamount to the sortition winner miner key being
+    // different -- then we can't continue the tenure.
+    assert!(RelayerThread::can_continue_tenure(
+        &sortdb,
+        sort_tip.consensus_hash.clone(),
+        Some(Hash160([0x11; 20]))
+    )
+    .unwrap()
+    .is_none());
 
     let mut accounts_before = vec![];
     let mut sent_txids = vec![];
@@ -10550,15 +10610,13 @@ fn test_tenure_change_and_extend_from_flashblocks() {
         accounts_before.push(account);
     }
 
-    // unstall miner and relayer
+    // unstall miner thread and allow block-commits again
     nakamoto_test_skip_commit_op.set(false);
     TEST_MINE_STALL.lock().unwrap().replace(false);
 
-    sleep_ms(10_000);
-
     // wait for the miner directive to be processed
     wait_for(60, || {
-        sleep_ms(100);
+        sleep_ms(10_000);
         let directives_cnt = nakamoto_miner_directives.load(Ordering::SeqCst);
         Ok(directives_cnt > miner_directives_before)
     })
@@ -10586,14 +10644,8 @@ fn test_tenure_change_and_extend_from_flashblocks() {
     })
     .unwrap();
 
-    // start up the next tenure
-    next_block_and_commits_only(
-        btc_regtest_controller,
-        60,
-        &coord_channel,
-        &commits_submitted,
-    )
-    .unwrap();
+    // boot a follower. it should reach the chain tip
+    info!("----- BEGIN FOLLOWR BOOTUP ------");
 
     // see if we can boot a follower off of this node now
     let mut follower_conf = naka_conf.clone();
@@ -10652,6 +10704,13 @@ fn test_tenure_change_and_extend_from_flashblocks() {
             sleep_ms(1000);
             return Ok(false);
         };
+        debug!(
+            "Miner tip is {}/{}; follower tip is {}/{}",
+            &miner_info.stacks_tip_consensus_hash,
+            &miner_info.stacks_tip,
+            &info.stacks_tip_consensus_hash,
+            &info.stacks_tip
+        );
         Ok(miner_info.stacks_tip == info.stacks_tip
             && miner_info.stacks_tip_consensus_hash == info.stacks_tip_consensus_hash)
     })
