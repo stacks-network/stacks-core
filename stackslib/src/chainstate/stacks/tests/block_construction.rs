@@ -5087,3 +5087,188 @@ fn paramaterized_mempool_walk_test(
         },
     );
 }
+
+#[test]
+/// Test that the mempool walk query ignores old nonces and prefers next possible nonces before higher global fees.
+fn mempool_walk_test_nonce_filtered_and_ranked() {
+    let key_address_pairs: Vec<(Secp256k1PrivateKey, StacksAddress)> = (0..3)
+        .map(|_user_index| {
+            let privk = StacksPrivateKey::new();
+            let addr = StacksAddress::from_public_keys(
+                C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                &AddressHashMode::SerializeP2PKH,
+                1,
+                &vec![StacksPublicKey::from_private(&privk)],
+            )
+            .unwrap();
+            (privk, addr)
+        })
+        .collect();
+    let origin_addresses: Vec<String> = key_address_pairs
+        .iter()
+        .map(|(_, b)| b.to_string())
+        .collect();
+    let address_0 = origin_addresses[0].to_string();
+    let address_1 = origin_addresses[1].to_string();
+    let address_2 = origin_addresses[2].to_string();
+
+    let test_name = "mempool_walk_test_nonce_filtered_and_ranked";
+    let mut peer_config = TestPeerConfig::new(test_name, 2002, 2003);
+
+    peer_config.initial_balances = vec![];
+    for (privk, addr) in &key_address_pairs {
+        peer_config
+            .initial_balances
+            .push((addr.to_account_principal(), 1000000000));
+    }
+
+    let recipient =
+        StacksAddress::from_string("ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV").unwrap();
+
+    let mut chainstate =
+        instantiate_chainstate_with_balances(false, 0x80000000, &test_name, vec![]);
+    let chainstate_path = chainstate_path(&test_name);
+    let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+    let b_1 = make_block(
+        &mut chainstate,
+        ConsensusHash([0x1; 20]),
+        &(
+            FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+            FIRST_STACKS_BLOCK_HASH.clone(),
+        ),
+        1,
+        1,
+    );
+    let b_2 = make_block(&mut chainstate, ConsensusHash([0x2; 20]), &b_1, 2, 2);
+
+    let mut tx_events = Vec::new();
+
+    // Submit nonces 0 through 9 for each of the 3 senders.
+    for nonce in 0..10 {
+        for user_index in 0..3 {
+            let mut tx = make_user_stacks_transfer(
+                &key_address_pairs[user_index].0,
+                nonce as u64,
+                200,
+                &recipient.to_account_principal(),
+                1,
+            );
+
+            let mut mempool_tx = mempool.tx_begin().unwrap();
+
+            let origin_address = tx.origin_address();
+            let sponsor_address = tx.sponsor_address().unwrap_or(origin_address);
+
+            tx.set_tx_fee(100);
+            let txid = tx.txid();
+            let tx_bytes = tx.serialize_to_vec();
+            let tx_fee = tx.get_tx_fee();
+            let height = 100;
+
+            MemPoolDB::try_add_tx(
+                &mut mempool_tx,
+                &mut chainstate,
+                &b_1.0,
+                &b_1.1,
+                true,
+                txid,
+                tx_bytes,
+                tx_fee,
+                height,
+                &origin_address,
+                nonce.try_into().unwrap(),
+                &sponsor_address,
+                nonce.try_into().unwrap(),
+                None,
+            )
+            .unwrap();
+
+            // Increase the `fee_rate` as nonce goes up, so we can test that lower nonces get confirmed before higher fee txs.
+            // Also slightly increase the fee for some addresses so we can check those txs get selected first.
+            mempool_tx
+                .execute(
+                    "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
+                    params![Some(123.0 * (nonce + 1 + user_index) as f64), &txid],
+                )
+                .unwrap();
+            mempool_tx.commit().unwrap();
+        }
+    }
+
+    // Simulate next possible nonces for the 3 addresses:
+    // Address 0 => 2
+    // Address 1 => 7
+    // Address 2 => 9
+    let mempool_tx = mempool.tx_begin().unwrap();
+    mempool_tx
+        .execute(
+            "INSERT INTO nonces (address, nonce) VALUES (?, ?), (?, ?), (?, ?)",
+            params![address_0, 2, address_1, 7, address_2, 9],
+        )
+        .unwrap();
+    mempool_tx.commit().unwrap();
+
+    // Visit transactions. Keep a record of the order of visited txs so we can compare at the end.
+    let mut considered_txs = vec![];
+    let deadline = get_epoch_time_ms() + 30000;
+    chainstate.with_read_only_clarity_tx(
+        &TEST_BURN_STATE_DB,
+        &StacksBlockHeader::make_index_block_hash(&b_2.0, &b_2.1),
+        |clarity_conn| {
+            // When the candidate cache fills, one pass cannot process all transactions
+            loop {
+                if mempool
+                    .iterate_candidates::<_, ChainstateError, _>(
+                        clarity_conn,
+                        &mut tx_events,
+                        MemPoolWalkSettings::default(),
+                        |_, available_tx, _| {
+                            considered_txs.push((
+                                available_tx.tx.metadata.origin_address.to_string(),
+                                available_tx.tx.metadata.origin_nonce,
+                            ));
+                            Ok(Some(
+                                // Generate any success result
+                                TransactionResult::success(
+                                    &available_tx.tx.tx,
+                                    available_tx.tx.metadata.tx_fee,
+                                    StacksTransactionReceipt::from_stx_transfer(
+                                        available_tx.tx.tx.clone(),
+                                        vec![],
+                                        Value::okay(Value::Bool(true)).unwrap(),
+                                        ExecutionCost::zero(),
+                                    ),
+                                )
+                                .convert_to_event(),
+                            ))
+                        },
+                    )
+                    .unwrap()
+                    .0
+                    == 0
+                {
+                    break;
+                }
+                assert!(get_epoch_time_ms() < deadline, "test timed out");
+            }
+            assert_eq!(
+                considered_txs,
+                vec![
+                    (address_0.clone(), 2),
+                    (address_0.clone(), 3),
+                    (address_0.clone(), 4),
+                    (address_0.clone(), 5),
+                    (address_0.clone(), 6),
+                    (address_1.clone(), 7), // Higher fee for address 1
+                    (address_0.clone(), 7),
+                    (address_1.clone(), 8),
+                    (address_0.clone(), 8),
+                    (address_2.clone(), 9), // Higher fee for address 2
+                    (address_1.clone(), 9),
+                    (address_0.clone(), 9),
+                ],
+                "Mempool should visit transactions in the correct order while ignoring past nonces",
+            );
+        },
+    );
+}

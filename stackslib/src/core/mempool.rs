@@ -525,8 +525,7 @@ pub struct MemPoolWalkSettings {
     /// milliseconds.  This is a soft deadline.
     pub max_walk_time_ms: u64,
     /// Probability percentage to consider a transaction which has not received a cost estimate.
-    /// That is, with x%, when picking the next transaction to include a block, select one that
-    /// either failed to get a cost estimate or has not been estimated yet.
+    /// This property is no longer used and will be ignored.
     pub consider_no_estimate_tx_prob: u8,
     /// Size of the nonce cache. This avoids MARF look-ups.
     pub nonce_cache_size: u64,
@@ -1689,10 +1688,9 @@ impl MemPoolDB {
         //
         // This logic prevents miners from repeatedly visiting (and then skipping) high fee transactions that would get evaluated
         // first based on their `fee_rate` but are otherwise non-mineable because they have very high or invalid nonces. A large
-        // volume of these transactions would cause considerable slowness when selecting valid transactions to mine.
-        //
-        // This query also makes sure transactions that have NULL `fee_rate`s are visited, because they will also get ranked
-        // according to their origin address nonce.
+        // volume of these transactions would cause considerable slowness when selecting valid transactions to mine. This query
+        // also makes sure transactions that have NULL `fee_rate`s are visited, because they will also get ranked according to
+        // their origin address nonce.
         let sql = "
             WITH nonce_filtered AS (
                 SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate,
@@ -1704,10 +1702,11 @@ impl MemPoolDB {
                 LEFT JOIN nonces ON mempool.origin_address = nonces.address AND mempool.origin_nonce >= nonces.nonce
             ),
             address_nonce_ranked AS (
-                SELECT *, ROW_NUMBER() OVER (
-                    PARTITION BY origin_address
-                    ORDER BY origin_nonce ASC, sort_fee_rate DESC
-                ) AS rank
+                SELECT *,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY origin_address
+                        ORDER BY origin_nonce ASC, sort_fee_rate DESC
+                    ) AS rank
                 FROM nonce_filtered
             )
             SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
