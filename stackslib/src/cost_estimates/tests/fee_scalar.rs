@@ -94,7 +94,7 @@ fn make_dummy_transfer_tx(fee: u64) -> StacksTransactionReceipt {
         tx,
         vec![],
         Value::okay(Value::Bool(true)).unwrap(),
-        ExecutionCost::zero(),
+        ExecutionCost::ZERO,
     )
 }
 
@@ -115,7 +115,7 @@ fn make_dummy_cc_tx(fee: u64) -> StacksTransactionReceipt {
         vec![],
         Value::okay(Value::Bool(true)).unwrap(),
         0,
-        ExecutionCost::zero(),
+        ExecutionCost::ZERO,
     )
 }
 

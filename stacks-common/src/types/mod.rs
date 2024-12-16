@@ -172,19 +172,19 @@ pub const COINBASE_INTERVALS_TESTNET: LazyCell<[CoinbaseInterval; 5]> = LazyCell
         },
         CoinbaseInterval {
             coinbase: 500 * u128::from(MICROSTACKS_PER_STACKS),
-            effective_start_height: 1000,
+            effective_start_height: 77_777,
         },
         CoinbaseInterval {
             coinbase: 250 * u128::from(MICROSTACKS_PER_STACKS),
-            effective_start_height: 2000,
+            effective_start_height: 77_777 * 7,
         },
         CoinbaseInterval {
             coinbase: 125 * u128::from(MICROSTACKS_PER_STACKS),
-            effective_start_height: 3000,
+            effective_start_height: 77_777 * 14,
         },
         CoinbaseInterval {
             coinbase: (625 * u128::from(MICROSTACKS_PER_STACKS)) / 10,
-            effective_start_height: 4000,
+            effective_start_height: 77_777 * 21,
         },
     ];
     assert!(CoinbaseInterval::check_order(&emissions_schedule));
