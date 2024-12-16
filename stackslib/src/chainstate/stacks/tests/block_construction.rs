@@ -5183,12 +5183,12 @@ fn mempool_walk_test_nonce_filtered_and_ranked() {
             )
             .unwrap();
 
-            // Increase the `fee_rate` as nonce goes up, so we can test that lower nonces get confirmed before higher fee txs.
+            // Increase the `fee_rate` as nonce goes up, so we can test that next nonces get confirmed before higher fee txs.
             // Also slightly increase the fee for some addresses so we can check those txs get selected first.
             mempool_tx
                 .execute(
                     "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
-                    params![Some(123.0 * (nonce + 1 + user_index) as f64), &txid],
+                    params![Some(100.0 * (nonce + 1 + user_index) as f64), &txid],
                 )
                 .unwrap();
             mempool_tx.commit().unwrap();
@@ -5254,18 +5254,18 @@ fn mempool_walk_test_nonce_filtered_and_ranked() {
             assert_eq!(
                 considered_txs,
                 vec![
+                    (address_2.clone(), 9), // Highest fee for address 2, and 9 is the next nonce
+                    (address_1.clone(), 7),
                     (address_0.clone(), 2),
+                    (address_1.clone(), 8),
                     (address_0.clone(), 3),
+                    (address_1.clone(), 9), // Highest fee for address 1, but have to confirm nonces 7 and 8 first
                     (address_0.clone(), 4),
                     (address_0.clone(), 5),
                     (address_0.clone(), 6),
-                    (address_1.clone(), 7), // Higher fee for address 1
                     (address_0.clone(), 7),
-                    (address_1.clone(), 8),
                     (address_0.clone(), 8),
-                    (address_2.clone(), 9), // Higher fee for address 2
-                    (address_1.clone(), 9),
-                    (address_0.clone(), 9),
+                    (address_0.clone(), 9), // Highest fee for address 0, but have to confirm all other nonces first
                 ],
                 "Mempool should visit transactions in the correct order while ignoring past nonces",
             );

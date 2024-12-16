@@ -1699,7 +1699,8 @@ impl MemPoolDB {
                         ELSE fee_rate
                     END AS sort_fee_rate
                 FROM mempool
-                LEFT JOIN nonces ON mempool.origin_address = nonces.address AND mempool.origin_nonce >= nonces.nonce
+                LEFT JOIN nonces ON mempool.origin_address = nonces.address
+                WHERE nonces.address IS NULL OR mempool.origin_nonce >= nonces.nonce
             ),
             address_nonce_ranked AS (
                 SELECT *,
