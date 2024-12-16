@@ -137,7 +137,6 @@ jobs:
     runs-on: ubuntu-latest
     if: always()
     needs:
-      - full-genesis
       - open-api-validation
       - core-contracts-clarinet-test
     steps:
