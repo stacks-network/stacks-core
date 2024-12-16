@@ -825,8 +825,6 @@ const MEMPOOL_SCHEMA_8_NONCE_SORTING: &'static [&'static str] = &[
     DROP INDEX IF EXISTS "by_txid";
     DROP INDEX IF EXISTS "by_sponsor";
     DROP INDEX IF EXISTS "by_origin";
-    -- Add index to help comparing address nonces against mempool content
-    CREATE INDEX IF NOT EXISTS by_address_nonce ON nonces(address, nonce);
     "#,
     r#"
     INSERT INTO schema_version (version) VALUES (8)
