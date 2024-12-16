@@ -14,48 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+pub mod chain_data;
+
 use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 use std::{cmp, fs, thread};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
-use lazy_static::lazy_static;
 use rand::RngCore;
 use serde::Deserialize;
-use stacks::burnchains::affirmation::AffirmationMap;
-use stacks::burnchains::bitcoin::BitcoinNetworkType;
-use stacks::burnchains::{Burnchain, MagicBytes, PoxConstants, BLOCKSTACK_MAGIC_MAINNET};
-use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
-use stacks::chainstate::stacks::boot::MINERS_NAME;
-use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
-use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
-use stacks::chainstate::stacks::miner::{BlockBuilderSettings, MinerStatus};
-use stacks::chainstate::stacks::MAX_BLOCK_LEN;
-use stacks::core::mempool::{MemPoolWalkSettings, MemPoolWalkTxTypes};
-use stacks::core::{
-    MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId,
-    BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT, BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT,
-    BITCOIN_TESTNET_STACKS_25_REORGED_HEIGHT, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET,
-    PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
-};
-use stacks::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
-use stacks::cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
-use stacks::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
-use stacks::cost_estimates::metrics::{CostMetric, ProportionalDotProduct, UnitMetric};
-use stacks::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator, UnitEstimator};
-use stacks::net::atlas::AtlasConfig;
-use stacks::net::connection::ConnectionOptions;
-use stacks::net::{Neighbor, NeighborAddress, NeighborKey};
-use stacks::types::chainstate::BurnchainHeaderHash;
-use stacks::types::EpochList;
-use stacks::util::hash::to_hex;
-use stacks::util_lib::boot::boot_code_id;
-use stacks::util_lib::db::Error as DBError;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerAddress;
@@ -64,7 +36,36 @@ use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
-use crate::chain_data::MinerStats;
+use crate::burnchains::affirmation::AffirmationMap;
+use crate::burnchains::bitcoin::BitcoinNetworkType;
+use crate::burnchains::{Burnchain, MagicBytes, PoxConstants, BLOCKSTACK_MAGIC_MAINNET};
+use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
+use crate::chainstate::stacks::boot::MINERS_NAME;
+use crate::chainstate::stacks::index::marf::MARFOpenOpts;
+use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
+use crate::chainstate::stacks::miner::{BlockBuilderSettings, MinerStatus};
+use crate::chainstate::stacks::MAX_BLOCK_LEN;
+use crate::config::chain_data::MinerStats;
+use crate::core::mempool::{MemPoolWalkSettings, MemPoolWalkTxTypes};
+use crate::core::{
+    MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId,
+    BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT, BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT,
+    BITCOIN_TESTNET_STACKS_25_REORGED_HEIGHT, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET,
+    PEER_VERSION_MAINNET, PEER_VERSION_TESTNET, STACKS_EPOCHS_REGTEST, STACKS_EPOCHS_TESTNET,
+};
+use crate::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
+use crate::cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
+use crate::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
+use crate::cost_estimates::metrics::{CostMetric, ProportionalDotProduct, UnitMetric};
+use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator, UnitEstimator};
+use crate::net::atlas::AtlasConfig;
+use crate::net::connection::ConnectionOptions;
+use crate::net::{Neighbor, NeighborAddress, NeighborKey};
+use crate::types::chainstate::BurnchainHeaderHash;
+use crate::types::EpochList;
+use crate::util::hash::to_hex;
+use crate::util_lib::boot::boot_code_id;
+use crate::util_lib::db::Error as DBError;
 
 pub const DEFAULT_SATS_PER_VB: u64 = 50;
 pub const OP_TX_BLOCK_COMMIT_ESTIM_SIZE: u64 = 380;
@@ -93,6 +94,43 @@ const DEFAULT_FIRST_REJECTION_PAUSE_MS: u64 = 5_000;
 const DEFAULT_SUBSEQUENT_REJECTION_PAUSE_MS: u64 = 10_000;
 const DEFAULT_BLOCK_COMMIT_DELAY_MS: u64 = 20_000;
 const DEFAULT_TENURE_COST_LIMIT_PER_BLOCK_PERCENTAGE: u8 = 25;
+
+static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
+    LazyLock::new(|| ConnectionOptions {
+        inbox_maxlen: 100,
+        outbox_maxlen: 100,
+        timeout: 15,
+        idle_timeout: 15, // how long a HTTP connection can be idle before it's closed
+        heartbeat: 3600,
+        // can't use u64::max, because sqlite stores as i64.
+        private_key_lifetime: 9223372036854775807,
+        num_neighbors: 32,         // number of neighbors whose inventories we track
+        num_clients: 750,          // number of inbound p2p connections
+        soft_num_neighbors: 16, // soft-limit on the number of neighbors whose inventories we track
+        soft_num_clients: 750,  // soft limit on the number of inbound p2p connections
+        max_neighbors_per_host: 1, // maximum number of neighbors per host we permit
+        max_clients_per_host: 4, // maximum number of inbound p2p connections per host we permit
+        soft_max_neighbors_per_host: 1, // soft limit on the number of neighbors per host we permit
+        soft_max_neighbors_per_org: 32, // soft limit on the number of neighbors per AS we permit (TODO: for now it must be greater than num_neighbors)
+        soft_max_clients_per_host: 4, // soft limit on how many inbound p2p connections per host we permit
+        max_http_clients: 1000,       // maximum number of HTTP connections
+        max_neighbors_of_neighbor: 10, // maximum number of neighbors we'll handshake with when doing a neighbor walk (I/O for this can be expensive, so keep small-ish)
+        walk_interval: 60,             // how often, in seconds, we do a neighbor walk
+        walk_seed_probability: 0.1, // 10% of the time when not in IBD, walk to a non-seed node even if we aren't connected to a seed node
+        log_neighbors_freq: 60_000, // every minute, log all peer connections
+        inv_sync_interval: 45,      // how often, in seconds, we refresh block inventories
+        inv_reward_cycles: 3,       // how many reward cycles to look back on, for mainnet
+        download_interval: 10, // how often, in seconds, we do a block download scan (should be less than inv_sync_interval)
+        dns_timeout: 15_000,
+        max_inflight_blocks: 6,
+        max_inflight_attachments: 6,
+        ..std::default::Default::default()
+    });
+
+pub static DEFAULT_MAINNET_CONFIG: LazyLock<Config> = LazyLock::new(|| {
+    Config::from_config_file(ConfigFile::mainnet(), false)
+        .expect("Failed to create default mainnet config")
+});
 
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
@@ -311,39 +349,6 @@ pub struct Config {
     pub atlas: AtlasConfig,
 }
 
-lazy_static! {
-    static ref HELIUM_DEFAULT_CONNECTION_OPTIONS: ConnectionOptions = ConnectionOptions {
-        inbox_maxlen: 100,
-        outbox_maxlen: 100,
-        timeout: 15,
-        idle_timeout: 15,               // how long a HTTP connection can be idle before it's closed
-        heartbeat: 3600,
-        // can't use u64::max, because sqlite stores as i64.
-        private_key_lifetime: 9223372036854775807,
-        num_neighbors: 32,              // number of neighbors whose inventories we track
-        num_clients: 750,               // number of inbound p2p connections
-        soft_num_neighbors: 16,         // soft-limit on the number of neighbors whose inventories we track
-        soft_num_clients: 750,          // soft limit on the number of inbound p2p connections
-        max_neighbors_per_host: 1,      // maximum number of neighbors per host we permit
-        max_clients_per_host: 4,        // maximum number of inbound p2p connections per host we permit
-        soft_max_neighbors_per_host: 1, // soft limit on the number of neighbors per host we permit
-        soft_max_neighbors_per_org: 32, // soft limit on the number of neighbors per AS we permit (TODO: for now it must be greater than num_neighbors)
-        soft_max_clients_per_host: 4,   // soft limit on how many inbound p2p connections per host we permit
-        max_http_clients: 1000,         // maximum number of HTTP connections
-        max_neighbors_of_neighbor: 10,  // maximum number of neighbors we'll handshake with when doing a neighbor walk (I/O for this can be expensive, so keep small-ish)
-        walk_interval: 60,              // how often, in seconds, we do a neighbor walk
-        walk_seed_probability: 0.1,     // 10% of the time when not in IBD, walk to a non-seed node even if we aren't connected to a seed node
-        log_neighbors_freq: 60_000,     // every minute, log all peer connections
-        inv_sync_interval: 45,          // how often, in seconds, we refresh block inventories
-        inv_reward_cycles: 3,           // how many reward cycles to look back on, for mainnet
-        download_interval: 10,          // how often, in seconds, we do a block download scan (should be less than inv_sync_interval)
-        dns_timeout: 15_000,
-        max_inflight_blocks: 6,
-        max_inflight_attachments: 6,
-        .. std::default::Default::default()
-    };
-}
-
 impl Config {
     /// get the up-to-date burnchain options from the config.
     /// If the config file can't be loaded, then return the existing config
@@ -516,10 +521,7 @@ impl Config {
     }
 
     fn check_nakamoto_config(&self, burnchain: &Burnchain) {
-        let epochs = StacksEpoch::get_epochs(
-            self.burnchain.get_bitcoin_network().1,
-            self.burnchain.epochs.as_ref(),
-        );
+        let epochs = self.burnchain.get_epoch_list();
         let Some(epoch_30) = epochs.get(StacksEpochId::Epoch30) else {
             // no Epoch 3.0, so just return
             return;
@@ -636,8 +638,8 @@ impl Config {
             BitcoinNetworkType::Mainnet => {
                 Err("Cannot configure epochs in mainnet mode".to_string())
             }
-            BitcoinNetworkType::Testnet => Ok(stacks::core::STACKS_EPOCHS_TESTNET.to_vec()),
-            BitcoinNetworkType::Regtest => Ok(stacks::core::STACKS_EPOCHS_REGTEST.to_vec()),
+            BitcoinNetworkType::Testnet => Ok(STACKS_EPOCHS_TESTNET.to_vec()),
+            BitcoinNetworkType::Regtest => Ok(STACKS_EPOCHS_REGTEST.to_vec()),
         }?;
         let mut matched_epochs = vec![];
         for configured_epoch in conf_epochs.iter() {
@@ -1282,6 +1284,10 @@ impl BurnchainConfig {
             }
             other => panic!("Invalid stacks-node mode: {other}"),
         }
+    }
+
+    pub fn get_epoch_list(&self) -> EpochList<ExecutionCost> {
+        StacksEpoch::get_epochs(self.get_bitcoin_network().1, self.epochs.as_ref())
     }
 }
 
