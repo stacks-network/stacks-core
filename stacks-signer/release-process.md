@@ -63,7 +63,7 @@ The timing of the next Stacking cycle can be found [here](https://stx.eco/dao/to
    - Add cherry-picked commits to the `feat/signer-X.Y.Z.A.n.x-pr_number` branch
    - Merge `feat/signer-X.Y.Z.A.n.x-pr_number` into `release/signer-X.Y.Z.A.n.x`.
 
-4. Open a PR to update the [CHANGELOG](./CHANGELOG.md) and [libsigner/src/libsigner.rs](../libsigner/src/libsigner.rs) files in the `release/signer-X.Y.Z.A.n.x` branch.
+4. Open a PR to update the [CHANGELOG](./CHANGELOG.md) in the `release/signer-X.Y.Z.A.n.x` branch.
 
    - Create a chore branch from `release/signer-X.Y.Z.A.n.x`, ex: `chore/signer-X.Y.Z.A.n.x-changelog`.
    - Add summaries of all Pull Requests to the `Added`, `Changed` and `Fixed` sections.

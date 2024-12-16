@@ -64,7 +64,7 @@ The timing of the next Stacking cycle can be found [here](https://stx.eco/dao/to
    - Add cherry-picked commits to the `feat/X.Y.Z.A.n-pr_number` branch
    - Merge `feat/X.Y.Z.A.n-pr_number` into `release/X.Y.Z.A.n`.
 
-4. Open a PR to update the [CHANGELOG](../CHANGELOG.md) and [stackslib/src/lib.rs](../stackslib/src/lib.rs) files in the `release/X.Y.Z.A.n` branch.
+4. Open a PR to update the [CHANGELOG](../CHANGELOG.md) in the `release/X.Y.Z.A.n` branch.
 
    - Create a chore branch from `release/X.Y.Z.A.n`, ex: `chore/X.Y.Z.A.n-changelog`.
    - Add summaries of all Pull Requests to the `Added`, `Changed` and `Fixed` sections.
