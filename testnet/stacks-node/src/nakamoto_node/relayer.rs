@@ -400,13 +400,6 @@ impl RelayerThread {
             SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn())
                 .expect("FATAL: failed to query sortition DB for stacks tip");
 
-        let stacks_tip = StacksBlockId::new(&cur_stacks_tip_ch, &cur_stacks_tip_bh);
-
-        let stacks_tip_sortition =
-            SortitionDB::get_block_snapshot_consensus(&self.sortdb.conn(), &cur_stacks_tip_ch)
-                .expect("Relayer: Failed to load canonical Stacks tip's tenure snapshot")
-                .expect("Relayer: Canonical Stacks tip has no tenure snapshot");
-
         let directive = if sn.sortition {
             if won_sortition || self.config.get_node_config(false).mock_mining {
                 info!("Relayer: Won sortition; begin tenure.");
@@ -805,7 +798,7 @@ impl RelayerThread {
     }
 
     #[cfg(not(test))]
-    fn fault_injection_stall_miner_startup() {}
+    fn fault_injection_stall_miner_thread_startup() {}
 
     /// Create the block miner thread state.
     /// Only proceeds if all of the following are true:
@@ -975,12 +968,6 @@ impl RelayerThread {
         };
 
         // Get the necessary snapshots and state
-        let burn_tip = SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &new_burn_view)?
-            .ok_or_else(|| {
-                error!("Relayer: failed to get block snapshot for new burn view");
-                NakamotoNodeError::SnapshotNotFoundForChainTip
-            })?;
-
         let (canonical_stacks_tip_ch, canonical_stacks_tip_bh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
 
@@ -1026,10 +1013,6 @@ impl RelayerThread {
             return Ok(());
         }
         debug!("Relayer: successfully stopped tenure; will try to continue.");
-
-        let Some(mining_pkh) = self.get_mining_key_pkh() else {
-            return Ok(());
-        };
 
         let Some(canonical_stacks_tip_election_snapshot) = Self::can_continue_tenure(
             &self.sortdb,
