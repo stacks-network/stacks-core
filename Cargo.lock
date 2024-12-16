@@ -637,7 +637,7 @@ name = "clarity"
 version = "0.0.1"
 dependencies = [
  "assert-json-diff 1.1.0",
- "hashbrown",
+ "hashbrown 0.14.3",
  "integer-sqrt",
  "lazy_static",
  "mutants",
@@ -1412,12 +1412,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "hashbrown"
+version = "0.15.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf151400ff0baff5465007dd2f3e717f3fe502074ca563069ce3a6629d07b289"
+
+[[package]]
 name = "hashlink"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ba4ff7128dee98c7dc9794b6a411377e1404dba1c97deb8d1a55297bd25d8af"
 dependencies = [
- "hashbrown",
+ "hashbrown 0.14.3",
 ]
 
 [[package]]
@@ -1683,12 +1689,12 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "2.2.3"
+version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "233cf39063f058ea2caae4091bf4a3ef70a653afbc026f5c4a4135d114e3c177"
+checksum = "62f822373a4fe84d4bb149bf54e584a7f4abec90e072ed49cda0edea5b95471f"
 dependencies = [
  "equivalent",
- "hashbrown",
+ "hashbrown 0.15.2",
 ]
 
 [[package]]
@@ -1841,7 +1847,7 @@ name = "libsigner"
 version = "0.0.1"
 dependencies = [
  "clarity",
- "hashbrown",
+ "hashbrown 0.14.3",
  "lazy_static",
  "libc",
  "libstackerdb",
@@ -2621,7 +2627,7 @@ checksum = "c08c74e62047bb2de4ff487b251e4a92e24f48745648451635cec7d591162d9f"
 name = "relay-server"
 version = "0.0.1"
 dependencies = [
- "hashbrown",
+ "hashbrown 0.14.3",
 ]
 
 [[package]]
@@ -3270,7 +3276,7 @@ dependencies = [
  "chrono",
  "curve25519-dalek 2.0.0",
  "ed25519-dalek",
- "hashbrown",
+ "hashbrown 0.14.3",
  "lazy_static",
  "libc",
  "nix",
@@ -3306,7 +3312,7 @@ dependencies = [
  "base64 0.12.3",
  "chrono",
  "clarity",
- "hashbrown",
+ "hashbrown 0.14.3",
  "http-types",
  "lazy_static",
  "libc",
@@ -3333,7 +3339,6 @@ dependencies = [
  "tikv-jemallocator",
  "tiny_http",
  "tokio",
- "toml",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -3347,7 +3352,7 @@ dependencies = [
  "backoff",
  "clap 4.5.0",
  "clarity",
- "hashbrown",
+ "hashbrown 0.14.3",
  "lazy_static",
  "libsigner",
  "libstackerdb",
@@ -3386,7 +3391,7 @@ dependencies = [
  "criterion",
  "curve25519-dalek 2.0.0",
  "ed25519-dalek",
- "hashbrown",
+ "hashbrown 0.14.3",
  "integer-sqrt",
  "lazy_static",
  "libc",
@@ -3422,6 +3427,7 @@ dependencies = [
  "stx-genesis",
  "tikv-jemallocator",
  "time 0.2.27",
+ "toml",
  "url",
  "winapi 0.3.9",
 ]

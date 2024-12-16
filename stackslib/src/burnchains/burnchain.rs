@@ -29,6 +29,7 @@ use stacks_common::util::hash::to_hex;
 use stacks_common::util::vrf::VRFPublicKey;
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log, sleep_ms};
 
+use super::EpochList;
 use crate::burnchains::affirmation::update_pox_affirmation_maps;
 use crate::burnchains::bitcoin::address::{
     to_c32_version_byte, BitcoinAddress, LegacyBitcoinAddressType,
@@ -722,7 +723,7 @@ impl Burnchain {
         readwrite: bool,
         first_block_header_hash: BurnchainHeaderHash,
         first_block_header_timestamp: u64,
-        epochs: Vec<StacksEpoch>,
+        epochs: EpochList,
     ) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
         Burnchain::setup_chainstate_dirs(&self.working_dir)?;
 
@@ -1082,7 +1083,9 @@ impl Burnchain {
     }
 
     /// Hand off the block to the ChainsCoordinator _and_ process the sortition
-    ///   *only* to be used by legacy stacks node interfaces, like the Helium node
+    ///   *only* to be used by legacy stacks node interfaces, like the Helium node.
+    ///
+    /// It does not work on mainnet.
     fn process_block_and_sortition_deprecated<B: BurnchainHeaderReader>(
         db: &mut SortitionDB,
         burnchain_db: &mut BurnchainDB,
@@ -1119,6 +1122,7 @@ impl Burnchain {
         // method is deprecated and only used in defunct helium nodes
 
         db.evaluate_sortition(
+            false,
             &header,
             blockstack_txs,
             burnchain,

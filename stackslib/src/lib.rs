@@ -64,6 +64,7 @@ pub mod clarity_cli;
 /// A high level library for interacting with the Clarity vm
 pub mod clarity_vm;
 pub mod cli;
+pub mod config;
 pub mod core;
 pub mod cost_estimates;
 pub mod deps;
