@@ -94,6 +94,8 @@ const DEFAULT_FIRST_REJECTION_PAUSE_MS: u64 = 5_000;
 const DEFAULT_SUBSEQUENT_REJECTION_PAUSE_MS: u64 = 10_000;
 const DEFAULT_BLOCK_COMMIT_DELAY_MS: u64 = 20_000;
 const DEFAULT_TENURE_COST_LIMIT_PER_BLOCK_PERCENTAGE: u8 = 25;
+// This should be greater than the signers' timeout. This is used for issuing fallback tenure extends
+const DEFAULT_TENURE_TIMEOUT_SECS: u64 = 420;
 
 static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
     LazyLock::new(|| ConnectionOptions {
@@ -2151,6 +2153,8 @@ pub struct MinerConfig {
     pub block_commit_delay: Duration,
     /// The percentage of the remaining tenure cost limit to consume each block.
     pub tenure_cost_limit_per_block_percentage: Option<u8>,
+    /// Duration to wait before attempting to issue a tenure extend
+    pub tenure_timeout: Duration,
 }
 
 impl Default for MinerConfig {
@@ -2187,6 +2191,7 @@ impl Default for MinerConfig {
             tenure_cost_limit_per_block_percentage: Some(
                 DEFAULT_TENURE_COST_LIMIT_PER_BLOCK_PERCENTAGE,
             ),
+            tenure_timeout: Duration::from_secs(DEFAULT_TENURE_TIMEOUT_SECS),
         }
     }
 }
@@ -2572,6 +2577,7 @@ pub struct MinerConfigFile {
     pub subsequent_rejection_pause_ms: Option<u64>,
     pub block_commit_delay_ms: Option<u64>,
     pub tenure_cost_limit_per_block_percentage: Option<u8>,
+    pub tenure_timeout_secs: Option<u64>,
 }
 
 impl MinerConfigFile {
@@ -2712,6 +2718,7 @@ impl MinerConfigFile {
             subsequent_rejection_pause_ms: self.subsequent_rejection_pause_ms.unwrap_or(miner_default_config.subsequent_rejection_pause_ms),
             block_commit_delay: self.block_commit_delay_ms.map(Duration::from_millis).unwrap_or(miner_default_config.block_commit_delay),
             tenure_cost_limit_per_block_percentage,
+            tenure_timeout: self.tenure_timeout_secs.map(Duration::from_secs).unwrap_or(miner_default_config.tenure_timeout),
         })
     }
 }
