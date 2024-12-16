@@ -73,8 +73,6 @@ use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use url::Url;
 
-use super::config::{EventKeyType, EventObserverConfig};
-
 #[cfg(any(test, feature = "testing"))]
 lazy_static! {
     /// Do not announce a signed/mined block to the network when set to true.
