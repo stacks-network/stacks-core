@@ -29,7 +29,7 @@ jobs:
       max-parallel: 2
       matrix:
         test-name:
-          - neon_integrations::bitcoind_integration_test
+          - tests::neon_integrations::bitcoind_integration_test
     steps:
       ## Setup test environment
       - name: Setup Test Environment
