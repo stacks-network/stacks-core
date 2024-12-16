@@ -49,7 +49,7 @@ use stacks::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
 use stacks::cost_estimates::metrics::{CostMetric, ProportionalDotProduct, UnitMetric};
 use stacks::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator, UnitEstimator};
 use stacks::net::atlas::AtlasConfig;
-use stacks::net::connection::ConnectionOptions;
+use stacks::net::connection::{ConnectionOptions, DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS};
 use stacks::net::{Neighbor, NeighborAddress, NeighborKey};
 use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks::types::EpochList;
@@ -2234,6 +2234,7 @@ pub struct ConnectionOptionsFile {
     pub antientropy_retry: Option<u64>,
     pub reject_blocks_pushed: Option<bool>,
     pub stackerdb_hint_replicas: Option<String>,
+    pub block_proposal_max_age_secs: Option<u64>,
 }
 
 impl ConnectionOptionsFile {
@@ -2382,6 +2383,9 @@ impl ConnectionOptionsFile {
                 .transpose()?
                 .map(HashMap::from_iter)
                 .unwrap_or(default.stackerdb_hint_replicas),
+            block_proposal_max_age_secs: self
+                .block_proposal_max_age_secs
+                .unwrap_or(DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS),
             ..default
         })
     }

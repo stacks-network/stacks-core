@@ -49,7 +49,7 @@ use crate::net::{
 };
 
 /// The default maximum age in seconds of a block that can be validated by the block proposal endpoint
-pub const BLOCK_PROPOSAL_MAX_AGE_SECS: u64 = 600;
+pub const DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS: u64 = 600;
 
 /// Receiver notification handle.
 /// When a message with the expected `seq` value arrives, send it to an expected receiver (possibly
@@ -573,7 +573,7 @@ impl std::default::Default for ConnectionOptions {
             nakamoto_inv_sync_burst_interval_ms: 1_000, // wait 1 second after a sortition before running inventory sync
             nakamoto_unconfirmed_downloader_interval_ms: 5_000, // run unconfirmed downloader once every 5 seconds
             auth_token: None,
-            block_proposal_max_age_secs: BLOCK_PROPOSAL_MAX_AGE_SECS,
+            block_proposal_max_age_secs: DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS,
             stackerdb_hint_replicas: HashMap::new(),
 
             // no faults on by default
