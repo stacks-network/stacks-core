@@ -312,7 +312,8 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     }
 
     /// Mine a BTC block and wait for a new Stacks block to be mined
-    fn mine_nakamoto_block(&mut self, timeout: Duration) {
+    /// Note: do not use nakamoto blocks mined heuristic if running a test with multiple miners
+    fn mine_nakamoto_block(&mut self, timeout: Duration, use_nakamoto_blocks_mined: bool) {
         let commits_submitted = self.running_nodes.commits_submitted.clone();
         let mined_block_time = Instant::now();
         let mined_before = self.running_nodes.nakamoto_blocks_mined.get();
@@ -329,7 +330,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             let info_after = self.get_peer_info();
             let blocks_mined = self.running_nodes.nakamoto_blocks_mined.get();
             Ok(info_after.stacks_tip_height > info_before.stacks_tip_height
-                && blocks_mined > mined_before)
+                && (!use_nakamoto_blocks_mined || blocks_mined > mined_before))
         })
         .unwrap();
         let mined_block_elapsed_time = mined_block_time.elapsed();
