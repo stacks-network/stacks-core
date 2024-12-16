@@ -11,57 +11,28 @@ fn main() {
 
     let mut rust_code = String::from("// Auto-generated code from versions.toml\n\n");
 
-    fn generate_constants(value: &Value, prefix: &str, code: &mut String) {
-        match value {
-            Value::Table(table) => {
-                for (key, val) in table {
-                    let new_prefix = if prefix.is_empty() {
-                        key.to_string()
-                    } else {
-                        format!("{}_{}", prefix, key)
-                    };
-                    generate_constants(val, &new_prefix, code);
-                }
-            }
-            Value::Array(arr) => {
-                code.push_str(&format!(
-                    "pub const {}: &[&str] = &[{}];\n",
-                    prefix.to_uppercase(),
-                    arr.iter()
-                        .map(|v| format!("\"{}\"", v.as_str().unwrap_or("")))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ));
-            }
-            _ => {
-                let const_value = match value {
-                    Value::String(s) => format!("\"{}\"", s),
-                    Value::Integer(n) => n.to_string(),
-                    Value::Float(f) => f.to_string(),
-                    Value::Boolean(b) => b.to_string(),
-                    _ => "\"\"".to_string(),
+    match config {
+        Value::Table(table) => {
+            for (key, val) in table {
+                match val {
+                    Value::String(s) => {
+                        let const_value = format!("\"{}\"", s);
+                        rust_code.push_str(&format!(
+                            "pub const {}: &str = {};\n",
+                            key.to_uppercase(),
+                            const_value
+                        ));
+                    }
+                    _ => {
+                        panic!("Invalid value type in versions.toml: {:?}", val);
+                    }
                 };
-                code.push_str(&format!(
-                    "pub const {}: {} = {};\n",
-                    prefix.to_uppercase(),
-                    if value.is_str() {
-                        "&str"
-                    } else if value.is_integer() {
-                        "i64"
-                    } else if value.is_float() {
-                        "f64"
-                    } else if value.is_bool() {
-                        "bool"
-                    } else {
-                        "&str"
-                    },
-                    const_value
-                ));
             }
         }
+        _ => {
+            panic!("Invalid value type in versions.toml: {:?}", config);
+        }
     }
-
-    generate_constants(&config, "", &mut rust_code);
 
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("versions.rs");
