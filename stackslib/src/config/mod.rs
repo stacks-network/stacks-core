@@ -59,7 +59,7 @@ use crate::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
 use crate::cost_estimates::metrics::{CostMetric, ProportionalDotProduct, UnitMetric};
 use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator, UnitEstimator};
 use crate::net::atlas::AtlasConfig;
-use crate::net::connection::ConnectionOptions;
+use crate::net::connection::{ConnectionOptions, DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS};
 use crate::net::{Neighbor, NeighborAddress, NeighborKey};
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::EpochList;
@@ -2240,6 +2240,7 @@ pub struct ConnectionOptionsFile {
     pub antientropy_retry: Option<u64>,
     pub reject_blocks_pushed: Option<bool>,
     pub stackerdb_hint_replicas: Option<String>,
+    pub block_proposal_max_age_secs: Option<u64>,
 }
 
 impl ConnectionOptionsFile {
@@ -2388,6 +2389,9 @@ impl ConnectionOptionsFile {
                 .transpose()?
                 .map(HashMap::from_iter)
                 .unwrap_or(default.stackerdb_hint_replicas),
+            block_proposal_max_age_secs: self
+                .block_proposal_max_age_secs
+                .unwrap_or(DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS),
             ..default
         })
     }
