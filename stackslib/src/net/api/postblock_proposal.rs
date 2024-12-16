@@ -747,7 +747,7 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
                 .block
                 .header
                 .timestamp
-                .wrapping_add(network.get_connection_opts().block_proposal_max_age_secs)
+                .saturating_add(network.get_connection_opts().block_proposal_max_age_secs)
                 < get_epoch_time_secs()
             {
                 return Err((
