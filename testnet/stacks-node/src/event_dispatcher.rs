@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#[cfg(test)]
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -48,8 +49,7 @@ use stacks::chainstate::stacks::events::{
 };
 use stacks::chainstate::stacks::miner::TransactionEvent;
 use stacks::chainstate::stacks::{
-    SinglesigHashMode, StacksBlock, StacksMicroblock, StacksTransaction, TransactionPayload,
-    TransactionPublicKeyEncoding,
+    StacksBlock, StacksMicroblock, StacksTransaction, TransactionPayload,
 };
 use stacks::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher, ProposalCallbackReceiver};
 use stacks::libstackerdb::StackerDBChunkData;
@@ -66,7 +66,7 @@ use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
 use stacks_common::types::net::PeerHost;
-use stacks_common::util::hash::{bytes_to_hex, Hash160, Sha512Trunc256Sum};
+use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use url::Url;
 
@@ -1709,13 +1709,14 @@ mod test {
     use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksHeaderInfo};
     use stacks::chainstate::stacks::events::StacksBlockEventData;
     use stacks::chainstate::stacks::{
-        SinglesigSpendingCondition, StacksBlock, TransactionAuth, TransactionSpendingCondition,
-        TransactionVersion,
+        SinglesigHashMode, SinglesigSpendingCondition, StacksBlock, TransactionAuth,
+        TransactionPublicKeyEncoding, TransactionSpendingCondition, TransactionVersion,
     };
     use stacks::types::chainstate::BlockHeaderHash;
     use stacks::util::secp256k1::MessageSignature;
     use stacks_common::bitvec::BitVec;
     use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
+    use stacks_common::util::hash::Hash160;
     use tempfile::tempdir;
     use tiny_http::{Method, Response, Server, StatusCode};
 
