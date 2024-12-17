@@ -5113,8 +5113,8 @@ fn mempool_walk_test_nonce_filtered_and_ranked() {
     let address_1 = origin_addresses[1].to_string();
     let address_2 = origin_addresses[2].to_string();
 
-    let test_name = "mempool_walk_test_nonce_filtered_and_ranked";
-    let mut peer_config = TestPeerConfig::new(test_name, 2002, 2003);
+    let test_name = function_name!();
+    let mut peer_config = TestPeerConfig::new(&test_name, 0, 0);
 
     peer_config.initial_balances = vec![];
     for (privk, addr) in &key_address_pairs {
@@ -5259,10 +5259,10 @@ fn mempool_walk_test_nonce_filtered_and_ranked() {
                 vec![
                     (address_2.clone(), 9), // Highest fee for address 2, and 9 is the next nonce
                     (address_1.clone(), 7),
-                    (address_0.clone(), 2),
                     (address_1.clone(), 8),
-                    (address_0.clone(), 3),
                     (address_1.clone(), 9), // Highest fee for address 1, but have to confirm nonces 7 and 8 first
+                    (address_0.clone(), 2),
+                    (address_0.clone(), 3),
                     (address_0.clone(), 4),
                     (address_0.clone(), 5),
                     (address_0.clone(), 6),

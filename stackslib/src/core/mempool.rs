@@ -1840,7 +1840,7 @@ impl MemPoolDB {
                                     }
                                 }
                             }
-                        },
+                        }
                         MemPoolWalkStrategy::NextNonceWithHighestFeeRate => {
                             // Execute the query to get a single row. We do not use an iterator because we want the top rank to be
                             // recalculated every time we visit a transaction.
