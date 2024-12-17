@@ -528,7 +528,7 @@ const LOG2_API: SimpleFunctionAPI = SimpleFunctionAPI {
     snippet: "log2 ${1:expr-1}",
     signature: "(log2 n)",
     description:
-        "Returns the power to which the number 2 must be raised to to obtain the value `n`, rounded
+        "Returns the power to which the number 2 must be raised to obtain the value `n`, rounded
 down to the nearest integer. Fails on a negative numbers.
 ",
     example: "(log2 u8) ;; Returns u3
@@ -2187,7 +2187,7 @@ type defined using `define-fungible-token`. The increased token balance is _not_
 rather minted.
 
 If a non-positive amount is provided to mint, this function returns `(err 1)`. Otherwise, on successfully mint, it
-returns `(ok true)`. If this call would result in more supplied tokens than defined by the total supply in 
+returns `(ok true)`. If this call would result in more supplied tokens than defined by the total supply in
 `define-fungible-token`, then a `SupplyOverflow` runtime error is thrown.
 ",
     example: "

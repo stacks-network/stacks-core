@@ -42,7 +42,7 @@ use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
 use crate::core::{
     StacksEpoch, StacksEpochId, STACKS_EPOCH_2_05_MARKER, STACKS_EPOCH_2_1_MARKER,
     STACKS_EPOCH_2_2_MARKER, STACKS_EPOCH_2_3_MARKER, STACKS_EPOCH_2_4_MARKER,
-    STACKS_EPOCH_2_5_MARKER, STACKS_EPOCH_3_0_MARKER,
+    STACKS_EPOCH_2_5_MARKER, STACKS_EPOCH_3_0_MARKER, STACKS_EPOCH_3_1_MARKER,
 };
 use crate::net::Error as net_error;
 
@@ -881,6 +881,7 @@ impl LeaderBlockCommitOp {
             StacksEpochId::Epoch24 => self.check_epoch_commit_marker(STACKS_EPOCH_2_4_MARKER),
             StacksEpochId::Epoch25 => self.check_epoch_commit_marker(STACKS_EPOCH_2_5_MARKER),
             StacksEpochId::Epoch30 => self.check_epoch_commit_marker(STACKS_EPOCH_3_0_MARKER),
+            StacksEpochId::Epoch31 => self.check_epoch_commit_marker(STACKS_EPOCH_3_1_MARKER),
         }
     }
 
@@ -900,7 +901,8 @@ impl LeaderBlockCommitOp {
             | StacksEpochId::Epoch23
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30 => {
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31 => {
                 // correct behavior -- uses *sortition height* to find the intended sortition ID
                 let sortition_height = self
                     .block_height

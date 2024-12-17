@@ -194,7 +194,7 @@ impl StacksTransactionReceipt {
             result: Value::okay_true(),
             stx_burned: 0,
             contract_analysis: None,
-            execution_cost: ExecutionCost::zero(),
+            execution_cost: ExecutionCost::ZERO,
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
@@ -309,7 +309,7 @@ impl StacksTransactionReceipt {
             result: Value::okay_true(),
             stx_burned: 0,
             contract_analysis: None,
-            execution_cost: ExecutionCost::zero(),
+            execution_cost: ExecutionCost::ZERO,
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
@@ -8741,6 +8741,7 @@ pub mod test {
                     StacksEpochId::Epoch24 => self.get_stacks_epoch(5),
                     StacksEpochId::Epoch25 => self.get_stacks_epoch(6),
                     StacksEpochId::Epoch30 => self.get_stacks_epoch(7),
+                    StacksEpochId::Epoch31 => self.get_stacks_epoch(8),
                 }
             }
             fn get_pox_payout_addrs(

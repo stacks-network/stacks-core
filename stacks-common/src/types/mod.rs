@@ -1,3 +1,20 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+use std::cell::LazyCell;
 use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
@@ -11,6 +28,7 @@ use crate::address::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use crate::consts::MICROSTACKS_PER_STACKS;
 use crate::deps_common::bitcoin::blockdata::transaction::TxOut;
 use crate::types::chainstate::{StacksAddress, StacksPublicKey};
 use crate::util::hash::Hash160;
@@ -18,6 +36,9 @@ use crate::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 
 pub mod chainstate;
 pub mod net;
+
+#[cfg(test)]
+pub mod tests;
 
 /// A container for public keys (compressed secp256k1 public keys)
 pub struct StacksPublicKeyBuffer(pub [u8; 33]);
@@ -81,6 +102,7 @@ pub enum StacksEpochId {
     Epoch24 = 0x02019,
     Epoch25 = 0x0201a,
     Epoch30 = 0x03000,
+    Epoch31 = 0x03001,
 }
 
 #[derive(Debug)]
@@ -89,9 +111,153 @@ pub enum MempoolCollectionBehavior {
     ByReceiveTime,
 }
 
+/// Struct describing an interval of time (measured in burnchain blocks) during which a coinbase is
+/// allotted.  Applies to SIP-029 code paths and later.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CoinbaseInterval {
+    /// amount of uSTX to award
+    pub coinbase: u128,
+    /// height of the chain after Stacks chain genesis at which this coinbase interval starts
+    pub effective_start_height: u64,
+}
+
+/// From SIP-029:
+///
+/// | Coinbase Interval  | Bitcoin Height | Offset Height       | Approx. Supply   | STX Reward | Annual Inflation |
+/// |--------------------|----------------|---------------------|------------------|------------|------------------|
+/// | Current            | -              | -                   | 1,552,452,847    | 1000       | -                |
+/// | 1st                |   945,000      |   278,950           | 1,627,352,847    | 500 (50%)  | 3.23%            |
+/// | 2nd                | 1,050,000      |   383,950           | 1,679,852,847    | 250 (50%)  | 1.57%            |
+/// | 3rd                | 1,260,000      |   593,950           | 1,732,352,847    | 125 (50%)  | 0.76%            |
+/// | 4th                | 1,470,000      |   803,950           | 1,758,602,847    | 62.5 (50%) | 0.37%            |
+/// | -                  | 2,197,560      | 1,531,510           | 1,804,075,347    | 62.5 (0%)  | 0.18%            |
+///
+/// The above is for mainnet, which has a burnchain year of 52596 blocks and starts at burnchain height 666050.
+/// The `Offset Height` column is simply the difference between `Bitcoin Height` and 666050.
+
+/// Mainnet coinbase intervals, as of SIP-029
+pub const COINBASE_INTERVALS_MAINNET: LazyCell<[CoinbaseInterval; 5]> = LazyCell::new(|| {
+    let emissions_schedule = [
+        CoinbaseInterval {
+            coinbase: 1_000 * u128::from(MICROSTACKS_PER_STACKS),
+            effective_start_height: 0,
+        },
+        CoinbaseInterval {
+            coinbase: 500 * u128::from(MICROSTACKS_PER_STACKS),
+            effective_start_height: 278_950,
+        },
+        CoinbaseInterval {
+            coinbase: 250 * u128::from(MICROSTACKS_PER_STACKS),
+            effective_start_height: 383_950,
+        },
+        CoinbaseInterval {
+            coinbase: 125 * u128::from(MICROSTACKS_PER_STACKS),
+            effective_start_height: 593_950,
+        },
+        CoinbaseInterval {
+            coinbase: (625 * u128::from(MICROSTACKS_PER_STACKS)) / 10,
+            effective_start_height: 803_950,
+        },
+    ];
+    assert!(CoinbaseInterval::check_order(&emissions_schedule));
+    emissions_schedule
+});
+
+/// Testnet coinbase intervals, as of SIP-029
+pub const COINBASE_INTERVALS_TESTNET: LazyCell<[CoinbaseInterval; 5]> = LazyCell::new(|| {
+    let emissions_schedule = [
+        CoinbaseInterval {
+            coinbase: 1_000 * u128::from(MICROSTACKS_PER_STACKS),
+            effective_start_height: 0,
+        },
+        CoinbaseInterval {
+            coinbase: 500 * u128::from(MICROSTACKS_PER_STACKS),
+            effective_start_height: 77_777,
+        },
+        CoinbaseInterval {
+            coinbase: 250 * u128::from(MICROSTACKS_PER_STACKS),
+            effective_start_height: 77_777 * 7,
+        },
+        CoinbaseInterval {
+            coinbase: 125 * u128::from(MICROSTACKS_PER_STACKS),
+            effective_start_height: 77_777 * 14,
+        },
+        CoinbaseInterval {
+            coinbase: (625 * u128::from(MICROSTACKS_PER_STACKS)) / 10,
+            effective_start_height: 77_777 * 21,
+        },
+    ];
+    assert!(CoinbaseInterval::check_order(&emissions_schedule));
+    emissions_schedule
+});
+
+/// Used for testing to substitute a coinbase schedule
+#[cfg(any(test, feature = "testing"))]
+pub static COINBASE_INTERVALS_TEST: std::sync::Mutex<Option<Vec<CoinbaseInterval>>> =
+    std::sync::Mutex::new(None);
+
+#[cfg(any(test, feature = "testing"))]
+pub fn set_test_coinbase_schedule(coinbase_schedule: Option<Vec<CoinbaseInterval>>) {
+    match COINBASE_INTERVALS_TEST.lock() {
+        Ok(mut schedule_guard) => {
+            *schedule_guard = coinbase_schedule;
+        }
+        Err(_e) => {
+            panic!("COINBASE_INTERVALS_TEST mutex poisoned");
+        }
+    }
+}
+
+impl CoinbaseInterval {
+    /// Look up the value of a coinbase at an effective height.
+    /// Precondition: `intervals` must be sorted in ascending order by `effective_start_height`
+    pub fn get_coinbase_at_effective_height(
+        intervals: &[CoinbaseInterval],
+        effective_height: u64,
+    ) -> u128 {
+        if intervals.is_empty() {
+            return 0;
+        }
+        if intervals.len() == 1 {
+            if intervals[0].effective_start_height <= effective_height {
+                return intervals[0].coinbase;
+            } else {
+                return 0;
+            }
+        }
+
+        for i in 0..(intervals.len() - 1) {
+            if intervals[i].effective_start_height <= effective_height
+                && effective_height < intervals[i + 1].effective_start_height
+            {
+                return intervals[i].coinbase;
+            }
+        }
+
+        // in last interval, which per the above checks is guaranteed to exist
+        intervals.last().unwrap_or_else(|| unreachable!()).coinbase
+    }
+
+    /// Verify that a list of intervals is sorted in ascending order by `effective_start_height`
+    pub fn check_order(intervals: &[CoinbaseInterval]) -> bool {
+        if intervals.len() < 2 {
+            return true;
+        }
+
+        let mut ht = intervals[0].effective_start_height;
+        for i in 1..intervals.len() {
+            if intervals[i].effective_start_height < ht {
+                return false;
+            }
+            ht = intervals[i].effective_start_height;
+        }
+        true
+    }
+}
+
 impl StacksEpochId {
     pub fn latest() -> StacksEpochId {
-        StacksEpochId::Epoch30
+        StacksEpochId::Epoch31
     }
 
     /// In this epoch, how should the mempool perform garbage collection?
@@ -105,7 +271,9 @@ impl StacksEpochId {
             | StacksEpochId::Epoch23
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25 => MempoolCollectionBehavior::ByStacksHeight,
-            StacksEpochId::Epoch30 => MempoolCollectionBehavior::ByReceiveTime,
+            StacksEpochId::Epoch30 | StacksEpochId::Epoch31 => {
+                MempoolCollectionBehavior::ByReceiveTime
+            }
         }
     }
 
@@ -120,7 +288,7 @@ impl StacksEpochId {
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23
             | StacksEpochId::Epoch24 => false,
-            StacksEpochId::Epoch25 | StacksEpochId::Epoch30 => true,
+            StacksEpochId::Epoch25 | StacksEpochId::Epoch30 | StacksEpochId::Epoch31 => true,
         }
     }
 
@@ -134,7 +302,10 @@ impl StacksEpochId {
             | StacksEpochId::Epoch21
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23 => false,
-            StacksEpochId::Epoch24 | StacksEpochId::Epoch25 | StacksEpochId::Epoch30 => true,
+            StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31 => true,
         }
     }
 
@@ -150,7 +321,7 @@ impl StacksEpochId {
             | StacksEpochId::Epoch23
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25 => false,
-            StacksEpochId::Epoch30 => true,
+            StacksEpochId::Epoch30 | StacksEpochId::Epoch31 => true,
         }
     }
 
@@ -166,7 +337,7 @@ impl StacksEpochId {
             | StacksEpochId::Epoch23
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25 => false,
-            StacksEpochId::Epoch30 => true,
+            StacksEpochId::Epoch30 | StacksEpochId::Epoch31 => true,
         }
     }
 
@@ -181,7 +352,7 @@ impl StacksEpochId {
             | StacksEpochId::Epoch23
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25 => false,
-            StacksEpochId::Epoch30 => true,
+            StacksEpochId::Epoch30 | StacksEpochId::Epoch31 => true,
         }
     }
 
@@ -212,7 +383,7 @@ impl StacksEpochId {
             | StacksEpochId::Epoch23
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25 => 0,
-            StacksEpochId::Epoch30 => MINING_COMMITMENT_FREQUENCY_NAKAMOTO,
+            StacksEpochId::Epoch30 | StacksEpochId::Epoch31 => MINING_COMMITMENT_FREQUENCY_NAKAMOTO,
         }
     }
 
@@ -248,7 +419,132 @@ impl StacksEpochId {
             | StacksEpochId::Epoch23
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25 => false,
-            StacksEpochId::Epoch30 => cur_reward_cycle > first_epoch30_reward_cycle,
+            StacksEpochId::Epoch30 | StacksEpochId::Epoch31 => {
+                cur_reward_cycle > first_epoch30_reward_cycle
+            }
+        }
+    }
+
+    /// What is the coinbase (in uSTX) to award for the given burnchain height?
+    /// Applies prior to SIP-029
+    fn coinbase_reward_pre_sip029(
+        &self,
+        first_burnchain_height: u64,
+        current_burnchain_height: u64,
+    ) -> u128 {
+        /*
+        From https://forum.stacks.org/t/pox-consensus-and-stx-future-supply
+
+        """
+
+        1000 STX for years 0-4
+        500 STX for years 4-8
+        250 STX for years 8-12
+        125 STX in perpetuity
+
+
+        From the Token Whitepaper:
+
+        We expect that once native mining goes live, approximately 4383 blocks will be pro-
+        cessed per month, or approximately 52,596 blocks will be processed per year.
+
+        """
+        */
+        // this is saturating subtraction for the initial reward calculation
+        //   where we are computing the coinbase reward for blocks that occur *before*
+        //   the `first_burn_block_height`
+        let effective_ht = current_burnchain_height.saturating_sub(first_burnchain_height);
+        let blocks_per_year = 52596;
+        let stx_reward = if effective_ht < blocks_per_year * 4 {
+            1000
+        } else if effective_ht < blocks_per_year * 8 {
+            500
+        } else if effective_ht < blocks_per_year * 12 {
+            250
+        } else {
+            125
+        };
+
+        stx_reward * (u128::from(MICROSTACKS_PER_STACKS))
+    }
+
+    /// Get the coinbase intervals to use.
+    /// Can be overriden by tests
+    #[cfg(any(test, feature = "testing"))]
+    pub(crate) fn get_coinbase_intervals(mainnet: bool) -> Vec<CoinbaseInterval> {
+        match COINBASE_INTERVALS_TEST.lock() {
+            Ok(schedule_opt) => {
+                if let Some(schedule) = (*schedule_opt).as_ref() {
+                    info!("Use overridden coinbase schedule {:?}", &schedule);
+                    return schedule.clone();
+                }
+            }
+            Err(_e) => {
+                panic!("COINBASE_INTERVALS_TEST mutex poisoned");
+            }
+        }
+
+        if mainnet {
+            COINBASE_INTERVALS_MAINNET.to_vec()
+        } else {
+            COINBASE_INTERVALS_TESTNET.to_vec()
+        }
+    }
+
+    #[cfg(not(any(test, feature = "testing")))]
+    pub(crate) fn get_coinbase_intervals(mainnet: bool) -> Vec<CoinbaseInterval> {
+        if mainnet {
+            COINBASE_INTERVALS_MAINNET.to_vec()
+        } else {
+            COINBASE_INTERVALS_TESTNET.to_vec()
+        }
+    }
+
+    /// what are the offsets after chain-start when coinbase reductions occur?
+    /// Applies at and after SIP-029.
+    /// Uses coinbase intervals defined by COINBASE_INTERVALS_MAINNET, unless overridden by a unit
+    /// or integration test.
+    fn coinbase_reward_sip029(
+        &self,
+        mainnet: bool,
+        first_burnchain_height: u64,
+        current_burnchain_height: u64,
+    ) -> u128 {
+        let effective_ht = current_burnchain_height.saturating_sub(first_burnchain_height);
+        let coinbase_intervals = Self::get_coinbase_intervals(mainnet);
+        CoinbaseInterval::get_coinbase_at_effective_height(&coinbase_intervals, effective_ht)
+    }
+
+    /// What is the coinbase to award?
+    pub fn coinbase_reward(
+        &self,
+        mainnet: bool,
+        first_burnchain_height: u64,
+        current_burnchain_height: u64,
+    ) -> u128 {
+        match self {
+            StacksEpochId::Epoch10 => {
+                // Stacks is not active
+                0
+            }
+            StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30 => {
+                self.coinbase_reward_pre_sip029(first_burnchain_height, current_burnchain_height)
+            }
+            StacksEpochId::Epoch31 => {
+                let cb = self.coinbase_reward_sip029(
+                    mainnet,
+                    first_burnchain_height,
+                    current_burnchain_height,
+                );
+                cb
+            }
         }
     }
 }
@@ -265,6 +561,7 @@ impl std::fmt::Display for StacksEpochId {
             StacksEpochId::Epoch24 => write!(f, "2.4"),
             StacksEpochId::Epoch25 => write!(f, "2.5"),
             StacksEpochId::Epoch30 => write!(f, "3.0"),
+            StacksEpochId::Epoch31 => write!(f, "3.1"),
         }
     }
 }
@@ -283,6 +580,7 @@ impl TryFrom<u32> for StacksEpochId {
             x if x == StacksEpochId::Epoch24 as u32 => Ok(StacksEpochId::Epoch24),
             x if x == StacksEpochId::Epoch25 as u32 => Ok(StacksEpochId::Epoch25),
             x if x == StacksEpochId::Epoch30 as u32 => Ok(StacksEpochId::Epoch30),
+            x if x == StacksEpochId::Epoch31 as u32 => Ok(StacksEpochId::Epoch31),
             _ => Err("Invalid epoch"),
         }
     }

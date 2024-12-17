@@ -215,7 +215,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
     pub fn cost_so_far(&self) -> ExecutionCost {
         match self.cost_track {
             Some(ref track) => track.get_total(),
-            None => ExecutionCost::zero(),
+            None => ExecutionCost::ZERO,
         }
     }
 
@@ -1771,7 +1771,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
     pub fn cost_so_far(&self) -> ExecutionCost {
         match self.cost_track {
             Some(ref track) => track.get_total(),
-            None => ExecutionCost::zero(),
+            None => ExecutionCost::ZERO,
         }
     }
 

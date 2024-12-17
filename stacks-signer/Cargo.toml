@@ -40,7 +40,7 @@ stacks-common = { path = "../stacks-common" }
 stackslib = { path = "../stackslib" }
 thiserror = { workspace = true }
 tiny_http = { version = "0.12", optional = true }
-toml = "0.5.6"
+toml = { workspace = true }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 rand = { workspace = true }
@@ -54,7 +54,7 @@ num-traits = "0.2.18"
 
 [dependencies.rusqlite]
 workspace = true
-features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
+features = ["blob", "serde_json", "i128_blob", "bundled", "trace", "functions"]
 
 [dependencies.serde_json]
 version = "1.0"

@@ -49,6 +49,7 @@ use stacks::chainstate::stacks::miner::TransactionEvent;
 use stacks::chainstate::stacks::{
     StacksBlock, StacksMicroblock, StacksTransaction, TransactionPayload,
 };
+use stacks::config::{EventKeyType, EventObserverConfig};
 use stacks::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher, ProposalCallbackReceiver};
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::api::postblock_proposal::{
@@ -67,8 +68,6 @@ use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use url::Url;
-
-use super::config::{EventKeyType, EventObserverConfig};
 
 #[derive(Debug, Clone)]
 struct EventObserver {
@@ -1730,8 +1729,8 @@ mod test {
         let parent_burn_block_hash = BurnchainHeaderHash([0; 32]);
         let parent_burn_block_height = 0;
         let parent_burn_block_timestamp = 0;
-        let anchored_consumed = ExecutionCost::zero();
-        let mblock_confirmed_consumed = ExecutionCost::zero();
+        let anchored_consumed = ExecutionCost::ZERO;
+        let mblock_confirmed_consumed = ExecutionCost::ZERO;
         let pox_constants = PoxConstants::testnet_default();
         let signer_bitvec = BitVec::zeros(2).expect("Failed to create BitVec with length 2");
         let block_timestamp = Some(123456);
@@ -1800,8 +1799,8 @@ mod test {
         let parent_burn_block_hash = BurnchainHeaderHash([0; 32]);
         let parent_burn_block_height = 0;
         let parent_burn_block_timestamp = 0;
-        let anchored_consumed = ExecutionCost::zero();
-        let mblock_confirmed_consumed = ExecutionCost::zero();
+        let anchored_consumed = ExecutionCost::ZERO;
+        let mblock_confirmed_consumed = ExecutionCost::ZERO;
         let pox_constants = PoxConstants::testnet_default();
         let signer_bitvec = BitVec::zeros(2).expect("Failed to create BitVec with length 2");
         let block_timestamp = Some(123456);
