@@ -56,6 +56,7 @@ pox-locking = { path = "../pox-locking" }
 libstackerdb = { path = "../libstackerdb" }
 siphasher = "0.3.7"
 hashbrown = { workspace = true }
+toml = { workspace = true }
 clar2wasm = { git = "https://github.com/stacks-network/clarity-wasm.git", branch = "main"}
 
 [target.'cfg(not(any(target_os = "macos",target_os="windows", target_arch = "arm" )))'.dependencies]

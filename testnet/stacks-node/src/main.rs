@@ -16,8 +16,6 @@ use stacks_common::util::hash::hex_bytes;
 pub mod monitoring;
 
 pub mod burnchains;
-pub mod chain_data;
-pub mod config;
 pub mod event_dispatcher;
 pub mod genesis_data;
 pub mod globals;
@@ -41,19 +39,19 @@ use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvi
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::config::chain_data::MinerStats;
+pub use stacks::config::{Config, ConfigFile};
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
 pub use self::burnchains::{
     BitcoinRegtestController, BurnchainController, BurnchainTip, MocknetController,
 };
-pub use self::config::{Config, ConfigFile};
 pub use self::event_dispatcher::EventDispatcher;
 pub use self::keychain::Keychain;
 pub use self::node::{ChainTip, Node};
 pub use self::run_loop::{helium, neon};
 pub use self::tenure::Tenure;
-use crate::chain_data::MinerStats;
 use crate::neon_node::{BlockMinerThread, TipCandidate};
 use crate::run_loop::boot_nakamoto;
 

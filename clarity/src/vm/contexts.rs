@@ -1656,7 +1656,7 @@ impl<'a> GlobalContext<'a> {
         database: ClarityDatabase<'a>,
         cost_track: LimitedCostTracker,
         epoch_id: StacksEpochId,
-    ) -> GlobalContext {
+    ) -> GlobalContext<'a> {
         #[cfg(feature = "clarity-wasm")]
         let engine = Engine::default();
 
