@@ -2492,7 +2492,7 @@ mod test {
         // Create a mock server
         let mut server = mockito::Server::new();
         let _m = server
-            .mock("POST", "/new_mempool_tx")
+            .mock("POST", "/new_block")
             .with_status(200)
             .expect_at_most(1)
             .create();
