@@ -29,7 +29,8 @@ use rand::distributions::Uniform;
 use rand::prelude::Distribution;
 use rusqlite::types::ToSql;
 use rusqlite::{
-    params, Connection, Error as SqliteError, OpenFlags, OptionalExtension, Row, Rows, Transaction,
+    params, Connection, Error as SqliteError, OpenFlags, OptionalExtension, Row, Rows, Statement,
+    Transaction,
 };
 use siphasher::sip::SipHasher; // this is SipHash-2-4
 use stacks_common::codec::{
@@ -519,13 +520,40 @@ impl MemPoolWalkTxTypes {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MemPoolWalkStrategy {
+    /// Select transactions with the highest global fee rate.
+    GlobalFeeRate,
+    /// Select transactions with the next expected nonce for origin and sponsor addresses,
+    NextNonceWithHighestFeeRate,
+}
+
+impl FromStr for MemPoolWalkStrategy {
+    type Err = &'static str;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "GlobalFeeRate" => {
+                return Ok(Self::GlobalFeeRate);
+            }
+            "NextNonceWithHighestFeeRate" => {
+                return Ok(Self::NextNonceWithHighestFeeRate);
+            }
+            _ => {
+                return Err("Unknown mempool walk strategy");
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MemPoolWalkSettings {
+    /// Strategy to use when selecting the next transactions to consider in the `mempool` table.
+    pub strategy: MemPoolWalkStrategy,
     /// Maximum amount of time a miner will spend walking through mempool transactions, in
     /// milliseconds.  This is a soft deadline.
     pub max_walk_time_ms: u64,
     /// Probability percentage to consider a transaction which has not received a cost estimate.
-    /// This property is no longer used and will be ignored.
+    /// Only used when walk strategy is `GlobalFeeRate`.
     pub consider_no_estimate_tx_prob: u8,
     /// Size of the nonce cache. This avoids MARF look-ups.
     pub nonce_cache_size: u64,
@@ -544,6 +572,7 @@ pub struct MemPoolWalkSettings {
 impl Default for MemPoolWalkSettings {
     fn default() -> Self {
         MemPoolWalkSettings {
+            strategy: MemPoolWalkStrategy::GlobalFeeRate,
             max_walk_time_ms: u64::MAX,
             consider_no_estimate_tx_prob: 5,
             nonce_cache_size: 1024 * 1024,
@@ -563,6 +592,7 @@ impl Default for MemPoolWalkSettings {
 impl MemPoolWalkSettings {
     pub fn zero() -> MemPoolWalkSettings {
         MemPoolWalkSettings {
+            strategy: MemPoolWalkStrategy::GlobalFeeRate,
             max_walk_time_ms: u64::MAX,
             consider_no_estimate_tx_prob: 5,
             nonce_cache_size: 1024 * 1024,
@@ -1318,6 +1348,9 @@ impl MemPoolDB {
                     MemPoolDB::instantiate_schema_7(tx)?;
                 }
                 7 => {
+                    MemPoolDB::instantiate_schema_8(tx)?;
+                }
+                8 => {
                     break;
                 }
                 _ => {
@@ -1673,16 +1706,50 @@ impl MemPoolDB {
         // single transaction.  This cannot grow to more than `settings.nonce_cache_size` entries.
         let mut retry_store = HashMap::new();
 
-        // Iterate pending mempool transactions using a heuristic that maximizes miner fee profitability and minimizes CPU time
-        // wasted on already-mined or not-yet-mineable transactions. This heuristic takes the following steps:
+        // == Queries for `GlobalFeeRate` mempool walk strategy
         //
-        // 1. Filters out transactions that have nonces smaller than the origin address' next expected nonce as stated in the
-        //    `nonces` table, when possible
+        // Selects mempool transactions only based on their fee rate. Transactions with NULL fee rates get randomly selected for
+        // consideration.
+        let tx_consideration_sampler = Uniform::new(0, 100);
+        let mut rng = rand::thread_rng();
+        let sql = "
+            SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
+            FROM mempool
+            WHERE fee_rate IS NULL
+            ";
+        let mut query_stmt_null = self
+            .db
+            .prepare(&sql)
+            .map_err(|err| Error::SqliteError(err))?;
+        let mut null_iterator = query_stmt_null
+            .query(NO_PARAMS)
+            .map_err(|err| Error::SqliteError(err))?;
+        let sql = "
+            SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
+            FROM mempool
+            WHERE fee_rate IS NOT NULL
+            ORDER BY fee_rate DESC
+            ";
+        let mut query_stmt_fee = self
+            .db
+            .prepare(&sql)
+            .map_err(|err| Error::SqliteError(err))?;
+        let mut fee_iterator = query_stmt_fee
+            .query(NO_PARAMS)
+            .map_err(|err| Error::SqliteError(err))?;
+
+        // == Query for `NextNonceWithHighestFeeRate` mempool walk strategy
+        //
+        // Selects the next mempool transaction to consider using a heuristic that maximizes miner fee profitability and minimizes
+        // CPU time wasted on already-mined or not-yet-mineable transactions. This heuristic takes the following steps:
+        //
+        // 1. Filters out transactions that have nonces smaller than the origin and sponsor address' next expected nonce as stated
+        //    in the `nonces` table, when possible
         // 2. Adds a "simulated" fee rate to transactions that don't have it by multiplying the mempool's maximum current fee rate
         //    by a random number. This helps us mix these transactions with others to guarantee they get processed in a reasonable
         //    order
-        // 3. Ranks transactions by prioritizing those with next nonces and higher fees (per origin address)
-        // 4. Sorts all ranked transactions by fee and returns them for evaluation
+        // 3. Ranks transactions by prioritizing those with next nonces and higher fees (per origin and sponsor address)
+        // 4. Takes the top ranked transaction and returns it for evaluation
         //
         // This logic prevents miners from repeatedly visiting (and then skipping) high fee transactions that would get evaluated
         // first based on their `fee_rate` but are otherwise non-mineable because they have very high or invalid nonces. A large
@@ -1696,28 +1763,32 @@ impl MemPoolDB {
                         WHEN fee_rate IS NULL THEN (ABS(RANDOM()) % 10000 / 10000.0) * (SELECT MAX(fee_rate) FROM mempool)
                         ELSE fee_rate
                     END AS sort_fee_rate
-                FROM mempool
-                LEFT JOIN nonces ON mempool.origin_address = nonces.address
-                WHERE nonces.address IS NULL OR mempool.origin_nonce >= nonces.nonce
+                FROM mempool AS m
+                LEFT JOIN nonces AS no ON m.origin_address = no.address
+                LEFT JOIN nonces AS ns ON m.sponsor_address = ns.address
+                WHERE (no.address IS NULL OR m.origin_nonce >= no.nonce)
+                  AND (ns.address IS NULL OR m.sponsor_nonce >= ns.nonce)
             ),
             address_nonce_ranked AS (
                 SELECT *,
                     ROW_NUMBER() OVER (
                         PARTITION BY origin_address
                         ORDER BY origin_nonce ASC, sort_fee_rate DESC
-                    ) AS rank
+                    ) AS origin_rank,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY sponsor_address
+                        ORDER BY sponsor_nonce ASC, sort_fee_rate DESC
+                    ) AS sponsor_rank
                 FROM nonce_filtered
             )
             SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
             FROM address_nonce_ranked
-            ORDER BY rank ASC, sort_fee_rate DESC
+            ORDER BY origin_rank ASC, sponsor_rank ASC, sort_fee_rate DESC
+            LIMIT 1
             ";
-        let mut query_stmt = self
+        let mut query_stmt_nonce_rank = self
             .db
             .prepare(&sql)
-            .map_err(|err| Error::SqliteError(err))?;
-        let mut tx_iterator = query_stmt
-            .query(NO_PARAMS)
             .map_err(|err| Error::SqliteError(err))?;
 
         let stop_reason = loop {
@@ -1734,16 +1805,61 @@ impl MemPoolDB {
                     (tx, update_estimate)
                 }
                 None => {
-                    // When the retry list is empty, read from the mempool db
-                    match tx_iterator.next().map_err(|err| Error::SqliteError(err))? {
-                        Some(row) => {
-                            let tx = MemPoolTxInfoPartial::from_row(row)?;
-                            let update_estimate = tx.fee_rate.is_none();
-                            (tx, update_estimate)
-                        }
-                        None => {
-                            debug!("No more transactions to consider in mempool");
-                            break MempoolIterationStopReason::NoMoreCandidates;
+                    // When the retry list is empty, read from the mempool db depending on the configured miner strategy
+                    match settings.strategy {
+                        MemPoolWalkStrategy::GlobalFeeRate => {
+                            let start_with_no_estimate =
+                                tx_consideration_sampler.sample(&mut rng) < settings.consider_no_estimate_tx_prob;
+                            // randomly select from either the null fee-rate transactions or those with fee-rate estimates.
+                            let opt_tx = if start_with_no_estimate {
+                                null_iterator
+                                    .next()
+                                    .map_err(|err| Error::SqliteError(err))?
+                            } else {
+                                fee_iterator.next().map_err(|err| Error::SqliteError(err))?
+                            };
+                            match opt_tx {
+                                Some(row) => (MemPoolTxInfoPartial::from_row(row)?, start_with_no_estimate),
+                                None => {
+                                    // If the selected iterator is empty, check the other
+                                    match if start_with_no_estimate {
+                                        fee_iterator.next().map_err(|err| Error::SqliteError(err))?
+                                    } else {
+                                        null_iterator
+                                            .next()
+                                            .map_err(|err| Error::SqliteError(err))?
+                                    } {
+                                        Some(row) => (
+                                            MemPoolTxInfoPartial::from_row(row)?,
+                                            !start_with_no_estimate,
+                                        ),
+                                        None => {
+                                            debug!("No more transactions to consider in mempool");
+                                            break MempoolIterationStopReason::NoMoreCandidates;
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        MemPoolWalkStrategy::NextNonceWithHighestFeeRate => {
+                            // Execute the query to get a single row. We do not use an iterator because we want the top rank to be
+                            // recalculated every time we visit a transaction.
+                            match query_stmt_nonce_rank
+                                .query(NO_PARAMS)
+                                .map_err(|err| Error::SqliteError(err))?
+                                .next()
+                                .map_err(|err| Error::SqliteError(err))?
+                            {
+                                Some(row) => {
+                                    let tx = MemPoolTxInfoPartial::from_row(row)?;
+                                    let update_estimate = tx.fee_rate.is_none();
+                                    (tx, update_estimate)
+                                },
+                                None => {
+                                    debug!("No more transactions to consider in mempool");
+                                    break MempoolIterationStopReason::NoMoreCandidates;
+                                }
+                            }
                         }
                     }
                 }
@@ -1944,8 +2060,11 @@ impl MemPoolDB {
         // drop these rusqlite statements and queries, since their existence as immutable borrows on the
         // connection prevents us from beginning a transaction below (which requires a mutable
         // borrow).
-        drop(tx_iterator);
-        drop(query_stmt);
+        drop(null_iterator);
+        drop(query_stmt_null);
+        drop(fee_iterator);
+        drop(query_stmt_fee);
+        drop(query_stmt_nonce_rank);
 
         if retry_store.len() > 0 {
             let tx = self.tx_begin()?;

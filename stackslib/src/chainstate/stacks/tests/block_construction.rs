@@ -5210,8 +5210,8 @@ fn mempool_walk_test_nonce_filtered_and_ranked() {
     mempool_tx.commit().unwrap();
 
     // Visit transactions. Keep a record of the order of visited txs so we can compare at the end.
-    let mut settings = MemPoolWalkSettings::default();
-    settings.strategy = MemPoolWalkStrategy::NextNonceWithHighestFeeRate;
+    let mut mempool_settings = MemPoolWalkSettings::default();
+    mempool_settings.strategy = MemPoolWalkStrategy::NextNonceWithHighestFeeRate;
     let mut considered_txs = vec![];
     let deadline = get_epoch_time_ms() + 30000;
     chainstate.with_read_only_clarity_tx(
@@ -5224,7 +5224,7 @@ fn mempool_walk_test_nonce_filtered_and_ranked() {
                     .iterate_candidates::<_, ChainstateError, _>(
                         clarity_conn,
                         &mut tx_events,
-                        settings,
+                        mempool_settings.clone(),
                         |_, available_tx, _| {
                             considered_txs.push((
                                 available_tx.tx.metadata.origin_address.to_string(),
@@ -5239,7 +5239,7 @@ fn mempool_walk_test_nonce_filtered_and_ranked() {
                                         available_tx.tx.tx.clone(),
                                         vec![],
                                         Value::okay(Value::Bool(true)).unwrap(),
-                                        ExecutionCost::zero(),
+                                        ExecutionCost::ZERO,
                                     ),
                                 )
                                 .convert_to_event(),
