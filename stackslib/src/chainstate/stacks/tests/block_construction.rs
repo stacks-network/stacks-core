@@ -30,6 +30,7 @@ use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::ClarityDatabase;
 use clarity::vm::test_util::TEST_BURN_STATE_DB;
 use clarity::vm::types::*;
+use mempool::MemPoolWalkStrategy;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use rusqlite::params;
@@ -5209,6 +5210,8 @@ fn mempool_walk_test_nonce_filtered_and_ranked() {
     mempool_tx.commit().unwrap();
 
     // Visit transactions. Keep a record of the order of visited txs so we can compare at the end.
+    let mut settings = MemPoolWalkSettings::default();
+    settings.strategy = MemPoolWalkStrategy::NextNonceWithHighestFeeRate;
     let mut considered_txs = vec![];
     let deadline = get_epoch_time_ms() + 30000;
     chainstate.with_read_only_clarity_tx(
@@ -5221,7 +5224,7 @@ fn mempool_walk_test_nonce_filtered_and_ranked() {
                     .iterate_candidates::<_, ChainstateError, _>(
                         clarity_conn,
                         &mut tx_events,
-                        MemPoolWalkSettings::default(),
+                        settings,
                         |_, available_tx, _| {
                             considered_txs.push((
                                 available_tx.tx.metadata.origin_address.to_string(),
