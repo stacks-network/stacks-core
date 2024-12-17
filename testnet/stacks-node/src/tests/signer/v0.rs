@@ -2580,8 +2580,8 @@ fn signers_broadcast_signed_blocks() {
 
 #[test]
 #[ignore]
-/// This test verifies that a miner will produce a TenureExtend transaction after the idle timeout is reached.
-fn tenure_extend_after_idle() {
+/// This test verifies that a miner will produce a TenureExtend transaction after the signers' idle timeout is reached.
+fn tenure_extend_after_idle_signers() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -2626,6 +2626,173 @@ fn tenure_extend_after_idle() {
     })
     .expect("Timed out waiting for a block with a tenure extend");
 
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// This test verifies that a miner will produce a TenureExtend transaction after the miner's idle timeout
+/// even if they do not see the signers' tenure extend timestamp responses.
+fn tenure_extend_after_idle_miner() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let _recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let idle_timeout = Duration::from_secs(30);
+    let miner_idle_timeout = idle_timeout + Duration::from_secs(10);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr, send_amt + send_fee)],
+        |config| {
+            config.tenure_idle_timeout = idle_timeout;
+        },
+        |config| {
+            config.miner.tenure_timeout = miner_idle_timeout;
+        },
+        None,
+        None,
+    );
+    let _http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+
+    signer_test.boot_to_epoch_3();
+
+    info!("---- Nakamoto booted, starting test ----");
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+
+    info!("---- Start a new tenure but ignore block signatures so no timestamps are recorded ----");
+    let tip_height_before = get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height;
+    TEST_IGNORE_SIGNERS.set(true);
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        30,
+        || {
+            let tip_height = get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height;
+            Ok(tip_height > tip_height_before)
+        },
+    )
+    .expect("Failed to mine the tenure change block");
+
+    // Now, wait for a block with a tenure change due to the new block
+    wait_for(30, || {
+        Ok(last_block_contains_tenure_change_tx(
+            TenureChangeCause::BlockFound,
+        ))
+    })
+    .expect("Timed out waiting for a block with a tenure change");
+
+    info!("---- Waiting for a tenure extend ----");
+
+    TEST_IGNORE_SIGNERS.set(false);
+    // Now, wait for a block with a tenure extend
+    wait_for(miner_idle_timeout.as_secs() + 20, || {
+        Ok(last_block_contains_tenure_change_tx(
+            TenureChangeCause::Extended,
+        ))
+    })
+    .expect("Timed out waiting for a block with a tenure extend");
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// This test verifies that a miner that attempts to produce a tenure extend too early will be rejected by the signers,
+/// but will eventually succeed after the signers' idle timeout has passed.
+fn tenure_extend_succeeds_after_rejected_attempt() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let _recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let idle_timeout = Duration::from_secs(30);
+    let miner_idle_timeout = Duration::from_secs(20);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr, send_amt + send_fee)],
+        |config| {
+            config.tenure_idle_timeout = idle_timeout;
+        },
+        |config| {
+            config.miner.tenure_timeout = miner_idle_timeout;
+        },
+        None,
+        None,
+    );
+    let _http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+
+    signer_test.boot_to_epoch_3();
+
+    info!("---- Nakamoto booted, starting test ----");
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+
+    info!("---- Waiting for a rejected tenure extend ----");
+    // Now, wait for a block with a tenure extend proposal from the miner, but ensure it is rejected.
+    wait_for(30, || {
+        let block = test_observer::get_stackerdb_chunks()
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+            .find_map(|chunk| {
+                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                    .expect("Failed to deserialize SignerMessage");
+                if let SignerMessage::BlockProposal(proposal) = message {
+                    if proposal.block.get_tenure_tx_payload().unwrap().cause
+                        == TenureChangeCause::Extended
+                    {
+                        return Some(proposal.block);
+                    }
+                }
+                None
+            });
+        let Some(block) = &block else {
+            return Ok(false);
+        };
+        let signatures = test_observer::get_stackerdb_chunks()
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+            .filter_map(|chunk| {
+                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                    .expect("Failed to deserialize SignerMessage");
+                if let SignerMessage::BlockResponse(BlockResponse::Rejected(rejected)) = message {
+                    if block.header.signer_signature_hash() == rejected.signer_signature_hash {
+                        return Some(rejected.signature);
+                    }
+                }
+                None
+            })
+            .collect::<Vec<_>>();
+        Ok(signatures.len() >= num_signers * 7 / 10)
+    })
+    .expect("Test timed out while waiting for a rejected tenure extend");
+
+    info!("---- Waiting for an accepted tenure extend ----");
+    wait_for(idle_timeout.as_secs() + 10, || {
+        Ok(last_block_contains_tenure_change_tx(
+            TenureChangeCause::Extended,
+        ))
+    })
+    .expect("Test timed out while waiting for an accepted tenure extend");
     signer_test.shutdown();
 }
 
