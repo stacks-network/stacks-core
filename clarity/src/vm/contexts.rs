@@ -499,7 +499,7 @@ impl EventBatch {
 
 impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     #[cfg(any(test, feature = "testing"))]
-    pub fn new(database: ClarityDatabase<'a>, epoch: StacksEpochId) -> OwnedEnvironment<'a, '_> {
+    pub fn new(database: ClarityDatabase<'a>, epoch: StacksEpochId) -> OwnedEnvironment<'a, 'a> {
         OwnedEnvironment {
             context: GlobalContext::new(
                 false,
@@ -513,7 +513,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     }
 
     #[cfg(any(test, feature = "testing"))]
-    pub fn new_toplevel(mut database: ClarityDatabase<'a>) -> OwnedEnvironment<'a, '_> {
+    pub fn new_toplevel(mut database: ClarityDatabase<'a>) -> OwnedEnvironment<'a, 'a> {
         database.begin();
         let epoch = database.get_clarity_epoch_version().unwrap();
         let version = ClarityVersion::default_for_epoch(epoch);
@@ -540,7 +540,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         mut database: ClarityDatabase<'a>,
         epoch: StacksEpochId,
         use_mainnet: bool,
-    ) -> OwnedEnvironment<'a, '_> {
+    ) -> OwnedEnvironment<'a, 'a> {
         use crate::vm::tests::test_only_mainnet_to_chain_id;
         let cost_track = LimitedCostTracker::new_max_limit(&mut database, epoch, use_mainnet)
             .expect("FAIL: problem instantiating cost tracking");
@@ -557,7 +557,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         chain_id: u32,
         database: ClarityDatabase<'a>,
         epoch_id: StacksEpochId,
-    ) -> OwnedEnvironment<'a, '_> {
+    ) -> OwnedEnvironment<'a, 'a> {
         OwnedEnvironment {
             context: GlobalContext::new(
                 mainnet,
@@ -576,7 +576,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         database: ClarityDatabase<'a>,
         cost_tracker: LimitedCostTracker,
         epoch_id: StacksEpochId,
-    ) -> OwnedEnvironment<'a, '_> {
+    ) -> OwnedEnvironment<'a, 'a> {
         OwnedEnvironment {
             context: GlobalContext::new(mainnet, chain_id, database, cost_tracker, epoch_id),
             call_stack: CallStack::new(),
@@ -1546,7 +1546,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         database: ClarityDatabase<'a>,
         cost_track: LimitedCostTracker,
         epoch_id: StacksEpochId,
-    ) -> GlobalContext {
+    ) -> GlobalContext<'a, 'hooks> {
         GlobalContext {
             database,
             cost_track,
