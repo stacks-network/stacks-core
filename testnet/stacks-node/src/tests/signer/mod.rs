@@ -36,12 +36,15 @@ use std::time::{Duration, Instant};
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;
-use libsigner::v0::messages::{BlockResponse, SignerMessage};
+use libsigner::v0::messages::{
+    BlockAccepted, BlockResponse, MessageSlotID, PeerInfo, SignerMessage,
+};
 use libsigner::{SignerEntries, SignerEventTrait};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
 use stacks::chainstate::stacks::StacksPrivateKey;
+use stacks::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
 use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
@@ -53,14 +56,13 @@ use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
-use stacks_signer::client::{ClientError, SignerSlotID, StacksClient};
+use stacks_signer::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::runloop::{SignerResult, State, StateInfo};
 use stacks_signer::{Signer, SpawnedSigner};
 
 use super::nakamoto_integrations::{check_nakamoto_empty_block_heuristics, wait_for};
-use crate::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
-use crate::neon::{Counters, TestFlag};
+use crate::neon::{Counters, RunLoopCounter, TestFlag};
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::nakamoto_integrations::{
@@ -81,13 +83,13 @@ pub struct RunningNodes {
     pub btcd_controller: BitcoinCoreController,
     pub run_loop_thread: thread::JoinHandle<()>,
     pub run_loop_stopper: Arc<AtomicBool>,
-    pub vrfs_submitted: Arc<AtomicU64>,
-    pub commits_submitted: Arc<AtomicU64>,
-    pub blocks_processed: Arc<AtomicU64>,
-    pub nakamoto_blocks_proposed: Arc<AtomicU64>,
-    pub nakamoto_blocks_mined: Arc<AtomicU64>,
-    pub nakamoto_blocks_rejected: Arc<AtomicU64>,
-    pub nakamoto_blocks_signer_pushed: Arc<AtomicU64>,
+    pub vrfs_submitted: RunLoopCounter,
+    pub commits_submitted: RunLoopCounter,
+    pub blocks_processed: RunLoopCounter,
+    pub nakamoto_blocks_proposed: RunLoopCounter,
+    pub nakamoto_blocks_mined: RunLoopCounter,
+    pub nakamoto_blocks_rejected: RunLoopCounter,
+    pub nakamoto_blocks_signer_pushed: RunLoopCounter,
     pub nakamoto_test_skip_commit_op: TestFlag,
     pub coord_channel: Arc<Mutex<CoordinatorChannels>>,
     pub conf: NeonConfig,
@@ -111,7 +113,7 @@ pub struct SignerTest<S> {
 }
 
 impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<SpawnedSigner<S, T>> {
-    fn new(num_signers: usize, initial_balances: Vec<(StacksAddress, u64)>) -> Self {
+    pub fn new(num_signers: usize, initial_balances: Vec<(StacksAddress, u64)>) -> Self {
         Self::new_with_config_modifications(
             num_signers,
             initial_balances,
@@ -307,10 +309,13 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         output
     }
 
-    fn mine_nakamoto_block(&mut self, timeout: Duration) {
+    /// Mine a BTC block and wait for a new Stacks block to be mined
+    /// Note: do not use nakamoto blocks mined heuristic if running a test with multiple miners
+    fn mine_nakamoto_block(&mut self, timeout: Duration, use_nakamoto_blocks_mined: bool) {
         let commits_submitted = self.running_nodes.commits_submitted.clone();
         let mined_block_time = Instant::now();
-        let info_before = self.stacks_client.get_peer_info().unwrap();
+        let mined_before = self.running_nodes.nakamoto_blocks_mined.get();
+        let info_before = self.get_peer_info();
         next_block_and_mine_commit(
             &mut self.running_nodes.btc_regtest_controller,
             timeout.as_secs(),
@@ -320,8 +325,10 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         .unwrap();
 
         wait_for(timeout.as_secs(), || {
-            let info_after = self.stacks_client.get_peer_info().unwrap();
-            Ok(info_after.stacks_tip_height > info_before.stacks_tip_height)
+            let info_after = self.get_peer_info();
+            let blocks_mined = self.running_nodes.nakamoto_blocks_mined.get();
+            Ok(info_after.stacks_tip_height > info_before.stacks_tip_height
+                && (!use_nakamoto_blocks_mined || blocks_mined > mined_before))
         })
         .unwrap();
         let mined_block_elapsed_time = mined_block_time.elapsed();
@@ -353,6 +360,26 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         }
         let mined_block_elapsed_time = mined_block_time.elapsed();
         info!("Nakamoto block mine time elapsed: {mined_block_elapsed_time:?}");
+    }
+
+    /// Helper function to run some code and then wait for a nakamoto block to be mined.
+    /// Chain information is captured before `f` is called, and then again after `f`
+    /// to ensure that the block was mined.
+    /// Note: this function does _not_ mine a BTC block.
+    fn wait_for_nakamoto_block(&mut self, timeout_secs: u64, f: impl FnOnce() -> ()) {
+        let blocks_before = self.running_nodes.nakamoto_blocks_mined.get();
+        let info_before = self.get_peer_info();
+
+        f();
+
+        // Verify that the block was mined
+        wait_for(timeout_secs, || {
+            let blocks_mined = self.running_nodes.nakamoto_blocks_mined.get();
+            let info = self.get_peer_info();
+            Ok(blocks_mined > blocks_before
+                && info.stacks_tip_height > info_before.stacks_tip_height)
+        })
+        .expect("Timed out waiting for nakamoto block to be mined");
     }
 
     /// Wait for a confirmed block and return a list of individual
@@ -618,6 +645,45 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             Ok(block_rejections.len() == expected_signers.len())
         })
     }
+
+    /// Get the latest block response from the given slot
+    pub fn get_latest_block_response(&self, slot_id: u32) -> BlockResponse {
+        let mut stackerdb = StackerDB::new(
+            &self.running_nodes.conf.node.rpc_bind,
+            StacksPrivateKey::new(), // We are just reading so don't care what the key is
+            false,
+            self.get_current_reward_cycle(),
+            SignerSlotID(0), // We are just reading so again, don't care about index.
+        );
+        let latest_msgs = StackerDB::get_messages(
+            stackerdb
+                .get_session_mut(&MessageSlotID::BlockResponse)
+                .expect("Failed to get BlockResponse stackerdb session"),
+            &[slot_id],
+        )
+        .expect("Failed to get message from stackerdb");
+        let latest_msg = latest_msgs.last().unwrap();
+        let SignerMessage::BlockResponse(block_response) = latest_msg else {
+            panic!("Latest message from slot #{slot_id} isn't a block acceptance");
+        };
+        block_response.clone()
+    }
+
+    /// Get the latest block acceptance from the given slot
+    pub fn get_latest_block_acceptance(&self, slot_id: u32) -> BlockAccepted {
+        let block_response = self.get_latest_block_response(slot_id);
+        match block_response {
+            BlockResponse::Accepted(accepted) => accepted,
+            _ => panic!("Latest block response from slot #{slot_id} isn't a block acceptance"),
+        }
+    }
+
+    /// Get /v2/info from the node
+    pub fn get_peer_info(&self) -> PeerInfo {
+        self.stacks_client
+            .get_peer_info()
+            .expect("Failed to get peer info")
+    }
 }
 
 fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
@@ -747,13 +813,13 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
         btc_regtest_controller,
         run_loop_thread,
         run_loop_stopper,
-        vrfs_submitted: vrfs_submitted.0,
-        commits_submitted: commits_submitted.0,
-        blocks_processed: blocks_processed.0,
-        nakamoto_blocks_proposed: naka_blocks_proposed.0,
-        nakamoto_blocks_mined: naka_blocks_mined.0,
-        nakamoto_blocks_rejected: naka_blocks_rejected.0,
-        nakamoto_blocks_signer_pushed: naka_signer_pushed_blocks.0,
+        vrfs_submitted,
+        commits_submitted,
+        blocks_processed,
+        nakamoto_blocks_proposed: naka_blocks_proposed,
+        nakamoto_blocks_mined: naka_blocks_mined,
+        nakamoto_blocks_rejected: naka_blocks_rejected,
+        nakamoto_blocks_signer_pushed: naka_signer_pushed_blocks,
         nakamoto_test_skip_commit_op,
         coord_channel,
         conf: naka_conf,

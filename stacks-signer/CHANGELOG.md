@@ -7,11 +7,56 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+## Added
+
+- Introduced the `block_proposal_max_age_secs` configuration option for signers, enabling them to automatically ignore block proposals that exceed the specified age in seconds.
+
+## Changed
+- Improvements to the stale signer cleanup logic: deletes the prior signer if it has no remaining unprocessed blocks in its database
+
+## [3.1.0.0.1.0]
+
 ### Added
 
 ### Changed
 
+- Added tenure extend timestamp to signer block responses
+- Added tenure_idle_timeout_secs configuration option for determining when a time-based tenure extend will be accepted
+
+## [3.1.0.0.0.0]
+
+### Added
+
+- **SIP-029 consensus rules, activating in epoch 3.1 at block 875,000** (see [SIP-029](https://github.com/will-corcoran/sips/blob/feat/sip-029-halving-alignment/sips/sip-029/sip-029-halving-alignment.md) for details)
+
+### Changed
+
+## [3.0.0.0.4.0]
+
+### Added
+
+### Changed
+
+- Use the same burn view loader in both block validation and block processing
+
+## [3.0.0.0.3.0]
+
+### Added
+
+### Changed
+
+- Allow a miner to extend their tenure immediately if the winner of the next tenure has committed to the wrong parent tenure (#5361)
+
+## [3.0.0.0.2.0]
+
+### Added
+-  Adds `tenure_last_block_proposal_timeout_secs` option to account for delayed global block acceptance. default to 30s
+
+### Changed
+
 ## [3.0.0.0.1.0]
+
+### Added
 
 ### Changed
 

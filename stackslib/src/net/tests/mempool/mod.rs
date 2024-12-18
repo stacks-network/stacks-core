@@ -973,63 +973,68 @@ pub fn test_mempool_storage_nakamoto() {
             StacksAddress::from_string("ST2YM3J4KQK09V670TD6ZZ1XYNYCNGCWCVTASN5VM").unwrap();
 
         let mempool_txs = RefCell::new(vec![]);
-        let blocks_and_sizes = peer.make_nakamoto_tenure_and(
-            tenure_change_tx,
-            coinbase_tx,
-            &mut test_signers,
-            |_| {},
-            |miner, chainstate, sortdb, blocks_so_far| {
-                let mut txs = vec![];
-                if blocks_so_far.len() < num_blocks {
-                    let account = get_account(chainstate, sortdb, &addr);
+        let blocks_and_sizes = peer
+            .make_nakamoto_tenure_and(
+                tenure_change_tx,
+                coinbase_tx,
+                &mut test_signers,
+                |_| {},
+                |miner, chainstate, sortdb, blocks_so_far| {
+                    let mut txs = vec![];
+                    if blocks_so_far.len() < num_blocks {
+                        let account = get_account(chainstate, sortdb, &addr);
 
-                    let stx_transfer = make_token_transfer(
-                        chainstate,
-                        sortdb,
-                        &private_key,
-                        account.nonce,
-                        200,
-                        200,
-                        &recipient_addr,
-                    );
-                    txs.push(stx_transfer.clone());
-                    (*mempool_txs.borrow_mut()).push(stx_transfer.clone());
-                    all_txs.push(stx_transfer.clone());
-                }
-                txs
-            },
-            |_| {
-                let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+                        let stx_transfer = make_token_transfer(
+                            chainstate,
+                            sortdb,
+                            &private_key,
+                            account.nonce,
+                            200,
+                            200,
+                            &recipient_addr,
+                        );
+                        txs.push(stx_transfer.clone());
+                        (*mempool_txs.borrow_mut()).push(stx_transfer.clone());
+                        all_txs.push(stx_transfer.clone());
+                    }
+                    txs
+                },
+                |_| {
+                    let tip =
+                        NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+                            .unwrap()
+                            .unwrap();
+                    let sort_tip = SortitionDB::get_block_snapshot_consensus(
+                        sortdb.conn(),
+                        &tip.consensus_hash,
+                    )
                     .unwrap()
                     .unwrap();
-                let sort_tip =
-                    SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &tip.consensus_hash)
+                    let epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), sort_tip.block_height)
                         .unwrap()
                         .unwrap();
-                let epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), sort_tip.block_height)
-                    .unwrap()
-                    .unwrap();
 
-                // submit each transaction to the mempool
-                for mempool_tx in (*mempool_txs.borrow()).as_slice() {
-                    mempool
-                        .submit(
-                            &mut chainstate,
-                            &sortdb,
-                            &tip.consensus_hash,
-                            &tip.anchored_header.block_hash(),
-                            &mempool_tx,
-                            None,
-                            &epoch.block_limit,
-                            &epoch.epoch_id,
-                        )
-                        .unwrap();
-                }
+                    // submit each transaction to the mempool
+                    for mempool_tx in (*mempool_txs.borrow()).as_slice() {
+                        mempool
+                            .submit(
+                                &mut chainstate,
+                                &sortdb,
+                                &tip.consensus_hash,
+                                &tip.anchored_header.block_hash(),
+                                &mempool_tx,
+                                None,
+                                &epoch.block_limit,
+                                &epoch.epoch_id,
+                            )
+                            .unwrap();
+                    }
 
-                (*mempool_txs.borrow_mut()).clear();
-                true
-            },
-        );
+                    (*mempool_txs.borrow_mut()).clear();
+                    true
+                },
+            )
+            .unwrap();
 
         total_blocks += num_blocks;
     }

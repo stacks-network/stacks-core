@@ -17,13 +17,13 @@ use std::{env, thread};
 
 use clarity::vm::types::PrincipalData;
 use stacks::burnchains::{Burnchain, PoxConstants};
+use stacks::config::InitialBalance;
 use stacks::core::{self, EpochList, StacksEpochId};
 use stacks_common::consts::STACKS_EPOCH_MAX;
 use stacks_common::types::chainstate::StacksPrivateKey;
 
-use crate::config::InitialBalance;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
-use crate::tests::nakamoto_integrations::{next_block_and, wait_for};
+use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, neon_integration_test_conf, next_block_and_wait, submit_tx,
     test_observer, wait_for_runloop,

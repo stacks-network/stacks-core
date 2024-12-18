@@ -28,14 +28,14 @@ use stacks_common::util::log;
 use crate::chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash, read_root_hash};
 use crate::chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, CursorError, TrieCursor, TrieNode, TrieNode16,
-    TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr, TRIEPTR_SIZE,
+    TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType, TriePtr, TRIEPTR_SIZE,
 };
 use crate::chainstate::stacks::index::storage::{
     TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection, TrieStorageTransaction,
 };
 use crate::chainstate::stacks::index::trie::Trie;
 use crate::chainstate::stacks::index::{
-    ClarityMarfTrieId, Error, MARFValue, MarfTrieId, TrieHashExtension, TrieLeaf, TrieMerkleProof,
+    ClarityMarfTrieId, Error, MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof,
 };
 use crate::util_lib::db::Error as db_error;
 
@@ -122,9 +122,37 @@ pub trait MarfConnection<T: MarfTrieId> {
 
     fn sqlite_conn(&self) -> &Connection;
 
+    /// Get and check a value against get_from_hash
+    /// (test only)
+    #[cfg(test)]
+    fn get_and_check_with_hash(&mut self, block_hash: &T, key: &str) {
+        let res = self.with_conn(|c| MARF::get_by_key(c, block_hash, key));
+        let res_with_hash =
+            self.with_conn(|c| MARF::get_by_hash(c, block_hash, &TrieHash::from_key(key)));
+        match (res, res_with_hash) {
+            (Ok(Some(x)), Ok(Some(y))) => {
+                assert_eq!(x, y);
+            }
+            (Ok(None), Ok(None)) => {}
+            (Err(_), Err(_)) => {}
+            (x, y) => {
+                panic!("Inconsistency: {x:?} != {y:?}");
+            }
+        }
+    }
+
+    #[cfg(not(test))]
+    fn get_and_check_with_hash(&mut self, _block_hash: &T, _key: &str) {}
+
     /// Resolve a key from the MARF to a MARFValue with respect to the given block height.
     fn get(&mut self, block_hash: &T, key: &str) -> Result<Option<MARFValue>, Error> {
+        self.get_and_check_with_hash(block_hash, key);
         self.with_conn(|c| MARF::get_by_key(c, block_hash, key))
+    }
+
+    /// Resolve a TrieHash from the MARF to a MARFValue with respect to the given block height.
+    fn get_from_hash(&mut self, block_hash: &T, th: &TrieHash) -> Result<Option<MARFValue>, Error> {
+        self.with_conn(|c| MARF::get_by_hash(c, block_hash, th))
     }
 
     fn get_with_proof(
@@ -138,6 +166,21 @@ pub trait MarfConnection<T: MarfTrieId> {
                 Some(x) => x,
             };
             let proof = TrieMerkleProof::from_raw_entry(conn, key, &marf_value, block_hash)?;
+            Ok(Some((marf_value, proof)))
+        })
+    }
+
+    fn get_with_proof_from_hash(
+        &mut self,
+        block_hash: &T,
+        hash: &TrieHash,
+    ) -> Result<Option<(MARFValue, TrieMerkleProof<T>)>, Error> {
+        self.with_conn(|conn| {
+            let marf_value = match MARF::get_by_path(conn, block_hash, hash)? {
+                None => return Ok(None),
+                Some(x) => x,
+            };
+            let proof = TrieMerkleProof::from_path(conn, hash, &marf_value, block_hash)?;
             Ok(Some((marf_value, proof)))
         })
     }
@@ -781,7 +824,7 @@ impl<T: MarfTrieId> MARF<T> {
     fn walk_cow(
         storage: &mut TrieStorageTransaction<T>,
         block_hash: &T,
-        path: &TriePath,
+        path: &TrieHash,
     ) -> Result<TrieCursor<T>, Error> {
         let block_id = storage.get_block_identifier(block_hash);
         MARF::extend_trie(storage, block_hash)?;
@@ -886,7 +929,7 @@ impl<T: MarfTrieId> MARF<T> {
     fn walk(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
-        path: &TriePath,
+        path: &TrieHash,
     ) -> Result<(TrieCursor<T>, TrieNodeType), Error> {
         storage.open_block(block_hash)?;
 
@@ -994,7 +1037,7 @@ impl<T: MarfTrieId> MARF<T> {
     pub fn get_path(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
-        path: &TriePath,
+        path: &TrieHash,
     ) -> Result<Option<TrieLeaf>, Error> {
         trace!("MARF::get_path({:?}) {:?}", block_hash, path);
 
@@ -1045,7 +1088,7 @@ impl<T: MarfTrieId> MARF<T> {
     fn do_insert_leaf(
         storage: &mut TrieStorageTransaction<T>,
         block_hash: &T,
-        path: &TriePath,
+        path: &TrieHash,
         leaf_value: &TrieLeaf,
         update_skiplist: bool,
     ) -> Result<(), Error> {
@@ -1076,7 +1119,7 @@ impl<T: MarfTrieId> MARF<T> {
     pub fn insert_leaf(
         storage: &mut TrieStorageTransaction<T>,
         block_hash: &T,
-        path: &TriePath,
+        path: &TrieHash,
         value: &TrieLeaf,
     ) -> Result<(), Error> {
         if storage.readonly() {
@@ -1089,7 +1132,7 @@ impl<T: MarfTrieId> MARF<T> {
     pub fn insert_leaf_in_batch(
         storage: &mut TrieStorageTransaction<T>,
         block_hash: &T,
-        path: &TriePath,
+        path: &TrieHash,
         value: &TrieLeaf,
     ) -> Result<(), Error> {
         if storage.readonly() {
@@ -1123,6 +1166,35 @@ impl<T: MarfTrieId> MARF<T> {
         Ok(MARF::from_storage(file_storage))
     }
 
+    pub fn get_by_path(
+        storage: &mut TrieStorageConnection<T>,
+        block_hash: &T,
+        path: &TrieHash,
+    ) -> Result<Option<MARFValue>, Error> {
+        let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
+
+        let result = MARF::get_path(storage, block_hash, &path).or_else(|e| match e {
+            Error::NotFoundError => Ok(None),
+            _ => Err(e),
+        });
+
+        // restore
+        storage
+            .open_block_maybe_id(&cur_block_hash, cur_block_id)
+            .map_err(|e| {
+                warn!(
+                    "Failed to re-open {} {:?}: {:?}",
+                    &cur_block_hash, cur_block_id, &e
+                );
+                warn!("Result of failed path lookup '{}': {:?}", path, &result);
+                e
+            })?;
+
+        result.map(|option_result| option_result.map(|leaf| leaf.data))
+    }
+
+    /// Load up a MARF value by key, given a handle to the storage connection and a tip to work off
+    /// of.
     pub fn get_by_key(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
@@ -1130,7 +1202,7 @@ impl<T: MarfTrieId> MARF<T> {
     ) -> Result<Option<MARFValue>, Error> {
         let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
 
-        let path = TriePath::from_key(key);
+        let path = TrieHash::from_key(key);
 
         let result = MARF::get_path(storage, block_hash, &path).or_else(|e| match e {
             Error::NotFoundError => Ok(None),
@@ -1146,6 +1218,35 @@ impl<T: MarfTrieId> MARF<T> {
                     &cur_block_hash, cur_block_id, &e
                 );
                 warn!("Result of failed key lookup '{}': {:?}", key, &result);
+                e
+            })?;
+
+        result.map(|option_result| option_result.map(|leaf| leaf.data))
+    }
+
+    /// Load up a MARF value by TrieHash, given a handle to the storage connection and a tip to
+    /// work off of.
+    pub fn get_by_hash(
+        storage: &mut TrieStorageConnection<T>,
+        block_hash: &T,
+        path: &TrieHash,
+    ) -> Result<Option<MARFValue>, Error> {
+        let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
+
+        let result = MARF::get_path(storage, block_hash, &path).or_else(|e| match e {
+            Error::NotFoundError => Ok(None),
+            _ => Err(e),
+        });
+
+        // restore
+        storage
+            .open_block_maybe_id(&cur_block_hash, cur_block_id)
+            .map_err(|e| {
+                warn!(
+                    "Failed to re-open {} {:?}: {:?}",
+                    &cur_block_hash, cur_block_id, &e
+                );
+                warn!("Result of failed hash lookup '{}': {:?}", path, &result);
                 e
             })?;
 
@@ -1262,7 +1363,7 @@ impl<T: MarfTrieId> MARF<T> {
             .zip(values[0..last].iter())
             .try_for_each(|((index, key), value)| {
                 let marf_leaf = TrieLeaf::from_value(&[], value.clone());
-                let path = TriePath::from_key(key);
+                let path = TrieHash::from_key(key);
 
                 if eta_enabled {
                     let updated_progress = 100 * index / last;
@@ -1280,7 +1381,7 @@ impl<T: MarfTrieId> MARF<T> {
         if result.is_ok() {
             // last insert updates the root with the skiplist hash
             let marf_leaf = TrieLeaf::from_value(&[], values[last].clone());
-            let path = TriePath::from_key(&keys[last]);
+            let path = TrieHash::from_key(&keys[last]);
             result = MARF::insert_leaf(conn, block_hash, &path, &marf_leaf);
         }
 
@@ -1320,6 +1421,20 @@ impl<T: MarfTrieId> MARF<T> {
         Ok(Some((marf_value, proof)))
     }
 
+    pub fn get_with_proof_from_hash(
+        &mut self,
+        block_hash: &T,
+        path: &TrieHash,
+    ) -> Result<Option<(MARFValue, TrieMerkleProof<T>)>, Error> {
+        let mut conn = self.storage.connection();
+        let marf_value = match MARF::get_by_path(&mut conn, block_hash, &path)? {
+            None => return Ok(None),
+            Some(x) => x,
+        };
+        let proof = TrieMerkleProof::from_path(&mut conn, &path, &marf_value, block_hash)?;
+        Ok(Some((marf_value, proof)))
+    }
+
     pub fn get_bhh_at_height(&mut self, block_hash: &T, height: u32) -> Result<Option<T>, Error> {
         MARF::get_block_at_height(&mut self.storage.connection(), height, block_hash)
     }
@@ -1356,14 +1471,14 @@ impl<T: MarfTrieId> MARF<T> {
             return Err(Error::ReadOnlyError);
         }
         let marf_leaf = TrieLeaf::from_value(&[], value);
-        let path = TriePath::from_key(key);
+        let path = TrieHash::from_key(key);
         self.insert_raw(path, marf_leaf)
     }
 
     /// Insert the given (key, value) pair into the MARF.  Inserting the same key twice silently
     /// overwrites the existing key.  Succeeds if there are no storage errors.
     /// Must be called after a call to .begin() (will fail otherwise)
-    pub fn insert_raw(&mut self, path: TriePath, marf_leaf: TrieLeaf) -> Result<(), Error> {
+    pub fn insert_raw(&mut self, path: TrieHash, marf_leaf: TrieLeaf) -> Result<(), Error> {
         if self.storage.readonly() {
             return Err(Error::ReadOnlyError);
         }

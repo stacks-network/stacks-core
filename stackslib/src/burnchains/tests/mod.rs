@@ -351,10 +351,30 @@ impl TestMinerFactory {
 
 impl TestBurnchainBlock {
     pub fn new(parent_snapshot: &BlockSnapshot, fork_id: u64) -> TestBurnchainBlock {
+        let burn_header_hash = BurnchainHeaderHash::from_test_data(
+            parent_snapshot.block_height + 1,
+            &parent_snapshot.index_root,
+            fork_id,
+        );
         TestBurnchainBlock {
             parent_snapshot: parent_snapshot.clone(),
             block_height: parent_snapshot.block_height + 1,
-            txs: vec![],
+            txs: vec![
+                // make sure that no block-commit gets vtxindex == 0 unless explicitly structured.
+                // This prestx mocks a burnchain coinbase
+                BlockstackOperationType::PreStx(PreStxOp {
+                    output: StacksAddress::burn_address(false),
+                    txid: Txid::from_test_data(
+                        parent_snapshot.block_height + 1,
+                        0,
+                        &burn_header_hash,
+                        128,
+                    ),
+                    vtxindex: 0,
+                    block_height: parent_snapshot.block_height + 1,
+                    burn_header_hash,
+                }),
+            ],
             fork_id: fork_id,
             timestamp: get_epoch_time_secs(),
         }
@@ -397,6 +417,7 @@ impl TestBurnchainBlock {
         parent_block_snapshot: Option<&BlockSnapshot>,
         new_seed: Option<VRFSeed>,
         epoch_marker: u8,
+        parent_is_shadow: bool,
     ) -> LeaderBlockCommitOp {
         let pubks = miner
             .privks
@@ -435,6 +456,13 @@ impl TestBurnchainBlock {
         )
         .expect("FATAL: failed to read block commit");
 
+        if parent_is_shadow {
+            assert!(
+                get_commit_res.is_none(),
+                "FATAL: shadow parent should not have a block-commit"
+            );
+        }
+
         let input = SortitionDB::get_last_block_commit_by_sender(ic.conn(), &apparent_sender)
             .unwrap()
             .map(|commit| (commit.txid.clone(), 1 + (commit.commit_outs.len() as u32)))
@@ -454,7 +482,8 @@ impl TestBurnchainBlock {
                     block_hash,
                     self.block_height,
                     &new_seed,
-                    &parent,
+                    parent.block_height as u32,
+                    parent.vtxindex as u16,
                     leader_key.block_height as u32,
                     leader_key.vtxindex as u16,
                     burn_fee,
@@ -464,16 +493,42 @@ impl TestBurnchainBlock {
                 txop
             }
             None => {
-                // initial
-                let txop = LeaderBlockCommitOp::initial(
-                    block_hash,
-                    self.block_height,
-                    &new_seed,
-                    leader_key,
-                    burn_fee,
-                    &input,
-                    &apparent_sender,
-                );
+                let txop = if parent_is_shadow {
+                    test_debug!(
+                        "Block-commit for {} (burn height {}) builds on shadow sortition",
+                        block_hash,
+                        self.block_height
+                    );
+
+                    LeaderBlockCommitOp::new(
+                        block_hash,
+                        self.block_height,
+                        &new_seed,
+                        last_snapshot_with_sortition.block_height as u32,
+                        0,
+                        leader_key.block_height as u32,
+                        leader_key.vtxindex as u16,
+                        burn_fee,
+                        &input,
+                        &apparent_sender,
+                    )
+                } else {
+                    // initial
+                    test_debug!(
+                        "Block-commit for {} (burn height {}) builds on genesis",
+                        block_hash,
+                        self.block_height,
+                    );
+                    LeaderBlockCommitOp::initial(
+                        block_hash,
+                        self.block_height,
+                        &new_seed,
+                        leader_key,
+                        burn_fee,
+                        &input,
+                        &apparent_sender,
+                    )
+                };
                 txop
             }
         };
@@ -517,6 +572,7 @@ impl TestBurnchainBlock {
             parent_block_snapshot,
             None,
             STACKS_EPOCH_2_4_MARKER,
+            false,
         )
     }
 
@@ -571,6 +627,7 @@ impl TestBurnchainBlock {
 
         let new_snapshot = sortition_db_handle
             .process_block_txs(
+                false,
                 &parent_snapshot,
                 &header,
                 burnchain,
