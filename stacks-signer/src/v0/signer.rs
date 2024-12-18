@@ -557,33 +557,6 @@ impl Signer {
                 self.handle_block_rejection(block_rejection);
             }
         };
-
-        // Remove this block validation from the pending table
-        let signer_sig_hash = block_response.signer_signature_hash();
-        self.signer_db
-            .remove_pending_block_validation(&signer_sig_hash)
-            .unwrap_or_else(|e| warn!("{self}: Failed to remove pending block validation: {e:?}"));
-
-        // Check if there is a pending block validation that we need to submit to the node
-        match self.signer_db.get_pending_block_validation() {
-            Ok(Some(signer_sig_hash)) => {
-                info!("{self}: Found a pending block validation: {signer_sig_hash:?}");
-                match self.signer_db.block_lookup(&signer_sig_hash) {
-                    Ok(Some(block_info)) => {
-                        self.submit_block_for_validation(stacks_client, &block_info.block);
-                    }
-                    Ok(None) => {
-                        // This should never happen
-                        error!(
-                            "{self}: Pending block validation not found in DB: {signer_sig_hash:?}"
-                        );
-                    }
-                    Err(e) => error!("{self}: Failed to get block info: {e:?}"),
-                }
-            }
-            Ok(None) => {}
-            Err(e) => warn!("{self}: Failed to get pending block validation: {e:?}"),
-        }
     }
 
     /// Handle the block validate ok response. Returns our block response if we have one
@@ -726,6 +699,12 @@ impl Signer {
                 self.handle_block_validate_reject(block_validate_reject)
             }
         };
+        // Remove this block validation from the pending table
+        let signer_sig_hash = block_validate_response.signer_signature_hash();
+        self.signer_db
+            .remove_pending_block_validation(&signer_sig_hash)
+            .unwrap_or_else(|e| warn!("{self}: Failed to remove pending block validation: {e:?}"));
+
         let Some(response) = block_response else {
             return;
         };
@@ -744,6 +723,27 @@ impl Signer {
             Err(e) => {
                 warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
             }
+        }
+
+        // Check if there is a pending block validation that we need to submit to the node
+        match self.signer_db.get_pending_block_validation() {
+            Ok(Some(signer_sig_hash)) => {
+                info!("{self}: Found a pending block validation: {signer_sig_hash:?}");
+                match self.signer_db.block_lookup(&signer_sig_hash) {
+                    Ok(Some(block_info)) => {
+                        self.submit_block_for_validation(stacks_client, &block_info.block);
+                    }
+                    Ok(None) => {
+                        // This should never happen
+                        error!(
+                            "{self}: Pending block validation not found in DB: {signer_sig_hash:?}"
+                        );
+                    }
+                    Err(e) => error!("{self}: Failed to get block info: {e:?}"),
+                }
+            }
+            Ok(None) => {}
+            Err(e) => warn!("{self}: Failed to get pending block validation: {e:?}"),
         }
     }
 
