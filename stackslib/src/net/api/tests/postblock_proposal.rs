@@ -245,7 +245,7 @@ fn test_try_make_response() {
 
     let miner_privk = &rpc_test.peer_1.miner.nakamoto_miner_key();
 
-    let mut block = {
+    let mut good_block = {
         let chainstate = rpc_test.peer_1.chainstate();
         let parent_stacks_header =
             NakamotoChainState::get_block_header(chainstate.db(), &stacks_tip)
@@ -321,12 +321,12 @@ fn test_try_make_response() {
     };
 
     // Increment the timestamp by 1 to ensure it is different from the previous block
-    block.header.timestamp += 1;
-    rpc_test.peer_1.miner.sign_nakamoto_block(&mut block);
+    good_block.header.timestamp += 1;
+    rpc_test.peer_1.miner.sign_nakamoto_block(&mut good_block);
 
     // post the valid block proposal
     let proposal = NakamotoBlockProposal {
-        block: block.clone(),
+        block: good_block.clone(),
         chain_id: 0x80000000,
     };
 
@@ -341,12 +341,16 @@ fn test_try_make_response() {
     requests.push(request);
 
     // Set the timestamp to a value in the past
-    block.header.timestamp -= 10000;
-    rpc_test.peer_1.miner.sign_nakamoto_block(&mut block);
+    let mut early_time_block = good_block.clone();
+    early_time_block.header.timestamp -= 10000;
+    rpc_test
+        .peer_1
+        .miner
+        .sign_nakamoto_block(&mut early_time_block);
 
     // post the invalid block proposal
     let proposal = NakamotoBlockProposal {
-        block: block.clone(),
+        block: early_time_block,
         chain_id: 0x80000000,
     };
 
@@ -361,12 +365,16 @@ fn test_try_make_response() {
     requests.push(request);
 
     // Set the timestamp to a value in the future
-    block.header.timestamp += 20000;
-    rpc_test.peer_1.miner.sign_nakamoto_block(&mut block);
+    let mut late_time_block = good_block.clone();
+    late_time_block.header.timestamp += 20000;
+    rpc_test
+        .peer_1
+        .miner
+        .sign_nakamoto_block(&mut late_time_block);
 
     // post the invalid block proposal
     let proposal = NakamotoBlockProposal {
-        block: block.clone(),
+        block: late_time_block,
         chain_id: 0x80000000,
     };
 
@@ -389,7 +397,7 @@ fn test_try_make_response() {
 
     let response = responses.remove(0);
 
-    // Wait for the results to be non-empty
+    // Wait for the results of all 3 requests
     loop {
         info!("Wait for results to be non-empty");
         if proposal_observer
@@ -411,7 +419,23 @@ fn test_try_make_response() {
     let mut results = observer.results.lock().unwrap();
 
     let result = results.remove(0);
-    assert!(result.is_ok());
+    match result {
+        Ok(postblock_proposal::BlockValidateOk {
+            signer_signature_hash,
+            cost,
+            size,
+            validation_time_ms,
+        }) => {
+            assert_eq!(
+                signer_signature_hash,
+                good_block.header.signer_signature_hash()
+            );
+            assert_eq!(cost, ExecutionCost::ZERO);
+            assert_eq!(size, 180);
+            assert!(validation_time_ms > 0 && validation_time_ms < 60000);
+        }
+        _ => panic!("expected ok"),
+    }
 
     let result = results.remove(0);
     match result {

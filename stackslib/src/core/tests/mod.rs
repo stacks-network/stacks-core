@@ -48,7 +48,7 @@ use crate::chainstate::stacks::db::test::{
 };
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
-use crate::chainstate::stacks::index::{MarfTrieId, TrieHashExtension};
+use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::miner::TransactionResult;
 use crate::chainstate::stacks::test::codec_all_transactions;
 use crate::chainstate::stacks::{
@@ -151,7 +151,7 @@ pub fn make_block(
         &mut chainstate_tx,
         &new_index_hash,
         &new_tip_info,
-        &ExecutionCost::zero(),
+        &ExecutionCost::ZERO,
         block_height,
     )
     .unwrap();
@@ -288,7 +288,7 @@ fn mempool_walk_over_fork() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event(),
@@ -326,7 +326,7 @@ fn mempool_walk_over_fork() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event(),
@@ -363,7 +363,7 @@ fn mempool_walk_over_fork() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event(),
@@ -405,7 +405,7 @@ fn mempool_walk_over_fork() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event(),
@@ -445,7 +445,7 @@ fn mempool_walk_over_fork() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event(),
@@ -683,7 +683,7 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event(),
@@ -720,7 +720,7 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event(),
@@ -757,7 +757,7 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event(),
@@ -866,7 +866,7 @@ fn test_iterate_candidates_skipped_transaction() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event()
@@ -981,7 +981,7 @@ fn test_iterate_candidates_processing_error_transaction() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event()
@@ -1096,7 +1096,7 @@ fn test_iterate_candidates_problematic_transaction() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event()
@@ -1248,7 +1248,7 @@ fn test_iterate_candidates_concurrent_write_lock() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event(),
@@ -2792,7 +2792,7 @@ fn test_filter_txs_by_type() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event(),
@@ -2827,7 +2827,7 @@ fn test_filter_txs_by_type() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event(),

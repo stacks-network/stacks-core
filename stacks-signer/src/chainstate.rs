@@ -122,6 +122,8 @@ pub struct ProposalEvalConfig {
     /// Time to wait for the last block of a tenure to be globally accepted or rejected before considering
     /// a new miner's block at the same height as valid.
     pub tenure_last_block_proposal_timeout: Duration,
+    /// How much idle time must pass before allowing a tenure extend
+    pub tenure_idle_timeout: Duration,
 }
 
 impl From<&SignerConfig> for ProposalEvalConfig {
@@ -130,6 +132,7 @@ impl From<&SignerConfig> for ProposalEvalConfig {
             first_proposal_burn_block_timing: value.first_proposal_burn_block_timing,
             block_proposal_timeout: value.block_proposal_timeout,
             tenure_last_block_proposal_timeout: value.tenure_last_block_proposal_timeout,
+            tenure_idle_timeout: value.tenure_idle_timeout,
         }
     }
 }
@@ -173,7 +176,7 @@ enum ProposedBy<'a> {
     CurrentSortition(&'a SortitionState),
 }
 
-impl<'a> ProposedBy<'a> {
+impl ProposedBy<'_> {
     pub fn state(&self) -> &SortitionState {
         match self {
             ProposedBy::LastSortition(x) => x,
@@ -190,7 +193,6 @@ impl SortitionsView {
         signer_db: &mut SignerDb,
         block: &NakamotoBlock,
         block_pk: &StacksPublicKey,
-        reward_cycle: u64,
         reset_view_if_wrong_consensus_hash: bool,
     ) -> Result<bool, SignerChainstateError> {
         if self
@@ -284,14 +286,7 @@ impl SortitionsView {
                     "last_sortition_consensus_hash" => ?self.last_sortition.as_ref().map(|x| x.consensus_hash),
                 );
                 self.reset_view(client)?;
-                return self.check_proposal(
-                    client,
-                    signer_db,
-                    block,
-                    block_pk,
-                    reward_cycle,
-                    false,
-                );
+                return self.check_proposal(client, signer_db, block, block_pk, false);
             }
             warn!(
                 "Miner block proposal has consensus hash that is neither the current or last sortition. Considering invalid.";
@@ -349,7 +344,6 @@ impl SortitionsView {
                 &proposed_by,
                 tenure_change,
                 block,
-                reward_cycle,
                 signer_db,
                 client,
             )? {
@@ -368,14 +362,23 @@ impl SortitionsView {
             // in tenure extends, we need to check:
             // (1) if this is the most recent sortition, an extend is allowed if it changes the burnchain view
             // (2) if this is the most recent sortition, an extend is allowed if enough time has passed to refresh the block limit
+            let sortition_consensus_hash = proposed_by.state().consensus_hash;
             let changed_burn_view =
-                tenure_extend.burn_view_consensus_hash != proposed_by.state().consensus_hash;
-            let enough_time_passed = Self::tenure_time_passed_block_lim()?;
+                tenure_extend.burn_view_consensus_hash != sortition_consensus_hash;
+            let extend_timestamp = signer_db.calculate_tenure_extend_timestamp(
+                self.config.tenure_idle_timeout,
+                block,
+                false,
+            );
+            let epoch_time = get_epoch_time_secs();
+            let enough_time_passed = epoch_time > extend_timestamp;
             if !changed_burn_view && !enough_time_passed {
                 warn!(
                     "Miner block proposal contains a tenure extend, but the burnchain view has not changed and enough time has not passed to refresh the block limit. Considering proposal invalid.";
                     "proposed_block_consensus_hash" => %block.header.consensus_hash,
                     "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                    "extend_timestamp" => extend_timestamp,
+                    "epoch_time" => epoch_time,
                 );
                 return Ok(false);
             }
@@ -539,7 +542,6 @@ impl SortitionsView {
     fn check_tenure_change_confirms_parent(
         tenure_change: &TenureChangePayload,
         block: &NakamotoBlock,
-        reward_cycle: u64,
         signer_db: &mut SignerDb,
         client: &StacksClient,
         tenure_last_block_proposal_timeout: Duration,
@@ -584,7 +586,7 @@ impl SortitionsView {
             // If we have seen this block already, make sure its state is updated to globally accepted.
             // Otherwise, don't worry about it.
             if let Ok(Some(mut block_info)) =
-                signer_db.block_lookup(reward_cycle, &nakamoto_tip.signer_signature_hash())
+                signer_db.block_lookup(&nakamoto_tip.signer_signature_hash())
             {
                 if block_info.state != BlockState::GloballyAccepted {
                     if let Err(e) = block_info.mark_globally_accepted() {
@@ -619,7 +621,6 @@ impl SortitionsView {
         proposed_by: &ProposedBy,
         tenure_change: &TenureChangePayload,
         block: &NakamotoBlock,
-        reward_cycle: u64,
         signer_db: &mut SignerDb,
         client: &StacksClient,
     ) -> Result<bool, SignerChainstateError> {
@@ -627,7 +628,6 @@ impl SortitionsView {
         let confirms_expected_parent = Self::check_tenure_change_confirms_parent(
             tenure_change,
             block,
-            reward_cycle,
             signer_db,
             client,
             self.config.tenure_last_block_proposal_timeout,
@@ -689,12 +689,6 @@ impl SortitionsView {
             );
             Ok(false)
         }
-    }
-
-    /// Has the current tenure lasted long enough to extend the block limit?
-    pub fn tenure_time_passed_block_lim() -> Result<bool, ClientError> {
-        // TODO
-        Ok(false)
     }
 
     /// Fetch a new view of the recent sortitions
