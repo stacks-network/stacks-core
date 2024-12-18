@@ -185,6 +185,19 @@ impl BlockValidateResponse {
     }
 }
 
+#[cfg(any(test, feature = "testing"))]
+fn get_test_delay() -> Option<u64> {
+    TEST_VALIDATE_DELAY_DURATION_SECS.lock().unwrap().clone()
+}
+
+#[cfg(any(test, feature = "testing"))]
+fn inject_validation_delay() {
+    if let Some(delay) = get_test_delay() {
+        warn!("Sleeping for {} seconds to simulate slow processing", delay);
+        thread::sleep(Duration::from_secs(delay));
+    }
+}
+
 /// Represents a block proposed to the `v3/block_proposal` endpoint for validation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NakamotoBlockProposal {
@@ -377,12 +390,7 @@ impl NakamotoBlockProposal {
         let start = Instant::now();
 
         #[cfg(any(test, feature = "testing"))]
-        {
-            if let Some(delay) = *TEST_VALIDATE_DELAY_DURATION_SECS.lock().unwrap() {
-                warn!("Sleeping for {} seconds to simulate slow processing", delay);
-                thread::sleep(Duration::from_secs(delay));
-            }
-        }
+        inject_validation_delay();
 
         let mainnet = self.chain_id == CHAIN_ID_MAINNET;
         if self.chain_id != chainstate.chain_id || mainnet != chainstate.mainnet {

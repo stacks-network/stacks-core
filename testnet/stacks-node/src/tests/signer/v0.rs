@@ -7796,9 +7796,7 @@ fn block_validation_pending_table() {
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(sender_addr, send_amt + send_fee)],
-        |config| {
-            config.block_proposal_validation_timeout = timeout;
-        },
+        |_| {},
         |_| {},
         None,
         None,
@@ -7869,28 +7867,17 @@ fn block_validation_pending_table() {
     let mut last_log = Instant::now();
     last_log -= Duration::from_secs(5);
     wait_for(120, || {
-        let sighash = match signer_db.get_pending_block_validation() {
-            Ok(Some(sighash)) => sighash,
-            Err(e) => {
-                error!("Failed to get pending block validation: {e}");
-                panic!("Failed to get pending block validation");
-            }
-            Ok(None) => {
-                if last_log.elapsed() > Duration::from_secs(5) {
-                    info!("----- No pending block validations found -----");
-                    last_log = Instant::now();
-                }
-                return Ok(false);
-            }
-        };
-        if last_log.elapsed() > Duration::from_secs(5) && sighash != block_signer_signature_hash {
+        let is_pending = signer_db
+            .has_pending_block_validation(&block_signer_signature_hash)
+            .expect("Unexpected DBError");
+        if last_log.elapsed() > Duration::from_secs(5) && !is_pending {
             let pending_block_validations = signer_db
                 .get_all_pending_block_validations()
                 .expect("Failed to get pending block validations");
             info!(
-                "----- Received a different pending block proposal -----";
-                "db_signer_signature_hash" => sighash.to_hex(),
+                "----- Waiting for pending block proposal in SignerDB -----";
                 "proposed_signer_signature_hash" => block_signer_signature_hash.to_hex(),
+                "pending_block_validations_len" => pending_block_validations.len(),
                 "pending_block_validations" => pending_block_validations.iter()
                     .map(|p| p.signer_signature_hash.to_hex())
                     .collect::<Vec<String>>()
@@ -7898,14 +7885,14 @@ fn block_validation_pending_table() {
             );
             last_log = Instant::now();
         }
-        Ok(sighash == block_signer_signature_hash)
+        Ok(is_pending)
     })
     .expect("Timed out waiting for pending block proposal");
 
-    // Set the delay to 0 so that the block validation finishes quickly
-    TEST_VALIDATE_DELAY_DURATION_SECS.lock().unwrap().take();
-
     info!("----- Waiting for pending block validation to be submitted -----");
+
+    // Set the delay to 0 so that the block validation finishes quickly
+    *TEST_VALIDATE_DELAY_DURATION_SECS.lock().unwrap() = None;
 
     wait_for(30, || {
         let proposal_responses = test_observer::get_proposal_responses();
@@ -7918,11 +7905,10 @@ fn block_validation_pending_table() {
 
     info!("----- Waiting for pending block validation to be removed -----");
     wait_for(30, || {
-        let Ok(Some(sighash)) = signer_db.get_pending_block_validation() else {
-            // There are no pending block validations
-            return Ok(true);
-        };
-        Ok(sighash != block_signer_signature_hash)
+        let is_pending = signer_db
+            .has_pending_block_validation(&block_signer_signature_hash)
+            .expect("Unexpected DBError");
+        Ok(!is_pending)
     })
     .expect("Timed out waiting for pending block validation to be removed");
 

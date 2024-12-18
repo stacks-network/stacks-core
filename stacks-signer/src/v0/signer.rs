@@ -533,7 +533,14 @@ impl Signer {
                 // from other signers to push the proposed block into a global rejection/acceptance regardless of our participation.
                 // However, we will not be able to participate beyond this until our block submission times out or we receive a response
                 // from our node.
-                warn!("{self}: cannot submit block proposal for validation as we are already waiting for a response for a prior submission")
+                warn!("{self}: cannot submit block proposal for validation as we are already waiting for a response for a prior submission. Inserting pending proposal.";
+                    "signer_signature_hash" => signer_signature_hash.to_string(),
+                );
+                self.signer_db
+                    .insert_pending_block_validation(&signer_signature_hash, get_epoch_time_secs())
+                    .unwrap_or_else(|e| {
+                        warn!("{self}: Failed to insert pending block validation: {e:?}")
+                    });
             }
 
             // Do not store KNOWN invalid blocks as this could DOS the signer. We only store blocks that are valid or unknown.
@@ -726,7 +733,7 @@ impl Signer {
         }
 
         // Check if there is a pending block validation that we need to submit to the node
-        match self.signer_db.get_pending_block_validation() {
+        match self.signer_db.get_and_remove_pending_block_validation() {
             Ok(Some(signer_sig_hash)) => {
                 info!("{self}: Found a pending block validation: {signer_sig_hash:?}");
                 match self.signer_db.block_lookup(&signer_sig_hash) {

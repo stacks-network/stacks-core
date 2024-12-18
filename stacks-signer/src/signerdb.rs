@@ -1025,16 +1025,23 @@ impl SignerDb {
 
     /// Get a pending block validation, sorted by the time at which it was added to the pending table.
     /// If found, remove it from the pending table.
-    pub fn get_pending_block_validation(&self) -> Result<Option<Sha512Trunc256Sum>, DBError> {
-        let qry =
-            "SELECT signer_signature_hash FROM block_validations_pending ORDER BY added_time ASC";
-        let sighash_opt: Option<String> = query_row(&self.db, qry, params![])?;
-        if let Some(sighash) = sighash_opt {
-            let sighash = Sha512Trunc256Sum::from_hex(&sighash).map_err(|_| DBError::Corruption)?;
+    pub fn get_and_remove_pending_block_validation(
+        &self,
+    ) -> Result<Option<Sha512Trunc256Sum>, DBError> {
+        if let Some(sighash) = self.get_pending_block_validation()? {
             self.remove_pending_block_validation(&sighash)?;
             return Ok(Some(sighash));
         }
         Ok(None)
+    }
+
+    /// Get a pending block validation, sorted by the time at which it was added to the pending table.
+    pub fn get_pending_block_validation(&self) -> Result<Option<Sha512Trunc256Sum>, DBError> {
+        let qry =
+            "SELECT signer_signature_hash FROM block_validations_pending ORDER BY added_time ASC";
+        let args = params![];
+        let sighash: Option<String> = query_row(&self.db, qry, args)?;
+        Ok(sighash.and_then(|sighash| Sha512Trunc256Sum::from_hex(&sighash).ok()))
     }
 
     /// Remove a pending block validation
@@ -1067,9 +1074,20 @@ impl SignerDb {
     pub fn get_all_pending_block_validations(
         &self,
     ) -> Result<Vec<PendingBlockValidation>, DBError> {
-        let qry = "SELECT signer_signature_hash, added_time FROM block_validations_pending";
-        let args = params![];
-        query_rows(&self.db, qry, args)
+        let qry = "SELECT signer_signature_hash, added_time FROM block_validations_pending ORDER BY added_time ASC";
+        query_rows(&self.db, qry, params![])
+    }
+
+    /// For tests, check if a pending block validation exists
+    #[cfg(any(test, feature = "testing"))]
+    pub fn has_pending_block_validation(
+        &self,
+        sighash: &Sha512Trunc256Sum,
+    ) -> Result<bool, DBError> {
+        let qry = "SELECT signer_signature_hash FROM block_validations_pending WHERE signer_signature_hash = ?1";
+        let args = params![sighash.to_string()];
+        let sighash_opt: Option<String> = query_row(&self.db, qry, args)?;
+        Ok(sighash_opt.is_some())
     }
 
     /// Return the start time (epoch time in seconds) and the processing time in milliseconds of the tenure (idenfitied by consensus_hash).
