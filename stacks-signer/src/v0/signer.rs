@@ -582,7 +582,7 @@ impl Signer {
         }
     }
 
-    /// WARNING: Do NOT call this function PRIOR to check_proposal or block_proposal validaiton succeeds.
+    /// WARNING: Do NOT call this function PRIOR to check_proposal or block_proposal validation succeeds.
     ///
     /// Re-verify a block's chain length against the last signed block within signerdb.
     /// This is required in case a block has been approved since the initial checks of the block validation endpoint.
