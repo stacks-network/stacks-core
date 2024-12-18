@@ -1766,8 +1766,8 @@ impl MemPoolDB {
                 FROM mempool AS m
                 LEFT JOIN nonces AS no ON m.origin_address = no.address
                 LEFT JOIN nonces AS ns ON m.sponsor_address = ns.address
-                WHERE (no.address IS NULL OR m.origin_nonce >= no.nonce)
-                  AND (ns.address IS NULL OR m.sponsor_nonce >= ns.nonce)
+                WHERE (no.address IS NULL OR m.origin_nonce = no.nonce)
+                  AND (ns.address IS NULL OR m.sponsor_nonce = ns.nonce)
             ),
             address_nonce_ranked AS (
                 SELECT *,

@@ -5091,8 +5091,8 @@ fn paramaterized_mempool_walk_test(
 
 #[test]
 /// Test that the mempool walk query ignores old nonces and prefers next possible nonces before higher global fees.
-fn mempool_walk_test_nonce_filtered_and_ranked() {
-    let key_address_pairs: Vec<(Secp256k1PrivateKey, StacksAddress)> = (0..3)
+fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
+    let key_address_pairs: Vec<(Secp256k1PrivateKey, StacksAddress)> = (0..6)
         .map(|_user_index| {
             let privk = StacksPrivateKey::new();
             let addr = StacksAddress::from_public_keys(
@@ -5105,17 +5105,19 @@ fn mempool_walk_test_nonce_filtered_and_ranked() {
             (privk, addr)
         })
         .collect();
-    let origin_addresses: Vec<String> = key_address_pairs
+    let accounts: Vec<String> = key_address_pairs
         .iter()
         .map(|(_, b)| b.to_string())
         .collect();
-    let address_0 = origin_addresses[0].to_string();
-    let address_1 = origin_addresses[1].to_string();
-    let address_2 = origin_addresses[2].to_string();
+    let address_0 = accounts[0].to_string();
+    let address_1 = accounts[1].to_string();
+    let address_2 = accounts[2].to_string();
+    let address_3 = accounts[3].to_string();
+    let address_4 = accounts[4].to_string();
+    let address_5 = accounts[5].to_string();
 
     let test_name = function_name!();
     let mut peer_config = TestPeerConfig::new(&test_name, 0, 0);
-
     peer_config.initial_balances = vec![];
     for (privk, addr) in &key_address_pairs {
         peer_config
@@ -5144,70 +5146,111 @@ fn mempool_walk_test_nonce_filtered_and_ranked() {
 
     let mut tx_events = Vec::new();
 
-    // Submit nonces 0 through 9 for each of the 3 senders.
-    for nonce in 0..10 {
-        for user_index in 0..3 {
-            let mut tx = make_user_stacks_transfer(
-                &key_address_pairs[user_index].0,
-                nonce as u64,
-                200,
-                &recipient.to_account_principal(),
-                1,
-            );
-
-            let mut mempool_tx = mempool.tx_begin().unwrap();
-
-            let origin_address = tx.origin_address();
-            let sponsor_address = tx.sponsor_address().unwrap_or(origin_address);
-
-            tx.set_tx_fee(100);
-            let txid = tx.txid();
-            let tx_bytes = tx.serialize_to_vec();
-            let tx_fee = tx.get_tx_fee();
-            let height = 100;
-
-            MemPoolDB::try_add_tx(
-                &mut mempool_tx,
-                &mut chainstate,
-                &b_1.0,
-                &b_1.1,
-                true,
-                txid,
-                tx_bytes,
-                tx_fee,
-                height,
-                &origin_address,
-                nonce.try_into().unwrap(),
-                &sponsor_address,
-                nonce.try_into().unwrap(),
-                None,
-            )
-            .unwrap();
-
-            // Increase the `fee_rate` as nonce goes up, so we can test that next nonces get confirmed before higher fee txs.
-            // Also slightly increase the fee for some addresses so we can check those txs get selected first.
-            mempool_tx
-                .execute(
-                    "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
-                    params![Some(100.0 * (nonce + 1 + user_index) as f64), &txid],
-                )
-                .unwrap();
-            mempool_tx.commit().unwrap();
-        }
-    }
-
-    // Simulate next possible nonces for the 3 addresses:
-    // Address 0 => 2
-    // Address 1 => 7
-    // Address 2 => 9
+    // Simulate next possible nonces for all addresses
     let mempool_tx = mempool.tx_begin().unwrap();
     mempool_tx
         .execute(
-            "INSERT INTO nonces (address, nonce) VALUES (?, ?), (?, ?), (?, ?)",
-            params![address_0, 2, address_1, 7, address_2, 9],
+            "INSERT INTO nonces (address, nonce) VALUES (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?)",
+            params![address_0, 2, address_1, 1, address_2, 6, address_3, 0, address_4, 1, address_5, 0],
         )
         .unwrap();
     mempool_tx.commit().unwrap();
+
+    // Test vectors with a wide variety of origin/sponsor configurations and fee rate values. Some transactions do not have a
+    // sponsor, some others do, some others are sponsored by other sponsors. All in flight at the same time.
+    //
+    // tuple shape -> (origin_address_index, origin_nonce, sponsor_address_index, sponsor_nonce, fee_rate)
+    let test_vectors = vec![
+        (0, 0, 0, 0, 100.0), // Old origin nonce - ignored
+        (0, 1, 0, 1, 200.0), // Old origin nonce - ignored
+        (0, 2, 0, 2, 300.0),
+        (0, 3, 0, 3, 400.0),
+        (0, 4, 3, 0, 500.0),
+        (1, 0, 1, 0, 400.0), // Old origin nonce - ignored
+        (1, 1, 3, 1, 600.0),
+        (1, 2, 3, 2, 700.0),
+        (1, 3, 3, 3, 800.0),
+        (1, 4, 1, 4, 1200.0),
+        (2, 3, 2, 3, 9000.0), // Old origin nonce - ignored
+        (2, 4, 2, 4, 9000.0), // Old origin nonce - ignored
+        (2, 5, 2, 5, 9000.0), // Old origin nonce - ignored
+        (2, 6, 4, 0, 900.0), // Old sponsor nonce - ignored
+        (2, 6, 4, 1, 1000.0),
+        (2, 7, 4, 2, 800.0),
+        (2, 8, 2, 8, 1000.0),
+        (2, 9, 3, 5, 1000.0),
+        (2, 10, 3, 6, 1500.0),
+        (3, 4, 3, 4, 100.0),
+        (4, 3, 5, 2, 500.0),
+        (5, 0, 5, 0, 500.0),
+        (5, 1, 5, 1, 500.0),
+        (5, 3, 4, 4, 2000.0),
+        (5, 4, 4, 5, 2000.0),
+    ];
+    for (origin_index, origin_nonce, sponsor_index, sponsor_nonce, fee_rate) in
+        test_vectors.into_iter()
+    {
+        let mut tx = if origin_index != sponsor_index {
+            let payload = TransactionPayload::TokenTransfer(
+                recipient.to_account_principal(),
+                1,
+                TokenTransferMemo([0; 34]),
+            );
+            sign_sponsored_singlesig_tx(
+                payload.into(),
+                &key_address_pairs[origin_index].0,
+                &key_address_pairs[sponsor_index].0,
+                origin_nonce,
+                sponsor_nonce,
+                200,
+            )
+        } else {
+            make_user_stacks_transfer(
+                &key_address_pairs[origin_index].0,
+                origin_nonce,
+                200,
+                &recipient.to_account_principal(),
+                1,
+            )
+        };
+
+        let mut mempool_tx = mempool.tx_begin().unwrap();
+
+        let origin_address = tx.origin_address();
+        let sponsor_address = tx.sponsor_address().unwrap_or(origin_address);
+
+        tx.set_tx_fee(fee_rate as u64);
+        let txid = tx.txid();
+        let tx_bytes = tx.serialize_to_vec();
+        let tx_fee = tx.get_tx_fee();
+        let height = 100;
+
+        MemPoolDB::try_add_tx(
+            &mut mempool_tx,
+            &mut chainstate,
+            &b_1.0,
+            &b_1.1,
+            true,
+            txid,
+            tx_bytes,
+            tx_fee,
+            height,
+            &origin_address,
+            origin_nonce,
+            &sponsor_address,
+            sponsor_nonce,
+            None,
+        )
+        .unwrap();
+
+        mempool_tx
+            .execute(
+                "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
+                params![Some(fee_rate), &txid],
+            )
+            .unwrap();
+        mempool_tx.commit().unwrap();
+    }
 
     // Visit transactions. Keep a record of the order of visited txs so we can compare at the end.
     let mut mempool_settings = MemPoolWalkSettings::default();
@@ -5229,6 +5272,9 @@ fn mempool_walk_test_nonce_filtered_and_ranked() {
                             considered_txs.push((
                                 available_tx.tx.metadata.origin_address.to_string(),
                                 available_tx.tx.metadata.origin_nonce,
+                                available_tx.tx.metadata.sponsor_address.to_string(),
+                                available_tx.tx.metadata.sponsor_nonce,
+                                available_tx.tx.metadata.tx_fee,
                             ));
                             Ok(Some(
                                 // Generate any success result
@@ -5254,22 +5300,30 @@ fn mempool_walk_test_nonce_filtered_and_ranked() {
                 }
                 assert!(get_epoch_time_ms() < deadline, "test timed out");
             }
+
+            // Expected transaction consideration order, sorted by mineable first (next origin+sponsor nonces, highest fee).
+            let expected_tx_order = vec![
+                (address_2.clone(), 6, address_4.clone(), 1, 1000),
+                (address_2.clone(), 7, address_4.clone(), 2, 800),
+                (address_2.clone(), 8, address_2.clone(), 8, 1000),
+                (address_5.clone(), 0, address_5.clone(), 0, 500),
+                (address_5.clone(), 1, address_5.clone(), 1, 500),
+                (address_4.clone(), 3, address_5.clone(), 2, 500),
+                (address_5.clone(), 3, address_4.clone(), 4, 2000),
+                (address_5.clone(), 4, address_4.clone(), 5, 2000),
+                (address_0.clone(), 2, address_0.clone(), 2, 300),
+                (address_0.clone(), 3, address_0.clone(), 3, 400),
+                (address_0.clone(), 4, address_3.clone(), 0, 500),
+                (address_1.clone(), 1, address_3.clone(), 1, 600),
+                (address_1.clone(), 2, address_3.clone(), 2, 700),
+                (address_1.clone(), 3, address_3.clone(), 3, 800),
+                (address_1.clone(), 4, address_1.clone(), 4, 1200),
+                (address_3.clone(), 4, address_3.clone(), 4, 100),
+                (address_2.clone(), 9, address_3.clone(), 5, 1000),
+                (address_2.clone(), 10, address_3.clone(), 6, 1500),
+            ];
             assert_eq!(
-                considered_txs,
-                vec![
-                    (address_2.clone(), 9), // Highest fee for address 2, and 9 is the next nonce
-                    (address_1.clone(), 7),
-                    (address_1.clone(), 8),
-                    (address_1.clone(), 9), // Highest fee for address 1, but have to confirm nonces 7 and 8 first
-                    (address_0.clone(), 2),
-                    (address_0.clone(), 3),
-                    (address_0.clone(), 4),
-                    (address_0.clone(), 5),
-                    (address_0.clone(), 6),
-                    (address_0.clone(), 7),
-                    (address_0.clone(), 8),
-                    (address_0.clone(), 9), // Highest fee for address 0, but have to confirm all other nonces first
-                ],
+                considered_txs, expected_tx_order,
                 "Mempool should visit transactions in the correct order while ignoring past nonces",
             );
         },
