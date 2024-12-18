@@ -24,6 +24,8 @@ use blockstack_lib::util_lib::db::{
     query_row, query_rows, sqlite_open, table_exists, tx_begin_immediate, u64_to_sql,
     Error as DBError,
 };
+#[cfg(any(test, feature = "testing"))]
+use blockstack_lib::util_lib::db::{FromColumn, FromRow};
 use clarity::types::chainstate::{BurnchainHeaderHash, StacksAddress};
 use libsigner::BlockProposal;
 use rusqlite::functions::FunctionFlags;
@@ -1060,6 +1062,16 @@ impl SignerDb {
         Ok(())
     }
 
+    /// For tests, fetch all pending block validations
+    #[cfg(any(test, feature = "testing"))]
+    pub fn get_all_pending_block_validations(
+        &self,
+    ) -> Result<Vec<PendingBlockValidation>, DBError> {
+        let qry = "SELECT signer_signature_hash, added_time FROM block_validations_pending";
+        let args = params![];
+        query_rows(&self.db, qry, args)
+    }
+
     /// Return the start time (epoch time in seconds) and the processing time in milliseconds of the tenure (idenfitied by consensus_hash).
     fn get_tenure_times(&self, tenure: &ConsensusHash) -> Result<(u64, u64), DBError> {
         let query = "SELECT tenure_change, proposed_time, validation_time_ms FROM blocks WHERE consensus_hash = ?1 AND state = ?2 ORDER BY stacks_height DESC";
@@ -1132,6 +1144,27 @@ where
         .map(serde_json::from_str)
         .transpose()
         .map_err(DBError::SerializationError)
+}
+
+/// For tests, a struct to represent a pending block validation
+#[cfg(any(test, feature = "testing"))]
+pub struct PendingBlockValidation {
+    /// The signer signature hash of the block
+    pub signer_signature_hash: Sha512Trunc256Sum,
+    /// The time at which the block was added to the pending table
+    pub added_time: u64,
+}
+
+#[cfg(any(test, feature = "testing"))]
+impl FromRow<PendingBlockValidation> for PendingBlockValidation {
+    fn from_row(row: &rusqlite::Row) -> Result<Self, DBError> {
+        let signer_signature_hash = Sha512Trunc256Sum::from_column(row, "signer_signature_hash")?;
+        let added_time = row.get_unwrap(1);
+        Ok(PendingBlockValidation {
+            signer_signature_hash,
+            added_time,
+        })
+    }
 }
 
 #[cfg(test)]

@@ -175,6 +175,16 @@ impl From<Result<BlockValidateOk, BlockValidateReject>> for BlockValidateRespons
     }
 }
 
+impl BlockValidateResponse {
+    /// Get the signer signature hash from the response
+    pub fn signer_signature_hash(&self) -> Sha512Trunc256Sum {
+        match self {
+            BlockValidateResponse::Ok(o) => o.signer_signature_hash,
+            BlockValidateResponse::Reject(r) => r.signer_signature_hash,
+        }
+    }
+}
+
 /// Represents a block proposed to the `v3/block_proposal` endpoint for validation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NakamotoBlockProposal {

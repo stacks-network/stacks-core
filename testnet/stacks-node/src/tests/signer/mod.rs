@@ -39,7 +39,7 @@ use clarity::vm::types::PrincipalData;
 use libsigner::v0::messages::{
     BlockAccepted, BlockResponse, MessageSlotID, PeerInfo, SignerMessage,
 };
-use libsigner::{SignerEntries, SignerEventTrait};
+use libsigner::{BlockProposal, SignerEntries, SignerEventTrait};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
@@ -676,6 +676,25 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             BlockResponse::Accepted(accepted) => accepted,
             _ => panic!("Latest block response from slot #{slot_id} isn't a block acceptance"),
         }
+    }
+
+    /// Get miner stackerDB messages
+    pub fn get_miner_proposal_messages(&self) -> Vec<BlockProposal> {
+        let proposals: Vec<_> = test_observer::get_stackerdb_chunks()
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+            .filter_map(|chunk| {
+                let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                else {
+                    return None;
+                };
+                match message {
+                    SignerMessage::BlockProposal(proposal) => Some(proposal),
+                    _ => None,
+                }
+            })
+            .collect();
+        proposals
     }
 
     /// Get /v2/info from the node
