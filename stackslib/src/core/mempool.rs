@@ -1767,7 +1767,7 @@ impl MemPoolDB {
                 LEFT JOIN nonces AS no ON m.origin_address = no.address
                 LEFT JOIN nonces AS ns ON m.sponsor_address = ns.address
                 WHERE (no.address IS NULL OR m.origin_nonce = no.nonce)
-                  AND (ns.address IS NULL OR m.sponsor_nonce = ns.nonce)
+                    AND (ns.address IS NULL OR m.sponsor_nonce = ns.nonce)
             ),
             address_nonce_ranked AS (
                 SELECT *,
@@ -1808,8 +1808,8 @@ impl MemPoolDB {
                     // When the retry list is empty, read from the mempool db depending on the configured miner strategy
                     match settings.strategy {
                         MemPoolWalkStrategy::GlobalFeeRate => {
-                            let start_with_no_estimate =
-                                tx_consideration_sampler.sample(&mut rng) < settings.consider_no_estimate_tx_prob;
+                            let start_with_no_estimate = tx_consideration_sampler.sample(&mut rng)
+                                < settings.consider_no_estimate_tx_prob;
                             // randomly select from either the null fee-rate transactions or those with fee-rate estimates.
                             let opt_tx = if start_with_no_estimate {
                                 null_iterator
@@ -1819,11 +1819,15 @@ impl MemPoolDB {
                                 fee_iterator.next().map_err(|err| Error::SqliteError(err))?
                             };
                             match opt_tx {
-                                Some(row) => (MemPoolTxInfoPartial::from_row(row)?, start_with_no_estimate),
+                                Some(row) => {
+                                    (MemPoolTxInfoPartial::from_row(row)?, start_with_no_estimate)
+                                }
                                 None => {
                                     // If the selected iterator is empty, check the other
                                     match if start_with_no_estimate {
-                                        fee_iterator.next().map_err(|err| Error::SqliteError(err))?
+                                        fee_iterator
+                                            .next()
+                                            .map_err(|err| Error::SqliteError(err))?
                                     } else {
                                         null_iterator
                                             .next()
@@ -1852,7 +1856,7 @@ impl MemPoolDB {
                                     let tx = MemPoolTxInfoPartial::from_row(row)?;
                                     let update_estimate = tx.fee_rate.is_none();
                                     (tx, update_estimate)
-                                },
+                                }
                                 None => {
                                     debug!("No more transactions to consider in mempool");
                                     break MempoolIterationStopReason::NoMoreCandidates;

@@ -5163,12 +5163,12 @@ fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
     //
     // tuple shape: (origin_address_index, origin_nonce, sponsor_address_index, sponsor_nonce, fee_rate)
     let test_vectors = vec![
-        (0, 0, 0, 0, 100.0), // Old origin nonce - ignored
-        (0, 1, 0, 1, 200.0), // Old origin nonce - ignored
+        (0, 0, 0, 0, 100.0),  // Old origin nonce - ignored
+        (0, 1, 0, 1, 200.0),  // Old origin nonce - ignored
         (0, 2, 0, 2, 300.0),
         (0, 3, 0, 3, 400.0),
-        (0, 4, 3, 0, 500.0), // Nonce 0 for address 3 is not in the table but will be valid on MARF
-        (1, 0, 1, 0, 400.0), // Old origin nonce - ignored
+        (0, 4, 3, 0, 500.0),  // Nonce 0 for address 3 is not in the table but will be valid on MARF
+        (1, 0, 1, 0, 400.0),  // Old origin nonce - ignored
         (1, 1, 3, 1, 600.0),
         (1, 2, 3, 2, 700.0),
         (1, 3, 3, 3, 800.0),
@@ -5176,7 +5176,7 @@ fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
         (2, 3, 2, 3, 9000.0), // Old origin nonce - ignored
         (2, 4, 2, 4, 9000.0), // Old origin nonce - ignored
         (2, 5, 2, 5, 9000.0), // Old origin nonce - ignored
-        (2, 6, 4, 0, 900.0), // Old sponsor nonce - ignored
+        (2, 6, 4, 0, 900.0),  // Old sponsor nonce - ignored
         (2, 6, 4, 1, 1000.0),
         (2, 7, 4, 2, 800.0),
         (2, 8, 2, 8, 1000.0),
