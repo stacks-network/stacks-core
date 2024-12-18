@@ -49,6 +49,7 @@ use stacks::chainstate::stacks::miner::TransactionEvent;
 use stacks::chainstate::stacks::{
     StacksBlock, StacksMicroblock, StacksTransaction, TransactionPayload,
 };
+use stacks::config::{EventKeyType, EventObserverConfig};
 use stacks::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher, ProposalCallbackReceiver};
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::api::postblock_proposal::{
@@ -67,8 +68,6 @@ use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use url::Url;
-
-use super::config::{EventKeyType, EventObserverConfig};
 
 #[derive(Debug, Clone)]
 struct EventObserver {
