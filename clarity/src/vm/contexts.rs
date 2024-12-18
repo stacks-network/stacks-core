@@ -282,11 +282,11 @@ impl AssetMap {
         asset: &AssetIdentifier,
         amount: u128,
     ) -> Result<u128> {
-        let current_amount = match self.token_map.get(principal) {
-            Some(principal_map) => *principal_map.get(asset).unwrap_or(&0),
-            None => 0,
-        };
-
+        let current_amount = self
+            .token_map
+            .get(principal)
+            .map(|x| x.get(asset).unwrap_or(&0))
+            .unwrap_or(&0);
         current_amount
             .checked_add(amount)
             .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
@@ -443,10 +443,8 @@ impl AssetMap {
         principal: &PrincipalData,
         asset_identifier: &AssetIdentifier,
     ) -> Option<u128> {
-        match self.token_map.get(principal) {
-            Some(assets) => assets.get(asset_identifier).copied(),
-            None => None,
-        }
+        let assets = self.token_map.get(principal)?;
+        assets.get(asset_identifier).copied()
     }
 
     pub fn get_nonfungible_tokens(
@@ -454,13 +452,8 @@ impl AssetMap {
         principal: &PrincipalData,
         asset_identifier: &AssetIdentifier,
     ) -> Option<&Vec<Value>> {
-        match self.asset_map.get(principal) {
-            Some(assets) => match assets.get(asset_identifier) {
-                Some(values) => Some(values),
-                None => None,
-            },
-            None => None,
-        }
+        let assets = self.asset_map.get(principal)?;
+        assets.get(asset_identifier)
     }
 }
 
