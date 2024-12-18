@@ -322,7 +322,7 @@ impl SortitionsView {
                     return Ok(false);
                 }
             }
-            ProposedBy::LastSortition(_last_sortition) => {
+            ProposedBy::LastSortition(last_sortition) => {
                 // should only consider blocks from the last sortition if the new sortition was invalidated
                 //  before we signed their first block.
                 if self.cur_sortition.miner_status
@@ -333,6 +333,7 @@ impl SortitionsView {
                         "proposed_block_consensus_hash" => %block.header.consensus_hash,
                         "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
                         "current_sortition_miner_status" => ?self.cur_sortition.miner_status,
+                        "last_sortition" => %last_sortition.consensus_hash
                     );
                     return Ok(false);
                 }
