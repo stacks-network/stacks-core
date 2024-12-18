@@ -46,13 +46,12 @@ use crate::chainstate::stacks::index::file::{TrieFile, TrieFileNodeHashReader};
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
-    TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr,
+    TrieNode48, TrieNodeID, TrieNodeType, TriePtr,
 };
 use crate::chainstate::stacks::index::profile::TrieBenchmark;
 use crate::chainstate::stacks::index::trie::Trie;
 use crate::chainstate::stacks::index::{
-    trie_sql, BlockMap, ClarityMarfTrieId, Error, MarfTrieId, TrieHashExtension, TrieHasher,
-    TrieLeaf,
+    trie_sql, BlockMap, ClarityMarfTrieId, Error, MarfTrieId, TrieHasher, TrieLeaf,
 };
 use crate::util_lib::db::{
     sql_pragma, sqlite_open, tx_begin_immediate, tx_busy_handler, Error as db_error,

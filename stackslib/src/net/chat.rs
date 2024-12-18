@@ -35,7 +35,7 @@ use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::StacksPublicKey;
-use crate::core::{StacksEpoch, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3};
+use crate::core::{EpochList, StacksEpoch, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3};
 use crate::monitoring;
 use crate::net::asn::ASEntry4;
 use crate::net::codec::*;
@@ -393,7 +393,7 @@ pub struct ConversationP2P {
     pub reply_handles: VecDeque<ReplyHandleP2P>,
 
     /// system epochs
-    epochs: Vec<StacksEpoch>,
+    epochs: EpochList,
 }
 
 impl fmt::Display for ConversationP2P {
@@ -569,14 +569,14 @@ impl ConversationP2P {
         conn_opts: &ConnectionOptions,
         outbound: bool,
         conn_id: usize,
-        epochs: Vec<StacksEpoch>,
+        epochs: EpochList,
     ) -> ConversationP2P {
         ConversationP2P {
             instantiated: get_epoch_time_secs(),
-            network_id: network_id,
-            version: version,
+            network_id,
+            version,
             connection: ConnectionP2P::new(StacksP2P::new(), conn_opts, None),
-            conn_id: conn_id,
+            conn_id,
             heartbeat: conn_opts.heartbeat,
             burnchain: burnchain.clone(),
 
@@ -605,7 +605,7 @@ impl ConversationP2P {
 
             db_smart_contracts: vec![],
 
-            epochs: epochs,
+            epochs,
         }
     }
 
@@ -750,10 +750,9 @@ impl ConversationP2P {
 
     /// Get the current epoch
     fn get_current_epoch(&self, cur_burn_height: u64) -> StacksEpoch {
-        let epoch_index = StacksEpoch::find_epoch(&self.epochs, cur_burn_height)
-            .unwrap_or_else(|| panic!("BUG: block {} is not in a known epoch", cur_burn_height));
-        let epoch = self.epochs[epoch_index].clone();
-        epoch
+        self.epochs
+            .epoch_at_height(cur_burn_height)
+            .unwrap_or_else(|| panic!("BUG: block {} is not in a known epoch", cur_burn_height))
     }
 
     /// Determine whether or not a remote node has the proper epoch marker in its peer version
@@ -6283,9 +6282,9 @@ mod test {
         {
             // convo thinks its epoch 2.05
             let epochs = StacksEpoch::unit_test_2_05(chain_view.burn_block_height - 4);
-            let cur_epoch_idx =
-                StacksEpoch::find_epoch(&epochs, chain_view.burn_block_height).unwrap();
-            let cur_epoch = epochs[cur_epoch_idx].clone();
+            let cur_epoch = epochs
+                .epoch_at_height(chain_view.burn_block_height)
+                .unwrap();
             assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch2_05);
 
             eprintln!(
@@ -6375,6 +6374,8 @@ mod test {
             );
         }
     }
+
+    // TODO: test for has_acceptable_epoch()
 
     #[test]
     fn convo_process_relayers() {

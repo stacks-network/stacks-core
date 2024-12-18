@@ -26,7 +26,8 @@ use stacks::chainstate::stacks::boot::RawRewardSetEntry;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::{Error, StacksTransaction, TransactionPayload};
 use stacks::clarity_cli::vm_execute as execute;
-use stacks::core;
+use stacks::config::InitialBalance;
+use stacks::core::{self, EpochList, StacksEpochId};
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::consts::STACKS_EPOCH_MAX;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey};
@@ -35,7 +36,6 @@ use stacks_common::util::hash::{bytes_to_hex, hex_bytes, Hash160};
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::sleep_ms;
 
-use crate::config::InitialBalance;
 use crate::stacks_common::codec::StacksMessageCodec;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::neon_integrations::{
@@ -143,19 +143,19 @@ fn fix_to_pox_contract() {
     test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
-    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_2_05;
-    epochs[2].start_height = epoch_2_05;
-    epochs[2].end_height = epoch_2_1;
-    epochs[3].start_height = epoch_2_1;
-    epochs[3].end_height = epoch_2_2;
-    epochs[4].start_height = epoch_2_2;
-    epochs[4].end_height = epoch_2_3;
-    epochs[5].start_height = epoch_2_3;
-    epochs[5].end_height = epoch_2_4;
-    epochs[6].start_height = epoch_2_4;
-    epochs[6].end_height = STACKS_EPOCH_MAX;
-    epochs.truncate(7);
+    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].end_height = epoch_2_2;
+    epochs[StacksEpochId::Epoch22].start_height = epoch_2_2;
+    epochs[StacksEpochId::Epoch22].end_height = epoch_2_3;
+    epochs[StacksEpochId::Epoch23].start_height = epoch_2_3;
+    epochs[StacksEpochId::Epoch23].end_height = epoch_2_4;
+    epochs[StacksEpochId::Epoch24].start_height = epoch_2_4;
+    epochs[StacksEpochId::Epoch24].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch24);
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -769,19 +769,19 @@ fn verify_auto_unlock_behavior() {
     test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
-    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_2_05;
-    epochs[2].start_height = epoch_2_05;
-    epochs[2].end_height = epoch_2_1;
-    epochs[3].start_height = epoch_2_1;
-    epochs[3].end_height = epoch_2_2;
-    epochs[4].start_height = epoch_2_2;
-    epochs[4].end_height = epoch_2_3;
-    epochs[5].start_height = epoch_2_3;
-    epochs[5].end_height = epoch_2_4;
-    epochs[6].start_height = epoch_2_4;
-    epochs[6].end_height = STACKS_EPOCH_MAX;
-    epochs.truncate(7);
+    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].end_height = epoch_2_2;
+    epochs[StacksEpochId::Epoch22].start_height = epoch_2_2;
+    epochs[StacksEpochId::Epoch22].end_height = epoch_2_3;
+    epochs[StacksEpochId::Epoch23].start_height = epoch_2_3;
+    epochs[StacksEpochId::Epoch23].end_height = epoch_2_4;
+    epochs[StacksEpochId::Epoch24].start_height = epoch_2_4;
+    epochs[StacksEpochId::Epoch24].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch24);
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());

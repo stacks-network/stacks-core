@@ -287,6 +287,8 @@ pub struct TransactionSuccess {
     /// The fee that was charged to the user for doing this transaction.
     pub fee: u64,
     pub receipt: StacksTransactionReceipt,
+    /// Whether the soft limit was reached after this transaction was processed.
+    pub soft_limit_reached: bool,
 }
 
 /// Represents a failed transaction. Something went wrong when processing this transaction.
@@ -319,6 +321,7 @@ pub struct TransactionSuccessEvent {
     pub fee: u64,
     pub execution_cost: ExecutionCost,
     pub result: Value,
+    pub soft_limit_reached: bool,
 }
 
 /// Represents an event for a failed transaction. Something went wrong when processing this transaction.
@@ -448,6 +451,24 @@ impl TransactionResult {
             tx: transaction.clone(),
             fee,
             receipt,
+            soft_limit_reached: false,
+        })
+    }
+
+    /// Creates a `TransactionResult` backed by `TransactionSuccess` with a soft limit reached.
+    /// This method logs "transaction success" as a side effect.
+    pub fn success_with_soft_limit(
+        transaction: &StacksTransaction,
+        fee: u64,
+        receipt: StacksTransactionReceipt,
+        soft_limit_reached: bool,
+    ) -> TransactionResult {
+        Self::log_transaction_success(transaction);
+        Self::Success(TransactionSuccess {
+            tx: transaction.clone(),
+            fee,
+            receipt,
+            soft_limit_reached,
         })
     }
 
@@ -499,14 +520,18 @@ impl TransactionResult {
 
     pub fn convert_to_event(&self) -> TransactionEvent {
         match &self {
-            TransactionResult::Success(TransactionSuccess { tx, fee, receipt }) => {
-                TransactionEvent::Success(TransactionSuccessEvent {
-                    txid: tx.txid(),
-                    fee: *fee,
-                    execution_cost: receipt.execution_cost.clone(),
-                    result: receipt.result.clone(),
-                })
-            }
+            TransactionResult::Success(TransactionSuccess {
+                tx,
+                fee,
+                receipt,
+                soft_limit_reached,
+            }) => TransactionEvent::Success(TransactionSuccessEvent {
+                txid: tx.txid(),
+                fee: *fee,
+                execution_cost: receipt.execution_cost.clone(),
+                result: receipt.result.clone(),
+                soft_limit_reached: *soft_limit_reached,
+            }),
             TransactionResult::ProcessingError(TransactionError { tx, error }) => {
                 TransactionEvent::ProcessingError(TransactionErrorEvent {
                     txid: tx.txid(),
@@ -540,11 +565,7 @@ impl TransactionResult {
     /// Otherwise crashes.
     pub fn unwrap(self) -> (u64, StacksTransactionReceipt) {
         match self {
-            TransactionResult::Success(TransactionSuccess {
-                tx: _,
-                fee,
-                receipt,
-            }) => (fee, receipt),
+            TransactionResult::Success(TransactionSuccess { fee, receipt, .. }) => (fee, receipt),
             _ => panic!("Tried to `unwrap` a non-success result."),
         }
     }
@@ -1169,7 +1190,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         }
         if self.runtime.disable_cost_check {
             warn!("Fault injection: disabling miner limit on microblock runtime cost");
-            clarity_tx.reset_cost(ExecutionCost::zero());
+            clarity_tx.reset_cost(ExecutionCost::ZERO);
         }
 
         self.runtime.bytes_so_far = bytes_so_far;
@@ -1397,7 +1418,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         }
         if self.runtime.disable_cost_check {
             warn!("Fault injection: disabling miner limit on microblock runtime cost");
-            clarity_tx.reset_cost(ExecutionCost::zero());
+            clarity_tx.reset_cost(ExecutionCost::ZERO);
         }
 
         self.runtime.bytes_so_far = bytes_so_far;
@@ -2366,7 +2387,12 @@ impl StacksBlockBuilder {
 
                         let result_event = tx_result.convert_to_event();
                         match tx_result {
-                            TransactionResult::Success(TransactionSuccess { receipt, .. }) => {
+                            TransactionResult::Success(TransactionSuccess {
+                                tx: _,
+                                fee: _,
+                                receipt,
+                                soft_limit_reached,
+                            }) => {
                                 if txinfo.metadata.time_estimate_ms.is_none() {
                                     // use i64 to avoid running into issues when storing in
                                     //  rusqlite.
@@ -2403,6 +2429,18 @@ impl StacksBlockBuilder {
                                     (txinfo.tx.sponsor_address(), txinfo.tx.get_sponsor_nonce())
                                 {
                                     mined_sponsor_nonces.insert(sponsor_addr, sponsor_nonce);
+                                }
+                                if soft_limit_reached {
+                                    // done mining -- our soft limit execution budget is exceeded.
+                                    // Make the block from the transactions we did manage to get
+                                    debug!(
+                                        "Soft block budget exceeded on tx {}",
+                                        &txinfo.tx.txid()
+                                    );
+                                    if block_limit_hit != BlockLimitFunction::CONTRACT_LIMIT_HIT {
+                                        debug!("Switch to mining stx-transfers only");
+                                        block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
+                                    }
                                 }
                             }
                             TransactionResult::Skipped(TransactionSkipped { error, .. })
