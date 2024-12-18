@@ -2280,7 +2280,7 @@ impl MemPoolDB {
         if let Some(event_observer) = event_observer {
             let sql = "SELECT txid FROM mempool WHERE accept_time < ?1";
             let txids = query_rows(tx, sql, args)?;
-            event_observer.mempool_txs_dropped(txids, MemPoolDropReason::STALE_COLLECT);
+            event_observer.mempool_txs_dropped(txids, None, MemPoolDropReason::STALE_COLLECT);
         }
 
         let sql = "DELETE FROM mempool WHERE accept_time < ?1";
