@@ -237,21 +237,12 @@ pub fn special_stx_account(
 
     TupleData::from_data(vec![
         (
-            "unlocked"
-                .try_into()
-                .map_err(|_| InterpreterError::Expect("Bad special tuple name".into()))?,
+            "unlocked".into(),
             Value::UInt(stx_balance.amount_unlocked()),
         ),
+        ("locked".into(), Value::UInt(stx_balance.amount_locked())),
         (
-            "locked"
-                .try_into()
-                .map_err(|_| InterpreterError::Expect("Bad special tuple name".into()))?,
-            Value::UInt(stx_balance.amount_locked()),
-        ),
-        (
-            "unlock-height"
-                .try_into()
-                .map_err(|_| InterpreterError::Expect("Bad special tuple name".into()))?,
+            "unlock-height".into(),
             Value::UInt(u128::from(stx_balance.effective_unlock_height(
                 v1_unlock_ht,
                 v2_unlock_ht,
@@ -286,10 +277,7 @@ pub fn special_stx_burn(
         env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
         env.add_memory(STXBalance::unlocked_and_v1_size as u64)?;
 
-        let mut burner_snapshot = env
-            .global_context
-            .database
-            .get_stx_balance_snapshot(&from)?;
+        let mut burner_snapshot = env.global_context.database.get_stx_balance_snapshot(from)?;
         if !burner_snapshot.can_transfer(amount)? {
             return clarity_ecode!(StxErrorCodes::NOT_ENOUGH_BALANCE);
         }

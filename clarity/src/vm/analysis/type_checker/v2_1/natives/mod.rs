@@ -79,7 +79,7 @@ fn check_special_list_cons(
         });
         costs.push(cost);
 
-        if let Some(cur_size) = entries_size.clone() {
+        if let Some(cur_size) = entries_size {
             entries_size = cur_size.checked_add(checked.size()?);
         }
         if let Some(cur_size) = entries_size {
@@ -297,10 +297,10 @@ fn check_special_let(
         if checker.epoch.analysis_memory() {
             let memory_use = u64::from(var_name.len())
                 .checked_add(u64::from(typed_result.type_size()?))
-                .ok_or_else(|| CostErrors::CostOverflow)?;
+                .ok_or(CostErrors::CostOverflow)?;
             added_memory = added_memory
                 .checked_add(memory_use)
-                .ok_or_else(|| CostErrors::CostOverflow)?;
+                .ok_or(CostErrors::CostOverflow)?;
             checker.add_memory(memory_use)?;
         }
         out_context.add_variable_type(var_name.clone(), typed_result, checker.clarity_version);
@@ -1016,7 +1016,7 @@ impl TypedNativeFunction {
                     /// The return type of `principal-destruct` is a Response, in which the success
                     /// and error types are the same.
                     fn parse_principal_basic_type() -> Result<TupleTypeSignature, CheckErrors> {
-                        Ok(TupleTypeSignature::try_from(vec![
+                        TupleTypeSignature::try_from(vec![
                             ("version".into(), BUFF_1.clone()),
                             ("hash-bytes".into(), BUFF_20.clone()),
                             (
@@ -1032,7 +1032,7 @@ impl TypedNativeFunction {
                                 "FAIL: PrincipalDestruct failed to initialize type signature"
                                     .into(),
                             )
-                        })?)
+                        })
                     }
                     TypeSignature::ResponseType(Box::new((
                         parse_principal_basic_type()?.into(),

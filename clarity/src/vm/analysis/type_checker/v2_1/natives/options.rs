@@ -292,7 +292,7 @@ fn eval_with_new_binding(
     if checker.epoch.analysis_memory() {
         memory_use = u64::from(bind_name.len())
             .checked_add(u64::from(bind_type.type_size()?))
-            .ok_or_else(|| CostErrors::CostOverflow)?;
+            .ok_or(CostErrors::CostOverflow)?;
         checker.add_memory(memory_use)?;
     }
     checker.contract_context.check_name_used(&bind_name)?;
