@@ -263,6 +263,7 @@ pub fn check_special_tuple_cons(
     Ok(TypeSignature::TupleType(tuple_signature))
 }
 
+#[allow(clippy::unnecessary_lazy_evaluations)]
 fn check_special_let(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
@@ -297,10 +298,10 @@ fn check_special_let(
         if checker.epoch.analysis_memory() {
             let memory_use = u64::from(var_name.len())
                 .checked_add(u64::from(typed_result.type_size()?))
-                .ok_or(CostErrors::CostOverflow)?;
+                .ok_or_else(|| CostErrors::CostOverflow)?;
             added_memory = added_memory
                 .checked_add(memory_use)
-                .ok_or(CostErrors::CostOverflow)?;
+                .ok_or_else(|| CostErrors::CostOverflow)?;
             checker.add_memory(memory_use)?;
         }
         out_context.add_variable_type(var_name.clone(), typed_result, checker.clarity_version);

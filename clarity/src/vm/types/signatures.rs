@@ -1673,11 +1673,10 @@ impl TypeSignature {
             let fn_args_exprs = args[1]
                 .match_list()
                 .ok_or(CheckErrors::DefineTraitBadSignature)?;
-            let mut fn_args = Vec::with_capacity(fn_args_exprs.len());
-            for arg_type in fn_args_exprs.iter() {
-                let arg_t = TypeSignature::parse_type_repr(epoch, arg_type, accounting)?;
-                fn_args.push(arg_t);
-            }
+            let fn_args = fn_args_exprs
+                .iter()
+                .map(|arg_type| TypeSignature::parse_type_repr(epoch, arg_type, accounting))
+                .collect::<Result<_>>()?;
 
             // Extract function's type return - must be a response
             let fn_return = match TypeSignature::parse_type_repr(epoch, &args[2], accounting) {

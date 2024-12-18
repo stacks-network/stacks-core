@@ -274,6 +274,7 @@ pub fn check_special_unwrap_err(
     inner_unwrap_err(input, checker)
 }
 
+#[allow(clippy::unnecessary_lazy_evaluations)]
 fn eval_with_new_binding(
     body: &SymbolicExpression,
     bind_name: ClarityName,
@@ -292,7 +293,7 @@ fn eval_with_new_binding(
     if checker.epoch.analysis_memory() {
         memory_use = u64::from(bind_name.len())
             .checked_add(u64::from(bind_type.type_size()?))
-            .ok_or(CostErrors::CostOverflow)?;
+            .ok_or_else(|| CostErrors::CostOverflow)?;
         checker.add_memory(memory_use)?;
     }
     checker.contract_context.check_name_used(&bind_name)?;

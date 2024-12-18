@@ -355,11 +355,8 @@ pub fn eval(
 }
 
 pub fn is_reserved(name: &str, version: &ClarityVersion) -> bool {
-    if let Some(_result) = functions::lookup_reserved_functions(name, version) {
-        true
-    } else {
-        variables::is_reserved_name(name, version)
-    }
+    functions::lookup_reserved_functions(name, version).is_some()
+        || variables::is_reserved_name(name, version)
 }
 
 /// This function evaluates a list of expressions, sharing a global context.

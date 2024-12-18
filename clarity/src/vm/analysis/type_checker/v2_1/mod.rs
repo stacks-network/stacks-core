@@ -1240,6 +1240,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             .cloned()
     }
 
+    #[allow(clippy::unnecessary_lazy_evaluations)]
     fn type_check_define_function(
         &mut self,
         signature: &[SymbolicExpression],
@@ -1270,11 +1271,11 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             if self.epoch.analysis_memory() {
                 let added_memory = u64::from(arg_name.len())
                     .checked_add(arg_type.type_size()?.into())
-                    .ok_or(CostErrors::CostOverflow)?;
+                    .ok_or_else(|| CostErrors::CostOverflow)?;
                 self.add_memory(added_memory)?;
                 tracked_mem = tracked_mem
                     .checked_add(added_memory)
-                    .ok_or(CostErrors::CostOverflow)?;
+                    .ok_or_else(|| CostErrors::CostOverflow)?;
             }
 
             match arg_type {

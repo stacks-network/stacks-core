@@ -814,19 +814,19 @@ pub fn get_output_type_string(function_type: &FunctionType) -> String {
         FunctionType::Binary(left, right, ref out_sig) => match out_sig {
             FunctionReturnsSignature::Fixed(out_type) => format!("{}", out_type),
             FunctionReturnsSignature::TypeOfArgAtPosition(pos) => {
-                let arg_sig =
-                match pos {
-                        0 => left,
-                        1 => right,
-                        _ => panic!("Index out of range: TypeOfArgAtPosition for FunctionType::Binary can only handle two arguments, zero-indexed (0 or 1).")
-                    };
+                let arg_sig = match pos {
+                    0 => left,
+                    1 => right,
+                    _ => panic!("Index out of range: TypeOfArgAtPosition for FunctionType::Binary can only handle two arguments, zero-indexed (0 or 1).")
+                };
+
                 match arg_sig {
-                    FunctionArgSignature::Single(arg_type) => format!("{}", arg_type),
-                    FunctionArgSignature::Union(arg_types) => {
-                        let out_types: Vec<String> =
-                            arg_types.iter().map(|x| format!("{}", x)).collect();
-                        out_types.join(" | ")
-                    }
+                    FunctionArgSignature::Single(arg_type) => arg_type.to_string(),
+                    FunctionArgSignature::Union(arg_types) => arg_types
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(" | "),
                 }
             }
         },
@@ -2723,7 +2723,7 @@ fn make_all_api_reference() -> ReferenceAPIs {
         .filter_map(make_keyword_reference)
         .collect();
 
-    keywords.sort_by(|x, y| x.name.cmp(y.name));
+    keywords.sort_by_key(|x| x.name);
 
     ReferenceAPIs {
         functions,
