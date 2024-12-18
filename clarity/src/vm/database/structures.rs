@@ -623,7 +623,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         }
 
         // caller needs to have checked this
-        if amount_to_lock != 0 {
+        if amount_to_lock == 0 {
             return Err(InterpreterError::Expect("BUG: cannot lock 0 tokens".into()).into());
         }
 
