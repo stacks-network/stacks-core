@@ -917,7 +917,7 @@ mod test {
             "1",
             "0",
             "foo-contract",
-            "../sample-contracts/tokens.clar",
+            "../sample/contracts/tokens.clar",
         ];
 
         assert!(main_handler(to_string_vec(&publish_args)).is_ok());
@@ -928,7 +928,7 @@ mod test {
             "1",
             "0",
             "foo-contract",
-            "../sample-contracts/non-existent-tokens.clar",
+            "../sample/contracts/non-existent-tokens.clar",
         ];
 
         assert!(format!(

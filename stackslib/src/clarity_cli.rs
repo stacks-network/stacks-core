@@ -2046,7 +2046,7 @@ mod test {
             "test",
             &[
                 "check".to_string(),
-                "../sample-contracts/tokens.clar".to_string(),
+                "../sample/contracts/tokens.clar".to_string(),
             ],
         );
 
@@ -2061,7 +2061,7 @@ mod test {
             "test",
             &[
                 "check".to_string(),
-                "../sample-contracts/tokens.clar".to_string(),
+                "../sample/contracts/tokens.clar".to_string(),
                 db_name.clone(),
             ],
         );
@@ -2078,7 +2078,7 @@ mod test {
             &[
                 "launch".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
-                "../sample-contracts/tokens.clar".to_string(),
+                "../sample/contracts/tokens.clar".to_string(),
                 db_name.clone(),
             ],
         );
@@ -2094,7 +2094,7 @@ mod test {
             "test",
             &[
                 "check".to_string(),
-                "../sample-contracts/names.clar".to_string(),
+                "../sample/contracts/names.clar".to_string(),
                 db_name.clone(),
             ],
         );
@@ -2110,7 +2110,7 @@ mod test {
             "test",
             &[
                 "check".to_string(),
-                "../sample-contracts/names.clar".to_string(),
+                "../sample/contracts/names.clar".to_string(),
                 db_name.clone(),
                 "--contract_id".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
@@ -2129,7 +2129,7 @@ mod test {
             &[
                 "check".to_string(),
                 "--output_analysis".to_string(),
-                "../sample-contracts/names.clar".to_string(),
+                "../sample/contracts/names.clar".to_string(),
                 db_name.clone(),
             ],
         );
@@ -2147,7 +2147,7 @@ mod test {
             &[
                 "check".to_string(),
                 "--costs".to_string(),
-                "../sample-contracts/names.clar".to_string(),
+                "../sample/contracts/names.clar".to_string(),
                 db_name.clone(),
             ],
         );
@@ -2166,7 +2166,7 @@ mod test {
             &[
                 "launch".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.names".to_string(),
-                "../sample-contracts/names.clar".to_string(),
+                "../sample/contracts/names.clar".to_string(),
                 "--costs".to_string(),
                 "--assets".to_string(),
                 db_name.clone(),
@@ -2208,7 +2208,7 @@ mod test {
             &[
                 "eval".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
-                "../sample-contracts/tokens-mint.clar".to_string(),
+                "../sample/contracts/tokens-mint.clar".to_string(),
                 db_name.clone(),
             ],
         );
@@ -2236,7 +2236,7 @@ mod test {
                 "eval".to_string(),
                 "--costs".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
-                "../sample-contracts/tokens-mint.clar".to_string(),
+                "../sample/contracts/tokens-mint.clar".to_string(),
                 db_name.clone(),
             ],
         );
@@ -2264,7 +2264,7 @@ mod test {
             &[
                 "eval_at_chaintip".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
-                "../sample-contracts/tokens-mint.clar".to_string(),
+                "../sample/contracts/tokens-mint.clar".to_string(),
                 db_name.clone(),
             ],
         );
@@ -2291,7 +2291,7 @@ mod test {
             &[
                 "eval_at_chaintip".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
-                "../sample-contracts/tokens-mint.clar".to_string(),
+                "../sample/contracts/tokens-mint.clar".to_string(),
                 db_name.clone(),
                 "--costs".to_string(),
             ],
@@ -2327,7 +2327,7 @@ mod test {
             "test",
             &[
                 "check".to_string(),
-                "../sample-contracts/tokens-ft.clar".to_string(),
+                "../sample/contracts/tokens-ft.clar".to_string(),
             ],
         );
 
@@ -2343,7 +2343,7 @@ mod test {
             &[
                 "launch".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens-ft".to_string(),
-                "../sample-contracts/tokens-ft.clar".to_string(),
+                "../sample/contracts/tokens-ft.clar".to_string(),
                 db_name.clone(),
                 "--assets".to_string(),
             ],
