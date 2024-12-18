@@ -1743,8 +1743,8 @@ impl MemPoolDB {
         // Selects the next mempool transaction to consider using a heuristic that maximizes miner fee profitability and minimizes
         // CPU time wasted on already-mined or not-yet-mineable transactions. This heuristic takes the following steps:
         //
-        // 1. Filters out transactions that have nonces smaller than the origin and sponsor address' next expected nonce as stated
-        //    in the `nonces` table, when possible
+        // 1. Filters out transactions to consider only those that have the next expected nonce for both the origin and sponsor,
+        //    when possible
         // 2. Adds a "simulated" fee rate to transactions that don't have it by multiplying the mempool's maximum current fee rate
         //    by a random number. This helps us mix these transactions with others to guarantee they get processed in a reasonable
         //    order
@@ -1842,8 +1842,6 @@ impl MemPoolDB {
                             }
                         }
                         MemPoolWalkStrategy::NextNonceWithHighestFeeRate => {
-                            // Execute the query to get a single row. We do not use an iterator because we want the top rank to be
-                            // recalculated every time we visit a transaction.
                             match query_stmt_nonce_rank
                                 .query(NO_PARAMS)
                                 .map_err(|err| Error::SqliteError(err))?

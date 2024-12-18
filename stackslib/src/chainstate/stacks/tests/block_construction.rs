@@ -5092,7 +5092,7 @@ fn paramaterized_mempool_walk_test(
 #[test]
 /// Test that the mempool walk query ignores old nonces and prefers next possible nonces before higher global fees.
 fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
-    let key_address_pairs: Vec<(Secp256k1PrivateKey, StacksAddress)> = (0..6)
+    let key_address_pairs: Vec<(Secp256k1PrivateKey, StacksAddress)> = (0..7)
         .map(|_user_index| {
             let privk = StacksPrivateKey::new();
             let addr = StacksAddress::from_public_keys(
@@ -5115,6 +5115,7 @@ fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
     let address_3 = accounts[3].to_string();
     let address_4 = accounts[4].to_string();
     let address_5 = accounts[5].to_string();
+    let address_6 = accounts[6].to_string();
 
     let test_name = function_name!();
     let mut peer_config = TestPeerConfig::new(&test_name, 0, 0);
@@ -5146,26 +5147,27 @@ fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
 
     let mut tx_events = Vec::new();
 
-    // Simulate next possible nonces for all addresses
+    // Simulate next possible nonces for **some** addresses. Leave some blank so we can test the case where the nonce cannot be
+    // found on the db table and has to be pulled from the MARF.
     let mempool_tx = mempool.tx_begin().unwrap();
     mempool_tx
         .execute(
-            "INSERT INTO nonces (address, nonce) VALUES (?, ?), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?)",
-            params![address_0, 2, address_1, 1, address_2, 6, address_3, 0, address_4, 1, address_5, 0],
+            "INSERT INTO nonces (address, nonce) VALUES (?, ?), (?, ?), (?, ?), (?, ?), (?, ?)",
+            params![address_0, 2, address_1, 1, address_2, 6, address_4, 1, address_5, 0],
         )
         .unwrap();
     mempool_tx.commit().unwrap();
 
-    // Test vectors with a wide variety of origin/sponsor configurations and fee rate values. Some transactions do not have a
-    // sponsor, some others do, some others are sponsored by other sponsors. All in flight at the same time.
+    // Test transactions with a wide variety of origin/sponsor configurations and fee rate values. Some transactions do not have a
+    // sponsor, some others do, and some others are sponsored by other sponsors. All will be in flight at the same time.
     //
-    // tuple shape -> (origin_address_index, origin_nonce, sponsor_address_index, sponsor_nonce, fee_rate)
+    // tuple shape: (origin_address_index, origin_nonce, sponsor_address_index, sponsor_nonce, fee_rate)
     let test_vectors = vec![
         (0, 0, 0, 0, 100.0), // Old origin nonce - ignored
         (0, 1, 0, 1, 200.0), // Old origin nonce - ignored
         (0, 2, 0, 2, 300.0),
         (0, 3, 0, 3, 400.0),
-        (0, 4, 3, 0, 500.0),
+        (0, 4, 3, 0, 500.0), // Nonce 0 for address 3 is not in the table but will be valid on MARF
         (1, 0, 1, 0, 400.0), // Old origin nonce - ignored
         (1, 1, 3, 1, 600.0),
         (1, 2, 3, 2, 700.0),
@@ -5186,10 +5188,12 @@ fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
         (5, 1, 5, 1, 500.0),
         (5, 3, 4, 4, 2000.0),
         (5, 4, 4, 5, 2000.0),
+        (6, 2, 6, 2, 1000.0), // Address has nonce 0 in MARF - ignored
     ];
     for (origin_index, origin_nonce, sponsor_index, sponsor_nonce, fee_rate) in
         test_vectors.into_iter()
     {
+        // Create tx, either standard or sponsored
         let mut tx = if origin_index != sponsor_index {
             let payload = TransactionPayload::TokenTransfer(
                 recipient.to_account_principal(),
@@ -5218,13 +5222,11 @@ fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
 
         let origin_address = tx.origin_address();
         let sponsor_address = tx.sponsor_address().unwrap_or(origin_address);
-
         tx.set_tx_fee(fee_rate as u64);
         let txid = tx.txid();
         let tx_bytes = tx.serialize_to_vec();
         let tx_fee = tx.get_tx_fee();
         let height = 100;
-
         MemPoolDB::try_add_tx(
             &mut mempool_tx,
             &mut chainstate,
@@ -5242,17 +5244,18 @@ fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
             None,
         )
         .unwrap();
-
         mempool_tx
             .execute(
                 "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
                 params![Some(fee_rate), &txid],
             )
             .unwrap();
+
         mempool_tx.commit().unwrap();
     }
 
-    // Visit transactions. Keep a record of the order of visited txs so we can compare at the end.
+    // Visit transactions using the `NextNonceWithHighestFeeRate` strategy. Keep a record of the order of visits so we can compare
+    // at the end.
     let mut mempool_settings = MemPoolWalkSettings::default();
     mempool_settings.strategy = MemPoolWalkStrategy::NextNonceWithHighestFeeRate;
     let mut considered_txs = vec![];
@@ -5261,7 +5264,6 @@ fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
         &TEST_BURN_STATE_DB,
         &StacksBlockHeader::make_index_block_hash(&b_2.0, &b_2.1),
         |clarity_conn| {
-            // When the candidate cache fills, one pass cannot process all transactions
             loop {
                 if mempool
                     .iterate_candidates::<_, ChainstateError, _>(
@@ -5302,6 +5304,7 @@ fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
             }
 
             // Expected transaction consideration order, sorted by mineable first (next origin+sponsor nonces, highest fee).
+            // Ignores old and very future nonces.
             let expected_tx_order = vec![
                 (address_2.clone(), 6, address_4.clone(), 1, 1000),
                 (address_2.clone(), 7, address_4.clone(), 2, 800),
