@@ -1720,10 +1720,10 @@ impl MemPoolDB {
         let mut query_stmt_null = self
             .db
             .prepare(&sql)
-            .map_err(|err| Error::SqliteError(err))?;
+            .map_err(Error::SqliteError)?;
         let mut null_iterator = query_stmt_null
             .query(NO_PARAMS)
-            .map_err(|err| Error::SqliteError(err))?;
+            .map_err(Error::SqliteError)?;
         let sql = "
             SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
             FROM mempool
@@ -1733,10 +1733,10 @@ impl MemPoolDB {
         let mut query_stmt_fee = self
             .db
             .prepare(&sql)
-            .map_err(|err| Error::SqliteError(err))?;
+            .map_err(Error::SqliteError)?;
         let mut fee_iterator = query_stmt_fee
             .query(NO_PARAMS)
-            .map_err(|err| Error::SqliteError(err))?;
+            .map_err(Error::SqliteError)?;
 
         // == Query for `NextNonceWithHighestFeeRate` mempool walk strategy
         //
@@ -1789,7 +1789,7 @@ impl MemPoolDB {
         let mut query_stmt_nonce_rank = self
             .db
             .prepare(&sql)
-            .map_err(|err| Error::SqliteError(err))?;
+            .map_err(Error::SqliteError)?;
 
         let stop_reason = loop {
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
@@ -1814,9 +1814,9 @@ impl MemPoolDB {
                             let opt_tx = if start_with_no_estimate {
                                 null_iterator
                                     .next()
-                                    .map_err(|err| Error::SqliteError(err))?
+                                    .map_err(Error::SqliteError)?
                             } else {
-                                fee_iterator.next().map_err(|err| Error::SqliteError(err))?
+                                fee_iterator.next().map_err(Error::SqliteError)?
                             };
                             match opt_tx {
                                 Some(row) => {
@@ -1827,11 +1827,11 @@ impl MemPoolDB {
                                     match if start_with_no_estimate {
                                         fee_iterator
                                             .next()
-                                            .map_err(|err| Error::SqliteError(err))?
+                                            .map_err(Error::SqliteError)?
                                     } else {
                                         null_iterator
                                             .next()
-                                            .map_err(|err| Error::SqliteError(err))?
+                                            .map_err(Error::SqliteError)?
                                     } {
                                         Some(row) => (
                                             MemPoolTxInfoPartial::from_row(row)?,
@@ -1848,9 +1848,9 @@ impl MemPoolDB {
                         MemPoolWalkStrategy::NextNonceWithHighestFeeRate => {
                             match query_stmt_nonce_rank
                                 .query(NO_PARAMS)
-                                .map_err(|err| Error::SqliteError(err))?
+                                .map_err(Error::SqliteError)?
                                 .next()
-                                .map_err(|err| Error::SqliteError(err))?
+                                .map_err(Error::SqliteError)?
                             {
                                 Some(row) => {
                                     let tx = MemPoolTxInfoPartial::from_row(row)?;
