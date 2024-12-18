@@ -755,16 +755,14 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<Option<ContractAnalysis>> {
-        let x_opt = self
-            .store
+        self.store
             .get_metadata(contract_identifier, AnalysisDatabase::storage_key())
             // treat NoSuchContract error thrown by get_metadata as an Option::None --
             //    the analysis will propagate that as a CheckError anyways.
-            .ok();
-        match x_opt.flatten() {
-            None => Ok(None),
-            Some(x) => ContractAnalysis::deserialize(&x).map(Some),
-        }
+            .ok()
+            .flatten()
+            .map(|x| ContractAnalysis::deserialize(&x))
+            .transpose()
     }
 
     pub fn get_contract_size(
@@ -1357,6 +1355,7 @@ impl ClarityDatabase<'_> {
         self.store.get_cc_special_cases_handler()
     }
 
+    #[allow(clippy::unnecessary_fallible_conversions)]
     pub fn insert_microblock_poison(
         &mut self,
         height: u32,
@@ -1367,10 +1366,17 @@ impl ClarityDatabase<'_> {
         let value = Value::Tuple(
             TupleData::from_data(vec![
                 (
-                    ClarityName::from("reporter"),
+                    ClarityName::try_from("reporter").map_err(|_| {
+                        InterpreterError::Expect("BUG: valid string representation".into())
+                    })?,
                     Value::Principal(PrincipalData::Standard(reporter.clone())),
                 ),
-                (ClarityName::from("sequence"), Value::UInt(seq as u128)),
+                (
+                    ClarityName::try_from("sequence").map_err(|_| {
+                        InterpreterError::Expect("BUG: valid string representation".into())
+                    })?,
+                    Value::UInt(seq as u128),
+                ),
             ])
             .map_err(|_| InterpreterError::Expect("BUG: valid tuple representation".into()))?,
         );

@@ -782,7 +782,7 @@ impl Value {
                                         expected_type.unwrap(),
                                     ));
                                 }
-                            } else if len as u64 != tuple_type.len() {
+                            } else if u64::from(len) != tuple_type.len() {
                                 // unwrap is safe because of the match condition
                                 #[allow(clippy::unwrap_used)]
                                 return Err(SerializationError::DeserializeExpected(

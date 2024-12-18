@@ -285,7 +285,7 @@ impl AssetMap {
         let current_amount = self
             .token_map
             .get(principal)
-            .map(|x| x.get(asset).unwrap_or(&0))
+            .and_then(|x| x.get(asset))
             .unwrap_or(&0);
         current_amount
             .checked_add(amount)
