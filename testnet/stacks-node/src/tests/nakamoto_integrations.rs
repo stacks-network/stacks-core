@@ -6856,6 +6856,7 @@ fn continue_tenure_extend() {
     let prom_bind = "127.0.0.1:6000".to_string();
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    naka_conf.connection_options.block_proposal_max_age_secs = u64::MAX;
     let http_origin = naka_conf.node.data_url.clone();
     let sender_sk = Secp256k1PrivateKey::new();
     // setup sender + recipient for a test stx transfer
