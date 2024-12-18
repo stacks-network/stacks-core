@@ -186,7 +186,13 @@ impl MemPoolEventDispatcher for ProposalTestObserver {
         Some(Box::new(Arc::clone(&self.proposal_observer)))
     }
 
-    fn mempool_txs_dropped(&self, txids: Vec<Txid>, reason: mempool::MemPoolDropReason) {}
+    fn mempool_txs_dropped(
+        &self,
+        txids: Vec<Txid>,
+        new_txid: Option<Txid>,
+        reason: mempool::MemPoolDropReason,
+    ) {
+    }
 
     fn mined_block_event(
         &self,

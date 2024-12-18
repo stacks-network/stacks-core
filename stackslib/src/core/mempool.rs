@@ -390,7 +390,12 @@ pub trait ProposalCallbackReceiver: Send {
 
 pub trait MemPoolEventDispatcher {
     fn get_proposal_callback_receiver(&self) -> Option<Box<dyn ProposalCallbackReceiver>>;
-    fn mempool_txs_dropped(&self, txids: Vec<Txid>, reason: MemPoolDropReason);
+    fn mempool_txs_dropped(
+        &self,
+        txids: Vec<Txid>,
+        new_txid: Option<Txid>,
+        reason: MemPoolDropReason,
+    );
     fn mined_block_event(
         &self,
         target_burn_height: u64,
@@ -2229,7 +2234,7 @@ impl MemPoolDB {
 
         // broadcast drop event if a tx is being replaced
         if let (Some(prior_tx), Some(event_observer)) = (prior_tx, event_observer) {
-            event_observer.mempool_txs_dropped(vec![prior_tx.txid], replace_reason);
+            event_observer.mempool_txs_dropped(vec![prior_tx.txid], Some(txid), replace_reason);
         };
 
         Ok(())
@@ -2275,7 +2280,7 @@ impl MemPoolDB {
         if let Some(event_observer) = event_observer {
             let sql = "SELECT txid FROM mempool WHERE accept_time < ?1";
             let txids = query_rows(tx, sql, args)?;
-            event_observer.mempool_txs_dropped(txids, MemPoolDropReason::STALE_COLLECT);
+            event_observer.mempool_txs_dropped(txids, None, MemPoolDropReason::STALE_COLLECT);
         }
 
         let sql = "DELETE FROM mempool WHERE accept_time < ?1";
@@ -2297,7 +2302,7 @@ impl MemPoolDB {
         if let Some(event_observer) = event_observer {
             let sql = "SELECT txid FROM mempool WHERE height < ?1";
             let txids = query_rows(tx, sql, args)?;
-            event_observer.mempool_txs_dropped(txids, MemPoolDropReason::STALE_COLLECT);
+            event_observer.mempool_txs_dropped(txids, None, MemPoolDropReason::STALE_COLLECT);
         }
 
         let sql = "DELETE FROM mempool WHERE height < ?1";
