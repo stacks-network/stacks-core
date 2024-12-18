@@ -922,7 +922,7 @@ impl Signer {
             return;
         }
         debug!("{self}: {total_reject_weight}/{total_weight} signers voteed to reject the block {block_hash}");
-        if let Err(e) = block_info.mark_globally_rejected() {
+        if let Err(e) = self.signer_db.mark_block_globally_rejected(&mut block_info) {
             warn!("{self}: Failed to mark block as globally rejected: {e:?}",);
         }
         if let Err(e) = self.signer_db.insert_block(&block_info) {

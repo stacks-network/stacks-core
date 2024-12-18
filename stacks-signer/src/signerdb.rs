@@ -211,7 +211,7 @@ impl BlockInfo {
 
     /// Mark this block as valid, signed over, and records a group timestamp in the block info if it wasn't
     ///  already set.
-    pub fn mark_globally_accepted(&mut self) -> Result<(), String> {
+    fn mark_globally_accepted(&mut self) -> Result<(), String> {
         self.move_to(BlockState::GloballyAccepted)?;
         self.valid = Some(true);
         self.signed_over = true;
@@ -227,7 +227,7 @@ impl BlockInfo {
     }
 
     /// Mark the block as globally rejected and invalid
-    pub fn mark_globally_rejected(&mut self) -> Result<(), String> {
+    fn mark_globally_rejected(&mut self) -> Result<(), String> {
         self.move_to(BlockState::GloballyRejected)?;
         self.valid = Some(false);
         Ok(())
@@ -1133,6 +1133,24 @@ impl SignerDb {
             "consensus_hash" => %block.header.consensus_hash,
         );
         tenure_extend_timestamp
+    }
+
+    /// Mark a block as globally accepted
+    pub fn mark_block_globally_accepted(&self, block_info: &mut BlockInfo) -> Result<(), DBError> {
+        block_info
+            .mark_globally_accepted()
+            .map_err(DBError::Other)?;
+        self.remove_pending_block_validation(&block_info.signer_signature_hash())?;
+        Ok(())
+    }
+
+    /// Mark a block as globally rejected
+    pub fn mark_block_globally_rejected(&self, block_info: &mut BlockInfo) -> Result<(), DBError> {
+        block_info
+            .mark_globally_rejected()
+            .map_err(DBError::Other)?;
+        self.remove_pending_block_validation(&block_info.signer_signature_hash())?;
+        Ok(())
     }
 }
 
