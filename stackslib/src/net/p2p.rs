@@ -841,6 +841,9 @@ impl PeerNetwork {
     ) -> usize {
         let mut count = 0;
         for (_, convo) in self.peers.iter() {
+            if !convo.is_authenticated() {
+                continue;
+            }
             if !convo.is_outbound() {
                 continue;
             }
@@ -4158,7 +4161,7 @@ impl PeerNetwork {
             chainstate,
             sortdb,
             stacker_db_configs,
-            self.connection_opts.num_neighbors,
+            &self.connection_opts,
         )?;
         Ok(())
     }
