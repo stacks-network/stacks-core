@@ -46,7 +46,7 @@ use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
 use crate::chainstate::stacks::miner::{BlockBuilderSettings, MinerStatus};
 use crate::chainstate::stacks::MAX_BLOCK_LEN;
 use crate::config::chain_data::MinerStats;
-use crate::core::mempool::{MemPoolWalkSettings, MemPoolWalkTxTypes};
+use crate::core::mempool::{MemPoolWalkSettings, MemPoolWalkStrategy, MemPoolWalkTxTypes};
 use crate::core::{
     MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId,
     BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT, BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT,
@@ -1064,6 +1064,7 @@ impl Config {
         BlockBuilderSettings {
             max_miner_time_ms: miner_config.nakamoto_attempt_time_ms,
             mempool_settings: MemPoolWalkSettings {
+                strategy: miner_config.mempool_walk_strategy,
                 max_walk_time_ms: miner_config.nakamoto_attempt_time_ms,
                 consider_no_estimate_tx_prob: miner_config.probability_pick_no_estimate_tx,
                 nonce_cache_size: miner_config.nonce_cache_size,
@@ -1107,6 +1108,7 @@ impl Config {
                     // second or later attempt to mine a block -- give it some time
                     miner_config.subsequent_attempt_time_ms
                 },
+                strategy: miner_config.mempool_walk_strategy,
                 consider_no_estimate_tx_prob: miner_config.probability_pick_no_estimate_tx,
                 nonce_cache_size: miner_config.nonce_cache_size,
                 candidate_retry_cache_size: miner_config.candidate_retry_cache_size,
@@ -2102,6 +2104,8 @@ pub struct MinerConfig {
     pub microblock_attempt_time_ms: u64,
     /// Max time to assemble Nakamoto block
     pub nakamoto_attempt_time_ms: u64,
+    /// Strategy to follow when picking next mempool transactions to consider.
+    pub mempool_walk_strategy: MemPoolWalkStrategy,
     pub probability_pick_no_estimate_tx: u8,
     pub block_reward_recipient: Option<PrincipalData>,
     /// If possible, mine with a p2wpkh address
@@ -2182,6 +2186,7 @@ impl Default for MinerConfig {
             activated_vrf_key_path: None,
             fast_rampup: false,
             underperform_stop_threshold: None,
+            mempool_walk_strategy: MemPoolWalkStrategy::GlobalFeeRate,
             txs_to_consider: MemPoolWalkTxTypes::all(),
             filter_origins: HashSet::new(),
             max_reorg_depth: 3,
@@ -2560,6 +2565,7 @@ pub struct MinerConfigFile {
     pub subsequent_attempt_time_ms: Option<u64>,
     pub microblock_attempt_time_ms: Option<u64>,
     pub nakamoto_attempt_time_ms: Option<u64>,
+    pub mempool_walk_strategy: Option<String>,
     pub probability_pick_no_estimate_tx: Option<u8>,
     pub block_reward_recipient: Option<String>,
     pub segwit: Option<bool>,
@@ -2677,6 +2683,9 @@ impl MinerConfigFile {
             activated_vrf_key_path: self.activated_vrf_key_path.clone(),
             fast_rampup: self.fast_rampup.unwrap_or(miner_default_config.fast_rampup),
             underperform_stop_threshold: self.underperform_stop_threshold,
+            mempool_walk_strategy: self.mempool_walk_strategy
+                .map(|s| str::parse(&s).unwrap_or_else(|e| panic!("Could not parse '{s}': {e}")))
+                .unwrap_or(MemPoolWalkStrategy::GlobalFeeRate),
             txs_to_consider: {
                 if let Some(txs_to_consider) = &self.txs_to_consider {
                     txs_to_consider
