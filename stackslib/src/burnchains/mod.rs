@@ -477,17 +477,19 @@ impl PoxConstants {
     #[cfg_attr(test, mutants::skip)]
     pub fn regtest_default() -> PoxConstants {
         PoxConstants::new(
+            20,
             5,
             3,
-            2,
-            3333333333333333,
-            1,
+            25,
+            5,
             BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
             BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
-            1_000_000,
-            2_000_000,
-            4_000_000,
-            3_000_000,
+            POX_V1_REGTEST_EARLY_UNLOCK_HEIGHT,
+            POX_V2_REGTEST_EARLY_UNLOCK_HEIGHT,
+            POX_V3_REGTEST_EARLY_UNLOCK_HEIGHT,
+            BITCOIN_REGTEST_STACKS_24_BURN_HEIGHT
+                .try_into()
+                .expect("Epoch transition height must be <= u32::MAX"),
         )
     }
 
