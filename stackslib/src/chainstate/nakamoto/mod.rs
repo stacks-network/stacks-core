@@ -4545,20 +4545,17 @@ impl NakamotoChainState {
                 Ok(lockup_events) => lockup_events,
             };
 
-        // Track events that we couldn't attach to a coinbase receipt
-        let mut phantom_lockup_events = lockup_events.clone();
-        // if any, append lockups events to the coinbase receipt
-        if lockup_events.len() > 0 {
+        // If any, append lockups events to the coinbase receipt
+        if let Some(receipt) = tx_receipts.get_mut(0) {
             // Receipts are appended in order, so the first receipt should be
             // the one of the coinbase transaction
-            if let Some(receipt) = tx_receipts.get_mut(0) {
-                if receipt.is_coinbase_tx() {
-                    receipt.events.append(&mut lockup_events);
-                    phantom_lockup_events.clear();
-                }
+            if receipt.is_coinbase_tx() {
+                receipt.events.append(&mut lockup_events);
             }
         }
-        if phantom_lockup_events.len() > 0 {
+
+        // If lockup_events still contains items, it means they weren't attached
+        if !lockup_events.is_empty() {
             info!("Unable to attach lockup events, block's first transaction is not a coinbase transaction. Will attach as a phantom tx.");
         }
 
@@ -4634,7 +4631,7 @@ impl NakamotoChainState {
                 applied_epoch_transition,
                 signer_set_calc.is_some(),
                 coinbase_height,
-                phantom_lockup_events,
+                lockup_events,
             );
         }
 
@@ -4752,7 +4749,7 @@ impl NakamotoChainState {
             epoch_receipt,
             clarity_commit,
             reward_set_data,
-            phantom_lockup_events,
+            lockup_events,
         ))
     }
 
