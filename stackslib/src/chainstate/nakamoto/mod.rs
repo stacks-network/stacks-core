@@ -2156,6 +2156,7 @@ impl NakamotoChainState {
             Self::generate_phantom_unlock_tx(
                 phantom_unlock_events,
                 &stacks_chain_state.config(),
+                next_ready_block.header.chain_length,
             )
         {
             tx_receipts.push(unlock_receipt);
@@ -4920,6 +4921,7 @@ impl NakamotoChainState {
     fn generate_phantom_unlock_tx(
         events: Vec<StacksTransactionEvent>,
         config: &ChainstateConfig,
+        stacks_block_height: u64,
     ) -> Option<StacksTransactionReceipt> {
         if events.is_empty() {
             return None;
@@ -4930,6 +4932,16 @@ impl NakamotoChainState {
         } else {
             TransactionVersion::Testnet
         };
+
+        // Make the txid unique -- the phantom tx payload should include something block-specific otherwise
+        // they will always have the same txid. In this case we use the block height in the memo. This also
+        // happens to give some indication of the purpose of this phantom tx, for anyone looking.
+        let memo = TokenTransferMemo({
+            let str = format!("Block {} token unlocks", stacks_block_height);
+            let mut buf = [0u8; 34];
+            buf[..str.len().min(34)].copy_from_slice(&str.as_bytes()[..]);
+            buf
+        });
         let boot_code_address = boot_code_addr(config.mainnet);
         let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
         let unlock_tx = StacksTransaction::new(
@@ -4938,7 +4950,7 @@ impl NakamotoChainState {
             TransactionPayload::TokenTransfer(
                 PrincipalData::Standard(boot_code_address.into()),
                 0,
-                TokenTransferMemo([0u8; 34]),
+                memo,
             ),
         );
         let unlock_receipt = StacksTransactionReceipt::from_stx_transfer(
