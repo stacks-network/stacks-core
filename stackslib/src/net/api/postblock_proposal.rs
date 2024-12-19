@@ -86,6 +86,8 @@ define_u8_enum![ValidateRejectCode {
     NoSuchTenure = 6
 }];
 
+pub static TOO_MANY_REQUESTS_STATUS: u16 = 429;
+
 impl TryFrom<u8> for ValidateRejectCode {
     type Error = CodecError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
@@ -170,6 +172,29 @@ impl From<Result<BlockValidateOk, BlockValidateReject>> for BlockValidateRespons
             Ok(o) => BlockValidateResponse::Ok(o),
             Err(e) => BlockValidateResponse::Reject(e),
         }
+    }
+}
+
+impl BlockValidateResponse {
+    /// Get the signer signature hash from the response
+    pub fn signer_signature_hash(&self) -> Sha512Trunc256Sum {
+        match self {
+            BlockValidateResponse::Ok(o) => o.signer_signature_hash,
+            BlockValidateResponse::Reject(r) => r.signer_signature_hash,
+        }
+    }
+}
+
+#[cfg(any(test, feature = "testing"))]
+fn get_test_delay() -> Option<u64> {
+    TEST_VALIDATE_DELAY_DURATION_SECS.lock().unwrap().clone()
+}
+
+#[cfg(any(test, feature = "testing"))]
+fn inject_validation_delay() {
+    if let Some(delay) = get_test_delay() {
+        warn!("Sleeping for {} seconds to simulate slow processing", delay);
+        thread::sleep(Duration::from_secs(delay));
     }
 }
 
@@ -365,12 +390,7 @@ impl NakamotoBlockProposal {
         let start = Instant::now();
 
         #[cfg(any(test, feature = "testing"))]
-        {
-            if let Some(delay) = *TEST_VALIDATE_DELAY_DURATION_SECS.lock().unwrap() {
-                warn!("Sleeping for {} seconds to simulate slow processing", delay);
-                thread::sleep(Duration::from_secs(delay));
-            }
-        }
+        inject_validation_delay();
 
         let mainnet = self.chain_id == CHAIN_ID_MAINNET;
         if self.chain_id != chainstate.chain_id || mainnet != chainstate.mainnet {
@@ -738,7 +758,7 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
         let res = node.with_node_state(|network, sortdb, chainstate, _mempool, rpc_args| {
             if network.is_proposal_thread_running() {
                 return Err((
-                    429,
+                    TOO_MANY_REQUESTS_STATUS,
                     NetError::SendError("Proposal currently being evaluated".into()),
                 ));
             }
@@ -759,7 +779,7 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
                 .spawn_validation_thread(sortdb, chainstate, receiver)
                 .map_err(|_e| {
                     (
-                        429,
+                        TOO_MANY_REQUESTS_STATUS,
                         NetError::SendError(
                             "IO error while spawning proposal callback thread".into(),
                         ),
