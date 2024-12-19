@@ -35,6 +35,9 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{error, fmt, thread, time};
 
+#[cfg(any(test, feature = "testing"))]
+pub mod tests;
+
 pub fn get_epoch_time_secs() -> u64 {
     let start = SystemTime::now();
     let since_the_epoch = start

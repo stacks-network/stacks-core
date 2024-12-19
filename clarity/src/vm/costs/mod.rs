@@ -140,7 +140,7 @@ impl CostTracker for () {
         _cost_function: ClarityCostFunction,
         _input: &[u64],
     ) -> std::result::Result<ExecutionCost, CostErrors> {
-        Ok(ExecutionCost::zero())
+        Ok(ExecutionCost::ZERO)
     }
     fn add_cost(&mut self, _cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
         Ok(())
@@ -707,7 +707,7 @@ impl LimitedCostTracker {
             contract_call_circuits: HashMap::new(),
             limit,
             memory_limit: CLARITY_MEMORY_LIMIT,
-            total: ExecutionCost::zero(),
+            total: ExecutionCost::ZERO,
             memory: 0,
             epoch,
             mainnet,
@@ -731,7 +731,7 @@ impl LimitedCostTracker {
             contract_call_circuits: HashMap::new(),
             limit,
             memory_limit: CLARITY_MEMORY_LIMIT,
-            total: ExecutionCost::zero(),
+            total: ExecutionCost::ZERO,
             memory: 0,
             epoch,
             mainnet,
@@ -775,7 +775,8 @@ impl LimitedCostTracker {
             | StacksEpochId::Epoch23
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30 => COSTS_3_NAME.to_string(),
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31 => COSTS_3_NAME.to_string(),
         };
         Ok(result)
     }
@@ -879,7 +880,7 @@ impl LimitedCostTracker {
     pub fn get_total(&self) -> ExecutionCost {
         match self {
             Self::Limited(TrackerData { total, .. }) => total.clone(),
-            Self::Free => ExecutionCost::zero(),
+            Self::Free => ExecutionCost::ZERO,
         }
     }
     #[allow(clippy::panic)]
@@ -896,6 +897,7 @@ impl LimitedCostTracker {
             Self::Free => ExecutionCost::max_value(),
         }
     }
+
     pub fn get_memory(&self) -> u64 {
         match self {
             Self::Limited(TrackerData { memory, .. }) => *memory,
@@ -1048,7 +1050,7 @@ impl CostTracker for LimitedCostTracker {
         match self {
             Self::Free => {
                 // tracker is free, return zero!
-                return Ok(ExecutionCost::zero());
+                return Ok(ExecutionCost::ZERO);
             }
             Self::Limited(ref mut data) => {
                 if cost_function == ClarityCostFunction::Unimplemented {
@@ -1170,6 +1172,7 @@ pub trait CostOverflowingMath<T> {
     fn cost_overflow_mul(self, other: T) -> Result<T>;
     fn cost_overflow_add(self, other: T) -> Result<T>;
     fn cost_overflow_sub(self, other: T) -> Result<T>;
+    fn cost_overflow_div(self, other: T) -> Result<T>;
 }
 
 impl CostOverflowingMath<u64> for u64 {
@@ -1185,18 +1188,20 @@ impl CostOverflowingMath<u64> for u64 {
         self.checked_sub(other)
             .ok_or_else(|| CostErrors::CostOverflow)
     }
+    fn cost_overflow_div(self, other: u64) -> Result<u64> {
+        self.checked_div(other)
+            .ok_or_else(|| CostErrors::CostOverflow)
+    }
 }
 
 impl ExecutionCost {
-    pub fn zero() -> ExecutionCost {
-        Self {
-            runtime: 0,
-            write_length: 0,
-            read_count: 0,
-            write_count: 0,
-            read_length: 0,
-        }
-    }
+    pub const ZERO: Self = Self {
+        runtime: 0,
+        write_length: 0,
+        read_count: 0,
+        write_count: 0,
+        read_length: 0,
+    };
 
     /// Returns the percentage of self consumed in `numerator`'s largest proportion dimension.
     pub fn proportion_largest_dimension(&self, numerator: &ExecutionCost) -> u64 {
@@ -1293,6 +1298,15 @@ impl ExecutionCost {
         Ok(())
     }
 
+    pub fn divide(&mut self, divisor: u64) -> Result<()> {
+        self.runtime = self.runtime.cost_overflow_div(divisor)?;
+        self.read_count = self.read_count.cost_overflow_div(divisor)?;
+        self.read_length = self.read_length.cost_overflow_div(divisor)?;
+        self.write_length = self.write_length.cost_overflow_div(divisor)?;
+        self.write_count = self.write_count.cost_overflow_div(divisor)?;
+        Ok(())
+    }
+
     /// Returns whether or not this cost exceeds any dimension of the
     ///  other cost.
     pub fn exceeds(&self, other: &ExecutionCost) -> bool {
@@ -1311,6 +1325,10 @@ impl ExecutionCost {
             read_count: first.read_count.max(second.read_count),
             read_length: first.read_length.max(second.read_length),
         }
+    }
+
+    pub fn is_zero(&self) -> bool {
+        *self == Self::ZERO
     }
 }
 

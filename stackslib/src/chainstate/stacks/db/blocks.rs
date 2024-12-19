@@ -3612,41 +3612,13 @@ impl StacksChainState {
     }
 
     /// Get the coinbase at this burn block height, in microSTX
-    pub fn get_coinbase_reward(burn_block_height: u64, first_burn_block_height: u64) -> u128 {
-        /*
-        From https://forum.stacks.org/t/pox-consensus-and-stx-future-supply
-
-        """
-
-        1000 STX for years 0-4
-        500 STX for years 4-8
-        250 STX for years 8-12
-        125 STX in perpetuity
-
-
-        From the Token Whitepaper:
-
-        We expect that once native mining goes live, approximately 4383 blocks will be pro-
-        cessed per month, or approximately 52,596 blocks will be processed per year.
-
-        """
-        */
-        // this is saturating subtraction for the initial reward calculation
-        //   where we are computing the coinbase reward for blocks that occur *before*
-        //   the `first_burn_block_height`
-        let effective_ht = burn_block_height.saturating_sub(first_burn_block_height);
-        let blocks_per_year = 52596;
-        let stx_reward = if effective_ht < blocks_per_year * 4 {
-            1000
-        } else if effective_ht < blocks_per_year * 8 {
-            500
-        } else if effective_ht < blocks_per_year * 12 {
-            250
-        } else {
-            125
-        };
-
-        stx_reward * (u128::from(MICROSTACKS_PER_STACKS))
+    pub fn get_coinbase_reward(
+        epoch: StacksEpochId,
+        mainnet: bool,
+        burn_block_height: u64,
+        first_burn_block_height: u64,
+    ) -> u128 {
+        epoch.coinbase_reward(mainnet, first_burn_block_height, burn_block_height)
     }
 
     /// Create the block reward.
@@ -4132,7 +4104,12 @@ impl StacksChainState {
                         current_epoch = StacksEpochId::Epoch30;
                     }
                     StacksEpochId::Epoch30 => {
-                        panic!("No defined transition from Epoch30 forward")
+                        // no special initialization is needed, since only the coinbase emission
+                        // schedule is changing.
+                        current_epoch = StacksEpochId::Epoch31;
+                    }
+                    StacksEpochId::Epoch31 => {
+                        panic!("No defined transition from Epoch31 forward")
                     }
                 }
             }
@@ -4327,7 +4304,7 @@ impl StacksChainState {
                                     post_condition_aborted: false,
                                     stx_burned: 0,
                                     contract_analysis: None,
-                                    execution_cost: ExecutionCost::zero(),
+                                    execution_cost: ExecutionCost::ZERO,
                                     microblock_header: None,
                                     tx_index: 0,
                                     vm_error: None,
@@ -4942,8 +4919,7 @@ impl StacksChainState {
                     )?;
                 Ok((stack_ops, transfer_ops, delegate_ops, vec![]))
             }
-            StacksEpochId::Epoch25 | StacksEpochId::Epoch30 => {
-                // TODO: sbtc ops in epoch 3.0
+            StacksEpochId::Epoch25 | StacksEpochId::Epoch30 | StacksEpochId::Epoch31 => {
                 StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                     chainstate_tx,
                     parent_index_hash,
@@ -5033,7 +5009,7 @@ impl StacksChainState {
                     pox_reward_cycle,
                     pox_start_cycle_info,
                 ),
-                StacksEpochId::Epoch25 | StacksEpochId::Epoch30 => {
+                StacksEpochId::Epoch25 | StacksEpochId::Epoch30 | StacksEpochId::Epoch31 => {
                     Self::handle_pox_cycle_start_pox_4(
                         clarity_tx,
                         pox_reward_cycle,
@@ -5131,7 +5107,7 @@ impl StacksChainState {
             );
             cost
         } else {
-            ExecutionCost::zero()
+            ExecutionCost::ZERO
         };
 
         let mut clarity_tx = StacksChainState::chainstate_block_begin(
@@ -5218,7 +5194,7 @@ impl StacksChainState {
 
         // if we get here, then we need to reset the block-cost back to 0 since this begins the
         // epoch defined by this miner.
-        clarity_tx.reset_cost(ExecutionCost::zero());
+        clarity_tx.reset_cost(ExecutionCost::ZERO);
 
         // is this stacks block the first of a new epoch?
         let (applied_epoch_transition, mut tx_receipts) =
@@ -5758,6 +5734,8 @@ impl StacksChainState {
             .accumulated_coinbase_ustx;
 
             let coinbase_at_block = StacksChainState::get_coinbase_reward(
+                evaluated_epoch,
+                mainnet,
                 u64::from(chain_tip_burn_header_height),
                 burn_dbconn.context.first_block_height,
             );
@@ -11048,8 +11026,8 @@ pub mod test {
         init_balances.push((addr.to_account_principal(), initial_balance));
         peer_config.initial_balances = init_balances;
         let mut epochs = StacksEpoch::unit_test_2_1(0);
-        let num_epochs = epochs.len();
-        epochs[num_epochs - 1].block_limit.runtime = 10_000_000;
+        let last_epoch = epochs.last_mut().unwrap();
+        last_epoch.block_limit.runtime = 10_000_000;
         peer_config.epochs = Some(epochs);
         peer_config.burnchain.pox_constants.v1_unlock_height = 26;
         let burnchain = peer_config.burnchain.clone();
@@ -11373,9 +11351,9 @@ pub mod test {
         init_balances.push((addr.to_account_principal(), initial_balance));
         peer_config.initial_balances = init_balances;
         let mut epochs = StacksEpoch::unit_test_2_1(0);
-        let num_epochs = epochs.len();
-        epochs[num_epochs - 1].block_limit.runtime = 10_000_000;
-        epochs[num_epochs - 1].block_limit.read_length = 10_000_000;
+        let last_epoch = epochs.last_mut().unwrap();
+        last_epoch.block_limit.runtime = 10_000_000;
+        last_epoch.block_limit.read_length = 10_000_000;
         peer_config.epochs = Some(epochs);
         peer_config.burnchain.pox_constants.v1_unlock_height = 26;
         let burnchain = peer_config.burnchain.clone();

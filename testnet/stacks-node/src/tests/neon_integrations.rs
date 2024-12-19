@@ -5,7 +5,6 @@ use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 use std::{cmp, env, fs, io, thread};
 
-use clarity::consts::BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP;
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
@@ -39,11 +38,12 @@ use stacks::chainstate::stacks::{
     StacksPublicKey, StacksTransaction, TransactionContractCall, TransactionPayload,
 };
 use stacks::clarity_cli::vm_execute as execute;
-use stacks::cli::{self, StacksChainConfig};
+use stacks::cli;
 use stacks::codec::StacksMessageCodec;
+use stacks::config::{EventKeyType, EventObserverConfig, FeeEstimatorName, InitialBalance};
 use stacks::core::mempool::MemPoolWalkTxTypes;
 use stacks::core::{
-    self, StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_20, BLOCK_LIMIT_MAINNET_205,
+    self, EpochList, StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_20, BLOCK_LIMIT_MAINNET_205,
     BLOCK_LIMIT_MAINNET_21, CHAIN_ID_TESTNET, HELIUM_BLOCK_LIMIT_20, PEER_VERSION_EPOCH_1_0,
     PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
     PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5,
@@ -83,7 +83,6 @@ use super::{
     SK_2, SK_3,
 };
 use crate::burnchains::bitcoin_regtest_controller::{self, addr2str, BitcoinRPCRequest, UTXO};
-use crate::config::{EventKeyType, EventObserverConfig, FeeEstimatorName, InitialBalance};
 use crate::neon_node::RelayerThread;
 use crate::operations::BurnchainOpSigner;
 use crate::stacks_common::types::PrivateKey;
@@ -98,7 +97,7 @@ fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAdd
     let mut conf = super::new_test_conf();
 
     // tests can override this, but these tests run with epoch 2.05 by default
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -127,7 +126,7 @@ fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAdd
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ]);
+    ]));
 
     let seed = seed.unwrap_or(conf.node.seed.clone());
     conf.node.seed = seed;
@@ -199,13 +198,13 @@ pub mod test_observer {
     use stacks::chainstate::stacks::events::StackerDBChunksEvent;
     use stacks::chainstate::stacks::StacksTransaction;
     use stacks::codec::StacksMessageCodec;
+    use stacks::config::{EventKeyType, EventObserverConfig};
     use stacks::net::api::postblock_proposal::BlockValidateResponse;
     use stacks::util::hash::hex_bytes;
     use stacks_common::types::chainstate::StacksBlockId;
     use warp::Filter;
     use {tokio, warp};
 
-    use crate::config::{EventKeyType, EventObserverConfig};
     use crate::event_dispatcher::{MinedBlockEvent, MinedMicroblockEvent, MinedNakamotoBlockEvent};
     use crate::Config;
 
@@ -371,8 +370,10 @@ pub mod test_observer {
                     inner_obj
                 } else if let Some(inner_obj) = txevent_obj.get("Skipped") {
                     inner_obj
+                } else if let Some(inner_obj) = txevent_obj.get("Problematic") {
+                    inner_obj
                 } else {
-                    panic!("TransactionEvent object should have one of Success, ProcessingError, or Skipped")
+                    panic!("TransactionEvent object should have one of Success, ProcessingError, Skipped, or Problematic. Had keys: {:?}", txevent_obj.keys().map(|x| x.to_string()).collect::<Vec<_>>());
                 };
                 inner_obj
                     .as_object()
@@ -2120,7 +2121,7 @@ fn stx_delegate_btc_integration_test() {
     });
 
     // update epoch info so that Epoch 2.1 takes effect
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
@@ -2142,7 +2143,7 @@ fn stx_delegate_btc_integration_test() {
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ]);
+    ]));
     conf.burnchain.pox_2_activation = Some(3);
 
     test_observer::spawn();
@@ -2378,7 +2379,7 @@ fn stack_stx_burn_op_test() {
     });
 
     // update epoch info so that Epoch 2.1 takes effect
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
@@ -2428,7 +2429,7 @@ fn stack_stx_burn_op_test() {
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_5,
         },
-    ]);
+    ]));
     conf.burnchain.pox_2_activation = Some(3);
 
     test_observer::spawn();
@@ -2777,7 +2778,7 @@ fn vote_for_aggregate_key_burn_op_test() {
     });
 
     // update epoch info so that Epoch 2.1 takes effect
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
@@ -2827,7 +2828,7 @@ fn vote_for_aggregate_key_burn_op_test() {
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_5,
         },
-    ]);
+    ]));
     conf.burnchain.pox_2_activation = Some(3);
 
     test_observer::spawn();
@@ -5065,8 +5066,8 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
         })
         .collect();
 
-    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].block_limit = core::BLOCK_LIMIT_MAINNET_20;
+    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    epochs[StacksEpochId::Epoch20].block_limit = core::BLOCK_LIMIT_MAINNET_20;
     conf.burnchain.epochs = Some(epochs);
 
     conf.miner.first_attempt_time_ms = i64::MAX as u64;
@@ -5210,8 +5211,8 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
     conf.miner.first_attempt_time_ms = i64::MAX as u64;
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
-    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].block_limit = core::BLOCK_LIMIT_MAINNET_20;
+    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    epochs[StacksEpochId::Epoch20].block_limit = core::BLOCK_LIMIT_MAINNET_20;
     conf.burnchain.epochs = Some(epochs);
 
     let txs: Vec<Vec<_>> = spender_sks
@@ -5764,7 +5765,7 @@ fn cost_voting_integration() {
     let transactions = block.get("transactions").unwrap().as_array().unwrap();
     eprintln!("{}", transactions.len());
     let mut tested = false;
-    let mut exec_cost = ExecutionCost::zero();
+    let mut exec_cost = ExecutionCost::ZERO;
     for tx in transactions.iter() {
         let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
         if raw_tx == "0x00" {
@@ -6462,7 +6463,7 @@ fn microblock_limit_hit_integration_test() {
     conf.miner.first_attempt_time_ms = i64::MAX as u64;
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -6497,7 +6498,7 @@ fn microblock_limit_hit_integration_test() {
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ]);
+    ]));
     conf.burnchain.pox_2_activation = Some(10_003);
 
     // included in the first block
@@ -9573,7 +9574,7 @@ fn test_problematic_txs_are_not_stored() {
     });
 
     // force mainnet limits in 2.05 for this test
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
@@ -9595,7 +9596,7 @@ fn test_problematic_txs_are_not_stored() {
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ]);
+    ]));
     conf.burnchain.pox_2_activation = Some(10_003);
 
     // take effect immediately
@@ -9818,7 +9819,7 @@ fn test_problematic_blocks_are_not_mined() {
     });
 
     // force mainnet limits in 2.05 for this test
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
@@ -9840,7 +9841,7 @@ fn test_problematic_blocks_are_not_mined() {
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ]);
+    ]));
     conf.burnchain.pox_2_activation = Some(10_003);
 
     // AST precheck becomes default at burn height
@@ -10155,7 +10156,7 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
     });
 
     // force mainnet limits in 2.05 for this test
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
@@ -10177,7 +10178,7 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ]);
+    ]));
     conf.burnchain.pox_2_activation = Some(10_003);
 
     // AST precheck becomes default at burn height
@@ -10528,7 +10529,7 @@ fn test_problematic_microblocks_are_not_mined() {
     });
 
     // force mainnet limits in 2.05 for this test
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
@@ -10550,7 +10551,7 @@ fn test_problematic_microblocks_are_not_mined() {
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ]);
+    ]));
     conf.burnchain.pox_2_activation = Some(10_003);
 
     // AST precheck becomes default at burn height
@@ -10880,7 +10881,7 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
     });
 
     // force mainnet limits in 2.05 for this test
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
@@ -10902,7 +10903,7 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ]);
+    ]));
     conf.burnchain.pox_2_activation = Some(10_003);
 
     // AST precheck becomes default at burn height
@@ -12689,22 +12690,9 @@ fn mock_miner_replay() {
     let blocks_dir = blocks_dir.into_os_string().into_string().unwrap();
     let db_path = format!("{}/neon", conf.node.working_dir);
     let args: Vec<String> = vec!["replay-mock-mining".into(), db_path, blocks_dir];
-    let SortitionDB {
-        first_block_height,
-        first_burn_header_hash,
-        ..
-    } = *btc_regtest_controller.sortdb_mut();
-    let replay_config = StacksChainConfig {
-        chain_id: conf.burnchain.chain_id,
-        first_block_height,
-        first_burn_header_hash,
-        first_burn_header_timestamp: BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP.into(),
-        pox_constants: burnchain_config.pox_constants,
-        epochs: conf.burnchain.epochs.expect("Missing `epochs` in config"),
-    };
 
     info!("Replaying mock mined blocks...");
-    cli::command_replay_mock_mining(&args, Some(&replay_config));
+    cli::command_replay_mock_mining(&args, Some(&conf));
 
     // ---------- Test finished, clean up ----------
 

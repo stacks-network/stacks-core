@@ -133,6 +133,7 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::net::connection::ConnectionOptions;
 use crate::net::neighbors::NeighborComms;
 use crate::net::p2p::PeerNetwork;
 use crate::net::{
@@ -285,8 +286,9 @@ impl StackerDBs {
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
         stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
-        num_neighbors: u64,
+        connection_opts: &ConnectionOptions,
     ) -> Result<HashMap<QualifiedContractIdentifier, StackerDBConfig>, net_error> {
+        let num_neighbors = connection_opts.num_neighbors;
         let existing_contract_ids = self.get_stackerdb_contract_ids()?;
         let mut new_stackerdb_configs = HashMap::new();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
@@ -314,6 +316,10 @@ impl StackerDBs {
                     &sortdb,
                     &stackerdb_contract_id,
                     num_neighbors,
+                    connection_opts
+                        .stackerdb_hint_replicas
+                        .get(&stackerdb_contract_id)
+                        .cloned(),
                 )
                 .unwrap_or_else(|e| {
                     if matches!(e, net_error::NoSuchStackerDB(_)) && stackerdb_contract_id.is_boot()

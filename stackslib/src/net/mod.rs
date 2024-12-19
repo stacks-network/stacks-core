@@ -2290,7 +2290,7 @@ pub mod test {
     use crate::chainstate::stacks::{StacksMicroblockHeader, *};
     use crate::chainstate::*;
     use crate::clarity::vm::clarity::TransactionConnection;
-    use crate::core::{StacksEpoch, StacksEpochExtension, NETWORK_P2P_PORT};
+    use crate::core::{EpochList, StacksEpoch, StacksEpochExtension, NETWORK_P2P_PORT};
     use crate::net::asn::*;
     use crate::net::atlas::*;
     use crate::net::chat::*;
@@ -2595,7 +2595,7 @@ pub mod test {
         pub initial_lockups: Vec<ChainstateAccountLockup>,
         pub spending_account: TestMiner,
         pub setup_code: String,
-        pub epochs: Option<Vec<StacksEpoch>>,
+        pub epochs: Option<EpochList>,
         /// If some(), TestPeer should check the PoX-2 invariants
         /// on cycle numbers bounded (inclusive) by the supplied u64s
         pub check_pox_invariants: Option<(u64, u64)>,
@@ -3141,7 +3141,7 @@ pub mod test {
                     &mut stacks_node.chainstate,
                     &sortdb,
                     old_stackerdb_configs,
-                    config.connection_opts.num_neighbors,
+                    &config.connection_opts,
                 )
                 .expect("Failed to refresh stackerdb configs");
 
@@ -4061,6 +4061,22 @@ pub mod test {
             self.sortdb.as_ref().unwrap()
         }
 
+        pub fn with_dbs<F, R>(&mut self, f: F) -> R
+        where
+            F: FnOnce(&mut TestPeer, &mut SortitionDB, &mut TestStacksNode, &mut MemPoolDB) -> R,
+        {
+            let mut sortdb = self.sortdb.take().unwrap();
+            let mut stacks_node = self.stacks_node.take().unwrap();
+            let mut mempool = self.mempool.take().unwrap();
+
+            let res = f(self, &mut sortdb, &mut stacks_node, &mut mempool);
+
+            self.stacks_node = Some(stacks_node);
+            self.sortdb = Some(sortdb);
+            self.mempool = Some(mempool);
+            res
+        }
+
         pub fn with_db_state<F, R>(&mut self, f: F) -> Result<R, net_error>
         where
             F: FnOnce(
@@ -4726,6 +4742,9 @@ pub mod test {
             all_blocks: Vec<NakamotoBlock>,
             expected_siblings: usize,
         ) {
+            if !self.mine_malleablized_blocks {
+                return;
+            }
             for block in all_blocks.iter() {
                 let sighash = block.header.signer_signature_hash();
                 let siblings = self

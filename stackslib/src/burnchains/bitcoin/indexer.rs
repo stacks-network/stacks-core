@@ -45,7 +45,7 @@ use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, Error as burnchain_error, MagicBytes, BLOCKSTACK_MAGIC_MAINNET,
 };
 use crate::core::{
-    StacksEpoch, StacksEpochExtension, STACKS_EPOCHS_MAINNET, STACKS_EPOCHS_REGTEST,
+    EpochList, StacksEpoch, StacksEpochExtension, STACKS_EPOCHS_MAINNET, STACKS_EPOCHS_REGTEST,
     STACKS_EPOCHS_TESTNET,
 };
 use crate::util_lib::db::Error as DBError;
@@ -91,11 +91,11 @@ impl TryFrom<u32> for BitcoinNetworkType {
 /// Get the default epochs definitions for the given BitcoinNetworkType.
 /// Should *not* be used except by the BitcoinIndexer when no epochs vector
 /// was specified.
-pub fn get_bitcoin_stacks_epochs(network_id: BitcoinNetworkType) -> Vec<StacksEpoch> {
+pub fn get_bitcoin_stacks_epochs(network_id: BitcoinNetworkType) -> EpochList {
     match network_id {
-        BitcoinNetworkType::Mainnet => STACKS_EPOCHS_MAINNET.to_vec(),
-        BitcoinNetworkType::Testnet => STACKS_EPOCHS_TESTNET.to_vec(),
-        BitcoinNetworkType::Regtest => STACKS_EPOCHS_REGTEST.to_vec(),
+        BitcoinNetworkType::Mainnet => (*STACKS_EPOCHS_MAINNET).clone(),
+        BitcoinNetworkType::Testnet => (*STACKS_EPOCHS_TESTNET).clone(),
+        BitcoinNetworkType::Regtest => (*STACKS_EPOCHS_REGTEST).clone(),
     }
 }
 
@@ -112,7 +112,7 @@ pub struct BitcoinIndexerConfig {
     pub spv_headers_path: String,
     pub first_block: u64,
     pub magic_bytes: MagicBytes,
-    pub epochs: Option<Vec<StacksEpoch>>,
+    pub epochs: Option<EpochList>,
 }
 
 #[derive(Debug)]
@@ -924,7 +924,7 @@ impl BitcoinIndexer {
             return Ok(());
         }
         warn!(
-            "Header at height {} is not wihtin 2 hours of now (is at {})",
+            "Header at height {} is not within 2 hours of now (is at {})",
             highest_header_height, highest_header.block_header.header.time
         );
         self.drop_headers(highest_header_height.saturating_sub(1))?;
@@ -1041,7 +1041,7 @@ impl BurnchainIndexer for BitcoinIndexer {
     /// 2) Use hard-coded static values, otherwise.
     ///
     /// It is an error (panic) to set custom epochs if running on `Mainnet`.
-    fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {
+    fn get_stacks_epochs(&self) -> EpochList {
         StacksEpoch::get_epochs(self.runtime.network_id, self.config.epochs.as_ref())
     }
 

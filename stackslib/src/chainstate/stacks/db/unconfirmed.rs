@@ -254,7 +254,7 @@ impl UnconfirmedState {
         let mut total_burns = 0;
         let mut all_receipts = vec![];
         let mut mined_txs = UnconfirmedTxMap::new();
-        let mut new_cost = ExecutionCost::zero();
+        let mut new_cost = ExecutionCost::ZERO;
         let mut new_bytes = 0;
         let mut num_new_mblocks = 0;
         let mut have_state = self.have_state;
@@ -351,7 +351,7 @@ impl UnconfirmedState {
         // apply injected faults
         if self.disable_cost_check {
             warn!("Fault injection: disabling microblock miner's cost tracking");
-            self.cost_so_far = ExecutionCost::zero();
+            self.cost_so_far = ExecutionCost::ZERO;
         }
         if self.disable_bytes_check {
             warn!("Fault injection: disabling microblock miner's size tracking");
@@ -709,7 +709,7 @@ mod test {
             }
 
             let mut anchor_size = 0;
-            let mut anchor_cost = ExecutionCost::zero();
+            let mut anchor_cost = ExecutionCost::ZERO;
 
             let (burn_ops, stacks_block, _) = peer.make_tenure(
                 |ref mut miner,
@@ -946,7 +946,7 @@ mod test {
             }
 
             let mut anchor_size = 0;
-            let mut anchor_cost = ExecutionCost::zero();
+            let mut anchor_cost = ExecutionCost::ZERO;
 
             let (burn_ops, stacks_block, _) = peer.make_tenure(
                 |ref mut miner,
@@ -1159,13 +1159,13 @@ mod test {
         let initial_balance = 1000000000;
         let mut peer_config = TestPeerConfig::new(function_name!(), 7004, 7005);
         peer_config.initial_balances = vec![(addr.to_account_principal(), initial_balance)];
-        peer_config.epochs = Some(vec![StacksEpoch {
+        peer_config.epochs = Some(EpochList::new(&[StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: (i64::MAX) as u64,
             block_limit: BLOCK_LIMIT_MAINNET_20,
             network_epoch: PEER_VERSION_EPOCH_2_0,
-        }]);
+        }]));
         let burnchain = peer_config.burnchain.clone();
 
         let mut peer = TestPeer::new(peer_config);
@@ -1205,7 +1205,7 @@ mod test {
             }
 
             let mut anchor_size = 0;
-            let mut anchor_cost = ExecutionCost::zero();
+            let mut anchor_cost = ExecutionCost::ZERO;
 
             let (burn_ops, stacks_block, _) = peer.make_tenure(
                 |ref mut miner,

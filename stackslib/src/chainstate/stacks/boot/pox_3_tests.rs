@@ -81,7 +81,7 @@ fn get_tip(sortdb: Option<&SortitionDB>) -> BlockSnapshot {
     SortitionDB::get_canonical_burn_chain_tip(&sortdb.unwrap().conn()).unwrap()
 }
 
-fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
+fn make_test_epochs_pox() -> (EpochList, PoxConstants) {
     let EMPTY_SORTITIONS = 25;
     let EPOCH_2_1_HEIGHT = EMPTY_SORTITIONS + 11; // 36
     let EPOCH_2_2_HEIGHT = EPOCH_2_1_HEIGHT + 14; // 50
@@ -92,7 +92,7 @@ fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
 
     // cycle 11 = 60
 
-    let epochs = vec![
+    let epochs = EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -142,7 +142,7 @@ fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_4,
         },
-    ];
+    ]);
 
     let mut pox_constants = PoxConstants::mainnet_default();
     pox_constants.reward_cycle_length = 5;
@@ -279,7 +279,7 @@ fn simple_pox_lockup_transition_pox_2() {
     assert_eq!(alice_balance, 0);
 
     // produce blocks until immediately before the 2.1 epoch switch
-    while get_tip(peer.sortdb.as_ref()).block_height < epochs[3].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height < epochs[StacksEpochId::Epoch21].start_height {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
 
         // alice is still locked, balance should be 0
@@ -377,7 +377,7 @@ fn simple_pox_lockup_transition_pox_2() {
     assert_eq!(alice_balance, 512 * POX_THRESHOLD_STEPS_USTX);
 
     // now, let's roll the chain forward until just before Epoch-2.2
-    while get_tip(peer.sortdb.as_ref()).block_height < epochs[4].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height < epochs[StacksEpochId::Epoch22].start_height {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
         // at this point, alice's balance should always include this half lockup
         let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
@@ -394,7 +394,8 @@ fn simple_pox_lockup_transition_pox_2() {
     assert_eq!(alice_balance, 1024 * POX_THRESHOLD_STEPS_USTX);
 
     // now, roll the chain forward to Epoch-2.4
-    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[6].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[StacksEpochId::Epoch24].start_height
+    {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
         // at this point, alice's balance should always be unlocked
         let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
@@ -458,7 +459,7 @@ fn simple_pox_lockup_transition_pox_2() {
                     bob_txs.insert(t.auth.get_origin_nonce(), r);
                 } else if addr == key_to_stacks_addr(&charlie) {
                     assert!(
-                        r.execution_cost != ExecutionCost::zero(),
+                        r.execution_cost != ExecutionCost::ZERO,
                         "Execution cost is not zero!"
                     );
                     charlie_txs.insert(t.auth.get_origin_nonce(), r);
@@ -612,7 +613,8 @@ fn pox_auto_unlock(alice_first: bool) {
     let mut coinbase_nonce = 0;
 
     // produce blocks until epoch 2.1
-    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[3].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[StacksEpochId::Epoch21].start_height
+    {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -762,7 +764,8 @@ fn pox_auto_unlock(alice_first: bool) {
     // now, lets check behavior in Epochs 2.2-2.4, with pox-3 auto unlock tests
 
     // produce blocks until epoch 2.2
-    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[4].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[StacksEpochId::Epoch22].start_height
+    {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
         let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
         assert_eq!(alice_balance, 0);
@@ -774,7 +777,8 @@ fn pox_auto_unlock(alice_first: bool) {
     assert_eq!(alice_balance, 1024 * POX_THRESHOLD_STEPS_USTX);
 
     // produce blocks until epoch 2.4
-    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[6].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[StacksEpochId::Epoch24].start_height
+    {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -1051,7 +1055,8 @@ fn delegate_stack_increase() {
     let mut coinbase_nonce = 0;
 
     // produce blocks until epoch 2.1
-    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[3].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[StacksEpochId::Epoch21].start_height
+    {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -1236,7 +1241,7 @@ fn delegate_stack_increase() {
     //  on pox-3
 
     // roll the chain forward until just before Epoch-2.2
-    while get_tip(peer.sortdb.as_ref()).block_height < epochs[4].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height < epochs[StacksEpochId::Epoch22].start_height {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
         // at this point, alice's balance should always include this half lockup
         assert_eq!(
@@ -1279,7 +1284,8 @@ fn delegate_stack_increase() {
     );
 
     // Roll to Epoch-2.4 and re-do the above tests
-    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[6].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[StacksEpochId::Epoch24].start_height
+    {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -1666,7 +1672,8 @@ fn stack_increase() {
     let increase_amt = total_balance - first_lockup_amt;
 
     // produce blocks until epoch 2.1
-    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[3].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[StacksEpochId::Epoch21].start_height
+    {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -1799,7 +1806,7 @@ fn stack_increase() {
     //  on pox-3
 
     // roll the chain forward until just before Epoch-2.2
-    while get_tip(peer.sortdb.as_ref()).block_height < epochs[4].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height < epochs[StacksEpochId::Epoch22].start_height {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
         // at this point, alice's balance should always include this half lockup
         assert_eq!(
@@ -1828,7 +1835,8 @@ fn stack_increase() {
     );
 
     // Roll to Epoch-2.4 and re-do the above stack-increase tests
-    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[6].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[StacksEpochId::Epoch24].start_height
+    {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -2242,7 +2250,7 @@ fn pox_extend_transition() {
     }
 
     // produce blocks until epoch 2.1
-    while get_tip(peer.sortdb.as_ref()).block_height < epochs[3].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height < epochs[StacksEpochId::Epoch21].start_height {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
         alice_rewards_to_v2_start_checks(latest_block, &mut peer);
     }
@@ -2311,7 +2319,7 @@ fn pox_extend_transition() {
     // Roll to Epoch-2.4 and re-do the above tests
 
     // roll the chain forward until just before Epoch-2.2
-    while get_tip(peer.sortdb.as_ref()).block_height < epochs[4].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height < epochs[StacksEpochId::Epoch22].start_height {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
         // at this point, alice's balance should be locked, and so should bob's
         let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
@@ -2338,7 +2346,8 @@ fn pox_extend_transition() {
     assert_eq!(bob_account.amount_unlocked(), INITIAL_BALANCE);
 
     // Roll to Epoch-2.4 and re-do the above stack-extend tests
-    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[6].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[StacksEpochId::Epoch24].start_height
+    {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -2611,7 +2620,8 @@ fn delegate_extend_pox_3() {
     let mut latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
 
     // Roll to Epoch-2.4 and perform the delegate-stack-extend tests
-    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[6].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[StacksEpochId::Epoch24].start_height
+    {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -3087,7 +3097,8 @@ fn pox_3_getters() {
 
     let mut latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     // Roll to Epoch-2.4 and perform the delegate-stack-extend tests
-    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[6].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[StacksEpochId::Epoch24].start_height
+    {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -3491,10 +3502,12 @@ fn get_pox_addrs() {
     };
 
     // produce blocks until epoch 2.2
-    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[6].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[StacksEpochId::Epoch24].start_height
+    {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
         // if we reach epoch 2.1, perform the check
-        if get_tip(peer.sortdb.as_ref()).block_height > epochs[3].start_height {
+        if get_tip(peer.sortdb.as_ref()).block_height > epochs[StacksEpochId::Epoch21].start_height
+        {
             assert_latest_was_burn(&mut peer);
         }
     }
@@ -3700,10 +3713,12 @@ fn stack_with_segwit() {
     };
 
     // produce blocks until epoch 2.2
-    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[6].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[StacksEpochId::Epoch24].start_height
+    {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
         // if we reach epoch 2.1, perform the check
-        if get_tip(peer.sortdb.as_ref()).block_height > epochs[3].start_height {
+        if get_tip(peer.sortdb.as_ref()).block_height > epochs[StacksEpochId::Epoch21].start_height
+        {
             assert_latest_was_burn(&mut peer);
         }
     }
@@ -3882,7 +3897,8 @@ fn stack_aggregation_increase() {
     let mut latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
 
     // Roll to Epoch-2.4 and perform the delegate-stack-extend tests
-    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[6].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[StacksEpochId::Epoch24].start_height
+    {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -4296,7 +4312,8 @@ fn pox_3_delegate_stx_addr_validation() {
     let mut latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
 
     // Roll to Epoch-2.4 and perform the delegate-stack-extend tests
-    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[6].start_height {
+    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[StacksEpochId::Epoch24].start_height
+    {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 

@@ -933,6 +933,11 @@ impl Relayer {
             &obtained_method;
             "block_id" => %block.header.block_id(),
         );
+        if block.is_shadow_block() {
+            // drop, since we can get these from ourselves when downloading a tenure that ends in
+            // a shadow block.
+            return Ok(BlockAcceptResponse::AlreadyStored);
+        }
 
         if fault_injection::ignore_block(block.header.chain_length, &burnchain.working_dir) {
             return Ok(BlockAcceptResponse::Rejected(
@@ -1072,7 +1077,7 @@ impl Relayer {
             sort_handle,
             &staging_db_tx,
             headers_conn,
-            reward_set,
+            &reward_set,
             obtained_method,
         )?;
         staging_db_tx.commit()?;

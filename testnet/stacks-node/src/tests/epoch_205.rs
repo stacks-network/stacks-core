@@ -13,9 +13,9 @@ use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::{
     StacksBlockHeader, StacksPrivateKey, StacksTransaction, TransactionPayload,
 };
-use stacks::core;
+use stacks::config::{EventKeyType, InitialBalance};
 use stacks::core::{
-    StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
+    self, EpochList, StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
     PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
 };
 use stacks_common::codec::StacksMessageCodec;
@@ -23,7 +23,6 @@ use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRF
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::sleep_ms;
 
-use crate::config::{EventKeyType, InitialBalance};
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::neon_integrations::*;
 use crate::tests::{
@@ -54,9 +53,9 @@ fn test_exact_block_costs() {
     let transactions_to_broadcast = 25;
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
-    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_205_transition_height;
-    epochs[2].start_height = epoch_205_transition_height;
+    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    epochs[StacksEpochId::Epoch20].end_height = epoch_205_transition_height;
+    epochs[StacksEpochId::Epoch2_05].start_height = epoch_205_transition_height;
 
     conf.burnchain.epochs = Some(epochs);
     conf.node.mine_microblocks = true;
@@ -300,9 +299,9 @@ fn test_dynamic_db_method_costs() {
     ";
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
-    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_205_transition_height;
-    epochs[2].start_height = epoch_205_transition_height;
+    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    epochs[StacksEpochId::Epoch20].end_height = epoch_205_transition_height;
+    epochs[StacksEpochId::Epoch2_05].start_height = epoch_205_transition_height;
 
     conf.burnchain.epochs = Some(epochs);
 
@@ -502,9 +501,9 @@ fn transition_empty_blocks() {
 
     let (mut conf, miner_account) = neon_integration_test_conf();
 
-    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_2_05;
-    epochs[2].start_height = epoch_2_05;
+    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
 
     conf.burnchain.epochs = Some(epochs);
 
@@ -710,7 +709,7 @@ fn test_cost_limit_switch_version205() {
     let (mut conf, _) = neon_integration_test_conf();
 
     // Create a schedule where we lower the read_count on Epoch2_05.
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -763,7 +762,7 @@ fn test_cost_limit_switch_version205() {
             },
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ]);
+    ]));
     conf.burnchain.pox_2_activation = Some(10_003);
 
     conf.initial_balances.push(InitialBalance {
@@ -931,7 +930,7 @@ fn bigger_microblock_streams_in_2_05() {
     conf.miner.first_attempt_time_ms = i64::MAX as u64;
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
@@ -971,7 +970,7 @@ fn bigger_microblock_streams_in_2_05() {
             },
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
-    ]);
+    ]));
     conf.burnchain.pox_2_activation = Some(10_003);
 
     let txs: Vec<Vec<_>> = spender_sks
@@ -1124,8 +1123,8 @@ fn bigger_microblock_streams_in_2_05() {
     sleep_ms(120_000);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let mut epoch_20_stream_cost = ExecutionCost::zero();
-    let mut epoch_205_stream_cost = ExecutionCost::zero();
+    let mut epoch_20_stream_cost = ExecutionCost::ZERO;
+    let mut epoch_205_stream_cost = ExecutionCost::ZERO;
 
     // max == largest number of transactions per stream in a given epoch (2.0 or 2.05)
     // total == number of transactions across all streams in a given epoch (2.0 or 2.05)
@@ -1156,7 +1155,7 @@ fn bigger_microblock_streams_in_2_05() {
             eprintln!("{}", transactions.len());
 
             let mut num_big_microblock_txs = 0;
-            let mut total_execution_cost = ExecutionCost::zero();
+            let mut total_execution_cost = ExecutionCost::ZERO;
 
             for tx in transactions.iter() {
                 let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
@@ -1205,7 +1204,7 @@ fn bigger_microblock_streams_in_2_05() {
                 epoch_20_stream_cost = total_execution_cost;
                 break;
             }
-            if in_205 && total_execution_cost.exceeds(&ExecutionCost::zero()) {
+            if in_205 && total_execution_cost.exceeds(&ExecutionCost::ZERO) {
                 have_confirmed_205_stream = true;
                 epoch_205_stream_cost = total_execution_cost;
                 break;
