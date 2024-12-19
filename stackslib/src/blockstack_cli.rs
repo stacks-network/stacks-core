@@ -48,9 +48,9 @@ use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
 use stacks_common::address::{b58, AddressHashMode};
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec};
 use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::cargo_workspace;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::retry::LogReader;
-use stacks_common::util::workspace_dir;
 
 const USAGE: &str = "blockstack-cli (options) [method] [args...]
 
@@ -918,8 +918,9 @@ mod test {
             "1",
             "0",
             "foo-contract",
-            &workspace_dir().join("sample/contracts/tokens.clar").display().to_string(),
-
+            &cargo_workspace("sample/contracts/tokens.clar")
+                .display()
+                .to_string(),
         ];
 
         assert!(main_handler(to_string_vec(&publish_args)).is_ok());
@@ -930,7 +931,9 @@ mod test {
             "1",
             "0",
             "foo-contract",
-            &workspace_dir().join("sample/contracts/non-existent-tokens.clar").display().to_string(),
+            &cargo_workspace("sample/contracts/non-existent-tokens.clar")
+                .display()
+                .to_string(),
         ];
 
         assert!(format!(
