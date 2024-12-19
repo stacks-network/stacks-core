@@ -672,6 +672,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         self.get_latest_block_response(slot_id)
             .as_block_accepted()
             .expect("Latest block response from slot #{slot_id} isn't a block acceptance")
+            .clone()
     }
 
     /// Get /v2/info from the node

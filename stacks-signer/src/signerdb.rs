@@ -735,7 +735,7 @@ impl SignerDb {
 
     /// Return the last accepted block the signer (highest stacks height). It will tie break a match based on which was more recently signed.
     pub fn get_signer_last_accepted_block(&self) -> Result<Option<BlockInfo>, DBError> {
-        let query = "SELECT block_info FROM blocks WHERE json_extract(block_info, '$.state') IN (?1, ?2) ORDER BY stacks_height DESC, json_extract(block_info, '$.signed_group') DESC, json_extract(block_info, '$.signed_self') DESC LIMIT 1";
+        let query = "SELECT block_info FROM blocks WHERE state IN (?1, ?2) ORDER BY stacks_height DESC, signed_group DESC, signed_self DESC LIMIT 1";
         let args = params![
             &BlockState::GloballyAccepted.to_string(),
             &BlockState::LocallyAccepted.to_string()

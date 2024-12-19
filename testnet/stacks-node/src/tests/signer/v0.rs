@@ -9833,10 +9833,7 @@ fn no_reorg_due_to_successive_block_validation_ok() {
     let rl2_commits_before = rl2_commits.load(Ordering::SeqCst);
 
     info!("------------------------- Pause Block Validation Submission of N+1'-------------------------");
-    TEST_STALL_BLOCK_VALIDATION_SUBMISSION
-        .lock()
-        .unwrap()
-        .replace(true);
+    TEST_STALL_BLOCK_VALIDATION_SUBMISSION.set(true);
 
     info!("------------------------- Start Miner 2's Tenure-------------------------");
     let burn_height_before = get_burn_height();
@@ -9929,10 +9926,7 @@ fn no_reorg_due_to_successive_block_validation_ok() {
     sleep_ms(5_000);
 
     info!("------------------------- Unpause Block Validation Submission and Response for N+1' -------------------------");
-    TEST_STALL_BLOCK_VALIDATION_SUBMISSION
-        .lock()
-        .unwrap()
-        .replace(false);
+    TEST_STALL_BLOCK_VALIDATION_SUBMISSION.set(false);
 
     info!("------------------------- Confirm N+1 is Accepted ------------------------");
     wait_for(30, || {
