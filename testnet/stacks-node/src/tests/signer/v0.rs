@@ -2263,7 +2263,7 @@ fn end_of_tenure() {
     );
 
     info!("------------------------- Test Block Validation Stalled -------------------------");
-    TEST_VALIDATE_STALL.lock().unwrap().replace(true);
+    TEST_VALIDATE_STALL.set(true);
 
     let proposals_before = signer_test
         .running_nodes
@@ -2335,7 +2335,7 @@ fn end_of_tenure() {
 
     info!("Unpausing block validation and waiting for block to be processed");
     // Disable the stall and wait for the block to be processed
-    TEST_VALIDATE_STALL.lock().unwrap().replace(false);
+    TEST_VALIDATE_STALL.set(false);
     wait_for(short_timeout.as_secs(), || {
         let processed_now = get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height;
         Ok(processed_now > blocks_before)
@@ -2831,7 +2831,7 @@ fn stx_transfers_dont_effect_idle_timeout() {
     signer_test.boot_to_epoch_3();
 
     // Add a delay to the block validation process
-    TEST_VALIDATE_DELAY_DURATION_SECS.lock().unwrap().replace(5);
+    TEST_VALIDATE_DELAY_DURATION_SECS.set(5);
 
     let info_before = signer_test.get_peer_info();
     let blocks_before = signer_test.running_nodes.nakamoto_blocks_mined.get();
@@ -2975,7 +2975,7 @@ fn idle_tenure_extend_active_mining() {
     signer_test.boot_to_epoch_3();
 
     // Add a delay to the block validation process
-    TEST_VALIDATE_DELAY_DURATION_SECS.lock().unwrap().replace(3);
+    TEST_VALIDATE_DELAY_DURATION_SECS.set(3);
 
     signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
@@ -7598,7 +7598,7 @@ fn block_validation_response_timeout() {
     info!("------------------------- Test Mine and Verify Confirmed Nakamoto Block -------------------------");
     signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers, true);
     info!("------------------------- Test Block Validation Stalled -------------------------");
-    TEST_VALIDATE_STALL.lock().unwrap().replace(true);
+    TEST_VALIDATE_STALL.set(true);
     let validation_stall_start = Instant::now();
 
     let proposals_before = signer_test
@@ -7700,7 +7700,7 @@ fn block_validation_response_timeout() {
     let info_before = info_after;
     info!("Unpausing block validation");
     // Disable the stall and wait for the block to be processed successfully
-    TEST_VALIDATE_STALL.lock().unwrap().replace(false);
+    TEST_VALIDATE_STALL.set(false);
     wait_for(30, || {
         let info = get_chain_info(&signer_test.running_nodes.conf);
         Ok(info.stacks_tip_height > info_before.stacks_tip_height)
@@ -7770,10 +7770,7 @@ fn block_validation_pending_table() {
         "db_path" => db_path.clone().to_str(),
     );
     signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers, true);
-    TEST_VALIDATE_DELAY_DURATION_SECS
-        .lock()
-        .unwrap()
-        .replace(30);
+    TEST_VALIDATE_DELAY_DURATION_SECS.set(30);
 
     let signer_db = SignerDb::new(db_path).unwrap();
 
@@ -7853,7 +7850,7 @@ fn block_validation_pending_table() {
     info!("----- Waiting for pending block validation to be submitted -----");
 
     // Set the delay to 0 so that the block validation finishes quickly
-    *TEST_VALIDATE_DELAY_DURATION_SECS.lock().unwrap() = None;
+    TEST_VALIDATE_DELAY_DURATION_SECS.set(0);
 
     wait_for(30, || {
         let proposal_responses = test_observer::get_proposal_responses();
