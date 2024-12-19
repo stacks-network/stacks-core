@@ -192,10 +192,11 @@ fn get_test_delay() -> Option<u64> {
 
 #[cfg(any(test, feature = "testing"))]
 fn inject_validation_delay() {
-    if let Some(delay) = get_test_delay() {
-        warn!("Sleeping for {} seconds to simulate slow processing", delay);
-        thread::sleep(Duration::from_secs(delay));
-    }
+    let Some(delay) = get_test_delay() else {
+        return;
+    };
+    warn!("Sleeping for {} seconds to simulate slow processing", delay);
+    thread::sleep(Duration::from_secs(delay));
 }
 
 /// Represents a block proposed to the `v3/block_proposal` endpoint for validation
