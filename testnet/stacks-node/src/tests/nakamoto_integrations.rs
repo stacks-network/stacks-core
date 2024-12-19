@@ -9577,7 +9577,7 @@ fn nakamoto_lockup_events() {
             let txid = event.get("txid").unwrap().as_str().unwrap();
             assert_eq!(
                 txid,
-                "0xcba511741b230bd85cb5b3b10d26e0b92695d4a83f95c260cad82a40cd764235"
+                "0x63dd5773338782755e4947a05a336539137dfe13b19a0eac5154306850aca8ef"
             );
         }
     }
