@@ -37,4 +37,4 @@ jobs:
         uses: actions-rs/clippy-check@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          args: -p libstackerdb -p stacks-signer -p pox-locking -p clarity --no-deps --tests --all-features -- -D warnings
+          args: -p libstackerdb -p stacks-signer -p pox-locking -p clarity -p libsigner --no-deps --tests --all-features -- -D warnings
