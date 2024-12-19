@@ -23,7 +23,6 @@ use crate::deps_common::bitcoin::network::constants;
 use crate::util;
 
 /// Some simple messages
-
 /// The `version` message
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct VersionMessage {
