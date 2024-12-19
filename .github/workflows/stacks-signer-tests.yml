@@ -19,15 +19,10 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
     steps:
-      # Checkout the latest code
-      - name: Checkout Latest Code
-        uses: actions/checkout@v3
-
-      # Install Rust toolchain
-      - name: Install Rust Toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
+      ## Setup test environment
+      - name: Setup Test Environment
+        id: setup_tests
+        uses: stacks-network/actions/stacks-core/testenv@main
 
       # Run unit tests
       - name: Run Unit Tests
