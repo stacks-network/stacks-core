@@ -8,5 +8,4 @@ prometheus_bind = "0.0.0.0:9153"
 
 [burnchain]
 mode = "mainnet"
-peer_host = "192.168.86.251" #start9
-#peer_host = "127.0.0.1"
+peer_host = "127.0.0.1"
