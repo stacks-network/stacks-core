@@ -918,7 +918,8 @@ mod test {
             "1",
             "0",
             "foo-contract",
-            &mut workspace_dir().join("sample/contracts/tokens.clar").display().to_string(),
+            &workspace_dir().join("sample/contracts/tokens.clar").display().to_string(),
+
         ];
 
         assert!(main_handler(to_string_vec(&publish_args)).is_ok());
@@ -929,7 +930,7 @@ mod test {
             "1",
             "0",
             "foo-contract",
-            &mut workspace_dir().join("sample/contracts/non-existent-tokens.clar").display().to_string(),
+            &workspace_dir().join("sample/contracts/non-existent-tokens.clar").display().to_string(),
         ];
 
         assert!(format!(
