@@ -13,6 +13,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## Changed
 - Improvements to the stale signer cleanup logic: deletes the prior signer if it has no remaining unprocessed blocks in its database
+- Signers now listen to new block events from the stacks node to determine whether a block has been successfully appended to the chain tip
 
 ## [3.1.0.0.1.0]
 
