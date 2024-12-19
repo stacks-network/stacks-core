@@ -31,6 +31,7 @@ use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, Sta
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::Hash160;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::vrf::VRFProof;
 
 use crate::burnchains::db::BurnchainDB;
@@ -462,8 +463,7 @@ pub fn command_try_mine(mut argv: Vec<String>, opts: &StacksInspectOpts) {
     let try_mine_opts = drain_try_mine_opts(&mut argv, 1);
 
     let print_help_and_exit = || {
-        let n = &argv[0];
-        eprintln!("Usage: {n} [options...] <data-dir>");
+        eprintln!("Usage: {n} [options...] <data-dir>", n = &argv[0]);
         eprintln!("");
         eprintln!("Options:");
         eprintln!("  --min-fee <u64>: Minimum fee for miner to include transaction");
@@ -485,7 +485,7 @@ pub fn command_try_mine(mut argv: Vec<String>, opts: &StacksInspectOpts) {
     let min_fee = try_mine_opts.min_fee.unwrap_or(0);
     let max_time = try_mine_opts.max_time.unwrap_or(u64::MAX);
     let _max_blocks = try_mine_opts.max_blocks.unwrap_or(1);
-    let _reset_tenure = try_mine_opts.reset_tenure.unwrap_or(false);
+    let reset_tenure = try_mine_opts.reset_tenure.unwrap_or(false);
 
     let start = Instant::now();
 
@@ -525,17 +525,24 @@ pub fn command_try_mine(mut argv: Vec<String>, opts: &StacksInspectOpts) {
         NakamotoChainState::get_canonical_block_header(chainstate.db(), &sort_db)
             .unwrap_or_else(|e| panic!("Error looking up chain tip: {e}"))
             .expect("No chain tip found");
+    let parent_consensus_hash = parent_stacks_header.consensus_hash;
+    let parent_block_id = parent_stacks_header.index_block_hash();
 
     let burn_dbconn = sort_db.index_handle(&chain_tip.sortition_id);
 
     let mut settings = BlockBuilderSettings::limited();
     settings.max_miner_time_ms = max_time;
 
+    // In case we need to submit transactions
+    let miner_privk = StacksPrivateKey::new();
+    let miner_pubkey = Secp256k1PublicKey::from_private(&miner_privk);
+    let miner_pubkey_hash = Hash160::from_node_public_key(&miner_pubkey);
+    let miner_nonce = 0;
+
     let result = match &parent_stacks_header.anchored_header {
         StacksBlockHeaderTypes::Epoch2(..) => {
-            let sk = StacksPrivateKey::new();
-            let mut tx_auth = TransactionAuth::from_p2pkh(&sk).unwrap();
-            tx_auth.set_origin_nonce(0);
+            let mut tx_auth = TransactionAuth::from_p2pkh(&miner_privk).unwrap();
+            tx_auth.set_origin_nonce(miner_nonce);
 
             let mut coinbase_tx = StacksTransaction::new(
                 TransactionVersion::Mainnet,
@@ -546,7 +553,7 @@ pub fn command_try_mine(mut argv: Vec<String>, opts: &StacksInspectOpts) {
             coinbase_tx.chain_id = conf.burnchain.chain_id;
             coinbase_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
             let mut tx_signer = StacksTransactionSigner::new(&coinbase_tx);
-            tx_signer.sign_origin(&sk).unwrap();
+            tx_signer.sign_origin(&miner_privk).unwrap();
             let coinbase_tx = tx_signer.get_tx().unwrap();
 
             StacksBlockBuilder::build_anchored_block(
@@ -570,6 +577,49 @@ pub fn command_try_mine(mut argv: Vec<String>, opts: &StacksInspectOpts) {
             .map(|(block, cost, size)| (block.block_hash(), block.txs, cost, size))
         }
         StacksBlockHeaderTypes::Nakamoto(..) => {
+            let tenure_info = if reset_tenure {
+                let num_blocks_so_far = NakamotoChainState::get_nakamoto_tenure_length(
+                    chainstate.db(),
+                    &parent_block_id,
+                )
+                .unwrap_or_else(|e| panic!("Error getting tenure length: {e}"));
+                let payload = TenureChangePayload {
+                    tenure_consensus_hash: parent_consensus_hash,
+                    prev_tenure_consensus_hash: parent_consensus_hash,
+                    burn_view_consensus_hash: parent_consensus_hash,
+                    previous_tenure_end: parent_block_id,
+                    previous_tenure_blocks: num_blocks_so_far,
+                    cause: TenureChangeCause::Extended,
+                    pubkey_hash: miner_pubkey_hash,
+                };
+                let tenure_change_tx_payload = TransactionPayload::TenureChange(payload);
+
+                let mut tx_auth = TransactionAuth::from_p2pkh(&miner_privk).unwrap();
+                tx_auth.set_origin_nonce(miner_nonce);
+
+                let version = if conf.is_mainnet() {
+                    TransactionVersion::Mainnet
+                } else {
+                    TransactionVersion::Testnet
+                };
+
+                let mut tx = StacksTransaction::new(version, tx_auth, tenure_change_tx_payload);
+
+                tx.chain_id = conf.burnchain.chain_id;
+                tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+                let mut tx_signer = StacksTransactionSigner::new(&tx);
+                tx_signer
+                    .sign_origin(&miner_privk)
+                    .unwrap_or_else(|e| panic!("Failed to sign transaction: {e}"));
+
+                let tenure_change_tx = Some(tx_signer.get_tx().expect("Failed to get tx"));
+                NakamotoTenureInfo {
+                    coinbase_tx: None,
+                    tenure_change_tx,
+                }
+            } else {
+                NakamotoTenureInfo::default()
+            };
             NakamotoBlockBuilder::build_nakamoto_block(
                 &chainstate,
                 &burn_dbconn,
@@ -579,7 +629,7 @@ pub fn command_try_mine(mut argv: Vec<String>, opts: &StacksInspectOpts) {
                 &parent_stacks_header.consensus_hash,
                 // the burn so far on the burnchain (i.e. from the last burnchain block)
                 chain_tip.total_burn,
-                NakamotoTenureInfo::default(),
+                tenure_info,
                 settings,
                 None,
                 0,
@@ -590,10 +640,8 @@ pub fn command_try_mine(mut argv: Vec<String>, opts: &StacksInspectOpts) {
 
     let elapsed = start.elapsed();
     let summary = format!(
-        "block @ height = {h} off of {pid} ({pch}/{pbh}) in {t}ms. Min-fee: {min_fee}, Max-time: {max_time}",
+        "block @ height = {h} off of {parent_block_id} ({parent_consensus_hash}/{pbh}) in {t}ms. Min-fee: {min_fee}, Max-time: {max_time}",
         h=parent_stacks_header.stacks_block_height + 1,
-        pid=&parent_stacks_header.index_block_hash(),
-        pch=&parent_stacks_header.consensus_hash,
         pbh=&parent_stacks_header.anchored_header.block_hash(),
         t=elapsed.as_millis(),
     );
