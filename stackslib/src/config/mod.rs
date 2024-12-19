@@ -2676,18 +2676,9 @@ impl MinerConfigFile {
             activated_vrf_key_path: self.activated_vrf_key_path.clone(),
             fast_rampup: self.fast_rampup.unwrap_or(miner_default_config.fast_rampup),
             underperform_stop_threshold: self.underperform_stop_threshold,
-            mempool_walk_strategy: {
-                if let Some(mempool_walk_strategy) = &self.mempool_walk_strategy {
-                    match str::parse(&mempool_walk_strategy) {
-                        Ok(strategy) => strategy,
-                        Err(e) => {
-                            panic!("could not parse '{mempool_walk_strategy}': {e}");
-                        },
-                    }
-                } else {
-                    MemPoolWalkStrategy::GlobalFeeRate
-                }
-            },
+            mempool_walk_strategy: self.mempool_walk_strategy
+                .map(|s| str::parse(&s).unwrap_or_else(|e| panic!("Could not parse '{s}': {e}")))
+                .unwrap_or(MemPoolWalkStrategy::GlobalFeeRate),
             txs_to_consider: {
                 if let Some(txs_to_consider) = &self.txs_to_consider {
                     txs_to_consider

@@ -1717,10 +1717,7 @@ impl MemPoolDB {
             FROM mempool
             WHERE fee_rate IS NULL
             ";
-        let mut query_stmt_null = self
-            .db
-            .prepare(&sql)
-            .map_err(Error::SqliteError)?;
+        let mut query_stmt_null = self.db.prepare(&sql).map_err(Error::SqliteError)?;
         let mut null_iterator = query_stmt_null
             .query(NO_PARAMS)
             .map_err(Error::SqliteError)?;
@@ -1730,10 +1727,7 @@ impl MemPoolDB {
             WHERE fee_rate IS NOT NULL
             ORDER BY fee_rate DESC
             ";
-        let mut query_stmt_fee = self
-            .db
-            .prepare(&sql)
-            .map_err(Error::SqliteError)?;
+        let mut query_stmt_fee = self.db.prepare(&sql).map_err(Error::SqliteError)?;
         let mut fee_iterator = query_stmt_fee
             .query(NO_PARAMS)
             .map_err(Error::SqliteError)?;
@@ -1786,10 +1780,7 @@ impl MemPoolDB {
             ORDER BY origin_rank ASC, sponsor_rank ASC, sort_fee_rate DESC
             LIMIT 1
             ";
-        let mut query_stmt_nonce_rank = self
-            .db
-            .prepare(&sql)
-            .map_err(Error::SqliteError)?;
+        let mut query_stmt_nonce_rank = self.db.prepare(&sql).map_err(Error::SqliteError)?;
 
         let stop_reason = loop {
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
@@ -1812,9 +1803,7 @@ impl MemPoolDB {
                                 < settings.consider_no_estimate_tx_prob;
                             // randomly select from either the null fee-rate transactions or those with fee-rate estimates.
                             let opt_tx = if start_with_no_estimate {
-                                null_iterator
-                                    .next()
-                                    .map_err(Error::SqliteError)?
+                                null_iterator.next().map_err(Error::SqliteError)?
                             } else {
                                 fee_iterator.next().map_err(Error::SqliteError)?
                             };
@@ -1825,13 +1814,9 @@ impl MemPoolDB {
                                 None => {
                                     // If the selected iterator is empty, check the other
                                     match if start_with_no_estimate {
-                                        fee_iterator
-                                            .next()
-                                            .map_err(Error::SqliteError)?
+                                        fee_iterator.next().map_err(Error::SqliteError)?
                                     } else {
-                                        null_iterator
-                                            .next()
-                                            .map_err(Error::SqliteError)?
+                                        null_iterator.next().map_err(Error::SqliteError)?
                                     } {
                                         Some(row) => (
                                             MemPoolTxInfoPartial::from_row(row)?,
