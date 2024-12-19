@@ -34,6 +34,19 @@ use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{error, fmt, thread, time};
+use std::path::PathBuf;
+
+pub fn workspace_dir() -> PathBuf {
+    let output = std::process::Command::new(env!("CARGO"))
+        .arg("locate-project")
+        .arg("--workspace")
+        .arg("--message-format=plain")
+        .output()
+        .unwrap()
+        .stdout;
+    let cargo_path = Path::new(std::str::from_utf8(&output).unwrap().trim());
+    cargo_path.parent().unwrap().to_path_buf()
+}
 
 pub fn get_epoch_time_secs() -> u64 {
     let start = SystemTime::now();

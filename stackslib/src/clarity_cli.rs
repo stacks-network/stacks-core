@@ -67,6 +67,7 @@ use crate::core::{StacksEpochId, BLOCK_LIMIT_MAINNET_205, HELIUM_BLOCK_LIMIT_20}
 use crate::util_lib::boot::{boot_code_addr, boot_code_id};
 use crate::util_lib::db::{sqlite_open, FromColumn};
 use crate::util_lib::strings::StacksString;
+use stacks_common::util::workspace_dir;
 
 lazy_static! {
     pub static ref STACKS_BOOT_CODE_MAINNET_2_1: [(&'static str, &'static str); 9] = [
@@ -2046,7 +2047,7 @@ mod test {
             "test",
             &[
                 "check".to_string(),
-                "../sample/contracts/tokens.clar".to_string(),
+                workspace_dir().join("sample/contracts/tokens.clar").display().to_string(),
             ],
         );
 
@@ -2061,7 +2062,7 @@ mod test {
             "test",
             &[
                 "check".to_string(),
-                "../sample/contracts/tokens.clar".to_string(),
+                workspace_dir().join("sample/contracts/tokens.clar").display().to_string(),
                 db_name.clone(),
             ],
         );
@@ -2078,7 +2079,7 @@ mod test {
             &[
                 "launch".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
-                "../sample/contracts/tokens.clar".to_string(),
+                workspace_dir().join("sample/contracts/tokens.clar").display().to_string(),
                 db_name.clone(),
             ],
         );
@@ -2094,7 +2095,7 @@ mod test {
             "test",
             &[
                 "check".to_string(),
-                "../sample/contracts/names.clar".to_string(),
+                workspace_dir().join("sample/contracts/names.clar").display().to_string(),
                 db_name.clone(),
             ],
         );
@@ -2110,7 +2111,7 @@ mod test {
             "test",
             &[
                 "check".to_string(),
-                "../sample/contracts/names.clar".to_string(),
+                workspace_dir().join("sample/contracts/names.clar").display().to_string(),
                 db_name.clone(),
                 "--contract_id".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
@@ -2129,7 +2130,7 @@ mod test {
             &[
                 "check".to_string(),
                 "--output_analysis".to_string(),
-                "../sample/contracts/names.clar".to_string(),
+                workspace_dir().join("sample/contracts/names.clar").display().to_string(),
                 db_name.clone(),
             ],
         );
@@ -2147,7 +2148,7 @@ mod test {
             &[
                 "check".to_string(),
                 "--costs".to_string(),
-                "../sample/contracts/names.clar".to_string(),
+                workspace_dir().join("sample/contracts/names.clar").display().to_string(),
                 db_name.clone(),
             ],
         );
@@ -2166,7 +2167,7 @@ mod test {
             &[
                 "launch".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.names".to_string(),
-                "../sample/contracts/names.clar".to_string(),
+                workspace_dir().join("sample/contracts/names.clar").display().to_string(),
                 "--costs".to_string(),
                 "--assets".to_string(),
                 db_name.clone(),
@@ -2208,7 +2209,7 @@ mod test {
             &[
                 "eval".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
-                "../sample/contracts/tokens-mint.clar".to_string(),
+                workspace_dir().join("sample/contracts/tokens-mint.clar").display().to_string(),
                 db_name.clone(),
             ],
         );
@@ -2236,7 +2237,7 @@ mod test {
                 "eval".to_string(),
                 "--costs".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
-                "../sample/contracts/tokens-mint.clar".to_string(),
+                workspace_dir().join("sample/contracts/tokens-mint.clar").display().to_string(),
                 db_name.clone(),
             ],
         );
@@ -2264,7 +2265,7 @@ mod test {
             &[
                 "eval_at_chaintip".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
-                "../sample/contracts/tokens-mint.clar".to_string(),
+                workspace_dir().join("sample/contracts/tokens-mint.clar").display().to_string(),
                 db_name.clone(),
             ],
         );
@@ -2291,7 +2292,7 @@ mod test {
             &[
                 "eval_at_chaintip".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
-                "../sample/contracts/tokens-mint.clar".to_string(),
+                workspace_dir().join("sample/contracts/tokens-mint.clar").display().to_string(),
                 db_name.clone(),
                 "--costs".to_string(),
             ],
@@ -2327,7 +2328,7 @@ mod test {
             "test",
             &[
                 "check".to_string(),
-                "../sample/contracts/tokens-ft.clar".to_string(),
+                workspace_dir().join("sample/contracts/tokens-ft.clar").display().to_string(),
             ],
         );
 
@@ -2343,7 +2344,7 @@ mod test {
             &[
                 "launch".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens-ft".to_string(),
-                "../sample/contracts/tokens-ft.clar".to_string(),
+                workspace_dir().join("sample/contracts/tokens-ft.clar").display().to_string(),
                 db_name.clone(),
                 "--assets".to_string(),
             ],
