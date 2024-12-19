@@ -4207,11 +4207,13 @@ impl NakamotoChainState {
         applied_epoch_transition: bool,
         signers_updated: bool,
         coinbase_height: u64,
+        phantom_lockup_events: Vec<StacksTransactionEvent>,
     ) -> Result<
         (
             StacksEpochReceipt,
             PreCommitClarityBlock<'a>,
             Option<RewardSetData>,
+            Vec<StacksTransactionEvent>,
         ),
         ChainstateError,
     > {
@@ -4248,7 +4250,7 @@ impl NakamotoChainState {
             coinbase_height,
         };
 
-        return Ok((epoch_receipt, clarity_commit, None));
+        return Ok((epoch_receipt, clarity_commit, None, phantom_lockup_events));
     }
 
     /// Append a Nakamoto Stacks block to the Stacks chain state.
@@ -4631,6 +4633,7 @@ impl NakamotoChainState {
                 applied_epoch_transition,
                 signer_set_calc.is_some(),
                 coinbase_height,
+                phantom_lockup_events,
             );
         }
 
@@ -4942,7 +4945,7 @@ impl NakamotoChainState {
             unlock_tx,
             events,
             Value::okay_true(),
-            ExecutionCost::zero(),
+            ExecutionCost::ZERO,
         );
         Some(unlock_receipt)
     }
