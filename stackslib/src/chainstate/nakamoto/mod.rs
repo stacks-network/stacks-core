@@ -2093,7 +2093,7 @@ impl NakamotoChainState {
             return Err(e);
         };
 
-        let (receipt, clarity_commit, reward_set_data, phantom_unlock_events) =
+        let (mut receipt, clarity_commit, reward_set_data, phantom_unlock_events) =
             ok_opt.expect("FATAL: unreachable");
 
         assert_eq!(
@@ -2148,7 +2148,7 @@ impl NakamotoChainState {
             &receipt.header.anchored_header.block_hash()
         );
 
-        let mut tx_receipts = receipt.tx_receipts.clone();
+        let tx_receipts = &mut receipt.tx_receipts;
         if let Some(unlock_receipt) =
             // For the event dispatcher, attach any STXMintEvents that
             // could not be included in the block (e.g. because the
