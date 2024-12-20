@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::types::{get_coinbase_intervals_mainnet, get_coinbase_intervals_testnet};
+
 use super::{
     set_test_coinbase_schedule, CoinbaseInterval, StacksEpochId, COINBASE_INTERVALS_MAINNET,
     COINBASE_INTERVALS_TESTNET,
@@ -21,50 +23,52 @@ use super::{
 
 #[test]
 fn test_mainnet_coinbase_emissions() {
-    assert_eq!(COINBASE_INTERVALS_MAINNET.len(), 5);
-    assert_eq!(COINBASE_INTERVALS_MAINNET[0].coinbase, 1_000_000_000);
-    assert_eq!(COINBASE_INTERVALS_MAINNET[1].coinbase, 500_000_000);
-    assert_eq!(COINBASE_INTERVALS_MAINNET[2].coinbase, 250_000_000);
-    assert_eq!(COINBASE_INTERVALS_MAINNET[3].coinbase, 125_000_000);
-    assert_eq!(COINBASE_INTERVALS_MAINNET[4].coinbase, 62_500_000);
+    let coinbase_intervals_mainnet = get_coinbase_intervals_mainnet();
+    assert_eq!(coinbase_intervals_mainnet.len(), 5);
+    assert_eq!(coinbase_intervals_mainnet[0].coinbase, 1_000_000_000);
+    assert_eq!(coinbase_intervals_mainnet[1].coinbase, 500_000_000);
+    assert_eq!(coinbase_intervals_mainnet[2].coinbase, 250_000_000);
+    assert_eq!(coinbase_intervals_mainnet[3].coinbase, 125_000_000);
+    assert_eq!(coinbase_intervals_mainnet[4].coinbase, 62_500_000);
 
     // heights from SIP-029
     assert_eq!(
-        COINBASE_INTERVALS_MAINNET[0].effective_start_height,
+        coinbase_intervals_mainnet[0].effective_start_height,
         666_050 - 666_050
     );
     assert_eq!(
-        COINBASE_INTERVALS_MAINNET[1].effective_start_height,
+        coinbase_intervals_mainnet[1].effective_start_height,
         945_000 - 666_050
     );
     assert_eq!(
-        COINBASE_INTERVALS_MAINNET[2].effective_start_height,
+        coinbase_intervals_mainnet[2].effective_start_height,
         1_050_000 - 666_050
     );
     assert_eq!(
-        COINBASE_INTERVALS_MAINNET[3].effective_start_height,
+        coinbase_intervals_mainnet[3].effective_start_height,
         1_260_000 - 666_050
     );
     assert_eq!(
-        COINBASE_INTERVALS_MAINNET[4].effective_start_height,
+        coinbase_intervals_mainnet[4].effective_start_height,
         1_470_000 - 666_050
     );
 }
 
 #[test]
 fn test_get_coinbase_at_effective_height() {
-    assert!(CoinbaseInterval::check_order(&*COINBASE_INTERVALS_MAINNET));
+    let coinbase_intervals_mainnet = get_coinbase_intervals_mainnet();
+    assert!(CoinbaseInterval::check_order(coinbase_intervals_mainnet));
 
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
+            coinbase_intervals_mainnet,
             666050 - 666050
         ),
         1_000_000_000
     );
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
+            coinbase_intervals_mainnet,
             666051 - 666050
         ),
         1_000_000_000
@@ -72,21 +76,21 @@ fn test_get_coinbase_at_effective_height() {
 
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
+            coinbase_intervals_mainnet,
             944_999 - 666050
         ),
         1_000_000_000
     );
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
+            coinbase_intervals_mainnet,
             945_000 - 666050
         ),
         500_000_000
     );
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
+            coinbase_intervals_mainnet,
             945_001 - 666050
         ),
         500_000_000
@@ -94,21 +98,21 @@ fn test_get_coinbase_at_effective_height() {
 
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
+            coinbase_intervals_mainnet,
             1_049_999 - 666050
         ),
         500_000_000
     );
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
+            coinbase_intervals_mainnet,
             1_050_000 - 666050
         ),
         250_000_000
     );
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
+            coinbase_intervals_mainnet,
             1_050_001 - 666050
         ),
         250_000_000
@@ -116,21 +120,21 @@ fn test_get_coinbase_at_effective_height() {
 
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
+            coinbase_intervals_mainnet,
             1_259_999 - 666050
         ),
         250_000_000
     );
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
+            coinbase_intervals_mainnet,
             1_260_000 - 666050
         ),
         125_000_000
     );
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
+            coinbase_intervals_mainnet,
             1_260_001 - 666050
         ),
         125_000_000
@@ -138,21 +142,21 @@ fn test_get_coinbase_at_effective_height() {
 
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
+            coinbase_intervals_mainnet,
             1_469_999 - 666050
         ),
         125_000_000
     );
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
+            coinbase_intervals_mainnet,
             1_470_000 - 666050
         ),
         62_500_000
     );
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
+            coinbase_intervals_mainnet,
             1_470_001 - 666050
         ),
         62_500_000
@@ -160,21 +164,21 @@ fn test_get_coinbase_at_effective_height() {
 
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
+            coinbase_intervals_mainnet,
             2_197_559 - 666050
         ),
         62_500_000
     );
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
+            coinbase_intervals_mainnet,
             2_197_560 - 666050
         ),
         62_500_000
     );
     assert_eq!(
         CoinbaseInterval::get_coinbase_at_effective_height(
-            &*COINBASE_INTERVALS_MAINNET,
+            coinbase_intervals_mainnet,
             2_197_561 - 666050
         ),
         62_500_000
@@ -327,11 +331,11 @@ fn test_set_coinbase_intervals() {
 
     assert_eq!(
         StacksEpochId::get_coinbase_intervals(true),
-        *COINBASE_INTERVALS_MAINNET
+        get_coinbase_intervals_mainnet()
     );
     assert_eq!(
         StacksEpochId::get_coinbase_intervals(false),
-        *COINBASE_INTERVALS_TESTNET
+        get_coinbase_intervals_testnet()
     );
 
     set_test_coinbase_schedule(Some(new_sched.clone()));
@@ -343,10 +347,10 @@ fn test_set_coinbase_intervals() {
 
     assert_eq!(
         StacksEpochId::get_coinbase_intervals(true),
-        *COINBASE_INTERVALS_MAINNET
+        get_coinbase_intervals_mainnet()
     );
     assert_eq!(
         StacksEpochId::get_coinbase_intervals(false),
-        *COINBASE_INTERVALS_TESTNET
+        get_coinbase_intervals_testnet()
     );
 }
