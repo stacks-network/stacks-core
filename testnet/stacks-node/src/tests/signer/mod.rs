@@ -44,6 +44,7 @@ use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
 use stacks::chainstate::stacks::StacksPrivateKey;
+use stacks::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
 use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
@@ -55,14 +56,14 @@ use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::tests::TestFlag;
 use stacks_signer::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::runloop::{SignerResult, State, StateInfo};
 use stacks_signer::{Signer, SpawnedSigner};
 
 use super::nakamoto_integrations::{check_nakamoto_empty_block_heuristics, wait_for};
-use crate::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
-use crate::neon::{Counters, RunLoopCounter, TestFlag};
+use crate::neon::{Counters, RunLoopCounter};
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::nakamoto_integrations::{
@@ -91,8 +92,8 @@ pub struct RunningNodes {
     pub nakamoto_blocks_mined: RunLoopCounter,
     pub nakamoto_blocks_rejected: RunLoopCounter,
     pub nakamoto_blocks_signer_pushed: RunLoopCounter,
-    pub nakamoto_test_skip_commit_op: TestFlag,
     pub nakamoto_miner_directives: Arc<AtomicU64>,
+    pub nakamoto_test_skip_commit_op: TestFlag<bool>,
     pub coord_channel: Arc<Mutex<CoordinatorChannels>>,
     pub conf: NeonConfig,
 }

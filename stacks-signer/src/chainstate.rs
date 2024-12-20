@@ -176,7 +176,7 @@ enum ProposedBy<'a> {
     CurrentSortition(&'a SortitionState),
 }
 
-impl<'a> ProposedBy<'a> {
+impl ProposedBy<'_> {
     pub fn state(&self) -> &SortitionState {
         match self {
             ProposedBy::LastSortition(x) => x,

@@ -14,48 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+pub mod chain_data;
+
 use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 use std::{cmp, fs, thread};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
-use lazy_static::lazy_static;
 use rand::RngCore;
 use serde::Deserialize;
-use stacks::burnchains::affirmation::AffirmationMap;
-use stacks::burnchains::bitcoin::BitcoinNetworkType;
-use stacks::burnchains::{Burnchain, MagicBytes, PoxConstants, BLOCKSTACK_MAGIC_MAINNET};
-use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
-use stacks::chainstate::stacks::boot::MINERS_NAME;
-use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
-use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
-use stacks::chainstate::stacks::miner::{BlockBuilderSettings, MinerStatus};
-use stacks::chainstate::stacks::MAX_BLOCK_LEN;
-use stacks::core::mempool::{MemPoolWalkSettings, MemPoolWalkTxTypes};
-use stacks::core::{
-    MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId,
-    BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT, BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT,
-    BITCOIN_TESTNET_STACKS_25_REORGED_HEIGHT, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET,
-    PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
-};
-use stacks::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
-use stacks::cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
-use stacks::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
-use stacks::cost_estimates::metrics::{CostMetric, ProportionalDotProduct, UnitMetric};
-use stacks::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator, UnitEstimator};
-use stacks::net::atlas::AtlasConfig;
-use stacks::net::connection::ConnectionOptions;
-use stacks::net::{Neighbor, NeighborAddress, NeighborKey};
-use stacks::types::chainstate::BurnchainHeaderHash;
-use stacks::types::EpochList;
-use stacks::util::hash::to_hex;
-use stacks::util_lib::boot::boot_code_id;
-use stacks::util_lib::db::Error as DBError;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerAddress;
@@ -64,7 +36,36 @@ use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
-use crate::chain_data::MinerStats;
+use crate::burnchains::affirmation::AffirmationMap;
+use crate::burnchains::bitcoin::BitcoinNetworkType;
+use crate::burnchains::{Burnchain, MagicBytes, PoxConstants, BLOCKSTACK_MAGIC_MAINNET};
+use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
+use crate::chainstate::stacks::boot::MINERS_NAME;
+use crate::chainstate::stacks::index::marf::MARFOpenOpts;
+use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
+use crate::chainstate::stacks::miner::{BlockBuilderSettings, MinerStatus};
+use crate::chainstate::stacks::MAX_BLOCK_LEN;
+use crate::config::chain_data::MinerStats;
+use crate::core::mempool::{MemPoolWalkSettings, MemPoolWalkTxTypes};
+use crate::core::{
+    MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId,
+    BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT, BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT,
+    BITCOIN_TESTNET_STACKS_25_REORGED_HEIGHT, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET,
+    PEER_VERSION_MAINNET, PEER_VERSION_TESTNET, STACKS_EPOCHS_REGTEST, STACKS_EPOCHS_TESTNET,
+};
+use crate::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
+use crate::cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
+use crate::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
+use crate::cost_estimates::metrics::{CostMetric, ProportionalDotProduct, UnitMetric};
+use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator, UnitEstimator};
+use crate::net::atlas::AtlasConfig;
+use crate::net::connection::ConnectionOptions;
+use crate::net::{Neighbor, NeighborAddress, NeighborKey};
+use crate::types::chainstate::BurnchainHeaderHash;
+use crate::types::EpochList;
+use crate::util::hash::to_hex;
+use crate::util_lib::boot::boot_code_id;
+use crate::util_lib::db::Error as DBError;
 
 pub const DEFAULT_SATS_PER_VB: u64 = 50;
 pub const OP_TX_BLOCK_COMMIT_ESTIM_SIZE: u64 = 380;
@@ -94,6 +95,46 @@ const DEFAULT_SUBSEQUENT_REJECTION_PAUSE_MS: u64 = 10_000;
 const DEFAULT_BLOCK_COMMIT_DELAY_MS: u64 = 20_000;
 const DEFAULT_TENURE_COST_LIMIT_PER_BLOCK_PERCENTAGE: u8 = 25;
 const DEFAULT_TENURE_EXTEND_WAIT_SECS: u64 = 30;
+
+// This should be greater than the signers' timeout. This is used for issuing fallback tenure extends
+const DEFAULT_TENURE_TIMEOUT_SECS: u64 = 420;
+
+static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
+    LazyLock::new(|| ConnectionOptions {
+        inbox_maxlen: 100,
+        outbox_maxlen: 100,
+        timeout: 15,
+        idle_timeout: 15, // how long a HTTP connection can be idle before it's closed
+        heartbeat: 3600,
+        // can't use u64::max, because sqlite stores as i64.
+        private_key_lifetime: 9223372036854775807,
+        num_neighbors: 32,         // number of neighbors whose inventories we track
+        num_clients: 750,          // number of inbound p2p connections
+        soft_num_neighbors: 16, // soft-limit on the number of neighbors whose inventories we track
+        soft_num_clients: 750,  // soft limit on the number of inbound p2p connections
+        max_neighbors_per_host: 1, // maximum number of neighbors per host we permit
+        max_clients_per_host: 4, // maximum number of inbound p2p connections per host we permit
+        soft_max_neighbors_per_host: 1, // soft limit on the number of neighbors per host we permit
+        soft_max_neighbors_per_org: 32, // soft limit on the number of neighbors per AS we permit (TODO: for now it must be greater than num_neighbors)
+        soft_max_clients_per_host: 4, // soft limit on how many inbound p2p connections per host we permit
+        max_http_clients: 1000,       // maximum number of HTTP connections
+        max_neighbors_of_neighbor: 10, // maximum number of neighbors we'll handshake with when doing a neighbor walk (I/O for this can be expensive, so keep small-ish)
+        walk_interval: 60,             // how often, in seconds, we do a neighbor walk
+        walk_seed_probability: 0.1, // 10% of the time when not in IBD, walk to a non-seed node even if we aren't connected to a seed node
+        log_neighbors_freq: 60_000, // every minute, log all peer connections
+        inv_sync_interval: 45,      // how often, in seconds, we refresh block inventories
+        inv_reward_cycles: 3,       // how many reward cycles to look back on, for mainnet
+        download_interval: 10, // how often, in seconds, we do a block download scan (should be less than inv_sync_interval)
+        dns_timeout: 15_000,
+        max_inflight_blocks: 6,
+        max_inflight_attachments: 6,
+        ..std::default::Default::default()
+    });
+
+pub static DEFAULT_MAINNET_CONFIG: LazyLock<Config> = LazyLock::new(|| {
+    Config::from_config_file(ConfigFile::mainnet(), false)
+        .expect("Failed to create default mainnet config")
+});
 
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
@@ -142,7 +183,7 @@ impl ConfigFile {
             mode: Some("xenon".to_string()),
             rpc_port: Some(18332),
             peer_port: Some(18333),
-            peer_host: Some("bitcoind.testnet.stacks.co".to_string()),
+            peer_host: Some("0.0.0.0".to_string()),
             magic_bytes: Some("T2".into()),
             ..BurnchainConfigFile::default()
         };
@@ -188,9 +229,9 @@ impl ConfigFile {
             mode: Some("mainnet".to_string()),
             rpc_port: Some(8332),
             peer_port: Some(8333),
-            peer_host: Some("bitcoin.blockstack.com".to_string()),
-            username: Some("blockstack".to_string()),
-            password: Some("blockstacksystem".to_string()),
+            peer_host: Some("0.0.0.0".to_string()),
+            username: Some("bitcoin".to_string()),
+            password: Some("bitcoin".to_string()),
             magic_bytes: Some("X2".to_string()),
             ..BurnchainConfigFile::default()
         };
@@ -310,39 +351,6 @@ pub struct Config {
     pub miner: MinerConfig,
     pub estimation: FeeEstimationConfig,
     pub atlas: AtlasConfig,
-}
-
-lazy_static! {
-    static ref HELIUM_DEFAULT_CONNECTION_OPTIONS: ConnectionOptions = ConnectionOptions {
-        inbox_maxlen: 100,
-        outbox_maxlen: 100,
-        timeout: 15,
-        idle_timeout: 15,               // how long a HTTP connection can be idle before it's closed
-        heartbeat: 3600,
-        // can't use u64::max, because sqlite stores as i64.
-        private_key_lifetime: 9223372036854775807,
-        num_neighbors: 32,              // number of neighbors whose inventories we track
-        num_clients: 750,               // number of inbound p2p connections
-        soft_num_neighbors: 16,         // soft-limit on the number of neighbors whose inventories we track
-        soft_num_clients: 750,          // soft limit on the number of inbound p2p connections
-        max_neighbors_per_host: 1,      // maximum number of neighbors per host we permit
-        max_clients_per_host: 4,        // maximum number of inbound p2p connections per host we permit
-        soft_max_neighbors_per_host: 1, // soft limit on the number of neighbors per host we permit
-        soft_max_neighbors_per_org: 32, // soft limit on the number of neighbors per AS we permit (TODO: for now it must be greater than num_neighbors)
-        soft_max_clients_per_host: 4,   // soft limit on how many inbound p2p connections per host we permit
-        max_http_clients: 1000,         // maximum number of HTTP connections
-        max_neighbors_of_neighbor: 10,  // maximum number of neighbors we'll handshake with when doing a neighbor walk (I/O for this can be expensive, so keep small-ish)
-        walk_interval: 60,              // how often, in seconds, we do a neighbor walk
-        walk_seed_probability: 0.1,     // 10% of the time when not in IBD, walk to a non-seed node even if we aren't connected to a seed node
-        log_neighbors_freq: 60_000,     // every minute, log all peer connections
-        inv_sync_interval: 45,          // how often, in seconds, we refresh block inventories
-        inv_reward_cycles: 3,           // how many reward cycles to look back on, for mainnet
-        download_interval: 10,          // how often, in seconds, we do a block download scan (should be less than inv_sync_interval)
-        dns_timeout: 15_000,
-        max_inflight_blocks: 6,
-        max_inflight_attachments: 6,
-        .. std::default::Default::default()
-    };
 }
 
 impl Config {
@@ -517,10 +525,7 @@ impl Config {
     }
 
     fn check_nakamoto_config(&self, burnchain: &Burnchain) {
-        let epochs = StacksEpoch::get_epochs(
-            self.burnchain.get_bitcoin_network().1,
-            self.burnchain.epochs.as_ref(),
-        );
+        let epochs = self.burnchain.get_epoch_list();
         let Some(epoch_30) = epochs.get(StacksEpochId::Epoch30) else {
             // no Epoch 3.0, so just return
             return;
@@ -637,8 +642,8 @@ impl Config {
             BitcoinNetworkType::Mainnet => {
                 Err("Cannot configure epochs in mainnet mode".to_string())
             }
-            BitcoinNetworkType::Testnet => Ok(stacks::core::STACKS_EPOCHS_TESTNET.to_vec()),
-            BitcoinNetworkType::Regtest => Ok(stacks::core::STACKS_EPOCHS_REGTEST.to_vec()),
+            BitcoinNetworkType::Testnet => Ok(STACKS_EPOCHS_TESTNET.to_vec()),
+            BitcoinNetworkType::Regtest => Ok(STACKS_EPOCHS_REGTEST.to_vec()),
         }?;
         let mut matched_epochs = vec![];
         for configured_epoch in conf_epochs.iter() {
@@ -1284,6 +1289,10 @@ impl BurnchainConfig {
             other => panic!("Invalid stacks-node mode: {other}"),
         }
     }
+
+    pub fn get_epoch_list(&self) -> EpochList<ExecutionCost> {
+        StacksEpoch::get_epochs(self.get_bitcoin_network().1, self.epochs.as_ref())
+    }
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
@@ -1649,6 +1658,7 @@ pub struct NodeConfig {
     pub use_test_genesis_chainstate: Option<bool>,
     pub always_use_affirmation_maps: bool,
     pub require_affirmed_anchor_blocks: bool,
+    pub assume_present_anchor_blocks: bool,
     /// Fault injection for failing to push blocks
     pub fault_injection_block_push_fail_probability: Option<u8>,
     // fault injection for hiding blocks.
@@ -1932,6 +1942,7 @@ impl Default for NodeConfig {
             use_test_genesis_chainstate: None,
             always_use_affirmation_maps: true,
             require_affirmed_anchor_blocks: true,
+            assume_present_anchor_blocks: true,
             fault_injection_block_push_fail_probability: None,
             fault_injection_hide_blocks: false,
             chain_liveness_poll_time_secs: 300,
@@ -2148,6 +2159,8 @@ pub struct MinerConfig {
     pub tenure_cost_limit_per_block_percentage: Option<u8>,
     /// The number of seconds to wait to try to continue a tenure if a BlockFound is expected
     pub tenure_extend_wait_secs: Duration,
+    /// Duration to wait before attempting to issue a tenure extend
+    pub tenure_timeout: Duration,
 }
 
 impl Default for MinerConfig {
@@ -2185,6 +2198,7 @@ impl Default for MinerConfig {
                 DEFAULT_TENURE_COST_LIMIT_PER_BLOCK_PERCENTAGE,
             ),
             tenure_extend_wait_secs: Duration::from_secs(DEFAULT_TENURE_EXTEND_WAIT_SECS),
+            tenure_timeout: Duration::from_secs(DEFAULT_TENURE_TIMEOUT_SECS),
         }
     }
 }
@@ -2421,6 +2435,7 @@ pub struct NodeConfigFile {
     pub use_test_genesis_chainstate: Option<bool>,
     pub always_use_affirmation_maps: Option<bool>,
     pub require_affirmed_anchor_blocks: Option<bool>,
+    pub assume_present_anchor_blocks: Option<bool>,
     /// At most, how often should the chain-liveness thread
     ///  wake up the chains-coordinator. Defaults to 300s (5 min).
     pub chain_liveness_poll_time_secs: Option<u64>,
@@ -2502,6 +2517,10 @@ impl NodeConfigFile {
             // miners should always try to mine, even if they don't have the anchored
             // blocks in the canonical affirmation map. Followers, however, can stall.
             require_affirmed_anchor_blocks: self.require_affirmed_anchor_blocks.unwrap_or(!miner),
+            // as of epoch 3.0, all prepare phases have anchor blocks.
+            // at the start of epoch 3.0, the chain stalls without anchor blocks.
+            // only set this to false if you're doing some very extreme testing.
+            assume_present_anchor_blocks: true,
             // chainstate fault_injection activation for hide_blocks.
             // you can't set this in the config file.
             fault_injection_hide_blocks: false,
@@ -2571,6 +2590,7 @@ pub struct MinerConfigFile {
     pub block_commit_delay_ms: Option<u64>,
     pub tenure_cost_limit_per_block_percentage: Option<u8>,
     pub tenure_extend_wait_secs: Option<u64>,
+    pub tenure_timeout_secs: Option<u64>,
 }
 
 impl MinerConfigFile {
@@ -2712,6 +2732,7 @@ impl MinerConfigFile {
             block_commit_delay: self.block_commit_delay_ms.map(Duration::from_millis).unwrap_or(miner_default_config.block_commit_delay),
             tenure_cost_limit_per_block_percentage,
             tenure_extend_wait_secs: self.tenure_extend_wait_secs.map(Duration::from_secs).unwrap_or(miner_default_config.tenure_extend_wait_secs),
+            tenure_timeout: self.tenure_timeout_secs.map(Duration::from_secs).unwrap_or(miner_default_config.tenure_timeout),
         })
     }
 }
