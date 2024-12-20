@@ -3163,6 +3163,7 @@ impl SortitionDB {
             StacksEpochId::Epoch24 => version_u32 >= 3,
             StacksEpochId::Epoch25 => version_u32 >= 3,
             StacksEpochId::Epoch30 => version_u32 >= 3,
+            StacksEpochId::Epoch31 => version_u32 >= 3,
         }
     }
 
@@ -3690,6 +3691,12 @@ impl SortitionDB {
             .try_into()
             .ok()
     }
+
+    /// Get the Stacks block ID for the canonical tip.
+    pub fn get_canonical_stacks_tip_block_id(&self) -> StacksBlockId {
+        let (ch, bh) = SortitionDB::get_canonical_stacks_chain_tip_hash(self.conn()).unwrap();
+        StacksBlockId::new(&ch, &bh)
+    }
 }
 
 impl<'a> SortitionDBTx<'a> {
@@ -3980,7 +3987,7 @@ impl<'a> SortitionDBConn<'a> {
             tip,
             reward_cycle_id,
         )?;
-        info!("Fetching preprocessed reward set";
+        debug!("Fetching preprocessed reward set";
               "tip_sortition_id" => %tip,
               "reward_cycle_id" => reward_cycle_id,
               "prepare_phase_start_sortition_id" => %first_sortition,
@@ -4282,6 +4289,7 @@ impl SortitionDB {
     ///                   commits its results. This is used to post the calculated reward set to an event observer.
     pub fn evaluate_sortition<F: FnOnce(Option<RewardSetInfo>) -> ()>(
         &mut self,
+        mainnet: bool,
         burn_header: &BurnchainBlockHeader,
         ops: Vec<BlockstackOperationType>,
         burnchain: &Burnchain,
@@ -4359,6 +4367,7 @@ impl SortitionDB {
         };
 
         let new_snapshot = sortition_db_handle.process_block_txs(
+            mainnet,
             &parent_snapshot,
             burn_header,
             burnchain,
@@ -6595,7 +6604,6 @@ pub mod tests {
         BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
     };
     use crate::chainstate::burn::ConsensusHash;
-    use crate::chainstate::stacks::index::TrieHashExtension;
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::{StacksEpochExtension, *};
     use crate::util_lib::db::Error as db_error;

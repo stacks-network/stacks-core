@@ -307,6 +307,7 @@ impl DBConfig {
             StacksEpochId::Epoch24 => version_u32 >= 3 && version_u32 <= 8,
             StacksEpochId::Epoch25 => version_u32 >= 3 && version_u32 <= 8,
             StacksEpochId::Epoch30 => version_u32 >= 3 && version_u32 <= 8,
+            StacksEpochId::Epoch31 => version_u32 >= 3 && version_u32 <= 8,
         }
     }
 }
@@ -1623,7 +1624,7 @@ impl StacksChainState {
                 allocations_tx,
                 allocation_events,
                 Value::okay_true(),
-                ExecutionCost::zero(),
+                ExecutionCost::ZERO,
             );
             receipts.push(allocations_receipt);
 
@@ -1724,7 +1725,7 @@ impl StacksChainState {
                 &mut tx,
                 &parent_hash,
                 &first_tip_info,
-                &ExecutionCost::zero(),
+                &ExecutionCost::ZERO,
                 0,
             )?;
             tx.commit()?;
@@ -2902,7 +2903,7 @@ pub mod test {
         // Just update the expected value
         assert_eq!(
             genesis_root_hash.to_string(),
-            "c771616ff6acb710051238c9f4a3c48020a6d70cda637d34b89f2311a7e27886"
+            "0eb3076f0635ccdfcdc048afb8dea9048c5180a2e2b2952874af1d18f06321e8"
         );
     }
 

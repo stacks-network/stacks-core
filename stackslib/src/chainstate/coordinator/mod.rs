@@ -198,6 +198,9 @@ pub trait BlockEventDispatcher {
 }
 
 pub struct ChainsCoordinatorConfig {
+    /// true: assume all anchor blocks are present, and block chain sync until they arrive
+    /// false: process sortitions in reward cycles without anchor blocks
+    pub assume_present_anchor_blocks: bool,
     /// true: use affirmation maps before 2.1
     /// false: only use affirmation maps in 2.1 or later
     pub always_use_affirmation_maps: bool,
@@ -209,8 +212,17 @@ pub struct ChainsCoordinatorConfig {
 impl ChainsCoordinatorConfig {
     pub fn new() -> ChainsCoordinatorConfig {
         ChainsCoordinatorConfig {
-            always_use_affirmation_maps: false,
+            always_use_affirmation_maps: true,
             require_affirmed_anchor_blocks: true,
+            assume_present_anchor_blocks: true,
+        }
+    }
+
+    pub fn test_new() -> ChainsCoordinatorConfig {
+        ChainsCoordinatorConfig {
+            always_use_affirmation_maps: false,
+            require_affirmed_anchor_blocks: false,
+            assume_present_anchor_blocks: false,
         }
     }
 }
@@ -419,8 +431,8 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
                     return Ok(RewardSet::empty());
                 }
             }
-            StacksEpochId::Epoch25 | StacksEpochId::Epoch30 => {
-                // Epoch 2.5 and 3.0 compute reward sets, but *only* if PoX-4 is active
+            StacksEpochId::Epoch25 | StacksEpochId::Epoch30 | StacksEpochId::Epoch31 => {
+                // Epoch 2.5, 3.0, and 3.1 compute reward sets, but *only* if PoX-4 is active
                 if burnchain
                     .pox_constants
                     .active_pox_contract(current_burn_height)
@@ -700,7 +712,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader
             notifier: (),
             atlas_config,
             atlas_db: Some(atlas_db),
-            config: ChainsCoordinatorConfig::new(),
+            config: ChainsCoordinatorConfig::test_new(),
             burnchain_indexer,
             refresh_stacker_db: Arc::new(AtomicBool::new(false)),
             in_nakamoto_epoch: false,
@@ -2336,6 +2348,20 @@ impl<
                     panic!("BUG: no epoch defined at height {}", header.block_height)
                 });
 
+        if self.config.assume_present_anchor_blocks {
+            // anchor blocks are always assumed to be present in the chain history,
+            // so report its absence if we don't have it.
+            if let PoxAnchorBlockStatus::SelectedAndUnknown(missing_anchor_block, _) =
+                &rc_info.anchor_status
+            {
+                info!(
+                    "Currently missing PoX anchor block {}, which is assumed to be present",
+                    &missing_anchor_block
+                );
+                return Ok(Some(missing_anchor_block.clone()));
+            }
+        }
+
         if cur_epoch.epoch_id >= StacksEpochId::Epoch21 || self.config.always_use_affirmation_maps {
             // potentially have an anchor block, but only process the next reward cycle (and
             // subsequent reward cycles) with it if the prepare-phase block-commits affirm its
@@ -2674,6 +2700,7 @@ impl<
                     let (next_snapshot, _) = self
                         .sortition_db
                         .evaluate_sortition(
+                            self.chain_state_db.mainnet,
                             &header,
                             ops,
                             &self.burnchain,

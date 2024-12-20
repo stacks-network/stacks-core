@@ -36,7 +36,7 @@ mod traits;
 mod variables;
 
 #[cfg(any(test, feature = "testing"))]
-impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
+impl OwnedEnvironment<'_, '_> {
     pub fn set_tenure_height(&mut self, tenure_height: u32) {
         self.context.database.begin();
         self.context
@@ -122,6 +122,7 @@ epochs_template! {
     Epoch24,
     Epoch25,
     Epoch30,
+    Epoch31,
 }
 
 clarity_template! {
@@ -140,6 +141,9 @@ clarity_template! {
     (Epoch30, Clarity1),
     (Epoch30, Clarity2),
     (Epoch30, Clarity3),
+    (Epoch31, Clarity1),
+    (Epoch31, Clarity2),
+    (Epoch31, Clarity3),
 }
 
 #[cfg(test)]

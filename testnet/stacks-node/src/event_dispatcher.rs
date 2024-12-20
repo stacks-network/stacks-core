@@ -18,7 +18,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -26,6 +26,8 @@ use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
 use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
+#[cfg(any(test, feature = "testing"))]
+use lazy_static::lazy_static;
 use rand::Rng;
 use rusqlite::{params, Connection};
 use serde_json::json;
@@ -49,6 +51,7 @@ use stacks::chainstate::stacks::miner::TransactionEvent;
 use stacks::chainstate::stacks::{
     StacksBlock, StacksMicroblock, StacksTransaction, TransactionPayload,
 };
+use stacks::config::{EventKeyType, EventObserverConfig};
 use stacks::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher, ProposalCallbackReceiver};
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::api::postblock_proposal::{
@@ -59,6 +62,8 @@ use stacks::net::http::HttpRequestContents;
 use stacks::net::httpcore::{send_http_request, StacksHttpRequest};
 use stacks::net::stackerdb::StackerDBEventDispatcher;
 use stacks::util::hash::to_hex;
+#[cfg(any(test, feature = "testing"))]
+use stacks::util::tests::TestFlag;
 use stacks::util_lib::db::Error as db_error;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
@@ -68,7 +73,11 @@ use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use url::Url;
 
-use super::config::{EventKeyType, EventObserverConfig};
+#[cfg(any(test, feature = "testing"))]
+lazy_static! {
+    /// Do not announce a signed/mined block to the network when set to true.
+    pub static ref TEST_SKIP_BLOCK_ANNOUNCEMENT: TestFlag<bool> = TestFlag::default();
+}
 
 #[derive(Debug, Clone)]
 struct EventObserver {
@@ -107,17 +116,8 @@ pub const PATH_BLOCK_PROCESSED: &str = "new_block";
 pub const PATH_ATTACHMENT_PROCESSED: &str = "attachments/new";
 pub const PATH_PROPOSAL_RESPONSE: &str = "proposal_response";
 
-pub static STACKER_DB_CHANNEL: StackerDBChannel = StackerDBChannel::new();
-
 /// This struct receives StackerDB event callbacks without registering
-/// over the JSON/RPC interface. To ensure that any event observer
-/// uses the same channel, we use a lazy_static global for the channel (this
-/// implements a singleton using STACKER_DB_CHANNEL).
-///
-/// This is in place because a Nakamoto miner needs to receive
-/// StackerDB events. It could either poll the database (seems like a
-/// bad idea) or listen for events. Registering for RPC callbacks
-/// seems bad. So instead, it uses a singleton sync channel.
+/// over the JSON/RPC interface.
 pub struct StackerDBChannel {
     sender_info: Mutex<Option<InnerStackerDBChannel>>,
 }
@@ -923,6 +923,8 @@ pub struct EventDispatcher {
     /// Index into `registered_observers` that will receive block proposal events (Nakamoto and
     /// later)
     block_proposal_observers_lookup: HashSet<u16>,
+    /// Channel for sending StackerDB events to the miner coordinator
+    pub stackerdb_channel: Arc<Mutex<StackerDBChannel>>,
 }
 
 /// This struct is used specifically for receiving proposal responses.
@@ -1115,6 +1117,7 @@ impl Default for EventDispatcher {
 impl EventDispatcher {
     pub fn new() -> EventDispatcher {
         EventDispatcher {
+            stackerdb_channel: Arc::new(Mutex::new(StackerDBChannel::new())),
             registered_observers: vec![],
             contract_events_observers_lookup: HashMap::new(),
             assets_observers_lookup: HashMap::new(),
@@ -1304,6 +1307,11 @@ impl EventDispatcher {
             };
 
             let mature_rewards = serde_json::Value::Array(mature_rewards_vec);
+
+            #[cfg(any(test, feature = "testing"))]
+            if test_skip_block_announcement(&block) {
+                return;
+            }
 
             for (observer_id, filtered_events_ids) in dispatch_matrix.iter().enumerate() {
                 let filtered_events: Vec<_> = filtered_events_ids
@@ -1544,7 +1552,11 @@ impl EventDispatcher {
 
         let interested_observers = self.filter_observers(&self.stackerdb_observers_lookup, false);
 
-        let interested_receiver = STACKER_DB_CHANNEL.is_active(&contract_id);
+        let stackerdb_channel = self
+            .stackerdb_channel
+            .lock()
+            .expect("FATAL: failed to lock StackerDB channel mutex");
+        let interested_receiver = stackerdb_channel.is_active(&contract_id);
         if interested_observers.is_empty() && interested_receiver.is_none() {
             return;
         }
@@ -1697,6 +1709,18 @@ impl EventDispatcher {
     }
 }
 
+#[cfg(any(test, feature = "testing"))]
+fn test_skip_block_announcement(block: &StacksBlockEventData) -> bool {
+    if TEST_SKIP_BLOCK_ANNOUNCEMENT.get() {
+        warn!(
+            "Skipping new block announcement due to testing directive";
+            "block_hash" => %block.block_hash
+        );
+        return true;
+    }
+    false
+}
+
 #[cfg(test)]
 mod test {
     use std::net::TcpListener;
@@ -1732,8 +1756,8 @@ mod test {
         let parent_burn_block_hash = BurnchainHeaderHash([0; 32]);
         let parent_burn_block_height = 0;
         let parent_burn_block_timestamp = 0;
-        let anchored_consumed = ExecutionCost::zero();
-        let mblock_confirmed_consumed = ExecutionCost::zero();
+        let anchored_consumed = ExecutionCost::ZERO;
+        let mblock_confirmed_consumed = ExecutionCost::ZERO;
         let pox_constants = PoxConstants::testnet_default();
         let signer_bitvec = BitVec::zeros(2).expect("Failed to create BitVec with length 2");
         let block_timestamp = Some(123456);
@@ -1802,8 +1826,8 @@ mod test {
         let parent_burn_block_hash = BurnchainHeaderHash([0; 32]);
         let parent_burn_block_height = 0;
         let parent_burn_block_timestamp = 0;
-        let anchored_consumed = ExecutionCost::zero();
-        let mblock_confirmed_consumed = ExecutionCost::zero();
+        let anchored_consumed = ExecutionCost::ZERO;
+        let mblock_confirmed_consumed = ExecutionCost::ZERO;
         let pox_constants = PoxConstants::testnet_default();
         let signer_bitvec = BitVec::zeros(2).expect("Failed to create BitVec with length 2");
         let block_timestamp = Some(123456);

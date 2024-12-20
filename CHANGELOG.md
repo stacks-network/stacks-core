@@ -7,6 +7,45 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+### Added
+- Add `tenure_timeout_secs` to the miner for determining when a time-based tenure extend should be attempted.
+
+### Changed
+
+- Nodes will assume that all PoX anchor blocks exist by default, and stall initial block download indefinitely to await their arrival (#5502)
+
+## [3.1.0.0.1]
+
+### Added
+
+- A miner will now generate a tenure-extend when at least 70% of the signers have confirmed that they are willing to allow one, via the new timestamp included in block responses. This allows the miner to refresh its budget in between Bitcoin blocks. ([#5476](https://github.com/stacks-network/stacks-core/discussions/5476))
+
+### Changed
+
+## [3.1.0.0.0]
+
+### Added
+
+- **SIP-029 consensus rules, activating in epoch 3.1 at block 875,000** (see [SIP-029](https://github.com/stacksgov/sips/blob/main/sips/sip-029/sip-029-halving-alignment.md) for details)
+- New RPC endpoints
+  - `/v2/clarity/marf/:marf_key_hash`
+  - `/v2/clarity/metadata/:principal/:contract_name/:clarity_metadata_key`
+- When a proposed block is validated by a node, the block can be validated even when the block version is different than the node's default ([#5539](https://github.com/stacks-network/stacks-core/pull/5539))
+
+### Changed
+
+## [3.0.0.0.4]
+
+### Added
+
+### Changed
+
+- Use the same burn view loader in both block validation and block processing
+
+## [3.0.0.0.3]
+
+### Added
+
 ### Changed
 - Add index for StacksBlockId to nakamoto block headers table (improves node performance)
 - Remove the panic for reporting DB deadlocks (just error and continue waiting)
@@ -14,6 +53,16 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Add `block_commit_delay_ms` to the config file to control the time to wait after seeing a new burn block, before submitting a block commit, to allow time for the first Nakamoto block of the new tenure to be mined, allowing this miner to avoid the need to RBF the block commit.
 - Add `tenure_cost_limit_per_block_percentage` to the miner config file to control the percentage remaining tenure cost limit to consume per nakamoto block.
 - Add `/v3/blocks/height/:block_height` rpc endpoint
+- If the winning miner of a sortition is committed to the wrong parent tenure, the previous miner can immediately tenure extend and continue mining since the winning miner would never be able to propose a valid block. (#5361)
+
+## [3.0.0.0.2]
+
+### Added
+
+### Changed
+- Fixes  a few bugs in the relayer and networking stack
+  - detects and deprioritizes unhealthy replicas
+  - fixes an issue in the p2p stack which was preventing it from caching the reward set.
 
 ## [3.0.0.0.1]
 

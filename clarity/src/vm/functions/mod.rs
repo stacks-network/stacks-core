@@ -63,6 +63,8 @@ macro_rules! switch_on_global_epoch {
                 StacksEpochId::Epoch25 => $Epoch205Version(args, env, context),
                 // Note: We reuse 2.05 for 3.0.
                 StacksEpochId::Epoch30 => $Epoch205Version(args, env, context),
+                // Note: We reuse 2.05 for 3.1.
+                StacksEpochId::Epoch31 => $Epoch205Version(args, env, context),
             }
         }
     };
@@ -77,7 +79,6 @@ mod boolean;
 mod conversions;
 mod crypto;
 mod database;
-#[allow(clippy::result_large_err)]
 pub mod define;
 mod options;
 pub mod principals;
