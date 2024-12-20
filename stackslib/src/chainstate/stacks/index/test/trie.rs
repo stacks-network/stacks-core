@@ -146,7 +146,7 @@ fn trie_cursor_try_attach_leaf() {
                 let ptr_opt_res = Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[i as u8; 40].to_vec()),
+                    &mut TrieLeaf::new(&[], &[i as u8; 40].to_vec()),
                     &mut node,
                 );
                 assert!(ptr_opt_res.is_ok());
@@ -264,7 +264,7 @@ fn trie_cursor_promote_leaf_to_node4() {
         Trie::test_try_attach_leaf(
             &mut f,
             &mut c,
-            &mut TrieLeaf::new(&vec![], &[128; 40].to_vec()),
+            &mut TrieLeaf::new(&[], &[128; 40].to_vec()),
             &mut node,
         )
         .unwrap()
@@ -284,7 +284,7 @@ fn trie_cursor_promote_leaf_to_node4() {
             .unwrap()
             .unwrap(),
             TrieLeaf::new(
-                &vec![
+                &[
                     1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
                     23, 24, 25, 26, 27, 28, 29, 30, 31
                 ],
@@ -331,7 +331,7 @@ fn trie_cursor_promote_leaf_to_node4() {
                 &mut f,
                 &mut c,
                 &mut leaf_data,
-                &mut TrieLeaf::new(&vec![], &[(i + 128) as u8; 40].to_vec()),
+                &mut TrieLeaf::new(&[], &[(i + 128) as u8; 40].to_vec()),
             )
             .unwrap();
             ptrs.push(ptr);
@@ -474,7 +474,7 @@ fn trie_cursor_promote_node4_to_node16() {
                 Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
+                    &mut TrieLeaf::new(&[], &[128 + j as u8; 40].to_vec()),
                     &mut node,
                 )
                 .unwrap()
@@ -523,7 +523,7 @@ fn trie_cursor_promote_node4_to_node16() {
             let new_ptr = Trie::test_insert_leaf(
                 &mut f,
                 &mut c,
-                &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                &mut TrieLeaf::new(&[], &[192 + k as u8; 40].to_vec()),
                 &mut node,
             )
             .unwrap();
@@ -635,7 +635,7 @@ fn trie_cursor_promote_node16_to_node48() {
                 Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
+                    &mut TrieLeaf::new(&[], &[128 + j as u8; 40].to_vec()),
                     &mut node,
                 )
                 .unwrap()
@@ -685,7 +685,7 @@ fn trie_cursor_promote_node16_to_node48() {
             let new_ptr = Trie::test_insert_leaf(
                 &mut f,
                 &mut c,
-                &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                &mut TrieLeaf::new(&[], &[192 + k as u8; 40].to_vec()),
                 &mut node,
             )
             .unwrap();
@@ -742,7 +742,7 @@ fn trie_cursor_promote_node16_to_node48() {
                 Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
+                    &mut TrieLeaf::new(&[], &[128 + j as u8; 40].to_vec()),
                     &mut node,
                 )
                 .unwrap()
@@ -793,7 +793,7 @@ fn trie_cursor_promote_node16_to_node48() {
             let new_ptr = Trie::test_insert_leaf(
                 &mut f,
                 &mut c,
-                &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                &mut TrieLeaf::new(&[], &[192 + k as u8; 40].to_vec()),
                 &mut node,
             )
             .unwrap();
@@ -905,7 +905,7 @@ fn trie_cursor_promote_node48_to_node256() {
                 Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
+                    &mut TrieLeaf::new(&[], &[128 + j as u8; 40].to_vec()),
                     &mut node,
                 )
                 .unwrap()
@@ -955,7 +955,7 @@ fn trie_cursor_promote_node48_to_node256() {
             let new_ptr = Trie::test_insert_leaf(
                 &mut f,
                 &mut c,
-                &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                &mut TrieLeaf::new(&[], &[192 + k as u8; 40].to_vec()),
                 &mut node,
             )
             .unwrap();
@@ -1012,7 +1012,7 @@ fn trie_cursor_promote_node48_to_node256() {
                 Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
+                    &mut TrieLeaf::new(&[], &[128 + j as u8; 40].to_vec()),
                     &mut node,
                 )
                 .unwrap()
@@ -1061,7 +1061,7 @@ fn trie_cursor_promote_node48_to_node256() {
             let new_ptr = Trie::test_insert_leaf(
                 &mut f,
                 &mut c,
-                &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                &mut TrieLeaf::new(&[], &[192 + k as u8; 40].to_vec()),
                 &mut node,
             )
             .unwrap();
@@ -1118,7 +1118,7 @@ fn trie_cursor_promote_node48_to_node256() {
                 Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
+                    &mut TrieLeaf::new(&[], &[128 + j as u8; 40].to_vec()),
                     &mut node,
                 )
                 .unwrap()
@@ -1168,7 +1168,7 @@ fn trie_cursor_promote_node48_to_node256() {
             let new_ptr = Trie::test_insert_leaf(
                 &mut f,
                 &mut c,
-                &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                &mut TrieLeaf::new(&[], &[192 + k as u8; 40].to_vec()),
                 &mut node,
             )
             .unwrap();
@@ -1249,7 +1249,7 @@ fn trie_cursor_splice_leaf_4() {
 
             // splice in a node in each path segment
             for k in 0..5 {
-                let mut path = vec![
+                let mut path = [
                     0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
                     22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
                 ];
@@ -1270,7 +1270,7 @@ fn trie_cursor_splice_leaf_4() {
                 let new_ptr = Trie::test_splice_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                    &mut TrieLeaf::new(&[], &[192 + k as u8; 40].to_vec()),
                     &mut node,
                 )
                 .unwrap();
@@ -1342,7 +1342,7 @@ fn trie_cursor_splice_leaf_2() {
 
             // splice in a node in each path segment
             for k in 0..10 {
-                let mut path = vec![
+                let mut path = [
                     0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
                     22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
                 ];
@@ -1359,7 +1359,7 @@ fn trie_cursor_splice_leaf_2() {
                 let new_ptr = Trie::test_splice_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                    &mut TrieLeaf::new(&[], &[192 + k as u8; 40].to_vec()),
                     &mut node,
                 )
                 .unwrap();
@@ -1415,7 +1415,7 @@ where
             let path = path_gen(i);
             let triepath = TrieHash::from_bytes(&path).unwrap();
             let value = TrieLeaf::new(
-                &vec![],
+                &[],
                 &[
                     0,
                     0,

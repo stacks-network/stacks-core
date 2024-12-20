@@ -1098,7 +1098,7 @@ impl NakamotoBlock {
     /// Return Some(tenure-change-payload) if it's a tenure change
     /// Return None if not
     pub fn try_get_tenure_change_payload(&self) -> Option<&TenureChangePayload> {
-        if self.txs.len() == 0 {
+        if self.txs.is_empty() {
             return None;
         }
         if let TransactionPayload::TenureChange(ref tc) = &self.txs[0].payload {
@@ -1145,7 +1145,7 @@ impl NakamotoBlock {
             })
             .collect::<Vec<_>>();
 
-        if tenure_change_positions.len() == 0 {
+        if tenure_change_positions.is_empty() {
             return Ok(false);
         }
 
@@ -1246,7 +1246,7 @@ impl NakamotoBlock {
             })
             .collect::<Vec<_>>();
 
-        if coinbase_positions.len() == 0 && tenure_change_positions.len() == 0 {
+        if coinbase_positions.is_empty() && tenure_change_positions.is_empty() {
             // can't be a first block in a tenure
             return Ok(false);
         }
@@ -1264,7 +1264,7 @@ impl NakamotoBlock {
             return Err(());
         }
 
-        if coinbase_positions.len() == 1 && tenure_change_positions.len() == 0 {
+        if coinbase_positions.len() == 1 && tenure_change_positions.is_empty() {
             // coinbase unaccompanied by a tenure change
             warn!("Invalid block -- have coinbase without tenure change";
                 "consensus_hash" => %self.header.consensus_hash,
@@ -1274,7 +1274,7 @@ impl NakamotoBlock {
             return Err(());
         }
 
-        if coinbase_positions.len() == 0 && tenure_change_positions.len() == 1 {
+        if coinbase_positions.is_empty() && tenure_change_positions.len() == 1 {
             // this is possibly a block with a tenure-extend transaction.
             // It must be the first tx
             if tenure_change_positions[0] != 0 {
@@ -3017,7 +3017,7 @@ impl NakamotoChainState {
         let args = params![tenure_start_block_id];
         let proof_bytes: Option<String> = query_row(chainstate_conn, sql, args)?;
         if let Some(bytes) = proof_bytes {
-            if bytes.len() == 0 {
+            if bytes.is_empty() {
                 // no VRF proof
                 return Ok(None);
             }
@@ -4164,17 +4164,15 @@ impl NakamotoChainState {
                         "Bitvec does not match the block commit's PoX handling".into(),
                     ));
                 }
-            } else if all_0 {
-                if treated_addr.is_reward() {
-                    warn!(
-                        "Invalid Nakamoto block: rewarded PoX address when bitvec contained 0s for the address";
-                        "reward_address" => %treated_addr.deref(),
-                        "bitvec_values" => ?bitvec_values,
-                    );
-                    return Err(ChainstateError::InvalidStacksBlock(
-                        "Bitvec does not match the block commit's PoX handling".into(),
-                    ));
-                }
+            } else if all_0 && treated_addr.is_reward() {
+                warn!(
+                    "Invalid Nakamoto block: rewarded PoX address when bitvec contained 0s for the address";
+                    "reward_address" => %treated_addr.deref(),
+                    "bitvec_values" => ?bitvec_values,
+                );
+                return Err(ChainstateError::InvalidStacksBlock(
+                    "Bitvec does not match the block commit's PoX handling".into(),
+                ));
             }
         }
 
@@ -4413,13 +4411,11 @@ impl NakamotoChainState {
                     "Could not advance tenure, even though tenure changed".into(),
                 ));
             }
-        } else {
-            if coinbase_height != parent_coinbase_height {
-                // this should be unreachable
-                return Err(ChainstateError::InvalidStacksBlock(
-                    "Advanced tenure even though a new tenure did not happen".into(),
-                ));
-            }
+        } else if coinbase_height != parent_coinbase_height {
+            // this should be unreachable
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Advanced tenure even though a new tenure did not happen".into(),
+            ));
         }
 
         // begin processing this block
@@ -4528,7 +4524,7 @@ impl NakamotoChainState {
             };
 
         // if any, append lockups events to the coinbase receipt
-        if lockup_events.len() > 0 {
+        if !lockup_events.is_empty() {
             // Receipts are appended in order, so the first receipt should be
             // the one of the coinbase transaction
             if let Some(receipt) = tx_receipts.get_mut(0) {
@@ -4540,7 +4536,7 @@ impl NakamotoChainState {
             }
         }
         // if any, append auto unlock events to the coinbase receipt
-        if auto_unlock_events.len() > 0 {
+        if !auto_unlock_events.is_empty() {
             // Receipts are appended in order, so the first receipt should be
             // the one of the coinbase transaction
             if let Some(receipt) = tx_receipts.get_mut(0) {

@@ -250,7 +250,7 @@ impl StacksTransactionReceipt {
             transaction: tx.into(),
             events: vec![],
             post_condition_aborted: false,
-            result: result,
+            result,
             stx_burned: 0,
             contract_analysis: None,
             execution_cost: cost,
@@ -449,7 +449,7 @@ impl StacksChainState {
                     txid: tx.txid(),
                     principal: payer_account.principal.clone(),
                     is_origin: false,
-                    quiet: quiet,
+                    quiet,
                 };
                 if !quiet {
                     warn!("{}", &e);
@@ -470,7 +470,7 @@ impl StacksChainState {
                 txid: tx.txid(),
                 principal: origin_account.principal.clone(),
                 is_origin: true,
-                quiet: quiet,
+                quiet,
             };
             if !quiet {
                 warn!("{}", &e);
@@ -979,7 +979,7 @@ impl StacksChainState {
             TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) => {
                 // post-conditions are not allowed for this variant, since they're non-sensical.
                 // Their presence in this variant makes the transaction invalid.
-                if tx.post_conditions.len() > 0 {
+                if !tx.post_conditions.is_empty() {
                     let msg = format!("Invalid Stacks transaction: TokenTransfer transactions do not support post-conditions");
                     info!("{}", &msg; "txid" => %tx.txid());
 
@@ -1391,7 +1391,7 @@ impl StacksChainState {
             TransactionPayload::PoisonMicroblock(ref mblock_header_1, ref mblock_header_2) => {
                 // post-conditions are not allowed for this variant, since they're non-sensical.
                 // Their presence in this variant makes the transaction invalid.
-                if tx.post_conditions.len() > 0 {
+                if !tx.post_conditions.is_empty() {
                     let msg = format!("Invalid Stacks transaction: PoisonMicroblock transactions do not support post-conditions");
                     info!("{}", &msg);
 
@@ -1423,7 +1423,7 @@ impl StacksChainState {
             TransactionPayload::TenureChange(ref payload) => {
                 // post-conditions are not allowed for this variant, since they're non-sensical.
                 // Their presence in this variant makes the transaction invalid.
-                if tx.post_conditions.len() > 0 {
+                if !tx.post_conditions.is_empty() {
                     let msg = format!("Invalid Stacks transaction: TenureChange transactions do not support post-conditions");
                     info!("{msg}");
 
@@ -2234,15 +2234,15 @@ pub mod test {
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
             );
 
-            let contracts = vec![
+            let contracts = [
                 contract_correct,
                 contract_correct,
                 contract_syntax_error, // should still be mined, even though analysis fails
             ];
 
-            let expected_behavior = vec![true, false, true];
+            let expected_behavior = [true, false, true];
 
-            let contract_names = vec!["hello-world-0", "hello-world-0", "hello-world-1"];
+            let contract_names = ["hello-world-0", "hello-world-0", "hello-world-1"];
 
             let mut next_nonce = 0;
             for i in 0..contracts.len() {
@@ -2433,13 +2433,13 @@ pub mod test {
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
             );
 
-            let contracts = vec![
+            let contracts = [
                 contract_correct,
                 contract_runtime_error_definition,
                 contract_runtime_error_bare_code,
             ];
 
-            let contract_names = vec!["hello-world-0", "hello-world-1", "hello-world-2"];
+            let contract_names = ["hello-world-0", "hello-world-1", "hello-world-2"];
 
             for i in 0..contracts.len() {
                 let contract_name = contract_names[i].to_string();
@@ -5021,7 +5021,7 @@ pub mod test {
             )
             .unwrap();
 
-            assert_eq!(receipt.post_condition_aborted, true);
+            assert!(receipt.post_condition_aborted);
             assert_eq!(receipt.result.to_string(), "(ok (err u1))");
 
             conn.commit_block();
@@ -8247,10 +8247,10 @@ pub mod test {
                 version: 0x12,
                 sequence: seq,
                 prev_block: parent_block,
-                tx_merkle_root: tx_merkle_root,
+                tx_merkle_root,
                 signature: MessageSignature([0u8; 65]),
             },
-            txs: txs,
+            txs,
         };
         mblock.sign(block_privk).unwrap();
         mblock

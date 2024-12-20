@@ -294,7 +294,7 @@ pub fn check_pox_print_event(
             }
             // assert_eq!(inner_tuple.data_map.get(inner_key), Some(&inner_val));
         }
-        if missing.len() > 0 || wrong.len() > 0 {
+        if !missing.is_empty() || !wrong.is_empty() {
             eprintln!("missing:\n{:#?}", &missing);
             eprintln!("wrong:\n{:#?}", &wrong);
             assert!(false);
@@ -382,7 +382,7 @@ pub fn check_stacking_state_invariants(
 
     let mut cycle_indexes = HashMap::new();
 
-    if reward_indexes.len() > 0 || expect_indexes {
+    if !reward_indexes.is_empty() || expect_indexes {
         assert_eq!(
             reward_indexes.len() as u128,
             lock_period,

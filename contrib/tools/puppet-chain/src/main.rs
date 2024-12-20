@@ -431,7 +431,7 @@ impl ConfigFile {
     }
 
     pub fn get_blocks_config_at_height(&self, block_height: u64) -> Option<&BlocksRangeConfig> {
-        if self.blocks.len() == 0 {
+        if self.blocks.is_empty() {
             return None;
         }
 

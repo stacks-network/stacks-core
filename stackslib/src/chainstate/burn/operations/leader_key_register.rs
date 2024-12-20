@@ -163,7 +163,7 @@ impl LeaderKeyRegisterOp {
 
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
-            block_height: block_height,
+            block_height,
             burn_header_hash: block_hash.clone(),
         })
     }
@@ -284,11 +284,11 @@ pub mod tests {
                 result: Some(LeaderKeyRegisterOp {
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
-                    memo: vec![01, 02, 03, 04, 05],
+                    memo: vec![0o1, 0o2, 0o3, 0o4, 0o5],
 
                     txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
-                    vtxindex: vtxindex,
-                    block_height: block_height,
+                    vtxindex,
+                    block_height,
                     burn_header_hash: burn_header_hash.clone(),
                 })
             },
@@ -301,9 +301,9 @@ pub mod tests {
                     memo: vec![],
 
                     txid: Txid::from_bytes_be(&hex_bytes("2fbf8d5be32dce49790d203ba59acbb0929d5243413174ff5d26a5c6f23dea65").unwrap()).unwrap(),
-                    vtxindex: vtxindex,
-                    block_height: block_height,
-                    burn_header_hash: burn_header_hash,
+                    vtxindex,
+                    block_height,
+                    burn_header_hash,
                 })
             },
             OpFixture {
@@ -491,7 +491,7 @@ pub mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![01, 02, 03, 04, 05],
+            memo: vec![0o1, 0o2, 0o3, 0o4, 0o5],
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -627,7 +627,7 @@ pub mod tests {
                         .unwrap(),
                     )
                     .unwrap(),
-                    memo: vec![01, 02, 03, 04, 05],
+                    memo: vec![0o1, 0o2, 0o3, 0o4, 0o5],
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -656,7 +656,7 @@ pub mod tests {
                         .unwrap(),
                     )
                     .unwrap(),
-                    memo: vec![01, 02, 03, 04, 05],
+                    memo: vec![0o1, 0o2, 0o3, 0o4, 0o5],
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(

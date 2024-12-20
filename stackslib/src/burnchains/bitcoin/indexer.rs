@@ -50,15 +50,15 @@ use crate::core::{
 };
 use crate::util_lib::db::Error as DBError;
 
-pub const USER_AGENT: &'static str = "Stacks/2.1";
+pub const USER_AGENT: &str = "Stacks/2.1";
 
 pub const BITCOIN_MAINNET: u32 = 0xD9B4BEF9;
 pub const BITCOIN_TESTNET: u32 = 0x0709110B;
 pub const BITCOIN_REGTEST: u32 = 0xDAB5BFFA;
 
-pub const BITCOIN_MAINNET_NAME: &'static str = "mainnet";
-pub const BITCOIN_TESTNET_NAME: &'static str = "testnet";
-pub const BITCOIN_REGTEST_NAME: &'static str = "regtest";
+pub const BITCOIN_MAINNET_NAME: &str = "mainnet";
+pub const BITCOIN_TESTNET_NAME: &str = "testnet";
+pub const BITCOIN_REGTEST_NAME: &str = "regtest";
 
 // batch size for searching for a reorg
 // kept small since sometimes bitcoin will just send us one header at a time
@@ -160,7 +160,7 @@ impl BitcoinIndexerConfig {
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
             timeout: 30,
-            spv_headers_path: spv_headers_path,
+            spv_headers_path,
             first_block: 0,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
             epochs: None,
@@ -193,7 +193,7 @@ impl BitcoinIndexerRuntime {
             services: 0,
             user_agent: USER_AGENT.to_owned(),
             version_nonce: rng.gen(),
-            network_id: network_id,
+            network_id,
             block_height: 0,
             last_getdata_send_time: 0,
             last_getheaders_send_time: 0,
@@ -503,13 +503,11 @@ impl BitcoinIndexer {
         start_block: u64,
         remove_old: bool,
     ) -> Result<SpvClient, btc_error> {
-        if remove_old {
-            if PathBuf::from(&reorg_headers_path).exists() {
-                fs::remove_file(&reorg_headers_path).map_err(|e| {
-                    error!("Failed to remove {}", reorg_headers_path);
-                    btc_error::Io(e)
-                })?;
-            }
+        if remove_old && PathBuf::from(&reorg_headers_path).exists() {
+            fs::remove_file(&reorg_headers_path).map_err(|e| {
+                error!("Failed to remove {}", reorg_headers_path);
+                btc_error::Io(e)
+            })?;
         }
 
         // bootstrap reorg client
@@ -705,7 +703,7 @@ impl BitcoinIndexer {
                     e
                 })?;
 
-            if reorg_headers.len() == 0 {
+            if reorg_headers.is_empty() {
                 // chain shrank considerably
                 info!(
                     "Missing Bitcoin headers in block range {}-{} -- did the Bitcoin chain shrink?",
@@ -736,7 +734,7 @@ impl BitcoinIndexer {
                 })?;
 
             assert!(
-                canonical_headers.len() > 0,
+                !canonical_headers.is_empty(),
                 "BUG: uninitialized canonical SPV headers DB"
             );
 
@@ -1375,12 +1373,12 @@ mod test {
                         .unwrap();
 
                     if start_block > 0 {
-                        test_debug!("insert at {}: {:?}", start_block - 1, &hdrs);
+                        test_debug!("insert at {}: {hdrs:?}", start_block - 1);
                         spv_client
                             .insert_block_headers_before(start_block - 1, hdrs)
                             .unwrap();
-                    } else if hdrs.len() > 0 {
-                        test_debug!("insert at {}: {:?}", 0, &hdrs);
+                    } else if !hdrs.is_empty() {
+                        test_debug!("insert at 0: {hdrs:?}");
                         spv_client.test_write_block_headers(0, hdrs).unwrap();
                     }
 
@@ -1552,8 +1550,8 @@ mod test {
                         spv_client
                             .insert_block_headers_before(start_block - 1, hdrs)
                             .unwrap();
-                    } else if hdrs.len() > 0 {
-                        test_debug!("insert at {}: {:?}", 0, &hdrs);
+                    } else if !hdrs.is_empty() {
+                        test_debug!("insert at 0: {hdrs:?}");
                         spv_client.test_write_block_headers(0, hdrs).unwrap();
                     }
                     Ok(())
@@ -3151,7 +3149,7 @@ mod test {
         assert_eq!(total_work_before, total_work_before_idempotent);
 
         // fake block headers for mainnet 40319-40320, which is on a difficulty adjustment boundary
-        let bad_headers = vec![
+        let bad_headers = [
             LoneBlockHeader {
                 header: BlockHeader {
                     version: 1,

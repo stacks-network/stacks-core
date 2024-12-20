@@ -250,7 +250,7 @@ pub fn run_get_blocks_and_microblocks<T, F, P, C, D>(
     mut done_func: D,
 ) -> Vec<TestPeer>
 where
-    T: FnOnce(&mut Vec<TestPeerConfig>) -> (),
+    T: FnOnce(&mut Vec<TestPeerConfig>),
     F: FnOnce(
         usize,
         &mut Vec<TestPeer>,
@@ -259,7 +259,7 @@ where
         Option<StacksBlock>,
         Option<Vec<StacksMicroblock>>,
     )>,
-    P: FnMut(&mut Vec<TestPeer>) -> (),
+    P: FnMut(&mut Vec<TestPeer>),
     C: FnMut(&mut TestPeer) -> bool,
     D: FnMut(&mut Vec<TestPeer>) -> bool,
 {
@@ -421,36 +421,33 @@ where
                 for b in 0..num_blocks {
                     if !peer_invs[i].has_ith_block(
                         ((b as u64) + first_stacks_block_height - first_sortition_height) as u16,
-                    ) {
-                        if block_data[b].1.is_some() {
-                            test_debug!(
-                                "Peer {} is missing block {} at sortition height {} (between {} and {})",
-                                i,
-                                b,
-                                (b as u64) + first_stacks_block_height - first_sortition_height,
-                                first_stacks_block_height - first_sortition_height,
-                                first_stacks_block_height - first_sortition_height
-                                    + (num_blocks as u64),
-                            );
-                            done = false;
-                        }
+                    ) && block_data[b].1.is_some()
+                    {
+                        test_debug!(
+                            "Peer {} is missing block {} at sortition height {} (between {} and {})",
+                            i,
+                            b,
+                            (b as u64) + first_stacks_block_height - first_sortition_height,
+                            first_stacks_block_height - first_sortition_height,
+                            first_stacks_block_height - first_sortition_height
+                                + (num_blocks as u64),
+                        );
+                        done = false;
                     }
                 }
                 for b in 1..(num_blocks - 1) {
                     if !peer_invs[i].has_ith_microblock_stream(
                         ((b as u64) + first_stacks_block_height - first_sortition_height) as u16,
-                    ) {
-                        if block_data[b].2.is_some() {
-                            test_debug!(
-                                "Peer {} is missing microblock stream {} (between {} and {})",
-                                i,
-                                (b as u64) + first_stacks_block_height - first_sortition_height,
-                                first_stacks_block_height - first_sortition_height,
-                                first_stacks_block_height - first_sortition_height
-                                    + ((num_blocks - 1) as u64),
-                            );
-                            done = false;
-                        }
+                    ) && block_data[b].2.is_some()
+                    {
+                        test_debug!(
+                            "Peer {i} is missing microblock stream {} (between {} and {})",
+                            (b as u64) + first_stacks_block_height - first_sortition_height,
+                            first_stacks_block_height - first_sortition_height,
+                            first_stacks_block_height - first_sortition_height
+                                + ((num_blocks - 1) as u64),
+                        );
+                        done = false;
                     }
                 }
             }

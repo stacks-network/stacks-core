@@ -190,13 +190,13 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             cost_track: Some(LimitedCostTracker::new_free()),
             mainnet: false,
             chain_id: CHAIN_ID_TESTNET,
-            epoch: epoch,
+            epoch,
         }
     }
 
     /// Reset the block's total execution to the given cost, if there is a cost tracker at all.
     /// Used by the miner to "undo" applying a transaction that exceeded the budget.
-    pub fn reset_block_cost(&mut self, cost: ExecutionCost) -> () {
+    pub fn reset_block_cost(&mut self, cost: ExecutionCost) {
         if let Some(ref mut cost_tracker) = self.cost_track {
             cost_tracker.set_total(cost);
         }
@@ -1906,7 +1906,7 @@ mod tests {
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
@@ -1914,8 +1914,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([0 as u8; 32]),
-                &StacksBlockId([1 as u8; 32]),
+                &StacksBlockId([0; 32]),
+                &StacksBlockId([1; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -1927,7 +1927,7 @@ mod tests {
                     tx.analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                 })
@@ -1940,7 +1940,7 @@ mod tests {
                     tx.analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                 })
@@ -1959,7 +1959,7 @@ mod tests {
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
@@ -1967,8 +1967,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([0 as u8; 32]),
-                &StacksBlockId([1 as u8; 32]),
+                &StacksBlockId([0; 32]),
+                &StacksBlockId([1; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -1988,7 +1988,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -1996,7 +1996,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
-                    &contract,
+                    contract,
                     None,
                     |_, _| false,
                 )
@@ -2020,7 +2020,7 @@ mod tests {
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
@@ -2028,8 +2028,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([0 as u8; 32]),
-                &StacksBlockId([1 as u8; 32]),
+                &StacksBlockId([0; 32]),
+                &StacksBlockId([1; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2041,7 +2041,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2049,7 +2049,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
-                    &contract,
+                    contract,
                     None,
                     |_, _| false,
                 )
@@ -2069,7 +2069,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2077,7 +2077,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
-                    &contract,
+                    contract,
                     None,
                     |_, _| false,
                 )
@@ -2099,7 +2099,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2109,7 +2109,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         &ct_ast,
-                        &contract,
+                        contract,
                         None,
                         |_, _| false
                     )
@@ -2132,7 +2132,7 @@ mod tests {
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
@@ -2140,8 +2140,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([0 as u8; 32]),
-                &StacksBlockId([1 as u8; 32]),
+                &StacksBlockId([0; 32]),
+                &StacksBlockId([1; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2153,7 +2153,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2161,7 +2161,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
-                    &contract,
+                    contract,
                     None,
                     |_, _| false,
                 )
@@ -2188,7 +2188,7 @@ mod tests {
         }
 
         let mut marf = clarity_instance.destroy();
-        let mut conn = marf.begin_read_only(Some(&StacksBlockId([1 as u8; 32])));
+        let mut conn = marf.begin_read_only(Some(&StacksBlockId([1; 32])));
         assert!(conn.get_contract_hash(&contract_identifier).is_ok());
     }
 
@@ -2201,7 +2201,7 @@ mod tests {
         {
             let mut conn = clarity_instance.begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2213,7 +2213,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2221,7 +2221,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
-                    &contract,
+                    contract,
                     None,
                     |_, _| false,
                 )
@@ -2235,7 +2235,7 @@ mod tests {
 
         let mut marf = clarity_instance.destroy();
 
-        let mut conn = marf.begin(&StacksBlockId::sentinel(), &StacksBlockId([0 as u8; 32]));
+        let mut conn = marf.begin(&StacksBlockId::sentinel(), &StacksBlockId([0; 32]));
         // should not be in the marf.
         assert_eq!(
             conn.get_contract_hash(&contract_identifier).unwrap_err(),
@@ -2273,7 +2273,7 @@ mod tests {
         confirmed_clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
@@ -2295,7 +2295,7 @@ mod tests {
         // make an unconfirmed block off of the confirmed block
         {
             let mut conn = clarity_instance.begin_unconfirmed(
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2305,7 +2305,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2313,7 +2313,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
-                    &contract,
+                    contract,
                     None,
                     |_, _| false,
                 )
@@ -2328,7 +2328,7 @@ mod tests {
         // contract is still there, in unconfirmed status
         {
             let mut conn = clarity_instance.begin_unconfirmed(
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2347,7 +2347,7 @@ mod tests {
         // rolled back (but that should only drop the current TrieRAM)
         {
             let mut conn = clarity_instance.begin_unconfirmed(
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2365,7 +2365,7 @@ mod tests {
         // contract is now absent, now that we did a rollback of unconfirmed state
         {
             let mut conn = clarity_instance.begin_unconfirmed(
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2380,7 +2380,7 @@ mod tests {
         }
 
         let mut marf = clarity_instance.destroy();
-        let mut conn = marf.begin_unconfirmed(&StacksBlockId([0 as u8; 32]));
+        let mut conn = marf.begin_unconfirmed(&StacksBlockId([0; 32]));
 
         // should not be in the marf.
         assert_eq!(
@@ -2411,7 +2411,7 @@ mod tests {
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
@@ -2419,8 +2419,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([0 as u8; 32]),
-                &StacksBlockId([1 as u8; 32]),
+                &StacksBlockId([0; 32]),
+                &StacksBlockId([1; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2436,7 +2436,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2444,7 +2444,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
-                    &contract,
+                    contract,
                     None,
                     |_, _| false,
                 )
@@ -2568,7 +2568,7 @@ mod tests {
             key_encoding: TransactionPublicKeyEncoding::Compressed,
             nonce: 0,
             tx_fee: 1,
-            signature: MessageSignature::from_raw(&vec![0xfe; 65]),
+            signature: MessageSignature::from_raw(&[0xfe; 65]),
         });
 
         let contract = "(define-public (foo) (ok 1))";
@@ -2582,8 +2582,7 @@ mod tests {
                     code_body: StacksString::from_str(contract).unwrap(),
                 },
                 None,
-            )
-            .into(),
+            ),
         );
 
         let tx2 = StacksTransaction::new(
@@ -2595,8 +2594,7 @@ mod tests {
                     code_body: StacksString::from_str(contract).unwrap(),
                 },
                 None,
-            )
-            .into(),
+            ),
         );
 
         tx1.post_conditions.push(TransactionPostCondition::STX(
@@ -2631,7 +2629,7 @@ mod tests {
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
@@ -2639,8 +2637,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([0 as u8; 32]),
-                &StacksBlockId([1 as u8; 32]),
+                &StacksBlockId([0; 32]),
+                &StacksBlockId([1; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2653,7 +2651,7 @@ mod tests {
                     ASTRules::PrecheckSize,
                 )
                 .unwrap();
-                assert_eq!(receipt.post_condition_aborted, true);
+                assert!(receipt.post_condition_aborted);
             });
             conn.as_transaction(|clarity_tx| {
                 StacksChainState::process_transaction_payload(
@@ -2674,7 +2672,7 @@ mod tests {
                 )
                 .unwrap();
 
-                assert_eq!(receipt.post_condition_aborted, true);
+                assert!(receipt.post_condition_aborted);
             });
 
             conn.commit_block();
@@ -2781,7 +2779,7 @@ mod tests {
                 _height: u32,
                 _sortition_id: &SortitionId,
             ) -> Option<(Vec<TupleData>, u128)> {
-                return None;
+                None
             }
             fn get_ast_rules(&self, height: u32) -> ASTRules {
                 ASTRules::Typical
@@ -2792,7 +2790,7 @@ mod tests {
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
@@ -2800,8 +2798,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([0 as u8; 32]),
-                &StacksBlockId([1 as u8; 32]),
+                &StacksBlockId([0; 32]),
+                &StacksBlockId([1; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2820,7 +2818,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2828,7 +2826,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
-                    &contract,
+                    contract,
                     None,
                     |_, _| false,
                 )
@@ -2842,8 +2840,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([1 as u8; 32]),
-                &StacksBlockId([2 as u8; 32]),
+                &StacksBlockId([1; 32]),
+                &StacksBlockId([2; 32]),
                 &TEST_HEADER_DB,
                 &burn_state_db,
             );

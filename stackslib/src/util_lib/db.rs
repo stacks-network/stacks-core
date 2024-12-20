@@ -162,7 +162,7 @@ impl From<MARFError> for Error {
 }
 
 pub trait FromRow<T> {
-    fn from_row<'a>(row: &'a Row) -> Result<T, Error>;
+    fn from_row(row: &Row) -> Result<T, Error>;
 }
 
 pub trait FromColumn<T> {
@@ -170,7 +170,7 @@ pub trait FromColumn<T> {
 }
 
 impl FromRow<u64> for u64 {
-    fn from_row<'a>(row: &'a Row) -> Result<u64, Error> {
+    fn from_row(row: &Row) -> Result<u64, Error> {
         let x: i64 = row.get(0)?;
         if x < 0 {
             return Err(Error::ParseError);
@@ -180,21 +180,21 @@ impl FromRow<u64> for u64 {
 }
 
 impl FromRow<u32> for u32 {
-    fn from_row<'a>(row: &'a Row) -> Result<u32, Error> {
+    fn from_row(row: &Row) -> Result<u32, Error> {
         let x: u32 = row.get(0)?;
         Ok(x)
     }
 }
 
 impl FromRow<String> for String {
-    fn from_row<'a>(row: &'a Row) -> Result<String, Error> {
+    fn from_row(row: &Row) -> Result<String, Error> {
         let x: String = row.get(0)?;
         Ok(x)
     }
 }
 
 impl FromRow<Vec<u8>> for Vec<u8> {
-    fn from_row<'a>(row: &'a Row) -> Result<Vec<u8>, Error> {
+    fn from_row(row: &Row) -> Result<Vec<u8>, Error> {
         let x: Vec<u8> = row.get(0)?;
         Ok(x)
     }
@@ -211,7 +211,7 @@ impl FromColumn<u64> for u64 {
 }
 
 impl FromRow<StacksAddress> for StacksAddress {
-    fn from_row<'a>(row: &'a Row) -> Result<StacksAddress, Error> {
+    fn from_row(row: &Row) -> Result<StacksAddress, Error> {
         let addr_str: String = row.get(0)?;
         let addr = StacksAddress::from_string(&addr_str).ok_or(Error::ParseError)?;
         Ok(addr)
@@ -234,7 +234,7 @@ impl FromColumn<Option<u64>> for u64 {
 }
 
 impl FromRow<i64> for i64 {
-    fn from_row<'a>(row: &'a Row) -> Result<i64, Error> {
+    fn from_row(row: &Row) -> Result<i64, Error> {
         let x: i64 = row.get(0)?;
         Ok(x)
     }
@@ -258,7 +258,7 @@ impl FromColumn<QualifiedContractIdentifier> for QualifiedContractIdentifier {
 }
 
 impl FromRow<bool> for bool {
-    fn from_row<'a>(row: &'a Row) -> Result<bool, Error> {
+    fn from_row(row: &Row) -> Result<bool, Error> {
         let x: bool = row.get(0)?;
         Ok(x)
     }
@@ -510,14 +510,14 @@ where
     let mut rows = stmt.query(sql_args)?;
     let mut row_data = vec![];
     while let Some(row) = rows.next().map_err(|e| Error::SqliteError(e))? {
-        if row_data.len() > 0 {
+        if !row_data.is_empty() {
             return Err(Error::Overflow);
         }
         let i: i64 = row.get(0)?;
         row_data.push(i);
     }
 
-    if row_data.len() == 0 {
+    if row_data.is_empty() {
         return Err(Error::NotFoundError);
     }
 
@@ -681,6 +681,7 @@ pub fn tx_begin_immediate_sqlite<'a>(conn: &'a mut Connection) -> Result<DBTx<'a
 
 #[cfg(feature = "profile-sqlite")]
 fn trace_profile(query: &str, duration: Duration) {
+    use serde_json::json;
     let obj = json!({"millis":duration.as_millis(), "query":query});
     debug!(
         "sqlite trace profile {}",
@@ -804,7 +805,7 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
         IndexDBTx {
             _index: Some(tx),
             block_linkage: None,
-            context: context,
+            context,
         }
     }
 

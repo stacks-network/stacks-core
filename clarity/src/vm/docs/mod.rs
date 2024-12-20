@@ -752,13 +752,13 @@ the `<`-comparable types are expanded to include `string-ascii`, `string-utf8` a
 
 pub fn get_input_type_string(function_type: &FunctionType) -> String {
     match function_type {
-        FunctionType::Variadic(ref in_type, _) => format!("{}, ...", in_type),
+        FunctionType::Variadic(ref in_type, _) => format!("{in_type}, ..."),
         FunctionType::Fixed(FixedFunction { ref args, .. }) => {
-            let in_types: Vec<String> = args.iter().map(|x| format!("{}", x.signature)).collect();
+            let in_types: Vec<String> = args.iter().map(|x| x.signature.to_string()).collect();
             in_types.join(", ")
         }
         FunctionType::UnionArgs(ref in_types, _) => {
-            let in_types: Vec<String> = in_types.iter().map(|x| format!("{}", x)).collect();
+            let in_types: Vec<String> = in_types.iter().map(|x| x.to_string()).collect();
             in_types.join(" | ")
         }
         FunctionType::ArithmeticVariadic => "int, ... | uint, ...".to_string(),

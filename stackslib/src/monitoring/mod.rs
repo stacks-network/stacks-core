@@ -132,7 +132,7 @@ pub fn set_last_block_transaction_count(transactions_in_block: u64) {
     // Saturating cast from u64 to i64
     #[cfg(feature = "monitoring_prom")]
     prometheus::LAST_BLOCK_TRANSACTION_COUNT
-        .set(i64::try_from(transactions_in_block).unwrap_or_else(|_| i64::MAX));
+        .set(i64::try_from(transactions_in_block).unwrap_or(i64::MAX));
 }
 
 /// Log `execution_cost` as a ratio of `block_limit`.
@@ -162,7 +162,7 @@ pub fn set_last_mined_block_transaction_count(transactions_in_block: u64) {
     // Saturating cast from u64 to i64
     #[cfg(feature = "monitoring_prom")]
     prometheus::LAST_MINED_BLOCK_TRANSACTION_COUNT
-        .set(i64::try_from(transactions_in_block).unwrap_or_else(|_| i64::MAX));
+        .set(i64::try_from(transactions_in_block).unwrap_or(i64::MAX));
 }
 
 pub fn increment_btc_ops_sent_counter() {
@@ -197,7 +197,7 @@ fn txid_tracking_db(chainstate_root_path: &str) -> Result<DBConn, DatabaseError>
     let db_path = path.to_str().ok_or_else(|| DatabaseError::ParseError)?;
 
     let mut create_flag = false;
-    let open_flags = if fs::metadata(&db_path).is_err() {
+    let open_flags = if fs::metadata(db_path).is_err() {
         // need to create
         create_flag = true;
         OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
@@ -206,7 +206,7 @@ fn txid_tracking_db(chainstate_root_path: &str) -> Result<DBConn, DatabaseError>
         OpenFlags::SQLITE_OPEN_READ_WRITE
     };
 
-    let conn = sqlite_open(&db_path, open_flags, false)?;
+    let conn = sqlite_open(db_path, open_flags, false)?;
 
     if create_flag {
         conn.execute(
@@ -222,7 +222,7 @@ fn txid_tracking_db_contains(conn: &DBConn, txid: &Txid) -> Result<bool, Databas
     let contains = conn
         .query_row(
             "SELECT 1 FROM processed_txids WHERE txid = ?",
-            &[txid],
+            [txid],
             |_row| Ok(true),
         )
         .optional()?
@@ -366,8 +366,7 @@ fn convert_uint256_to_f64_percentage(value: Uint256, precision_points: u32) -> f
     .low_u64() as i64;
     let divisor = i64::pow(base as i64, precision_points);
 
-    let result = intermediate_result as f64 / divisor as f64;
-    result
+    intermediate_result as f64 / divisor as f64
 }
 
 #[cfg(test)]
@@ -388,7 +387,7 @@ pub fn test_convert_uint256_to_f64() {
     let original = ((Uint512::from_uint256(&Uint256::max()) * Uint512::from_u64(10))
         / Uint512::from_u64(100))
     .to_uint256();
-    assert_approx_eq!(convert_uint256_to_f64_percentage(original, 7), 10 as f64);
+    assert_approx_eq!(convert_uint256_to_f64_percentage(original, 7), 10_f64);
 
     let original = ((Uint512::from_uint256(&Uint256::max()) * Uint512::from_u64(122))
         / Uint512::from_u64(1000))

@@ -112,14 +112,14 @@ impl BlockRequestKey {
         canonical_stacks_tip_height: u64,
     ) -> BlockRequestKey {
         BlockRequestKey {
-            neighbor: neighbor,
-            data_url: data_url,
-            consensus_hash: consensus_hash,
-            anchor_block_hash: anchor_block_hash,
-            index_block_hash: index_block_hash,
-            parent_block_header: parent_block_header,
-            parent_consensus_hash: parent_consensus_hash,
-            sortition_height: sortition_height,
+            neighbor,
+            data_url,
+            consensus_hash,
+            anchor_block_hash,
+            index_block_hash,
+            parent_block_header,
+            parent_consensus_hash,
+            sortition_height,
             download_start: get_epoch_time_secs(),
             kind,
             canonical_stacks_tip_height,
@@ -267,13 +267,13 @@ impl BlockDownloader {
             finished_scan_at: 0,
             last_inv_update_at: 0,
 
-            max_inflight_requests: max_inflight_requests,
+            max_inflight_requests,
             blocks_to_try: HashMap::new(),
             microblocks_to_try: HashMap::new(),
 
             parsed_urls: HashMap::new(),
             dns_lookups: HashMap::new(),
-            dns_timeout: dns_timeout,
+            dns_timeout,
 
             getblock_requests: HashMap::new(),
             getmicroblocks_requests: HashMap::new(),
@@ -285,13 +285,13 @@ impl BlockDownloader {
             broken_neighbors: vec![],
             blocked_urls: HashMap::new(),
 
-            download_interval: download_interval,
+            download_interval,
             requested_blocks: HashMap::new(),
             requested_microblocks: HashMap::new(),
         }
     }
 
-    pub fn reset(&mut self) -> () {
+    pub fn reset(&mut self) {
         debug!("Downloader reset");
         self.state = BlockDownloaderState::DNSLookupBegin;
 
@@ -313,7 +313,7 @@ impl BlockDownloader {
         // preserve download accounting
     }
 
-    pub fn restart_scan(&mut self, sortition_start: u64) -> () {
+    pub fn restart_scan(&mut self, sortition_start: u64) {
         // prepare to restart a full-chain scan for block downloads
         self.block_sortition_height = sortition_start;
         self.microblock_sortition_height = sortition_start;
@@ -335,14 +335,14 @@ impl BlockDownloader {
         self.pox_id = pox_id.clone();
         self.dns_lookups.clear();
         for url_str in urls.drain(..) {
-            if url_str.len() == 0 {
+            if url_str.is_empty() {
                 continue;
             }
             let url = url_str.parse_to_block_url()?; // NOTE: should always succeed, since a UrlString shouldn't decode unless it's a valid URL or the empty string
             let port = match url.port_or_known_default() {
                 Some(p) => p,
                 None => {
-                    warn!("Unsupported URL {:?}: unknown port", &url);
+                    warn!("Unsupported URL {url:?}: unknown port");
                     continue;
                 }
             };
@@ -418,7 +418,7 @@ impl BlockDownloader {
         Ok(inflight == 0)
     }
 
-    pub fn getblocks_begin(&mut self, requests: HashMap<BlockRequestKey, usize>) -> () {
+    pub fn getblocks_begin(&mut self, requests: HashMap<BlockRequestKey, usize>) {
         assert_eq!(self.state, BlockDownloaderState::GetBlocksBegin);
 
         // don't touch blocks-to-try -- that's managed by the peer network directly.
@@ -537,7 +537,7 @@ impl BlockDownloader {
         });
 
         // are we done?
-        if pending_block_requests.len() == 0 {
+        if pending_block_requests.is_empty() {
             self.state = BlockDownloaderState::GetMicroblocksBegin;
             return Ok(true);
         }
@@ -550,7 +550,7 @@ impl BlockDownloader {
     }
 
     /// Start fetching microblocks
-    pub fn getmicroblocks_begin(&mut self, requests: HashMap<BlockRequestKey, usize>) -> () {
+    pub fn getmicroblocks_begin(&mut self, requests: HashMap<BlockRequestKey, usize>) {
         assert_eq!(self.state, BlockDownloaderState::GetMicroblocksBegin);
 
         self.getmicroblocks_requests = requests;
@@ -626,7 +626,7 @@ impl BlockDownloader {
                             Some(http_response) => {
                                 match StacksHttpResponse::decode_microblocks(http_response) {
                                     Ok(microblocks) => {
-                                        if microblocks.len() == 0 {
+                                        if microblocks.is_empty() {
                                             // we wouldn't have asked for a 0-length stream
                                             info!("Got unexpected zero-length microblock stream from {:?} ({:?})", &block_key.neighbor, &block_key.data_url;
                                                 "consensus_hash" => %block_key.consensus_hash
@@ -675,7 +675,7 @@ impl BlockDownloader {
         });
 
         // are we done?
-        if pending_microblock_requests.len() == 0 {
+        if pending_microblock_requests.is_empty() {
             self.state = BlockDownloaderState::Done;
             return Ok(true);
         }
@@ -910,7 +910,7 @@ impl BlockDownloader {
         block_sortition_height: u64,
         ibd: bool,
         force: bool,
-    ) -> () {
+    ) {
         if force
             || (ibd && self.state == BlockDownloaderState::DNSLookupBegin)
             || (self.empty_block_download_passes > 0
@@ -945,7 +945,7 @@ impl BlockDownloader {
         mblock_sortition_height: u64,
         ibd: bool,
         force: bool,
-    ) -> () {
+    ) {
         if force
             || (ibd && self.state == BlockDownloaderState::DNSLookupBegin)
             || (self.empty_microblock_download_passes > 0
@@ -972,7 +972,7 @@ impl BlockDownloader {
     }
 
     /// Set a hint that we should re-scan for blocks
-    pub fn hint_download_rescan(&mut self, target_sortition_height: u64, ibd: bool) -> () {
+    pub fn hint_download_rescan(&mut self, target_sortition_height: u64, ibd: bool) {
         self.hint_block_sortition_height_available(target_sortition_height, ibd, false);
         self.hint_microblock_sortition_height_available(target_sortition_height, ibd, false);
     }
@@ -997,10 +997,8 @@ impl BlockDownloader {
         if microblocks {
             // being requested now?
             for (_, reqs) in self.microblocks_to_try.iter() {
-                if reqs.len() > 0 {
-                    if reqs[0].index_block_hash == *index_hash {
-                        return true;
-                    }
+                if !reqs.is_empty() && reqs[0].index_block_hash == *index_hash {
+                    return true;
                 }
             }
 
@@ -1012,10 +1010,8 @@ impl BlockDownloader {
             }
         } else {
             for (_, reqs) in self.blocks_to_try.iter() {
-                if reqs.len() > 0 {
-                    if reqs[0].index_block_hash == *index_hash {
-                        return true;
-                    }
+                if !reqs.is_empty() && reqs[0].index_block_hash == *index_hash {
+                    return true;
                 }
             }
 
@@ -1048,7 +1044,7 @@ impl PeerNetwork {
     }
 
     /// Pass a hint to the downloader to re-scan
-    pub fn hint_download_rescan(&mut self, target_height: u64, ibd: bool) -> () {
+    pub fn hint_download_rescan(&mut self, target_height: u64, ibd: bool) {
         match self.block_downloader {
             Some(ref mut dl) => dl.hint_download_rescan(target_height, ibd),
             None => {}
@@ -1057,19 +1053,9 @@ impl PeerNetwork {
 
     /// Get the data URL for a neighbor
     pub fn get_data_url(&self, neighbor_key: &NeighborKey) -> Option<UrlString> {
-        match self.events.get(neighbor_key) {
-            Some(ref event_id) => match self.peers.get(event_id) {
-                Some(ref convo) => {
-                    if convo.data_url.len() > 0 {
-                        Some(convo.data_url.clone())
-                    } else {
-                        None
-                    }
-                }
-                None => None,
-            },
-            None => None,
-        }
+        self.events
+            .get(neighbor_key)
+            .and_then(|event_id| self.peers.get(event_id).map(|convo| convo.data_url.clone()))
     }
 
     /// Do we need to download an anchored block?
@@ -1461,12 +1447,12 @@ impl PeerNetwork {
                         continue;
                     }
                 };
-                if data_url.len() == 0 {
+                if data_url.is_empty() {
                     // peer doesn't yet know its public IP address, and isn't given a data URL
                     // directly
                     debug!(
-                        "{:?}: Unable to request {} from {}: no data URL",
-                        &self.local_peer, &target_index_block_hash, &nk
+                        "{:?}: Unable to request {target_index_block_hash} from {nk}: no data URL",
+                        &self.local_peer
                     );
                     continue;
                 }
@@ -1584,7 +1570,7 @@ impl PeerNetwork {
         let (need_blocks, block_sortition_height, microblock_sortition_height) =
             match self.block_downloader {
                 Some(ref mut downloader) => (
-                    downloader.blocks_to_try.len() == 0,
+                    downloader.blocks_to_try.is_empty(),
                     downloader.block_sortition_height,
                     downloader.microblock_sortition_height,
                 ),
@@ -1659,12 +1645,11 @@ impl PeerNetwork {
                         }
                     }
 
-                    if next_microblocks_to_try.len() == 0 {
+                    if next_microblocks_to_try.is_empty() {
                         // have no microblocks to try in the first place, so just advance to the
                         // next batch
                         debug!(
-                            "No microblocks to try; advance max_mblock_height to {}",
-                            mblock_height
+                            "No microblocks to try; advance max_mblock_height to {mblock_height}"
                         );
                         max_mblock_height = mblock_height;
                         mblock_height += scan_batch_size;
@@ -1711,7 +1696,7 @@ impl PeerNetwork {
                         let requests = next_blocks_to_try.remove(&height).expect(
                             "BUG: hashmap both contains and does not contain sortition height",
                         );
-                        if requests.len() == 0 {
+                        if requests.is_empty() {
                             height += 1;
                             continue;
                         }
@@ -1773,7 +1758,7 @@ impl PeerNetwork {
                         let requests = next_microblocks_to_try.remove(&mblock_height).expect(
                             "BUG: hashmap both contains and does not contain sortition height",
                         );
-                        if requests.len() == 0 {
+                        if requests.is_empty() {
                             debug!("No microblock requests for {}", mblock_height);
                             mblock_height += 1;
                             continue;
@@ -1849,16 +1834,16 @@ impl PeerNetwork {
                     }
                 }
 
-                if downloader.blocks_to_try.len() == 0 {
+                if downloader.blocks_to_try.is_empty() {
                     // nothing in this range, so advance sortition range to try for next time
                     next_block_sortition_height = next_block_sortition_height
                         + (network.burnchain.pox_constants.reward_cycle_length as u64);
                     debug!(
-                        "{:?}: Pessimistically increase block sortition height to ({})",
-                        &network.local_peer, next_block_sortition_height
+                        "{:?}: Pessimistically increase block sortition height to ({next_block_sortition_height})",
+                        &network.local_peer
                     );
                 }
-                if downloader.microblocks_to_try.len() == 0 {
+                if downloader.microblocks_to_try.is_empty() {
                     // nothing in this range, so advance sortition range to try for next time
                     next_microblock_sortition_height = next_microblock_sortition_height
                         + (network.burnchain.pox_constants.reward_cycle_length as u64);
@@ -1926,7 +1911,7 @@ impl PeerNetwork {
             match requestables.pop_front() {
                 Some(requestable) => {
                     if let Some(Some(ref sockaddrs)) = dns_lookups.get(requestable.get_url()) {
-                        assert!(sockaddrs.len() > 0);
+                        assert!(!sockaddrs.is_empty());
 
                         let peerhost = match PeerHost::try_from_url(requestable.get_url()) {
                             Some(ph) => ph,
@@ -2182,12 +2167,12 @@ impl PeerNetwork {
             let mut microblocks_empty = vec![];
 
             for (height, requests) in downloader.blocks_to_try.iter() {
-                if requests.len() == 0 {
+                if requests.is_empty() {
                     blocks_empty.push(*height);
                 }
             }
             for (height, requests) in downloader.microblocks_to_try.iter() {
-                if requests.len() == 0 {
+                if requests.is_empty() {
                     microblocks_empty.push(*height);
                 }
             }
@@ -2278,13 +2263,11 @@ impl PeerNetwork {
                 debug!("Re-trying blocks:");
                 for (height, requests) in downloader.blocks_to_try.iter() {
                     assert!(
-                        requests.len() > 0,
-                        "Empty block requests at height {}",
-                        height
+                        !requests.is_empty(),
+                        "Empty block requests at height {height}"
                     );
                     debug!(
-                        "   Height {}: anchored block {} available from {} peers: {:?}",
-                        height,
+                        "   Height {height}: anchored block {} available from {} peers: {:?}",
                         requests.front().unwrap().index_block_hash,
                         requests.len(),
                         requests
@@ -2295,13 +2278,11 @@ impl PeerNetwork {
                 }
                 for (height, requests) in downloader.microblocks_to_try.iter() {
                     assert!(
-                        requests.len() > 0,
-                        "Empty microblock requests at height {}",
-                        height
+                        !requests.is_empty(),
+                        "Empty microblock requests at height {height}"
                     );
                     debug!(
-                        "   Height {}: microblocks {} available from {} peers: {:?}",
-                        height,
+                        "   Height {height}: microblocks {} available from {} peers: {:?}",
                         requests.front().unwrap().index_block_hash,
                         requests.len(),
                         requests
@@ -2319,7 +2300,7 @@ impl PeerNetwork {
     }
 
     /// Initialize the downloader
-    pub fn init_block_downloader(&mut self) -> () {
+    pub fn init_block_downloader(&mut self) {
         self.block_downloader = Some(BlockDownloader::new(
             self.connection_opts.dns_timeout,
             self.connection_opts.download_interval,
@@ -2328,7 +2309,7 @@ impl PeerNetwork {
     }
 
     /// Initialize the attachment downloader
-    pub fn init_attachments_downloader(&mut self, initial_batch: Vec<AttachmentInstance>) -> () {
+    pub fn init_attachments_downloader(&mut self, initial_batch: Vec<AttachmentInstance>) {
         self.attachments_downloader = Some(AttachmentsDownloader::new(initial_batch));
     }
 

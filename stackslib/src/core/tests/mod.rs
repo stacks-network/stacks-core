@@ -71,11 +71,11 @@ use crate::util_lib::bloom::*;
 use crate::util_lib::db::{tx_begin_immediate, DBConn, FromRow};
 use crate::util_lib::strings::StacksString;
 
-const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
+const FOO_CONTRACT: &str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";
-const SK_1: &'static str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
-const SK_2: &'static str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
-const SK_3: &'static str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd86245aef78501";
+const SK_1: &str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
+const SK_2: &str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
+const SK_3: &str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd86245aef78501";
 
 #[test]
 fn mempool_db_init() {
@@ -100,7 +100,7 @@ pub fn make_block(
             burn: 1,
         },
         proof: VRFProof::empty(),
-        parent_block: parent.1.clone(),
+        parent_block: parent.1,
         parent_microblock: BlockHeaderHash([0; 32]),
         parent_microblock_sequence: 0,
         tx_merkle_root: Sha512Trunc256Sum::empty(),
@@ -125,7 +125,7 @@ pub fn make_block(
         microblock_tail: None,
         index_root: TrieHash::from_empty_data(),
         stacks_block_height: block_height,
-        consensus_hash: block_consensus.clone(),
+        consensus_hash: block_consensus,
         burn_header_hash: BurnchainHeaderHash([0; 32]),
         burn_header_height: burn_height as u32,
         burn_header_timestamp: 0,
@@ -148,7 +148,7 @@ pub fn make_block(
         .unwrap();
 
     StacksChainState::insert_stacks_block_header(
-        &mut chainstate_tx,
+        &chainstate_tx,
         &new_index_hash,
         &new_tip_info,
         &ExecutionCost::ZERO,
@@ -176,10 +176,7 @@ fn mempool_walk_over_fork() {
     let b_1 = make_block(
         &mut chainstate,
         ConsensusHash([0x1; 20]),
-        &(
-            FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            FIRST_STACKS_BLOCK_HASH.clone(),
-        ),
+        &(FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH),
         1,
         1,
     );
@@ -587,10 +584,7 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
     let b_1 = make_block(
         &mut chainstate,
         ConsensusHash([0x1; 20]),
-        &(
-            FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            FIRST_STACKS_BLOCK_HASH.clone(),
-        ),
+        &(FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH),
         1,
         1,
     );
@@ -781,10 +775,7 @@ fn test_iterate_candidates_skipped_transaction() {
     let b_1 = make_block(
         &mut chainstate,
         ConsensusHash([0x1; 20]),
-        &(
-            FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            FIRST_STACKS_BLOCK_HASH.clone(),
-        ),
+        &(FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH),
         1,
         1,
     );
@@ -894,10 +885,7 @@ fn test_iterate_candidates_processing_error_transaction() {
     let b_1 = make_block(
         &mut chainstate,
         ConsensusHash([0x1; 20]),
-        &(
-            FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            FIRST_STACKS_BLOCK_HASH.clone(),
-        ),
+        &(FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH),
         1,
         1,
     );
@@ -1009,10 +997,7 @@ fn test_iterate_candidates_problematic_transaction() {
     let b_1 = make_block(
         &mut chainstate,
         ConsensusHash([0x1; 20]),
-        &(
-            FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            FIRST_STACKS_BLOCK_HASH.clone(),
-        ),
+        &(FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH),
         1,
         1,
     );
@@ -1124,10 +1109,7 @@ fn test_iterate_candidates_concurrent_write_lock() {
     let b_1 = make_block(
         &mut chainstate,
         ConsensusHash([0x1; 20]),
-        &(
-            FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            FIRST_STACKS_BLOCK_HASH.clone(),
-        ),
+        &(FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH),
         1,
         1,
     );
@@ -1159,13 +1141,13 @@ fn test_iterate_candidates_concurrent_write_lock() {
         if let Some(nonce) = expected_addr_nonces.get_mut(&origin_address) {
             *nonce = cmp::max(*nonce, origin_nonce);
         } else {
-            expected_addr_nonces.insert(origin_address.clone(), origin_nonce);
+            expected_addr_nonces.insert(origin_address, origin_nonce);
         }
 
         if let Some(nonce) = expected_addr_nonces.get_mut(&sponsor_address) {
             *nonce = cmp::max(*nonce, sponsor_nonce);
         } else {
-            expected_addr_nonces.insert(sponsor_address.clone(), sponsor_nonce);
+            expected_addr_nonces.insert(sponsor_address, sponsor_nonce);
         }
 
         tx.set_tx_fee(100);
@@ -1211,10 +1193,10 @@ fn test_iterate_candidates_concurrent_write_lock() {
 
         mempool_tx.commit().unwrap();
     }
-    assert!(expected_addr_nonces.len() > 0);
+    assert!(!expected_addr_nonces.is_empty());
 
     let all_addr_nonces = db_get_all_nonces(mempool.conn()).unwrap();
-    assert_eq!(all_addr_nonces.len(), 0);
+    assert!(all_addr_nonces.is_empty());
 
     // start a thread that holds a write-lock on the mempool
     let write_thread = std::thread::spawn(move || {
@@ -1266,7 +1248,7 @@ fn test_iterate_candidates_concurrent_write_lock() {
     assert_eq!(all_addr_nonces.len(), expected_addr_nonces.len());
 
     for (addr, nonce) in all_addr_nonces {
-        assert!(expected_addr_nonces.get(&addr).is_some());
+        assert!(expected_addr_nonces.contains_key(&addr));
         assert_eq!(nonce, 24);
     }
 }
@@ -1282,10 +1264,7 @@ fn mempool_do_not_replace_tx() {
     let b_1 = make_block(
         &mut chainstate,
         ConsensusHash([0x1; 20]),
-        &(
-            FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            FIRST_STACKS_BLOCK_HASH.clone(),
-        ),
+        &(FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH),
         1,
         1,
     );
@@ -1353,7 +1332,7 @@ fn mempool_do_not_replace_tx() {
 
     assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
 
-    let prior_txid = txid.clone();
+    let prior_txid = txid;
 
     // now, let's try inserting again, with a lower fee, but at a different block hash
     tx.set_tx_fee(100);
@@ -1627,15 +1606,15 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
     assert_eq!(txs.len(), 0);
 
     eprintln!("garbage-collect");
-    let mut mempool_tx = mempool.tx_begin().unwrap();
+    let mempool_tx = mempool.tx_begin().unwrap();
     match behavior {
         MempoolCollectionBehavior::ByStacksHeight => {
-            MemPoolDB::garbage_collect_by_coinbase_height(&mut mempool_tx, 101, None)
+            MemPoolDB::garbage_collect_by_coinbase_height(&mempool_tx, 101, None)
         }
         MempoolCollectionBehavior::ByReceiveTime => {
             let test_max_age = Duration::from_secs(1);
             std::thread::sleep(2 * test_max_age);
-            MemPoolDB::garbage_collect_by_time(&mut mempool_tx, &test_max_age, None)
+            MemPoolDB::garbage_collect_by_time(&mempool_tx, &test_max_age, None)
         }
     }
     .unwrap();
@@ -1666,7 +1645,7 @@ fn mempool_db_test_rbf() {
         key_encoding: TransactionPublicKeyEncoding::Uncompressed,
         nonce: 123,
         tx_fee: 456,
-        signature: MessageSignature::from_raw(&vec![0xff; 65]),
+        signature: MessageSignature::from_raw(&[0xff; 65]),
     });
     let stx_address = StacksAddress {
         version: 1,
@@ -1843,7 +1822,7 @@ fn test_add_txs_bloom_filter() {
             let tx_bytes = tx.serialize_to_vec();
             let origin_addr = tx.origin_address();
             let origin_nonce = tx.get_origin_nonce();
-            let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+            let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
             let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
             let tx_fee = tx.get_tx_fee();
 
@@ -1857,7 +1836,7 @@ fn test_add_txs_bloom_filter() {
                 txid,
                 tx_bytes,
                 tx_fee,
-                block_height as u64,
+                block_height.try_into().unwrap(),
                 &origin_addr,
                 origin_nonce,
                 &sponsor_addr,
@@ -1892,8 +1871,10 @@ fn test_add_txs_bloom_filter() {
         if block_height > 10 + BLOOM_COUNTER_DEPTH {
             let expired_block_height = block_height - BLOOM_COUNTER_DEPTH;
             let bf = mempool.get_txid_bloom_filter().unwrap();
-            for i in 0..(block_height - 10 - BLOOM_COUNTER_DEPTH) {
-                let txids = &all_txids[i];
+            for txids in all_txids
+                .iter()
+                .take(block_height - 10 - BLOOM_COUNTER_DEPTH)
+            {
                 let mut fp_count = 0;
                 for txid in txids {
                     if bf.contains_raw(&txid.0) {
@@ -1952,7 +1933,7 @@ fn test_txtags() {
             let tx_bytes = tx.serialize_to_vec();
             let origin_addr = tx.origin_address();
             let origin_nonce = tx.get_origin_nonce();
-            let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+            let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
             let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
             let tx_fee = tx.get_tx_fee();
 
@@ -1968,7 +1949,7 @@ fn test_txtags() {
                 txid,
                 tx_bytes,
                 tx_fee,
-                block_height as u64,
+                block_height.try_into().unwrap(),
                 &origin_addr,
                 origin_nonce,
                 &sponsor_addr,
@@ -1992,8 +1973,7 @@ fn test_txtags() {
 
         let txtags = mempool.get_txtags(&seed).unwrap();
         let len_txtags = all_txtags.len();
-        let last_txtags =
-            &all_txtags[len_txtags.saturating_sub(BLOOM_COUNTER_DEPTH as usize)..len_txtags];
+        let last_txtags = &all_txtags[len_txtags.saturating_sub(BLOOM_COUNTER_DEPTH)..len_txtags];
 
         let mut expected_txtag_set = HashSet::new();
         for txtags in last_txtags.iter() {
@@ -2048,7 +2028,7 @@ fn test_make_mempool_sync_data() {
                 let tx_bytes = tx.serialize_to_vec();
                 let origin_addr = tx.origin_address();
                 let origin_nonce = tx.get_origin_nonce();
-                let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+                let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
                 let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
                 let tx_fee = tx.get_tx_fee();
 
@@ -2059,10 +2039,10 @@ fn test_make_mempool_sync_data() {
                     &ConsensusHash([0x1 + (block_height as u8); 20]),
                     &BlockHeaderHash([0x2 + (block_height as u8); 32]),
                     false, // don't resolve the above chain tip since it doesn't exist
-                    txid.clone(),
+                    txid,
                     tx_bytes,
                     tx_fee,
-                    block_height as u64,
+                    block_height.try_into().unwrap(),
                     &origin_addr,
                     origin_nonce,
                     &sponsor_addr,
@@ -2113,14 +2093,14 @@ fn test_make_mempool_sync_data() {
                         if bf.contains_raw(&txid.0) {
                             in_bf += 1;
                         }
-                        recent_set.insert(txid.clone());
+                        recent_set.insert(*txid);
                     }
 
                     eprintln!("in bloom filter: {}", in_bf);
                     assert!(in_bf >= recent_txids.len());
 
                     for txid in txids.iter() {
-                        if !recent_set.contains(&txid) && bf.contains_raw(&txid.0) {
+                        if !recent_set.contains(txid) && bf.contains_raw(&txid.0) {
                             fp_count += 1;
                         }
                         if bf.contains_raw(&txid.0) {
@@ -2131,9 +2111,7 @@ fn test_make_mempool_sync_data() {
                     }
 
                     // all recent transactions should be present
-                    assert!(
-                        present_count >= cmp::min(MAX_BLOOM_COUNTER_TXS.into(), txids.len() as u32)
-                    );
+                    assert!(present_count >= cmp::min(MAX_BLOOM_COUNTER_TXS, txids.len() as u32));
                 }
                 MemPoolSyncData::TxTags(ref seed, ref tags) => {
                     eprintln!("txtags({}); txids.len() == {}", block_height, txids.len());
@@ -2167,7 +2145,7 @@ fn test_make_mempool_sync_data() {
                 );
             }
 
-            let total_count = MemPoolDB::get_num_recent_txs(&mempool.conn()).unwrap();
+            let total_count = MemPoolDB::get_num_recent_txs(mempool.conn()).unwrap();
             eprintln!(
                 "present_count: {}, absent count: {}, total sent: {}, total recent: {}",
                 present_count,
@@ -2226,7 +2204,7 @@ fn test_find_next_missing_transactions() {
         let tx_bytes = tx.serialize_to_vec();
         let origin_addr = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
         let tx_fee = tx.get_tx_fee();
 
@@ -2237,10 +2215,10 @@ fn test_find_next_missing_transactions() {
             &ConsensusHash([0x1 + (block_height as u8); 20]),
             &BlockHeaderHash([0x2 + (block_height as u8); 32]),
             false, // don't resolve the above chain tip since it doesn't exist
-            txid.clone(),
+            txid,
             tx_bytes,
             tx_fee,
-            block_height as u64,
+            block_height,
             &origin_addr,
             origin_nonce,
             &sponsor_addr,
@@ -2256,7 +2234,7 @@ fn test_find_next_missing_transactions() {
 
     let mut txid_set = HashSet::new();
     for txid in txids.iter() {
-        txid_set.insert(txid.clone());
+        txid_set.insert(*txid);
     }
 
     eprintln!("Find next missing transactions");
@@ -2375,15 +2353,15 @@ fn test_find_next_missing_transactions() {
             )
             .unwrap();
         assert!(txs.len() <= page_size as usize);
-        assert!(num_visited <= page_size as u64);
+        assert!(num_visited <= page_size);
 
-        if txs.len() == 0 {
+        if txs.is_empty() {
             assert!(next_page_opt.is_none());
             break;
         }
 
         last_txid = mempool
-            .get_randomized_txid(&txs.last().clone().unwrap().txid())
+            .get_randomized_txid(&txs.last().unwrap().txid())
             .unwrap()
             .unwrap();
 
@@ -2414,15 +2392,15 @@ fn test_find_next_missing_transactions() {
         eprintln!("find_next_missing_transactions with empty bloom filter took {} ms to serve {} transactions", ts_after.saturating_sub(ts_before), page_size);
 
         assert!(txs.len() <= page_size as usize);
-        assert!(num_visited <= page_size as u64);
+        assert!(num_visited <= page_size);
 
-        if txs.len() == 0 {
+        if txs.is_empty() {
             assert!(next_page_opt.is_none());
             break;
         }
 
         last_txid = mempool
-            .get_randomized_txid(&txs.last().clone().unwrap().txid())
+            .get_randomized_txid(&txs.last().unwrap().txid())
             .unwrap()
             .unwrap();
 
@@ -2496,7 +2474,7 @@ fn test_drop_and_blacklist_txs_by_time() {
         let tx_bytes = tx.serialize_to_vec();
         let origin_addr = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
         let tx_fee = tx.get_tx_fee();
 
@@ -2507,10 +2485,10 @@ fn test_drop_and_blacklist_txs_by_time() {
             &ConsensusHash([0x1 + (block_height as u8); 20]),
             &BlockHeaderHash([0x2 + (block_height as u8); 32]),
             false, // don't resolve the above chain tip since it doesn't exist
-            txid.clone(),
+            txid,
             tx_bytes,
             tx_fee,
-            block_height as u64,
+            block_height,
             &origin_addr,
             origin_nonce,
             &sponsor_addr,
@@ -2616,7 +2594,7 @@ fn test_drop_and_blacklist_txs_by_size() {
         let tx_bytes = tx.serialize_to_vec();
         let origin_addr = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
         let tx_fee = tx.get_tx_fee();
 
@@ -2627,10 +2605,10 @@ fn test_drop_and_blacklist_txs_by_size() {
             &ConsensusHash([0x1 + (block_height as u8); 20]),
             &BlockHeaderHash([0x2 + (block_height as u8); 32]),
             false, // don't resolve the above chain tip since it doesn't exist
-            txid.clone(),
+            txid,
             tx_bytes,
             tx_fee,
-            block_height as u64,
+            block_height,
             &origin_addr,
             origin_nonce,
             &sponsor_addr,
@@ -2700,10 +2678,7 @@ fn test_filter_txs_by_type() {
     let b_1 = make_block(
         &mut chainstate,
         ConsensusHash([0x1; 20]),
-        &(
-            FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            FIRST_STACKS_BLOCK_HASH.clone(),
-        ),
+        &(FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH),
         1,
         1,
     );
@@ -2732,7 +2707,7 @@ fn test_filter_txs_by_type() {
         let tx_bytes = tx.serialize_to_vec();
         let origin_addr = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
         let tx_fee = tx.get_tx_fee();
 
@@ -2745,10 +2720,10 @@ fn test_filter_txs_by_type() {
             &b_2.0,
             &b_2.1,
             true,
-            txid.clone(),
+            txid,
             tx_bytes,
             tx_fee,
-            block_height as u64,
+            block_height,
             &origin_addr,
             origin_nonce,
             &sponsor_addr,

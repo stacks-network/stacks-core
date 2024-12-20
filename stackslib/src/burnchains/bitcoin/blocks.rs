@@ -231,7 +231,7 @@ impl BitcoinBlockParser {
     /// New block parser
     pub fn new(network_id: BitcoinNetworkType, magic_bytes: MagicBytes) -> BitcoinBlockParser {
         BitcoinBlockParser {
-            network_id: network_id,
+            network_id,
             magic_bytes: magic_bytes.clone(),
         }
     }
@@ -381,7 +381,7 @@ impl BitcoinBlockParser {
         tx: &Transaction,
         epoch_id: StacksEpochId,
     ) -> Option<Vec<BitcoinTxOutput>> {
-        if tx.output.len() == 0 {
+        if tx.output.is_empty() {
             return None;
         }
 
@@ -478,7 +478,7 @@ impl BitcoinBlockParser {
         }
 
         BitcoinBlock {
-            block_height: block_height,
+            block_height,
             block_hash: BurnchainHeaderHash::from_bitcoin_hash(&block.bitcoin_hash()),
             parent_block_hash: BurnchainHeaderHash::from_bitcoin_hash(&block.header.prev_blockhash),
             txs: accepted_txs,
@@ -596,7 +596,7 @@ mod tests {
         let header =
             deserialize(&header_bin.to_vec()).map_err(|_e| "failed to deserialize header")?;
         Ok(LoneBlockHeader {
-            header: header,
+            header,
             tx_count: VarInt(0),
         })
     }
@@ -655,7 +655,7 @@ mod tests {
                 result: Some(BitcoinTransaction {
                     data_amt: 0,
                     txid: to_txid(&hex_bytes("185c112401590b11acdfea6bb26d2a8e37cb31f24a0c89dbb8cc14b3d6271fb1").unwrap()),
-                    vtxindex: vtxindex,
+                    vtxindex,
                     opcode: '+' as u8,
                     data: hex_bytes("fae543ff5672fb607fe15e16b1c3ef38737c631c7c5d911c6617993c21fba731363f1cfe").unwrap(),
                     inputs: vec![
@@ -702,7 +702,7 @@ mod tests {
                 result: Some(BitcoinTransaction {
                     data_amt: 0,
                     txid: to_txid(&hex_bytes("eb2e84a45cf411e528185a98cd5fb45ed349843a83d39fd4dff2de47adad8c8f").unwrap()),
-                    vtxindex: vtxindex,
+                    vtxindex,
                     opcode: '~' as u8,
                     data: hex_bytes("7061747269636b7374616e6c6579322e6964").unwrap(),
                     inputs: vec![
@@ -745,7 +745,7 @@ mod tests {
                 result: Some(BitcoinTransaction {
                     data_amt: 0,
                     txid: to_txid(&hex_bytes("b908952b30ccfdfa59985dc1ffdd2a22ef054d20fa253510d2af7797dddee459").unwrap()),
-                    vtxindex: vtxindex,
+                    vtxindex,
                     opcode: ':' as u8,
                     data: hex_bytes("666f6f2e74657374").unwrap(),
                     inputs: vec![
@@ -776,7 +776,7 @@ mod tests {
                 result: Some(BitcoinTransaction {
                     data_amt: 0,
                     txid: to_txid(&hex_bytes("16751ca54407b922e3072830cf4be58c5562a6dc350f6703192b673c4cc86182").unwrap()),
-                    vtxindex: vtxindex,
+                    vtxindex,
                     opcode: '?' as u8,
                     data: hex_bytes("9fab7f294936ddb6524a48feff691ecbd0ca9e8f107d845c417a5438d1cb441e827c5126").unwrap(),
                     inputs: vec![
@@ -826,7 +826,7 @@ mod tests {
                 result: Some(BitcoinTransaction {
                     data_amt: 0,
                     txid: to_txid(&hex_bytes("185c112401590b11acdfea6bb26d2a8e37cb31f24a0c89dbb8cc14b3d6271fb1").unwrap()),
-                    vtxindex: vtxindex,
+                    vtxindex,
                     opcode: '+' as u8,
                     data: hex_bytes("fae543ff5672fb607fe15e16b1c3ef38737c631c7c5d911c6617993c21fba731363f1cfe").unwrap(),
                     inputs: vec![
@@ -864,7 +864,7 @@ mod tests {
                 result: Some(BitcoinTransaction {
                     data_amt: 0,
                     txid: to_txid(&hex_bytes("eb2e84a45cf411e528185a98cd5fb45ed349843a83d39fd4dff2de47adad8c8f").unwrap()),
-                    vtxindex: vtxindex,
+                    vtxindex,
                     opcode: '~' as u8,
                     data: hex_bytes("7061747269636b7374616e6c6579322e6964").unwrap(),
                     inputs: vec![
@@ -897,7 +897,7 @@ mod tests {
                 result: Some(BitcoinTransaction {
                     data_amt: 0,
                     txid: to_txid(&hex_bytes("b908952b30ccfdfa59985dc1ffdd2a22ef054d20fa253510d2af7797dddee459").unwrap()),
-                    vtxindex: vtxindex,
+                    vtxindex,
                     opcode: ':' as u8,
                     data: hex_bytes("666f6f2e74657374").unwrap(),
                     inputs: vec![
@@ -928,7 +928,7 @@ mod tests {
                 result: Some(BitcoinTransaction {
                     data_amt: 0,
                     txid: to_txid(&hex_bytes("16751ca54407b922e3072830cf4be58c5562a6dc350f6703192b673c4cc86182").unwrap()),
-                    vtxindex: vtxindex,
+                    vtxindex,
                     opcode: '?' as u8,
                     data: hex_bytes("9fab7f294936ddb6524a48feff691ecbd0ca9e8f107d845c417a5438d1cb441e827c5126").unwrap(),
                     inputs: vec![
@@ -961,7 +961,7 @@ mod tests {
                 result: Some(BitcoinTransaction {
                     data_amt: 0,
                     txid: to_txid(&hex_bytes("8b8a12909d48fd86c06e92270133d320498fb36caa0fdcb3292a8bba99669ebd").unwrap()),
-                    vtxindex: vtxindex,
+                    vtxindex,
                     opcode: '&' as u8,
                     data: hex_bytes("0000cd73fa046543210000000000aa000174657374").unwrap(),
                     inputs: vec![

@@ -106,7 +106,7 @@ fn test_marf_with_cache(
         } else {
             for (key, value) in block_data.iter() {
                 let path = TrieHash::from_key(key);
-                let leaf = TrieLeaf::from_value(&vec![], value.clone());
+                let leaf = TrieLeaf::from_value(&[], value.clone());
                 marf.insert_raw(path, leaf).unwrap();
             }
         }
@@ -129,7 +129,7 @@ fn test_marf_with_cache(
         test_debug!("Read block {}", i);
         for (key, value) in block_data.iter() {
             let path = TrieHash::from_key(key);
-            let marf_leaf = TrieLeaf::from_value(&vec![], value.clone());
+            let marf_leaf = TrieLeaf::from_value(&[], value.clone());
 
             let read_time = SystemTime::now();
             let leaf = MARF::get_path(

@@ -2281,7 +2281,7 @@ pub struct UTXOSet {
 
 impl UTXOSet {
     pub fn is_empty(&self) -> bool {
-        self.utxos.len() == 0
+        self.utxos.is_empty()
     }
 
     pub fn total_available(&self) -> u64 {

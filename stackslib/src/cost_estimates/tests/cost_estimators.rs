@@ -31,7 +31,7 @@ use crate::cost_estimates::{
 fn instantiate_test_db() -> PessimisticEstimator {
     let mut path = env::temp_dir();
     let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
-    path.push(&format!("fee_db_{}.sqlite", &to_hex(&random_bytes)[0..8]));
+    path.push(format!("fee_db_{}.sqlite", &to_hex(&random_bytes)[0..8]));
 
     PessimisticEstimator::open(&path, true).expect("Test failure: could not open fee rate DB")
 }
@@ -827,11 +827,7 @@ fn test_cost_estimator_epochs_independent() {
 
     // Setup: "notify" cost_200 in Epoch20.
     estimator.notify_block(
-        &vec![make_dummy_cc_tx(
-            &contract_name,
-            &func_name,
-            cost_200.clone(),
-        )],
+        &vec![make_dummy_cc_tx(contract_name, func_name, cost_200.clone())],
         &BLOCK_LIMIT_MAINNET_20,
         &StacksEpochId::Epoch20,
     );
@@ -842,7 +838,7 @@ fn test_cost_estimator_epochs_independent() {
             make_dummy_coinbase_tx(),
             make_dummy_transfer_tx(),
             make_dummy_transfer_tx(),
-            make_dummy_cc_tx(&contract_name, &func_name, cost_205.clone()),
+            make_dummy_cc_tx(contract_name, func_name, cost_205.clone()),
         ],
         &BLOCK_LIMIT_MAINNET_20,
         &StacksEpochId::Epoch2_05,

@@ -840,7 +840,10 @@ mod test {
 
         let original = hex_script!("827651a0698faaa9a8a7a687");
         let json_value = serde_json::to_value(&original).unwrap();
-        assert_eq!(serde_json::to_vec(&json_value).unwrap(), b"\"827651a0698faaa9a8a7a687\"");
+        assert_eq!(
+            serde_json::to_vec(&json_value).unwrap(),
+            b"\"827651a0698faaa9a8a7a687\""
+        );
         assert_eq!(json_value.to_string(), "\"827651a0698faaa9a8a7a687\"");
         let des = serde_json::from_value(json_value).unwrap();
         assert_eq!(original, des);

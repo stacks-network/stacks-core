@@ -191,12 +191,12 @@ fn test_stream_nakamoto_tenure() {
 
     let ptr = &mut all_block_bytes.as_slice();
     let mut blocks = vec![];
-    while ptr.len() > 0 {
+    while !ptr.is_empty() {
         let block = NakamotoBlock::consensus_deserialize(ptr).unwrap();
         blocks.push(block);
     }
 
-    info!("blocks = {:?}", &blocks);
+    info!("blocks = {blocks:?}");
     assert_eq!(blocks.len(), 10);
     assert_eq!(
         blocks.first().unwrap().header.block_id(),

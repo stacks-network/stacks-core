@@ -444,7 +444,7 @@ impl TestStacksNode {
     /// Record the nakamoto blocks as a new tenure
     pub fn add_nakamoto_tenure_blocks(&mut self, tenure_blocks: Vec<NakamotoBlock>) {
         if let Some(last_tenure) = self.nakamoto_blocks.last_mut() {
-            if tenure_blocks.len() > 0 {
+            if !tenure_blocks.is_empty() {
                 // this tenure is overwriting the last tenure
                 if last_tenure.first().unwrap().header.consensus_hash
                     == tenure_blocks.first().unwrap().header.consensus_hash
@@ -743,7 +743,7 @@ impl TestStacksNode {
             let mut next_block_txs = block_builder(miner, chainstate, sortdb, &blocks);
             txs.append(&mut next_block_txs);
 
-            if txs.len() == 0 {
+            if txs.is_empty() {
                 break;
             }
 
@@ -961,19 +961,17 @@ impl TestStacksNode {
                             .expect("FATAL: chain tip is not a Nakamoto block");
                         assert_eq!(nakamoto_chain_tip, &nakamoto_block.header);
                     }
+                } else if try_to_process {
+                    test_debug!(
+                        "Did NOT accept Nakamoto block {}",
+                        &block_to_store.block_id()
+                    );
+                    break;
                 } else {
-                    if try_to_process {
-                        test_debug!(
-                            "Did NOT accept Nakamoto block {}",
-                            &block_to_store.block_id()
-                        );
-                        break;
-                    } else {
-                        test_debug!(
-                            "Test will NOT process Nakamoto block {}",
-                            &block_to_store.block_id()
-                        );
-                    }
+                    test_debug!(
+                        "Test will NOT process Nakamoto block {}",
+                        &block_to_store.block_id()
+                    );
                 }
 
                 if !malleablize {
@@ -2029,34 +2027,32 @@ impl<'a> TestPeer<'a> {
                 .unwrap()
                 .is_none());
             }
-        } else {
-            if parent_block_header
-                .anchored_header
-                .as_stacks_nakamoto()
-                .is_some()
-            {
-                assert_eq!(
-                    NakamotoChainState::get_ongoing_tenure(
-                        &mut chainstate.index_conn(),
-                        &block.block_id()
-                    )
-                    .unwrap()
-                    .unwrap(),
-                    NakamotoChainState::get_ongoing_tenure(
-                        &mut chainstate.index_conn(),
-                        &parent_block_header.index_block_hash()
-                    )
-                    .unwrap()
-                    .unwrap()
-                );
-            } else {
-                assert!(NakamotoChainState::get_ongoing_tenure(
+        } else if parent_block_header
+            .anchored_header
+            .as_stacks_nakamoto()
+            .is_some()
+        {
+            assert_eq!(
+                NakamotoChainState::get_ongoing_tenure(
+                    &mut chainstate.index_conn(),
+                    &block.block_id()
+                )
+                .unwrap()
+                .unwrap(),
+                NakamotoChainState::get_ongoing_tenure(
                     &mut chainstate.index_conn(),
                     &parent_block_header.index_block_hash()
                 )
                 .unwrap()
-                .is_none());
-            }
+                .unwrap()
+            );
+        } else {
+            assert!(NakamotoChainState::get_ongoing_tenure(
+                &mut chainstate.index_conn(),
+                &parent_block_header.index_block_hash()
+            )
+            .unwrap()
+            .is_none());
         }
 
         // get_block_found_tenure
@@ -2093,43 +2089,41 @@ impl<'a> TestPeer<'a> {
                 .unwrap()
                 .is_none());
             }
-        } else {
-            if parent_block_header
-                .anchored_header
-                .as_stacks_nakamoto()
-                .is_some()
-            {
-                assert_eq!(
-                    NakamotoChainState::get_block_found_tenure(
-                        &mut chainstate.index_conn(),
-                        &block.block_id(),
-                        &block.header.consensus_hash
-                    )
-                    .unwrap()
-                    .unwrap(),
-                    NakamotoChainState::get_block_found_tenure(
-                        &mut chainstate.index_conn(),
-                        &block.block_id(),
-                        &parent_block_header.consensus_hash
-                    )
-                    .unwrap()
-                    .unwrap()
-                );
-            } else {
-                assert!(NakamotoChainState::get_block_found_tenure(
+        } else if parent_block_header
+            .anchored_header
+            .as_stacks_nakamoto()
+            .is_some()
+        {
+            assert_eq!(
+                NakamotoChainState::get_block_found_tenure(
+                    &mut chainstate.index_conn(),
+                    &block.block_id(),
+                    &block.header.consensus_hash
+                )
+                .unwrap()
+                .unwrap(),
+                NakamotoChainState::get_block_found_tenure(
                     &mut chainstate.index_conn(),
                     &block.block_id(),
                     &parent_block_header.consensus_hash
                 )
                 .unwrap()
-                .is_none());
-            }
+                .unwrap()
+            );
+        } else {
+            assert!(NakamotoChainState::get_block_found_tenure(
+                &mut chainstate.index_conn(),
+                &block.block_id(),
+                &parent_block_header.consensus_hash
+            )
+            .unwrap()
+            .is_none());
         }
 
         // get_nakamoto_tenure_length
         // compare the DB to the block's ancestors
         let ancestors = Self::load_nakamoto_tenure(chainstate, &block.block_id());
-        assert!(ancestors.len() > 0);
+        assert!(!ancestors.is_empty());
         assert_eq!(
             ancestors.len(),
             NakamotoChainState::get_nakamoto_tenure_length(chainstate.db(), &block.block_id())

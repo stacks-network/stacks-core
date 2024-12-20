@@ -341,7 +341,7 @@ impl Trie {
     ) -> Result<TriePtr, Error> {
         // can only work if we're not at the end of the path, and the current node has a path
         assert!(!cursor.eop());
-        assert!(cur_leaf_data.path.len() > 0);
+        assert!(!cur_leaf_data.path.is_empty());
 
         // switch from lazy expansion to path compression --
         // * the current and new leaves will have unique suffixes
@@ -378,7 +378,7 @@ impl Trie {
         // append the new leaf and the end of the file.
         let new_leaf_disk_ptr = storage.last_ptr()?;
         let new_leaf_chr = cursor.path[cursor.tell()]; // NOTE: this is safe because !cursor.eop()
-        let new_leaf_path = cursor.path[(if cursor.tell() + 1 <= cursor.path.len() {
+        let new_leaf_path = cursor.path[(if cursor.tell() < cursor.path.len() {
             cursor.tell() + 1
         } else {
             cursor.path.len()
@@ -873,13 +873,13 @@ impl Trie {
         cursor: &TrieCursor<T>,
         update_skiplist: bool,
     ) -> Result<(), Error> {
-        assert!(cursor.node_ptrs.len() > 0);
+        assert!(!cursor.node_ptrs.is_empty());
 
         let mut ptrs = cursor.node_ptrs.clone();
         trace!("update_root_hash: ptrs = {:?}", &ptrs);
         let mut child_ptr = ptrs.pop().unwrap();
 
-        if ptrs.len() == 0 {
+        if ptrs.is_empty() {
             // root node was already updated by trie operations, but it will have the wrong hash.
             // we need to "fix" the root node so it mixes in its ancestor hashes.
             trace!("Fix up root node so it mixes in its ancestor hashes");

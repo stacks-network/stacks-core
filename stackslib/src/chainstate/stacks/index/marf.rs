@@ -529,7 +529,7 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
             Some(WriteChainTip { ref block_hash, .. }) => Ok(block_hash.clone()),
         }?;
 
-        if keys.len() == 0 {
+        if keys.is_empty() {
             return Ok(());
         }
 
@@ -683,7 +683,7 @@ impl<T: MarfTrieId> MARF<T> {
         }
     }
 
-    fn node_copy_update_ptrs(ptrs: &mut [TriePtr], child_block_id: u32) -> () {
+    fn node_copy_update_ptrs(ptrs: &mut [TriePtr], child_block_id: u32) {
         for pointer in ptrs.iter_mut() {
             // if the node is empty, do nothing, if it's a back pointer,
             if pointer.id() == TrieNodeID::Empty as u8 || is_backptr(pointer.id()) {
@@ -1145,7 +1145,7 @@ impl<T: MarfTrieId> MARF<T> {
     /// Instantiate the MARF from a TrieFileStorage instance
     pub fn from_storage(storage: TrieFileStorage<T>) -> MARF<T> {
         MARF {
-            storage: storage,
+            storage,
             open_chain_tip: None,
         }
     }
@@ -1348,7 +1348,7 @@ impl<T: MarfTrieId> MARF<T> {
     ) -> Result<(), Error> {
         assert_eq!(keys.len(), values.len());
 
-        if keys.len() == 0 {
+        if keys.is_empty() {
             return Ok(());
         }
 
@@ -1456,7 +1456,7 @@ impl<T: MarfTrieId> MARF<T> {
             Some(WriteChainTip { ref block_hash, .. }) => Ok(block_hash.clone()),
         }?;
 
-        if keys.len() == 0 {
+        if keys.is_empty() {
             return Ok(());
         }
 

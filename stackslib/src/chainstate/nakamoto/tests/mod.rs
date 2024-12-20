@@ -2586,7 +2586,7 @@ fn valid_vote_transaction() {
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr,
-            contract_name: contract_name,
+            contract_name,
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: valid_function_args,
         }),
@@ -3142,7 +3142,7 @@ pub mod nakamoto_block_signatures {
     #[test]
     /// Base success case - 3 signers of equal weight, all signing the block
     pub fn test_nakamoto_block_verify_signatures() {
-        let signers = vec![
+        let signers = [
             Secp256k1PrivateKey::default(),
             Secp256k1PrivateKey::default(),
             Secp256k1PrivateKey::default(),

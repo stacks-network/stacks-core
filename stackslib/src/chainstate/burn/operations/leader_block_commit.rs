@@ -102,7 +102,7 @@ impl LeaderBlockCommitOp {
     ) -> LeaderBlockCommitOp {
         LeaderBlockCommitOp {
             sunset_burn: 0,
-            block_height: block_height,
+            block_height,
             burn_parent_modulus: if block_height > 0 {
                 u8::try_from((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS)
                     .expect("FATAL: unreachable: unable to form u8 from 3-bit number")
@@ -117,7 +117,7 @@ impl LeaderBlockCommitOp {
             parent_block_ptr: 0,
             parent_vtxindex: 0,
             memo: vec![0x00],
-            burn_fee: burn_fee,
+            burn_fee,
             input: input.clone(),
             block_header_hash: block_header_hash.clone(),
             commit_outs: vec![],
@@ -147,12 +147,12 @@ impl LeaderBlockCommitOp {
         LeaderBlockCommitOp {
             sunset_burn: 0,
             new_seed: new_seed.clone(),
-            key_block_ptr: key_block_ptr,
-            key_vtxindex: key_vtxindex,
+            key_block_ptr,
+            key_vtxindex,
             parent_block_ptr: parent_block_height,
-            parent_vtxindex: parent_vtxindex,
+            parent_vtxindex,
             memo: vec![],
-            burn_fee: burn_fee,
+            burn_fee,
             input: input.clone(),
             block_header_hash: block_header_hash.clone(),
             commit_outs: vec![],
@@ -293,7 +293,7 @@ impl LeaderBlockCommitOp {
             return Err(op_error::InvalidInput);
         }
 
-        if outputs.len() == 0 {
+        if outputs.is_empty() {
             warn!(
                 "Invalid tx: inputs: {}, outputs: {}",
                 tx.num_signers(),
@@ -313,13 +313,11 @@ impl LeaderBlockCommitOp {
         })?;
 
         // basic sanity checks
-        if data.parent_block_ptr == 0 {
-            if data.parent_vtxindex != 0 {
-                warn!("Invalid tx: parent block back-pointer must be positive");
-                return Err(op_error::ParseError);
-            }
-            // if parent block ptr and parent vtxindex are both 0, then this block's parent is
-            // the genesis block.
+        // if parent block ptr and parent vtxindex are both 0, then this block's parent is
+        // the genesis block.
+        if data.parent_block_ptr == 0 && data.parent_vtxindex != 0 {
+            warn!("Invalid tx: parent block back-pointer must be positive");
+            return Err(op_error::ParseError);
         }
 
         if u64::from(data.parent_block_ptr) >= block_height {
@@ -458,7 +456,7 @@ impl LeaderBlockCommitOp {
             treatment: Vec::new(),
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
-            block_height: block_height,
+            block_height,
             burn_header_hash: block_hash.clone(),
         })
     }
@@ -1777,10 +1775,10 @@ mod tests {
                     apparent_sender: BurnchainSigner("mgbpit8FvkVJ9kuXY8QSM5P7eibnhcEMBk".to_string()),
 
                     txid: Txid::from_hex("502f3e5756de7e1bdba8c713cd2daab44adb5337d14ff668fdc57cc27d67f0d4").unwrap(),
-                    vtxindex: vtxindex,
-                    block_height: block_height,
+                    vtxindex,
+                    block_height,
                     burn_parent_modulus: ((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-                    burn_header_hash: burn_header_hash,
+                    burn_header_hash,
                     treatment: vec![],                })
             },
             OpFixture {
@@ -1960,7 +1958,7 @@ mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![01, 02, 03, 04, 05],
+            memo: vec![0o1, 0o2, 0o3, 0o4, 0o5],
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -1982,7 +1980,7 @@ mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![01, 02, 03, 04, 05],
+            memo: vec![0o1, 0o2, 0o3, 0o4, 0o5],
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("9410df84e2b440055c33acb075a0687752df63fe8fe84aeec61abe469f0448c7")
@@ -2043,7 +2041,7 @@ mod tests {
             StacksEpoch::all(0, 0, first_block_height),
         )
         .unwrap();
-        let block_ops = vec![
+        let block_ops = [
             // 122
             vec![],
             // 123
@@ -2500,7 +2498,7 @@ mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![01, 02, 03, 04, 05],
+            memo: vec![0o1, 0o2, 0o3, 0o4, 0o5],
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -2522,7 +2520,7 @@ mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![01, 02, 03, 04, 05],
+            memo: vec![0o1, 0o2, 0o3, 0o4, 0o5],
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("9410df84e2b440055c33acb075a0687752df63fe8fe84aeec61abe469f0448c7")
@@ -2578,7 +2576,7 @@ mod tests {
         };
 
         let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
-        let block_ops = vec![
+        let block_ops = [
             // 122
             vec![],
             // 123
@@ -3558,7 +3556,7 @@ mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![01, 02, 03, 04, 05],
+            memo: vec![0o1, 0o2, 0o3, 0o4, 0o5],
             txid: Txid([0x01; 32]),
             vtxindex: 456,
             block_height: first_block_height + 1,

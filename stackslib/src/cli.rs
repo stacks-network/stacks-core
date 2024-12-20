@@ -387,7 +387,7 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
     let print_help_and_exit = || {
         let n = &argv[0];
         eprintln!("Usage: {n} <working-dir> [min-fee [max-time]]");
-        eprintln!("");
+        eprintln!();
         eprintln!("Given a <working-dir>, try to ''mine'' an anchored block. This invokes the miner block");
         eprintln!("assembly, but does not attempt to broadcast a block commit. This is useful for determining");
         eprintln!("what transactions a given chain state would include in an anchor block,");

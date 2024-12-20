@@ -1005,7 +1005,7 @@ fn block_info_tests(use_primary_testnet: bool) {
     let (last_2x_block_id, last_2x_block_ht) = get_tip_info(&mut peer);
 
     peer.mine_tenure(|miner, chainstate, sortdb, blocks_so_far| {
-        if blocks_so_far.len() > 0 {
+        if !blocks_so_far.is_empty() {
             return vec![];
         }
         info!("Producing first nakamoto block, publishing our three contracts");
@@ -2318,9 +2318,9 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
         debug!("{}: {:?}", i, &matured_reward);
 
         if i < 10 {
-            assert_eq!(matured_reward.parent_miner.coinbase, 3600_000_000);
+            assert_eq!(matured_reward.parent_miner.coinbase, 3_600_000_000);
         } else {
-            assert_eq!(matured_reward.parent_miner.coinbase, 1000_000_000);
+            assert_eq!(matured_reward.parent_miner.coinbase, 1_000_000_000);
         }
 
         if i < 11 {
@@ -2353,9 +2353,9 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
         let miner_reward = &matured_reward.latest_miners[0];
 
         if i < 9 {
-            assert_eq!(miner_reward.coinbase, 3600_000_000);
+            assert_eq!(miner_reward.coinbase, 3_600_000_000);
         } else {
-            assert_eq!(miner_reward.coinbase, 1000_000_000);
+            assert_eq!(miner_reward.coinbase, 1_000_000_000);
         }
         if i < 10 {
             // epoch2

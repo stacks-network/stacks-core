@@ -123,7 +123,7 @@ impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
 }
 
 impl FromRow<MinerReward> for MinerReward {
-    fn from_row<'a>(row: &'a Row) -> Result<MinerReward, db_error> {
+    fn from_row(row: &Row) -> Result<MinerReward, db_error> {
         let address = StacksAddress::from_column(row, "address")?;
         let recipient_str: Option<String> = row.get_unwrap("recipient");
         let recipient = recipient_str
@@ -516,7 +516,7 @@ impl StacksChainState {
             &(*parent_block_id).into(),
             &(*child_block_id).into(),
         )?;
-        if cur_rewards.len() > 0 {
+        if !cur_rewards.is_empty() {
             let mut present = false;
             for rw in cur_rewards.iter() {
                 if (rw.is_parent() && reward.is_parent()) || (rw.is_child() && reward.is_child()) {
@@ -976,9 +976,9 @@ impl StacksChainState {
             address: child_address,
             recipient: child_recipient,
             coinbase: coinbase_reward,
-            tx_fees_anchored: tx_fees_anchored,
+            tx_fees_anchored,
             tx_fees_streamed_produced: 0,
-            tx_fees_streamed_confirmed: tx_fees_streamed_confirmed,
+            tx_fees_streamed_confirmed,
             vtxindex: participant.vtxindex,
         };
 
@@ -1003,8 +1003,8 @@ impl StacksChainState {
 
         let reward_height = tip_stacks_height - MINER_REWARD_MATURITY;
 
-        assert!(latest_matured_miners.len() > 0);
-        assert!(latest_matured_miners[0].vtxindex == 0);
+        assert!(!latest_matured_miners.is_empty());
+        assert_eq!(latest_matured_miners[0].vtxindex, 0);
         assert!(latest_matured_miners[0].miner);
 
         let users = latest_matured_miners.split_off(1);
@@ -1387,7 +1387,7 @@ mod test {
             StacksEpochId::Epoch2_05,
             &participant,
             &participant,
-            &vec![],
+            &[],
             &MinerPaymentSchedule::genesis(true),
             None,
         );
@@ -1418,7 +1418,7 @@ mod test {
             StacksEpochId::Epoch2_05,
             &participant,
             &participant,
-            &vec![],
+            &[],
             &MinerPaymentSchedule::genesis(true),
             None,
         );
@@ -1511,7 +1511,7 @@ mod test {
             StacksEpochId::Epoch2_05,
             &participant,
             &participant,
-            &vec![],
+            &[],
             &parent_participant,
             None,
         );

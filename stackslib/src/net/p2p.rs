@@ -1746,7 +1746,7 @@ impl PeerNetwork {
 
         self.can_register_peer(nk, outbound).and_then(|_| {
             let other_events = self.get_pubkey_events(pubkh);
-            if other_events.len() > 0 {
+            if !other_events.is_empty() {
                 for event_id in other_events.into_iter() {
                     if let Some(convo) = self.peers.get(&event_id) {
                         // only care if we're trying to connect in the same direction
@@ -1885,7 +1885,7 @@ impl PeerNetwork {
     }
 
     /// Deregister a socket from our p2p network instance.
-    fn deregister_socket(&mut self, event_id: usize, socket: mio_net::TcpStream) -> () {
+    fn deregister_socket(&mut self, event_id: usize, socket: mio_net::TcpStream) {
         match self.network {
             Some(ref mut network) => {
                 let _ = network.deregister(event_id, &socket);
@@ -1895,7 +1895,7 @@ impl PeerNetwork {
     }
 
     /// Deregister a socket/event pair
-    pub fn deregister_peer(&mut self, event_id: usize) -> () {
+    pub fn deregister_peer(&mut self, event_id: usize) {
         debug!("{:?}: Disconnect event {}", &self.local_peer, event_id);
 
         let mut nk_remove: Vec<(NeighborKey, Hash160)> = vec![];
@@ -1956,7 +1956,7 @@ impl PeerNetwork {
     }
 
     /// Deregister by neighbor key
-    pub fn deregister_neighbor(&mut self, neighbor_key: &NeighborKey) -> () {
+    pub fn deregister_neighbor(&mut self, neighbor_key: &NeighborKey) {
         debug!("Disconnect from {:?}", neighbor_key);
         let event_id = match self.events.get(&neighbor_key) {
             None => {
@@ -1968,7 +1968,7 @@ impl PeerNetwork {
     }
 
     /// Deregister and ban a neighbor
-    pub fn deregister_and_ban_neighbor(&mut self, neighbor: &NeighborKey) -> () {
+    pub fn deregister_and_ban_neighbor(&mut self, neighbor: &NeighborKey) {
         debug!("Disconnect from and ban {:?}", neighbor);
         match self.events.get(neighbor) {
             Some(event_id) => {
@@ -2294,7 +2294,7 @@ impl PeerNetwork {
     /// -- Drop broken connections.
     /// -- Update our frontier.
     /// -- Prune our frontier if it gets too big.
-    fn process_neighbor_walk(&mut self, walk_result: NeighborWalkResult) -> () {
+    fn process_neighbor_walk(&mut self, walk_result: NeighborWalkResult) {
         for broken in walk_result.broken_connections.iter() {
             self.deregister_and_ban_neighbor(broken);
         }
@@ -2313,7 +2313,7 @@ impl PeerNetwork {
 
     /// Queue up pings to everyone we haven't spoken to in a while to let them know that we're still
     /// alive.
-    pub fn queue_ping_heartbeats(&mut self) -> () {
+    pub fn queue_ping_heartbeats(&mut self) {
         let now = get_epoch_time_secs();
         let mut relay_handles = HashMap::new();
         for (_, convo) in self.peers.iter_mut() {
@@ -2418,7 +2418,7 @@ impl PeerNetwork {
     }
 
     /// Prune inbound and outbound connections if we can
-    pub(crate) fn prune_connections(&mut self) -> () {
+    pub(crate) fn prune_connections(&mut self) {
         if cfg!(test) && self.connection_opts.disable_network_prune {
             return;
         }
@@ -2552,19 +2552,18 @@ impl PeerNetwork {
         // flush each outgoing conversation
         let mut relay_handles = std::mem::replace(&mut self.relay_handles, HashMap::new());
         for (event_id, handle_list) in relay_handles.iter_mut() {
-            if handle_list.len() == 0 {
-                debug!("No handles for event {}", event_id);
+            if handle_list.is_empty() {
+                debug!("No handles for event {event_id}");
                 drained.push(*event_id);
                 continue;
             }
 
             debug!(
-                "Flush {} relay handles to event {}",
-                handle_list.len(),
-                event_id
+                "Flush {} relay handles to event {event_id}",
+                handle_list.len()
             );
 
-            while handle_list.len() > 0 {
+            while !handle_list.is_empty() {
                 debug!("Flush {} relay handles", handle_list.len());
                 let res = self.with_p2p_convo(*event_id, |_network, convo, client_sock| {
                     if let Some(handle) = handle_list.front_mut() {
@@ -2572,14 +2571,13 @@ impl PeerNetwork {
                             match PeerNetwork::do_saturate_p2p_socket(convo, client_sock, handle) {
                                 Ok(x) => x,
                                 Err(e) => {
-                                    info!("Broken connection on event {}: {:?}", event_id, &e);
+                                    info!("Broken connection on event {event_id}: {e:?}");
                                     return Err(net_error::PeerNotConnected);
                                 }
                             };
 
                         debug!(
-                            "Flushed relay handle to {:?} ({:?}): sent={}, flushed={}",
-                            client_sock, convo, num_sent, flushed
+                            "Flushed relay handle to {client_sock:?} ({convo:?}): sent={num_sent}, flushed={flushed}"
                         );
                         return Ok((num_sent, flushed));
                     }
@@ -2655,7 +2653,7 @@ impl PeerNetwork {
     /// Return Err(..) on failure
     #[cfg_attr(test, mutants::skip)]
     fn begin_learn_public_ip(&mut self) -> Result<bool, net_error> {
-        if self.peers.len() == 0 {
+        if self.peers.is_empty() {
             return Err(net_error::NoSuchNeighbor);
         }
 
@@ -2729,7 +2727,7 @@ impl PeerNetwork {
     }
 
     /// Disconnect from all peers
-    fn disconnect_all(&mut self) -> () {
+    fn disconnect_all(&mut self) {
         let mut all_event_ids = vec![];
         for (eid, _) in self.peers.iter() {
             all_event_ids.push(*eid);
@@ -3275,16 +3273,14 @@ impl PeerNetwork {
 
         self.antientropy_start_reward_cycle = reward_cycle_finish;
 
-        if neighbor_keys.len() == 0 {
+        if neighbor_keys.is_empty() {
             return;
         }
 
         debug!(
-            "{:?}: AntiEntropy: run protocol for {} neighbors, over reward cycles {}-{}",
+            "{:?}: AntiEntropy: run protocol for {} neighbors, over reward cycles {reward_cycle_start}-{reward_cycle_finish}",
             &self.local_peer,
-            &neighbor_keys.len(),
-            reward_cycle_start,
-            reward_cycle_finish
+            &neighbor_keys.len()
         );
 
         // go from latest to earliest reward cycle
@@ -5423,7 +5419,7 @@ mod test {
             0,
             23456,
             "http://test-p2p.com".into(),
-            &vec![],
+            &[],
             initial_neighbors,
         )
         .unwrap();
@@ -5657,7 +5653,7 @@ mod test {
                     p2p.process_connecting_sockets(&mut p2p_poll_state);
 
                     let mut banned = p2p.process_bans().unwrap();
-                    if banned.len() > 0 {
+                    if !banned.is_empty() {
                         test_debug!("Banned {} peer(s)", banned.len());
                     }
 

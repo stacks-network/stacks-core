@@ -65,8 +65,8 @@ impl Preamble {
         payload_len: u32,
     ) -> Preamble {
         Preamble {
-            peer_version: peer_version,
-            network_id: network_id,
+            peer_version,
+            network_id,
             seq: 0,
             burn_block_height: block_height,
             burn_block_hash: burn_block_hash.clone(),
@@ -74,7 +74,7 @@ impl Preamble {
             burn_stable_block_hash: stable_burn_block_hash.clone(),
             additional_data: 0,
             signature: MessageSignature::empty(),
-            payload_len: payload_len,
+            payload_len,
         }
     }
 
@@ -234,8 +234,8 @@ impl StacksMessageCodec for GetBlocksInv {
         }
 
         Ok(GetBlocksInv {
-            consensus_hash: consensus_hash,
-            num_blocks: num_blocks,
+            consensus_hash,
+            num_blocks,
         })
     }
 }
@@ -435,10 +435,7 @@ impl StacksMessageCodec for PoxInvData {
         }
 
         let pox_bitvec: Vec<u8> = read_next_exact::<_, u8>(fd, bitvec_len(bitlen).into())?;
-        Ok(PoxInvData {
-            bitlen: bitlen,
-            pox_bitvec: pox_bitvec,
-        })
+        Ok(PoxInvData { bitlen, pox_bitvec })
     }
 }
 
@@ -454,9 +451,7 @@ impl StacksMessageCodec for BlocksAvailableData {
                 fd,
                 BLOCKS_AVAILABLE_MAX_LEN,
             )?;
-        Ok(BlocksAvailableData {
-            available: available,
-        })
+        Ok(BlocksAvailableData { available })
     }
 }
 
@@ -502,7 +497,7 @@ impl BlocksData {
         BlocksData { blocks: vec![] }
     }
 
-    pub fn push(&mut self, ch: ConsensusHash, block: StacksBlock) -> () {
+    pub fn push(&mut self, ch: ConsensusHash, block: StacksBlock) {
         self.blocks.push(BlocksDatum(ch, block))
     }
 }
@@ -624,14 +619,14 @@ impl HandshakeData {
         };
 
         HandshakeData {
-            addrbytes: addrbytes,
-            port: port,
+            addrbytes,
+            port,
             services: local_peer.services,
             node_public_key: StacksPublicKeyBuffer::from_public_key(
                 &Secp256k1PublicKey::from_private(&local_peer.private_key),
             ),
             expire_block_height: local_peer.private_key_expire,
-            data_url: data_url,
+            data_url,
         }
     }
 }
@@ -675,7 +670,7 @@ impl HandshakeAcceptData {
     pub fn new(local_peer: &LocalPeer, heartbeat_interval: u32) -> HandshakeAcceptData {
         HandshakeAcceptData {
             handshake: HandshakeData::from_local_peer(local_peer),
-            heartbeat_interval: heartbeat_interval,
+            heartbeat_interval,
         }
     }
 }
@@ -1384,7 +1379,7 @@ impl StacksMessage {
             0,
         );
         StacksMessage {
-            preamble: preamble,
+            preamble,
             relayers: vec![],
             payload: message,
         }
@@ -1414,7 +1409,7 @@ impl StacksMessage {
             peer_version: self.preamble.peer_version,
             network_id: self.preamble.network_id,
             addrbytes: addrbytes.clone(),
-            port: port,
+            port,
         }
     }
 
@@ -1431,7 +1426,7 @@ impl StacksMessage {
     /// Sign the StacksMessage.  The StacksMessage must _not_ have any relayers (i.e. we're
     /// originating this messsage).
     pub fn sign(&mut self, seq: u32, private_key: &Secp256k1PrivateKey) -> Result<(), net_error> {
-        if self.relayers.len() > 0 {
+        if !self.relayers.is_empty() {
             return Err(net_error::InvalidMessage);
         }
         self.preamble.seq = seq;
@@ -1573,8 +1568,8 @@ impl ProtocolFamily for StacksP2P {
         let (relayers, payload) = StacksMessage::deserialize_body(&mut cursor)?;
         let message = StacksMessage {
             preamble: preamble.clone(),
-            relayers: relayers,
-            payload: payload,
+            relayers,
+            payload,
         };
         Ok((message, cursor.position() as usize))
     }
@@ -1666,7 +1661,7 @@ pub mod test {
     pub fn check_codec_and_corruption<T: StacksMessageCodec + fmt::Debug + Clone + PartialEq>(
         obj: &T,
         bytes: &Vec<u8>,
-    ) -> () {
+    ) {
         // obj should serialize to bytes
         let mut write_buf: Vec<u8> = Vec::with_capacity(bytes.len());
         obj.consensus_serialize(&mut write_buf).unwrap();
@@ -1687,7 +1682,7 @@ pub mod test {
         }
 
         // short message shouldn't parse, but should EOF
-        if write_buf.len() > 0 {
+        if !write_buf.is_empty() {
             let mut short_buf = write_buf.clone();
             let short_len = short_buf.len() - 1;
             short_buf.truncate(short_len);
@@ -1797,7 +1792,7 @@ pub mod test {
             burn_stable_block_height: 0x00001111,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             additional_data: 0x33333333,
-            signature: MessageSignature::from_raw(&vec![0x44; 65]),
+            signature: MessageSignature::from_raw(&[0x44; 65]),
             payload_len: 0x000007ff,
         };
         let preamble_bytes: Vec<u8> = vec![
@@ -1924,7 +1919,7 @@ pub mod test {
             bitlen: 0,
             pox_bitvec: vec![],
         };
-        let empty_inv_bytes = vec![
+        let empty_inv_bytes = [
             // bitlen
             0x00, 0x00, 0x00, 0x00, // bitvec
             0x00, 0x00, 0x00, 0x00,
@@ -1999,7 +1994,7 @@ pub mod test {
             block_bitvec: vec![],
             microblocks_bitvec: vec![],
         };
-        let empty_inv_bytes = vec![
+        let empty_inv_bytes = [
             // bitlen
             0x00, 0x00, 0x00, 0x00, // bitvec
             0x00, 0x00, 0x00, 0x00, // microblock bitvec
@@ -2349,7 +2344,7 @@ pub mod test {
         let data = StackerDBChunkData {
             slot_id: 2,
             slot_version: 3,
-            sig: MessageSignature::from_raw(&vec![0x44; 65]),
+            sig: MessageSignature::from_raw(&[0x44; 65]),
             data: vec![
                 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
             ],
@@ -2376,7 +2371,7 @@ pub mod test {
         let data = StackerDBChunkData {
             slot_id: 2,
             slot_version: 3,
-            sig: MessageSignature::from_raw(&vec![0x44; 65]),
+            sig: MessageSignature::from_raw(&[0x44; 65]),
             data: vec![
                 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
             ],
@@ -2461,7 +2456,7 @@ pub mod test {
         check_codec_and_corruption::<NakamotoInvData>(&nakamoto_inv, &nakamoto_inv_bytes);
 
         // should fail
-        let nakamoto_inv_bytes = vec![
+        let nakamoto_inv_bytes = [
             // bitlen
             0x00, 0x20, // vec len
             0x00, 0x00, 0x00, 0x05, // bits
@@ -2471,7 +2466,7 @@ pub mod test {
         let _ = NakamotoInvData::consensus_deserialize(&mut &nakamoto_inv_bytes[..]).unwrap_err();
 
         // should fail
-        let nakamoto_inv_bytes = vec![
+        let nakamoto_inv_bytes = [
             // bitlen
             0x00, 0x21, // vec len
             0x00, 0x00, 0x00, 0x04, // bits
@@ -2641,7 +2636,7 @@ pub mod test {
             StacksMessageType::StackerDBChunk(StackerDBChunkData {
                 slot_id: 2,
                 slot_version: 3,
-                sig: MessageSignature::from_raw(&vec![0x44; 65]),
+                sig: MessageSignature::from_raw(&[0x44; 65]),
                 data: vec![0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]
             }),
             StacksMessageType::StackerDBPushChunk(StackerDBPushChunkData {
@@ -2650,7 +2645,7 @@ pub mod test {
                 chunk_data: StackerDBChunkData {
                     slot_id: 2,
                     slot_version: 3,
-                    sig: MessageSignature::from_raw(&vec![0x44; 65]),
+                    sig: MessageSignature::from_raw(&[0x44; 65]),
                     data: vec![0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]
                 }
             }),
@@ -2739,7 +2734,7 @@ pub mod test {
                 burn_stable_block_height: 0x00001111,
                 burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
                 additional_data: 0x33333333,
-                signature: MessageSignature::from_raw(&vec![0x44; 65]),
+                signature: MessageSignature::from_raw(&[0x44; 65]),
                 payload_len: (relayers_bytes.len() + payload_bytes.len()) as u32,
             };
 

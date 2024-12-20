@@ -801,7 +801,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
                 )
                 .unwrap();
 
-                if parent_mblock_stream.len() > 0 {
+                if !parent_mblock_stream.is_empty() {
                     if tenure_id != 5 {
                         assert_eq!(
                             anchored_block.0.header.parent_microblock,
@@ -1058,7 +1058,9 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
                 )
                 .unwrap();
 
-                if parent_mblock_stream.len() > 0 {
+                if parent_mblock_stream.is_empty() {
+                    assert_eq!(tenure_id, 0);
+                } else {
                     // force the block to confirm a microblock stream, even if it would result in
                     // an invalid block.
                     test_debug!(
@@ -1074,8 +1076,6 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
                         parent_mblock_stream.last().unwrap().block_hash()
                     );
                     test_debug!("New block hash is {}", &anchored_block.0.block_hash());
-                } else {
-                    assert_eq!(tenure_id, 0);
                 }
 
                 (anchored_block.0, parent_mblock_stream)
@@ -2327,7 +2327,7 @@ fn test_build_anchored_blocks_invalid() {
 
                 eprintln!("\n\nat resume parent tenure:\nlast_parent: {:?}\nlast_parent_tip: {:?}\n\n", &last_parent, &last_parent_tip);
             }
-            else if tenure_id >= bad_block_tenure + 1 {
+            else if tenure_id > bad_block_tenure {
                 last_parent = None;
                 last_parent_tip = None;
             }
