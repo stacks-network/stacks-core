@@ -1399,7 +1399,7 @@ You _may not_ use this function to call a public function defined in the current
 function returns _err_, any database changes resulting from calling `contract-call?` are aborted.
 If the function returns _ok_, database changes occurred.",
     example: "
-;; instantiate the sample-contracts/tokens.clar contract first!
+;; instantiate the sample/contracts/tokens.clar contract first!
 (as-contract (contract-call? .tokens mint! u19)) ;; Returns (ok u19)"
 };
 
@@ -3131,7 +3131,7 @@ mod test {
     fn test_examples() {
         // Execute test examples against the latest version of Clarity
         let apis = make_all_api_reference();
-        let token_contract_content = include_str!("../../../../sample-contracts/tokens.clar");
+        let token_contract_content = include_str!("../../../../sample/contracts/tokens.clar");
         for func_api in apis.functions.iter() {
             if func_api.name == "at-block" {
                 eprintln!("Skipping at-block, because it cannot be evaluated without a MARF");
@@ -3174,7 +3174,7 @@ mod test {
                         &StacksEpochId::latest(),
                         &ClarityVersion::latest(),
                     )
-                    .expect("Failed to type check sample-contracts/tokens");
+                    .expect("Failed to type check sample/contracts/tokens");
                 }
 
                 {
@@ -3197,7 +3197,7 @@ mod test {
                         &StacksEpochId::latest(),
                         &ClarityVersion::latest(),
                     )
-                    .expect("Failed to type check sample-contracts/tokens");
+                    .expect("Failed to type check sample/contracts/tokens");
                 }
 
                 let conn = store.as_docs_clarity_db();
