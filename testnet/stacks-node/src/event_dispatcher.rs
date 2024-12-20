@@ -26,6 +26,8 @@ use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
 use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
+#[cfg(any(test, feature = "testing"))]
+use lazy_static::lazy_static;
 use rand::Rng;
 use rusqlite::{params, Connection};
 use serde_json::json;
@@ -60,6 +62,8 @@ use stacks::net::http::HttpRequestContents;
 use stacks::net::httpcore::{send_http_request, StacksHttpRequest};
 use stacks::net::stackerdb::StackerDBEventDispatcher;
 use stacks::util::hash::to_hex;
+#[cfg(any(test, feature = "testing"))]
+use stacks::util::tests::TestFlag;
 use stacks::util_lib::db::Error as db_error;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
@@ -68,6 +72,12 @@ use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use url::Url;
+
+#[cfg(any(test, feature = "testing"))]
+lazy_static! {
+    /// Do not announce a signed/mined block to the network when set to true.
+    pub static ref TEST_SKIP_BLOCK_ANNOUNCEMENT: TestFlag<bool> = TestFlag::default();
+}
 
 #[derive(Debug, Clone)]
 struct EventObserver {
@@ -1303,6 +1313,11 @@ impl EventDispatcher {
 
             let mature_rewards = serde_json::Value::Array(mature_rewards_vec);
 
+            #[cfg(any(test, feature = "testing"))]
+            if test_skip_block_announcement(&block) {
+                return;
+            }
+
             for (observer_id, filtered_events_ids) in dispatch_matrix.iter().enumerate() {
                 let filtered_events: Vec<_> = filtered_events_ids
                     .iter()
@@ -1714,6 +1729,18 @@ impl EventDispatcher {
 
         self.registered_observers.push(event_observer);
     }
+}
+
+#[cfg(any(test, feature = "testing"))]
+fn test_skip_block_announcement(block: &StacksBlockEventData) -> bool {
+    if TEST_SKIP_BLOCK_ANNOUNCEMENT.get() {
+        warn!(
+            "Skipping new block announcement due to testing directive";
+            "block_hash" => %block.block_hash
+        );
+        return true;
+    }
+    false
 }
 
 #[cfg(test)]
