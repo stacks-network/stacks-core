@@ -167,7 +167,6 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
     pub fn flush<E>(&mut self, mut f: impl FnMut(&K, V) -> Result<(), E>) -> Result<(), E> {
         let mut index = self.head;
         while index != self.capacity {
-            println!("checking {index}, dirty? {}", self.order[index].dirty);
             let next = self.order[index].next;
             if self.order[index].dirty {
                 let value = self.order[index].value;
