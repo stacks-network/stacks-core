@@ -1319,7 +1319,7 @@ mod test {
     use crate::burnchains::bitcoin::{Error as btc_error, *};
 
     fn get_genesis_regtest_header() -> LoneBlockHeader {
-        let genesis_regtest_header = LoneBlockHeader {
+        LoneBlockHeader {
             header: BlockHeader {
                 bits: 545259519,
                 merkle_root: Sha256dHash::from_hex(
@@ -1335,8 +1335,7 @@ mod test {
                 version: 1,
             },
             tx_count: VarInt(0),
-        };
-        genesis_regtest_header
+        }
     }
 
     #[test]
@@ -1412,7 +1411,7 @@ mod test {
 
         {
             let mut tx = spv_client.tx_begin().unwrap();
-            SpvClient::insert_block_header(&mut tx, first_regtest_header.header.clone(), 1)
+            SpvClient::insert_block_header(&mut tx, first_regtest_header.header, 1)
                 .unwrap();
             tx.commit().unwrap();
         }
@@ -1650,7 +1649,7 @@ mod test {
 
     #[test]
     fn test_spv_check_pow() {
-        if !env::var("BLOCKSTACK_SPV_HEADERS_DB").is_ok() {
+        if env::var("BLOCKSTACK_SPV_HEADERS_DB").is_err() {
             eprintln!("Skipping test_spv_check_pow -- no BLOCKSTACK_SPV_HEADERS_DB envar set");
             return;
         }
@@ -1665,7 +1664,7 @@ mod test {
 
     #[test]
     fn test_spv_check_work_bad_blocks_rejected() {
-        if !env::var("BLOCKSTACK_SPV_HEADERS_DB").is_ok() {
+        if env::var("BLOCKSTACK_SPV_HEADERS_DB").is_err() {
             eprintln!("Skipping test_spv_check_work_reorg_accepted -- no BLOCKSTACK_SPV_HEADERS_DB envar set");
             return;
         }

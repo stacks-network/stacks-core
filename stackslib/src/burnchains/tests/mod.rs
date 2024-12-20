@@ -242,7 +242,10 @@ impl TestMiner {
         match self.vrf_key_map.get(vrf_pubkey) {
             Some(prover_key) => {
                 let proof = VRF::prove(prover_key, last_sortition_hash.as_bytes().as_ref());
-                assert!(VRF::verify(vrf_pubkey, &proof, last_sortition_hash.as_bytes().as_ref()).unwrap_or_default());
+                assert!(
+                    VRF::verify(vrf_pubkey, &proof, last_sortition_hash.as_bytes().as_ref())
+                        .unwrap_or_default()
+                );
                 Some(proof)
             }
             None => None,
@@ -263,7 +266,8 @@ impl TestMiner {
     }
 
     pub fn origin_address(&self) -> Option<StacksAddress> {
-        self.as_transaction_auth().map(|auth| auth.origin().address_testnet())
+        self.as_transaction_auth()
+            .map(|auth| auth.origin().address_testnet())
     }
 
     pub fn get_nonce(&self) -> u64 {
@@ -439,10 +443,12 @@ impl TestBurnchainBlock {
             // prove on the last-ever sortition's hash to produce the new seed
             let proof = miner
                 .make_proof(&leader_key.public_key, &last_snapshot.sortition_hash)
-                .unwrap_or_else(|| panic!(
-                    "FATAL: no private key for {}",
-                    leader_key.public_key.to_hex()
-                ));
+                .unwrap_or_else(|| {
+                    panic!(
+                        "FATAL: no private key for {}",
+                        leader_key.public_key.to_hex()
+                    )
+                });
 
             VRFSeed::from_proof(&proof)
         });
@@ -654,10 +660,12 @@ impl TestBurnchainBlock {
         let parent_hdr = indexer
             .read_burnchain_header(self.block_height.saturating_sub(1))
             .unwrap()
-            .unwrap_or_else(|| panic!(
-                "BUG: could not read block at height {}",
-                self.block_height.saturating_sub(1)
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "BUG: could not read block at height {}",
+                    self.block_height.saturating_sub(1)
+                )
+            });
 
         let now = BURNCHAIN_TEST_BLOCK_TIME;
         let block_hash = BurnchainHeaderHash::from_bitcoin_hash(
@@ -903,10 +911,7 @@ fn verify_keys_accepted(node: &mut TestBurnchainNode, prev_keys: &[LeaderKeyRegi
     }
 }
 
-fn verify_commits_accepted(
-    node: &TestBurnchainNode,
-    next_block_commits: &[LeaderBlockCommitOp],
-) {
+fn verify_commits_accepted(node: &TestBurnchainNode, next_block_commits: &[LeaderBlockCommitOp]) {
     // all commits accepted
     for commit in next_block_commits.iter() {
         let tx_opt =

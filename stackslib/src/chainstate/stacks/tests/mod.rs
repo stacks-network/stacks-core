@@ -619,10 +619,12 @@ impl TestStacksNode {
                 &miner_key.public_key,
                 &burn_block.parent_snapshot.sortition_hash,
             )
-            .unwrap_or_else(|| panic!(
-                "FATAL: no private key for {}",
-                miner_key.public_key.to_hex()
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "FATAL: no private key for {}",
+                    miner_key.public_key.to_hex()
+                )
+            });
 
         let (builder, parent_block_snapshot_opt) = match parent_stacks_block {
             None => {

@@ -1014,9 +1014,9 @@ impl StacksHttp {
     pub fn set_response_handler(&mut self, request_verb: &str, request_path: &str) {
         let handler_index = self
             .find_response_handler(request_verb, request_path)
-            .unwrap_or_else(|| panic!(
-                "FATAL: could not find handler for '{request_verb}' '{request_path}'"
-            ));
+            .unwrap_or_else(|| {
+                panic!("FATAL: could not find handler for '{request_verb}' '{request_path}'")
+            });
         self.request_handler_index = Some(handler_index);
     }
 

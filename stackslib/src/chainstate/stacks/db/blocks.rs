@@ -9986,8 +9986,7 @@ pub mod test {
             microblocks.push(mblocks);
         }
 
-        let block_hashes: Vec<BlockHeaderHash> =
-            blocks.iter().map(|b| b.block_hash()).collect();
+        let block_hashes: Vec<BlockHeaderHash> = blocks.iter().map(|b| b.block_hash()).collect();
         let header_hashes_all: Vec<(ConsensusHash, Option<BlockHeaderHash>)> = consensus_hashes
             .iter()
             .zip(block_hashes.iter())

@@ -251,7 +251,7 @@ pub fn make_simple_key_register(
         txid: next_txid(),
         vtxindex,
         block_height,
-        burn_header_hash: burn_header_hash.clone(),
+        burn_header_hash: *burn_header_hash,
     }
 }
 
@@ -303,7 +303,7 @@ pub fn make_reward_cycle_with_vote(
             block_hash: next_burn_header_hash(),
             parent_block_hash: parent_block_header
                 .as_ref()
-                .map(|blk| blk.block_hash.clone())
+                .map(|blk| blk.block_hash)
                 .unwrap_or(first_block_header.block_hash),
             num_txs: parent_commits.len() as u64,
             timestamp: i as u64,
@@ -312,7 +312,7 @@ pub fn make_reward_cycle_with_vote(
         let ops = if current_header == first_block_header {
             // first-ever block -- add only the leader key
             let mut key_insert = key.clone();
-            key_insert.burn_header_hash = block_header.block_hash.clone();
+            key_insert.burn_header_hash = block_header.block_hash;
 
             test_debug!(
                 "Insert key-register in {}: {},{},{} in block {}",
@@ -329,10 +329,10 @@ pub fn make_reward_cycle_with_vote(
             )]
         } else {
             let mut commits = vec![];
-            for i in 0..parent_commits.len() {
+            for (i, parent_commit) in parent_commits.iter_mut().enumerate() {
                 let mut block_commit = make_simple_block_commit(
                     &burnchain,
-                    parent_commits[i].as_ref(),
+                    parent_commit.as_ref(),
                     &block_header,
                     next_block_hash(),
                 );
@@ -386,20 +386,19 @@ pub fn make_reward_cycle_with_vote(
                         block_commit.parent_vtxindex
                     );
 
-                    if let Some(ref parent_commit) = parent_commits[i].as_ref() {
+                    if let Some(parent_commit) = parent_commit.as_ref() {
                         assert!(
-                            parent_commit.block_height as u64 != block_commit.block_height as u64
+                            parent_commit.block_height != block_commit.block_height
                         );
-                        assert!(
-                            parent_commit.block_height as u64
-                                == block_commit.parent_block_ptr as u64
+                        assert_eq!(
+                            parent_commit.block_height, u64::from(block_commit.parent_block_ptr)
                         );
-                        assert!(
-                            parent_commit.vtxindex as u64 == block_commit.parent_vtxindex as u64
+                        assert_eq!(
+                            parent_commit.vtxindex, u32::from(block_commit.parent_vtxindex)
                         );
                     }
 
-                    parent_commits[i] = Some(block_commit.clone());
+                    *parent_commit = Some(block_commit.clone());
                     commits.push(Some(block_commit.clone()));
                 } else {
                     test_debug!(
@@ -416,8 +415,8 @@ pub fn make_reward_cycle_with_vote(
             new_commits.push(commits.clone());
             commits
                 .into_iter()
-                .filter_map(|cmt| cmt)
-                .map(|cmt| BlockstackOperationType::LeaderBlockCommit(cmt))
+                .flatten()
+                .map(BlockstackOperationType::LeaderBlockCommit)
                 .collect()
         };
 
@@ -1592,8 +1591,8 @@ fn test_update_pox_affirmation_maps_unique_anchor_block() {
             block_hash: next_burn_header_hash(),
             parent_block_hash: headers
                 .last()
-                .map(|blk| blk.block_hash.clone())
-                .unwrap_or(first_bhh.clone()),
+                .map(|blk| blk.block_hash)
+                .unwrap_or(first_bhh),
             num_txs: cmts.len() as u64,
             timestamp: (i + commits_0.len()) as u64,
         };
@@ -1605,7 +1604,7 @@ fn test_update_pox_affirmation_maps_unique_anchor_block() {
                 cmt.parent_vtxindex = anchor_block_0.vtxindex as u16;
                 cmt.burn_parent_modulus =
                     ((cmt.block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8;
-                cmt.burn_header_hash = block_header.block_hash.clone();
+                cmt.burn_header_hash = block_header.block_hash;
                 cmt.block_header_hash = next_block_hash();
             }
         }
@@ -1615,7 +1614,7 @@ fn test_update_pox_affirmation_maps_unique_anchor_block() {
         let cmt_ops: Vec<BlockstackOperationType> = cmts
             .iter()
             .filter_map(|op| op.clone())
-            .map(|op| BlockstackOperationType::LeaderBlockCommit(op))
+            .map(BlockstackOperationType::LeaderBlockCommit)
             .collect();
 
         burnchain_db
@@ -1762,11 +1761,11 @@ fn test_update_pox_affirmation_maps_absent() {
     assert_eq!(heaviest_am, AffirmationMap::decode("").unwrap());
     assert_eq!(canonical_am, AffirmationMap::decode("p").unwrap());
 
-    for i in 5..10 {
+    for commit in commits_0.iter().take(10).skip(5) {
         let block_commit = BurnchainDB::get_block_commit(
             burnchain_db.conn(),
-            &commits_0[i][0].as_ref().unwrap().burn_header_hash,
-            &commits_0[i][0].as_ref().unwrap().txid,
+            &commit[0].as_ref().unwrap().burn_header_hash,
+            &commit[0].as_ref().unwrap().txid,
         )
         .unwrap()
         .unwrap();
@@ -2270,9 +2269,9 @@ fn test_update_pox_affirmation_maps_nothing() {
     // build a 3rd reward cycle, but it affirms an anchor block
     let last_commit_1 = {
         let mut last_commit = None;
-        for i in 0..commits_1.len() {
-            if commits_1[i][0].is_some() {
-                last_commit = commits_1[i][0].clone();
+        for commit in commits_1.iter() {
+            if commit[0].is_some() {
+                last_commit = commit[0].clone();
             }
         }
         last_commit

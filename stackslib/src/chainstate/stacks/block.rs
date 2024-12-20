@@ -388,10 +388,7 @@ impl StacksBlock {
         state_index_root: &TrieHash,
         microblock_pubkey_hash: &Hash160,
     ) -> StacksBlock {
-        let txids = txs
-            .iter()
-            .map(|tx| tx.txid().as_bytes().to_vec())
-            .collect();
+        let txids = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
         let header = StacksBlockHeader::from_parent(
@@ -880,10 +877,7 @@ impl StacksMicroblock {
         parent_block_hash: &BlockHeaderHash,
         txs: Vec<StacksTransaction>,
     ) -> StacksMicroblock {
-        let txids = txs
-            .iter()
-            .map(|tx| tx.txid().as_bytes().to_vec())
-            .collect();
+        let txids = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
         let header = StacksMicroblockHeader::first_unsigned(parent_block_hash, &tx_merkle_root);
@@ -894,10 +888,7 @@ impl StacksMicroblock {
         parent_header: &StacksMicroblockHeader,
         txs: Vec<StacksTransaction>,
     ) -> Option<StacksMicroblock> {
-        let txids = txs
-            .iter()
-            .map(|tx| tx.txid().as_bytes().to_vec())
-            .collect();
+        let txids = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
         let header =

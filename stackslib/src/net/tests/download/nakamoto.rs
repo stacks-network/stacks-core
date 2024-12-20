@@ -1296,9 +1296,9 @@ fn test_tenure_start_end_from_inventory() {
                     debug!(
                         "rc = {rc}, i = {i}, tenure_start_index = {tenure_start_index:?}, tenure_end_index = {tenure_end_index:?}"
                     );
-                    let tenure_start_end = tenure_start_end_opt.unwrap_or_else(|| panic!(
-                        "failed to get tenure_start_end_opt: i = {i}, wt = {wt:?}"
-                    ));
+                    let tenure_start_end = tenure_start_end_opt.unwrap_or_else(|| {
+                        panic!("failed to get tenure_start_end_opt: i = {i}, wt = {wt:?}")
+                    });
                     assert_eq!(
                         all_tenures[tenure_start_index.unwrap() as usize].winning_block_id,
                         tenure_start_end.start_block_id

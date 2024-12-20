@@ -289,7 +289,7 @@ pub mod tests {
                     txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
                     vtxindex,
                     block_height,
-                    burn_header_hash: burn_header_hash.clone(),
+                    burn_header_hash,
                 })
             },
             OpFixture {
@@ -500,7 +500,7 @@ pub mod tests {
             .unwrap(),
             vtxindex: 456,
             block_height: 123,
-            burn_header_hash: block_123_hash.clone(),
+            burn_header_hash: block_123_hash,
         };
 
         let block_ops = vec![
@@ -638,7 +638,7 @@ pub mod tests {
                     .unwrap(),
                     vtxindex: 455,
                     block_height: 123,
-                    burn_header_hash: block_123_hash.clone(),
+                    burn_header_hash: block_123_hash,
                 },
                 res: Err(op_error::LeaderKeyAlreadyRegistered),
             },
@@ -667,7 +667,7 @@ pub mod tests {
                     .unwrap(),
                     vtxindex: 456,
                     block_height: 123,
-                    burn_header_hash: block_123_hash.clone(),
+                    burn_header_hash: block_123_hash,
                 },
                 res: Ok(()),
             },

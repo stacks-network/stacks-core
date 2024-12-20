@@ -4302,10 +4302,9 @@ pub mod test {
                     &last_key.public_key,
                     &burn_block.parent_snapshot.sortition_hash,
                 )
-                .unwrap_or_else(|| panic!(
-                    "FATAL: no private key for {}",
-                    last_key.public_key.to_hex()
-                ));
+                .unwrap_or_else(|| {
+                    panic!("FATAL: no private key for {}", last_key.public_key.to_hex())
+                });
 
             let (stacks_block, microblocks) = tenure_builder(
                 &mut self.miner,
@@ -4565,9 +4564,9 @@ pub mod test {
             self.config
                 .burnchain
                 .block_height_to_reward_cycle(block_height)
-                .unwrap_or_else(|| panic!(
-                    "Failed to get reward cycle for block height {block_height}"
-                ))
+                .unwrap_or_else(|| {
+                    panic!("Failed to get reward cycle for block height {block_height}")
+                })
         }
 
         /// Verify that the sortition DB migration into Nakamoto worked correctly.

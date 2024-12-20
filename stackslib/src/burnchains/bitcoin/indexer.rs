@@ -234,10 +234,12 @@ impl BitcoinIndexer {
             true,
             false,
         )
-        .unwrap_or_else(|_| panic!(
-            "Failed to open {:?}",
-            &working_dir_path.to_str().unwrap().to_string()
-        ));
+        .unwrap_or_else(|_| {
+            panic!(
+                "Failed to open {:?}",
+                &working_dir_path.to_str().unwrap().to_string()
+            )
+        });
 
         BitcoinIndexer {
             config: BitcoinIndexerConfig::default_regtest(
@@ -328,6 +330,7 @@ impl BitcoinIndexer {
     /// Handle version, verack, ping, and pong messages automatically.
     /// Reconnect to the peer automatically if the peer closes the connection.
     /// Pass any other messages to a given message handler.
+    #[allow(clippy::result_large_err)]
     pub fn peer_communicate<T: BitcoinMessageHandler>(
         &mut self,
         message_handler: &mut T,
@@ -1566,19 +1569,19 @@ mod test {
 
     #[test]
     fn test_indexer_sync_headers() {
-        if !env::var("BLOCKSTACK_SPV_BITCOIN_HOST").is_ok() {
+        if env::var("BLOCKSTACK_SPV_BITCOIN_HOST").is_err() {
             eprintln!(
                 "Skipping test_indexer_sync_headers -- no BLOCKSTACK_SPV_BITCOIN_HOST envar set"
             );
             return;
         }
-        if !env::var("BLOCKSTACK_SPV_BITCOIN_PORT").is_ok() {
+        if env::var("BLOCKSTACK_SPV_BITCOIN_PORT").is_err() {
             eprintln!(
                 "Skipping test_indexer_sync_headers -- no BLOCKSTACK_SPV_BITCOIN_PORT envar set"
             );
             return;
         }
-        if !env::var("BLOCKSTACK_SPV_BITCOIN_MODE").is_ok() {
+        if env::var("BLOCKSTACK_SPV_BITCOIN_MODE").is_err() {
             eprintln!(
                 "Skipping test_indexer_sync_headers -- no BLOCKSTACK_SPV_BITCOIN_MODE envar set"
             );
@@ -3101,7 +3104,7 @@ mod test {
 
     #[test]
     fn test_spv_check_work_reorg_ignored() {
-        if !env::var("BLOCKSTACK_SPV_HEADERS_DB").is_ok() {
+        if env::var("BLOCKSTACK_SPV_HEADERS_DB").is_err() {
             eprintln!("Skipping test_spv_check_work_reorg_ignored -- no BLOCKSTACK_SPV_HEADERS_DB envar set");
             return;
         }
@@ -3207,8 +3210,8 @@ mod test {
                         if block_height > 40320 {
                             break;
                         }
-                        if block_height >= 40319 && block_height <= 40320 {
-                            test_debug!("insert bad header {}", block_height);
+                        if (40319..=40320).contains(&block_height) {
+                            test_debug!("insert bad header {block_height}");
                             ret.push(bad_headers[(block_height - 40319) as usize].clone());
                             inserted_bad_header = true;
                         } else {
@@ -3249,7 +3252,7 @@ mod test {
 
     #[test]
     fn test_spv_check_work_reorg_accepted() {
-        if !env::var("BLOCKSTACK_SPV_HEADERS_DB").is_ok() {
+        if env::var("BLOCKSTACK_SPV_HEADERS_DB").is_err() {
             eprintln!("Skipping test_spv_check_work_reorg_accepted -- no BLOCKSTACK_SPV_HEADERS_DB envar set");
             return;
         }
@@ -3368,8 +3371,8 @@ mod test {
                         if block_height > 40320 {
                             break;
                         }
-                        if block_height >= 40319 && block_height <= 40320 {
-                            test_debug!("insert good header {}", block_height);
+                        if (40319..=40320).contains(&block_height) {
+                            test_debug!("insert good header {block_height}");
                             ret.push(good_headers[(block_height - 40319) as usize].clone());
                             inserted_good_header = true;
                         } else {
@@ -3474,7 +3477,7 @@ mod test {
 
         // set up SPV client so we don't have chain work at first
         let mut spv_client = SpvClient::new_without_migration(
-            &db_path,
+            db_path,
             0,
             None,
             BitcoinNetworkType::Regtest,

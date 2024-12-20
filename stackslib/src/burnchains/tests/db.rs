@@ -451,7 +451,7 @@ fn test_classify_stack_stx() {
 
     headers.push(BurnchainBlockHeader {
         block_height: first_block_header.block_height + 2,
-        block_hash: block_hash_1.clone(),
+        block_hash: block_hash_1,
         parent_block_hash: block_hash_0,
         num_txs: num_txs_ops_1,
         timestamp: first_block_header.timestamp + 2,
@@ -639,14 +639,10 @@ fn test_get_commit_at() {
     }
 
     for i in 0..5 {
-        let cmt = BurnchainDB::get_commit_at(
-            burnchain_db.conn(),
-            &headers,
-            (first_height + i) as u32,
-            0,
-        )
-        .unwrap()
-        .unwrap();
+        let cmt =
+            BurnchainDB::get_commit_at(burnchain_db.conn(), &headers, (first_height + i) as u32, 0)
+                .unwrap()
+                .unwrap();
         assert_eq!(cmt, cmts[i as usize]);
     }
 
@@ -1069,8 +1065,7 @@ fn test_update_block_descendancy_with_fork() {
     // each valid commit should have fork_cmts[0]'s affirmation map
     for fork_cmt in fork_cmts.iter().take(5).skip(1) {
         let cmt_am_id =
-            BurnchainDB::get_block_commit_affirmation_id(burnchain_db.conn(), fork_cmt)
-                .unwrap();
+            BurnchainDB::get_block_commit_affirmation_id(burnchain_db.conn(), fork_cmt).unwrap();
         assert_eq!(cmt_am_id.unwrap(), fork_am_id);
     }
 }
@@ -1316,35 +1311,30 @@ fn test_classify_delegate_stx() {
         "Only one delegate_stx op should have been accepted"
     );
 
-    let expected_pre_delegate_addr = StacksAddress::from_legacy_bitcoin_address(
-        &LegacyBitcoinAddress {
+    let expected_pre_delegate_addr =
+        StacksAddress::from_legacy_bitcoin_address(&LegacyBitcoinAddress {
             addrtype: LegacyBitcoinAddressType::PublicKeyHash,
             network_id: BitcoinNetworkType::Mainnet,
             bytes: Hash160([1; 20]),
-        }
-    );
+        });
 
     let expected_delegate_addr = PoxAddress::Standard(
-        StacksAddress::from_legacy_bitcoin_address(
-            &LegacyBitcoinAddress {
-                addrtype: LegacyBitcoinAddressType::PublicKeyHash,
-                network_id: BitcoinNetworkType::Mainnet,
-                bytes: Hash160([2; 20]),
-            }
-        ),
+        StacksAddress::from_legacy_bitcoin_address(&LegacyBitcoinAddress {
+            addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+            network_id: BitcoinNetworkType::Mainnet,
+            bytes: Hash160([2; 20]),
+        }),
         Some(AddressHashMode::SerializeP2PKH),
     );
 
     let expected_reward_addr = Some((
         1,
         PoxAddress::Standard(
-            StacksAddress::from_legacy_bitcoin_address(
-                &LegacyBitcoinAddress {
-                    addrtype: LegacyBitcoinAddressType::PublicKeyHash,
-                    network_id: BitcoinNetworkType::Mainnet,
-                    bytes: Hash160([1; 20]),
-                }
-            ),
+            StacksAddress::from_legacy_bitcoin_address(&LegacyBitcoinAddress {
+                addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                network_id: BitcoinNetworkType::Mainnet,
+                bytes: Hash160([1; 20]),
+            }),
             Some(AddressHashMode::SerializeP2PKH),
         ),
     ));
