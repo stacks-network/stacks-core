@@ -97,12 +97,9 @@ use stacks_signer::v0::SpawnedSigner;
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::config::{EventKeyType, InitialBalance};
 use crate::nakamoto_node::miner::{
-    MinerReason, TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL,
-    TEST_SKIP_P2P_BROADCAST,
+    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL, TEST_SKIP_P2P_BROADCAST,
 };
-use crate::nakamoto_node::relayer::{
-    RelayerThread, TEST_MINER_THREAD_STALL, TEST_MINER_THREAD_START_STALL,
-};
+use crate::nakamoto_node::relayer::{RelayerThread, TEST_MINER_THREAD_STALL};
 use crate::neon::{Counters, RunLoopCounter};
 use crate::operations::BurnchainOpSigner;
 use crate::run_loop::boot_nakamoto;
@@ -10383,8 +10380,10 @@ fn test_tenure_extend_from_flashblocks() {
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         1,
         initial_balances,
-        |_config| {},
         |_| {},
+        |config| {
+            config.miner.tenure_extend_wait_secs = Duration::from_secs(15);
+        },
         None,
         None,
     );
@@ -10616,7 +10615,7 @@ fn test_tenure_extend_from_flashblocks() {
 
     // wait for the miner directive to be processed
     wait_for(60, || {
-        sleep_ms(10_000);
+        sleep_ms(30_000);
         let directives_cnt = nakamoto_miner_directives.load(Ordering::SeqCst);
         Ok(directives_cnt > miner_directives_before)
     })
