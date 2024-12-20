@@ -236,7 +236,7 @@ struct MicroblockMinerRuntime {
 
 /// The value of `BlockLimitFunction` holds the state of the size of the block being built.
 /// As the value increases, the less we can add to blocks.
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum BlockLimitFunction {
     /// The block size limit has not been hit, and there are no restrictions on what can be added to
     /// a block.
@@ -2283,6 +2283,7 @@ impl StacksBlockBuilder {
         let mut blocked = false;
 
         debug!("Block transaction selection begins (parent height = {tip_height})");
+        info!("Block transaction selection begins (parent height = {tip_height})");
         let result = {
             let mut loop_result = Ok(());
             while block_limit_hit != BlockLimitFunction::LIMIT_REACHED {
@@ -2377,12 +2378,19 @@ impl StacksBlockBuilder {
                         num_considered += 1;
 
                         let tx_start = Instant::now();
+                        info!("----- Considering tx -----";
+                            "tx" => ?txinfo.tx,
+                            "block_limit_hit" => ?block_limit_hit,
+                        );
                         let tx_result = builder.try_mine_tx_with_len(
                             epoch_tx,
                             &txinfo.tx,
                             txinfo.metadata.len,
                             &block_limit_hit,
                             ast_rules,
+                        );
+                        info!("----- Result -----";
+                              "tx_result" => ?tx_result,
                         );
 
                         let result_event = tx_result.convert_to_event();

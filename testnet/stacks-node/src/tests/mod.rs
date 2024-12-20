@@ -52,6 +52,7 @@ use crate::tests::neon_integrations::{get_chain_info, next_block_and_wait};
 use crate::BitcoinRegtestController;
 
 mod atlas;
+mod big_contracts;
 mod bitcoin_regtest;
 mod epoch_205;
 mod epoch_21;
