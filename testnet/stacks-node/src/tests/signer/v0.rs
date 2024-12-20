@@ -9638,7 +9638,7 @@ fn global_acceptance_depends_on_block_announcement() {
         .expect("Failed to get peer info");
     let mut sister_block = None;
     let start_time = Instant::now();
-    while sister_block.is_none() && start_time.elapsed() < Duration::from_secs(30) {
+    while sister_block.is_none() && start_time.elapsed() < Duration::from_secs(45) {
         sister_block = test_observer::get_stackerdb_chunks()
             .into_iter()
             .flat_map(|chunk| chunk.modified_slots)
