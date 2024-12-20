@@ -37,6 +37,7 @@ use stacks::util_lib::boot::boot_code_id;
 use super::stackerdb_listener::StackerDBListenerComms;
 use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::StackerDBChannel;
+use crate::nakamoto_node::miner::BlockMinerThread;
 use crate::nakamoto_node::stackerdb_listener::{StackerDBListener, EVENT_RECEIVER_POLL};
 use crate::neon::Counters;
 use crate::Config;
@@ -308,7 +309,7 @@ impl SignerCoordinator {
                         return Ok(stored_block.header.signer_signature);
                     }
 
-                    if Self::check_burn_tip_changed(sortdb, burn_tip) {
+                    if Self::check_burn_tip_changed(sortdb, chain_state, burn_tip) {
                         debug!("SignCoordinator: Exiting due to new burnchain tip");
                         return Err(NakamotoNodeError::BurnchainTipChanged);
                     }
@@ -350,12 +351,21 @@ impl SignerCoordinator {
     }
 
     /// Check if the tenure needs to change
-    fn check_burn_tip_changed(sortdb: &SortitionDB, burn_block: &BlockSnapshot) -> bool {
+    fn check_burn_tip_changed(
+        sortdb: &SortitionDB,
+        chain_state: &mut StacksChainState,
+        burn_block: &BlockSnapshot,
+    ) -> bool {
+        if BlockMinerThread::check_burn_view_changed(sortdb, chain_state, burn_block).is_err() {
+            // can't continue mining -- burn view changed, or a DB error occurred
+            return true;
+        }
+
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
         if cur_burn_chain_tip.consensus_hash != burn_block.consensus_hash {
-            info!("SignerCoordinator: Cancel signature aggregation; burnchain tip has changed");
+            info!("SignCoordinator: Cancel signature aggregation; burnchain tip has changed");
             true
         } else {
             false
