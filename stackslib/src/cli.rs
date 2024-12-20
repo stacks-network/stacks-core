@@ -440,7 +440,7 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
     )
     .unwrap_or_else(|e| panic!("Failed to open mempool db: {e}"));
 
-    // Parent Staccks header for block we are going to mine
+    // Parent Stacks header for block we are going to mine
     let parent_stacks_header =
         NakamotoChainState::get_canonical_block_header(chainstate.db(), &sort_db)
             .unwrap_or_else(|e| panic!("Error looking up chain tip: {e}"))
