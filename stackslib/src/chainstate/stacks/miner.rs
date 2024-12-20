@@ -1517,7 +1517,7 @@ impl StacksBlockBuilder {
             parent_microblock_hash: parent_chain_tip
                 .microblock_tail
                 .as_ref()
-                .map(|ref hdr| hdr.block_hash()),
+                .map(|hdr| hdr.block_hash()),
             prev_microblock_header: StacksMicroblockHeader::first_unsigned(
                 &EMPTY_MICROBLOCK_PARENT_HASH,
                 &Sha512Trunc256Sum([0u8; 32]),

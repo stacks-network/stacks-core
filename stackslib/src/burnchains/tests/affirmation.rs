@@ -304,7 +304,7 @@ pub fn make_reward_cycle_with_vote(
             parent_block_hash: parent_block_header
                 .as_ref()
                 .map(|blk| blk.block_hash.clone())
-                .unwrap_or(first_block_header.block_hash.clone()),
+                .unwrap_or(first_block_header.block_hash),
             num_txs: parent_commits.len() as u64,
             timestamp: i as u64,
         };
@@ -498,7 +498,7 @@ fn test_read_prepare_phase_commits() {
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = make_test_pox(10, 5, 3, 3);
     burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_hash = first_bhh;
     burnchain.first_block_timestamp = first_timestamp;
 
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -564,7 +564,7 @@ fn test_parent_block_commits() {
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = make_test_pox(10, 5, 3, 3);
     burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_hash = first_bhh;
     burnchain.first_block_timestamp = first_timestamp;
 
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -655,7 +655,7 @@ fn test_filter_orphan_block_commits() {
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = make_test_pox(5, 3, 3, 3);
     burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_hash = first_bhh;
     burnchain.first_block_timestamp = first_timestamp;
 
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -715,7 +715,7 @@ fn test_filter_missed_block_commits() {
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = make_test_pox(5, 3, 3, 3);
     burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_hash = first_bhh;
     burnchain.first_block_timestamp = first_timestamp;
 
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -775,7 +775,7 @@ fn test_find_heaviest_block_commit() {
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = make_test_pox(5, 3, 2, 3);
     burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_hash = first_bhh;
     burnchain.first_block_timestamp = first_timestamp;
 
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -987,7 +987,7 @@ fn test_find_heaviest_parent_commit_many_commits() {
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = make_test_pox(5, 3, 2, 3);
     burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_hash = first_bhh;
     burnchain.first_block_timestamp = first_timestamp;
 
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -1239,7 +1239,7 @@ fn test_update_pox_affirmation_maps_3_forks() {
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = make_test_pox(10, 5, 3, 3);
     burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_hash = first_bhh;
     burnchain.first_block_timestamp = first_timestamp;
 
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -1488,7 +1488,7 @@ fn test_update_pox_affirmation_maps_unique_anchor_block() {
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = make_test_pox(10, 5, 3, 3);
     burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_hash = first_bhh;
     burnchain.first_block_timestamp = first_timestamp;
 
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -1680,7 +1680,7 @@ fn test_update_pox_affirmation_maps_absent() {
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = make_test_pox(10, 5, 3, 3);
     burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_hash = first_bhh;
     burnchain.first_block_timestamp = first_timestamp;
 
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -2142,7 +2142,7 @@ fn test_update_pox_affirmation_maps_nothing() {
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = make_test_pox(10, 5, 3, 3);
     burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_hash = first_bhh;
     burnchain.first_block_timestamp = first_timestamp;
 
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -2408,7 +2408,7 @@ fn test_update_pox_affirmation_fork_2_cycles() {
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = make_test_pox(5, 2, 2, 25);
     burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_hash = first_bhh;
     burnchain.first_block_timestamp = first_timestamp;
 
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -2699,7 +2699,7 @@ fn test_update_pox_affirmation_fork_duel() {
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = make_test_pox(5, 2, 2, 25);
     burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_hash = first_bhh;
     burnchain.first_block_timestamp = first_timestamp;
 
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();

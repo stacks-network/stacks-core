@@ -1268,7 +1268,7 @@ fn test_tenure_start_end_from_inventory() {
             let tenure_start_end_opt = available.get(&wt.tenure_id_consensus_hash);
             if bits
                 .get(i as u16)
-                .expect(&format!("failed to get bit {}: {:?}", i, &wt))
+                .unwrap_or_else(|| panic!("failed to get bit {i}: {wt:?}"))
             {
                 // this sortition had a tenure
                 let mut j = (i + 1) as u16;
@@ -1294,12 +1294,10 @@ fn test_tenure_start_end_from_inventory() {
 
                 if tenure_start_index.is_some() && tenure_end_index.is_some() {
                     debug!(
-                        "rc = {}, i = {}, tenure_start_index = {:?}, tenure_end_index = {:?}",
-                        rc, i, &tenure_start_index, &tenure_end_index
+                        "rc = {rc}, i = {i}, tenure_start_index = {tenure_start_index:?}, tenure_end_index = {tenure_end_index:?}"
                     );
-                    let tenure_start_end = tenure_start_end_opt.expect(&format!(
-                        "failed to get tenure_start_end_opt: i = {}, wt = {:?}",
-                        i, &wt
+                    let tenure_start_end = tenure_start_end_opt.unwrap_or_else(|| panic!(
+                        "failed to get tenure_start_end_opt: i = {i}, wt = {wt:?}"
                     ));
                     assert_eq!(
                         all_tenures[tenure_start_index.unwrap() as usize].winning_block_id,

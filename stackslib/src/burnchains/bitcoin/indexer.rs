@@ -234,7 +234,7 @@ impl BitcoinIndexer {
             true,
             false,
         )
-        .expect(&format!(
+        .unwrap_or_else(|_| panic!(
             "Failed to open {:?}",
             &working_dir_path.to_str().unwrap().to_string()
         ));

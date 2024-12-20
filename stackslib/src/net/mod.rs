@@ -3638,7 +3638,7 @@ pub mod test {
             let block_header = BurnchainBlockHeader {
                 block_height: tip_block_height + 1,
                 block_hash: block_header_hash.clone(),
-                parent_block_hash: parent_hdr.block_hash.clone(),
+                parent_block_hash: parent_hdr.block_hash,
                 num_txs: num_ops,
                 timestamp: now,
             };
@@ -4302,7 +4302,7 @@ pub mod test {
                     &last_key.public_key,
                     &burn_block.parent_snapshot.sortition_hash,
                 )
-                .expect(&format!(
+                .unwrap_or_else(|| panic!(
                     "FATAL: no private key for {}",
                     last_key.public_key.to_hex()
                 ));
@@ -4565,9 +4565,8 @@ pub mod test {
             self.config
                 .burnchain
                 .block_height_to_reward_cycle(block_height)
-                .expect(&format!(
-                    "Failed to get reward cycle for block height {}",
-                    block_height
+                .unwrap_or_else(|| panic!(
+                    "Failed to get reward cycle for block height {block_height}"
                 ))
         }
 

@@ -345,20 +345,19 @@ impl TenureStartEnd {
                 rc,
                 pox_constants
                     .block_height_to_reward_cycle(first_burn_height, wt_start.burn_height)
-                    .expect(&format!(
-                        "FATAL: tenure from before system start ({} <= {})",
-                        wt_start.burn_height, first_burn_height
+                    .unwrap_or_else(|| panic!(
+                        "FATAL: tenure from before system start ({} <= {first_burn_height})",
+                        wt_start.burn_height
                     )),
                 wt.processed,
             );
             tenure_start_end.fetch_end_block = true;
 
             debug!(
-                "i={},len={},next_len={}; {:?}",
+                "i={},len={},next_len={}; {tenure_start_end:?}",
                 iter_start + i,
                 wanted_tenures.len(),
-                next_wanted_tenures.len(),
-                &tenure_start_end
+                next_wanted_tenures.len()
             );
             tenure_block_ids.insert(wt.tenure_id_consensus_hash.clone(), tenure_start_end);
         }

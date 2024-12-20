@@ -75,7 +75,7 @@ impl BurnchainBlockHeader {
         BurnchainBlockHeader {
             block_height: parent_sn.block_height + 1,
             block_hash,
-            parent_block_hash: parent_sn.burn_header_hash.clone(),
+            parent_block_hash: parent_sn.burn_header_hash,
             num_txs,
             timestamp: get_epoch_time_secs(),
         }
@@ -135,16 +135,16 @@ pub struct TestMinerFactory {
 impl TestMiner {
     pub fn new(
         burnchain: &Burnchain,
-        privks: &Vec<StacksPrivateKey>,
+        privks: &[StacksPrivateKey],
         num_sigs: u16,
         hash_mode: &AddressHashMode,
         chain_id: u32,
     ) -> TestMiner {
         TestMiner {
             burnchain: burnchain.clone(),
-            privks: privks.clone(),
+            privks: privks.to_vec(),
             num_sigs,
-            hash_mode: hash_mode.clone(),
+            hash_mode: *hash_mode,
             microblock_privks: vec![],
             vrf_keys: vec![],
             vrf_key_map: HashMap::new(),
@@ -225,7 +225,7 @@ impl TestMiner {
             StacksPrivateKey::from_slice(h.as_bytes()).unwrap()
         };
 
-        self.microblock_privks.push(pk.clone());
+        self.microblock_privks.push(pk);
         pk
     }
 
@@ -240,15 +240,9 @@ impl TestMiner {
             last_sortition_hash
         );
         match self.vrf_key_map.get(vrf_pubkey) {
-            Some(ref prover_key) => {
-                let proof = VRF::prove(prover_key, &last_sortition_hash.as_bytes().to_vec());
-                let valid =
-                    match VRF::verify(vrf_pubkey, &proof, &last_sortition_hash.as_bytes().to_vec())
-                    {
-                        Ok(v) => v,
-                        Err(e) => false,
-                    };
-                assert!(valid);
+            Some(prover_key) => {
+                let proof = VRF::prove(prover_key, last_sortition_hash.as_bytes().as_ref());
+                assert!(VRF::verify(vrf_pubkey, &proof, last_sortition_hash.as_bytes().as_ref()).unwrap_or_default());
                 Some(proof)
             }
             None => None,
@@ -269,10 +263,7 @@ impl TestMiner {
     }
 
     pub fn origin_address(&self) -> Option<StacksAddress> {
-        match self.as_transaction_auth() {
-            Some(auth) => Some(auth.origin().address_testnet()),
-            None => None,
-        }
+        self.as_transaction_auth().map(|auth| auth.origin().address_testnet())
     }
 
     pub fn get_nonce(&self) -> u64 {
@@ -309,6 +300,12 @@ impl TestMiner {
         }
 
         self.nonce += 1
+    }
+}
+
+impl Default for TestMinerFactory {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -395,7 +392,7 @@ impl TestBurnchainBlock {
         );
         txop.txid =
             Txid::from_test_data(txop.block_height, txop.vtxindex, &txop.burn_header_hash, 0);
-        txop.consensus_hash = self.parent_snapshot.consensus_hash.clone();
+        txop.consensus_hash = self.parent_snapshot.consensus_hash;
 
         let miner_pubkey_hash160 = miner.nakamoto_miner_hash160();
         txop.set_nakamoto_signing_key(&miner_pubkey_hash160);
@@ -406,6 +403,7 @@ impl TestBurnchainBlock {
         txop
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn inner_add_block_commit(
         &mut self,
         ic: &SortitionDBConn,
@@ -422,10 +420,10 @@ impl TestBurnchainBlock {
         let pubks = miner
             .privks
             .iter()
-            .map(|ref pk| StacksPublicKey::from_private(pk))
+            .map(StacksPublicKey::from_private)
             .collect();
         let apparent_sender =
-            BurnchainSigner::mock_parts(miner.hash_mode.clone(), miner.num_sigs as usize, pubks);
+            BurnchainSigner::mock_parts(miner.hash_mode, miner.num_sigs as usize, pubks);
 
         let last_snapshot = match fork_snapshot {
             Some(sn) => sn.clone(),
@@ -441,7 +439,7 @@ impl TestBurnchainBlock {
             // prove on the last-ever sortition's hash to produce the new seed
             let proof = miner
                 .make_proof(&leader_key.public_key, &last_snapshot.sortition_hash)
-                .expect(&format!(
+                .unwrap_or_else(|| panic!(
                     "FATAL: no private key for {}",
                     leader_key.public_key.to_hex()
                 ));
@@ -465,7 +463,7 @@ impl TestBurnchainBlock {
 
         let input = SortitionDB::get_last_block_commit_by_sender(ic.conn(), &apparent_sender)
             .unwrap()
-            .map(|commit| (commit.txid.clone(), 1 + (commit.commit_outs.len() as u32)))
+            .map(|commit| (commit.txid, 1 + (commit.commit_outs.len() as u32)))
             .unwrap_or((Txid([0x00; 32]), 0));
 
         test_debug!("Last input from {} is {:?}", &apparent_sender, &input);
@@ -478,7 +476,7 @@ impl TestBurnchainBlock {
                     self.block_height,
                     &parent
                 );
-                let txop = LeaderBlockCommitOp::new(
+                LeaderBlockCommitOp::new(
                     block_hash,
                     self.block_height,
                     &new_seed,
@@ -489,11 +487,10 @@ impl TestBurnchainBlock {
                     burn_fee,
                     &input,
                     &apparent_sender,
-                );
-                txop
+                )
             }
             None => {
-                let txop = if parent_is_shadow {
+                if parent_is_shadow {
                     test_debug!(
                         "Block-commit for {} (burn height {}) builds on shadow sortition",
                         block_hash,
@@ -528,8 +525,7 @@ impl TestBurnchainBlock {
                         &input,
                         &apparent_sender,
                     )
-                };
-                txop
+                }
             }
         };
 
@@ -552,6 +548,7 @@ impl TestBurnchainBlock {
     }
 
     /// Add an epoch 2.x block-commit
+    #[allow(clippy::too_many_arguments)]
     pub fn add_leader_block_commit(
         &mut self,
         ic: &SortitionDBConn,
@@ -580,12 +577,9 @@ impl TestBurnchainBlock {
         assert_eq!(parent_snapshot.block_height + 1, self.block_height);
 
         for i in 0..self.txs.len() {
-            match self.txs[i] {
-                BlockstackOperationType::LeaderKeyRegister(ref mut data) => {
-                    assert_eq!(data.block_height, self.block_height);
-                    data.consensus_hash = parent_snapshot.consensus_hash.clone();
-                }
-                _ => {}
+            if let BlockstackOperationType::LeaderKeyRegister(data) = &mut self.txs[i] {
+                assert_eq!(data.block_height, self.block_height);
+                data.consensus_hash = parent_snapshot.consensus_hash;
             }
         }
     }
@@ -623,7 +617,7 @@ impl TestBurnchainBlock {
         let blockstack_txs = self.txs.clone();
 
         let burnchain_db =
-            BurnchainDB::connect(&burnchain.get_burnchaindb_path(), &burnchain, true).unwrap();
+            BurnchainDB::connect(&burnchain.get_burnchaindb_path(), burnchain, true).unwrap();
 
         let new_snapshot = sortition_db_handle
             .process_block_txs(
@@ -644,7 +638,6 @@ impl TestBurnchainBlock {
     }
 
     pub fn mine_pox<
-        'a,
         T: BlockEventDispatcher,
         N: CoordinatorNotices,
         R: RewardSetProvider,
@@ -655,13 +648,13 @@ impl TestBurnchainBlock {
         &self,
         db: &mut SortitionDB,
         burnchain: &Burnchain,
-        coord: &mut ChainsCoordinator<'a, T, N, R, CE, FE, B>,
+        coord: &mut ChainsCoordinator<'_, T, N, R, CE, FE, B>,
     ) -> BlockSnapshot {
         let mut indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
         let parent_hdr = indexer
             .read_burnchain_header(self.block_height.saturating_sub(1))
             .unwrap()
-            .expect(&format!(
+            .unwrap_or_else(|| panic!(
                 "BUG: could not read block at height {}",
                 self.block_height.saturating_sub(1)
             ));
@@ -680,17 +673,16 @@ impl TestBurnchainBlock {
         let block = BurnchainBlock::Bitcoin(mock_bitcoin_block);
         let header = BurnchainBlockHeader {
             block_height: block.block_height(),
-            block_hash: block_hash.clone(),
-            parent_block_hash: parent_hdr.block_hash.clone(),
+            block_hash,
+            parent_block_hash: parent_hdr.block_hash,
             num_txs: block.header().num_txs,
             timestamp: block.header().timestamp,
         };
 
         test_debug!(
-            "Process PoX block {} {}: {:?}",
+            "Process PoX block {} {}: {header:?}",
             block.block_height(),
-            &block.block_hash(),
-            &header
+            &block.block_hash()
         );
 
         let mut burnchain_db = BurnchainDB::open(&burnchain.get_burnchaindb_path(), true).unwrap();
@@ -719,9 +711,9 @@ impl TestBurnchainFork {
         TestBurnchainFork {
             start_height,
             mined: 0,
-            tip_header_hash: start_header_hash.clone(),
-            tip_sortition_id: SortitionId::stubbed(&start_header_hash),
-            tip_index_root: start_index_root.clone(),
+            tip_header_hash: *start_header_hash,
+            tip_sortition_id: SortitionId::stubbed(start_header_hash),
+            tip_index_root: *start_index_root,
             blocks: vec![],
             pending_blocks: vec![],
             fork_id,
@@ -783,7 +775,6 @@ impl TestBurnchainFork {
     }
 
     pub fn mine_pending_blocks_pox<
-        'a,
         T: BlockEventDispatcher,
         N: CoordinatorNotices,
         R: RewardSetProvider,
@@ -794,7 +785,7 @@ impl TestBurnchainFork {
         &mut self,
         db: &mut SortitionDB,
         burnchain: &Burnchain,
-        coord: &mut ChainsCoordinator<'a, T, N, R, CE, FE, B>,
+        coord: &mut ChainsCoordinator<'_, T, N, R, CE, FE, B>,
     ) -> BlockSnapshot {
         let mut snapshot = {
             let ic = db.index_conn();
@@ -820,6 +811,12 @@ impl TestBurnchainFork {
     }
 }
 
+impl Default for TestBurnchainNode {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TestBurnchainNode {
     pub fn new() -> TestBurnchainNode {
         let first_block_height = 100;
@@ -840,9 +837,9 @@ impl TestBurnchainNode {
 fn process_next_sortition(
     node: &mut TestBurnchainNode,
     fork: &mut TestBurnchainFork,
-    miners: &mut Vec<TestMiner>,
-    prev_keys: &Vec<LeaderKeyRegisterOp>,
-    block_hashes: &Vec<BlockHeaderHash>,
+    miners: &mut [TestMiner],
+    prev_keys: &[LeaderKeyRegisterOp],
+    block_hashes: &[BlockHeaderHash],
 ) -> (
     BlockSnapshot,
     Vec<LeaderKeyRegisterOp>,
@@ -862,13 +859,13 @@ fn process_next_sortition(
         assert_eq!(miners.len(), prev_keys.len());
 
         // make a Stacks block (hash) for each of the prior block's keys
-        for j in 0..miners.len() {
+        for (j, miner) in miners.iter_mut().enumerate() {
             let block_commit_op = {
                 let ic = node.sortdb.index_conn();
-                let hash = block_hashes[j].clone();
+                let hash = block_hashes[j];
                 block.add_leader_block_commit(
                     &ic,
-                    &mut miners[j],
+                    miner,
                     &hash,
                     ((j + 1) as u64) * 1000,
                     &prev_keys[j],
@@ -881,8 +878,8 @@ fn process_next_sortition(
     }
 
     // have each leader register a VRF key
-    for j in 0..miners.len() {
-        let key_register_op = block.add_leader_key_register(&mut miners[j]);
+    for miner in miners.iter_mut() {
+        let key_register_op = block.add_leader_key_register(miner);
         next_prev_keys.push(key_register_op);
     }
 
@@ -894,7 +891,7 @@ fn process_next_sortition(
     (tip_snapshot, next_prev_keys, next_commits)
 }
 
-fn verify_keys_accepted(node: &mut TestBurnchainNode, prev_keys: &Vec<LeaderKeyRegisterOp>) {
+fn verify_keys_accepted(node: &mut TestBurnchainNode, prev_keys: &[LeaderKeyRegisterOp]) {
     // all keys accepted
     for key in prev_keys.iter() {
         let tx_opt = SortitionDB::get_burnchain_transaction(node.sortdb.conn(), &key.txid).unwrap();
@@ -908,7 +905,7 @@ fn verify_keys_accepted(node: &mut TestBurnchainNode, prev_keys: &Vec<LeaderKeyR
 
 fn verify_commits_accepted(
     node: &TestBurnchainNode,
-    next_block_commits: &Vec<LeaderBlockCommitOp>,
+    next_block_commits: &[LeaderBlockCommitOp],
 ) {
     // all commits accepted
     for commit in next_block_commits.iter() {

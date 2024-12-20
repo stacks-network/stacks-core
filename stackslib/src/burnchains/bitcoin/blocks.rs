@@ -254,7 +254,7 @@ impl BitcoinBlockParser {
 
         // block transactions must match header merkle root
         let tx_merkle_root =
-            bitcoin_merkle_root(block.txdata.iter().map(|ref tx| tx.txid()).collect());
+            bitcoin_merkle_root(block.txdata.iter().map(|tx| tx.txid()).collect());
 
         if block.header.merkle_root != tx_merkle_root {
             return false;

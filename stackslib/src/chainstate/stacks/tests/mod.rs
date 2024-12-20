@@ -619,7 +619,7 @@ impl TestStacksNode {
                 &miner_key.public_key,
                 &burn_block.parent_snapshot.sortition_hash,
             )
-            .expect(&format!(
+            .unwrap_or_else(|| panic!(
                 "FATAL: no private key for {}",
                 miner_key.public_key.to_hex()
             ));

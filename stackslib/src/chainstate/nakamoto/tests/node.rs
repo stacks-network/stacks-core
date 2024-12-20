@@ -1368,7 +1368,7 @@ impl<'a> TestPeer<'a> {
         let proof = self
             .miner
             .make_proof(&miner_key.public_key, &tip.sortition_hash)
-            .expect(&format!(
+            .unwrap_or_else(|| panic!(
                 "FATAL: no private key for {}",
                 miner_key.public_key.to_hex()
             ));

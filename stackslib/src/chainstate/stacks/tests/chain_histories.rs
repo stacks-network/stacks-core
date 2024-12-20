@@ -2600,7 +2600,7 @@ fn miner_trace_replay_randomized(miner_trace: &mut TestMinerTrace) {
             miner_trace
                 .miners
                 .iter()
-                .map(|ref miner| miner.origin_address().unwrap())
+                .map(|miner| miner.origin_address().unwrap())
                 .collect(),
         );
         nodes.insert(test_name, next_node);

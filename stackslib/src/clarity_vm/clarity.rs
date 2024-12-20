@@ -165,7 +165,7 @@ impl From<ChainstateError> for Error {
 ///   passing a mutable reference across a function boundary.
 macro_rules! using {
     ($to_use: expr, $msg: expr, $exec: expr) => {{
-        let object = $to_use.take().expect(&format!(
+        let object = $to_use.take().unwrap_or_else(|| panic!(
             "BUG: Transaction connection lost {} handle.",
             $msg
         ));

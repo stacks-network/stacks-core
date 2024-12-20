@@ -339,7 +339,7 @@ impl NakamotoChainState {
         let miner_reward = MinerPaymentSchedule {
             address: miner_addr,
             recipient,
-            block_hash: block_hash.clone(),
+            block_hash: *block_hash,
             consensus_hash: block_consensus_hash.clone(),
             parent_block_hash: parent_block_hash.clone(),
             parent_consensus_hash: parent_consensus_hash.clone(),

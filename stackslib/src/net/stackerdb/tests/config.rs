@@ -532,7 +532,7 @@ fn test_valid_and_invalid_stackerdb_configs() {
                 Ok(config) => {
                     let expected = result
                         .clone()
-                        .expect(&format!("FATAL: parsed a bad contract\n{}", code));
+                        .unwrap_or_else(|| panic!("FATAL: parsed a bad contract\n{code}"));
                     assert_eq!(config, expected);
                 }
                 Err(net_error::InvalidStackerDBContract(..)) => {

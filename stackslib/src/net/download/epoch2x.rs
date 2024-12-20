@@ -1722,7 +1722,7 @@ impl PeerNetwork {
                             &requests.front().as_ref().unwrap().consensus_hash,
                             &requests.front().as_ref().unwrap().anchor_block_hash,
                             &index_block_hash,
-                            requests.iter().map(|ref r| &r.data_url).collect::<Vec<_>>()
+                            requests.iter().map(|r| &r.data_url).collect::<Vec<_>>()
                         );
 
                         downloader.blocks_to_try.insert(height, requests);
@@ -1786,7 +1786,7 @@ impl PeerNetwork {
 
                         debug!("{:?}: will request microblock stream confirmed by sortition {}: {}/{} ({}) from {:?}", 
                                &network.local_peer, mblock_height, &requests.front().as_ref().unwrap().consensus_hash, &requests.front().as_ref().unwrap().anchor_block_hash, &index_block_hash,
-                                requests.iter().map(|ref r| &r.data_url).collect::<Vec<_>>()
+                                requests.iter().map(|r| &r.data_url).collect::<Vec<_>>()
                                );
 
                         downloader

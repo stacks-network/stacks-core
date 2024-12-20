@@ -3657,7 +3657,7 @@ impl StacksChainState {
         let miner_reward = MinerPaymentSchedule {
             address: miner_addr,
             recipient,
-            block_hash: block_hash.clone(),
+            block_hash: *block_hash,
             consensus_hash: block_consensus_hash.clone(),
             parent_block_hash: parent_block_hash.clone(),
             parent_consensus_hash: parent_consensus_hash.clone(),
@@ -9987,11 +9987,11 @@ pub mod test {
         }
 
         let block_hashes: Vec<BlockHeaderHash> =
-            blocks.iter().map(|ref b| b.block_hash()).collect();
+            blocks.iter().map(|b| b.block_hash()).collect();
         let header_hashes_all: Vec<(ConsensusHash, Option<BlockHeaderHash>)> = consensus_hashes
             .iter()
             .zip(block_hashes.iter())
-            .map(|(ref burn, ref block)| ((*burn).clone(), Some((*block).clone())))
+            .map(|(burn, block)| ((*burn).clone(), Some((*block).clone())))
             .collect();
 
         // nothing is stored, so our inventory should be empty

@@ -2402,6 +2402,7 @@ impl MemPoolDB {
     /// No action is required by the caller to handle this discrepancy; the caller should just submit
     /// the canonical Stacks tip. If the current epoch is a Nakamoto epoch, it will be resolved to
     /// the tenure-start block internally.
+    #[allow(clippy::too_many_arguments)]
     pub fn submit(
         &mut self,
         chainstate: &mut StacksChainState,

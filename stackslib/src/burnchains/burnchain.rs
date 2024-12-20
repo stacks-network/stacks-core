@@ -98,7 +98,7 @@ impl BurnchainStateTransition {
 
     /// Get the transaction IDs of all accepted burnchain operations in this block
     pub fn txids(&self) -> Vec<Txid> {
-        self.accepted_ops.iter().map(|ref op| op.txid()).collect()
+        self.accepted_ops.iter().map(|op| op.txid()).collect()
     }
 
     /// Get the sum of all burnchain tokens spent in this burnchain block's accepted operations
@@ -425,7 +425,7 @@ impl BurnchainBlock {
             BurnchainBlock::Bitcoin(ref data) => data
                 .txs
                 .iter()
-                .map(|ref tx| BurnchainTransaction::Bitcoin((*tx).clone()))
+                .map(|tx| BurnchainTransaction::Bitcoin((*tx).clone()))
                 .collect(),
         }
     }

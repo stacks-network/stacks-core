@@ -390,7 +390,7 @@ impl StacksBlock {
     ) -> StacksBlock {
         let txids = txs
             .iter()
-            .map(|ref tx| tx.txid().as_bytes().to_vec())
+            .map(|tx| tx.txid().as_bytes().to_vec())
             .collect();
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
@@ -882,7 +882,7 @@ impl StacksMicroblock {
     ) -> StacksMicroblock {
         let txids = txs
             .iter()
-            .map(|ref tx| tx.txid().as_bytes().to_vec())
+            .map(|tx| tx.txid().as_bytes().to_vec())
             .collect();
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
@@ -896,7 +896,7 @@ impl StacksMicroblock {
     ) -> Option<StacksMicroblock> {
         let txids = txs
             .iter()
-            .map(|ref tx| tx.txid().as_bytes().to_vec())
+            .map(|tx| tx.txid().as_bytes().to_vec())
             .collect();
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
