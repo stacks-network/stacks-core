@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 /// Node in the doubly linked list
 struct Node<K, V> {

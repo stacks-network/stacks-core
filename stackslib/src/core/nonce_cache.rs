@@ -219,7 +219,7 @@ mod tests {
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0u8; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
