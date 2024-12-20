@@ -8,10 +8,12 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ## [Unreleased]
 
 ### Added
+
 - Add `tenure_timeout_secs` to the miner for determining when a time-based tenure extend should be attempted.
 
 ### Changed
 
+- When a transaction is dropped due to replace-by-fee, the `/drop_mempool_tx` event observer payload now includes `new_txid`, which is the transaction that replaced this dropped transaction. When a transaction is dropped for other reasons, `new_txid` is `null`. [#5381](https://github.com/stacks-network/stacks-core/pull/5381)
 - Nodes will assume that all PoX anchor blocks exist by default, and stall initial block download indefinitely to await their arrival (#5502)
 
 ## [3.1.0.0.1]
