@@ -6321,6 +6321,9 @@ fn continue_after_fast_block_no_sortition() {
     let node_2_rpc = gen_random_port();
     let node_2_p2p = gen_random_port();
 
+    debug!("Node 1 bound at (p2p={}, rpc={})", node_1_p2p, node_1_rpc);
+    debug!("Node 2 bound at (p2p={}, rpc={})", node_2_p2p, node_2_rpc);
+
     let localhost = "127.0.0.1";
     let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
     let node_2_rpc_bind = format!("{localhost}:{node_2_rpc}");
@@ -6356,6 +6359,8 @@ fn continue_after_fast_block_no_sortition() {
             config.node.local_peer_seed = btc_miner_1_seed.clone();
             config.burnchain.local_mining_public_key = Some(btc_miner_1_pk.to_hex());
             config.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[1]));
+
+            config.miner.tenure_extend_wait_secs = Duration::from_secs(10);
 
             config.events_observers.retain(|listener| {
                 let Ok(addr) = std::net::SocketAddr::from_str(&listener.endpoint) else {
@@ -6659,7 +6664,11 @@ fn continue_after_fast_block_no_sortition() {
         .unwrap()
         .replace(Vec::new());
 
-    info!("------------------------- Wait for Miner B's Block N -------------------------");
+    info!("------------------------- Wait for Miner B's Block N -------------------------";
+        "blocks_processed_before_2" => %blocks_processed_before_2,
+        "stacks_height_before" => %stacks_height_before,
+        "nmb_old_blocks" => %nmb_old_blocks);
+
     // wait for the new block to be processed
     wait_for(30, || {
         let stacks_height = signer_test
@@ -6667,6 +6676,15 @@ fn continue_after_fast_block_no_sortition() {
             .get_peer_info()
             .expect("Failed to get peer info")
             .stacks_tip_height;
+
+        let blocks_mined1_val = blocks_mined1.load(Ordering::SeqCst);
+        let blocks_mined2_val = blocks_mined2.load(Ordering::SeqCst);
+        info!("Waiting for Miner B's Block N";
+            "blocks_mined1_val" => %blocks_mined1_val,
+            "blocks_mined2_val" => %blocks_mined2_val,
+            "stacks_height" => %stacks_height,
+            "observed_blocks" => %test_observer::get_blocks().len());
+
         Ok(
             blocks_mined2.load(Ordering::SeqCst) > blocks_processed_before_2
                 && stacks_height > stacks_height_before
@@ -6701,13 +6719,47 @@ fn continue_after_fast_block_no_sortition() {
     );
     submit_tx(&http_origin, &transfer_tx);
 
-    // wait for the new block to be processed
+    // wait for the tenure-extend block to be processed
     wait_for(30, || {
         let stacks_height = signer_test
             .stacks_client
             .get_peer_info()
             .expect("Failed to get peer info")
             .stacks_tip_height;
+        Ok(
+            blocks_mined2.load(Ordering::SeqCst) > blocks_processed_before_2
+                && stacks_height > stacks_height_before
+                && test_observer::get_blocks().len() > nmb_old_blocks,
+        )
+    })
+    .expect("Timed out waiting for block to be mined and processed");
+
+    verify_last_block_contains_tenure_change_tx(TenureChangeCause::Extended);
+
+    let nmb_old_blocks = test_observer::get_blocks().len();
+    let blocks_processed_before_2 = blocks_mined2.load(Ordering::SeqCst);
+    let stacks_height_before = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info")
+        .stacks_tip_height;
+
+    // wait for the new block with the STX transfer to be processed
+    wait_for(30, || {
+        let stacks_height = signer_test
+            .stacks_client
+            .get_peer_info()
+            .expect("Failed to get peer info")
+            .stacks_tip_height;
+
+        let blocks_mined1_val = blocks_mined1.load(Ordering::SeqCst);
+        let blocks_mined2_val = blocks_mined2.load(Ordering::SeqCst);
+        info!("Waiting for Miner B's Block N";
+            "blocks_mined1_val" => %blocks_mined1_val,
+            "blocks_mined2_val" => %blocks_mined2_val,
+            "stacks_height" => %stacks_height,
+            "observed_blocks" => %test_observer::get_blocks().len());
+
         Ok(
             blocks_mined2.load(Ordering::SeqCst) > blocks_processed_before_2
                 && stacks_height > stacks_height_before
@@ -6780,7 +6832,7 @@ fn continue_after_fast_block_no_sortition() {
         .expect("Failed to get peer info");
 
     assert_eq!(get_burn_height(), starting_burn_height + btc_blocks_mined);
-    assert_eq!(peer_info.stacks_tip_height, starting_peer_height + 5);
+    assert_eq!(peer_info.stacks_tip_height, starting_peer_height + 6);
 
     info!("------------------------- Shutdown -------------------------");
     rl2_coord_channels
