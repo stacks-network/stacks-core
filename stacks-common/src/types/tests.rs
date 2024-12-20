@@ -14,12 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::types::{get_coinbase_intervals_mainnet, get_coinbase_intervals_testnet};
-
 use super::{
     set_test_coinbase_schedule, CoinbaseInterval, StacksEpochId, COINBASE_INTERVALS_MAINNET,
     COINBASE_INTERVALS_TESTNET,
 };
+use crate::types::{get_coinbase_intervals_mainnet, get_coinbase_intervals_testnet};
 
 #[test]
 fn test_mainnet_coinbase_emissions() {

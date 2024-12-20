@@ -382,10 +382,10 @@ pub struct MerklePathPoint<H: MerkleHashFunc> {
 pub type MerklePath<H> = Vec<MerklePathPoint<H>>;
 
 /// Merkle tree implementation with tagged nodes:
-/// 
+///
 /// * A leaf hash is `H(0x00 + data)`
 /// * A node hash is `H(0x01 + left.hash + right.hash)`
-/// 
+///
 /// An empty tree has a root hash of `0x00000...00000`.
 ///
 /// NOTE: This is consensus-critical code, because it is used to generate the transaction Merkle
