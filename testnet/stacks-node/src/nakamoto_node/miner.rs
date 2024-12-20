@@ -75,6 +75,7 @@ pub enum MinerDirective {
     BeginTenure {
         parent_tenure_start: StacksBlockId,
         burnchain_tip: BlockSnapshot,
+        late: bool,
     },
     /// The miner should try to continue their tenure if they are the active miner
     ContinueTenure { new_burn_view: ConsensusHash },
@@ -104,7 +105,7 @@ struct ParentStacksBlockInfo {
 #[derive(PartialEq, Clone, Debug)]
 pub enum MinerReason {
     /// The miner thread was spawned to begin a new tenure
-    BlockFound,
+    BlockFound { late: bool },
     /// The miner thread was spawned to extend an existing tenure
     Extended {
         /// Current consensus hash on the underlying burnchain.  Corresponds to the last-seen
@@ -116,7 +117,9 @@ pub enum MinerReason {
 impl std::fmt::Display for MinerReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MinerReason::BlockFound => write!(f, "BlockFound"),
+            MinerReason::BlockFound { late } => {
+                write!(f, "BlockFound({})", if *late { "late" } else { "current" })
+            }
             MinerReason::Extended {
                 burn_view_consensus_hash,
             } => write!(
@@ -498,6 +501,7 @@ impl BlockMinerThread {
             // update mined-block counters and mined-tenure counters
             self.globals.counters.bump_naka_mined_blocks();
             if self.last_block_mined.is_some() {
+                // TODO: reviewers: should this be .is_none()?
                 // this is the first block of the tenure, bump tenure counter
                 self.globals.counters.bump_naka_mined_tenures();
             }
@@ -958,6 +962,7 @@ impl BlockMinerThread {
             miner_address,
             &self.parent_tenure_id,
             stacks_tip_header,
+            &self.reason,
         ) {
             Ok(parent_info) => Ok(parent_info),
             Err(NakamotoNodeError::BurnchainTipChanged) => {
@@ -1233,7 +1238,7 @@ impl BlockMinerThread {
         };
 
         let (tenure_change_tx, coinbase_tx) = match &self.reason {
-            MinerReason::BlockFound => {
+            MinerReason::BlockFound { .. } => {
                 let tenure_change_tx =
                     self.generate_tenure_change_tx(current_miner_nonce, payload)?;
                 let coinbase_tx =
@@ -1253,6 +1258,8 @@ impl BlockMinerThread {
                       "parent_block_id" => %parent_block_id,
                       "num_blocks_so_far" => num_blocks_so_far,
                 );
+
+                // NOTE: this switches payload.cause to TenureChangeCause::Extend
                 payload = payload.extend(
                     *burn_view_consensus_hash,
                     parent_block_id,
@@ -1353,11 +1360,22 @@ impl BlockMinerThread {
         chain_state: &mut StacksChainState,
     ) -> Result<(), NakamotoNodeError> {
         Self::check_burn_view_changed(sortdb, chain_state, &self.burn_block)?;
+
+        if let MinerReason::BlockFound { late } = &self.reason {
+            if *late && self.last_block_mined.is_none() {
+                // this is a late BlockFound tenure change that ought to be appended to the Stacks
+                // chain tip, and we haven't submitted it yet.
+                return Ok(());
+            }
+        }
+
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
         if cur_burn_chain_tip.consensus_hash != self.burn_block.consensus_hash {
-            info!("Miner: Cancel block assembly; burnchain tip has changed");
+            info!("Miner: Cancel block assembly; burnchain tip has changed";
+                "new_tip" => %cur_burn_chain_tip.consensus_hash,
+                "local_tip" => %self.burn_block.consensus_hash);
             self.globals.counters.bump_missed_tenures();
             Err(NakamotoNodeError::BurnchainTipChanged)
         } else {
@@ -1377,7 +1395,7 @@ impl ParentStacksBlockInfo {
     // TODO: add tests from mutation testing results #4869
     #[cfg_attr(test, mutants::skip)]
     /// Determine where in the set of forks to attempt to mine the next anchored block.
-    /// `mine_tip_ch` and `mine_tip_bhh` identify the parent block on top of which to mine.
+    /// `parent_tenure_id` and `stacks_tip_header` identify the parent block on top of which to mine.
     /// `check_burn_block` identifies what we believe to be the burn chain's sortition history tip.
     /// This is used to mitigate (but not eliminate) a TOCTTOU issue with mining: the caller's
     /// conception of the sortition history tip may have become stale by the time they call this
@@ -1389,6 +1407,7 @@ impl ParentStacksBlockInfo {
         miner_address: StacksAddress,
         parent_tenure_id: &StacksBlockId,
         stacks_tip_header: StacksHeaderInfo,
+        reason: &MinerReason,
     ) -> Result<ParentStacksBlockInfo, NakamotoNodeError> {
         // the stacks block I'm mining off of's burn header hash and vtxindex:
         let parent_snapshot = SortitionDB::get_block_snapshot_consensus(
@@ -1398,11 +1417,17 @@ impl ParentStacksBlockInfo {
         .expect("Failed to look up block's parent snapshot")
         .expect("Failed to look up block's parent snapshot");
 
-        // don't mine off of an old burnchain block
+        // don't mine off of an old burnchain block, unless we're late
         let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
-        if burn_chain_tip.consensus_hash != check_burn_block.consensus_hash {
+        let allow_late = if let MinerReason::BlockFound { late } = reason {
+            *late
+        } else {
+            false
+        };
+
+        if !allow_late && burn_chain_tip.consensus_hash != check_burn_block.consensus_hash {
             info!(
                 "New canonical burn chain tip detected. Will not try to mine.";
                 "new_consensus_hash" => %burn_chain_tip.consensus_hash,
@@ -1476,6 +1501,8 @@ impl ParentStacksBlockInfo {
             "stacks_tip_consensus_hash" => %parent_snapshot.consensus_hash,
             "stacks_tip_burn_hash" => %parent_snapshot.burn_header_hash,
             "stacks_tip_burn_height" => parent_snapshot.block_height,
+            "parent_tenure_info" => ?parent_tenure_info,
+            "reason" => %reason
         );
 
         let coinbase_nonce = {
