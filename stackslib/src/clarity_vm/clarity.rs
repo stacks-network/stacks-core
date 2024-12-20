@@ -1467,7 +1467,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             );
 
             let signers_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+                StacksTransaction::new(tx_version, boot_code_auth.clone(), payload);
 
             let signers_voting_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction

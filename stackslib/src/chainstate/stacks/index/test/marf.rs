@@ -1284,12 +1284,9 @@ fn marf_insert_random_10485760_4096_file_storage() {
     }
 
     let path = "/tmp/rust_marf_insert_random_10485760_4096_file_storage".to_string();
-    match fs::metadata(&path) {
-        Ok(_) => {
-            fs::remove_dir_all(&path).unwrap();
-        }
-        Err(_) => {}
-    };
+    if fs::metadata(&path).is_ok() {
+        fs::remove_dir_all(&path).unwrap();
+    }
     let marf_opts = MARFOpenOpts::default();
     let f = TrieFileStorage::open(&path, marf_opts).unwrap();
     let mut m = MARF::from_storage(f);
@@ -1569,13 +1566,10 @@ fn marf_read_random_1048576_4096_file_storage() {
     for marf_opts in MARFOpenOpts::all().into_iter() {
         test_debug!("With {:?}", &marf_opts);
         let path = "/tmp/rust_marf_insert_random_1048576_4096_file_storage".to_string();
-        match fs::metadata(&path) {
-            Err(_) => {
-                eprintln!("Run the marf_insert_random_1048576_4096_file_storage test first");
-                return;
-            }
-            Ok(_) => {}
-        };
+        if fs::metadata(&path).is_err() {
+            eprintln!("Run the marf_insert_random_1048576_4096_file_storage test first");
+            return;
+        }
         let marf_opts = MARFOpenOpts::default();
         let mut f_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut f = f_store.connection();

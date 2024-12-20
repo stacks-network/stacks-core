@@ -1323,11 +1323,11 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_multiple_microblock_desc
                                         "hello-world-{}",
                                         thread_rng().gen::<u64>()
                                     ))
-                                    .expect("FATAL: valid name"),
+                                    .expect("FATAL: invalid name"),
                                     code_body: StacksString::from_str(
                                         "(begin (print \"hello world\"))",
                                     )
-                                    .expect("FATAL: valid code"),
+                                    .expect("FATAL: invalid code"),
                                 },
                                 None,
                             );

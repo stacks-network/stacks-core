@@ -146,7 +146,7 @@ impl BitcoinIndexerConfig {
             timeout: 30,
             spv_headers_path: "./headers.sqlite".to_string(),
             first_block,
-            magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
+            magic_bytes: BLOCKSTACK_MAGIC_MAINNET,
             epochs: None,
         }
     }
@@ -162,7 +162,7 @@ impl BitcoinIndexerConfig {
             timeout: 30,
             spv_headers_path,
             first_block: 0,
-            magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
+            magic_bytes: BLOCKSTACK_MAGIC_MAINNET,
             epochs: None,
         }
     }
@@ -179,7 +179,7 @@ impl BitcoinIndexerConfig {
             timeout: 30,
             spv_headers_path,
             first_block: 0,
-            magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
+            magic_bytes: BLOCKSTACK_MAGIC_MAINNET,
             epochs: None,
         }
     }
@@ -227,7 +227,7 @@ impl BitcoinIndexer {
 
         // instantiate headers DB
         let _ = SpvClient::new(
-            &working_dir_path.to_str().unwrap().to_string(),
+            working_dir_path.to_str().unwrap(),
             0,
             None,
             BitcoinNetworkType::Regtest,
@@ -330,7 +330,6 @@ impl BitcoinIndexer {
     /// Handle version, verack, ping, and pong messages automatically.
     /// Reconnect to the peer automatically if the peer closes the connection.
     /// Pass any other messages to a given message handler.
-    #[allow(clippy::result_large_err)]
     pub fn peer_communicate<T: BitcoinMessageHandler>(
         &mut self,
         message_handler: &mut T,
@@ -472,7 +471,7 @@ impl BitcoinIndexer {
         network_id: BitcoinNetworkType,
     ) -> Result<SpvClient, btc_error> {
         SpvClient::new_without_migration(
-            &reorg_headers_path,
+            reorg_headers_path,
             start_block,
             end_block,
             network_id,

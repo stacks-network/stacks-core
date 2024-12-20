@@ -2301,7 +2301,7 @@ pub struct SerializedTx {
 
 impl SerializedTx {
     pub fn new(tx: Transaction) -> SerializedTx {
-        let txid = Txid::from_vec_be(&tx.txid().as_bytes().to_vec()).unwrap();
+        let txid = Txid::from_vec_be(&tx.txid().as_bytes().as_ref()).unwrap();
         let mut encoder = RawEncoder::new(Cursor::new(vec![]));
         tx.consensus_encode(&mut encoder)
             .expect("BUG: failed to serialize to a vec");

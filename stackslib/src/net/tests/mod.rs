@@ -1059,9 +1059,7 @@ fn test_boot_nakamoto_peer() {
 
         let mut tx_signer = StacksTransactionSigner::new(&stx_transfer);
         tx_signer.sign_origin(&private_key).unwrap();
-        let stx_transfer_signed = tx_signer.get_tx().unwrap();
-
-        stx_transfer_signed
+        tx_signer.get_tx().unwrap()
     };
 
     let boot_tenures = vec![

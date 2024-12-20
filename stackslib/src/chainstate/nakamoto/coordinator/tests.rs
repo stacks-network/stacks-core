@@ -297,9 +297,7 @@ pub fn make_token_transfer(
 
     let mut tx_signer = StacksTransactionSigner::new(&stx_transfer);
     tx_signer.sign_origin(&private_key).unwrap();
-    let stx_transfer_signed = tx_signer.get_tx().unwrap();
-
-    stx_transfer_signed
+    tx_signer.get_tx().unwrap()
 }
 
 /// Make contract publish

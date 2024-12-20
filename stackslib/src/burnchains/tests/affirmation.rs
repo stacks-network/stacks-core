@@ -331,7 +331,7 @@ pub fn make_reward_cycle_with_vote(
             let mut commits = vec![];
             for (i, parent_commit) in parent_commits.iter_mut().enumerate() {
                 let mut block_commit = make_simple_block_commit(
-                    &burnchain,
+                    burnchain,
                     parent_commit.as_ref(),
                     &block_header,
                     next_block_hash(),
@@ -387,14 +387,14 @@ pub fn make_reward_cycle_with_vote(
                     );
 
                     if let Some(parent_commit) = parent_commit.as_ref() {
-                        assert!(
-                            parent_commit.block_height != block_commit.block_height
+                        assert!(parent_commit.block_height != block_commit.block_height);
+                        assert_eq!(
+                            parent_commit.block_height,
+                            u64::from(block_commit.parent_block_ptr)
                         );
                         assert_eq!(
-                            parent_commit.block_height, u64::from(block_commit.parent_block_ptr)
-                        );
-                        assert_eq!(
-                            parent_commit.vtxindex, u32::from(block_commit.parent_vtxindex)
+                            parent_commit.vtxindex,
+                            u32::from(block_commit.parent_vtxindex)
                         );
                     }
 

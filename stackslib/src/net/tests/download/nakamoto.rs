@@ -173,7 +173,7 @@ fn test_nakamoto_tenure_downloader() {
         pubkey_hash: Hash160([0x02; 20]),
     };
     let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-    let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+    let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
     let coinbase_payload =
         TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, Some(proof.clone()));

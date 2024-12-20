@@ -949,6 +949,7 @@ impl ChainstateAccountLockup {
     }
 }
 
+#[allow(clippy::type_complexity)]
 pub struct ChainStateBootData {
     pub first_burnchain_block_hash: BurnchainHeaderHash,
     pub first_burnchain_block_height: u32,
@@ -967,6 +968,7 @@ pub struct ChainStateBootData {
 }
 
 impl ChainStateBootData {
+    #[allow(clippy::type_complexity)]
     pub fn new(
         burnchain: &Burnchain,
         initial_balances: Vec<(PrincipalData, u64)>,
@@ -2755,11 +2757,8 @@ pub mod test {
         balances: Vec<(StacksAddress, u64)>,
     ) -> StacksChainState {
         let path = chainstate_path(test_name);
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            }
-            Err(_) => {}
+        if fs::metadata(&path).is_ok() {
+            fs::remove_dir_all(&path).unwrap();
         };
 
         let initial_balances = balances
@@ -2875,12 +2874,9 @@ pub mod test {
         };
 
         let path = chainstate_path(function_name!());
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            }
-            Err(_) => {}
-        };
+        if fs::metadata(&path).is_ok() {
+            fs::remove_dir_all(&path).unwrap();
+        }
 
         let mut chainstate =
             StacksChainState::open_and_exec(false, 0x80000000, &path, Some(&mut boot_data), None)
@@ -2965,12 +2961,9 @@ pub mod test {
         };
 
         let path = chainstate_path(function_name!());
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            }
-            Err(_) => {}
-        };
+        if fs::metadata(&path).is_ok() {
+            fs::remove_dir_all(&path).unwrap();
+        }
 
         let mut chainstate =
             StacksChainState::open_and_exec(true, 0x000000001, &path, Some(&mut boot_data), None)

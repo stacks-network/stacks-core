@@ -224,7 +224,7 @@ fn trie_cursor_try_attach_leaf() {
                     TrieNodeType::Node256(ref data) => {
                         assert_eq!(count_children(&data.ptrs), 2)
                     }
-                    _ => assert!(false),
+                    _ => panic!(),
                 };
             }
 
@@ -398,7 +398,7 @@ fn trie_cursor_promote_leaf_to_node4() {
             match node {
                 TrieNodeType::Node4(ref data) => assert_eq!(count_children(&data.ptrs), 2),
                 TrieNodeType::Node256(ref data) => assert_eq!(count_children(&data.ptrs), 2),
-                _ => assert!(false),
+                _ => panic!(),
             };
         }
 

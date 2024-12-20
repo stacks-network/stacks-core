@@ -4427,7 +4427,7 @@ pub mod test {
                 &last_key,
                 parent_block_opt.as_ref(),
                 1000,
-                |mut builder, ref mut miner, ref sortdb| {
+                |mut builder, ref mut miner, sortdb| {
                     let (mut miner_chainstate, _) =
                         StacksChainState::open(false, network_id, &chainstate_path, None).unwrap();
                     let sort_iconn = sortdb.index_handle_at_tip();

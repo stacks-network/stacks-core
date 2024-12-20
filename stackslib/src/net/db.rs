@@ -3088,11 +3088,7 @@ mod test {
             0x13, 0x10,
         ]);
         let asn_invalid_opt = PeerDB::asn4_lookup(db.conn(), &asn4_invalid_addr);
-        match asn_invalid_opt {
-            Ok(_) => assert!(false),
-            Err(db_error::TypeError) => assert!(true),
-            Err(_) => assert!(false),
-        }
+        assert!(matches!(asn_invalid_opt, Err(db_error::TypeError)));
 
         // not present
         let asn4_missing_addr = PeerAddress([

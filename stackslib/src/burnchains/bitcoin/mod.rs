@@ -34,6 +34,7 @@ use crate::util_lib::db::Error as db_error;
 pub mod address;
 pub mod bits;
 pub mod blocks;
+#[allow(clippy::result_large_err)]
 pub mod indexer;
 pub mod keys;
 pub mod messages;

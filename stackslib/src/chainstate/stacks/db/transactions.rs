@@ -3498,7 +3498,7 @@ pub mod test {
         let addr_publisher = auth_origin.origin().address_testnet();
         let addr_principal = addr_publisher.to_account_principal();
 
-        let contract_name = ContractName::try_from("hello-world").unwrap();
+        let contract_name = ContractName::from("hello-world");
 
         let recv_addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -4242,7 +4242,7 @@ pub mod test {
         let addr_publisher = auth_origin.origin().address_testnet();
         let addr_principal = addr_publisher.to_account_principal();
 
-        let contract_name = ContractName::try_from("hello-world").unwrap();
+        let contract_name = ContractName::from("hello-world");
 
         let recv_addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -4926,7 +4926,7 @@ pub mod test {
 "
         .to_string();
 
-        let contract_name = ContractName::try_from("hello-world").unwrap();
+        let contract_name = ContractName::from("hello-world");
 
         let recv_addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -5054,19 +5054,19 @@ pub mod test {
 
         let asset_info_1 = AssetInfo {
             contract_address: contract_addr.clone(),
-            contract_name: ContractName::try_from("hello-world").unwrap(),
+            contract_name: ContractName::from("hello-world"),
             asset_name: ClarityName::try_from("test-asset-1").unwrap(),
         };
 
         let asset_info_2 = AssetInfo {
             contract_address: contract_addr.clone(),
-            contract_name: ContractName::try_from("hello-world").unwrap(),
+            contract_name: ContractName::from("hello-world"),
             asset_name: ClarityName::try_from("test-asset-2").unwrap(),
         };
 
         let asset_info_3 = AssetInfo {
             contract_address: contract_addr.clone(),
-            contract_name: ContractName::try_from("hello-world").unwrap(),
+            contract_name: ContractName::from("hello-world"),
             asset_name: ClarityName::try_from("test-asset-3").unwrap(),
         };
 
@@ -6903,7 +6903,7 @@ pub mod test {
 
         let asset_info = AssetInfo {
             contract_address: contract_addr.clone(),
-            contract_name: ContractName::try_from("hello-world").unwrap(),
+            contract_name: ContractName::from("hello-world"),
             asset_name: ClarityName::try_from("test-asset").unwrap(),
         };
 
@@ -7381,7 +7381,7 @@ pub mod test {
                 vec![TransactionPostCondition::STX(
                     PostConditionPrincipal::Contract(
                         addr.clone(),
-                        ContractName::try_from("hello-world").unwrap(),
+                        ContractName::from("hello-world"),
                     ),
                     FungibleConditionCode::SentEq,
                     0,
@@ -7394,7 +7394,7 @@ pub mod test {
                 vec![TransactionPostCondition::STX(
                     PostConditionPrincipal::Contract(
                         addr.clone(),
-                        ContractName::try_from("hello-world").unwrap(),
+                        ContractName::from("hello-world"),
                     ),
                     FungibleConditionCode::SentLe,
                     0,
@@ -7407,7 +7407,7 @@ pub mod test {
                 vec![TransactionPostCondition::STX(
                     PostConditionPrincipal::Contract(
                         addr.clone(),
-                        ContractName::try_from("hello-world").unwrap(),
+                        ContractName::from("hello-world"),
                     ),
                     FungibleConditionCode::SentGe,
                     0,
@@ -7420,7 +7420,7 @@ pub mod test {
                 vec![TransactionPostCondition::STX(
                     PostConditionPrincipal::Contract(
                         addr.clone(),
-                        ContractName::try_from("hello-world").unwrap(),
+                        ContractName::from("hello-world"),
                     ),
                     FungibleConditionCode::SentLt,
                     1,
@@ -7435,7 +7435,7 @@ pub mod test {
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
                             addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
+                            ContractName::from("hello-world"),
                         ),
                         FungibleConditionCode::SentEq,
                         0,
@@ -7455,7 +7455,7 @@ pub mod test {
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
                             addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
+                            ContractName::from("hello-world"),
                         ),
                         FungibleConditionCode::SentLe,
                         0,
@@ -7475,7 +7475,7 @@ pub mod test {
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
                             addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
+                            ContractName::from("hello-world"),
                         ),
                         FungibleConditionCode::SentGe,
                         0,
@@ -7495,7 +7495,7 @@ pub mod test {
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
                             addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
+                            ContractName::from("hello-world"),
                         ),
                         FungibleConditionCode::SentLt,
                         1,
@@ -7678,7 +7678,7 @@ pub mod test {
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
                             addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
+                            ContractName::from("hello-world"),
                         ),
                         FungibleConditionCode::SentEq,
                         0,
@@ -7698,7 +7698,7 @@ pub mod test {
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
                             addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
+                            ContractName::from("hello-world"),
                         ),
                         FungibleConditionCode::SentLe,
                         0,
@@ -7718,7 +7718,7 @@ pub mod test {
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
                             addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
+                            ContractName::from("hello-world"),
                         ),
                         FungibleConditionCode::SentGe,
                         0,
@@ -7738,7 +7738,7 @@ pub mod test {
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
                             addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
+                            ContractName::from("hello-world"),
                         ),
                         FungibleConditionCode::SentLt,
                         1,
@@ -7759,7 +7759,7 @@ pub mod test {
                 vec![TransactionPostCondition::STX(
                     PostConditionPrincipal::Contract(
                         addr.clone(),
-                        ContractName::try_from("hello-world").unwrap(),
+                        ContractName::from("hello-world"),
                     ),
                     FungibleConditionCode::SentEq,
                     0,
@@ -7772,7 +7772,7 @@ pub mod test {
                 vec![TransactionPostCondition::STX(
                     PostConditionPrincipal::Contract(
                         addr.clone(),
-                        ContractName::try_from("hello-world").unwrap(),
+                        ContractName::from("hello-world"),
                     ),
                     FungibleConditionCode::SentLe,
                     0,
@@ -7785,7 +7785,7 @@ pub mod test {
                 vec![TransactionPostCondition::STX(
                     PostConditionPrincipal::Contract(
                         addr.clone(),
-                        ContractName::try_from("hello-world").unwrap(),
+                        ContractName::from("hello-world"),
                     ),
                     FungibleConditionCode::SentGe,
                     0,
@@ -7798,7 +7798,7 @@ pub mod test {
                 vec![TransactionPostCondition::STX(
                     PostConditionPrincipal::Contract(
                         addr.clone(),
-                        ContractName::try_from("hello-world").unwrap(),
+                        ContractName::from("hello-world"),
                     ),
                     FungibleConditionCode::SentLt,
                     1,
@@ -7814,7 +7814,7 @@ pub mod test {
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
                             addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
+                            ContractName::from("hello-world"),
                         ),
                         FungibleConditionCode::SentEq,
                         0,
@@ -7834,7 +7834,7 @@ pub mod test {
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
                             addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
+                            ContractName::from("hello-world"),
                         ),
                         FungibleConditionCode::SentLe,
                         0,
@@ -7854,7 +7854,7 @@ pub mod test {
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
                             addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
+                            ContractName::from("hello-world"),
                         ),
                         FungibleConditionCode::SentGe,
                         0,
@@ -7874,7 +7874,7 @@ pub mod test {
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
                             addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
+                            ContractName::from("hello-world"),
                         ),
                         FungibleConditionCode::SentLt,
                         1,
@@ -7895,7 +7895,7 @@ pub mod test {
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
                             addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
+                            ContractName::from("hello-world"),
                         ),
                         FungibleConditionCode::SentEq,
                         0,
@@ -7915,7 +7915,7 @@ pub mod test {
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
                             addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
+                            ContractName::from("hello-world"),
                         ),
                         FungibleConditionCode::SentLe,
                         0,
@@ -7935,7 +7935,7 @@ pub mod test {
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
                             addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
+                            ContractName::from("hello-world"),
                         ),
                         FungibleConditionCode::SentGe,
                         0,
@@ -7955,7 +7955,7 @@ pub mod test {
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
                             addr.clone(),
-                            ContractName::try_from("hello-world").unwrap(),
+                            ContractName::from("hello-world"),
                         ),
                         FungibleConditionCode::SentLt,
                         1,
@@ -8145,10 +8145,7 @@ pub mod test {
 
             eprintln!("{:?}", &err);
             assert_eq!(fee, 0);
-            if let Error::InvalidFee = err {
-            } else {
-                assert!(false)
-            };
+            assert!(matches!(err, Error::InvalidFee));
         }
 
         // in epoch 2.1, this passes, since we debit the fee _before_ we run the tx, and then the
@@ -8746,7 +8743,7 @@ pub mod test {
             auth.clone(),
             TransactionPayload::SmartContract(
                 TransactionSmartContract {
-                    name: ContractName::try_from("hello-world").unwrap(),
+                    name: ContractName::from("hello-world"),
                     code_body: StacksString::from_str("(print \"hello\")").unwrap(),
                 },
                 None,
@@ -8757,7 +8754,7 @@ pub mod test {
             auth.clone(),
             TransactionPayload::SmartContract(
                 TransactionSmartContract {
-                    name: ContractName::try_from("hello-world").unwrap(),
+                    name: ContractName::from("hello-world"),
                     code_body: StacksString::from_str("(print \"hello\")").unwrap(),
                 },
                 Some(ClarityVersion::Clarity1),
@@ -8768,7 +8765,7 @@ pub mod test {
             auth.clone(),
             TransactionPayload::SmartContract(
                 TransactionSmartContract {
-                    name: ContractName::try_from("hello-world").unwrap(),
+                    name: ContractName::from("hello-world"),
                     code_body: StacksString::from_str("(print \"hello\")").unwrap(),
                 },
                 Some(ClarityVersion::Clarity2),
@@ -8960,7 +8957,7 @@ pub mod test {
             auth.clone(),
             TransactionPayload::SmartContract(
                 TransactionSmartContract {
-                    name: ContractName::try_from("hello-world").unwrap(),
+                    name: ContractName::from("hello-world"),
                     code_body: StacksString::from_str("(print \"hello\")").unwrap(),
                 },
                 None,
@@ -8971,7 +8968,7 @@ pub mod test {
             auth.clone(),
             TransactionPayload::SmartContract(
                 TransactionSmartContract {
-                    name: ContractName::try_from("hello-world").unwrap(),
+                    name: ContractName::from("hello-world"),
                     code_body: StacksString::from_str("(print \"hello\")").unwrap(),
                 },
                 Some(ClarityVersion::Clarity1),
@@ -8982,7 +8979,7 @@ pub mod test {
             auth.clone(),
             TransactionPayload::SmartContract(
                 TransactionSmartContract {
-                    name: ContractName::try_from("hello-world").unwrap(),
+                    name: ContractName::from("hello-world"),
                     code_body: StacksString::from_str("(print \"hello\")").unwrap(),
                 },
                 Some(ClarityVersion::Clarity2),
@@ -9211,10 +9208,7 @@ pub mod test {
         conn.commit_block();
 
         eprintln!("{:?}", &err);
-        if let Error::InvalidFee = err {
-        } else {
-            assert!(false)
-        };
+        assert!(matches!(err, Error::InvalidFee));
     }
 
     #[test]
@@ -9387,10 +9381,7 @@ pub mod test {
         conn.commit_block();
 
         eprintln!("{:?}", &err);
-        if let Error::InvalidFee = err {
-        } else {
-            assert!(false)
-        };
+        assert!(matches!(err, Error::InvalidFee));
     }
 
     /// Call `process_transaction()` with  prechecks
