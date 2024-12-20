@@ -89,7 +89,8 @@ jobs:
           - tests::nakamoto_integrations::miner_writes_proposed_block_to_stackerdb
           - tests::nakamoto_integrations::correct_burn_outs
           - tests::nakamoto_integrations::vote_for_aggregate_key_burn_op
-          - tests::nakamoto_integrations::follower_bootup
+          - tests::nakamoto_integrations::follower_bootup_simple
+          - tests::nakamoto_integrations::follower_bootup_custom_chain_id
           - tests::nakamoto_integrations::forked_tenure_is_ignored
           - tests::nakamoto_integrations::nakamoto_attempt_time
           - tests::nakamoto_integrations::skip_mining_long_tx
