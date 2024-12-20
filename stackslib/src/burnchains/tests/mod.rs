@@ -898,16 +898,10 @@ fn verify_keys_accepted(node: &mut TestBurnchainNode, prev_keys: &Vec<LeaderKeyR
     // all keys accepted
     for key in prev_keys.iter() {
         let tx_opt = SortitionDB::get_burnchain_transaction(node.sortdb.conn(), &key.txid).unwrap();
-        assert!(tx_opt.is_some());
-
-        let tx = tx_opt.unwrap();
-        match tx {
-            BlockstackOperationType::LeaderKeyRegister(ref op) => {
-                assert_eq!(*op, *key);
-            }
-            _ => {
-                assert!(false);
-            }
+        if let Some(BlockstackOperationType::LeaderKeyRegister(op)) = tx_opt {
+            assert_eq!(op, *key);
+        } else {
+            panic!();
         }
     }
 }
@@ -920,16 +914,10 @@ fn verify_commits_accepted(
     for commit in next_block_commits.iter() {
         let tx_opt =
             SortitionDB::get_burnchain_transaction(node.sortdb.conn(), &commit.txid).unwrap();
-        assert!(tx_opt.is_some());
-
-        let tx = tx_opt.unwrap();
-        match tx {
-            BlockstackOperationType::LeaderBlockCommit(ref op) => {
-                assert_eq!(*op, *commit);
-            }
-            _ => {
-                assert!(false);
-            }
+        if let Some(BlockstackOperationType::LeaderBlockCommit(op)) = tx_opt {
+            assert_eq!(op, *commit);
+        } else {
+            panic!();
         }
     }
 }
@@ -974,7 +962,7 @@ fn mine_10_stacks_blocks_1_fork() {
         );
 
         verify_keys_accepted(&mut node, &prev_keys);
-        verify_commits_accepted(&mut node, &next_block_commits);
+        verify_commits_accepted(&node, &next_block_commits);
 
         prev_keys.clear();
         prev_keys.append(&mut next_prev_keys);
@@ -1022,7 +1010,7 @@ fn mine_10_stacks_blocks_2_forks_disjoint() {
         );
 
         verify_keys_accepted(&mut node, &prev_keys_1);
-        verify_commits_accepted(&mut node, &next_block_commits);
+        verify_commits_accepted(&node, &next_block_commits);
 
         prev_keys_1.clear();
         prev_keys_1.append(&mut next_prev_keys);
@@ -1083,10 +1071,10 @@ fn mine_10_stacks_blocks_2_forks_disjoint() {
         assert!(next_snapshot_1.burn_header_hash != next_snapshot_2.burn_header_hash);
 
         verify_keys_accepted(&mut node, &prev_keys_1);
-        verify_commits_accepted(&mut node, &next_block_commits_1);
+        verify_commits_accepted(&node, &next_block_commits_1);
 
         verify_keys_accepted(&mut node, &prev_keys_2);
-        verify_commits_accepted(&mut node, &next_block_commits_2);
+        verify_commits_accepted(&node, &next_block_commits_2);
 
         prev_keys_1.clear();
         prev_keys_1.append(&mut next_prev_keys_1);
@@ -1137,7 +1125,7 @@ fn mine_10_stacks_blocks_2_forks_disjoint_same_blocks() {
         );
 
         verify_keys_accepted(&mut node, &prev_keys_1);
-        verify_commits_accepted(&mut node, &next_block_commits);
+        verify_commits_accepted(&node, &next_block_commits);
 
         prev_keys_1.clear();
         prev_keys_1.append(&mut next_prev_keys);
@@ -1210,10 +1198,10 @@ fn mine_10_stacks_blocks_2_forks_disjoint_same_blocks() {
         }
 
         verify_keys_accepted(&mut node, &prev_keys_1);
-        verify_commits_accepted(&mut node, &next_block_commits_1);
+        verify_commits_accepted(&node, &next_block_commits_1);
 
         verify_keys_accepted(&mut node, &prev_keys_2);
-        verify_commits_accepted(&mut node, &next_block_commits_2);
+        verify_commits_accepted(&node, &next_block_commits_2);
 
         prev_keys_1.clear();
         prev_keys_1.append(&mut next_prev_keys_1);

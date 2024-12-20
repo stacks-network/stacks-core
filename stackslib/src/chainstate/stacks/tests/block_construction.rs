@@ -285,7 +285,7 @@ fn test_build_anchored_blocks_stx_transfers_single() {
                 assert_eq!(*addr, recipient.to_account_principal());
                 assert_eq!(*amount, 1);
             } else {
-                assert!(false);
+                panic!();
             }
         }
     }
@@ -589,7 +589,7 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
                     assert_eq!(*addr, recipient.to_account_principal());
                     assert_eq!(*amount, 1);
                 } else {
-                    assert!(false);
+                    panic!();
                 }
             }
         }
@@ -1524,13 +1524,10 @@ fn test_build_anchored_blocks_skip_too_expensive() {
             // expensive transaction was not mined, but the two stx-transfers were
             assert_eq!(stacks_block.txs.len(), 3);
             for tx in stacks_block.txs.iter() {
-                match tx.payload {
-                    TransactionPayload::Coinbase(..) => {}
-                    TransactionPayload::TokenTransfer(ref recipient, ref amount, ref memo) => {}
-                    _ => {
-                        assert!(false);
-                    }
-                }
+                assert!(matches!(
+                    tx.payload,
+                    TransactionPayload::Coinbase(..) | TransactionPayload::TokenTransfer(_, _, _)
+                ));
             }
         }
     }

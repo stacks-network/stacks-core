@@ -738,18 +738,13 @@ fn test_http_response_type_codec() {
             Ok((p, o)) => (p, o),
             Err(e) => {
                 test_debug!("first 4096 bytes:\n{:?}\n", &bytes[0..].to_vec());
-                test_debug!("error: {:?}", &e);
-                assert!(false);
-                unreachable!();
+                test_debug!("error: {e:?}");
+                panic!();
             }
         };
 
         test_debug!(
-            "{} {}: read preamble of {} bytes\n{:?}\n",
-            request_verb,
-            request_path,
-            offset,
-            preamble
+            "{request_verb} {request_path}: read preamble of {offset} bytes\n{preamble:?}\n"
         );
 
         let (mut message, _total_len) = if expected_http_preamble.is_chunked() {
@@ -894,8 +889,8 @@ fn test_http_duplicate_concurrent_streamed_response_fails() {
             }
         ),
         _ => {
-            error!("Got {:?}", &msg);
-            assert!(false);
+            error!("Got {msg:?}");
+            panic!();
         }
     }
     assert_eq!(http.num_pending(), 0);

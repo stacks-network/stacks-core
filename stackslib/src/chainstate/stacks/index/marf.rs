@@ -1065,7 +1065,7 @@ impl<T: MarfTrieId> MARF<T> {
         if cursor.block_hashes.len() + 1 != cursor.node_ptrs.len() {
             trace!("cursor.block_hashes = {:?}", &cursor.block_hashes);
             trace!("cursor.node_ptrs = {:?}", cursor.node_ptrs);
-            assert!(false);
+            panic!();
         }
 
         assert!(cursor.eop());
@@ -1098,12 +1098,12 @@ impl<T: MarfTrieId> MARF<T> {
         if cursor.block_hashes.len() + 1 != cursor.node_ptrs.len() {
             trace!("c.block_hashes = {:?}", &cursor.block_hashes);
             trace!("c.node_ptrs = {:?}", cursor.node_ptrs);
-            assert!(false);
+            panic!();
         }
 
         debug!(
-            "MARF Insert in {}: '{}' = '{}' (...{:?})",
-            block_hash, path, leaf_value.data, &leaf_value.path
+            "MARF Insert in {block_hash}: '{path}' = '{}' (...{:?})",
+            leaf_value.data, &leaf_value.path
         );
 
         Trie::add_value(storage, &mut cursor, &mut value)?;

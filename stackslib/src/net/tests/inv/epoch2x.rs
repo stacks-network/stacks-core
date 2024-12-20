@@ -817,8 +817,8 @@ fn test_sync_inv_make_inv_messages() {
             assert_eq!(poxinv.pox_bitvec, vec![0x01]);
         }
         x => {
-            error!("Did not get PoxInv, but got {:?}", &x);
-            assert!(false);
+            error!("Did not get PoxInv, but got {x:?}");
+            panic!();
         }
     }
 
@@ -858,8 +858,8 @@ fn test_sync_inv_make_inv_messages() {
             assert_eq!(poxinv.pox_bitvec, vec![0x7f]);
         }
         x => {
-            error!("Did not get PoxInv, but got {:?}", &x);
-            assert!(false);
+            error!("Did not get PoxInv, but got {x:?}");
+            panic!();
         }
     }
 
@@ -890,7 +890,7 @@ fn test_sync_inv_make_inv_messages() {
         }
         x => {
             error!("Did not get PoxInv, but got {:?}", &x);
-            assert!(false);
+            panic!();
         }
     }
 
@@ -941,7 +941,7 @@ fn test_sync_inv_make_inv_messages() {
         }
         x => {
             error!("Did not get BlocksInv, but got {:?}", &x);
-            assert!(false);
+            panic!();
         }
     };
 
@@ -993,7 +993,7 @@ fn test_sync_inv_make_inv_messages() {
         }
         x => {
             error!("Did not get Nack, but got {:?}", &x);
-            assert!(false);
+            panic!();
         }
     };
 
@@ -1046,7 +1046,7 @@ fn test_sync_inv_make_inv_messages() {
         }
         x => {
             error!("Did not get BlocksInv, but got {:?}", &x);
-            assert!(false);
+            panic!();
         }
     };
 
@@ -1095,7 +1095,7 @@ fn test_sync_inv_make_inv_messages() {
         }
         x => {
             error!("Did not get Nack, but got {:?}", &x);
-            assert!(false);
+            panic!();
         }
     };
 
@@ -1131,7 +1131,7 @@ fn test_sync_inv_make_inv_messages() {
         }
         x => {
             error!("Did not get Nack, but got {:?}", &x);
-            assert!(false);
+            panic!();
         }
     };
 }

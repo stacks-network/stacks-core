@@ -1901,13 +1901,10 @@ mod test {
         for corrupt_tx in corrupt_transactions.iter() {
             match corrupt_tx.verify() {
                 Ok(_) => {
-                    eprintln!("{:?}", &corrupt_tx);
-                    assert!(false);
+                    eprintln!("{corrupt_tx:?}");
+                    panic!()
                 }
-                Err(e) => match e {
-                    net_error::VerifyingError(msg) => {}
-                    _ => assert!(false),
-                },
+                Err(e) => assert!(matches!(e, net_error::VerifyingError(_))),
             }
         }
 
@@ -1922,24 +1919,20 @@ mod test {
             // test_debug!("mutate byte {}", &i);
             let mut cursor = io::Cursor::new(&tx_bytes);
             let mut reader = LogReader::from_reader(&mut cursor);
-            match StacksTransaction::consensus_deserialize(&mut reader) {
-                Ok(corrupt_tx) => {
-                    let mut corrupt_tx_bytes = vec![];
-                    corrupt_tx
-                        .consensus_serialize(&mut corrupt_tx_bytes)
-                        .unwrap();
-                    if corrupt_tx_bytes.len() < tx_bytes.len() {
-                        // didn't parse fully; the block-parsing logic would reject this block.
-                        tx_bytes[i] = next_byte as u8;
-                        continue;
-                    }
-                    if corrupt_tx.verify().is_ok() && corrupt_tx != *signed_tx {
-                        eprintln!("corrupt tx: {:#?}", &corrupt_tx);
-                        eprintln!("signed tx:  {:#?}", &signed_tx);
-                        assert!(false);
-                    }
+            if let Ok(corrupt_tx) = StacksTransaction::consensus_deserialize(&mut reader) {
+                let mut corrupt_tx_bytes = vec![];
+                corrupt_tx
+                    .consensus_serialize(&mut corrupt_tx_bytes)
+                    .unwrap();
+                if corrupt_tx_bytes.len() < tx_bytes.len() {
+                    // didn't parse fully; the block-parsing logic would reject this block.
+                    tx_bytes[i] = next_byte as u8;
+                    continue;
                 }
-                Err(_) => {}
+                assert!(
+                    corrupt_tx.verify().is_ok() && corrupt_tx != *signed_tx,
+                    "corrupt tx: {corrupt_tx:#?}\nsigned_tx: {signed_tx:#?}"
+                );
             }
             // restore
             tx_bytes[i] = next_byte as u8;

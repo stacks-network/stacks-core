@@ -1053,12 +1053,8 @@ mod test {
                         ) {
                             Ok(res) => res,
                             Err(e) => {
-                                eprintln!(
-                                    "Failed to parse /v2/info response from:\n{:?}\n{:?}",
-                                    &http_response_bytes, &e
-                                );
-                                assert!(false);
-                                unreachable!();
+                                eprintln!("Failed to parse /v2/info response from:\n{http_response_bytes:?}\n{e:?}");
+                                panic!();
                             }
                         };
                         *have_success.borrow_mut() = true;

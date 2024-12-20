@@ -118,7 +118,7 @@ fn test_step_walk_1_neighbor_plain() {
         {
             None => {
                 test_debug!("no such peer: {:?}", &neighbor_2.addr);
-                assert!(false);
+                panic!();
             }
             Some(p) => {
                 assert_eq!(p.public_key, neighbor_2.public_key);
@@ -242,7 +242,7 @@ fn test_step_walk_1_neighbor_plain_no_natpunch() {
         {
             None => {
                 test_debug!("no such peer: {:?}", &neighbor_2.addr);
-                assert!(false);
+                panic!();
             }
             Some(p) => {
                 assert_eq!(p.public_key, neighbor_2.public_key);
@@ -515,7 +515,7 @@ fn test_step_walk_1_neighbor_heartbeat_ping() {
         {
             None => {
                 test_debug!("no such peer: {:?}", &neighbor_2.addr);
-                assert!(false);
+                panic!();
             }
             Some(p) => {
                 assert_eq!(p.public_key, neighbor_2.public_key);
@@ -722,7 +722,7 @@ fn test_step_walk_1_neighbor_behind() {
         {
             None => {
                 test_debug!("no such peer: {:?}", &neighbor_2.addr);
-                assert!(false);
+                panic!();
             }
             Some(p) => {
                 assert_eq!(p.public_key, neighbor_2.public_key);
@@ -1003,15 +1003,12 @@ fn test_step_walk_10_neighbors_of_neighbor_bootstrapping() {
                     None => {}
                     Some(_) => {
                         test_debug!("stale peer contacted: {:?}", &stale_n.addr);
-                        assert!(false);
+                        panic!();
                     }
                 }
             }
 
-            test_debug!(
-                "Peer 1 has contactd {} of Peer 2's neighbors",
-                num_contacted
-            );
+            test_debug!("Peer 1 has contactd {num_contacted} of Peer 2's neighbors");
 
             if num_contacted < 5 {
                 continue;
@@ -1153,7 +1150,7 @@ fn test_step_walk_2_neighbors_plain() {
         {
             None => {
                 test_debug!("no such peer: {:?}", &neighbor_2.addr);
-                assert!(false);
+                panic!();
             }
             Some(p) => {
                 assert_eq!(p.public_key, neighbor_2.public_key);
@@ -1173,7 +1170,7 @@ fn test_step_walk_2_neighbors_plain() {
         {
             None => {
                 test_debug!("no such peer: {:?}", &neighbor_1.addr);
-                assert!(false);
+                panic!();
             }
             Some(p) => {
                 assert_eq!(p.public_key, neighbor_1.public_key);
@@ -1437,7 +1434,7 @@ fn test_step_walk_3_neighbors_inbound() {
         {
             None => {
                 test_debug!("no such peer: {:?}", &neighbor_2.addr);
-                assert!(false);
+                panic!();
             }
             Some(p) => {
                 assert_eq!(p.public_key, neighbor_2.public_key);
@@ -1455,7 +1452,7 @@ fn test_step_walk_3_neighbors_inbound() {
         {
             None => {
                 test_debug!("no such peer: {:?}", &neighbor_3.addr);
-                assert!(false);
+                panic!();
             }
             Some(p) => {
                 assert_eq!(p.public_key, neighbor_3.public_key);
@@ -1474,7 +1471,7 @@ fn test_step_walk_3_neighbors_inbound() {
         {
             None => {
                 test_debug!("no such peer: {:?}", &neighbor_3.addr);
-                assert!(false);
+                panic!();
             }
             Some(p) => {
                 assert_eq!(p.public_key, neighbor_3.public_key);
@@ -1493,7 +1490,7 @@ fn test_step_walk_3_neighbors_inbound() {
         {
             None => {
                 test_debug!("no such peer: {:?}", &neighbor_2.addr);
-                assert!(false);
+                panic!();
             }
             Some(p) => {
                 assert_eq!(p.public_key, neighbor_2.public_key);

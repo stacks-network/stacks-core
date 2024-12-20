@@ -2497,7 +2497,7 @@ fn assert_chainstate_blocks_eq(test_name_1: &str, test_name_2: &str) {
             }
             (None, None) => {}
             (_, _) => {
-                assert!(false);
+                panic!();
             }
         }
 
@@ -2507,7 +2507,7 @@ fn assert_chainstate_blocks_eq(test_name_1: &str, test_name_2: &str) {
             }
             (None, None) => {}
             (_, _) => {
-                assert!(false);
+                panic!();
             }
         }
     }
@@ -2544,7 +2544,7 @@ fn assert_chainstate_blocks_eq(test_name_1: &str, test_name_2: &str) {
             }
             (None, None) => {}
             (_, _) => {
-                assert!(false);
+                panic!();
             }
         }
         for j in 0..all_microblocks_1[i].2.len() {
@@ -2570,7 +2570,7 @@ fn assert_chainstate_blocks_eq(test_name_1: &str, test_name_2: &str) {
                 }
                 (None, None) => {}
                 (_, _) => {
-                    assert!(false);
+                    panic!();
                 }
             }
         }

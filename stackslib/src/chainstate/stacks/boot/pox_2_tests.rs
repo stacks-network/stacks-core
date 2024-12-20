@@ -282,9 +282,9 @@ pub fn check_pox_print_event(
                 Some(v) => {
                     if v != &inner_val {
                         wrong.push((
-                            format!("{}", &inner_key),
-                            format!("{}", v),
-                            format!("{}", &inner_val),
+                            format!("{inner_key}"),
+                            format!("{v}"),
+                            format!("{inner_val}"),
                         ));
                     }
                 }
@@ -294,13 +294,12 @@ pub fn check_pox_print_event(
             }
             // assert_eq!(inner_tuple.data_map.get(inner_key), Some(&inner_val));
         }
-        if !missing.is_empty() || !wrong.is_empty() {
-            eprintln!("missing:\n{:#?}", &missing);
-            eprintln!("wrong:\n{:#?}", &wrong);
-            assert!(false);
-        }
+        assert!(
+            missing.is_empty() && wrong.is_empty(),
+            "missing:\n{missing:#?}\nwrong:\n{wrong:#?}"
+        );
     } else {
-        error!("unexpected event type: {:?}", event);
+        error!("unexpected event type: {event:?}");
         panic!("Unexpected transaction event type.")
     }
 }

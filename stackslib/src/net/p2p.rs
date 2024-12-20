@@ -5584,8 +5584,8 @@ mod test {
                         sleep_ms((i + 1) * 1000);
                     }
                     Err(e) => {
-                        eprintln!("{:?}", &e);
-                        assert!(false);
+                        eprintln!("{e:?}");
+                        panic!();
                     }
                 }
                 sleep_ms(500);
@@ -5593,7 +5593,7 @@ mod test {
 
             if !sent {
                 error!("Failed to relay to neighbor");
-                assert!(false);
+                panic!();
             }
 
             p2p_thread.join().unwrap();
@@ -5676,8 +5676,8 @@ mod test {
                         sleep_ms(1000 * (i + 1));
                     }
                     Err(e) => {
-                        eprintln!("{:?}", &e);
-                        assert!(false);
+                        eprintln!("{e:?}");
+                        panic!();
                     }
                 }
             }

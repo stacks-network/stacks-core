@@ -204,9 +204,7 @@ fn test_relayer_stats_add_relyed_messages() {
         for (_, hash) in relay_stats.recent_messages.get(&nk).unwrap().iter() {
             found = found || (*hash == digest);
         }
-        if !found {
-            assert!(false);
-        }
+        assert!(found)
     }
 
     // never overflow number of neighbors tracked
@@ -789,8 +787,7 @@ fn push_message(
                 &peer.to_neighbor().addr,
                 &e
             );
-            assert!(false);
-            unreachable!();
+            panic!();
         }
     }
 }

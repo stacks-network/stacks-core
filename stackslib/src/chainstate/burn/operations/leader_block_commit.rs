@@ -1814,7 +1814,7 @@ mod tests {
                 );
                 is_first = false;
                 eprintln!("Updated txstr = {}", serialize_hex(&tx).unwrap());
-                assert!(false);
+                panic!();
             }
 
             let header = match tx_fixture.result {
@@ -1870,11 +1870,11 @@ mod tests {
                 (Err(_e), None) => (),
                 (Ok(_parsed_tx), None) => {
                     eprintln!("Parsed a tx when we should not have");
-                    assert!(false);
+                    panic!();
                 }
                 (Err(_e), Some(_result)) => {
                     eprintln!("Did not parse a tx when we should have");
-                    assert!(false);
+                    panic!();
                 }
             }
         }

@@ -3548,106 +3548,91 @@ mod test {
             assert_eq!(unhandled_2.len(), 1);
 
             // convo 2 returns the handshake from convo 1
-            match unhandled_2[0].payload {
-                StacksMessageType::Handshake(ref data) => {
-                    assert_eq!(handshake_data_1, *data);
-                }
-                _ => {
-                    assert!(false);
-                }
-            };
+            if let StacksMessageType::Handshake(ref data) = unhandled_2[0].payload {
+                assert_eq!(handshake_data_1, *data);
+            } else {
+                panic!();
+            }
 
             if (peer_1_services & (ServiceFlags::STACKERDB as u16) != 0)
                 && (peer_2_services & (ServiceFlags::STACKERDB as u16) != 0)
             {
                 // received a valid StackerDBHandshakeAccept from peer 2?
-                match reply_1.payload {
-                    StacksMessageType::StackerDBHandshakeAccept(ref data, ref db_data) => {
-                        assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
-                        assert_eq!(data.handshake.port, local_peer_2.port);
-                        assert_eq!(data.handshake.services, local_peer_2.services);
-                        assert_eq!(
-                            data.handshake.node_public_key,
-                            StacksPublicKeyBuffer::from_public_key(
-                                &Secp256k1PublicKey::from_private(&local_peer_2.private_key)
-                            )
-                        );
-                        assert_eq!(
-                            data.handshake.expire_block_height,
-                            local_peer_2.private_key_expire
-                        );
-                        assert_eq!(data.handshake.data_url, "http://peer2.com".into());
-                        assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
-
-                        if peer_1_rc_consensus_hash == peer_2_rc_consensus_hash {
-                            assert_eq!(db_data.rc_consensus_hash, chain_view_1.rc_consensus_hash);
-
-                            // remote peer always replies with its supported smart contracts
-                            assert_eq!(
-                                db_data.smart_contracts,
-                                vec![QualifiedContractIdentifier::parse(
-                                    "SP000000000000000000002Q6VF78.sbtc"
-                                )
-                                .unwrap()]
-                            );
-
-                            // peers learn each others' smart contract DBs
-                            eprintln!(
-                                "{:?}, {:?}",
-                                &convo_1.db_smart_contracts, &convo_2.db_smart_contracts
-                            );
-                            assert_eq!(convo_1.db_smart_contracts.len(), 1);
-                            assert!(convo_1.replicates_stackerdb(
-                                &QualifiedContractIdentifier::parse(
-                                    "SP000000000000000000002Q6VF78.sbtc"
-                                )
-                                .unwrap()
-                            ));
-                        } else {
-                            assert_eq!(db_data.rc_consensus_hash, chain_view_2.rc_consensus_hash);
-
-                            // peers ignore each others' smart contract DBs
-                            eprintln!(
-                                "{:?}, {:?}",
-                                &convo_1.db_smart_contracts, &convo_2.db_smart_contracts
-                            );
-                            assert_eq!(convo_1.db_smart_contracts.len(), 0);
-                            assert!(!convo_1.replicates_stackerdb(
-                                &QualifiedContractIdentifier::parse(
-                                    "SP000000000000000000002Q6VF78.sbtc"
-                                )
-                                .unwrap()
-                            ));
-                        }
-                    }
-                    _ => {
-                        assert!(false);
-                    }
+                let StacksMessageType::StackerDBHandshakeAccept(data, db_data) = &reply_1.payload
+                else {
+                    panic!();
                 };
-            } else {
-                // received a valid HandshakeAccept from peer 2?
-                match reply_1.payload {
-                    StacksMessageType::HandshakeAccept(ref data) => {
-                        assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
-                        assert_eq!(data.handshake.port, local_peer_2.port);
-                        assert_eq!(data.handshake.services, local_peer_2.services);
-                        assert_eq!(
-                            data.handshake.node_public_key,
-                            StacksPublicKeyBuffer::from_public_key(
-                                &Secp256k1PublicKey::from_private(&local_peer_2.private_key)
-                            )
-                        );
-                        assert_eq!(
-                            data.handshake.expire_block_height,
-                            local_peer_2.private_key_expire
-                        );
-                        assert_eq!(data.handshake.data_url, "http://peer2.com".into());
-                        assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
-                    }
-                    _ => {
-                        assert!(false);
-                    }
+                assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
+                assert_eq!(data.handshake.port, local_peer_2.port);
+                assert_eq!(data.handshake.services, local_peer_2.services);
+                assert_eq!(
+                    data.handshake.node_public_key,
+                    StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(
+                        &local_peer_2.private_key
+                    ))
+                );
+                assert_eq!(
+                    data.handshake.expire_block_height,
+                    local_peer_2.private_key_expire
+                );
+                assert_eq!(data.handshake.data_url, "http://peer2.com".into());
+                assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
+
+                if peer_1_rc_consensus_hash == peer_2_rc_consensus_hash {
+                    assert_eq!(db_data.rc_consensus_hash, chain_view_1.rc_consensus_hash);
+
+                    // remote peer always replies with its supported smart contracts
+                    assert_eq!(
+                        db_data.smart_contracts,
+                        vec![QualifiedContractIdentifier::parse(
+                            "SP000000000000000000002Q6VF78.sbtc"
+                        )
+                        .unwrap()]
+                    );
+
+                    // peers learn each others' smart contract DBs
+                    eprintln!(
+                        "{:?}, {:?}",
+                        &convo_1.db_smart_contracts, &convo_2.db_smart_contracts
+                    );
+                    assert_eq!(convo_1.db_smart_contracts.len(), 1);
+                    assert!(convo_1.replicates_stackerdb(
+                        &QualifiedContractIdentifier::parse("SP000000000000000000002Q6VF78.sbtc")
+                            .unwrap()
+                    ));
+                } else {
+                    assert_eq!(db_data.rc_consensus_hash, chain_view_2.rc_consensus_hash);
+
+                    // peers ignore each others' smart contract DBs
+                    eprintln!(
+                        "{:?}, {:?}",
+                        &convo_1.db_smart_contracts, &convo_2.db_smart_contracts
+                    );
+                    assert_eq!(convo_1.db_smart_contracts.len(), 0);
+                    assert!(!convo_1.replicates_stackerdb(
+                        &QualifiedContractIdentifier::parse("SP000000000000000000002Q6VF78.sbtc")
+                            .unwrap()
+                    ));
                 }
+            } else if let StacksMessageType::HandshakeAccept(ref data) = reply_1.payload {
+                // received a valid HandshakeAccept from peer 2?
+                assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
+                assert_eq!(data.handshake.port, local_peer_2.port);
+                assert_eq!(data.handshake.services, local_peer_2.services);
+                assert_eq!(
+                    data.handshake.node_public_key,
+                    StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(
+                        &local_peer_2.private_key
+                    ))
+                );
+                assert_eq!(
+                    data.handshake.expire_block_height,
+                    local_peer_2.private_key_expire
+                );
+                assert_eq!(data.handshake.data_url, "http://peer2.com".into());
+                assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
+            } else {
+                panic!();
             }
 
             // convo_2 got updated with convo_1's peer info, but no heartbeat info
@@ -3830,39 +3815,32 @@ mod test {
             assert_eq!(unhandled_2.len(), 1);
 
             // convo 2 returns the handshake from convo 1
-            match unhandled_2[0].payload {
-                StacksMessageType::Handshake(ref data) => {
-                    assert_eq!(handshake_data_1, *data);
-                }
-                _ => {
-                    assert!(false);
-                }
-            };
+            if let StacksMessageType::Handshake(data) = &unhandled_2[0].payload {
+                assert_eq!(handshake_data_1, *data);
+            } else {
+                panic!();
+            }
 
             // received a valid HandshakeAccept from peer 2
-            match reply_1.payload {
-                StacksMessageType::HandshakeAccept(ref data) => {
-                    assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
-                    assert_eq!(data.handshake.port, local_peer_2.port);
-                    assert_eq!(data.handshake.services, local_peer_2.services);
-                    assert_eq!(
-                        data.handshake.node_public_key,
-                        StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(
-                            &local_peer_2.private_key
-                        ))
-                    );
-                    assert_eq!(
-                        data.handshake.expire_block_height,
-                        local_peer_2.private_key_expire
-                    );
-                    assert_eq!(data.handshake.data_url, "http://peer2.com".into());
-                    assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
-                }
-                _ => {
-                    assert!(false);
-                }
-            };
-
+            if let StacksMessageType::HandshakeAccept(ref data) = reply_1.payload {
+                assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
+                assert_eq!(data.handshake.port, local_peer_2.port);
+                assert_eq!(data.handshake.services, local_peer_2.services);
+                assert_eq!(
+                    data.handshake.node_public_key,
+                    StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(
+                        &local_peer_2.private_key
+                    ))
+                );
+                assert_eq!(
+                    data.handshake.expire_block_height,
+                    local_peer_2.private_key_expire
+                );
+                assert_eq!(data.handshake.data_url, "http://peer2.com".into());
+                assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
+            } else {
+                panic!();
+            }
             // convo_2 got updated with convo_1's peer info, but no heartbeat info
             assert_eq!(convo_2.peer_heartbeat, 3600);
             assert_eq!(
@@ -4009,12 +3987,10 @@ mod test {
         assert_eq!(unhandled_2.len(), 0);
 
         // received a valid HandshakeReject from peer 2
-        match reply_1.payload {
-            StacksMessageType::HandshakeReject => {}
-            _ => {
-                assert!(false);
-            }
-        };
+        assert!(matches!(
+            reply_1.payload,
+            StacksMessageType::HandshakeReject
+        ));
 
         // neither peer updated their info on one another
         assert!(convo_1.connection.get_public_key().is_none());
@@ -4316,12 +4292,10 @@ mod test {
         let reply_1 = rh_1.recv(0).unwrap();
 
         // received a valid HandshakeReject from peer 2
-        match reply_1.payload {
-            StacksMessageType::HandshakeReject => {}
-            _ => {
-                assert!(false);
-            }
-        };
+        assert!(matches!(
+            reply_1.payload,
+            StacksMessageType::HandshakeReject
+        ));
 
         assert_eq!(unhandled_1.len(), 0);
         assert_eq!(unhandled_2.len(), 0);
@@ -4454,12 +4428,10 @@ mod test {
         assert_eq!(unhandled_2.len(), 1);
 
         // received a valid HandshakeAccept from peer 2
-        match reply_1.payload {
-            StacksMessageType::HandshakeAccept(..) => {}
-            _ => {
-                assert!(false);
-            }
-        };
+        assert!(matches!(
+            reply_1.payload,
+            StacksMessageType::HandshakeAccept(..)
+        ));
 
         // peers learned each other's keys
         assert_eq!(
@@ -4650,12 +4622,10 @@ mod test {
         let reply_1 = rh_1.recv(0).unwrap();
 
         // received a valid HandshakeReject from peer 2
-        match reply_1.payload {
-            StacksMessageType::HandshakeReject => {}
-            _ => {
-                assert!(false);
-            }
-        };
+        assert!(matches!(
+            reply_1.payload,
+            StacksMessageType::HandshakeReject
+        ));
 
         assert_eq!(unhandled_1.len(), 0);
         assert_eq!(unhandled_2.len(), 0);
@@ -4821,23 +4791,17 @@ mod test {
         assert_eq!(unhandled_2.len(), 1); // only the handshake is given back.  the ping is consumed
 
         // convo 2 returns the handshake from convo 1
-        match unhandled_2[0].payload {
-            StacksMessageType::Handshake(ref data) => {
-                assert_eq!(handshake_data_1, *data);
-            }
-            _ => {
-                assert!(false);
-            }
-        };
+        if let StacksMessageType::Handshake(data) = &unhandled_2[0].payload {
+            assert_eq!(handshake_data_1, *data);
+        } else {
+            panic!();
+        }
 
         // convo 2 replied to convo 1 with a matching pong
-        match reply_ping_1.payload {
-            StacksMessageType::Pong(ref data) => {
-                assert_eq!(data.nonce, ping_data_1.nonce);
-            }
-            _ => {
-                assert!(false);
-            }
+        if let StacksMessageType::Pong(data) = reply_ping_1.payload {
+            assert_eq!(data.nonce, ping_data_1.nonce);
+        } else {
+            panic!();
         }
     }
 
@@ -4993,48 +4957,40 @@ mod test {
             assert_eq!(unhandled_2.len(), 1); // only the handshake is given back.  the ping is consumed
 
             // convo 2 returns the handshake from convo 1
-            match unhandled_2[0].payload {
-                StacksMessageType::Handshake(ref data) => {
-                    assert_eq!(handshake_data_1, *data);
-                }
-                _ => {
-                    assert!(false);
-                }
-            };
+            if let StacksMessageType::Handshake(data) = &unhandled_2[0].payload {
+                assert_eq!(handshake_data_1, *data);
+            } else {
+                panic!();
+            }
 
             // convo 2 replied to convo 1 with a matching pong
-            match reply_ping_1.payload {
-                StacksMessageType::Pong(ref data) => {
-                    assert_eq!(data.nonce, ping_data_1.nonce);
-                }
-                _ => {
-                    assert!(false);
-                }
+            if let StacksMessageType::Pong(data) = reply_ping_1.payload {
+                assert_eq!(data.nonce, ping_data_1.nonce);
+            } else {
+                panic!();
             }
 
             // received a valid HandshakeAccept from peer 2
-            match reply_handshake_1.payload {
-                StacksMessageType::HandshakeAccept(ref data)
-                | StacksMessageType::StackerDBHandshakeAccept(ref data, ..) => {
-                    assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
-                    assert_eq!(data.handshake.port, local_peer_2.port);
-                    assert_eq!(data.handshake.services, local_peer_2.services);
-                    assert_eq!(
-                        data.handshake.node_public_key,
-                        StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(
-                            &local_peer_2.private_key
-                        ))
-                    );
-                    assert_eq!(
-                        data.handshake.expire_block_height,
-                        local_peer_2.private_key_expire
-                    );
-                    assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
-                }
-                _ => {
-                    assert!(false);
-                }
-            };
+            if let StacksMessageType::HandshakeAccept(data)
+            | StacksMessageType::StackerDBHandshakeAccept(data, ..) = &reply_handshake_1.payload
+            {
+                assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
+                assert_eq!(data.handshake.port, local_peer_2.port);
+                assert_eq!(data.handshake.services, local_peer_2.services);
+                assert_eq!(
+                    data.handshake.node_public_key,
+                    StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(
+                        &local_peer_2.private_key
+                    ))
+                );
+                assert_eq!(
+                    data.handshake.expire_block_height,
+                    local_peer_2.private_key_expire
+                );
+                assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
+            } else {
+                panic!();
+            }
 
             // convo_2 got updated with convo_1's peer info, and default heartbeat filled in
             assert_eq!(convo_2.peer_heartbeat, 3600);
@@ -5200,14 +5156,11 @@ mod test {
         assert_eq!(unhandled_2.len(), 0);
 
         // convo_1 got a NACK
-        match reply_1.payload {
-            StacksMessageType::Nack(ref data) => {
-                assert_eq!(data.error_code, NackErrorCodes::HandshakeRequired);
-            }
-            _ => {
-                assert!(false);
-            }
-        };
+        if let StacksMessageType::Nack(data) = &reply_1.payload {
+            assert_eq!(data.error_code, NackErrorCodes::HandshakeRequired);
+        } else {
+            panic!();
+        }
 
         // convo_2 did NOT get updated with convo_1's peer info
         assert_eq!(convo_2.peer_heartbeat, 0);
@@ -5523,39 +5476,34 @@ mod test {
             assert_eq!(unhandled_2.len(), 1);
 
             // convo 2 returns the handshake from convo 1
-            match unhandled_2[0].payload {
-                StacksMessageType::Handshake(ref data) => {
-                    assert_eq!(handshake_data_1, *data);
-                }
-                _ => {
-                    assert!(false);
-                }
-            };
+            if let StacksMessageType::Handshake(data) = &unhandled_2[0].payload {
+                assert_eq!(handshake_data_1, *data);
+            } else {
+                panic!();
+            }
 
             // received a valid HandshakeAccept from peer 2
-            match reply_1.payload {
-                StacksMessageType::HandshakeAccept(ref data)
-                | StacksMessageType::StackerDBHandshakeAccept(ref data, ..) => {
-                    assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
-                    assert_eq!(data.handshake.port, local_peer_2.port);
-                    assert_eq!(data.handshake.services, local_peer_2.services);
-                    assert_eq!(
-                        data.handshake.node_public_key,
-                        StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(
-                            &local_peer_2.private_key
-                        ))
-                    );
-                    assert_eq!(
-                        data.handshake.expire_block_height,
-                        local_peer_2.private_key_expire
-                    );
-                    assert_eq!(data.handshake.data_url, "http://peer2.com".into());
-                    assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
-                }
-                _ => {
-                    assert!(false);
-                }
-            };
+            if let StacksMessageType::HandshakeAccept(data)
+            | StacksMessageType::StackerDBHandshakeAccept(data, ..) = &reply_1.payload
+            {
+                assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
+                assert_eq!(data.handshake.port, local_peer_2.port);
+                assert_eq!(data.handshake.services, local_peer_2.services);
+                assert_eq!(
+                    data.handshake.node_public_key,
+                    StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(
+                        &local_peer_2.private_key
+                    ))
+                );
+                assert_eq!(
+                    data.handshake.expire_block_height,
+                    local_peer_2.private_key_expire
+                );
+                assert_eq!(data.handshake.data_url, "http://peer2.com".into());
+                assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
+            } else {
+                panic!();
+            }
 
             // convo_1 sends a getblocksinv to convo_2 for all the blocks in the last reward cycle
             let convo_1_chaintip =
@@ -5607,20 +5555,17 @@ mod test {
             assert_eq!(unhandled_2, vec![]);
 
             // convo 2 returned a block-inv for all blocks
-            match reply_1.payload {
-                StacksMessageType::BlocksInv(ref data) => {
-                    assert_eq!(data.bitlen, 10);
-                    test_debug!("data: {:?}", data);
+            if let StacksMessageType::BlocksInv(data) = &reply_1.payload {
+                assert_eq!(data.bitlen, 10);
+                test_debug!("data: {data:?}");
 
-                    // all burn blocks had sortitions, but we have no Stacks blocks :(
-                    for i in 0..data.bitlen {
-                        assert!(!data.has_ith_block(i));
-                    }
+                // all burn blocks had sortitions, but we have no Stacks blocks :(
+                for i in 0..data.bitlen {
+                    assert!(!data.has_ith_block(i));
                 }
-                x => {
-                    error!("received invalid payload: {:?}", &x);
-                    assert!(false);
-                }
+            } else {
+                error!("received invalid payload: {:?}", &reply_1.payload);
+                panic!();
             }
 
             // request for a non-existent consensus hash
@@ -5660,13 +5605,10 @@ mod test {
             assert_eq!(unhandled_2, vec![]);
 
             // convo 2 returned a nack with the appropriate error message
-            match reply_1.payload {
-                StacksMessageType::Nack(ref data) => {
-                    assert_eq!(data.error_code, NackErrorCodes::NoSuchBurnchainBlock);
-                }
-                _ => {
-                    assert!(false);
-                }
+            if let StacksMessageType::Nack(data) = &reply_1.payload {
+                assert_eq!(data.error_code, NackErrorCodes::NoSuchBurnchainBlock);
+            } else {
+                panic!();
             }
         })
     }
@@ -5802,39 +5744,34 @@ mod test {
             assert_eq!(unhandled_2.len(), 1);
 
             // convo 2 returns the handshake from convo 1
-            match unhandled_2[0].payload {
-                StacksMessageType::Handshake(ref data) => {
-                    assert_eq!(handshake_data_1, *data);
-                }
-                _ => {
-                    assert!(false);
-                }
-            };
+            if let StacksMessageType::Handshake(data) = &unhandled_2[0].payload {
+                assert_eq!(handshake_data_1, *data);
+            } else {
+                panic!();
+            }
 
             // received a valid HandshakeAccept from peer 2
-            match reply_1.payload {
-                StacksMessageType::HandshakeAccept(ref data)
-                | StacksMessageType::StackerDBHandshakeAccept(ref data, ..) => {
-                    assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
-                    assert_eq!(data.handshake.port, local_peer_2.port);
-                    assert_eq!(data.handshake.services, local_peer_2.services);
-                    assert_eq!(
-                        data.handshake.node_public_key,
-                        StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(
-                            &local_peer_2.private_key
-                        ))
-                    );
-                    assert_eq!(
-                        data.handshake.expire_block_height,
-                        local_peer_2.private_key_expire
-                    );
-                    assert_eq!(data.handshake.data_url, "http://peer2.com".into());
-                    assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
-                }
-                _ => {
-                    assert!(false);
-                }
-            };
+            if let StacksMessageType::HandshakeAccept(ref data)
+            | StacksMessageType::StackerDBHandshakeAccept(ref data, ..) = &reply_1.payload
+            {
+                assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
+                assert_eq!(data.handshake.port, local_peer_2.port);
+                assert_eq!(data.handshake.services, local_peer_2.services);
+                assert_eq!(
+                    data.handshake.node_public_key,
+                    StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(
+                        &local_peer_2.private_key
+                    ))
+                );
+                assert_eq!(
+                    data.handshake.expire_block_height,
+                    local_peer_2.private_key_expire
+                );
+                assert_eq!(data.handshake.data_url, "http://peer2.com".into());
+                assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
+            } else {
+                panic!();
+            }
 
             // convo_1 sends a getnakamotoinv to convo_2 for all the tenures in the last reward cycle
             let convo_1_chaintip =
@@ -5885,20 +5822,17 @@ mod test {
             assert_eq!(unhandled_2, vec![]);
 
             // convo 2 returned a tenure-inv for all tenures
-            match reply_1.payload {
-                StacksMessageType::NakamotoInv(ref data) => {
-                    assert_eq!(data.tenures.len(), 10);
-                    test_debug!("data: {:?}", data);
+            if let StacksMessageType::NakamotoInv(data) = &reply_1.payload {
+                assert_eq!(data.tenures.len(), 10);
+                test_debug!("data: {data:?}");
 
-                    // all burn blocks had sortitions, but we have no tenures :(
-                    for i in 0..10 {
-                        assert_eq!(data.tenures.get(i).unwrap(), false);
-                    }
+                // all burn blocks had sortitions, but we have no tenures :(
+                for i in 0..10 {
+                    assert_eq!(data.tenures.get(i).unwrap(), false);
                 }
-                x => {
-                    error!("received invalid payload: {:?}", &x);
-                    assert!(false);
-                }
+            } else {
+                error!("received invalid payload: {:?}", &reply_1.payload);
+                panic!();
             }
 
             // request for a non-existent consensus hash
@@ -5937,13 +5871,10 @@ mod test {
             assert_eq!(unhandled_2, vec![]);
 
             // convo 2 returned a nack with the appropriate error message
-            match reply_1.payload {
-                StacksMessageType::Nack(ref data) => {
-                    assert_eq!(data.error_code, NackErrorCodes::NoSuchBurnchainBlock);
-                }
-                _ => {
-                    assert!(false);
-                }
+            if let StacksMessageType::Nack(ref data) = &reply_1.payload {
+                assert_eq!(data.error_code, NackErrorCodes::NoSuchBurnchainBlock);
+            } else {
+                panic!();
             }
         })
     }
@@ -6080,14 +6011,11 @@ mod test {
 
         // convo_2 replies the natpunch data for convo_1 -- i.e. what convo_2 thinks convo_1's IP
         // address is
-        match natpunch_reply_1.payload {
-            StacksMessageType::NatPunchReply(ref data) => {
-                assert_eq!(data.addrbytes, PeerAddress::from_socketaddr(&socketaddr_1));
-                assert_eq!(data.nonce, 0x12345678);
-            }
-            _ => {
-                assert!(false);
-            }
+        if let StacksMessageType::NatPunchReply(data) = &natpunch_reply_1.payload {
+            assert_eq!(data.addrbytes, PeerAddress::from_socketaddr(&socketaddr_1));
+            assert_eq!(data.nonce, 0x12345678);
+        } else {
+            panic!();
         }
     }
 

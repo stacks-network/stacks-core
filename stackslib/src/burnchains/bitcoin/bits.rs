@@ -874,11 +874,11 @@ mod tests {
                 (None, None) => {}
                 (Some(_t), None) => {
                     test_debug!("Decoded a p2wpkh-over-p2sh when we should not have done so");
-                    assert!(false);
+                    panic!();
                 }
                 (None, Some(_f)) => {
                     test_debug!("Failed to decode p2wpkh-over-p2sh when we should have done so");
-                    assert!(false);
+                    panic!();
                 }
             }
         }
@@ -983,11 +983,11 @@ mod tests {
                 (None, None) => {}
                 (Some(_t), None) => {
                     test_debug!("Decoded a p2wsh-over-p2sh when we should not have done so");
-                    assert!(false);
+                    panic!();
                 }
                 (None, Some(_f)) => {
                     test_debug!("Failed to decode p2wsh-over-p2sh when we should have done so");
-                    assert!(false);
+                    panic!();
                 }
             }
         }

@@ -2086,42 +2086,32 @@ fn test_marf_read_only() {
     // functions that require a transaction _cannot_ be called on a readonly marf, because
     //   both the storage function for initiating a tx _and_ sqlite will have errored before
     //   you could call the function.
-    if let Err(Error::ReadOnlyError) = ro_marf.begin_tx() {
-    } else {
-        assert!(false);
-    }
-    if let Err(Error::ReadOnlyError) = ro_marf.insert("foo", value.clone()) {
-    } else {
-        assert!(false);
-    }
-    if let Err(Error::ReadOnlyError) = ro_marf.insert_raw(triepath.clone(), leaf.clone()) {
-    } else {
-        assert!(false);
-    }
-    if let Err(Error::ReadOnlyError) =
-        ro_marf.insert_batch(&vec!["foo".to_string()], vec![value.clone()])
-    {
-    } else {
-        assert!(false);
-    }
-    if let Err(Error::ReadOnlyError) = ro_marf.commit() {
-    } else {
-        assert!(false);
-    }
-    if let Err(Error::ReadOnlyError) = ro_marf.commit_mined(&BlockHeaderHash([0x22; 32])) {
-    } else {
-        assert!(false);
-    }
-    if let Err(Error::ReadOnlyError) = ro_marf.commit_to(&BlockHeaderHash([0x33; 32])) {
-    } else {
-        assert!(false);
-    }
-    if let Err(Error::ReadOnlyError) =
-        ro_marf.begin(&BlockHeaderHash([0x22; 32]), &BlockHeaderHash([0x33; 32]))
-    {
-    } else {
-        assert!(false);
-    }
+    assert!(matches!(ro_marf.begin_tx(), Err(Error::ReadOnlyError)));
+    assert!(matches!(
+        ro_marf.insert("foo", value.clone()),
+        Err(Error::ReadOnlyError)
+    ));
+    assert!(matches!(
+        ro_marf.insert_raw(triepath.clone(), leaf.clone()),
+        Err(Error::ReadOnlyError)
+    ));
+    assert!(matches!(
+        ro_marf.insert_batch(&vec!["foo".to_string()], vec![value.clone()]),
+        Err(Error::ReadOnlyError)
+    ));
+    assert!(matches!(ro_marf.commit(), Err(Error::ReadOnlyError)));
+    assert!(matches!(
+        ro_marf.commit_mined(&BlockHeaderHash([0x22; 32])),
+        Err(Error::ReadOnlyError)
+    ));
+    assert!(matches!(
+        ro_marf.commit_to(&BlockHeaderHash([0x33; 32])),
+        Err(Error::ReadOnlyError)
+    ));
+    assert!(matches!(
+        ro_marf.begin(&BlockHeaderHash([0x22; 32]), &BlockHeaderHash([0x33; 32])),
+        Err(Error::ReadOnlyError)
+    ));
 }
 
 #[test]
@@ -2188,10 +2178,7 @@ fn test_marf_begin_from_sentinel_twice() {
         &triepath_1,
     )
     .unwrap_err();
-    if let Error::NotFoundError = read_value_1 {
-    } else {
-        assert!(false);
-    }
+    assert!(matches!(read_value_1, Error::NotFoundError));
 }
 
 #[test]
@@ -2260,10 +2247,7 @@ fn test_marf_unconfirmed() {
     )
     .unwrap()
     .unwrap();
-    eprintln!(
-        "read_value_1 from {:?} is {:?}",
-        &unconfirmed_tip, &read_value_1
-    );
+    eprintln!("read_value_1 from {unconfirmed_tip:?} is {read_value_1:?}");
 
     // value 2 is dropped
     let e = MARF::get_path(
@@ -2272,10 +2256,7 @@ fn test_marf_unconfirmed() {
         &triepath_2,
     )
     .unwrap_err();
-    if let Error::NotFoundError = e {
-    } else {
-        assert!(false);
-    }
+    assert!(matches!(e, Error::NotFoundError));
 
     marf.begin_unconfirmed(&block_header).unwrap();
     marf.drop_unconfirmed();
@@ -2287,11 +2268,7 @@ fn test_marf_unconfirmed() {
         &triepath_1,
     )
     .unwrap_err();
-    if let Error::NotFoundError = e {
-    } else {
-        eprintln!("whoops: {:?}", &e);
-        assert!(false);
-    }
+    assert!(matches!(e, Error::NotFoundError), "whoops: {e:?}");
 
     // value 2 is dropped
     let e = MARF::get_path(
@@ -2300,8 +2277,5 @@ fn test_marf_unconfirmed() {
         &triepath_2,
     )
     .unwrap_err();
-    if let Error::NotFoundError = e {
-    } else {
-        assert!(false);
-    }
+    assert!(matches!(e, Error::NotFoundError))
 }

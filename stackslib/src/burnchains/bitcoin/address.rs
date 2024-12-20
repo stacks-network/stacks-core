@@ -782,11 +782,11 @@ mod tests {
                 (Err(_e), None) => {}
                 (Ok(_a), None) => {
                     test_debug!("Decoded an address when we should not have");
-                    assert!(false);
+                    panic!();
                 }
                 (Err(_e), Some(_res)) => {
                     test_debug!("Failed to decode when we should have: {}", fixture.addr);
-                    assert!(false);
+                    panic!();
                 }
             }
         }
@@ -906,11 +906,11 @@ mod tests {
                 (None, None) => {}
                 (None, Some(_r)) => {
                     test_debug!("Failed to decode an address when we should have");
-                    assert!(false);
+                    panic!();
                 }
                 (Some(_a), None) => {
                     test_debug!("Decoded an address when we should not have");
-                    assert!(false);
+                    panic!();
                 }
             }
             if let Some(addr) = &fixture.result {
@@ -1092,15 +1092,14 @@ mod tests {
                 (None, None) => {}
                 (None, Some(_r)) => {
                     test_debug!(
-                        "Failed to decode an address when we should have: {:?}, {:?}",
-                        &fixture.scriptpubkey,
-                        &_r
+                        "Failed to decode an address when we should have: {:?}, {_r:?}",
+                        &fixture.scriptpubkey
                     );
-                    assert!(false);
+                    panic!();
                 }
                 (Some(_a), None) => {
                     test_debug!("Decoded an address when we should not have");
-                    assert!(false);
+                    panic!();
                 }
             }
         }

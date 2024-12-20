@@ -1516,20 +1516,16 @@ mod test {
         assert_eq!(spv_client.read_block_headers(1, 10).unwrap(), headers);
 
         // should fail
-        if let Err(btc_error::NoncontiguousHeader) =
-            spv_client.insert_block_headers_after(1, headers.clone())
-        {
-        } else {
-            assert!(false);
-        }
+        assert!(matches!(
+            spv_client.insert_block_headers_after(1, headers.clone()),
+            Err(btc_error::NoncontiguousHeader)
+        ));
 
         // should fail
-        if let Err(btc_error::NoncontiguousHeader) =
-            spv_client.insert_block_headers_after(9, headers.clone())
-        {
-        } else {
-            assert!(false);
-        }
+        assert!(matches!(
+            spv_client.insert_block_headers_after(9, headers.clone()),
+            Err(btc_error::NoncontiguousHeader)
+        ));
 
         spv_client.drop_headers(1).unwrap();
         assert_eq!(
@@ -1641,12 +1637,10 @@ mod test {
             .unwrap();
 
         // should fail now, since there's a child to check
-        if let Err(btc_error::NoncontiguousHeader) =
-            spv_client.insert_block_headers_before(1, headers.clone())
-        {
-        } else {
-            assert!(false);
-        }
+        assert!(matches!(
+            spv_client.insert_block_headers_before(1, headers.clone()),
+            Err(btc_error::NoncontiguousHeader)
+        ));
 
         // should succeed
         spv_client

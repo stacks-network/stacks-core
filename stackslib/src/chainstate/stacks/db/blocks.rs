@@ -8864,17 +8864,11 @@ pub mod test {
 
             let (cutoff, poison_opt) = res.unwrap();
             assert_eq!(cutoff, num_mblocks / 2);
-            assert!(poison_opt.is_some());
-
-            let poison = poison_opt.unwrap();
-            match poison {
-                TransactionPayload::PoisonMicroblock(ref h1, ref h2) => {
-                    assert_eq!(*h2, forked_microblocks[num_mblocks / 2].header);
-                    assert_eq!(*h1, conflicting_microblock.header);
-                }
-                _ => {
-                    assert!(false);
-                }
+            if let Some(TransactionPayload::PoisonMicroblock(h1, h2)) = poison_opt {
+                assert_eq!(h2, forked_microblocks[num_mblocks / 2].header);
+                assert_eq!(h1, conflicting_microblock.header);
+            } else {
+                panic!();
             }
         }
     }
@@ -9935,13 +9929,12 @@ pub mod test {
                 let mut debug_reader = LogReader::from_reader(&mut mblock_ptr);
                 let next_mblock = StacksMicroblock::consensus_deserialize(&mut debug_reader)
                     .map_err(|e| {
-                        eprintln!("Failed to decode microblock {}: {:?}", mblocks.len(), &e);
+                        eprintln!("Failed to decode microblock {}: {e:?}", mblocks.len());
                         eprintln!("Bytes consumed:");
                         for buf in debug_reader.log().iter() {
                             eprintln!("  {}", to_hex(buf));
                         }
-                        assert!(false);
-                        unreachable!();
+                        panic!()
                     })
                     .unwrap();
                 mblocks.push(next_mblock);
