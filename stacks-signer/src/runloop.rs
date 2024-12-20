@@ -286,6 +286,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             tenure_last_block_proposal_timeout: self.config.tenure_last_block_proposal_timeout,
             block_proposal_validation_timeout: self.config.block_proposal_validation_timeout,
             tenure_idle_timeout: self.config.tenure_idle_timeout,
+            block_proposal_max_age_secs: self.config.block_proposal_max_age_secs,
         }))
     }
 
@@ -423,23 +424,15 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         let mut to_delete = Vec::new();
         for (idx, signer) in &mut self.stacks_signers {
             let reward_cycle = signer.reward_cycle();
-            let next_reward_cycle = reward_cycle.wrapping_add(1);
-            let stale = match next_reward_cycle.cmp(&current_reward_cycle) {
-                std::cmp::Ordering::Less => true, // We are more than one reward cycle behind, so we are stale
-                std::cmp::Ordering::Equal => {
-                    // We are the next reward cycle, so check if we were registered and have any pending blocks to process
-                    match signer {
-                        ConfiguredSigner::RegisteredSigner(signer) => {
-                            !signer.has_unprocessed_blocks()
-                        }
-                        _ => true,
-                    }
+            if reward_cycle >= current_reward_cycle {
+                // We are either the current or a future reward cycle, so we are not stale.
+                continue;
+            }
+            if let ConfiguredSigner::RegisteredSigner(signer) = signer {
+                if !signer.has_unprocessed_blocks() {
+                    debug!("{signer}: Signer's tenure has completed.");
+                    to_delete.push(*idx);
                 }
-                std::cmp::Ordering::Greater => false, // We are the current reward cycle, so we are not stale
-            };
-            if stale {
-                debug!("{signer}: Signer's tenure has completed.");
-                to_delete.push(*idx);
             }
         }
         for idx in to_delete {
