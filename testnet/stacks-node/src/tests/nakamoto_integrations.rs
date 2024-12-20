@@ -734,10 +734,8 @@ pub fn next_block_and_wait_for_commits(
         .map(|x| x.load(Ordering::SeqCst))
         .collect();
 
-    let mut block_processed_time: Vec<Option<Instant>> =
-        (0..commits_before.len()).map(|_| None).collect();
-    let mut commit_sent_time: Vec<Option<Instant>> =
-        (0..commits_before.len()).map(|_| None).collect();
+    let mut block_processed_time: Vec<Option<Instant>> = vec![None; commits_before.len()];
+    let mut commit_sent_time: Vec<Option<Instant>> = vec![None; commits_before.len()];
     next_block_and(btc_controller, timeout_secs, || {
         for i in 0..commits_submitted.len() {
             let commits_sent = commits_submitted[i].load(Ordering::SeqCst);

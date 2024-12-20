@@ -31,6 +31,7 @@ use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, Sta
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::Hash160;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::vrf::VRFProof;
 
 use crate::burnchains::db::BurnchainDB;
@@ -40,6 +41,7 @@ use crate::chainstate::burn::db::sortdb::{
 };
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::coordinator::OnChainRewardSetProvider;
+use crate::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::blocks::StagingBlock;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
@@ -52,25 +54,34 @@ use crate::cost_estimates::metrics::UnitMetric;
 use crate::cost_estimates::UnitEstimator;
 use crate::util_lib::db::IndexDBTx;
 
-/// Options common to many `stacks-inspect` subcommands
-/// Returned by `process_common_opts()`
+/// Options for `stacks-inspect` command and used by many subcommands
 #[derive(Debug, Default)]
-pub struct CommonOpts {
+pub struct StacksInspectOpts {
     pub config: Option<Config>,
 }
 
-/// Process arguments common to many `stacks-inspect` subcommands and drain them from `argv`
+impl StacksInspectOpts {
+    #[inline(always)]
+    pub fn new_with_config(config: Config) -> Self {
+        Self {
+            config: Some(config),
+            ..Self::default()
+        }
+    }
+}
+
+/// Process `stacks-inspect` options and drain them from `argv`
 ///
 /// Args:
-///  - `argv`: Full CLI args `Vec`
+///  - `argv`: Full or partial CLI args `Vec`
 ///  - `start_at`: Position in args vec where to look for common options.
 ///    For example, if `start_at` is `1`, then look for these options **before** the subcommand:
 ///    ```console
 ///    stacks-inspect --config testnet.toml replay-block path/to/chainstate
 ///    ```
-pub fn drain_common_opts(argv: &mut Vec<String>, start_at: usize) -> CommonOpts {
+pub fn drain_stacks_inspect_opts(argv: &mut Vec<String>, start_at: usize) -> StacksInspectOpts {
     let mut i = start_at;
-    let mut opts = CommonOpts::default();
+    let mut opts = StacksInspectOpts::default();
     while let Some(arg) = argv.get(i) {
         let (prefix, opt) = arg.split_at(2);
         if prefix != "--" {
@@ -117,12 +128,74 @@ pub fn drain_common_opts(argv: &mut Vec<String>, start_at: usize) -> CommonOpts 
     opts
 }
 
+/// Options for `try-mine` subcommand
+#[derive(Debug, Default)]
+pub struct TryMineOpts {
+    pub min_fee: Option<u64>,
+    pub max_time: Option<u64>,
+    pub max_blocks: Option<u64>,
+    pub reset_tenure: Option<bool>,
+}
+
+/// Process `try-mine` options and drain them from `argv`
+///
+/// Args:
+///  - `argv`: Full or partial CLI args `Vec`
+///  - `start_at`: Position in args vec where to look for common options.
+///    For example, if `start_at` is `1`, then look for these options after the `try-mine` command:
+///    ```console
+///    try-mine --min-fee 10000 path/to/chainstate
+///    ```
+pub fn drain_try_mine_opts(argv: &mut Vec<String>, start_at: usize) -> TryMineOpts {
+    let mut i = start_at;
+    let mut opts = TryMineOpts::default();
+    while let Some(arg) = argv.get(i) {
+        let (prefix, opt) = arg.split_at(2);
+        if prefix != "--" {
+            // No args left to take
+            break;
+        }
+        // "Take" arg
+        i += 1;
+        match opt {
+            "min-fee" => {
+                let fee = argv[i]
+                    .parse()
+                    .unwrap_or_else(|e| panic!("Failed to parse `{opt}` as `u64`: {e}"));
+                opts.min_fee.replace(fee);
+                i += 1;
+            }
+            "max-time" => {
+                let time = argv[i]
+                    .parse()
+                    .unwrap_or_else(|e| panic!("Failed to parse `{opt}` as `u64`: {e}"));
+                opts.max_time.replace(time);
+                i += 1;
+            }
+            "max-blocks" => {
+                let blocks = argv[i]
+                    .parse()
+                    .unwrap_or_else(|e| panic!("Failed to parse `{opt}` as `u64`: {e}"));
+                opts.max_blocks.replace(blocks);
+                i += 1;
+            }
+            "reset-tenure" => {
+                opts.reset_tenure.replace(true);
+            }
+            _ => panic!("Unrecognized option: {opt}"),
+        }
+    }
+    // Remove options processed
+    argv.drain(start_at..i);
+    opts
+}
+
 /// Replay blocks from chainstate database
 /// Terminates on error using `process::exit()`
 ///
 /// Arguments:
 ///  - `argv`: Args in CLI format: `<command-name> [args...]`
-pub fn command_replay_block(argv: &[String], conf: Option<&Config>) {
+pub fn command_replay_block(argv: &[String], opts: &StacksInspectOpts) {
     let print_help_and_exit = || -> ! {
         let n = &argv[0];
         eprintln!("Usage:");
@@ -185,6 +258,7 @@ pub fn command_replay_block(argv: &[String], conf: Option<&Config>) {
     }
 
     let total = index_block_hashes.len();
+    let conf = opts.config.as_ref();
     println!("Will check {total} blocks");
     for (i, index_block_hash) in index_block_hashes.iter().enumerate() {
         if i % 100 == 0 {
@@ -200,7 +274,7 @@ pub fn command_replay_block(argv: &[String], conf: Option<&Config>) {
 ///
 /// Arguments:
 ///  - `argv`: Args in CLI format: `<command-name> [args...]`
-pub fn command_replay_block_nakamoto(argv: &[String], conf: Option<&Config>) {
+pub fn command_replay_block_nakamoto(argv: &[String], opts: &StacksInspectOpts) {
     let print_help_and_exit = || -> ! {
         let n = &argv[0];
         eprintln!("Usage:");
@@ -217,7 +291,7 @@ pub fn command_replay_block_nakamoto(argv: &[String], conf: Option<&Config>) {
 
     let chain_state_path = format!("{db_path}/chainstate/");
 
-    let conf = conf.unwrap_or(&DEFAULT_MAINNET_CONFIG);
+    let conf = opts.config.as_ref().unwrap_or(&DEFAULT_MAINNET_CONFIG);
 
     let (chainstate, _) = StacksChainState::open(
         conf.is_mainnet(),
@@ -289,7 +363,7 @@ pub fn command_replay_block_nakamoto(argv: &[String], conf: Option<&Config>) {
 /// Arguments:
 ///  - `argv`: Args in CLI format: `<command-name> [args...]`
 ///  - `conf`: Optional config for running on non-mainnet chainstate
-pub fn command_replay_mock_mining(argv: &[String], conf: Option<&Config>) {
+pub fn command_replay_mock_mining(argv: &[String], opts: &StacksInspectOpts) {
     let print_help_and_exit = || -> ! {
         let n = &argv[0];
         eprintln!("Usage:");
@@ -365,6 +439,7 @@ pub fn command_replay_mock_mining(argv: &[String], conf: Option<&Config>) {
         indexed_files[0].0
     );
 
+    let conf = opts.config.as_ref();
     for (bh, filename) in indexed_files {
         let filepath = blocks_path.join(filename);
         let block = AssembledAnchorBlock::deserialize_from_file(&filepath)
@@ -383,32 +458,38 @@ pub fn command_replay_mock_mining(argv: &[String], conf: Option<&Config>) {
 /// Arguments:
 ///  - `argv`: Args in CLI format: `<command-name> [args...]`
 ///  - `conf`: Optional config for running on non-mainnet chainstate
-pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
+pub fn command_try_mine(mut argv: Vec<String>, opts: &StacksInspectOpts) {
+    // Parse subcommand-specific flags
+    let try_mine_opts = drain_try_mine_opts(&mut argv, 1);
+
     let print_help_and_exit = || {
-        let n = &argv[0];
-        eprintln!("Usage: {n} <working-dir> [min-fee [max-time]]");
+        eprintln!("Usage: {n} [options...] <data-dir>", n = &argv[0]);
         eprintln!("");
-        eprintln!("Given a <working-dir>, try to ''mine'' an anchored block. This invokes the miner block");
-        eprintln!("assembly, but does not attempt to broadcast a block commit. This is useful for determining");
-        eprintln!("what transactions a given chain state would include in an anchor block,");
-        eprintln!("or otherwise simulating a miner.");
+        eprintln!("Options:");
+        eprintln!("  --min-fee <u64>: Minimum fee for miner to include transaction");
+        eprintln!("  --max-time <u64>: Max time to spend mining a block, in ms");
+        eprintln!("  --max-blocks <u64>: Max blocks to mine");
+        eprintln!("  --reset-tenure: Force a tenure reset (only matters post-Nakamoto)");
+        eprintln!("");
+        eprintln!("Given a <data-dir>, try to \"mine\" an anchored block.");
+        eprintln!("This invokes the miner block assembly, but does not attempt to");
+        eprintln!("broadcast a block commit. This is useful for determining");
+        eprintln!("which transactions a given chain state would include in an");
+        eprintln!("anchor block, or otherwise simulating a miner.");
         process::exit(1);
     };
 
-    // Parse subcommand-specific args
+    // Parse subcommand-specific positional args
     let db_path = argv.get(1).unwrap_or_else(print_help_and_exit);
-    let min_fee = argv
-        .get(2)
-        .map(|arg| arg.parse().expect("Could not parse min_fee"))
-        .unwrap_or(u64::MAX);
-    let max_time = argv
-        .get(3)
-        .map(|arg| arg.parse().expect("Could not parse max_time"))
-        .unwrap_or(u64::MAX);
 
-    let start = get_epoch_time_ms();
+    let min_fee = try_mine_opts.min_fee.unwrap_or(0);
+    let max_time = try_mine_opts.max_time.unwrap_or(u64::MAX);
+    let _max_blocks = try_mine_opts.max_blocks.unwrap_or(1);
+    let reset_tenure = try_mine_opts.reset_tenure.unwrap_or(false);
 
-    let conf = conf.unwrap_or(&DEFAULT_MAINNET_CONFIG);
+    let start = Instant::now();
+
+    let conf = opts.config.as_ref().unwrap_or(&DEFAULT_MAINNET_CONFIG);
 
     let burnchain_path = format!("{db_path}/burnchain");
     let sort_db_path = format!("{db_path}/burnchain/sortition");
@@ -417,7 +498,7 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
     let burnchain = conf.get_burnchain();
     let sort_db = SortitionDB::open(&sort_db_path, false, burnchain.pox_constants.clone())
         .unwrap_or_else(|e| panic!("Failed to open {sort_db_path}: {e}"));
-    let (chain_state, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::open(
         conf.is_mainnet(),
         conf.burnchain.chain_id,
         &chain_state_path,
@@ -439,93 +520,148 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
     )
     .unwrap_or_else(|e| panic!("Failed to open mempool db: {e}"));
 
-    let tip_header = NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)
-        .unwrap_or_else(|e| panic!("Error looking up chain tip: {e}"))
-        .expect("No chain tip found");
+    // Parent Stacks header for block we are going to mine
+    let parent_stacks_header =
+        NakamotoChainState::get_canonical_block_header(chainstate.db(), &sort_db)
+            .unwrap_or_else(|e| panic!("Error looking up chain tip: {e}"))
+            .expect("No chain tip found");
+    let parent_consensus_hash = parent_stacks_header.consensus_hash;
+    let parent_block_id = parent_stacks_header.index_block_hash();
 
-    // Fail if Nakamoto chainstate detected. `try-mine` cannot mine Nakamoto blocks yet
-    // TODO: Add Nakamoto block support
-    if matches!(
-        &tip_header.anchored_header,
-        StacksBlockHeaderTypes::Nakamoto(..)
-    ) {
-        panic!("Attempting to mine Nakamoto block. Nakamoto blocks not supported yet!");
-    };
-
-    let sk = StacksPrivateKey::new();
-    let mut tx_auth = TransactionAuth::from_p2pkh(&sk).unwrap();
-    tx_auth.set_origin_nonce(0);
-
-    let mut coinbase_tx = StacksTransaction::new(
-        TransactionVersion::Mainnet,
-        tx_auth,
-        TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
-    );
-
-    coinbase_tx.chain_id = conf.burnchain.chain_id;
-    coinbase_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
-    let mut tx_signer = StacksTransactionSigner::new(&coinbase_tx);
-    tx_signer.sign_origin(&sk).unwrap();
-    let coinbase_tx = tx_signer.get_tx().unwrap();
+    let burn_dbconn = sort_db.index_handle(&chain_tip.sortition_id);
 
     let mut settings = BlockBuilderSettings::limited();
     settings.max_miner_time_ms = max_time;
 
-    let result = StacksBlockBuilder::build_anchored_block(
-        &chain_state,
-        &sort_db.index_handle(&chain_tip.sortition_id),
-        &mut mempool_db,
-        &tip_header,
-        chain_tip.total_burn,
-        VRFProof::empty(),
-        Hash160([0; 20]),
-        &coinbase_tx,
-        settings,
-        None,
-        &Burnchain::new(
-            &burnchain_path,
-            &burnchain.chain_name,
-            &burnchain.network_name,
-        )
-        .unwrap(),
-    );
+    // In case we need to submit transactions
+    let miner_privk = StacksPrivateKey::new();
+    let miner_pubkey = Secp256k1PublicKey::from_private(&miner_privk);
+    let miner_pubkey_hash = Hash160::from_node_public_key(&miner_pubkey);
+    let miner_nonce = 0;
 
-    let stop = get_epoch_time_ms();
+    let result = match &parent_stacks_header.anchored_header {
+        StacksBlockHeaderTypes::Epoch2(..) => {
+            let mut tx_auth = TransactionAuth::from_p2pkh(&miner_privk).unwrap();
+            tx_auth.set_origin_nonce(miner_nonce);
 
-    println!(
-        "{} mined block @ height = {} off of {} ({}/{}) in {}ms. Min-fee: {}, Max-time: {}",
-        if result.is_ok() {
-            "Successfully"
-        } else {
-            "Failed to"
-        },
-        tip_header.stacks_block_height + 1,
-        StacksBlockHeader::make_index_block_hash(
-            &tip_header.consensus_hash,
-            &tip_header.anchored_header.block_hash()
-        ),
-        &tip_header.consensus_hash,
-        &tip_header.anchored_header.block_hash(),
-        stop.saturating_sub(start),
-        min_fee,
-        max_time
-    );
+            let mut coinbase_tx = StacksTransaction::new(
+                TransactionVersion::Mainnet,
+                tx_auth,
+                TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
+            );
 
-    if let Ok((block, execution_cost, size)) = result {
-        let mut total_fees = 0;
-        for tx in block.txs.iter() {
-            total_fees += tx.get_tx_fee();
+            coinbase_tx.chain_id = conf.burnchain.chain_id;
+            coinbase_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+            let mut tx_signer = StacksTransactionSigner::new(&coinbase_tx);
+            tx_signer.sign_origin(&miner_privk).unwrap();
+            let coinbase_tx = tx_signer.get_tx().unwrap();
+
+            StacksBlockBuilder::build_anchored_block(
+                &chainstate,
+                &burn_dbconn,
+                &mut mempool_db,
+                &parent_stacks_header,
+                chain_tip.total_burn,
+                VRFProof::empty(),
+                Hash160([0; 20]),
+                &coinbase_tx,
+                settings,
+                None,
+                &Burnchain::new(
+                    &burnchain_path,
+                    &burnchain.chain_name,
+                    &burnchain.network_name,
+                )
+                .unwrap_or_else(|e| panic!("Failed to instantiate burnchain: {e}")),
+            )
+            .map(|(block, cost, size)| (block.block_hash(), block.txs, cost, size))
         }
-        println!(
-            "Block {}: {} uSTX, {} bytes, cost {:?}",
-            block.block_hash(),
-            total_fees,
-            size,
-            &execution_cost
-        );
-    }
+        StacksBlockHeaderTypes::Nakamoto(..) => {
+            let tenure_info = if reset_tenure {
+                let num_blocks_so_far = NakamotoChainState::get_nakamoto_tenure_length(
+                    chainstate.db(),
+                    &parent_block_id,
+                )
+                .unwrap_or_else(|e| panic!("Error getting tenure length: {e}"));
+                let payload = TenureChangePayload {
+                    tenure_consensus_hash: parent_consensus_hash,
+                    prev_tenure_consensus_hash: parent_consensus_hash,
+                    burn_view_consensus_hash: parent_consensus_hash,
+                    previous_tenure_end: parent_block_id,
+                    previous_tenure_blocks: num_blocks_so_far,
+                    cause: TenureChangeCause::Extended,
+                    pubkey_hash: miner_pubkey_hash,
+                };
+                let tenure_change_tx_payload = TransactionPayload::TenureChange(payload);
 
-    process::exit(0);
+                let mut tx_auth = TransactionAuth::from_p2pkh(&miner_privk).unwrap();
+                tx_auth.set_origin_nonce(miner_nonce);
+
+                let version = if conf.is_mainnet() {
+                    TransactionVersion::Mainnet
+                } else {
+                    TransactionVersion::Testnet
+                };
+
+                let mut tx = StacksTransaction::new(version, tx_auth, tenure_change_tx_payload);
+
+                tx.chain_id = conf.burnchain.chain_id;
+                tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+                let mut tx_signer = StacksTransactionSigner::new(&tx);
+                tx_signer
+                    .sign_origin(&miner_privk)
+                    .unwrap_or_else(|e| panic!("Failed to sign transaction: {e}"));
+
+                let tenure_change_tx = Some(tx_signer.get_tx().expect("Failed to get tx"));
+                NakamotoTenureInfo {
+                    coinbase_tx: None,
+                    tenure_change_tx,
+                }
+            } else {
+                NakamotoTenureInfo::default()
+            };
+            NakamotoBlockBuilder::build_nakamoto_block(
+                &chainstate,
+                &burn_dbconn,
+                &mut mempool_db,
+                &parent_stacks_header,
+                // tenure ID consensus hash of this block
+                &parent_stacks_header.consensus_hash,
+                // the burn so far on the burnchain (i.e. from the last burnchain block)
+                chain_tip.total_burn,
+                tenure_info,
+                settings,
+                None,
+                0,
+            )
+            .map(|(block, cost, size, _)| (block.header.block_hash(), block.txs, cost, size))
+        }
+    };
+
+    let elapsed = start.elapsed();
+    let summary = format!(
+        "block @ height = {h} off of {parent_block_id} ({parent_consensus_hash}/{pbh}) in {t}ms. Min-fee: {min_fee}, Max-time: {max_time}",
+        h=parent_stacks_header.stacks_block_height + 1,
+        pbh=&parent_stacks_header.anchored_header.block_hash(),
+        t=elapsed.as_millis(),
+    );
+
+    let code = match result {
+        Ok((block_hash, txs, cost, size)) => {
+            let total_fees: u64 = txs.iter().map(|tx| tx.get_tx_fee()).sum();
+
+            println!("Successfully mined {summary}");
+            println!("Block {block_hash}: {total_fees} uSTX, {size} bytes, cost {cost:?}");
+            0
+        }
+        Err(e) => {
+            println!("Failed to mine {summary}");
+            println!("Error: {e}");
+            1
+        }
+    };
+
+    process::exit(code);
 }
 
 /// Fetch and process a `StagingBlock` from database and call `replay_block()` to validate
@@ -1123,8 +1259,8 @@ pub mod test {
             "stacks-inspect try-mine --config my_config.toml /tmp/chainstate/mainnet",
         );
         let argv_init = argv.clone();
-        let opts = drain_common_opts(&mut argv, 0);
-        let opts = drain_common_opts(&mut argv, 1);
+        let opts = drain_stacks_inspect_opts(&mut argv, 0);
+        let opts = drain_stacks_inspect_opts(&mut argv, 1);
 
         assert_eq!(argv, argv_init);
         assert!(opts.config.is_none());
@@ -1133,7 +1269,7 @@ pub mod test {
         let mut argv = parse_cli_command(
             "stacks-inspect --network mocknet --network mainnet try-mine /tmp/chainstate/mainnet",
         );
-        let opts = drain_common_opts(&mut argv, 1);
+        let opts = drain_stacks_inspect_opts(&mut argv, 1);
         let argv_expected = parse_cli_command("stacks-inspect try-mine /tmp/chainstate/mainnet");
 
         assert_eq!(argv, argv_expected);
