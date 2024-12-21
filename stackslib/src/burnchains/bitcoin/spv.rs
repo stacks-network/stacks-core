@@ -1762,10 +1762,13 @@ mod test {
         ];
 
         // should fail
-        if let btc_error::InvalidPoW = spv_client.handle_headers(40317, bad_headers).unwrap_err() {
-        } else {
-            panic!("Bad PoW headers accepted");
-        }
+        assert!(
+            matches!(
+                spv_client.handle_headers(40317, bad_headers).unwrap_err(),
+                btc_error::InvalidPoW
+            ),
+            "Bad PoW headers accepted"
+        );
     }
 
     #[test]

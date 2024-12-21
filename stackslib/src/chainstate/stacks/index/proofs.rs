@@ -1488,34 +1488,28 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
             }
 
             if cursor.ptr().id() == TrieNodeID::Leaf as u8 {
-                match reached_node {
-                    TrieNodeType::Leaf(ref data) => {
-                        if data.data != *expected_value {
-                            trace!(
-                                "Did not find leaf {:?} at {:?} (but got {:?})",
-                                expected_value,
-                                path,
-                                data
-                            );
+                if let TrieNodeType::Leaf(data) = &reached_node {
+                    if data.data != *expected_value {
+                        trace!(
+                            "Did not find leaf {expected_value:?} at {path:?} (but got {data:?})"
+                        );
 
-                            // if we're testing, then permit the prover to return an invalid proof
-                            // if the test requests it
-                            #[cfg(test)]
+                        // if we're testing, then permit the prover to return an invalid proof
+                        // if the test requests it
+                        #[cfg(test)]
+                        {
+                            use std::env;
+                            if env::var("BLOCKSTACK_TEST_PROOF_ALLOW_INVALID")
+                                == Ok("1".to_string())
                             {
-                                use std::env;
-                                if env::var("BLOCKSTACK_TEST_PROOF_ALLOW_INVALID")
-                                    == Ok("1".to_string())
-                                {
-                                    break;
-                                }
+                                break;
                             }
-                            return Err(Error::NotFoundError);
                         }
-                    }
-                    _ => {
-                        trace!("Did not find leaf at {:?}", path);
                         return Err(Error::NotFoundError);
                     }
+                } else {
+                    trace!("Did not find leaf at {:?}", path);
+                    return Err(Error::NotFoundError);
                 }
                 break;
             }

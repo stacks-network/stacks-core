@@ -1899,13 +1899,10 @@ mod test {
 
         // make sure all corrupted transactions fail
         for corrupt_tx in corrupt_transactions.iter() {
-            match corrupt_tx.verify() {
-                Ok(_) => {
-                    eprintln!("{corrupt_tx:?}");
-                    panic!()
-                }
-                Err(e) => assert!(matches!(e, net_error::VerifyingError(_))),
-            }
+            assert!(
+                matches!(corrupt_tx.verify(), Err(net_error::VerifyingError(_))),
+                "{corrupt_tx:?}"
+            );
         }
 
         // exhaustive test -- mutate each byte

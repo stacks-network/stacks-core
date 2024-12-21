@@ -4375,7 +4375,7 @@ fn test_is_tx_problematic() {
                         assert_eq!(txid, &runtime_checkerror_problematic.txid());
                     }
                     else {
-                        panic!("Did not get Error::ProblematicTransaction, but got {:?}", &err);
+                        panic!("Did not get Error::ProblematicTransaction, but got {err:?}");
                     }
 
                     problematic_txids.push(runtime_checkerror_problematic.txid());

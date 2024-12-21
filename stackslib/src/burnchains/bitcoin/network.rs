@@ -263,20 +263,17 @@ impl BitcoinIndexer {
 
     /// Receive a Version message and reply with a Verack
     pub fn handle_version(&mut self, version_message: PeerMessage) -> Result<(), btc_error> {
-        match version_message {
-            btc_message::NetworkMessage::Version(msg_body) => {
-                debug!(
-                    "Handle version -- remote peer blockchain height is {}",
-                    msg_body.start_height
-                );
-                self.runtime.block_height = msg_body.start_height as u64;
-                return self.send_verack();
-            }
-            _ => {
-                error!("Did not receive version, but got {:?}", version_message);
-            }
-        };
-        return Err(btc_error::InvalidMessage(version_message));
+        if let btc_message::NetworkMessage::Version(msg_body) = version_message {
+            debug!(
+                "Handle version -- remote peer blockchain height is {}",
+                msg_body.start_height
+            );
+            self.runtime.block_height = msg_body.start_height as u64;
+            self.send_verack()
+        } else {
+            error!("Did not receive version, but got {version_message:?}");
+            Err(btc_error::InvalidMessage(version_message))
+        }
     }
 
     /// Send a verack
@@ -290,48 +287,39 @@ impl BitcoinIndexer {
     /// Handle a verack we received.
     /// Does nothing.
     pub fn handle_verack(&mut self, verack_message: PeerMessage) -> Result<(), btc_error> {
-        match verack_message {
-            btc_message::NetworkMessage::Verack => {
-                debug!("Handle verack");
-                return Ok(());
-            }
-            _ => {
-                error!("Did not receive verack, but got {:?}", verack_message);
-            }
-        };
-        Err(btc_error::InvalidMessage(verack_message))
+        if let btc_message::NetworkMessage::Verack = verack_message {
+            debug!("Handle verack");
+            Ok(())
+        } else {
+            error!("Did not receive verack, but got {verack_message:?}");
+            Err(btc_error::InvalidMessage(verack_message))
+        }
     }
 
     /// Respond to a Ping message by sending a Pong message
     pub fn handle_ping(&mut self, ping_message: PeerMessage) -> Result<(), btc_error> {
-        match ping_message {
-            btc_message::NetworkMessage::Ping(ref n) => {
-                debug!("Handle ping {}", n);
-                let payload = btc_message::NetworkMessage::Pong(*n);
+        if let btc_message::NetworkMessage::Ping(n) = &ping_message {
+            debug!("Handle ping {n}");
+            let payload = btc_message::NetworkMessage::Pong(*n);
 
-                debug!("Send pong {}", n);
-                return self.send_message(payload);
-            }
-            _ => {
-                error!("Did not receive ping, but got {:?}", ping_message);
-            }
-        };
-        Err(btc_error::InvalidMessage(ping_message))
+            debug!("Send pong {n}");
+            self.send_message(payload)
+        } else {
+            error!("Did not receive ping, but got {ping_message:?}");
+            Err(btc_error::InvalidMessage(ping_message))
+        }
     }
 
     /// Respond to a Pong message.
     /// Does nothing.
     pub fn handle_pong(&mut self, pong_message: PeerMessage) -> Result<(), btc_error> {
-        match pong_message {
-            btc_message::NetworkMessage::Pong(n) => {
-                debug!("Handle pong {}", n);
-                return Ok(());
-            }
-            _ => {
-                error!("Did not receive pong, but got {:?}", pong_message);
-            }
-        };
-        Err(btc_error::InvalidReply)
+        if let btc_message::NetworkMessage::Pong(n) = pong_message {
+            debug!("Handle pong {n}");
+            Ok(())
+        } else {
+            error!("Did not receive pong, but got {pong_message:?}");
+            Err(btc_error::InvalidReply)
+        }
     }
 
     /// Send a GetHeaders message

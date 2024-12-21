@@ -878,8 +878,8 @@ fn test_http_duplicate_concurrent_streamed_response_fails() {
             &mut &valid_neighbors_response.as_bytes()[offset..],
         )
         .unwrap();
-    match msg {
-        (Some((StacksHttpMessage::Response(response), _)), _) => assert_eq!(
+    if let (Some((StacksHttpMessage::Response(response), _)), _) = msg {
+        assert_eq!(
             response.decode_rpc_neighbors().unwrap(),
             RPCNeighborsInfo {
                 bootstrap: vec![],
@@ -887,11 +887,10 @@ fn test_http_duplicate_concurrent_streamed_response_fails() {
                 inbound: vec![],
                 outbound: vec![]
             }
-        ),
-        _ => {
-            error!("Got {msg:?}");
-            panic!();
-        }
+        );
+    } else {
+        error!("Got {msg:?}");
+        panic!();
     }
     assert_eq!(http.num_pending(), 0);
 
@@ -1250,7 +1249,7 @@ fn test_send_request_success() {
         json_body(host, port, "/", b"{}"),
         timeout_duration,
     );
-    debug!("Got result: {:?}", result);
+    debug!("Got result: {result:?}");
 
     // Ensure the server only closes after the client has finished processing
     if let Ok(response) = &result {
@@ -1265,7 +1264,6 @@ fn test_send_request_success() {
     // Assert that the connection was successful
     assert!(
         result.is_ok(),
-        "Expected a successful request, but got {:?}",
-        result
+        "Expected a successful request, but got {result:?}"
     );
 }

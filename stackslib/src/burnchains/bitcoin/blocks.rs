@@ -182,32 +182,29 @@ impl BitcoinMessageHandler for BitcoinBlockDownloader {
         let header;
         let block_hash;
 
-        match msg {
-            btc_message::NetworkMessage::Block(ref block) => {
-                // make sure this block matches
-                if !BitcoinBlockParser::check_block(block, &ipc_header.block_header) {
-                    debug!(
-                        "Requested block {}, got block {}",
-                        &to_hex(ipc_header.block_header.header.bitcoin_hash().as_bytes()),
-                        &to_hex(block.bitcoin_hash().as_bytes())
-                    );
+        if let btc_message::NetworkMessage::Block(block) = &msg {
+            // make sure this block matches
+            if !BitcoinBlockParser::check_block(block, &ipc_header.block_header) {
+                debug!(
+                    "Requested block {}, got block {}",
+                    &to_hex(ipc_header.block_header.header.bitcoin_hash().as_bytes()),
+                    &to_hex(block.bitcoin_hash().as_bytes())
+                );
 
-                    // try again
-                    indexer.send_getdata(&vec![ipc_header.block_header.header.bitcoin_hash()])?;
-                    return Ok(true);
-                }
-
-                // clear timeout
-                indexer.runtime.last_getdata_send_time = 0;
-
-                // got valid data!
-                height = ipc_header.block_height;
-                header = self.cur_request.clone().unwrap();
-                block_hash = ipc_header.block_header.header.bitcoin_hash();
+                // try again
+                indexer.send_getdata(&vec![ipc_header.block_header.header.bitcoin_hash()])?;
+                return Ok(true);
             }
-            _ => {
-                return Err(btc_error::UnhandledMessage(msg));
-            }
+
+            // clear timeout
+            indexer.runtime.last_getdata_send_time = 0;
+
+            // got valid data!
+            height = ipc_header.block_height;
+            header = self.cur_request.clone().unwrap();
+            block_hash = ipc_header.block_header.header.bitcoin_hash();
+        } else {
+            return Err(btc_error::UnhandledMessage(msg));
         }
 
         debug!(

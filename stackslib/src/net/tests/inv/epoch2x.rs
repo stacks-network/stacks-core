@@ -811,15 +811,12 @@ fn test_sync_inv_make_inv_messages() {
 
     test_debug!("\n\nReply {:?}\n\n", &reply);
 
-    match reply {
-        StacksMessageType::PoxInv(poxinv) => {
-            assert_eq!(poxinv.bitlen, 1);
-            assert_eq!(poxinv.pox_bitvec, vec![0x01]);
-        }
-        x => {
-            error!("Did not get PoxInv, but got {x:?}");
-            panic!();
-        }
+    if let StacksMessageType::PoxInv(poxinv) = &reply {
+        assert_eq!(poxinv.bitlen, 1);
+        assert_eq!(poxinv.pox_bitvec, vec![0x01]);
+    } else {
+        error!("Did not get PoxInv, but got {reply:?}");
+        panic!();
     }
 
     // simulate a getpoxinv / poxinv for several reward cycles, including more than we have
@@ -852,15 +849,12 @@ fn test_sync_inv_make_inv_messages() {
 
     test_debug!("\n\nReply {:?}\n\n", &reply);
 
-    match reply {
-        StacksMessageType::PoxInv(poxinv) => {
-            assert_eq!(poxinv.bitlen, 7); // 2 reward cycles we generated, plus 5 reward cycles when booted up (1 reward cycle = 5 blocks).  1st one is free
-            assert_eq!(poxinv.pox_bitvec, vec![0x7f]);
-        }
-        x => {
-            error!("Did not get PoxInv, but got {x:?}");
-            panic!();
-        }
+    if let StacksMessageType::PoxInv(poxinv) = &reply {
+        assert_eq!(poxinv.bitlen, 7); // 2 reward cycles we generated, plus 5 reward cycles when booted up (1 reward cycle = 5 blocks).  1st one is free
+        assert_eq!(poxinv.pox_bitvec, vec![0x7f]);
+    } else {
+        error!("Did not get PoxInv, but got {reply:?}");
+        panic!();
     }
 
     // ask for a PoX vector off of an unknown consensus hash
@@ -884,14 +878,11 @@ fn test_sync_inv_make_inv_messages() {
 
     test_debug!("\n\nReply {:?}\n\n", &reply);
 
-    match reply {
-        StacksMessageType::Nack(nack_data) => {
-            assert_eq!(nack_data.error_code, NackErrorCodes::InvalidPoxFork);
-        }
-        x => {
-            error!("Did not get PoxInv, but got {:?}", &x);
-            panic!();
-        }
+    if let StacksMessageType::Nack(nack_data) = &reply {
+        assert_eq!(nack_data.error_code, NackErrorCodes::InvalidPoxFork);
+    } else {
+        error!("Did not get PoxInv, but got {reply:?}");
+        panic!();
     }
 
     // ask for a getblocksinv, aligned on a reward cycle.
@@ -933,18 +924,14 @@ fn test_sync_inv_make_inv_messages() {
 
     test_debug!("\n\nReply {:?}\n\n", &reply);
 
-    match reply {
-        StacksMessageType::BlocksInv(blocksinv) => {
-            assert_eq!(blocksinv.bitlen, reward_cycle_length as u16);
-            assert_eq!(blocksinv.block_bitvec, vec![0x1f]);
-            assert_eq!(blocksinv.microblocks_bitvec, vec![0x1e]);
-        }
-        x => {
-            error!("Did not get BlocksInv, but got {:?}", &x);
-            panic!();
-        }
-    };
-
+    if let StacksMessageType::BlocksInv(blocksinv) = &reply {
+        assert_eq!(blocksinv.bitlen, reward_cycle_length as u16);
+        assert_eq!(blocksinv.block_bitvec, vec![0x1f]);
+        assert_eq!(blocksinv.microblocks_bitvec, vec![0x1e]);
+    } else {
+        error!("Did not get BlocksInv, but got {reply:?}");
+        panic!();
+    }
     // ask for a getblocksinv, right at the first Stacks block height
     let getblocksinv_request = peer_1
         .with_network_state(|sortdb, _chainstate, network, _relayer, _mempool| {
@@ -985,17 +972,14 @@ fn test_sync_inv_make_inv_messages() {
 
     test_debug!("\n\nReply {:?}\n\n", &reply);
 
-    match reply {
-        StacksMessageType::BlocksInv(blocksinv) => {
-            assert_eq!(blocksinv.bitlen, reward_cycle_length as u16);
-            assert_eq!(blocksinv.block_bitvec, vec![0x1f]);
-            assert_eq!(blocksinv.microblocks_bitvec, vec![0x1e]);
-        }
-        x => {
-            error!("Did not get Nack, but got {:?}", &x);
-            panic!();
-        }
-    };
+    if let StacksMessageType::BlocksInv(blocksinv) = &reply {
+        assert_eq!(blocksinv.bitlen, reward_cycle_length as u16);
+        assert_eq!(blocksinv.block_bitvec, vec![0x1f]);
+        assert_eq!(blocksinv.microblocks_bitvec, vec![0x1e]);
+    } else {
+        error!("Did not get BlocksInv, but got {reply:?}");
+        panic!();
+    }
 
     // ask for a getblocksinv, prior to the first Stacks block height
     let getblocksinv_request = peer_1
@@ -1038,17 +1022,14 @@ fn test_sync_inv_make_inv_messages() {
 
     test_debug!("\n\nReply {:?}\n\n", &reply);
 
-    match reply {
-        StacksMessageType::BlocksInv(blocksinv) => {
-            assert_eq!(blocksinv.bitlen, reward_cycle_length as u16);
-            assert_eq!(blocksinv.block_bitvec, vec![0x0]);
-            assert_eq!(blocksinv.microblocks_bitvec, vec![0x0]);
-        }
-        x => {
-            error!("Did not get BlocksInv, but got {:?}", &x);
-            panic!();
-        }
-    };
+    if let StacksMessageType::BlocksInv(blocksinv) = &reply {
+        assert_eq!(blocksinv.bitlen, reward_cycle_length as u16);
+        assert_eq!(blocksinv.block_bitvec, vec![0x0]);
+        assert_eq!(blocksinv.microblocks_bitvec, vec![0x0]);
+    } else {
+        error!("Did not get BlocksInv, but got {reply:?}");
+        panic!();
+    }
 
     // ask for a getblocksinv, unaligned to a reward cycle
     let getblocksinv_request = peer_1
@@ -1089,15 +1070,12 @@ fn test_sync_inv_make_inv_messages() {
 
     test_debug!("\n\nReply {:?}\n\n", &reply);
 
-    match reply {
-        StacksMessageType::Nack(nack_data) => {
-            assert_eq!(nack_data.error_code, NackErrorCodes::InvalidPoxFork);
-        }
-        x => {
-            error!("Did not get Nack, but got {:?}", &x);
-            panic!();
-        }
-    };
+    if let StacksMessageType::Nack(nack_data) = &reply {
+        assert_eq!(nack_data.error_code, NackErrorCodes::InvalidPoxFork);
+    } else {
+        error!("Did not get Nack, but got {reply:?}");
+        panic!();
+    }
 
     // ask for a getblocksinv, for an unknown consensus hash
     let getblocksinv_request = peer_1
@@ -1125,15 +1103,12 @@ fn test_sync_inv_make_inv_messages() {
 
     test_debug!("\n\nReply {:?}\n\n", &reply);
 
-    match reply {
-        StacksMessageType::Nack(nack_data) => {
-            assert_eq!(nack_data.error_code, NackErrorCodes::NoSuchBurnchainBlock);
-        }
-        x => {
-            error!("Did not get Nack, but got {:?}", &x);
-            panic!();
-        }
-    };
+    if let StacksMessageType::Nack(nack_data) = &reply {
+        assert_eq!(nack_data.error_code, NackErrorCodes::NoSuchBurnchainBlock);
+    } else {
+        error!("Did not get Nack, but got {reply:?}");
+        panic!();
+    }
 }
 
 #[test]

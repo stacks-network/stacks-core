@@ -1611,13 +1611,14 @@ pub mod test {
                 test_debug!("did not get an overflow error, or any error");
                 false
             }
-            Err(e) => match e {
-                net_error::OverflowError(_) => true,
-                _ => {
-                    test_debug!("did not get an overflow error, but got {:?}", &e);
+            Err(e) => {
+                if let net_error::OverflowError(_) = e {
+                    true
+                } else {
+                    test_debug!("did not get an overflow error, but got {e:?}");
                     false
                 }
-            },
+            }
         }
     }
 
@@ -1627,13 +1628,14 @@ pub mod test {
                 test_debug!("did not get an underflow error, or any error");
                 false
             }
-            Err(e) => match e {
-                net_error::UnderflowError(_) => true,
-                _ => {
-                    test_debug!("did not get an underflow error, but got {:?}", &e);
+            Err(e) => {
+                if let net_error::UnderflowError(_) = e {
+                    true
+                } else {
+                    test_debug!("did not get an underflow error, but got {e:?}");
                     false
                 }
-            },
+            }
         }
     }
 
