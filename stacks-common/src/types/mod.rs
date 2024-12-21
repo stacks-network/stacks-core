@@ -260,7 +260,7 @@ impl CoinbaseInterval {
         }
 
         let mut ht = intervals[0].effective_start_height;
-        for interval in intervals {
+        for interval in intervals.iter().skip(1) {
             if interval.effective_start_height < ht {
                 return false;
             }
