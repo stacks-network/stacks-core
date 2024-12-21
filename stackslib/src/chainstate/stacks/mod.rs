@@ -1602,7 +1602,7 @@ pub mod test {
             }
         }
 
-        let txid_vecs = txs_anchored
+        let txid_vecs: Vec<_> = txs_anchored
             .iter()
             .map(|tx| tx.txid().as_bytes().to_vec())
             .collect();
@@ -1718,7 +1718,7 @@ pub mod test {
         );
 
         let txs_mblock: Vec<_> = all_txs.into_iter().take(num_txs).collect();
-        let txid_vecs = txs_mblock
+        let txid_vecs: Vec<_> = txs_mblock
             .iter()
             .map(|tx| tx.txid().as_bytes().to_vec())
             .collect();

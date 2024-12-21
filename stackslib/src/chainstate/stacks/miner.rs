@@ -880,7 +880,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             return Err(Error::NoTransactionsToMine);
         }
 
-        let txid_vecs = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+        let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
 
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
         let tx_merkle_root = merkle_tree.root();
@@ -1704,7 +1704,7 @@ impl StacksBlockBuilder {
 
     pub fn finalize_block(&mut self, clarity_tx: &mut ClarityTx) -> StacksBlock {
         // done!  Calculate state root and tx merkle root
-        let txid_vecs = self
+        let txid_vecs: Vec<_> = self
             .txs
             .iter()
             .map(|tx| tx.txid().as_bytes().to_vec())
@@ -1770,7 +1770,7 @@ impl StacksBlockBuilder {
 
     /// Cut the next microblock.
     pub fn mine_next_microblock<'a>(&mut self) -> Result<StacksMicroblock, Error> {
-        let txid_vecs = self
+        let txid_vecs: Vec<_> = self
             .micro_txs
             .iter()
             .map(|tx| tx.txid().as_bytes().to_vec())

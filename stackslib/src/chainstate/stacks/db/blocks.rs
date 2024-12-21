@@ -7165,7 +7165,7 @@ pub mod test {
                 all_txs[3 * i + 2].clone(),
             ];
 
-            let txid_vecs = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+            let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
 
             let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
             let tx_merkle_root = merkle_tree.root();
@@ -8846,7 +8846,7 @@ pub mod test {
 
                     conflicting_microblock.txs.push(extra_tx);
 
-                    let txid_vecs = conflicting_microblock
+                    let txid_vecs: Vec<_> = conflicting_microblock
                         .txs
                         .iter()
                         .map(|tx| tx.txid().as_bytes().to_vec())

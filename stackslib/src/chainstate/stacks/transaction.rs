@@ -345,7 +345,7 @@ where
     H: MerkleHashFunc + Clone + PartialEq + fmt::Debug,
 {
     fn from_iter<T: IntoIterator<Item = &'a StacksTransaction>>(iter: T) -> Self {
-        let txid_vec = iter
+        let txid_vec: Vec<_> = iter
             .into_iter()
             .map(|x| x.txid().as_bytes().to_vec())
             .collect();
