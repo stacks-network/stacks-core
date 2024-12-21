@@ -2963,7 +2963,7 @@ fn process_new_blocks_rejects_problematic_asts() {
             let mut bad_block = bad_block.0;
             bad_block.txs.push(bad_tx.clone());
 
-            let txid_vecs = bad_block
+            let txid_vecs: Vec<_> = bad_block
                 .txs
                 .iter()
                 .map(|tx| tx.txid().as_bytes().to_vec())
@@ -3019,7 +3019,7 @@ fn process_new_blocks_rejects_problematic_asts() {
             bad_mblock.txs.push(bad_tx.clone());
 
             // force it in anyway
-            let txid_vecs = bad_mblock
+            let txid_vecs: Vec<_> = bad_mblock
                 .txs
                 .iter()
                 .map(|tx| tx.txid().as_bytes().to_vec())

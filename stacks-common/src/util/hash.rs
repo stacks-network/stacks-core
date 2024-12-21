@@ -390,7 +390,6 @@ pub type MerklePath<H> = Vec<MerklePathPoint<H>>;
 ///
 /// NOTE: This is consensus-critical code, because it is used to generate the transaction Merkle
 /// tree roots in Stacks blocks.
-#[allow(clippy::ptr_arg)]
 impl<H> MerkleTree<H>
 where
     H: MerkleHashFunc + Clone + PartialEq + fmt::Debug,
@@ -399,7 +398,7 @@ where
         MerkleTree { nodes: vec![] }
     }
 
-    pub fn new(data: &Vec<Vec<u8>>) -> MerkleTree<H> {
+    pub fn new(data: &[Vec<u8>]) -> MerkleTree<H> {
         if data.is_empty() {
             return MerkleTree { nodes: vec![] };
         }

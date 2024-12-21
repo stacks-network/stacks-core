@@ -338,7 +338,7 @@ impl StacksMessageCodec for StacksBlock {
         }
 
         // header and transactions must be consistent
-        let txid_vecs = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+        let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
 
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
         let tx_merkle_root = merkle_tree.root();
@@ -388,7 +388,10 @@ impl StacksBlock {
         state_index_root: &TrieHash,
         microblock_pubkey_hash: &Hash160,
     ) -> StacksBlock {
-        let txids = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+        let txids: Vec<_> = txs
+            .iter()
+            .map(|ref tx| tx.txid().as_bytes().to_vec())
+            .collect();
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
         let header = StacksBlockHeader::from_parent(
@@ -850,7 +853,7 @@ impl StacksMessageCodec for StacksMicroblock {
         }
 
         // header and transactions must be consistent
-        let txid_vecs = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+        let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
 
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
         let tx_merkle_root = merkle_tree.root();
@@ -877,7 +880,10 @@ impl StacksMicroblock {
         parent_block_hash: &BlockHeaderHash,
         txs: Vec<StacksTransaction>,
     ) -> StacksMicroblock {
-        let txids = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+        let txids: Vec<_> = txs
+            .iter()
+            .map(|ref tx| tx.txid().as_bytes().to_vec())
+            .collect();
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
         let header = StacksMicroblockHeader::first_unsigned(parent_block_hash, &tx_merkle_root);
@@ -888,7 +894,10 @@ impl StacksMicroblock {
         parent_header: &StacksMicroblockHeader,
         txs: Vec<StacksTransaction>,
     ) -> Option<StacksMicroblock> {
-        let txids = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+        let txids: Vec<_> = txs
+            .iter()
+            .map(|ref tx| tx.txid().as_bytes().to_vec())
+            .collect();
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
         let header =
@@ -1158,7 +1167,7 @@ mod test {
                 all_txs[3 * i + 2].clone(),
             ];
 
-            let txid_vecs = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+            let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
 
             let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
             let tx_merkle_root = merkle_tree.root();
@@ -1483,7 +1492,7 @@ mod test {
         let txs_dup = vec![tx_coinbase.clone(), tx_dup.clone(), tx_dup.clone()];
 
         let get_tx_root = |txs: &Vec<StacksTransaction>| {
-            let txid_vecs = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+            let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
 
             let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
             let tx_merkle_root = merkle_tree.root();
@@ -1610,7 +1619,7 @@ mod test {
         let txs_dup = vec![tx_dup.clone(), tx_dup.clone()];
 
         let get_tx_root = |txs: &Vec<StacksTransaction>| {
-            let txid_vecs = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+            let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
 
             let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
             let tx_merkle_root = merkle_tree.root();
@@ -1700,7 +1709,7 @@ mod test {
             StacksEpochId::Epoch30,
         ];
         let get_tx_root = |txs: &Vec<StacksTransaction>| {
-            let txid_vecs = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+            let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
 
             let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
             let tx_merkle_root = merkle_tree.root();

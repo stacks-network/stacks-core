@@ -2791,7 +2791,7 @@ fn test_build_microblock_stream_forks() {
                             forked_parent_microblock_stream[i].txs[0] = forked_mblock_tx;
 
                             // re-calculate merkle root
-                            let txid_vecs = forked_parent_microblock_stream[i].txs
+                            let txid_vecs: Vec<_> = forked_parent_microblock_stream[i].txs
                                 .iter()
                                 .map(|tx| tx.txid().as_bytes().to_vec())
                                 .collect();
@@ -3118,7 +3118,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
                             forked_parent_microblock_stream[i].txs[0] = forked_mblock_tx;
 
                             // re-calculate merkle root
-                            let txid_vecs = forked_parent_microblock_stream[i].txs
+                            let txid_vecs: Vec<_> = forked_parent_microblock_stream[i].txs
                                 .iter()
                                 .map(|tx| tx.txid().as_bytes().to_vec())
                                 .collect();
