@@ -10311,6 +10311,25 @@ fn clarity_cost_spend_down() {
     run_loop_thread.join().unwrap();
 }
 
+/// This test aims to replicate behavior seen in the wild
+/// where big contract calls hit the block limit, and
+/// smaller contract calls are not included in any blocks.
+///
+/// The test setup is like so:
+///
+/// - "Deployers" deploy a big contract (each), and the test waits
+///   them to be deployed.
+/// - "Deployers" submit one contract call to their newly deployed
+///   big contract. Critically, these txs have no estimated cost.
+/// - "Senders" submit a bunch of small contract calls.
+///
+/// The current behavior is that one big contract call is mined,
+///   taking up >50% of the block limit, and then miners don't
+///   include any of the small contract calls in any blocks.
+///
+/// NB: This test is not very "durable" - it can reproduce the issue
+///   every time, but small changes to mempool and mining logic will
+///   probably "invalidate" the test.
 #[test]
 #[ignore]
 fn big_contract_call_behavior() {
@@ -10448,18 +10467,6 @@ fn big_contract_call_behavior() {
 
     let big_contract = make_big_read_count_contract(HELIUM_BLOCK_LIMIT_20, 51);
 
-    // // First, lets deploy the contract
-    // let deployer_nonce = get_and_increment_nonce(&small_deployer_sk, &mut sender_nonces);
-    // let big_contract_tx = make_contract_publish(
-    //     &small_deployer_sk,
-    //     deployer_nonce,
-    //     large_deploy_fee,
-    //     naka_conf.burnchain.chain_id,
-    //     "big-contract",
-    //     &big_contract,
-    // );
-    // submit_tx(&http_origin, &big_contract_tx);
-
     info!("----- Submitted deploy txs, mining BTC block -----");
 
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
@@ -10587,29 +10594,6 @@ fn big_contract_call_behavior() {
             }
         }
         for _nmb_tx in 0..nmb_txs_per_tenure {
-            // let sender_nonce = get_and_increment_nonce(&deployer_sk, &mut sender_nonces);
-            // // Fill up the mempool with contract calls
-            // let contract_tx = make_contract_call(
-            //     &deployer_sk,
-            //     sender_nonce,
-            //     tx_fee,
-            //     naka_conf.burnchain.chain_id,
-            //     &deployer_addr,
-            //     "big-contract",
-            //     "big-tx",
-            //     &[],
-            // );
-            // match submit_tx_fallible(&http_origin, &contract_tx) {
-            //     Ok(txid) => {
-            //         submitted_txs.push(txid);
-            //     }
-            //     Err(_e) => {
-            //         // If we fail to submit a tx, we need to make sure we don't
-            //         // increment the nonce for this sender, so we don't end up
-            //         // skipping a tx.
-            //         sender_nonces.insert(deployer_sk.to_hex(), sender_nonce);
-            //     }
-            // }
             for sender_sk in sender_sks.iter() {
                 let sender_nonce = get_and_increment_nonce(&sender_sk, &mut sender_nonces);
                 // Fill up the mempool with contract calls
@@ -10642,7 +10626,8 @@ fn big_contract_call_behavior() {
             .iter()
             .map(|b| b.tx_events.len())
             .sum::<usize>();
-        let expected_txs = txs_before + submitted_txs.len();
+        // Expect one big tx and at least one small tx
+        let expected_txs = txs_before + 2;
         TEST_MINE_STALL.lock().unwrap().replace(false);
         let mut last_log = Instant::now();
         last_log -= Duration::from_secs(5);
