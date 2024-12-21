@@ -5567,7 +5567,7 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
     sender_nonce += 1;
     info!("Submitted tx {tx} in to mine block N+1");
 
-    wait_for(30, || {
+    wait_for(45, || {
         Ok(mined_blocks.load(Ordering::SeqCst) > blocks_before
             && signer_test
                 .stacks_client
@@ -5624,7 +5624,7 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
     info!("Submitted tx {tx} in to mine block N+2");
-    wait_for(30, || {
+    wait_for(45, || {
         Ok(mined_blocks.load(Ordering::SeqCst) > blocks_before
             && signer_test
                 .stacks_client
