@@ -82,7 +82,7 @@ impl PeerBlocksInv {
             num_sortitions: 0,
             num_reward_cycles: 0,
             last_updated_at: 0,
-            first_block_height: first_block_height,
+            first_block_height,
         }
     }
 
@@ -96,13 +96,13 @@ impl PeerBlocksInv {
     ) -> PeerBlocksInv {
         assert_eq!(block_inv.len(), microblocks_inv.len());
         PeerBlocksInv {
-            block_inv: block_inv,
-            microblocks_inv: microblocks_inv,
-            num_sortitions: num_sortitions,
-            num_reward_cycles: num_reward_cycles,
-            pox_inv: pox_inv,
+            block_inv,
+            microblocks_inv,
+            num_sortitions,
+            num_reward_cycles,
+            pox_inv,
             last_updated_at: get_epoch_time_secs(),
-            first_block_height: first_block_height,
+            first_block_height,
         }
     }
 
@@ -541,7 +541,7 @@ impl NeighborBlockStats {
         is_bootstrap_peer: bool,
     ) -> NeighborBlockStats {
         NeighborBlockStats {
-            nk: nk,
+            nk,
             inv: PeerBlocksInv::empty(first_block_height),
             pox_reward_cycle: 0,
             block_reward_cycle: 0,
@@ -558,7 +558,7 @@ impl NeighborBlockStats {
             learned_data: false,
             learned_data_height: u64::MAX,
             scans: 0,
-            is_bootstrap_peer: is_bootstrap_peer,
+            is_bootstrap_peer,
         }
     }
 
@@ -983,11 +983,11 @@ impl InvState {
         InvState {
             block_stats: HashMap::new(),
 
-            request_timeout: request_timeout,
-            first_block_height: first_block_height,
+            request_timeout,
+            first_block_height,
 
             last_change_at: 0,
-            sync_interval: sync_interval,
+            sync_interval,
 
             hint_learned_data: false,
             hint_learned_data_height: u64::MAX,
@@ -1007,7 +1007,7 @@ impl InvState {
         peers: HashSet<NeighborKey>,
         bootstrap_peers: &HashSet<NeighborKey>,
         max_neighbors: usize,
-    ) -> () {
+    ) {
         for (nk, stats) in self.block_stats.iter_mut() {
             if stats.status != NodeStatus::Online {
                 stats.status = NodeStatus::Online;
@@ -1167,14 +1167,14 @@ impl InvState {
     }
 
     #[cfg(test)]
-    pub fn add_peer(&mut self, nk: NeighborKey, is_bootstrap_peer: bool) -> () {
+    pub fn add_peer(&mut self, nk: NeighborKey, is_bootstrap_peer: bool) {
         self.block_stats.insert(
             nk.clone(),
             NeighborBlockStats::new(nk, self.first_block_height, is_bootstrap_peer),
         );
     }
 
-    pub fn del_peer(&mut self, nk: &NeighborKey) -> () {
+    pub fn del_peer(&mut self, nk: &NeighborKey) {
         self.block_stats.remove(&nk);
     }
 
@@ -1600,18 +1600,16 @@ impl PeerNetwork {
             <= max_burn_block_height
         {
             self.burnchain.pox_constants.reward_cycle_length as u64
+        } else if target_block_height > max_burn_block_height {
+            debug!("{:?}: will not send GetBlocksInv to {nk:?}, since we are sync'ed up to its highest sortition block (target block is {target_block_height}, max burn block is {max_burn_block_height})", &self.local_peer);
+            0
         } else {
-            if target_block_height > max_burn_block_height {
-                debug!("{:?}: will not send GetBlocksInv to {:?}, since we are sync'ed up to its highest sortition block (target block is {}, max burn block is {})", &self.local_peer, nk, target_block_height, max_burn_block_height);
-                0
-            } else {
-                max_burn_block_height - target_block_height + 1
-            }
+            max_burn_block_height - target_block_height + 1
         };
 
         if num_blocks == 0 {
             // target_block_height was higher than the highest known height of the remote node
-            debug!("{:?}: will not send GetBlocksInv to {:?}, since we are sync'ed up to its highest sortition block (our target reward cycle was {}, height was {})", &self.local_peer, nk, target_block_reward_cycle, target_block_height);
+            debug!("{:?}: will not send GetBlocksInv to {nk:?}, since we are sync'ed up to its highest sortition block (our target reward cycle was {target_block_reward_cycle}, height was {target_block_height})", &self.local_peer);
         }
 
         Ok(num_blocks)
@@ -2402,7 +2400,7 @@ impl PeerNetwork {
                     &network.local_peer, inv_state.block_sortition_start,
                 );
 
-                if !inv_state.hint_learned_data && inv_state.block_stats.len() > 0 {
+                if !inv_state.hint_learned_data && !inv_state.block_stats.is_empty() {
                     // did a full scan without learning anything new
                     inv_state.last_rescanned_at = get_epoch_time_secs();
                     inv_state.hint_do_rescan = false;
@@ -2561,7 +2559,7 @@ impl PeerNetwork {
     }
 
     /// Initialize inv state
-    pub fn init_inv_sync_epoch2x(&mut self, sortdb: &SortitionDB) -> () {
+    pub fn init_inv_sync_epoch2x(&mut self, sortdb: &SortitionDB) {
         // find out who we'll be synchronizing with for the duration of this inv sync
         debug!(
             "{:?}: Initializing peer block inventory state",
@@ -2729,7 +2727,7 @@ impl PeerNetwork {
         // always-allowed peer?
         let mut finished_always_allowed_inv_sync = false;
 
-        if always_allowed.len() == 0 {
+        if always_allowed.is_empty() {
             // vacuously, we are done so we can return
             return true;
         }

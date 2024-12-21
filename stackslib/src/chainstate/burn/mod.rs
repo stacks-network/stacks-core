@@ -62,13 +62,13 @@ impl_byte_array_newtype!(SortitionHash, u8, 32);
 #[derive(Debug, Clone, PartialEq)]
 #[repr(u8)]
 pub enum Opcodes {
-    LeaderBlockCommit = '[' as u8,
-    LeaderKeyRegister = '^' as u8,
-    StackStx = 'x' as u8,
-    PreStx = 'p' as u8,
-    TransferStx = '$' as u8,
-    DelegateStx = '#' as u8,
-    VoteForAggregateKey = 'v' as u8,
+    LeaderBlockCommit = b'[',
+    LeaderKeyRegister = b'^',
+    StackStx = b'x',
+    PreStx = b'p',
+    TransferStx = b'$',
+    DelegateStx = b'#',
+    VoteForAggregateKey = b'v',
 }
 
 // a burnchain block snapshot

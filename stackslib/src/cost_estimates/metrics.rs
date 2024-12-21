@@ -4,6 +4,7 @@ use clarity::vm::costs::ExecutionCost;
 
 /// This trait defines metrics used to convert `ExecutionCost` and tx_len usage into single-dimensional
 /// metrics that can be used to compute a fee rate.
+#[allow(clippy::wrong_self_convention)]
 pub trait CostMetric: Send {
     fn from_cost_and_len(
         &self,

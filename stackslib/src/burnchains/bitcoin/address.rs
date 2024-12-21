@@ -79,8 +79,8 @@ pub const ADDRESS_VERSION_TESTNET_SINGLESIG: u8 = 111;
 pub const ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 196;
 
 // segwit hrps
-pub const SEGWIT_MAINNET_HRP: &'static str = "bc";
-pub const SEGWIT_TESTNET_HRP: &'static str = "tb";
+pub const SEGWIT_MAINNET_HRP: &str = "bc";
+pub const SEGWIT_TESTNET_HRP: &str = "tb";
 
 // segwit witnes versions
 pub const SEGWIT_V0: u8 = 0;
@@ -234,8 +234,8 @@ impl LegacyBitcoinAddress {
         payload_bytes.copy_from_slice(b);
 
         Ok(LegacyBitcoinAddress {
-            network_id: network_id,
-            addrtype: addrtype,
+            network_id,
+            addrtype,
             bytes: Hash160(payload_bytes),
         })
     }
@@ -317,7 +317,7 @@ impl SegwitBitcoinAddress {
             None
         }?;
 
-        if quintets.len() == 0 || quintets.len() > 65 {
+        if quintets.is_empty() || quintets.len() > 65 {
             test_debug!("Invalid prog length: {}", quintets.len());
             return None;
         }
@@ -436,8 +436,8 @@ impl BitcoinAddress {
         my_bytes.copy_from_slice(b);
 
         Ok(BitcoinAddress::Legacy(LegacyBitcoinAddress {
-            network_id: network_id,
-            addrtype: addrtype,
+            network_id,
+            addrtype,
             bytes: Hash160(my_bytes),
         }))
     }
@@ -478,7 +478,7 @@ impl BitcoinAddress {
             my_bytes.copy_from_slice(b);
 
             Some(BitcoinAddress::Legacy(LegacyBitcoinAddress {
-                network_id: network_id,
+                network_id,
                 addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                 bytes: Hash160(my_bytes),
             }))
@@ -492,7 +492,7 @@ impl BitcoinAddress {
             my_bytes.copy_from_slice(b);
 
             Some(BitcoinAddress::Legacy(LegacyBitcoinAddress {
-                network_id: network_id,
+                network_id,
                 addrtype: LegacyBitcoinAddressType::ScriptHash,
                 bytes: Hash160(my_bytes),
             }))
@@ -782,11 +782,11 @@ mod tests {
                 (Err(_e), None) => {}
                 (Ok(_a), None) => {
                     test_debug!("Decoded an address when we should not have");
-                    assert!(false);
+                    panic!();
                 }
                 (Err(_e), Some(_res)) => {
                     test_debug!("Failed to decode when we should have: {}", fixture.addr);
-                    assert!(false);
+                    panic!();
                 }
             }
         }
@@ -906,11 +906,11 @@ mod tests {
                 (None, None) => {}
                 (None, Some(_r)) => {
                     test_debug!("Failed to decode an address when we should have");
-                    assert!(false);
+                    panic!();
                 }
                 (Some(_a), None) => {
                     test_debug!("Decoded an address when we should not have");
-                    assert!(false);
+                    panic!();
                 }
             }
             if let Some(addr) = &fixture.result {
@@ -1092,15 +1092,14 @@ mod tests {
                 (None, None) => {}
                 (None, Some(_r)) => {
                     test_debug!(
-                        "Failed to decode an address when we should have: {:?}, {:?}",
-                        &fixture.scriptpubkey,
-                        &_r
+                        "Failed to decode an address when we should have: {:?}, {_r:?}",
+                        &fixture.scriptpubkey
                     );
-                    assert!(false);
+                    panic!();
                 }
                 (Some(_a), None) => {
                     test_debug!("Decoded an address when we should not have");
-                    assert!(false);
+                    panic!();
                 }
             }
         }

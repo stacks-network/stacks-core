@@ -840,7 +840,7 @@ fn test_walk_inbound_line_15() {
     })
 }
 
-fn dump_peers(peers: &Vec<TestPeer>) -> () {
+fn dump_peers(peers: &Vec<TestPeer>) {
     test_debug!("\n=== PEER DUMP ===");
     for i in 0..peers.len() {
         let mut neighbor_index = vec![];
@@ -870,7 +870,7 @@ fn dump_peers(peers: &Vec<TestPeer>) -> () {
     test_debug!("\n");
 }
 
-fn dump_peer_histograms(peers: &Vec<TestPeer>) -> () {
+fn dump_peer_histograms(peers: &Vec<TestPeer>) {
     let mut outbound_hist: HashMap<usize, usize> = HashMap::new();
     let mut inbound_hist: HashMap<usize, usize> = HashMap::new();
     let mut all_hist: HashMap<usize, usize> = HashMap::new();
@@ -933,7 +933,7 @@ fn dump_peer_histograms(peers: &Vec<TestPeer>) -> () {
     test_debug!("\n");
 }
 
-fn run_topology_test(peers: &mut Vec<TestPeer>) -> () {
+fn run_topology_test(peers: &mut Vec<TestPeer>) {
     run_topology_test_ex(peers, |_| false, false)
 }
 
@@ -941,8 +941,7 @@ fn run_topology_test_ex<F>(
     peers: &mut Vec<TestPeer>,
     mut finished_check: F,
     use_finished_check: bool,
-) -> ()
-where
+) where
     F: FnMut(&Vec<TestPeer>) -> bool,
 {
     let peer_count = peers.len();
@@ -995,22 +994,19 @@ where
         let mut rng = thread_rng();
         random_order.shuffle(&mut rng);
 
-        debug!("Random order = {:?}", &random_order);
+        debug!("Random order = {random_order:?}");
         for i in random_order.into_iter() {
             let _ = peers[i].step_with_ibd(false);
             let nk = peers[i].config.to_neighbor().addr;
-            debug!("Step peer {:?}", &nk);
+            debug!("Step peer {nk:?}");
 
             // allowed peers are still connected
             match initial_allowed.get(&nk) {
                 Some(ref peer_list) => {
                     for pnk in peer_list.iter() {
                         if !peers[i].network.events.contains_key(&pnk.clone()) {
-                            error!(
-                                "{:?}: Perma-allowed peer {:?} not connected anymore",
-                                &nk, &pnk
-                            );
-                            assert!(false);
+                            error!("{nk:?}: Perma-allowed peer {pnk:?} not connected anymore");
+                            panic!();
                         }
                     }
                 }
@@ -1022,8 +1018,8 @@ where
                 Some(ref peer_list) => {
                     for pnk in peer_list.iter() {
                         if peers[i].network.events.contains_key(&pnk.clone()) {
-                            error!("{:?}: Perma-denied peer {:?} connected", &nk, &pnk);
-                            assert!(false);
+                            error!("{nk:?}: Perma-denied peer {pnk:?} connected");
+                            panic!();
                         }
                     }
                 }
@@ -1034,8 +1030,8 @@ where
             let mut ports: HashSet<u16> = HashSet::new();
             for k in peers[i].network.events.keys() {
                 if ports.contains(&k.port) {
-                    error!("duplicate port {} from {:?}", k.port, k);
-                    assert!(false);
+                    error!("duplicate port {} from {k:?}", k.port);
+                    panic!();
                 }
                 ports.insert(k.port);
             }
@@ -1047,20 +1043,18 @@ where
                 let mut done = true;
                 let all_neighbors = PeerDB::get_all_peers(peers[i].network.peerdb.conn()).unwrap();
                 peer_counts += all_neighbors.len();
-                test_debug!("Peer {} ({}) has {} neighbors", i, &nk, all_neighbors.len());
+                test_debug!("Peer {i} ({nk}) has {} neighbors", all_neighbors.len());
 
                 if (all_neighbors.len() as u64) < ((peer_count - 1) as u64) {
                     test_debug!(
-                        "waiting for {:?} to fill up its frontier: {} < {}",
-                        &nk,
+                        "waiting for {nk:?} to fill up its frontier: {} < {}",
                         all_neighbors.len(),
                         peer_count - 1
                     );
                     done = false;
                 } else {
                     test_debug!(
-                        "not waiting for {:?} to fill up its frontier: {} >= {}",
-                        &nk,
+                        "not waiting for {nk:?} to fill up its frontier: {} >= {}",
                         all_neighbors.len(),
                         peer_count - 1
                     );
@@ -1082,12 +1076,12 @@ where
             break;
         }
 
-        test_debug!("Finished walking the network {} times", count);
+        test_debug!("Finished walking the network {count} times");
         dump_peers(&peers);
         dump_peer_histograms(&peers);
     }
 
-    test_debug!("Converged after {} calls to network.run()", count);
+    test_debug!("Converged after {count} calls to network.run()");
     dump_peers(&peers);
     dump_peer_histograms(&peers);
 

@@ -1130,14 +1130,14 @@ pub mod test {
             version: 1,
             bytes: Hash160([0xff; 20]),
         };
-        let asset_name = ClarityName::try_from("hello-asset").unwrap();
+        let asset_name = ClarityName::from("hello-asset");
         let asset_value = Value::buff_from(vec![0, 1, 2, 3]).unwrap();
-        let contract_name = ContractName::try_from("hello-world").unwrap();
+        let contract_name = ContractName::from("hello-world");
         let hello_contract_call = "hello contract call";
         let hello_contract_name = "hello-contract-name";
         let hello_contract_body = "hello contract code body";
         let asset_info = AssetInfo {
-            contract_address: addr.clone(),
+            contract_address: addr,
             contract_name: contract_name.clone(),
             asset_name: asset_name.clone(),
         };
@@ -1145,7 +1145,7 @@ pub mod test {
         let mblock_header_1 = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
             tx_merkle_root: Sha512Trunc256Sum([1u8; 32]),
             signature: MessageSignature([2u8; 65]),
         };
@@ -1153,7 +1153,7 @@ pub mod test {
         let mblock_header_2 = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
             tx_merkle_root: Sha512Trunc256Sum([2u8; 32]),
             signature: MessageSignature([3u8; 65]),
         };
@@ -1165,7 +1165,7 @@ pub mod test {
                 key_encoding: TransactionPublicKeyEncoding::Uncompressed,
                 nonce: 123,
                 tx_fee: 456,
-                signature: MessageSignature::from_raw(&vec![0xff; 65])
+                signature: MessageSignature::from_raw(&[0xff; 65])
             }),
             TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
                 signer: Hash160([0x11; 20]),
@@ -1173,7 +1173,7 @@ pub mod test {
                 key_encoding: TransactionPublicKeyEncoding::Compressed,
                 nonce: 234,
                 tx_fee: 567,
-                signature: MessageSignature::from_raw(&vec![0xff; 65])
+                signature: MessageSignature::from_raw(&[0xff; 65])
             }),
             TransactionSpendingCondition::Multisig(MultisigSpendingCondition {
                 signer: Hash160([0x11; 20]),
@@ -1181,8 +1181,8 @@ pub mod test {
                 nonce: 345,
                 tx_fee: 678,
                 fields: vec![
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&[0xff; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&[0xfe; 65])),
                     TransactionAuthField::PublicKey(PubKey::from_hex("04ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c771f112f919b00a6c6c5f51f7c63e1762fe9fac9b66ec75a053db7f51f4a52712b").unwrap()),
                 ],
                 signatures_required: 2
@@ -1193,8 +1193,8 @@ pub mod test {
                 nonce: 456,
                 tx_fee: 789,
                 fields: vec![
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&[0xff; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&[0xfe; 65])),
                     TransactionAuthField::PublicKey(PubKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap())
                 ],
                 signatures_required: 2
@@ -1205,7 +1205,7 @@ pub mod test {
                 key_encoding: TransactionPublicKeyEncoding::Compressed,
                 nonce: 567,
                 tx_fee: 890,
-                signature: MessageSignature::from_raw(&vec![0xfe; 65]),
+                signature: MessageSignature::from_raw(&[0xfe; 65]),
             }),
             TransactionSpendingCondition::Multisig(MultisigSpendingCondition {
                 signer: Hash160([0x11; 20]),
@@ -1213,8 +1213,8 @@ pub mod test {
                 nonce: 678,
                 tx_fee: 901,
                 fields: vec![
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&[0xff; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&[0xfe; 65])),
                     TransactionAuthField::PublicKey(PubKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap())
                 ],
                 signatures_required: 2
@@ -1229,8 +1229,8 @@ pub mod test {
                     nonce: 678,
                     tx_fee: 901,
                     fields: vec![
-                        TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                        TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                        TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&[0xff; 65])),
+                        TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&[0xfe; 65])),
                         TransactionAuthField::PublicKey(PubKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap())
                     ],
                     signatures_required: 2
@@ -1241,8 +1241,8 @@ pub mod test {
                     nonce: 345,
                     tx_fee: 678,
                     fields: vec![
-                        TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                        TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                        TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&[0xff; 65])),
+                        TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&[0xfe; 65])),
                         TransactionAuthField::PublicKey(PubKey::from_hex("04ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c771f112f919b00a6c6c5f51f7c63e1762fe9fac9b66ec75a053db7f51f4a52712b").unwrap()),
                     ],
                     signatures_required: 2
@@ -1253,8 +1253,8 @@ pub mod test {
                     nonce: 456,
                     tx_fee: 789,
                     fields: vec![
-                        TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                        TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                        TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&[0xff; 65])),
+                        TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&[0xfe; 65])),
                         TransactionAuthField::PublicKey(PubKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap())
                     ],
                     signatures_required: 2
@@ -1285,7 +1285,7 @@ pub mod test {
                     version: 2,
                     bytes: Hash160([2u8; 20]),
                 },
-                ContractName::try_from("hello-world").unwrap(),
+                ContractName::from("hello-world"),
             ),
         ];
 
@@ -1300,7 +1300,7 @@ pub mod test {
                 vec![TransactionPostCondition::Fungible(
                     tx_pcp.clone(),
                     AssetInfo {
-                        contract_address: addr.clone(),
+                        contract_address: addr,
                         contract_name: contract_name.clone(),
                         asset_name: asset_name.clone(),
                     },
@@ -1310,7 +1310,7 @@ pub mod test {
                 vec![TransactionPostCondition::Nonfungible(
                     tx_pcp.clone(),
                     AssetInfo {
-                        contract_address: addr.clone(),
+                        contract_address: addr,
                         contract_name: contract_name.clone(),
                         asset_name: asset_name.clone(),
                     },
@@ -1326,7 +1326,7 @@ pub mod test {
                     TransactionPostCondition::Fungible(
                         tx_pcp.clone(),
                         AssetInfo {
-                            contract_address: addr.clone(),
+                            contract_address: addr,
                             contract_name: contract_name.clone(),
                             asset_name: asset_name.clone(),
                         },
@@ -1343,7 +1343,7 @@ pub mod test {
                     TransactionPostCondition::Nonfungible(
                         tx_pcp.clone(),
                         AssetInfo {
-                            contract_address: addr.clone(),
+                            contract_address: addr,
                             contract_name: contract_name.clone(),
                             asset_name: asset_name.clone(),
                         },
@@ -1355,7 +1355,7 @@ pub mod test {
                     TransactionPostCondition::Fungible(
                         tx_pcp.clone(),
                         AssetInfo {
-                            contract_address: addr.clone(),
+                            contract_address: addr,
                             contract_name: contract_name.clone(),
                             asset_name: asset_name.clone(),
                         },
@@ -1365,7 +1365,7 @@ pub mod test {
                     TransactionPostCondition::Nonfungible(
                         tx_pcp.clone(),
                         AssetInfo {
-                            contract_address: addr.clone(),
+                            contract_address: addr,
                             contract_name: contract_name.clone(),
                             asset_name: asset_name.clone(),
                         },
@@ -1382,7 +1382,7 @@ pub mod test {
                     TransactionPostCondition::Nonfungible(
                         tx_pcp.clone(),
                         AssetInfo {
-                            contract_address: addr.clone(),
+                            contract_address: addr,
                             contract_name: contract_name.clone(),
                             asset_name: asset_name.clone(),
                         },
@@ -1392,7 +1392,7 @@ pub mod test {
                     TransactionPostCondition::Fungible(
                         tx_pcp.clone(),
                         AssetInfo {
-                            contract_address: addr.clone(),
+                            contract_address: addr,
                             contract_name: contract_name.clone(),
                             asset_name: asset_name.clone(),
                         },
@@ -1408,7 +1408,7 @@ pub mod test {
             bytes: Hash160([0xff; 20]),
         };
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
         let mut tx_payloads = vec![
             TransactionPayload::TokenTransfer(
                 stx_address.into(),
@@ -1428,27 +1428,27 @@ pub mod test {
                     version: 4,
                     bytes: Hash160([0xfc; 20]),
                 },
-                contract_name: ContractName::try_from("hello-contract-name").unwrap(),
-                function_name: ClarityName::try_from("hello-contract-call").unwrap(),
+                contract_name: ContractName::from("hello-contract-name"),
+                function_name: ClarityName::from("hello-contract-call"),
                 function_args: vec![Value::Int(0)],
             }),
             TransactionPayload::SmartContract(
                 TransactionSmartContract {
-                    name: ContractName::try_from(hello_contract_name).unwrap(),
+                    name: ContractName::from(hello_contract_name),
                     code_body: StacksString::from_str(hello_contract_body).unwrap(),
                 },
                 None,
             ),
             TransactionPayload::SmartContract(
                 TransactionSmartContract {
-                    name: ContractName::try_from(hello_contract_name).unwrap(),
+                    name: ContractName::from(hello_contract_name),
                     code_body: StacksString::from_str(hello_contract_body).unwrap(),
                 },
                 Some(ClarityVersion::Clarity1),
             ),
             TransactionPayload::SmartContract(
                 TransactionSmartContract {
-                    name: ContractName::try_from(hello_contract_name).unwrap(),
+                    name: ContractName::from(hello_contract_name),
                     code_body: StacksString::from_str(hello_contract_body).unwrap(),
                 },
                 Some(ClarityVersion::Clarity2),
@@ -1530,11 +1530,11 @@ pub mod test {
                     let auth = tx_auth.clone();
 
                     let tx = StacksTransaction {
-                        version: (*version).clone(),
+                        version: *version,
                         chain_id,
                         auth,
-                        anchor_mode: (*anchor_mode).clone(),
-                        post_condition_mode: (*post_condition_mode).clone(),
+                        anchor_mode: *anchor_mode,
+                        post_condition_mode: *post_condition_mode,
                         post_conditions: tx_post_condition.clone(),
                         payload: tx_payload.clone(),
                     };
@@ -1547,7 +1547,7 @@ pub mod test {
 
     pub fn make_codec_test_block(num_txs: usize, epoch_id: StacksEpochId) -> StacksBlock {
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -1590,11 +1590,8 @@ pub mod test {
         }
 
         for tx in all_txs.drain(..) {
-            match tx.payload {
-                TransactionPayload::Coinbase(..) => {
-                    continue;
-                }
-                _ => {}
+            if matches!(tx.payload, TransactionPayload::Coinbase(..)) {
+                continue;
             }
             txs_anchored.push(tx);
             if txs_anchored.len() >= num_txs {
@@ -1626,7 +1623,7 @@ pub mod test {
             parent_block: BlockHeaderHash([5u8; 32]),
             parent_microblock: BlockHeaderHash([6u8; 32]),
             parent_microblock_sequence: 4,
-            tx_merkle_root: tx_merkle_root,
+            tx_merkle_root,
             state_index_root: TrieHash([8u8; 32]),
             microblock_pubkey_hash: Hash160([9u8; 20]),
         };
@@ -1642,7 +1639,7 @@ pub mod test {
         miner_privk: &StacksPrivateKey,
     ) -> NakamotoBlock {
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -1679,7 +1676,7 @@ pub mod test {
             version: 0x00,
             chain_length: 107,
             burn_spent: 25000,
-            consensus_hash: MINER_BLOCK_CONSENSUS_HASH.clone(),
+            consensus_hash: MINER_BLOCK_CONSENSUS_HASH,
             parent_block_id: StacksBlockId::from_bytes(&[0x11; 32]).unwrap(),
             tx_merkle_root,
             state_index_root: TrieHash::from_hex(
@@ -1736,7 +1733,7 @@ pub mod test {
 
         header.sign(&privk).unwrap();
         StacksMicroblock {
-            header: header,
+            header,
             txs: txs_mblock,
         }
     }

@@ -204,9 +204,7 @@ fn test_relayer_stats_add_relyed_messages() {
         for (_, hash) in relay_stats.recent_messages.get(&nk).unwrap().iter() {
             found = found || (*hash == digest);
         }
-        if !found {
-            assert!(false);
-        }
+        assert!(found)
     }
 
     // never overflow number of neighbors tracked
@@ -370,7 +368,7 @@ fn test_relay_inbound_peer_rankings() {
 
     // total dups == 7
     let dist = relay_stats.get_inbound_relay_rankings(
-        &vec![nk_1.clone(), nk_2.clone(), nk_3.clone()],
+        &[nk_1.clone(), nk_2.clone(), nk_3.clone()],
         &all_transactions[0],
         0,
     );
@@ -380,7 +378,7 @@ fn test_relay_inbound_peer_rankings() {
 
     // high warmup period
     let dist = relay_stats.get_inbound_relay_rankings(
-        &vec![nk_1.clone(), nk_2.clone(), nk_3.clone()],
+        &[nk_1.clone(), nk_2.clone(), nk_3.clone()],
         &all_transactions[0],
         100,
     );
@@ -487,23 +485,21 @@ fn test_relay_outbound_peer_rankings() {
         0,
         4032,
         UrlString::try_from("http://foo.com").unwrap(),
-        &vec![asn1, asn2],
-        &vec![n1.clone(), n2.clone(), n3.clone()],
+        &[asn1, asn2],
+        &[n1.clone(), n2.clone(), n3.clone()],
     )
     .unwrap();
 
-    let asn_count = RelayerStats::count_ASNs(
-        peerdb.conn(),
-        &vec![nk_1.clone(), nk_2.clone(), nk_3.clone()],
-    )
-    .unwrap();
+    let asn_count =
+        RelayerStats::count_ASNs(peerdb.conn(), &[nk_1.clone(), nk_2.clone(), nk_3.clone()])
+            .unwrap();
     assert_eq!(asn_count.len(), 3);
     assert_eq!(*asn_count.get(&nk_1).unwrap(), 1);
     assert_eq!(*asn_count.get(&nk_2).unwrap(), 2);
     assert_eq!(*asn_count.get(&nk_3).unwrap(), 2);
 
     let ranking = relay_stats
-        .get_outbound_relay_rankings(&peerdb, &vec![nk_1.clone(), nk_2.clone(), nk_3.clone()])
+        .get_outbound_relay_rankings(&peerdb, &[nk_1.clone(), nk_2.clone(), nk_3.clone()])
         .unwrap();
     assert_eq!(ranking.len(), 3);
     assert_eq!(*ranking.get(&nk_1).unwrap(), 5 - 1 + 1);
@@ -511,7 +507,7 @@ fn test_relay_outbound_peer_rankings() {
     assert_eq!(*ranking.get(&nk_3).unwrap(), 5 - 2 + 1);
 
     let ranking = relay_stats
-        .get_outbound_relay_rankings(&peerdb, &vec![nk_2.clone(), nk_3.clone()])
+        .get_outbound_relay_rankings(&peerdb, &[nk_2.clone(), nk_3.clone()])
         .unwrap();
     assert_eq!(ranking.len(), 2);
     assert_eq!(*ranking.get(&nk_2).unwrap(), 4 - 2 + 1);
@@ -791,8 +787,7 @@ fn push_message(
                 &peer.to_neighbor().addr,
                 &e
             );
-            assert!(false);
-            unreachable!();
+            panic!();
         }
     }
 }
@@ -819,7 +814,7 @@ fn http_rpc(peer_http: u16, request: StacksHttpRequest) -> Result<StacksHttpResp
     let mut resp = vec![];
     match sock.read_to_end(&mut resp) {
         Ok(_) => {
-            if resp.len() == 0 {
+            if resp.is_empty() {
                 test_debug!("Client did not receive any data");
                 return Err(net_error::PermanentlyDrained);
             }
@@ -934,7 +929,7 @@ fn push_microblocks(
     );
     let msg = StacksMessageType::Microblocks(MicroblocksData {
         index_anchor_block: StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash),
-        microblocks: microblocks,
+        microblocks,
     });
     push_message(peer, dest, relay_hints, msg)
 }
@@ -955,7 +950,7 @@ fn broadcast_microblocks(
     );
     let msg = StacksMessageType::Microblocks(MicroblocksData {
         index_anchor_block: StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash),
-        microblocks: microblocks,
+        microblocks,
     });
     broadcast_message(peer, relay_hints, msg)
 }
@@ -1200,16 +1195,16 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
                     let original_block_data = original_blocks_and_microblocks.borrow();
                     let mut next_idx = idx.borrow_mut();
                     let data_to_push = {
-                        if block_data.len() > 0 {
-                            let (consensus_hash, block, microblocks) =
-                                block_data[*next_idx].clone();
-                            Some((consensus_hash, block, microblocks))
-                        } else {
+                        if block_data.is_empty() {
                             // start over (can happen if a message gets
                             // dropped due to a timeout)
                             test_debug!("Reset block transmission (possible timeout)");
                             *block_data = (*original_block_data).clone();
                             *next_idx = thread_rng().gen::<usize>() % block_data.len();
+                            let (consensus_hash, block, microblocks) =
+                                block_data[*next_idx].clone();
+                            Some((consensus_hash, block, microblocks))
+                        } else {
                             let (consensus_hash, block, microblocks) =
                                 block_data[*next_idx].clone();
                             Some((consensus_hash, block, microblocks))
@@ -1259,7 +1254,7 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
 
                             if pushed_block && pushed_microblock {
                                 block_data.remove(*next_idx);
-                                if block_data.len() > 0 {
+                                if !block_data.is_empty() {
                                     *next_idx = thread_rng().gen::<usize>() % block_data.len();
                                 }
                                 *sent_blocks = false;

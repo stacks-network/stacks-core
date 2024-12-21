@@ -34,10 +34,12 @@ use crate::util_lib::db::Error as db_error;
 pub mod address;
 pub mod bits;
 pub mod blocks;
+#[allow(clippy::result_large_err)]
 pub mod indexer;
 pub mod keys;
 pub mod messages;
 pub mod network;
+#[allow(clippy::result_large_err)]
 pub mod spv;
 
 pub type PeerMessage = stacks_common::deps_common::bitcoin::network::message::NetworkMessage;
@@ -239,8 +241,8 @@ impl BitcoinBlock {
             block_height: height,
             block_hash: hash.clone(),
             parent_block_hash: parent.clone(),
-            txs: txs,
-            timestamp: timestamp,
+            txs,
+            timestamp,
         }
     }
 }

@@ -1023,7 +1023,7 @@ check if the associated microblocks can be downloaded
             }
             i += 1;
             let line = line.unwrap().trim().to_string();
-            if line.len() == 0 {
+            if line.is_empty() {
                 continue;
             }
             let vals: Vec<_> = line.split(" => ").map(|x| x.trim()).collect();
@@ -1585,7 +1585,7 @@ check if the associated microblocks can be downloaded
                         null_event_dispatcher,
                     )
                     .unwrap();
-                if receipts.len() == 0 {
+                if receipts.is_empty() {
                     break;
                 }
             }

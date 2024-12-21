@@ -475,9 +475,7 @@ where
 
         let mut tx_signer = StacksTransactionSigner::new(&stx_transfer);
         tx_signer.sign_origin(&private_key).unwrap();
-        let stx_transfer_signed = tx_signer.get_tx().unwrap();
-
-        stx_transfer_signed
+        tx_signer.get_tx().unwrap()
     };
 
     let mut boot_tenures = vec![];
@@ -912,7 +910,7 @@ fn test_nakamoto_inv_sync_state_machine() {
             .map(|e_id| *e_id)
             .collect();
 
-        if event_ids.len() > 0 && other_event_ids.len() > 0 {
+        if !event_ids.is_empty() && !other_event_ids.is_empty() {
             break;
         }
     }
@@ -938,7 +936,7 @@ fn test_nakamoto_inv_sync_state_machine() {
             loop {
                 let _ = other_peer.step_with_ibd(false);
                 let ev_ids: Vec<_> = other_peer.network.iter_peer_event_ids().collect();
-                if ev_ids.len() == 0 {
+                if ev_ids.is_empty() {
                     // disconnected
                     panic!("Disconnected");
                 }
@@ -1043,7 +1041,7 @@ fn test_nakamoto_inv_sync_across_epoch_change() {
             .map(|e_id| *e_id)
             .collect();
 
-        if event_ids.len() > 0 && other_event_ids.len() > 0 {
+        if !event_ids.is_empty() && !other_event_ids.is_empty() {
             break;
         }
     }

@@ -449,15 +449,12 @@ fn test_http_parse_host_header_value() {
             (Some(ref ph), Some(ref expected_ph)) => assert_eq!(*ph, *expected_ph),
             (None, None) => {}
             (Some(ph), None) => {
-                eprintln!(
-                    "Parsed {} successfully to {:?}, but expected error",
-                    host, ph
-                );
-                assert!(false);
+                eprintln!("Parsed {host} successfully to {ph:?}, but expected error");
+                panic!();
             }
             (None, Some(expected_ph)) => {
-                eprintln!("Failed to parse {} successfully", host);
-                assert!(false);
+                eprintln!("Failed to parse {host} successfully");
+                panic!();
             }
         }
     }
@@ -566,7 +563,7 @@ fn test_http_request_version_keep_alive() {
 
     // (have 'connection' header?, have 'keep-alive' value?)
     let requests_connection_expected =
-        vec![(true, true), (false, false), (false, false), (true, false)];
+        [(true, true), (false, false), (false, false), (true, false)];
 
     for (r, (has_connection, is_keep_alive)) in
         requests.iter().zip(requests_connection_expected.iter())
@@ -594,7 +591,7 @@ fn test_http_request_version_keep_alive() {
 #[test]
 fn test_http_response_version_keep_alive() {
     // (version, explicit keep-alive?)
-    let responses_args = vec![
+    let responses_args = [
         (HttpVersion::Http10, true),
         (HttpVersion::Http10, false),
         (HttpVersion::Http11, true),

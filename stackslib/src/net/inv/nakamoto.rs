@@ -828,7 +828,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
             return None;
         };
         Some(StacksMessageType::GetNakamotoInv(GetNakamotoInvData {
-            consensus_hash: ch.clone(),
+            consensus_hash: *ch,
         }))
     }
 

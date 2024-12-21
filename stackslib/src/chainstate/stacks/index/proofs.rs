@@ -579,7 +579,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
             if idx == 0 {
                 panic!("ancestor_height = {}, current_height = {}, but ancestor hash `{}` not found in: [{}]",
                        ancestor_height, current_height, ancestor_root_hash,
-                       ancestor_hashes.iter().map(|x| format!("{}", x)).collect::<Vec<_>>().join(", "))
+                       ancestor_hashes.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", "))
             }
             idx -= 1;
 
@@ -610,7 +610,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
 
             // need the target node's root trie ptr, unless this is the first proof (in which case
             // it's a junction proof)
-            if proof.len() > 0 {
+            if !proof.is_empty() {
                 let root_ptr = storage.root_trieptr();
                 let (root_node, _) = storage.read_nodetype(&root_ptr)?;
 
@@ -706,7 +706,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                     return None;
                 }
 
-                if hashes.len() == 0 {
+                if hashes.is_empty() {
                     // special case -- if this shunt proof has no hashes (i.e. this is a leaf from the first
                     // block), then we can safely skip this step
                     trace!(
@@ -839,7 +839,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
     ) -> Result<Vec<TrieMerkleProofType<T>>, Error> {
         trace!("make_segment_proof: ptrs = {:?}", &ptrs);
 
-        assert!(ptrs.len() > 0);
+        assert!(!ptrs.is_empty());
         assert_eq!(ptrs[0], storage.root_trieptr());
         for i in 1..ptrs.len() {
             assert!(!is_backptr(ptrs[i].id()));
@@ -896,14 +896,12 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         for child_ptr in node.ptrs() {
             if child_ptr.id != TrieNodeID::Empty as u8 && child_ptr.chr == chr {
                 all_hashes.push(hash.clone());
+            } else if ih >= hashes.len() {
+                trace!("verify_get_hash: {} >= {}", ih, hashes.len());
+                return None;
             } else {
-                if ih >= hashes.len() {
-                    trace!("verify_get_hash: {} >= {}", ih, hashes.len());
-                    return None;
-                } else {
-                    all_hashes.push(hashes[ih].clone());
-                    ih += 1;
-                }
+                all_hashes.push(hashes[ih].clone());
+                ih += 1;
             }
         }
         if all_hashes.len() != count {
@@ -1004,7 +1002,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
     /// * segment proof 0 must end in a leaf
     /// * all segment proofs must end in a Node256 (a root)
     fn is_proof_well_formed(proof: &Vec<TrieMerkleProofType<T>>, expected_path: &TrieHash) -> bool {
-        if proof.len() == 0 {
+        if proof.is_empty() {
             trace!("Proof is empty");
             return false;
         }
@@ -1490,34 +1488,28 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
             }
 
             if cursor.ptr().id() == TrieNodeID::Leaf as u8 {
-                match reached_node {
-                    TrieNodeType::Leaf(ref data) => {
-                        if data.data != *expected_value {
-                            trace!(
-                                "Did not find leaf {:?} at {:?} (but got {:?})",
-                                expected_value,
-                                path,
-                                data
-                            );
+                if let TrieNodeType::Leaf(data) = &reached_node {
+                    if data.data != *expected_value {
+                        trace!(
+                            "Did not find leaf {expected_value:?} at {path:?} (but got {data:?})"
+                        );
 
-                            // if we're testing, then permit the prover to return an invalid proof
-                            // if the test requests it
-                            #[cfg(test)]
+                        // if we're testing, then permit the prover to return an invalid proof
+                        // if the test requests it
+                        #[cfg(test)]
+                        {
+                            use std::env;
+                            if env::var("BLOCKSTACK_TEST_PROOF_ALLOW_INVALID")
+                                == Ok("1".to_string())
                             {
-                                use std::env;
-                                if env::var("BLOCKSTACK_TEST_PROOF_ALLOW_INVALID")
-                                    == Ok("1".to_string())
-                                {
-                                    break;
-                                }
+                                break;
                             }
-                            return Err(Error::NotFoundError);
                         }
-                    }
-                    _ => {
-                        trace!("Did not find leaf at {:?}", path);
                         return Err(Error::NotFoundError);
                     }
+                } else {
+                    trace!("Did not find leaf at {:?}", path);
+                    return Err(Error::NotFoundError);
                 }
                 break;
             }

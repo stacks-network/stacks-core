@@ -99,7 +99,7 @@ fn test_process_block_ops() {
             &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap(),
         )
         .unwrap(),
-        memo: vec![01, 02, 03, 04, 05],
+        memo: vec![0o1, 0o2, 0o3, 0o4, 0o5],
 
         txid: Txid::from_bytes(
             &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap(),
@@ -107,7 +107,7 @@ fn test_process_block_ops() {
         .unwrap(),
         vtxindex: 456,
         block_height: 123,
-        burn_header_hash: block_123_hash.clone(),
+        burn_header_hash: block_123_hash,
     };
 
     let leader_key_2 = LeaderKeyRegisterOp {
@@ -119,7 +119,7 @@ fn test_process_block_ops() {
             &hex_bytes("bb519494643f79f1dea0350e6fb9a1da88dfdb6137117fc2523824a8aa44fe1c").unwrap(),
         )
         .unwrap(),
-        memo: vec![01, 02, 03, 04, 05],
+        memo: vec![0o1, 0o2, 0o3, 0o4, 0o5],
 
         txid: Txid::from_bytes(
             &hex_bytes("9410df84e2b440055c33acb075a0687752df63fe8fe84aeec61abe469f0448c7").unwrap(),
@@ -127,7 +127,7 @@ fn test_process_block_ops() {
         .unwrap(),
         vtxindex: 457,
         block_height: 122,
-        burn_header_hash: block_122_hash.clone(),
+        burn_header_hash: block_122_hash,
     };
 
     let leader_key_3 = LeaderKeyRegisterOp {
@@ -139,7 +139,7 @@ fn test_process_block_ops() {
             &hex_bytes("de8af7037e522e65d2fe2d63fb1b764bfea829df78b84444338379df13144a02").unwrap(),
         )
         .unwrap(),
-        memo: vec![01, 02, 03, 04, 05],
+        memo: vec![0o1, 0o2, 0o3, 0o4, 0o5],
 
         txid: Txid::from_bytes(
             &hex_bytes("eb54704f71d4a2d1128d60ffccced547054b52250ada6f3e7356165714f44d4c").unwrap(),
@@ -147,7 +147,7 @@ fn test_process_block_ops() {
         .unwrap(),
         vtxindex: 10,
         block_height: 121,
-        burn_header_hash: block_121_hash.clone(),
+        burn_header_hash: block_121_hash,
     };
 
     let block_commit_1 = LeaderBlockCommitOp {
@@ -186,7 +186,7 @@ fn test_process_block_ops() {
         vtxindex: 444,
         block_height: 124,
         burn_parent_modulus: (123 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-        burn_header_hash: block_124_hash_initial.clone(),
+        burn_header_hash: block_124_hash_initial,
     };
 
     let block_commit_2 = LeaderBlockCommitOp {
@@ -225,7 +225,7 @@ fn test_process_block_ops() {
         vtxindex: 445,
         block_height: 124,
         burn_parent_modulus: (123 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-        burn_header_hash: block_124_hash_initial.clone(),
+        burn_header_hash: block_124_hash_initial,
     };
 
     let block_commit_3 = LeaderBlockCommitOp {
@@ -264,26 +264,26 @@ fn test_process_block_ops() {
         vtxindex: 446,
         block_height: 124,
         burn_parent_modulus: (123 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-        burn_header_hash: block_124_hash_initial.clone(),
+        burn_header_hash: block_124_hash_initial,
     };
 
     let block_ops_121: Vec<BlockstackOperationType> =
         vec![BlockstackOperationType::LeaderKeyRegister(
             leader_key_3.clone(),
         )];
-    let block_opshash_121 = OpsHash::from_txids(&vec![leader_key_3.txid.clone()]);
+    let block_opshash_121 = OpsHash::from_txids(&[leader_key_3.txid]);
     let block_prev_chs_121 =
         vec![ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap()];
     let mut block_121_snapshot = BlockSnapshot {
         accumulated_coinbase_ustx: 0,
         pox_valid: true,
         block_height: 121,
-        burn_header_hash: block_121_hash.clone(),
-        sortition_id: SortitionId(block_121_hash.0.clone()),
-        parent_sortition_id: SortitionId(block_121_hash.0.clone()),
+        burn_header_hash: block_121_hash,
+        sortition_id: SortitionId(block_121_hash.0),
+        parent_sortition_id: SortitionId(block_121_hash.0),
         burn_header_timestamp: 121,
-        parent_burn_header_hash: first_burn_hash.clone(),
-        ops_hash: block_opshash_121.clone(),
+        parent_burn_header_hash: first_burn_hash,
+        ops_hash: block_opshash_121,
         consensus_hash: ConsensusHash::from_ops(
             &block_121_hash,
             &block_opshash_121,
@@ -316,21 +316,21 @@ fn test_process_block_ops() {
     let block_ops_122 = vec![BlockstackOperationType::LeaderKeyRegister(
         leader_key_2.clone(),
     )];
-    let block_opshash_122 = OpsHash::from_txids(&vec![leader_key_2.txid.clone()]);
+    let block_opshash_122 = OpsHash::from_txids(&[leader_key_2.txid]);
     let block_prev_chs_122 = vec![
-        block_121_snapshot.consensus_hash.clone(),
+        block_121_snapshot.consensus_hash,
         ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
     ];
     let mut block_122_snapshot = BlockSnapshot {
         accumulated_coinbase_ustx: 0,
         pox_valid: true,
         block_height: 122,
-        burn_header_hash: block_122_hash.clone(),
-        sortition_id: SortitionId(block_122_hash.0.clone()),
-        parent_sortition_id: block_121_snapshot.sortition_id.clone(),
+        burn_header_hash: block_122_hash,
+        sortition_id: SortitionId(block_122_hash.0),
+        parent_sortition_id: block_121_snapshot.sortition_id,
         burn_header_timestamp: 122,
-        parent_burn_header_hash: block_121_hash.clone(),
-        ops_hash: block_opshash_122.clone(),
+        parent_burn_header_hash: block_121_hash,
+        ops_hash: block_opshash_122,
         consensus_hash: ConsensusHash::from_ops(
             &block_122_hash,
             &block_opshash_122,
@@ -365,24 +365,24 @@ fn test_process_block_ops() {
     let block_ops_123 = vec![BlockstackOperationType::LeaderKeyRegister(
         leader_key_1.clone(),
     )];
-    let block_opshash_123 = OpsHash::from_txids(&vec![
+    let block_opshash_123 = OpsHash::from_txids(&[
         // notably, the user burns here _wont_ be included in the consensus hash
-        leader_key_1.txid.clone(),
+        leader_key_1.txid,
     ]);
     let block_prev_chs_123 = vec![
-        block_122_snapshot.consensus_hash.clone(),
-        block_121_snapshot.consensus_hash.clone(),
+        block_122_snapshot.consensus_hash,
+        block_121_snapshot.consensus_hash,
     ];
     let mut block_123_snapshot = BlockSnapshot {
         accumulated_coinbase_ustx: 0,
         pox_valid: true,
         block_height: 123,
-        burn_header_hash: block_123_hash.clone(),
-        sortition_id: SortitionId(block_123_hash.0.clone()),
-        parent_sortition_id: block_122_snapshot.sortition_id.clone(),
+        burn_header_hash: block_123_hash,
+        sortition_id: SortitionId(block_123_hash.0),
+        parent_sortition_id: block_122_snapshot.sortition_id,
         burn_header_timestamp: 123,
-        parent_burn_header_hash: block_122_hash.clone(),
-        ops_hash: block_opshash_123.clone(),
+        parent_burn_header_hash: block_122_hash,
+        ops_hash: block_opshash_123,
         consensus_hash: ConsensusHash::from_ops(
             &block_123_hash,
             &block_opshash_123,
@@ -417,7 +417,7 @@ fn test_process_block_ops() {
 
     // multiple possibilities for block 124 -- we'll reorg the chain each time back to 123 and
     // re-try block 124 to test them all.
-    let block_ops_124_possibilities = vec![
+    let block_ops_124_possibilities = [
         vec![BlockstackOperationType::LeaderBlockCommit(
             block_commit_1.clone(),
         )],
@@ -464,11 +464,8 @@ fn test_process_block_ops() {
         123,
     ));
 
-    let initial_snapshot = BlockSnapshot::initial(
-        first_block_height,
-        &first_burn_hash,
-        first_block_height as u64,
-    );
+    let initial_snapshot =
+        BlockSnapshot::initial(first_block_height, &first_burn_hash, first_block_height);
 
     // process up to 124
     {
@@ -490,8 +487,8 @@ fn test_process_block_ops() {
             .unwrap();
         tx.commit().unwrap();
 
-        block_121_snapshot.index_root = sn121.index_root.clone();
-        block_121_snapshot.parent_sortition_id = sn121.parent_sortition_id.clone();
+        block_121_snapshot.index_root = sn121.index_root;
+        block_121_snapshot.parent_sortition_id = sn121.parent_sortition_id;
         assert_eq!(sn121, block_121_snapshot);
     }
     {
@@ -513,8 +510,8 @@ fn test_process_block_ops() {
             .unwrap();
         tx.commit().unwrap();
 
-        block_122_snapshot.index_root = sn122.index_root.clone();
-        block_122_snapshot.parent_sortition_id = sn122.parent_sortition_id.clone();
+        block_122_snapshot.index_root = sn122.index_root;
+        block_122_snapshot.parent_sortition_id = sn122.parent_sortition_id;
         assert_eq!(sn122, block_122_snapshot);
     }
     {
@@ -535,19 +532,19 @@ fn test_process_block_ops() {
             .unwrap();
         tx.commit().unwrap();
 
-        block_123_snapshot.index_root = sn123.index_root.clone();
-        block_123_snapshot.parent_sortition_id = sn123.parent_sortition_id.clone();
+        block_123_snapshot.index_root = sn123.index_root;
+        block_123_snapshot.parent_sortition_id = sn123.parent_sortition_id;
         assert_eq!(sn123, block_123_snapshot);
     }
 
     for scenario_idx in 0..block_ops_124_possibilities.len() {
         let mut block_ops_124 = block_ops_124_possibilities[scenario_idx].clone();
-        let mut block_124_hash_bytes = block_124_hash_initial.as_bytes().clone();
+        let mut block_124_hash_bytes = *block_124_hash_initial.as_bytes();
         block_124_hash_bytes[0] = (scenario_idx + 1) as u8;
         let block_124_hash = BurnchainHeaderHash(block_124_hash_bytes);
 
         for op in block_ops_124.iter_mut() {
-            op.set_burn_header_hash(block_124_hash.clone());
+            op.set_burn_header_hash(block_124_hash);
         }
 
         // everything will be included
@@ -560,8 +557,8 @@ fn test_process_block_ops() {
                 .as_slice(),
         );
         let block_prev_chs_124 = vec![
-            block_123_snapshot.consensus_hash.clone(),
-            block_122_snapshot.consensus_hash.clone(),
+            block_123_snapshot.consensus_hash,
+            block_122_snapshot.consensus_hash,
             ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
         ];
 
@@ -574,18 +571,18 @@ fn test_process_block_ops() {
             acc
         });
 
-        let next_sortition = block_ops_124.len() > 0 && burn_total > 0;
+        let next_sortition = !block_ops_124.is_empty() && burn_total > 0;
 
         let mut block_124_snapshot = BlockSnapshot {
             accumulated_coinbase_ustx: 400_000_000,
             pox_valid: true,
             block_height: 124,
-            burn_header_hash: block_124_hash.clone(),
-            sortition_id: SortitionId(block_124_hash.0.clone()),
-            parent_sortition_id: block_123_snapshot.sortition_id.clone(),
+            burn_header_hash: block_124_hash,
+            sortition_id: SortitionId(block_124_hash.0),
+            parent_sortition_id: block_123_snapshot.sortition_id,
             burn_header_timestamp: 124,
-            parent_burn_header_hash: block_123_snapshot.burn_header_hash.clone(),
-            ops_hash: block_opshash_124.clone(),
+            parent_burn_header_hash: block_123_snapshot.burn_header_hash,
+            ops_hash: block_opshash_124,
             consensus_hash: ConsensusHash::from_ops(
                 &block_124_hash,
                 &block_opshash_124,
@@ -600,8 +597,8 @@ fn test_process_block_ops() {
                 .mix_burn_header(&block_122_hash)
                 .mix_burn_header(&block_123_hash)
                 .mix_burn_header(&block_124_hash),
-            winning_block_txid: block_124_winners[scenario_idx].txid.clone(),
-            winning_stacks_block_hash: block_124_winners[scenario_idx].block_header_hash.clone(),
+            winning_block_txid: block_124_winners[scenario_idx].txid,
+            winning_stacks_block_hash: block_124_winners[scenario_idx].block_header_hash,
             index_root: TrieHash::from_empty_data(), // TDB
             num_sortitions: if next_sortition { 1 } else { 0 },
             stacks_block_accepted: false,
@@ -647,8 +644,8 @@ fn test_process_block_ops() {
                 .unwrap();
             tx.commit().unwrap();
 
-            block_124_snapshot.index_root = sn124.index_root.clone();
-            block_124_snapshot.parent_sortition_id = sn124.parent_sortition_id.clone();
+            block_124_snapshot.index_root = sn124.index_root;
+            block_124_snapshot.parent_sortition_id = sn124.parent_sortition_id;
             sn124
         };
 
@@ -658,9 +655,9 @@ fn test_process_block_ops() {
         // There should only be two -- the winning block at height 124, and the genesis
         // sentinel block hash.  This is because epochs 121, 122, and 123 don't have any block
         // commits.
-        let expected_winning_hashes = vec![
+        let expected_winning_hashes = [
             BlockHeaderHash([0u8; 32]),
-            block_124_winners[scenario_idx].block_header_hash.clone(),
+            block_124_winners[scenario_idx].block_header_hash,
         ];
 
         // TODO: pair up with stacks chain state?
@@ -669,7 +666,7 @@ fn test_process_block_ops() {
             let mut tx = db.tx_begin().unwrap();
             BurnDB::get_stacks_block_header_inventory(&mut tx, 124).unwrap()
                 .iter()
-                .map(|ref hinv| hinv.0.clone())
+                .map(|hinv| hinv.0.clone())
                 .collect()
         };
 
@@ -733,16 +730,13 @@ fn test_burn_snapshot_sequence() {
 
     // insert all operations
     let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
-    let mut prev_snapshot = BlockSnapshot::initial(
-        first_block_height,
-        &first_burn_hash,
-        first_block_height as u64,
-    );
+    let mut prev_snapshot =
+        BlockSnapshot::initial(first_block_height, &first_burn_hash, first_block_height);
     let mut all_stacks_block_hashes = vec![];
 
     for i in 0..32 {
         let mut block_ops = vec![];
-        let burn_block_hash = BurnchainHeaderHash::from_bytes(&vec![
+        let burn_block_hash = BurnchainHeaderHash::from_bytes(&[
             i + 1,
             i + 1,
             0,
@@ -777,8 +771,8 @@ fn test_burn_snapshot_sequence() {
             i + 1,
         ])
         .unwrap();
-        let parent_burn_block_hash = prev_snapshot.burn_header_hash.clone();
-        let parent_index_root = prev_snapshot.index_root.clone();
+        let parent_burn_block_hash = prev_snapshot.burn_header_hash;
+        let parent_index_root = prev_snapshot.index_root;
 
         // insert block commit paired to previous round's leader key, as well as a user burn
         if i > 0 {
@@ -786,12 +780,12 @@ fn test_burn_snapshot_sequence() {
                 sunset_burn: 0,
                 treatment: vec![],
                 commit_outs: vec![],
-                block_header_hash: BlockHeaderHash::from_bytes(&vec![
+                block_header_hash: BlockHeaderHash::from_bytes(&[
                     i, i, i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 0, 0,
                 ])
                 .unwrap(),
-                new_seed: VRFSeed::from_bytes(&vec![
+                new_seed: VRFSeed::from_bytes(&[
                     i, i, i, i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 0, 0,
                 ])
@@ -817,7 +811,7 @@ fn test_burn_snapshot_sequence() {
                     .unwrap()],
                 ),
 
-                txid: Txid::from_bytes(&vec![
+                txid: Txid::from_bytes(&[
                     i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 0, i,
                 ])
@@ -826,10 +820,10 @@ fn test_burn_snapshot_sequence() {
                 block_height: first_block_height + ((i + 1) as u64),
                 burn_parent_modulus: ((first_block_height + (i as u64))
                     % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-                burn_header_hash: burn_block_hash.clone(),
+                burn_header_hash: burn_block_hash,
             };
 
-            all_stacks_block_hashes.push(next_block_commit.block_header_hash.clone());
+            all_stacks_block_hashes.push(next_block_commit.block_header_hash);
             block_ops.push(BlockstackOperationType::LeaderBlockCommit(
                 next_block_commit,
             ));
@@ -843,21 +837,21 @@ fn test_burn_snapshot_sequence() {
         };
 
         let next_leader_key = LeaderKeyRegisterOp {
-            consensus_hash: ch.clone(),
+            consensus_hash: ch,
             public_key: VRFPublicKey::from_bytes(
                 &hex_bytes(&leader_public_keys[i as usize]).unwrap(),
             )
             .unwrap(),
             memo: vec![0, 0, 0, 0, i],
 
-            txid: Txid::from_bytes(&vec![
+            txid: Txid::from_bytes(&[
                 i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0,
             ])
             .unwrap(),
             vtxindex: (2 * i + 1) as u32,
             block_height: first_block_height + (i + 1) as u64,
-            burn_header_hash: burn_block_hash.clone(),
+            burn_header_hash: burn_block_hash,
         };
 
         block_ops.push(BlockstackOperationType::LeaderKeyRegister(next_leader_key));
@@ -897,7 +891,7 @@ fn test_burn_snapshot_sequence() {
             assert_eq!(snapshot.total_burn, expected_burn_total);
             assert_eq!(
                 snapshot.winning_block_txid,
-                Txid::from_bytes(&vec![
+                Txid::from_bytes(&[
                     i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 0, i
                 ])
@@ -905,7 +899,7 @@ fn test_burn_snapshot_sequence() {
             );
             assert_eq!(
                 snapshot.winning_stacks_block_hash,
-                BlockHeaderHash::from_bytes(&vec![
+                BlockHeaderHash::from_bytes(&[
                     i, i, i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 0, 0
                 ])

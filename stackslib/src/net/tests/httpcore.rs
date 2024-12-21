@@ -316,7 +316,7 @@ fn test_http_request_type_codec() {
             str::from_utf8(&expected_bytes).unwrap()
         );
 
-        if expected_http_body.len() > 0 {
+        if !expected_http_body.is_empty() {
             expected_http_preamble.set_content_type(HttpContentType::Bytes);
             expected_http_preamble.set_content_length(expected_http_body.len() as u32)
         }
@@ -738,18 +738,13 @@ fn test_http_response_type_codec() {
             Ok((p, o)) => (p, o),
             Err(e) => {
                 test_debug!("first 4096 bytes:\n{:?}\n", &bytes[0..].to_vec());
-                test_debug!("error: {:?}", &e);
-                assert!(false);
-                unreachable!();
+                test_debug!("error: {e:?}");
+                panic!();
             }
         };
 
         test_debug!(
-            "{} {}: read preamble of {} bytes\n{:?}\n",
-            request_verb,
-            request_path,
-            offset,
-            preamble
+            "{request_verb} {request_path}: read preamble of {offset} bytes\n{preamble:?}\n"
         );
 
         let (mut message, _total_len) = if expected_http_preamble.is_chunked() {
@@ -809,14 +804,14 @@ fn test_http_response_type_codec_err() {
         ("GET", "/v2/neighbors"),
         ("GET", "/v2/neighbors"),
     ];
-    let bad_request_payloads = vec![
+    let bad_request_payloads = [
         "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 2\r\n\r\nab",
         "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 4\r\n\r\n\"ab\"",
         "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 1\r\n\r\n{",
         "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 1\r\n\r\na",
         "HTTP/1.1 400 Bad Request\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/octet-stream\r\nContent-length: 2\r\n\r\n{}",
     ];
-    let expected_bad_request_payload_errors = vec![
+    let expected_bad_request_payload_errors = [
         "Invalid content-type",
         "bad length 2 for hex string",
         "Not enough bytes",
@@ -883,8 +878,8 @@ fn test_http_duplicate_concurrent_streamed_response_fails() {
             &mut &valid_neighbors_response.as_bytes()[offset..],
         )
         .unwrap();
-    match msg {
-        (Some((StacksHttpMessage::Response(response), _)), _) => assert_eq!(
+    if let (Some((StacksHttpMessage::Response(response), _)), _) = msg {
+        assert_eq!(
             response.decode_rpc_neighbors().unwrap(),
             RPCNeighborsInfo {
                 bootstrap: vec![],
@@ -892,11 +887,10 @@ fn test_http_duplicate_concurrent_streamed_response_fails() {
                 inbound: vec![],
                 outbound: vec![]
             }
-        ),
-        _ => {
-            error!("Got {:?}", &msg);
-            assert!(false);
-        }
+        );
+    } else {
+        error!("Got {msg:?}");
+        panic!();
     }
     assert_eq!(http.num_pending(), 0);
 
@@ -1255,7 +1249,7 @@ fn test_send_request_success() {
         json_body(host, port, "/", b"{}"),
         timeout_duration,
     );
-    debug!("Got result: {:?}", result);
+    debug!("Got result: {result:?}");
 
     // Ensure the server only closes after the client has finished processing
     if let Ok(response) = &result {
@@ -1270,7 +1264,6 @@ fn test_send_request_success() {
     // Assert that the connection was successful
     assert!(
         result.is_ok(),
-        "Expected a successful request, but got {:?}",
-        result
+        "Expected a successful request, but got {result:?}"
     );
 }

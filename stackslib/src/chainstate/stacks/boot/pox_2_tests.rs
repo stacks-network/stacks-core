@@ -282,9 +282,9 @@ pub fn check_pox_print_event(
                 Some(v) => {
                     if v != &inner_val {
                         wrong.push((
-                            format!("{}", &inner_key),
-                            format!("{}", v),
-                            format!("{}", &inner_val),
+                            format!("{inner_key}"),
+                            format!("{v}"),
+                            format!("{inner_val}"),
                         ));
                     }
                 }
@@ -294,13 +294,12 @@ pub fn check_pox_print_event(
             }
             // assert_eq!(inner_tuple.data_map.get(inner_key), Some(&inner_val));
         }
-        if missing.len() > 0 || wrong.len() > 0 {
-            eprintln!("missing:\n{:#?}", &missing);
-            eprintln!("wrong:\n{:#?}", &wrong);
-            assert!(false);
-        }
+        assert!(
+            missing.is_empty() && wrong.is_empty(),
+            "missing:\n{missing:#?}\nwrong:\n{wrong:#?}"
+        );
     } else {
-        error!("unexpected event type: {:?}", event);
+        error!("unexpected event type: {event:?}");
         panic!("Unexpected transaction event type.")
     }
 }
@@ -338,9 +337,8 @@ pub fn check_stacking_state_invariants(
     .burn_header_height;
 
     let stacking_state_entry = get_stacking_state_pox(peer, tip, stacker, active_pox_contract)
-        .expect(&format!(
-            "Invariant violated: reward-cycle entry has stacker field set, but not present in stacker-state (pox_contract = {})",
-            active_pox_contract,
+        .unwrap_or_else(|| panic!(
+            "Invariant violated: reward-cycle entry has stacker field set, but not present in stacker-state (pox_contract = {active_pox_contract})"
         ))
         .expect_tuple().unwrap();
     let first_cycle = stacking_state_entry
@@ -382,7 +380,7 @@ pub fn check_stacking_state_invariants(
 
     let mut cycle_indexes = HashMap::new();
 
-    if reward_indexes.len() > 0 || expect_indexes {
+    if !reward_indexes.is_empty() || expect_indexes {
         assert_eq!(
             reward_indexes.len() as u128,
             lock_period,

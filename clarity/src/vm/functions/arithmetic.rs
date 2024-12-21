@@ -257,7 +257,7 @@ macro_rules! make_arithmetic_ops {
                 let (first, rest) = args
                     .split_first()
                     .ok_or(CheckErrors::IncorrectArgumentCount(1, 0))?;
-                if rest.len() == 0 {
+                if rest.is_empty() {
                     // return negation
                     return Self::make_value(
                         first

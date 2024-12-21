@@ -132,7 +132,7 @@ impl BlockSnapshot {
         VRF_seed: &VRFSeed,
         sortition_hash: &SortitionHash,
     ) -> Option<usize> {
-        if dist.len() == 0 {
+        if dist.is_empty() {
             // no winners
             return None;
         }
@@ -254,12 +254,12 @@ impl BlockSnapshot {
         debug!("SORTITION({}): NO BLOCK CHOSEN", block_height);
 
         Ok(BlockSnapshot {
-            block_height: block_height,
+            block_height,
             burn_header_hash: block_hash,
             burn_header_timestamp: block_header.timestamp,
             parent_burn_header_hash: parent_block_hash,
             consensus_hash: ch,
-            ops_hash: ops_hash,
+            ops_hash,
             total_burn: burn_total,
             sortition: false,
             sortition_hash: sortition_hash.clone(),
@@ -592,7 +592,7 @@ impl BlockSnapshot {
             )
         };
 
-        if state_transition.burn_dist.len() == 0 {
+        if state_transition.burn_dist.is_empty() {
             // no burns happened
             debug!(
                 "No burns happened in block";

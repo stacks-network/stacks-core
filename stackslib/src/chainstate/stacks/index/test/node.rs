@@ -44,7 +44,7 @@ fn trieptr_to_bytes() {
 
 #[test]
 fn trie_node4_to_bytes() {
-    let mut node4 = TrieNode4::new(&vec![
+    let mut node4 = TrieNode4::new(&[
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
     ]);
     for i in 0..3 {
@@ -131,7 +131,7 @@ fn trie_node4_to_bytes() {
 
 #[test]
 fn trie_node4_to_consensus_bytes() {
-    let mut node4 = TrieNode4::new(&vec![
+    let mut node4 = TrieNode4::new(&[
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
     ]);
     for i in 0..3 {
@@ -312,7 +312,7 @@ fn trie_node4_to_consensus_bytes() {
 
 #[test]
 fn trie_node16_to_bytes() {
-    let mut node16 = TrieNode16::new(&vec![
+    let mut node16 = TrieNode16::new(&[
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
     ]);
     for i in 0..15 {
@@ -519,7 +519,7 @@ fn trie_node16_to_bytes() {
 
 #[test]
 fn trie_node16_to_consensus_bytes() {
-    let mut node16 = TrieNode16::new(&vec![
+    let mut node16 = TrieNode16::new(&[
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
     ]);
     for i in 0..15 {
@@ -1106,7 +1106,7 @@ fn trie_node16_to_consensus_bytes() {
 
 #[test]
 fn trie_node48_to_bytes() {
-    let mut node48 = TrieNode48::new(&vec![
+    let mut node48 = TrieNode48::new(&[
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
     ]);
     for i in 0..47 {
@@ -1892,7 +1892,7 @@ fn trie_node48_to_bytes() {
 
 #[test]
 fn trie_node48_to_consensus_bytes() {
-    let mut node48 = TrieNode48::new(&vec![
+    let mut node48 = TrieNode48::new(&[
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
     ]);
     for i in 0..47 {
@@ -3568,7 +3568,7 @@ fn trie_node48_to_consensus_bytes() {
 
 #[test]
 fn trie_node256_to_bytes() {
-    let mut node256 = TrieNode256::new(&vec![
+    let mut node256 = TrieNode256::new(&[
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
     ]);
     for i in 0..255 {
@@ -3632,7 +3632,7 @@ fn trie_node256_to_bytes() {
 
 #[test]
 fn trie_node256_to_consensus_bytes() {
-    let mut node256 = TrieNode256::new(&vec![
+    let mut node256 = TrieNode256::new(&[
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
     ]);
     for i in 0..255 {
@@ -3653,7 +3653,7 @@ fn trie_node256_to_consensus_bytes() {
     for i in 0..255 {
         node256_bytes.append(&mut vec![
             TrieNodeID::Node256 as u8,
-            i as u8,
+            i,
             0,
             0,
             0,
@@ -3741,7 +3741,7 @@ fn trie_node256_to_consensus_bytes() {
 #[test]
 fn trie_leaf_to_bytes() {
     let leaf = TrieLeaf::new(
-        &vec![
+        &[
             0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
         ],
         &vec![
@@ -3826,7 +3826,7 @@ fn trie_leaf_to_bytes() {
 
 #[test]
 fn read_write_node4() {
-    let mut node4 = TrieNode4::new(&vec![
+    let mut node4 = TrieNode4::new(&[
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
     ]);
     for i in 0..3 {
@@ -3855,7 +3855,7 @@ fn read_write_node4() {
 
 #[test]
 fn read_write_node16() {
-    let mut node16 = TrieNode16::new(&vec![
+    let mut node16 = TrieNode16::new(&[
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
     ]);
     for i in 0..16 {
@@ -3885,7 +3885,7 @@ fn read_write_node16() {
 
 #[test]
 fn read_write_node48() {
-    let mut node48 = TrieNode48::new(&vec![
+    let mut node48 = TrieNode48::new(&[
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
     ]);
     for i in 0..48 {
@@ -3915,7 +3915,7 @@ fn read_write_node48() {
 
 #[test]
 fn read_write_node256() {
-    let mut node256 = TrieNode256::new(&vec![
+    let mut node256 = TrieNode256::new(&[
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
     ]);
     for i in 0..256 {
@@ -3947,7 +3947,7 @@ fn read_write_node256() {
 #[test]
 fn read_write_leaf() {
     let leaf = TrieLeaf::new(
-        &vec![
+        &[
             0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
         ],
         &vec![
@@ -3982,7 +3982,7 @@ fn read_write_node4_hashes() {
         .extend_to_block(&BlockHeaderHash([0u8; 32]))
         .unwrap();
 
-    let mut node4 = TrieNode4::new(&vec![
+    let mut node4 = TrieNode4::new(&[
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
     ]);
     let hash = TrieHash::from_data(&[0u8; 32]);
@@ -3990,10 +3990,10 @@ fn read_write_node4_hashes() {
     let mut child_hashes = vec![];
     for i in 0..3 {
         let child = TrieLeaf::new(
-            &vec![
-                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, i as u8,
+            &[
+                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, i,
             ],
-            &vec![i as u8; 40],
+            &vec![i; 40],
         );
         let child_hash = get_leaf_hash(&child);
 
@@ -4001,7 +4001,7 @@ fn read_write_node4_hashes() {
 
         let ptr = trie_io.last_ptr().unwrap();
         trie_io.write_node(ptr, &child, child_hash).unwrap();
-        assert!(node4.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i as u8, ptr)));
+        assert!(node4.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i, ptr)));
     }
 
     // no final child
@@ -4026,7 +4026,7 @@ fn read_write_node16_hashes() {
         .extend_to_block(&BlockHeaderHash([0u8; 32]))
         .unwrap();
 
-    let mut node16 = TrieNode16::new(&vec![
+    let mut node16 = TrieNode16::new(&[
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
     ]);
     let hash = TrieHash::from_data(&[0u8; 32]);
@@ -4034,10 +4034,10 @@ fn read_write_node16_hashes() {
     let mut child_hashes = vec![];
     for i in 0..15 {
         let child = TrieLeaf::new(
-            &vec![
-                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, i as u8,
+            &[
+                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, i,
             ],
-            &vec![i as u8; 40],
+            &vec![i; 40],
         );
         let child_hash = get_leaf_hash(&child);
 
@@ -4045,7 +4045,7 @@ fn read_write_node16_hashes() {
 
         let ptr = trie_io.last_ptr().unwrap();
         trie_io.write_node(ptr, &child, child_hash).unwrap();
-        assert!(node16.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i as u8, ptr)));
+        assert!(node16.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i, ptr)));
     }
 
     // no final child
@@ -4072,7 +4072,7 @@ fn read_write_node48_hashes() {
         .extend_to_block(&BlockHeaderHash([0u8; 32]))
         .unwrap();
 
-    let mut node48 = TrieNode48::new(&vec![
+    let mut node48 = TrieNode48::new(&[
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
     ]);
     let hash = TrieHash::from_data(&[0u8; 32]);
@@ -4080,10 +4080,10 @@ fn read_write_node48_hashes() {
     let mut child_hashes = vec![];
     for i in 0..47 {
         let child = TrieLeaf::new(
-            &vec![
-                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, i as u8,
+            &[
+                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, i,
             ],
-            &vec![i as u8; 40],
+            &vec![i; 40],
         );
         let child_hash = get_leaf_hash(&child);
 
@@ -4091,7 +4091,7 @@ fn read_write_node48_hashes() {
 
         let ptr = trie_io.last_ptr().unwrap();
         trie_io.write_node(ptr, &child, child_hash).unwrap();
-        assert!(node48.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i as u8, ptr)));
+        assert!(node48.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i, ptr)));
     }
 
     // no final child
@@ -4118,7 +4118,7 @@ fn read_write_node256_hashes() {
         .extend_to_block(&BlockHeaderHash([0u8; 32]))
         .unwrap();
 
-    let mut node256 = TrieNode256::new(&vec![
+    let mut node256 = TrieNode256::new(&[
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
     ]);
     let hash = TrieHash::from_data(&[0u8; 32]);
@@ -4126,10 +4126,10 @@ fn read_write_node256_hashes() {
     let mut child_hashes = vec![];
     for i in 0..255 {
         let child = TrieLeaf::new(
-            &vec![
-                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, i as u8,
+            &[
+                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, i,
             ],
-            &vec![i as u8; 40],
+            &vec![i; 40],
         );
         let child_hash = get_leaf_hash(&child);
 
@@ -4137,7 +4137,7 @@ fn read_write_node256_hashes() {
 
         let ptr = trie_io.last_ptr().unwrap();
         trie_io.write_node(ptr, &child, child_hash).unwrap();
-        assert!(node256.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i as u8, ptr)));
+        assert!(node256.insert(&TriePtr::new(TrieNodeID::Leaf as u8, i, ptr)));
     }
 
     // no final child
@@ -4253,7 +4253,7 @@ fn trie_cursor_walk_full() {
     assert_eq!(ptr, node_ptrs[31]);
     assert_eq!(
         node,
-        TrieNodeType::Leaf(TrieLeaf::new(&vec![], &[31u8; 40].to_vec()))
+        TrieNodeType::Leaf(TrieLeaf::new(&[], &[31u8; 40].to_vec()))
     );
     assert_eq!(hash, hashes[31]);
 
@@ -4351,7 +4351,7 @@ fn trie_cursor_walk_1() {
     assert_eq!(ptr, node_ptrs[15]);
     assert_eq!(
         node,
-        TrieNodeType::Leaf(TrieLeaf::new(&vec![30], &[31u8; 40].to_vec()))
+        TrieNodeType::Leaf(TrieLeaf::new(&[30], &[31u8; 40].to_vec()))
     );
     assert_eq!(hash, hashes[15]);
 
@@ -4444,7 +4444,7 @@ fn trie_cursor_walk_2() {
     assert_eq!(ptr, node_ptrs[10]);
     assert_eq!(
         node,
-        TrieNodeType::Leaf(TrieLeaf::new(&vec![30], &[31u8; 40].to_vec()))
+        TrieNodeType::Leaf(TrieLeaf::new(&[30], &[31u8; 40].to_vec()))
     );
     assert_eq!(hash, hashes[10]);
 
@@ -4534,7 +4534,7 @@ fn trie_cursor_walk_3() {
     assert_eq!(ptr, node_ptrs[7]);
     assert_eq!(
         node,
-        TrieNodeType::Leaf(TrieLeaf::new(&vec![28, 29, 30], &[31u8; 40].to_vec()))
+        TrieNodeType::Leaf(TrieLeaf::new(&[28, 29, 30], &[31u8; 40].to_vec()))
     );
     assert_eq!(hash, hashes[7]);
 
@@ -4623,7 +4623,7 @@ fn trie_cursor_walk_4() {
     assert_eq!(ptr, node_ptrs[6]);
     assert_eq!(
         node,
-        TrieNodeType::Leaf(TrieLeaf::new(&vec![30], &[31u8; 40].to_vec()))
+        TrieNodeType::Leaf(TrieLeaf::new(&[30], &[31u8; 40].to_vec()))
     );
     assert_eq!(hash, hashes[6]);
 
@@ -4711,7 +4711,7 @@ fn trie_cursor_walk_5() {
     assert_eq!(ptr, node_ptrs[5]);
     assert_eq!(
         node,
-        TrieNodeType::Leaf(TrieLeaf::new(&vec![30], &[31u8; 40].to_vec()))
+        TrieNodeType::Leaf(TrieLeaf::new(&[30], &[31u8; 40].to_vec()))
     );
     assert_eq!(hash, hashes[5]);
 
@@ -4798,7 +4798,7 @@ fn trie_cursor_walk_6() {
     assert_eq!(ptr, node_ptrs[4]);
     assert_eq!(
         node,
-        TrieNodeType::Leaf(TrieLeaf::new(&vec![28, 29, 30], &[31u8; 40].to_vec()))
+        TrieNodeType::Leaf(TrieLeaf::new(&[28, 29, 30], &[31u8; 40].to_vec()))
     );
     assert_eq!(hash, hashes[4]);
 
@@ -4884,7 +4884,7 @@ fn trie_cursor_walk_10() {
     assert_eq!(
         node,
         TrieNodeType::Leaf(TrieLeaf::new(
-            &vec![22, 23, 24, 25, 26, 27, 28, 29, 30],
+            &[22, 23, 24, 25, 26, 27, 28, 29, 30],
             &[31u8; 40].to_vec()
         ))
     );
@@ -4976,7 +4976,7 @@ fn trie_cursor_walk_20() {
     assert_eq!(
         node,
         TrieNodeType::Leaf(TrieLeaf::new(
-            &vec![21, 22, 23, 24, 25, 26, 27, 28, 29, 30],
+            &[21, 22, 23, 24, 25, 26, 27, 28, 29, 30],
             &[31u8; 40].to_vec()
         ))
     );
@@ -5045,7 +5045,7 @@ fn trie_cursor_walk_32() {
     assert_eq!(
         node,
         TrieNodeType::Leaf(TrieLeaf::new(
-            &vec![
+            &[
                 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
                 23, 24, 25, 26, 27, 28, 29, 30
             ],

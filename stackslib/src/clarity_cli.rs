@@ -541,13 +541,13 @@ impl CLIHeadersDB {
 
     /// Create or open a new CLI DB at db_path.  If it already exists, then this method is a no-op.
     pub fn new(db_path: &str, mainnet: bool) -> CLIHeadersDB {
-        let instantiate = db_path == ":memory:" || fs::metadata(&db_path).is_err();
+        let instantiate = db_path == ":memory:" || fs::metadata(db_path).is_err();
 
         let cli_db_path = get_cli_db_path(db_path);
         let conn = create_or_open_db(&cli_db_path);
         let mut db = CLIHeadersDB {
             db_path: db_path.to_string(),
-            conn: conn,
+            conn,
         };
 
         if instantiate {
@@ -567,7 +567,7 @@ impl CLIHeadersDB {
         let conn = create_or_open_db(&cli_db_path);
         let db = CLIHeadersDB {
             db_path: db_path.to_string(),
-            conn: conn,
+            conn,
         };
 
         Ok(db)
@@ -1266,11 +1266,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 marf.as_clarity_db(),
                 DEFAULT_CLI_EPOCH,
             );
-            let mut placeholder_context = ContractContext::new(
+            let placeholder_context = ContractContext::new(
                 QualifiedContractIdentifier::transient(),
                 ClarityVersion::Clarity2,
             );
-            let mut exec_env = vm_env.get_exec_environment(None, None, &mut placeholder_context);
+            let mut exec_env = vm_env.get_exec_environment(None, None, &placeholder_context);
             let mut analysis_marf = MemoryBackingStore::new();
 
             let contract_id = QualifiedContractIdentifier::transient();
@@ -1343,7 +1343,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             );
 
             let contract_id = QualifiedContractIdentifier::transient();
-            let mut placeholder_context = ContractContext::new(
+            let placeholder_context = ContractContext::new(
                 QualifiedContractIdentifier::transient(),
                 ClarityVersion::Clarity2,
             );
@@ -1355,7 +1355,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             match run_analysis_free(&contract_id, &mut ast, &mut analysis_marf, true) {
                 Ok(_) => {
                     let result = vm_env
-                        .get_exec_environment(None, None, &mut placeholder_context)
+                        .get_exec_environment(None, None, &placeholder_context)
                         .eval_raw_with_rules(&content, ASTRules::PrecheckSize);
                     match result {
                         Ok(x) => (
@@ -1402,7 +1402,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 "Failed to open VM database.",
             );
             let mainnet = header_db.is_mainnet();
-            let mut placeholder_context = ContractContext::new(
+            let placeholder_context = ContractContext::new(
                 QualifiedContractIdentifier::transient(),
                 ClarityVersion::Clarity2,
             );
@@ -1411,7 +1411,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 let result_and_cost =
                     with_env_costs(mainnet, &header_db, &mut marf, None, |vm_env| {
                         vm_env
-                            .get_exec_environment(None, None, &mut placeholder_context)
+                            .get_exec_environment(None, None, &placeholder_context)
                             .eval_read_only_with_rules(
                                 &evalInput.contract_identifier,
                                 &evalInput.content,
@@ -1471,7 +1471,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             );
 
             let mainnet = header_db.is_mainnet();
-            let mut placeholder_context = ContractContext::new(
+            let placeholder_context = ContractContext::new(
                 QualifiedContractIdentifier::transient(),
                 ClarityVersion::Clarity2,
             );
@@ -1488,7 +1488,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     coverage.as_mut(),
                     |vm_env| {
                         vm_env
-                            .get_exec_environment(None, None, &mut placeholder_context)
+                            .get_exec_environment(None, None, &placeholder_context)
                             .eval_read_only_with_rules(
                                 &evalInput.contract_identifier,
                                 &evalInput.content,
@@ -1567,7 +1567,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 "Failed to open VM database.",
             );
             let mainnet = header_db.is_mainnet();
-            let mut placeholder_context = ContractContext::new(
+            let placeholder_context = ContractContext::new(
                 QualifiedContractIdentifier::transient(),
                 ClarityVersion::Clarity2,
             );
@@ -1575,7 +1575,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 let result_and_cost =
                     with_env_costs(mainnet, &header_db, &mut marf, None, |vm_env| {
                         vm_env
-                            .get_exec_environment(None, None, &mut placeholder_context)
+                            .get_exec_environment(None, None, &placeholder_context)
                             .eval_read_only_with_rules(
                                 &contract_identifier,
                                 &content,
@@ -2054,7 +2054,7 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
 
         eprintln!("check tokens (idempotency)");
         let invoked = invoke_command(
@@ -2070,7 +2070,7 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
 
         eprintln!("launch tokens");
         let invoked = invoke_command(
@@ -2087,7 +2087,7 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
 
         eprintln!("check names");
         let invoked = invoke_command(
@@ -2103,7 +2103,7 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
 
         eprintln!("check names with different contract ID");
         let invoked = invoke_command(
@@ -2121,7 +2121,7 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
 
         eprintln!("check names with analysis");
         let invoked = invoke_command(
@@ -2138,7 +2138,7 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
         assert!(result["analysis"] != json!(null));
 
         eprintln!("check names with cost");
@@ -2156,7 +2156,7 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
         assert!(result["costs"] != json!(null));
         assert!(result["assets"] == json!(null));
 
@@ -2177,7 +2177,7 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
         assert!(result["costs"] != json!(null));
         assert!(result["assets"] != json!(null));
 
@@ -2198,8 +2198,8 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
-        assert!(result["events"].as_array().unwrap().len() == 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
+        assert!(result["events"].as_array().unwrap().is_empty());
         assert_eq!(result["output"], json!({"UInt": 1000}));
 
         eprintln!("eval tokens");
@@ -2335,7 +2335,7 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
 
         eprintln!("launch tokens");
         let invoked = invoke_command(
@@ -2355,7 +2355,7 @@ mod test {
         eprintln!("{}", serde_json::to_string(&result).unwrap());
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
         assert!(
             result["assets"]["tokens"]["S1G2081040G2081040G2081040G208105NK8PE5"]
                 ["S1G2081040G2081040G2081040G208105NK8PE5.tokens-ft::tokens"]

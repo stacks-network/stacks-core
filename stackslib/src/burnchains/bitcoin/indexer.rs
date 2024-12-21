@@ -50,15 +50,15 @@ use crate::core::{
 };
 use crate::util_lib::db::Error as DBError;
 
-pub const USER_AGENT: &'static str = "Stacks/2.1";
+pub const USER_AGENT: &str = "Stacks/2.1";
 
 pub const BITCOIN_MAINNET: u32 = 0xD9B4BEF9;
 pub const BITCOIN_TESTNET: u32 = 0x0709110B;
 pub const BITCOIN_REGTEST: u32 = 0xDAB5BFFA;
 
-pub const BITCOIN_MAINNET_NAME: &'static str = "mainnet";
-pub const BITCOIN_TESTNET_NAME: &'static str = "testnet";
-pub const BITCOIN_REGTEST_NAME: &'static str = "regtest";
+pub const BITCOIN_MAINNET_NAME: &str = "mainnet";
+pub const BITCOIN_TESTNET_NAME: &str = "testnet";
+pub const BITCOIN_REGTEST_NAME: &str = "regtest";
 
 // batch size for searching for a reorg
 // kept small since sometimes bitcoin will just send us one header at a time
@@ -146,7 +146,7 @@ impl BitcoinIndexerConfig {
             timeout: 30,
             spv_headers_path: "./headers.sqlite".to_string(),
             first_block,
-            magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
+            magic_bytes: BLOCKSTACK_MAGIC_MAINNET,
             epochs: None,
         }
     }
@@ -160,9 +160,9 @@ impl BitcoinIndexerConfig {
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
             timeout: 30,
-            spv_headers_path: spv_headers_path,
+            spv_headers_path,
             first_block: 0,
-            magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
+            magic_bytes: BLOCKSTACK_MAGIC_MAINNET,
             epochs: None,
         }
     }
@@ -179,7 +179,7 @@ impl BitcoinIndexerConfig {
             timeout: 30,
             spv_headers_path,
             first_block: 0,
-            magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
+            magic_bytes: BLOCKSTACK_MAGIC_MAINNET,
             epochs: None,
         }
     }
@@ -193,7 +193,7 @@ impl BitcoinIndexerRuntime {
             services: 0,
             user_agent: USER_AGENT.to_owned(),
             version_nonce: rng.gen(),
-            network_id: network_id,
+            network_id,
             block_height: 0,
             last_getdata_send_time: 0,
             last_getheaders_send_time: 0,
@@ -227,17 +227,19 @@ impl BitcoinIndexer {
 
         // instantiate headers DB
         let _ = SpvClient::new(
-            &working_dir_path.to_str().unwrap().to_string(),
+            working_dir_path.to_str().unwrap(),
             0,
             None,
             BitcoinNetworkType::Regtest,
             true,
             false,
         )
-        .expect(&format!(
-            "Failed to open {:?}",
-            &working_dir_path.to_str().unwrap().to_string()
-        ));
+        .unwrap_or_else(|_| {
+            panic!(
+                "Failed to open {:?}",
+                &working_dir_path.to_str().unwrap().to_string()
+            )
+        });
 
         BitcoinIndexer {
             config: BitcoinIndexerConfig::default_regtest(
@@ -469,7 +471,7 @@ impl BitcoinIndexer {
         network_id: BitcoinNetworkType,
     ) -> Result<SpvClient, btc_error> {
         SpvClient::new_without_migration(
-            &reorg_headers_path,
+            reorg_headers_path,
             start_block,
             end_block,
             network_id,
@@ -503,13 +505,11 @@ impl BitcoinIndexer {
         start_block: u64,
         remove_old: bool,
     ) -> Result<SpvClient, btc_error> {
-        if remove_old {
-            if PathBuf::from(&reorg_headers_path).exists() {
-                fs::remove_file(&reorg_headers_path).map_err(|e| {
-                    error!("Failed to remove {}", reorg_headers_path);
-                    btc_error::Io(e)
-                })?;
-            }
+        if remove_old && PathBuf::from(&reorg_headers_path).exists() {
+            fs::remove_file(&reorg_headers_path).map_err(|e| {
+                error!("Failed to remove {}", reorg_headers_path);
+                btc_error::Io(e)
+            })?;
         }
 
         // bootstrap reorg client
@@ -705,7 +705,7 @@ impl BitcoinIndexer {
                     e
                 })?;
 
-            if reorg_headers.len() == 0 {
+            if reorg_headers.is_empty() {
                 // chain shrank considerably
                 info!(
                     "Missing Bitcoin headers in block range {}-{} -- did the Bitcoin chain shrink?",
@@ -736,7 +736,7 @@ impl BitcoinIndexer {
                 })?;
 
             assert!(
-                canonical_headers.len() > 0,
+                !canonical_headers.is_empty(),
                 "BUG: uninitialized canonical SPV headers DB"
             );
 
@@ -1375,12 +1375,12 @@ mod test {
                         .unwrap();
 
                     if start_block > 0 {
-                        test_debug!("insert at {}: {:?}", start_block - 1, &hdrs);
+                        test_debug!("insert at {}: {hdrs:?}", start_block - 1);
                         spv_client
                             .insert_block_headers_before(start_block - 1, hdrs)
                             .unwrap();
-                    } else if hdrs.len() > 0 {
-                        test_debug!("insert at {}: {:?}", 0, &hdrs);
+                    } else if !hdrs.is_empty() {
+                        test_debug!("insert at 0: {hdrs:?}");
                         spv_client.test_write_block_headers(0, hdrs).unwrap();
                     }
 
@@ -1552,8 +1552,8 @@ mod test {
                         spv_client
                             .insert_block_headers_before(start_block - 1, hdrs)
                             .unwrap();
-                    } else if hdrs.len() > 0 {
-                        test_debug!("insert at {}: {:?}", 0, &hdrs);
+                    } else if !hdrs.is_empty() {
+                        test_debug!("insert at 0: {hdrs:?}");
                         spv_client.test_write_block_headers(0, hdrs).unwrap();
                     }
                     Ok(())
@@ -1568,19 +1568,19 @@ mod test {
 
     #[test]
     fn test_indexer_sync_headers() {
-        if !env::var("BLOCKSTACK_SPV_BITCOIN_HOST").is_ok() {
+        if env::var("BLOCKSTACK_SPV_BITCOIN_HOST").is_err() {
             eprintln!(
                 "Skipping test_indexer_sync_headers -- no BLOCKSTACK_SPV_BITCOIN_HOST envar set"
             );
             return;
         }
-        if !env::var("BLOCKSTACK_SPV_BITCOIN_PORT").is_ok() {
+        if env::var("BLOCKSTACK_SPV_BITCOIN_PORT").is_err() {
             eprintln!(
                 "Skipping test_indexer_sync_headers -- no BLOCKSTACK_SPV_BITCOIN_PORT envar set"
             );
             return;
         }
-        if !env::var("BLOCKSTACK_SPV_BITCOIN_MODE").is_ok() {
+        if env::var("BLOCKSTACK_SPV_BITCOIN_MODE").is_err() {
             eprintln!(
                 "Skipping test_indexer_sync_headers -- no BLOCKSTACK_SPV_BITCOIN_MODE envar set"
             );
@@ -3103,7 +3103,7 @@ mod test {
 
     #[test]
     fn test_spv_check_work_reorg_ignored() {
-        if !env::var("BLOCKSTACK_SPV_HEADERS_DB").is_ok() {
+        if env::var("BLOCKSTACK_SPV_HEADERS_DB").is_err() {
             eprintln!("Skipping test_spv_check_work_reorg_ignored -- no BLOCKSTACK_SPV_HEADERS_DB envar set");
             return;
         }
@@ -3151,7 +3151,7 @@ mod test {
         assert_eq!(total_work_before, total_work_before_idempotent);
 
         // fake block headers for mainnet 40319-40320, which is on a difficulty adjustment boundary
-        let bad_headers = vec![
+        let bad_headers = [
             LoneBlockHeader {
                 header: BlockHeader {
                     version: 1,
@@ -3209,8 +3209,8 @@ mod test {
                         if block_height > 40320 {
                             break;
                         }
-                        if block_height >= 40319 && block_height <= 40320 {
-                            test_debug!("insert bad header {}", block_height);
+                        if (40319..=40320).contains(&block_height) {
+                            test_debug!("insert bad header {block_height}");
                             ret.push(bad_headers[(block_height - 40319) as usize].clone());
                             inserted_bad_header = true;
                         } else {
@@ -3251,7 +3251,7 @@ mod test {
 
     #[test]
     fn test_spv_check_work_reorg_accepted() {
-        if !env::var("BLOCKSTACK_SPV_HEADERS_DB").is_ok() {
+        if env::var("BLOCKSTACK_SPV_HEADERS_DB").is_err() {
             eprintln!("Skipping test_spv_check_work_reorg_accepted -- no BLOCKSTACK_SPV_HEADERS_DB envar set");
             return;
         }
@@ -3370,8 +3370,8 @@ mod test {
                         if block_height > 40320 {
                             break;
                         }
-                        if block_height >= 40319 && block_height <= 40320 {
-                            test_debug!("insert good header {}", block_height);
+                        if (40319..=40320).contains(&block_height) {
+                            test_debug!("insert good header {block_height}");
                             ret.push(good_headers[(block_height - 40319) as usize].clone());
                             inserted_good_header = true;
                         } else {
@@ -3476,7 +3476,7 @@ mod test {
 
         // set up SPV client so we don't have chain work at first
         let mut spv_client = SpvClient::new_without_migration(
-            &db_path,
+            db_path,
             0,
             None,
             BitcoinNetworkType::Regtest,

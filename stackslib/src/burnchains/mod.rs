@@ -231,7 +231,7 @@ impl BurnchainTransaction {
             BurnchainTransaction::Bitcoin(ref btc) => btc
                 .outputs
                 .iter()
-                .map(|ref o| BurnchainRecipient::try_from_bitcoin_output(o))
+                .map(|o| BurnchainRecipient::try_from_bitcoin_output(o))
                 .collect(),
         }
     }
@@ -837,14 +837,14 @@ impl BurnchainView {
         let mut ret = HashMap::new();
         for i in oldest_height..self.burn_block_height + 1 {
             if i == self.burn_stable_block_height {
-                ret.insert(i, self.burn_stable_block_hash.clone());
+                ret.insert(i, self.burn_stable_block_hash);
             } else if i == self.burn_block_height {
-                ret.insert(i, self.burn_block_hash.clone());
+                ret.insert(i, self.burn_block_hash);
             } else {
                 let data = {
                     use sha2::{Digest, Sha256};
                     let mut hasher = Sha256::new();
-                    hasher.update(&i.to_le_bytes());
+                    hasher.update(i.to_le_bytes());
                     hasher.finalize()
                 };
                 let mut data_32 = [0x00; 32];

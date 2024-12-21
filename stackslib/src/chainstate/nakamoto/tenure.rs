@@ -120,7 +120,7 @@ use crate::util_lib::db::{
     FromRow,
 };
 
-pub static NAKAMOTO_TENURES_SCHEMA_1: &'static str = r#"
+pub static NAKAMOTO_TENURES_SCHEMA_1: &str = r#"
     CREATE TABLE nakamoto_tenures (
         -- consensus hash of start-tenure block (i.e. the consensus hash of the sortition in which the miner's block-commit
         -- was mined)
@@ -157,7 +157,7 @@ pub static NAKAMOTO_TENURES_SCHEMA_1: &'static str = r#"
     CREATE INDEX nakamoto_tenures_by_parent ON nakamoto_tenures(tenure_id_consensus_hash,prev_tenure_id_consensus_hash);
 "#;
 
-pub static NAKAMOTO_TENURES_SCHEMA_2: &'static str = r#"
+pub static NAKAMOTO_TENURES_SCHEMA_2: &str = r#"
     -- Drop the nakamoto_tenures table if it exists
     DROP TABLE IF EXISTS nakamoto_tenures;
 
@@ -197,7 +197,7 @@ pub static NAKAMOTO_TENURES_SCHEMA_2: &'static str = r#"
     CREATE INDEX nakamoto_tenures_by_parent ON nakamoto_tenures(tenure_id_consensus_hash,prev_tenure_id_consensus_hash);
 "#;
 
-pub static NAKAMOTO_TENURES_SCHEMA_3: &'static str = r#"
+pub static NAKAMOTO_TENURES_SCHEMA_3: &str = r#"
     -- Drop the nakamoto_tenures table if it exists
     DROP TABLE IF EXISTS nakamoto_tenures;
 
@@ -339,7 +339,7 @@ impl NakamotoChainState {
         let miner_reward = MinerPaymentSchedule {
             address: miner_addr,
             recipient,
-            block_hash: block_hash.clone(),
+            block_hash: *block_hash,
             consensus_hash: block_consensus_hash.clone(),
             parent_block_hash: parent_block_hash.clone(),
             parent_consensus_hash: parent_consensus_hash.clone(),

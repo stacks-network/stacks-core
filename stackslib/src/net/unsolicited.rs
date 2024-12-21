@@ -1149,7 +1149,7 @@ impl PeerNetwork {
         unsolicited: HashMap<usize, Vec<StacksMessage>>,
     ) -> PendingMessages {
         unsolicited.into_iter().filter_map(|(event_id, messages)| {
-            if messages.len() == 0 {
+            if messages.is_empty() {
                 // no messages for this event
                 return None;
             }
@@ -1256,7 +1256,7 @@ impl PeerNetwork {
                 }
                 true
             });
-            messages.len() > 0
+            !messages.is_empty()
         });
         unsolicited
     }
@@ -1283,11 +1283,11 @@ impl PeerNetwork {
         buffer: bool,
     ) -> HashMap<(usize, NeighborKey), Vec<StacksMessage>> {
         unsolicited.retain(|(event_id, neighbor_key), messages| {
-            if messages.len() == 0 {
+            if messages.is_empty() {
                 // no messages for this node
                 return false;
             }
-            debug!("{:?}: Process {} unsolicited tenure-bound messages from {:?}", &self.get_local_peer(), messages.len(), &neighbor_key; "buffer" => %buffer);
+            debug!("{:?}: Process {} unsolicited tenure-bound messages from {neighbor_key:?}", &self.get_local_peer(), messages.len(); "buffer" => %buffer);
             messages.retain(|message| {
                 if !buffer {
                     debug!(
@@ -1319,7 +1319,7 @@ impl PeerNetwork {
                 }
                 true
             });
-            messages.len() > 0
+            !messages.is_empty()
         });
         unsolicited
     }

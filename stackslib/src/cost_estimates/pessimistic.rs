@@ -37,7 +37,7 @@ struct Samples {
 }
 
 const SAMPLE_SIZE: usize = 10;
-const CREATE_TABLE: &'static str = "
+const CREATE_TABLE: &str = "
 CREATE TABLE pessimistic_estimator (
     estimate_key TEXT PRIMARY KEY,
     current_value NUMBER NOT NULL,
@@ -119,7 +119,7 @@ impl Samples {
             return true;
         }
 
-        return false;
+        false
     }
 
     /// Return the integer mean of the sample, uses iterative
@@ -143,14 +143,14 @@ impl Samples {
     fn flush_sqlite(&self, tx: &SqliteTransaction, identifier: &str) {
         let sql = "INSERT OR REPLACE INTO pessimistic_estimator
                      (estimate_key, current_value, samples) VALUES (?, ?, ?)";
-        let current_value = u64_to_sql(self.mean()).unwrap_or_else(|_| i64::MAX);
+        let current_value = u64_to_sql(self.mean()).unwrap_or(i64::MAX);
         tx.execute(sql, params![identifier, current_value, self.to_json()])
             .expect("SQLite failure");
     }
 
     fn get_sqlite(conn: &Connection, identifier: &str) -> Samples {
         let sql = "SELECT samples FROM pessimistic_estimator WHERE estimate_key = ?";
-        conn.query_row(sql, &[identifier], |row| row.get(0))
+        conn.query_row(sql, [identifier], |row| row.get(0))
             .optional()
             .expect("SQLite failure")
             .unwrap_or_else(|| Samples { items: vec![] })
@@ -158,7 +158,7 @@ impl Samples {
 
     fn get_estimate_sqlite(conn: &Connection, identifier: &str) -> Option<u64> {
         let sql = "SELECT current_value FROM pessimistic_estimator WHERE estimate_key = ?";
-        conn.query_row::<i64, _, _>(sql, &[identifier], |row| row.get(0))
+        conn.query_row::<i64, _, _>(sql, [identifier], |row| row.get(0))
             .optional()
             .expect("SQLite failure")
             .map(|x_i64| {
@@ -266,9 +266,9 @@ impl CostEstimator for PessimisticEstimator {
             // only log the estimate error if an estimate could be constructed
             if let Ok(estimated_cost) = self.estimate_cost(tx, evaluated_epoch) {
                 let estimated_scalar =
-                    estimated_cost.proportion_dot_product(&block_limit, PROPORTION_RESOLUTION);
+                    estimated_cost.proportion_dot_product(block_limit, PROPORTION_RESOLUTION);
                 let actual_scalar =
-                    actual_cost.proportion_dot_product(&block_limit, PROPORTION_RESOLUTION);
+                    actual_cost.proportion_dot_product(block_limit, PROPORTION_RESOLUTION);
                 info!("PessimisticEstimator received event";
                       "key" => %PessimisticEstimator::get_estimate_key(tx, &CostField::RuntimeCost, evaluated_epoch),
                       "estimate" => estimated_scalar,

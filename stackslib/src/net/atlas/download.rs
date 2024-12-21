@@ -102,7 +102,7 @@ impl AttachmentsDownloader {
         let mut events_to_deregister = vec![];
 
         // Handle initial batch
-        if self.initial_batch.len() > 0 {
+        if !self.initial_batch.is_empty() {
             let mut resolved = self.enqueue_initial_attachments(&mut network.atlasdb)?;
             resolved_attachments.append(&mut resolved);
         }
@@ -703,13 +703,13 @@ impl BatchedDNSLookupsState {
                 let mut state = BatchedDNSLookupsResults::default();
 
                 for url_str in urls.drain(..) {
-                    if url_str.len() == 0 {
+                    if url_str.is_empty() {
                         continue;
                     }
                     let url = match url_str.parse_to_block_url() {
                         Ok(url) => url,
                         Err(e) => {
-                            warn!("Atlas: Unsupported URL {:?}, {}", url_str, e);
+                            warn!("Atlas: Unsupported URL {url_str:?}, {e}");
                             state.errors.insert(url_str, e.into());
                             continue;
                         }
@@ -932,7 +932,7 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                     }
                 });
 
-                if pending_requests.len() > 0 {
+                if !pending_requests.is_empty() {
                     // We need to keep polling
                     for (event_id, request) in pending_requests.drain() {
                         state.remaining.insert(event_id, request);
@@ -1170,13 +1170,14 @@ impl AttachmentsBatch {
             self.stacks_block_height = attachment.stacks_block_height.clone();
             self.index_block_hash = attachment.index_block_hash.clone();
             self.canonical_stacks_tip_height = attachment.canonical_stacks_tip_height;
-        } else {
-            if self.stacks_block_height != attachment.stacks_block_height
-                || self.index_block_hash != attachment.index_block_hash
-            {
-                warn!("Atlas: attempt to add unrelated AttachmentInstance ({}, {}) to AttachmentsBatch", attachment.attachment_index, attachment.index_block_hash);
-                return;
-            }
+        } else if self.stacks_block_height != attachment.stacks_block_height
+            || self.index_block_hash != attachment.index_block_hash
+        {
+            warn!(
+                "Atlas: attempt to add unrelated AttachmentInstance ({}, {}) to AttachmentsBatch",
+                attachment.attachment_index, attachment.index_block_hash
+            );
+            return;
         }
 
         let inner_key = attachment.attachment_index;

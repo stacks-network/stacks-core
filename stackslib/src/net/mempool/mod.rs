@@ -170,7 +170,7 @@ impl MempoolSync {
                 continue;
             }
             // has a data URL?
-            if convo.data_url.len() == 0 {
+            if convo.data_url.is_empty() {
                 continue;
             }
             // already resolved?
@@ -421,15 +421,13 @@ impl MempoolSync {
             // begin new sync
             self.mempool_sync_timeout =
                 get_epoch_time_secs() + network.get_connection_opts().mempool_sync_timeout;
-        } else {
-            if get_epoch_time_secs() > self.mempool_sync_timeout {
-                debug!(
-                    "{:?}: Mempool sync took too long; terminating",
-                    &network.get_local_peer()
-                );
-                self.mempool_sync_reset();
-                return (true, None);
-            }
+        } else if get_epoch_time_secs() > self.mempool_sync_timeout {
+            debug!(
+                "{:?}: Mempool sync took too long; terminating",
+                &network.get_local_peer()
+            );
+            self.mempool_sync_reset();
+            return (true, None);
         }
 
         // try advancing states until we get blocked.

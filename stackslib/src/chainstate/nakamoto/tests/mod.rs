@@ -259,7 +259,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     };
 
     let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-    let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+    let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
     let coinbase_payload =
         TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, Some(proof.clone()));
@@ -2586,7 +2586,7 @@ fn valid_vote_transaction() {
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr,
-            contract_name: contract_name,
+            contract_name,
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: valid_function_args,
         }),
@@ -3142,7 +3142,7 @@ pub mod nakamoto_block_signatures {
     #[test]
     /// Base success case - 3 signers of equal weight, all signing the block
     pub fn test_nakamoto_block_verify_signatures() {
-        let signers = vec![
+        let signers = [
             Secp256k1PrivateKey::default(),
             Secp256k1PrivateKey::default(),
             Secp256k1PrivateKey::default(),

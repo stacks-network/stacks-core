@@ -31,7 +31,7 @@ impl<UnderlyingEstimator: FeeEstimator> FeeRateFuzzer<UnderlyingEstimator> {
         underlying: UnderlyingEstimator,
         uniform_fuzz_fraction: f64,
     ) -> FeeRateFuzzer<UnderlyingEstimator> {
-        assert!(0.0 <= uniform_fuzz_fraction && uniform_fuzz_fraction < 1.0);
+        assert!((0.0..1.0).contains(&uniform_fuzz_fraction));
         let rng_creator = Box::new(|| {
             let r: Box<dyn RngCore> = Box::new(thread_rng());
             r
@@ -50,7 +50,7 @@ impl<UnderlyingEstimator: FeeEstimator> FeeRateFuzzer<UnderlyingEstimator> {
         rng_creator: Box<dyn Fn() -> Box<dyn RngCore>>,
         uniform_fuzz_fraction: f64,
     ) -> FeeRateFuzzer<UnderlyingEstimator> {
-        assert!(0.0 <= uniform_fuzz_fraction && uniform_fuzz_fraction < 1.0);
+        assert!((0.0..1.0).contains(&uniform_fuzz_fraction));
         Self {
             underlying,
             rng_creator,

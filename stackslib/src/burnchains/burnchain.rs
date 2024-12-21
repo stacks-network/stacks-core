@@ -98,7 +98,7 @@ impl BurnchainStateTransition {
 
     /// Get the transaction IDs of all accepted burnchain operations in this block
     pub fn txids(&self) -> Vec<Txid> {
-        self.accepted_ops.iter().map(|ref op| op.txid()).collect()
+        self.accepted_ops.iter().map(|op| op.txid()).collect()
     }
 
     /// Get the sum of all burnchain tokens spent in this burnchain block's accepted operations
@@ -130,7 +130,7 @@ impl BurnchainStateTransition {
 
         block_total_burns.sort();
 
-        if block_total_burns.len() == 0 {
+        if block_total_burns.is_empty() {
             return Some(0);
         } else if block_total_burns.len() == 1 {
             return Some(block_total_burns[0]);
@@ -425,7 +425,7 @@ impl BurnchainBlock {
             BurnchainBlock::Bitcoin(ref data) => data
                 .txs
                 .iter()
-                .map(|ref tx| BurnchainTransaction::Bitcoin((*tx).clone()))
+                .map(|tx| BurnchainTransaction::Bitcoin((*tx).clone()))
                 .collect(),
         }
     }
@@ -640,7 +640,7 @@ impl Burnchain {
         let mut ret = Burnchain::new(&tmp_path, "bitcoin", "mainnet").unwrap();
         ret.first_block_height = first_block_height;
         ret.initial_reward_start_block = first_block_height;
-        ret.first_block_hash = first_block_hash.clone();
+        ret.first_block_hash = *first_block_hash;
         ret
     }
 

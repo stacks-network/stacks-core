@@ -35,7 +35,7 @@ impl Neighbor {
         Neighbor {
             addr: key.clone(),
             public_key: pubk.clone(),
-            expire_block: expire_block,
+            expire_block,
             last_contact_time: 0,
             allowed: 0,
             denied: 0,

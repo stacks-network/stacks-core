@@ -173,7 +173,7 @@ fn test_nakamoto_tenure_downloader() {
         pubkey_hash: Hash160([0x02; 20]),
     };
     let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-    let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+    let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
     let coinbase_payload =
         TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, Some(proof.clone()));
@@ -474,8 +474,8 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
     .unwrap()
     .unwrap();
 
-    assert!(unconfirmed_tenure.len() > 0);
-    assert!(last_confirmed_tenure.len() > 0);
+    assert!(!unconfirmed_tenure.is_empty());
+    assert!(!last_confirmed_tenure.is_empty());
 
     assert_eq!(
         unconfirmed_tenure.first().as_ref().unwrap().block_id(),
@@ -1268,7 +1268,7 @@ fn test_tenure_start_end_from_inventory() {
             let tenure_start_end_opt = available.get(&wt.tenure_id_consensus_hash);
             if bits
                 .get(i as u16)
-                .expect(&format!("failed to get bit {}: {:?}", i, &wt))
+                .unwrap_or_else(|| panic!("failed to get bit {i}: {wt:?}"))
             {
                 // this sortition had a tenure
                 let mut j = (i + 1) as u16;
@@ -1294,13 +1294,11 @@ fn test_tenure_start_end_from_inventory() {
 
                 if tenure_start_index.is_some() && tenure_end_index.is_some() {
                     debug!(
-                        "rc = {}, i = {}, tenure_start_index = {:?}, tenure_end_index = {:?}",
-                        rc, i, &tenure_start_index, &tenure_end_index
+                        "rc = {rc}, i = {i}, tenure_start_index = {tenure_start_index:?}, tenure_end_index = {tenure_end_index:?}"
                     );
-                    let tenure_start_end = tenure_start_end_opt.expect(&format!(
-                        "failed to get tenure_start_end_opt: i = {}, wt = {:?}",
-                        i, &wt
-                    ));
+                    let tenure_start_end = tenure_start_end_opt.unwrap_or_else(|| {
+                        panic!("failed to get tenure_start_end_opt: i = {i}, wt = {wt:?}")
+                    });
                     assert_eq!(
                         all_tenures[tenure_start_index.unwrap() as usize].winning_block_id,
                         tenure_start_end.start_block_id
@@ -1448,7 +1446,7 @@ fn test_make_tenure_downloaders() {
     {
         let sortdb = peer.sortdb();
         let wanted_tenures =
-            NakamotoDownloadStateMachine::load_wanted_tenures_at_tip(None, &tip, sortdb, &vec![])
+            NakamotoDownloadStateMachine::load_wanted_tenures_at_tip(None, &tip, sortdb, &[])
                 .unwrap();
         assert_eq!(wanted_tenures.len(), 2);
         for i in (tip.block_height - 1)..=(tip.block_height) {
@@ -1470,7 +1468,7 @@ fn test_make_tenure_downloaders() {
             None,
             &tip,
             sortdb,
-            &vec![all_wanted_tenures[0].clone()],
+            &[all_wanted_tenures[0].clone()],
         )
         .unwrap();
         assert_eq!(wanted_tenures.len(), 1);

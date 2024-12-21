@@ -529,7 +529,7 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
             Some(WriteChainTip { ref block_hash, .. }) => Ok(block_hash.clone()),
         }?;
 
-        if keys.len() == 0 {
+        if keys.is_empty() {
             return Ok(());
         }
 
@@ -683,7 +683,7 @@ impl<T: MarfTrieId> MARF<T> {
         }
     }
 
-    fn node_copy_update_ptrs(ptrs: &mut [TriePtr], child_block_id: u32) -> () {
+    fn node_copy_update_ptrs(ptrs: &mut [TriePtr], child_block_id: u32) {
         for pointer in ptrs.iter_mut() {
             // if the node is empty, do nothing, if it's a back pointer,
             if pointer.id() == TrieNodeID::Empty as u8 || is_backptr(pointer.id()) {
@@ -1065,7 +1065,7 @@ impl<T: MarfTrieId> MARF<T> {
         if cursor.block_hashes.len() + 1 != cursor.node_ptrs.len() {
             trace!("cursor.block_hashes = {:?}", &cursor.block_hashes);
             trace!("cursor.node_ptrs = {:?}", cursor.node_ptrs);
-            assert!(false);
+            panic!();
         }
 
         assert!(cursor.eop());
@@ -1098,12 +1098,12 @@ impl<T: MarfTrieId> MARF<T> {
         if cursor.block_hashes.len() + 1 != cursor.node_ptrs.len() {
             trace!("c.block_hashes = {:?}", &cursor.block_hashes);
             trace!("c.node_ptrs = {:?}", cursor.node_ptrs);
-            assert!(false);
+            panic!();
         }
 
         debug!(
-            "MARF Insert in {}: '{}' = '{}' (...{:?})",
-            block_hash, path, leaf_value.data, &leaf_value.path
+            "MARF Insert in {block_hash}: '{path}' = '{}' (...{:?})",
+            leaf_value.data, &leaf_value.path
         );
 
         Trie::add_value(storage, &mut cursor, &mut value)?;
@@ -1145,7 +1145,7 @@ impl<T: MarfTrieId> MARF<T> {
     /// Instantiate the MARF from a TrieFileStorage instance
     pub fn from_storage(storage: TrieFileStorage<T>) -> MARF<T> {
         MARF {
-            storage: storage,
+            storage,
             open_chain_tip: None,
         }
     }
@@ -1348,7 +1348,7 @@ impl<T: MarfTrieId> MARF<T> {
     ) -> Result<(), Error> {
         assert_eq!(keys.len(), values.len());
 
-        if keys.len() == 0 {
+        if keys.is_empty() {
             return Ok(());
         }
 
@@ -1456,7 +1456,7 @@ impl<T: MarfTrieId> MARF<T> {
             Some(WriteChainTip { ref block_hash, .. }) => Ok(block_hash.clone()),
         }?;
 
-        if keys.len() == 0 {
+        if keys.is_empty() {
             return Ok(());
         }
 

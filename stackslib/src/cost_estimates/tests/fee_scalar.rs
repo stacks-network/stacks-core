@@ -29,7 +29,7 @@ use crate::cost_estimates::{EstimatorError, FeeEstimator, FeeRateEstimate};
 fn instantiate_test_db<CM: CostMetric>(m: CM) -> ScalarFeeRateEstimator<CM> {
     let mut path = env::temp_dir();
     let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
-    path.push(&format!("fee_db_{}.sqlite", &to_hex(&random_bytes)[0..8]));
+    path.push(format!("fee_db_{}.sqlite", &to_hex(&random_bytes)[0..8]));
 
     ScalarFeeRateEstimator::open(&path, m).expect("Test failure: could not open fee rate DB")
 }

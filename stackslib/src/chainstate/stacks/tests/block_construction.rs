@@ -285,7 +285,7 @@ fn test_build_anchored_blocks_stx_transfers_single() {
                 assert_eq!(*addr, recipient.to_account_principal());
                 assert_eq!(*amount, 1);
             } else {
-                assert!(false);
+                panic!();
             }
         }
     }
@@ -589,7 +589,7 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
                     assert_eq!(*addr, recipient.to_account_principal());
                     assert_eq!(*amount, 1);
                 } else {
-                    assert!(false);
+                    panic!();
                 }
             }
         }
@@ -801,7 +801,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
                 )
                 .unwrap();
 
-                if parent_mblock_stream.len() > 0 {
+                if !parent_mblock_stream.is_empty() {
                     if tenure_id != 5 {
                         assert_eq!(
                             anchored_block.0.header.parent_microblock,
@@ -1058,7 +1058,9 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
                 )
                 .unwrap();
 
-                if parent_mblock_stream.len() > 0 {
+                if parent_mblock_stream.is_empty() {
+                    assert_eq!(tenure_id, 0);
+                } else {
                     // force the block to confirm a microblock stream, even if it would result in
                     // an invalid block.
                     test_debug!(
@@ -1074,8 +1076,6 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
                         parent_mblock_stream.last().unwrap().block_hash()
                     );
                     test_debug!("New block hash is {}", &anchored_block.0.block_hash());
-                } else {
-                    assert_eq!(tenure_id, 0);
                 }
 
                 (anchored_block.0, parent_mblock_stream)
@@ -1524,13 +1524,10 @@ fn test_build_anchored_blocks_skip_too_expensive() {
             // expensive transaction was not mined, but the two stx-transfers were
             assert_eq!(stacks_block.txs.len(), 3);
             for tx in stacks_block.txs.iter() {
-                match tx.payload {
-                    TransactionPayload::Coinbase(..) => {}
-                    TransactionPayload::TokenTransfer(ref recipient, ref amount, ref memo) => {}
-                    _ => {
-                        assert!(false);
-                    }
-                }
+                assert!(matches!(
+                    tx.payload,
+                    TransactionPayload::Coinbase(..) | TransactionPayload::TokenTransfer(_, _, _)
+                ));
             }
         }
     }
@@ -2327,7 +2324,7 @@ fn test_build_anchored_blocks_invalid() {
 
                 eprintln!("\n\nat resume parent tenure:\nlast_parent: {:?}\nlast_parent_tip: {:?}\n\n", &last_parent, &last_parent_tip);
             }
-            else if tenure_id >= bad_block_tenure + 1 {
+            else if tenure_id > bad_block_tenure {
                 last_parent = None;
                 last_parent_tip = None;
             }
@@ -4378,7 +4375,7 @@ fn test_is_tx_problematic() {
                         assert_eq!(txid, &runtime_checkerror_problematic.txid());
                     }
                     else {
-                        panic!("Did not get Error::ProblematicTransaction, but got {:?}", &err);
+                        panic!("Did not get Error::ProblematicTransaction, but got {err:?}");
                     }
 
                     problematic_txids.push(runtime_checkerror_problematic.txid());
