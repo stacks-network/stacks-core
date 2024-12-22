@@ -187,10 +187,9 @@ impl ConfigFile {
             mode: Some("mainnet".to_string()),
             rpc_port: Some(8332),
             peer_port: Some(8333),
-            peer_host: Some("bitcoin.blockstack.com".to_string()),
-            username: Some("blockstack".to_string()),
-            password: Some("blockstacksystem".to_string()),
-            magic_bytes: Some("X2".to_string()),
+            peer_host: Some("bitcoin.mainnet.stacks.org".to_string()),
+            username: Some("stacks".to_string()),
+            password: Some("foundation".to_string()),
             ..BurnchainConfigFile::default()
         };
 
