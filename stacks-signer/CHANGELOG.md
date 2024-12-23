@@ -8,6 +8,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ## [Unreleased]
 
 ## Added
+- Prevent old reward cycle signers from processing block validation response messages that do not apply to blocks from their cycle.
 
 - Introduced the `block_proposal_max_age_secs` configuration option for signers, enabling them to automatically ignore block proposals that exceed the specified age in seconds.
 
