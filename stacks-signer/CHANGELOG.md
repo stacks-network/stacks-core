@@ -8,9 +8,16 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ## [Unreleased]
 
 ## Added
-- Prevent old reward cycle signers from processing block validation response messages that do not apply to blocks from their cycle.
 
 ## Changed
+
+# [3.1.0.0.2.1]
+
+## Added
+
+## Changed
+
+- Prevent old reward cycle signers from processing block validation response messages that do not apply to blocks from their cycle.
 
 ## [3.1.0.0.2.0]
 
