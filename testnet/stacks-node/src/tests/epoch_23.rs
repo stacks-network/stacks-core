@@ -18,8 +18,7 @@ use std::{env, thread};
 
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use stacks::burnchains::{Burnchain, PoxConstants};
-use stacks::core;
-use stacks::core::STACKS_EPOCH_MAX;
+use stacks::core::{self, EpochList, STACKS_EPOCH_MAX};
 use stacks_common::util::sleep_ms;
 
 use crate::config::InitialBalance;
@@ -52,7 +51,7 @@ fn trait_invocation_behavior() {
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
     let impl_contract_id =
-        QualifiedContractIdentifier::new(contract_addr.clone().into(), "impl-simple".into());
+        QualifiedContractIdentifier::new(contract_addr.into(), "impl-simple".into());
 
     let mut spender_nonce = 0;
     let fee_amount = 10_000;
@@ -103,17 +102,17 @@ fn trait_invocation_behavior() {
     test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
-    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_2_05;
-    epochs[2].start_height = epoch_2_05;
-    epochs[2].end_height = epoch_2_1;
-    epochs[3].start_height = epoch_2_1;
-    epochs[3].end_height = epoch_2_2;
-    epochs[4].start_height = epoch_2_2;
-    epochs[4].end_height = epoch_2_3;
-    epochs[5].start_height = epoch_2_3;
-    epochs[5].end_height = STACKS_EPOCH_MAX;
-    epochs.truncate(6);
+    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].end_height = epoch_2_2;
+    epochs[StacksEpochId::Epoch22].start_height = epoch_2_2;
+    epochs[StacksEpochId::Epoch22].end_height = epoch_2_3;
+    epochs[StacksEpochId::Epoch23].start_height = epoch_2_3;
+    epochs[StacksEpochId::Epoch23].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch23);
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -227,9 +226,8 @@ fn trait_invocation_behavior() {
     submit_tx(&http_origin, &publish_invoke);
 
     info!(
-        "At height = {}, epoch-2.1 = {}",
-        get_chain_info(&conf).burn_block_height,
-        epoch_2_1
+        "At height = {}, epoch-2.1 = {epoch_2_1}",
+        get_chain_info(&conf).burn_block_height
     );
     // wait until just before epoch 2.1
     loop {
@@ -509,7 +507,7 @@ fn trait_invocation_behavior() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    info!("Total spender txs = {}", spender_nonce);
+    info!("Total spender txs = {spender_nonce}");
 
     let blocks = test_observer::get_blocks();
 
@@ -526,7 +524,7 @@ fn trait_invocation_behavior() {
             let parsed =
                 StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
             let tx_sender = PrincipalData::from(parsed.auth.origin().address_testnet());
-            if &tx_sender == &spender_addr {
+            if tx_sender == spender_addr {
                 let contract_call = match &parsed.payload {
                     TransactionPayload::ContractCall(cc) => cc,
                     // only interested in contract calls
@@ -583,29 +581,27 @@ fn trait_invocation_behavior() {
         assert_eq!(&transaction_receipts[&tx_nonce].1.to_string(), "(ok u0)");
     }
 
-    for tx_nonce in [expected_good_23_3_nonce] {
-        assert_eq!(
-            transaction_receipts[&tx_nonce].0.contract_name.as_str(),
-            "wrap-simple"
-        );
-        assert_eq!(
-            transaction_receipts[&tx_nonce].0.function_name.as_str(),
-            "invocation-1"
-        );
-        assert_eq!(&transaction_receipts[&tx_nonce].1.to_string(), "(ok u0)");
-    }
+    let tx_nonce = expected_good_23_3_nonce;
+    assert_eq!(
+        transaction_receipts[&tx_nonce].0.contract_name.as_str(),
+        "wrap-simple"
+    );
+    assert_eq!(
+        transaction_receipts[&tx_nonce].0.function_name.as_str(),
+        "invocation-1"
+    );
+    assert_eq!(&transaction_receipts[&tx_nonce].1.to_string(), "(ok u0)");
 
-    for tx_nonce in [expected_good_23_4_nonce] {
-        assert_eq!(
-            transaction_receipts[&tx_nonce].0.contract_name.as_str(),
-            "wrap-simple"
-        );
-        assert_eq!(
-            transaction_receipts[&tx_nonce].0.function_name.as_str(),
-            "invocation-2"
-        );
-        assert_eq!(&transaction_receipts[&tx_nonce].1.to_string(), "(ok u0)");
-    }
+    let tx_nonce = expected_good_23_4_nonce;
+    assert_eq!(
+        transaction_receipts[&tx_nonce].0.contract_name.as_str(),
+        "wrap-simple"
+    );
+    assert_eq!(
+        transaction_receipts[&tx_nonce].0.function_name.as_str(),
+        "invocation-2"
+    );
+    assert_eq!(&transaction_receipts[&tx_nonce].1.to_string(), "(ok u0)");
 
     for tx_nonce in [expected_bad_22_1_nonce, expected_bad_22_3_nonce] {
         assert_eq!(
@@ -632,7 +628,7 @@ fn trait_invocation_behavior() {
     }
 
     for (key, value) in transaction_receipts.iter() {
-        eprintln!("{} => {} of {}", key, value.0, value.1);
+        eprintln!("{key} => {} of {}", value.0, value.1);
     }
 
     test_observer::clear();

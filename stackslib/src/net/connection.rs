@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
 use std::sync::mpsc::{
@@ -24,7 +24,7 @@ use std::time::Duration;
 use std::{io, net};
 
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::types::BOUND_VALUE_SERIALIZATION_HEX;
+use clarity::vm::types::{QualifiedContractIdentifier, BOUND_VALUE_SERIALIZATION_HEX};
 use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::net::PeerAddress;
 use stacks_common::util::hash::to_hex;
@@ -44,7 +44,8 @@ use crate::net::neighbors::{
     WALK_SEED_PROBABILITY, WALK_STATE_TIMEOUT,
 };
 use crate::net::{
-    Error as net_error, MessageSequence, Preamble, ProtocolFamily, RelayData, StacksHttp, StacksP2P,
+    Error as net_error, MessageSequence, NeighborAddress, Preamble, ProtocolFamily, RelayData,
+    StacksHttp, StacksP2P,
 };
 
 /// Receiver notification handle.
@@ -433,6 +434,8 @@ pub struct ConnectionOptions {
     pub nakamoto_unconfirmed_downloader_interval_ms: u128,
     /// The authorization token to enable privileged RPC endpoints
     pub auth_token: Option<String>,
+    /// StackerDB replicas to talk to for a particular smart contract
+    pub stackerdb_hint_replicas: HashMap<QualifiedContractIdentifier, Vec<NeighborAddress>>,
 
     // fault injection
     /// Disable neighbor walk and discovery
@@ -474,6 +477,8 @@ pub struct ConnectionOptions {
     /// the reward cycle in which Nakamoto activates, and thus needs to run both the epoch
     /// 2.x and Nakamoto state machines.
     pub force_nakamoto_epoch_transition: bool,
+    /// Reject blocks that were pushed
+    pub reject_blocks_pushed: bool,
 
     // test facilitation
     /// Do not require that an unsolicited message originate from an authenticated, connected
@@ -563,6 +568,7 @@ impl std::default::Default for ConnectionOptions {
             nakamoto_inv_sync_burst_interval_ms: 1_000, // wait 1 second after a sortition before running inventory sync
             nakamoto_unconfirmed_downloader_interval_ms: 5_000, // run unconfirmed downloader once every 5 seconds
             auth_token: None,
+            stackerdb_hint_replicas: HashMap::new(),
 
             // no faults on by default
             disable_neighbor_walk: false,
@@ -583,6 +589,7 @@ impl std::default::Default for ConnectionOptions {
             disable_stackerdb_sync: false,
             force_disconnect_interval: None,
             force_nakamoto_epoch_transition: false,
+            reject_blocks_pushed: false,
 
             // no test facilitations on by default
             test_disable_unsolicited_message_authentication: false,

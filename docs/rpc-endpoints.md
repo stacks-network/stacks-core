@@ -172,6 +172,35 @@ Where data is the hex serialization of the variable value.
 This endpoint also accepts a querystring parameter `?proof=` which when supplied `0`, will return the
 JSON object _without_ the `proof` field.
 
+### GET /v2/clarity/marf/[Clarity MARF Key]
+Attempt to fetch the value of a MARF key. The key is identified with [Clarity MARF Key].
+
+Returns JSON data in the form:
+
+```json
+{
+  "data": "0x01ce...",
+  "proof": "0x01ab...",
+}
+```
+
+Where data is the hex serialization of the value.
+
+### GET /v2/clarity/metadata/[Stacks Address]/[Contract Name]/[Clarity Metadata Key]
+Attempt to fetch the metadata of a contract.
+ The contract is identified with [Stacks Address] and [Contract Name] in the URL path.
+ The metadata key is identified with [Clarity Metadata Key].
+
+Returns JSON data in the form:
+
+```json
+{
+  "data": "'{\"contract_identifier\":{...}'",
+}
+```
+
+Where data is the metadata formatted as a JSON string.
+
 ### GET /v2/constant_val/[Stacks Address]/[Contract Name]/[Constant Name]
 Attempt to fetch a constant from a contract. The contract is identified with [Stacks Address] and 
  [Contract Name] in the URL path. The constant is identified with [Constant Name].
@@ -502,6 +531,17 @@ Fetch a Nakamoto block given its block ID hash.  This returns the raw block
 data.
 
 This will return 404 if the block does not exist.
+
+### GET /v3/blocks/height/[Block Height]
+
+Fetch a Nakamoto block given its block height.  This returns the raw block
+data.
+
+This will return 404 if the block does not exist.
+
+This endpoint also accepts a querystring parameter `?tip=` which when supplied 
+will return the block relative to the specified tip allowing the querying of 
+sibling blocks (same height, different tip) too.
 
 ### GET /v3/tenures/[Block ID]
 

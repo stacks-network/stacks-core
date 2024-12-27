@@ -89,6 +89,8 @@ fn setup_test_environment(
         config: ProposalEvalConfig {
             first_proposal_burn_block_timing: Duration::from_secs(30),
             block_proposal_timeout: Duration::from_secs(5),
+            tenure_last_block_proposal_timeout: Duration::from_secs(30),
+            tenure_idle_timeout: Duration::from_secs(300),
         },
     };
 
@@ -131,13 +133,13 @@ fn check_proposal_units() {
         setup_test_environment("check_proposal_units");
 
     assert!(!view
-        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1, false)
+        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, false)
         .unwrap());
 
     view.last_sortition = None;
 
     assert!(!view
-        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1, false)
+        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, false)
         .unwrap());
 }
 
@@ -153,7 +155,6 @@ fn check_proposal_miner_pkh_mismatch() {
             &mut signer_db,
             &block,
             &different_block_pk,
-            1,
             false,
         )
         .unwrap());
@@ -165,7 +166,6 @@ fn check_proposal_miner_pkh_mismatch() {
             &mut signer_db,
             &block,
             &different_block_pk,
-            1,
             false,
         )
         .unwrap());
@@ -262,7 +262,7 @@ fn reorg_timing_testing(
         config,
     } = MockServerClient::new();
     let h = std::thread::spawn(move || {
-        view.check_proposal(&client, &mut signer_db, &block, &block_pk, 1, false)
+        view.check_proposal(&client, &mut signer_db, &block, &block_pk, false)
     });
     header_clone.chain_length -= 1;
     let response = crate::client::tests::build_get_tenure_tip_response(
@@ -299,16 +299,16 @@ fn check_proposal_invalid_status() {
         setup_test_environment("invalid_status");
     block.header.consensus_hash = view.cur_sortition.consensus_hash;
     assert!(view
-        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1, false)
+        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, false)
         .unwrap());
     view.cur_sortition.miner_status = SortitionMinerStatus::InvalidatedAfterFirstBlock;
     assert!(!view
-        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1, false)
+        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, false)
         .unwrap());
 
     block.header.consensus_hash = view.last_sortition.as_ref().unwrap().consensus_hash;
     assert!(!view
-        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1, false)
+        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, false)
         .unwrap());
 
     view.cur_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
@@ -319,7 +319,7 @@ fn check_proposal_invalid_status() {
     // parent blocks have been seen before, while the signer state checks are only reasoning about
     // stacks blocks seen by the signer, which may be a subset)
     assert!(view
-        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1, false)
+        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, false)
         .unwrap());
 }
 
@@ -368,7 +368,7 @@ fn check_proposal_tenure_extend_invalid_conditions() {
     let tx = make_tenure_change_tx(extend_payload);
     block.txs = vec![tx];
     assert!(!view
-        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1, false)
+        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, false)
         .unwrap());
 
     let mut extend_payload = make_tenure_change_payload();
@@ -378,7 +378,7 @@ fn check_proposal_tenure_extend_invalid_conditions() {
     let tx = make_tenure_change_tx(extend_payload);
     block.txs = vec![tx];
     assert!(view
-        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1, false)
+        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, false)
         .unwrap());
 }
 
@@ -405,7 +405,6 @@ fn check_block_proposal_timeout() {
             &mut signer_db,
             &curr_sortition_block,
             &block_pk,
-            1,
             false,
         )
         .unwrap());
@@ -416,7 +415,6 @@ fn check_block_proposal_timeout() {
             &mut signer_db,
             &last_sortition_block,
             &block_pk,
-            1,
             false,
         )
         .unwrap());
@@ -429,7 +427,6 @@ fn check_block_proposal_timeout() {
             &mut signer_db,
             &curr_sortition_block,
             &block_pk,
-            1,
             false,
         )
         .unwrap());
@@ -440,7 +437,6 @@ fn check_block_proposal_timeout() {
             &mut signer_db,
             &last_sortition_block,
             &block_pk,
-            1,
             false,
         )
         .unwrap());
@@ -532,7 +528,7 @@ fn check_proposal_refresh() {
         setup_test_environment("check_proposal_refresh");
     block.header.consensus_hash = view.cur_sortition.consensus_hash;
     assert!(view
-        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, 1, false)
+        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, false)
         .unwrap());
 
     let MockServerClient {
@@ -574,7 +570,7 @@ fn check_proposal_refresh() {
 
     view.cur_sortition.consensus_hash = ConsensusHash([128; 20]);
     let h = std::thread::spawn(move || {
-        view.check_proposal(&client, &mut signer_db, &block, &block_pk, 1, true)
+        view.check_proposal(&client, &mut signer_db, &block, &block_pk, true)
     });
     crate::client::tests::write_response(
         server,

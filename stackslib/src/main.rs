@@ -49,6 +49,10 @@ use blockstack_lib::chainstate::burn::db::sortdb::{
 use blockstack_lib::chainstate::burn::operations::BlockstackOperationType;
 use blockstack_lib::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use blockstack_lib::chainstate::coordinator::{get_reward_cycle_info, OnChainRewardSetProvider};
+use blockstack_lib::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use blockstack_lib::chainstate::nakamoto::shadow::{
+    process_shadow_block, shadow_chainstate_repair,
+};
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use blockstack_lib::chainstate::stacks::db::blocks::{DummyEventDispatcher, StagingBlock};
 use blockstack_lib::chainstate::stacks::db::{
@@ -244,6 +248,56 @@ impl P2PSession {
         }
 
         Ok(session)
+    }
+}
+
+fn open_nakamoto_chainstate_dbs(
+    chainstate_dir: &str,
+    network: &str,
+) -> (SortitionDB, StacksChainState) {
+    let (mainnet, chain_id, pox_constants, dirname) = match network {
+        "mainnet" => (
+            true,
+            CHAIN_ID_MAINNET,
+            PoxConstants::mainnet_default(),
+            network,
+        ),
+        "krypton" => (
+            false,
+            0x80000100,
+            PoxConstants::nakamoto_testnet_default(),
+            network,
+        ),
+        "naka3" => (
+            false,
+            0x80000000,
+            PoxConstants::new(20, 5, 3, 100, 0, u64::MAX, u64::MAX, 104, 105, 106, 107),
+            "nakamoto-neon",
+        ),
+        _ => {
+            panic!("Unrecognized network name '{}'", network);
+        }
+    };
+
+    let chain_state_path = format!("{}/{}/chainstate/", chainstate_dir, dirname);
+    let sort_db_path = format!("{}/{}/burnchain/sortition/", chainstate_dir, dirname);
+
+    let sort_db = SortitionDB::open(&sort_db_path, true, pox_constants)
+        .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
+
+    let (chain_state, _) = StacksChainState::open(mainnet, chain_id, &chain_state_path, None)
+        .expect("Failed to open stacks chain state");
+
+    (sort_db, chain_state)
+}
+
+fn check_shadow_network(network: &str) {
+    if network != "mainnet" && network != "krypton" && network != "naka3" {
+        eprintln!(
+            "Unknown network '{}': only support 'mainnet', 'krypton', or 'naka3'",
+            &network
+        );
+        process::exit(1);
     }
 }
 
@@ -1166,6 +1220,204 @@ simulating a miner.
         println!("{:?}", inv);
     }
 
+    if argv[1] == "get-nakamoto-tip" {
+        if argv.len() < 4 {
+            eprintln!(
+                "Usage: {} get-nakamoto-tip CHAINSTATE_DIR NETWORK",
+                &argv[0]
+            );
+            process::exit(1);
+        }
+
+        let chainstate_dir = argv[2].as_str();
+        let network = argv[3].as_str();
+
+        check_shadow_network(network);
+        let (sort_db, chain_state) = open_nakamoto_chainstate_dbs(chainstate_dir, network);
+
+        let header = NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)
+            .unwrap()
+            .unwrap();
+        println!("{}", &header.index_block_hash());
+        process::exit(0);
+    }
+
+    if argv[1] == "get-account" {
+        if argv.len() < 5 {
+            eprintln!(
+                "Usage: {} get-account CHAINSTATE_DIR mainnet|krypton ADDRESS [CHAIN_TIP]",
+                &argv[0]
+            );
+            process::exit(1);
+        }
+
+        let chainstate_dir = argv[2].as_str();
+        let network = argv[3].as_str();
+        let addr = StacksAddress::from_string(&argv[4]).unwrap();
+        let chain_tip: Option<StacksBlockId> =
+            argv.get(5).map(|tip| StacksBlockId::from_hex(tip).unwrap());
+
+        check_shadow_network(network);
+        let (sort_db, mut chain_state) = open_nakamoto_chainstate_dbs(chainstate_dir, network);
+
+        let chain_tip_header = chain_tip
+            .map(|tip| {
+                let header = NakamotoChainState::get_block_header_nakamoto(chain_state.db(), &tip)
+                    .unwrap()
+                    .unwrap();
+                header
+            })
+            .unwrap_or_else(|| {
+                let header =
+                    NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)
+                        .unwrap()
+                        .unwrap();
+                header
+            });
+
+        let account =
+            NakamotoBlockBuilder::get_account(&mut chain_state, &sort_db, &addr, &chain_tip_header)
+                .unwrap();
+        println!("{:#?}", &account);
+        process::exit(0);
+    }
+
+    if argv[1] == "make-shadow-block" {
+        if argv.len() < 5 {
+            eprintln!(
+                "Usage: {} make-shadow-block CHAINSTATE_DIR NETWORK CHAIN_TIP_HASH [TX...]",
+                &argv[0]
+            );
+            process::exit(1);
+        }
+        let chainstate_dir = argv[2].as_str();
+        let network = argv[3].as_str();
+        let chain_tip = StacksBlockId::from_hex(argv[4].as_str()).unwrap();
+        let txs = argv[5..]
+            .iter()
+            .map(|tx_str| {
+                let tx_bytes = hex_bytes(&tx_str).unwrap();
+                let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+                tx
+            })
+            .collect();
+
+        check_shadow_network(network);
+        let (sort_db, mut chain_state) = open_nakamoto_chainstate_dbs(chainstate_dir, network);
+        let header = NakamotoChainState::get_block_header(chain_state.db(), &chain_tip)
+            .unwrap()
+            .unwrap();
+
+        let shadow_block = NakamotoBlockBuilder::make_shadow_tenure(
+            &mut chain_state,
+            &sort_db,
+            chain_tip,
+            header.consensus_hash,
+            txs,
+        )
+        .unwrap();
+
+        println!("{}", to_hex(&shadow_block.serialize_to_vec()));
+        process::exit(0);
+    }
+
+    // Generates the shadow blocks needed to restore this node to working order.
+    // Automatically inserts and processes them as well.
+    // Prints out the generated shadow blocks (as JSON)
+    if argv[1] == "shadow-chainstate-repair" {
+        if argv.len() < 4 {
+            eprintln!(
+                "Usage: {} shadow-chainstate-repair CHAINSTATE_DIR NETWORK",
+                &argv[0]
+            );
+            process::exit(1);
+        }
+
+        let chainstate_dir = argv[2].as_str();
+        let network = argv[3].as_str();
+
+        check_shadow_network(network);
+
+        let (mut sort_db, mut chain_state) = open_nakamoto_chainstate_dbs(chainstate_dir, network);
+        let shadow_blocks = shadow_chainstate_repair(&mut chain_state, &mut sort_db).unwrap();
+
+        let shadow_blocks_hex: Vec<_> = shadow_blocks
+            .into_iter()
+            .map(|blk| to_hex(&blk.serialize_to_vec()))
+            .collect();
+
+        println!("{}", serde_json::to_string(&shadow_blocks_hex).unwrap());
+        process::exit(0);
+    }
+
+    // Inserts and processes shadow blocks generated from `shadow-chainstate-repair`
+    if argv[1] == "shadow-chainstate-patch" {
+        if argv.len() < 5 {
+            eprintln!(
+                "Usage: {} shadow-chainstate-patch CHAINSTATE_DIR NETWORK SHADOW_BLOCKS_PATH.JSON",
+                &argv[0]
+            );
+            process::exit(1);
+        }
+
+        let chainstate_dir = argv[2].as_str();
+        let network = argv[3].as_str();
+        let shadow_blocks_json_path = argv[4].as_str();
+
+        let shadow_blocks_hex = {
+            let mut blocks_json_file =
+                File::open(shadow_blocks_json_path).expect("Unable to open file");
+            let mut buffer = vec![];
+            blocks_json_file.read_to_end(&mut buffer).unwrap();
+            let shadow_blocks_hex: Vec<String> = serde_json::from_slice(&buffer).unwrap();
+            shadow_blocks_hex
+        };
+
+        let shadow_blocks: Vec<_> = shadow_blocks_hex
+            .into_iter()
+            .map(|blk_hex| {
+                NakamotoBlock::consensus_deserialize(&mut hex_bytes(&blk_hex).unwrap().as_slice())
+                    .unwrap()
+            })
+            .collect();
+
+        check_shadow_network(network);
+
+        let (mut sort_db, mut chain_state) = open_nakamoto_chainstate_dbs(chainstate_dir, network);
+        for shadow_block in shadow_blocks.into_iter() {
+            process_shadow_block(&mut chain_state, &mut sort_db, shadow_block).unwrap();
+        }
+
+        process::exit(0);
+    }
+
+    if argv[1] == "add-shadow-block" {
+        if argv.len() < 5 {
+            eprintln!(
+                "Usage: {} add-shadow-block CHAINSTATE_DIR NETWORK SHADOW_BLOCK_HEX",
+                &argv[0]
+            );
+            process::exit(1);
+        }
+        let chainstate_dir = argv[2].as_str();
+        let network = argv[3].as_str();
+        let block_hex = argv[4].as_str();
+        let shadow_block =
+            NakamotoBlock::consensus_deserialize(&mut hex_bytes(block_hex).unwrap().as_slice())
+                .unwrap();
+
+        assert!(shadow_block.is_shadow_block());
+
+        check_shadow_network(network);
+        let (_, mut chain_state) = open_nakamoto_chainstate_dbs(chainstate_dir, network);
+
+        let tx = chain_state.staging_db_tx_begin().unwrap();
+        tx.add_shadow_block(&shadow_block).unwrap();
+        tx.commit().unwrap();
+
+        process::exit(0);
+    }
+
     if argv[1] == "replay-chainstate" {
         if argv.len() < 7 {
             eprintln!("Usage: {} OLD_CHAINSTATE_PATH OLD_SORTITION_DB_PATH OLD_BURNCHAIN_DB_PATH NEW_CHAINSTATE_PATH NEW_BURNCHAIN_DB_PATH", &argv[0]);
@@ -1345,6 +1597,7 @@ simulating a miner.
                     SortitionDB::get_canonical_burn_chain_tip(new_sortition_db.conn()).unwrap();
                 new_sortition_db
                     .evaluate_sortition(
+                        false,
                         &burn_block_header,
                         blockstack_txs,
                         &burnchain,
@@ -1467,6 +1720,35 @@ simulating a miner.
 
     if argv[1] == "replay-block" {
         cli::command_replay_block(&argv[1..], None);
+        process::exit(0);
+    }
+
+    if argv[1] == "replay-naka-block" {
+        let chain_config =
+            if let Some(network_flag_ix) = argv.iter().position(|arg| arg == "--network") {
+                let Some(network_choice) = argv.get(network_flag_ix + 1) else {
+                    eprintln!("Must supply network choice after `--network` option");
+                    process::exit(1);
+                };
+
+                let network_config = match network_choice.to_lowercase().as_str() {
+                    "testnet" => cli::StacksChainConfig::default_testnet(),
+                    "mainnet" => cli::StacksChainConfig::default_mainnet(),
+                    other => {
+                        eprintln!("Unknown network choice `{other}`");
+                        process::exit(1);
+                    }
+                };
+
+                argv.remove(network_flag_ix + 1);
+                argv.remove(network_flag_ix);
+
+                Some(network_config)
+            } else {
+                None
+            };
+
+        cli::command_replay_block_nakamoto(&argv[1..], chain_config.as_ref());
         process::exit(0);
     }
 
@@ -1813,6 +2095,7 @@ fn analyze_sortition_mev(argv: Vec<String>) {
         debug!("Re-evaluate sortition at height {}", height);
         let (next_sn, state_transition) = sortdb
             .evaluate_sortition(
+                true,
                 &burn_block.header,
                 burn_block.ops.clone(),
                 &burnchain,
@@ -1828,6 +2111,7 @@ fn analyze_sortition_mev(argv: Vec<String>) {
         let mut sort_tx = sortdb.tx_begin_at_tip();
         let tip_pox_id = sort_tx.get_pox_id().unwrap();
         let next_sn_nakamoto = BlockSnapshot::make_snapshot_in_epoch(
+            true,
             &mut sort_tx,
             &burnchain,
             &ancestor_sn.sortition_id,

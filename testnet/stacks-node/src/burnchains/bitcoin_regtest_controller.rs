@@ -48,7 +48,7 @@ use stacks::chainstate::burn::Opcodes;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 #[cfg(test)]
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::core::{StacksEpoch, StacksEpochId};
+use stacks::core::{EpochList, StacksEpochId};
 use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
 use stacks::net::http::{HttpRequestContents, HttpResponsePayload};
 use stacks::net::httpcore::{send_http_request, StacksHttpRequest};
@@ -135,16 +135,16 @@ pub fn addr2str(btc_addr: &BitcoinAddress) -> String {
     if let BitcoinAddress::Segwit(segwit_addr) = btc_addr {
         // regtest segwit addresses use a different hrp
         let s = segwit_addr.to_bech32_hrp("bcrt");
-        warn!("Re-encoding {} to {}", &segwit_addr, &s);
+        warn!("Re-encoding {segwit_addr} to {s}");
         s
     } else {
-        format!("{}", &btc_addr)
+        format!("{btc_addr}")
     }
 }
 
 #[cfg(not(test))]
 pub fn addr2str(btc_addr: &BitcoinAddress) -> String {
-    format!("{}", &btc_addr)
+    format!("{btc_addr}")
 }
 
 // TODO: add tests from mutation testing results #4862
@@ -186,12 +186,11 @@ pub fn make_bitcoin_indexer(
 
     let (_, network_type) = config.burnchain.get_bitcoin_network();
     let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
-    let burnchain_indexer = BitcoinIndexer {
+    BitcoinIndexer {
         config: indexer_config,
         runtime: indexer_runtime,
-        should_keep_running: should_keep_running,
-    };
-    burnchain_indexer
+        should_keep_running,
+    }
 }
 
 pub fn get_satoshis_per_byte(config: &Config) -> u64 {
@@ -215,7 +214,7 @@ impl LeaderBlockCommitFees {
         let mut fees = LeaderBlockCommitFees::estimated_fees_from_payload(payload, config);
         fees.spent_in_attempts = cmp::max(1, self.spent_in_attempts);
         fees.final_size = self.final_size;
-        fees.fee_rate = self.fee_rate + get_rbf_fee_increment(&config);
+        fees.fee_rate = self.fee_rate + get_rbf_fee_increment(config);
         fees.is_rbf_enabled = true;
         fees
     }
@@ -306,8 +305,7 @@ impl BitcoinRegtestController {
         burnchain: Option<Burnchain>,
         should_keep_running: Option<Arc<AtomicBool>>,
     ) -> Self {
-        std::fs::create_dir_all(&config.get_burnchain_path_str())
-            .expect("Unable to create workdir");
+        std::fs::create_dir_all(config.get_burnchain_path_str()).expect("Unable to create workdir");
         let (_, network_id) = config.burnchain.get_bitcoin_network();
 
         let res = SpvClient::new(
@@ -319,15 +317,15 @@ impl BitcoinRegtestController {
             false,
         );
         if let Err(err) = res {
-            error!("Unable to init block headers: {}", err);
+            error!("Unable to init block headers: {err}");
             panic!()
         }
 
         let burnchain_params = burnchain_params_from_config(&config.burnchain);
 
         if network_id == BitcoinNetworkType::Mainnet && config.burnchain.epochs.is_some() {
-            panic!("It is an error to set custom epochs while running on Mainnet: network_id {:?} config.burnchain {:#?}",
-                   &network_id, &config.burnchain);
+            panic!("It is an error to set custom epochs while running on Mainnet: network_id {network_id:?} config.burnchain {:#?}",
+                   &config.burnchain);
         }
 
         let indexer_config = {
@@ -434,11 +432,10 @@ impl BitcoinRegtestController {
 
     /// Get the default Burnchain instance from our config
     fn default_burnchain(&self) -> Burnchain {
-        let burnchain = match &self.burnchain_config {
+        match &self.burnchain_config {
             Some(burnchain) => burnchain.clone(),
             None => self.config.get_burnchain(),
-        };
-        burnchain
+        }
     }
 
     /// Get the PoX constants in use
@@ -465,7 +462,7 @@ impl BitcoinRegtestController {
                 }
                 Err(e) => {
                     // keep trying
-                    error!("Unable to sync with burnchain: {}", e);
+                    error!("Unable to sync with burnchain: {e}");
                     match e {
                         burnchain_error::TrySyncAgain => {
                             // try again immediately
@@ -491,7 +488,7 @@ impl BitcoinRegtestController {
             (None, Some(chain_tip)) => chain_tip.clone(),
             (Some(state_transition), _) => {
                 let burnchain_tip = BurnchainTip {
-                    block_snapshot: block_snapshot,
+                    block_snapshot,
                     state_transition: BurnchainStateTransitionOps::from(state_transition),
                     received_at: Instant::now(),
                 };
@@ -501,7 +498,7 @@ impl BitcoinRegtestController {
             (None, None) => {
                 // can happen at genesis
                 let burnchain_tip = BurnchainTip {
-                    block_snapshot: block_snapshot,
+                    block_snapshot,
                     state_transition: BurnchainStateTransitionOps::noop(),
                     received_at: Instant::now(),
                 };
@@ -576,7 +573,7 @@ impl BitcoinRegtestController {
                 }
                 Err(e) => {
                     // keep trying
-                    error!("Unable to sync with burnchain: {}", e);
+                    error!("Unable to sync with burnchain: {e}");
                     match e {
                         burnchain_error::CoordinatorClosed => {
                             return Err(BurnchainControllerError::CoordinatorClosed)
@@ -602,8 +599,8 @@ impl BitcoinRegtestController {
         };
 
         let burnchain_tip = BurnchainTip {
-            block_snapshot: block_snapshot,
-            state_transition: state_transition,
+            block_snapshot,
+            state_transition,
             received_at: Instant::now(),
         };
 
@@ -641,11 +638,11 @@ impl BitcoinRegtestController {
         let filter_addresses = vec![addr2str(&address)];
 
         let pubk = if self.config.miner.segwit {
-            let mut p = public_key.clone();
+            let mut p = *public_key;
             p.set_compressed(true);
             p
         } else {
-            public_key.clone()
+            *public_key
         };
 
         test_debug!("Import public key '{}'", &pubk.to_hex());
@@ -685,7 +682,7 @@ impl BitcoinRegtestController {
                         let parsed_utxo: ParsedUTXO = match serde_json::from_value(entry) {
                             Ok(utxo) => utxo,
                             Err(err) => {
-                                warn!("Failed parsing UTXO: {}", err);
+                                warn!("Failed parsing UTXO: {err}");
                                 continue;
                             }
                         };
@@ -753,11 +750,11 @@ impl BitcoinRegtestController {
         }
 
         let pubk = if self.config.miner.segwit && epoch_id >= StacksEpochId::Epoch21 {
-            let mut p = public_key.clone();
+            let mut p = *public_key;
             p.set_compressed(true);
             p
         } else {
-            public_key.clone()
+            *public_key
         };
 
         // Configure UTXO filter
@@ -786,7 +783,7 @@ impl BitcoinRegtestController {
                     break utxos;
                 }
                 Err(e) => {
-                    error!("Bitcoin RPC failure: error listing utxos {:?}", e);
+                    error!("Bitcoin RPC failure: error listing utxos {e:?}");
                     sleep_ms(5000);
                     continue;
                 }
@@ -817,13 +814,13 @@ impl BitcoinRegtestController {
                 utxos = match result {
                     Ok(utxos) => utxos,
                     Err(e) => {
-                        error!("Bitcoin RPC failure: error listing utxos {:?}", e);
+                        error!("Bitcoin RPC failure: error listing utxos {e:?}");
                         sleep_ms(5000);
                         continue;
                     }
                 };
 
-                test_debug!("Unspent for {:?}: {:?}", &filter_addresses, &utxos);
+                test_debug!("Unspent for {filter_addresses:?}: {utxos:?}");
 
                 if utxos.is_empty() {
                     return None;
@@ -832,20 +829,14 @@ impl BitcoinRegtestController {
                 }
             }
         } else {
-            debug!(
-                "Got {} UTXOs for {:?}",
-                utxos.utxos.len(),
-                &filter_addresses
-            );
+            debug!("Got {} UTXOs for {filter_addresses:?}", utxos.utxos.len(),);
             utxos
         };
 
         let total_unspent = utxos.total_available();
         if total_unspent < total_required {
             warn!(
-                "Total unspent {} < {} for {:?}",
-                total_unspent,
-                total_required,
+                "Total unspent {total_unspent} < {total_required} for {:?}",
                 &pubk.to_hex()
             );
             return None;
@@ -1013,7 +1004,7 @@ impl BitcoinRegtestController {
             let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
             payload
                 .consensus_serialize(&mut bytes)
-                .map_err(|e| BurnchainControllerError::SerializerError(e))?;
+                .map_err(BurnchainControllerError::SerializerError)?;
             bytes
         };
 
@@ -1026,10 +1017,8 @@ impl BitcoinRegtestController {
         };
 
         tx.output = vec![consensus_output];
-        tx.output.push(
-            PoxAddress::Standard(payload.recipient.clone(), None)
-                .to_bitcoin_tx_out(DUST_UTXO_LIMIT),
-        );
+        tx.output
+            .push(PoxAddress::Standard(payload.recipient, None).to_bitcoin_tx_out(DUST_UTXO_LIMIT));
 
         self.finalize_tx(
             epoch_id,
@@ -1099,7 +1088,7 @@ impl BitcoinRegtestController {
             let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
             payload
                 .consensus_serialize(&mut bytes)
-                .map_err(|e| BurnchainControllerError::SerializerError(e))?;
+                .map_err(BurnchainControllerError::SerializerError)?;
             bytes
         };
 
@@ -1113,8 +1102,7 @@ impl BitcoinRegtestController {
 
         tx.output = vec![consensus_output];
         tx.output.push(
-            PoxAddress::Standard(payload.delegate_to.clone(), None)
-                .to_bitcoin_tx_out(DUST_UTXO_LIMIT),
+            PoxAddress::Standard(payload.delegate_to, None).to_bitcoin_tx_out(DUST_UTXO_LIMIT),
         );
 
         self.finalize_tx(
@@ -1180,7 +1168,7 @@ impl BitcoinRegtestController {
             let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
             payload
                 .consensus_serialize(&mut bytes)
-                .map_err(|e| BurnchainControllerError::SerializerError(e))?;
+                .map_err(BurnchainControllerError::SerializerError)?;
             bytes
         };
 
@@ -1271,7 +1259,7 @@ impl BitcoinRegtestController {
 
         tx.output = vec![consensus_output];
         tx.output
-            .push(PoxAddress::Standard(payload.output.clone(), None).to_bitcoin_tx_out(output_amt));
+            .push(PoxAddress::Standard(payload.output, None).to_bitcoin_tx_out(output_amt));
 
         self.finalize_tx(
             epoch_id,
@@ -1347,7 +1335,7 @@ impl BitcoinRegtestController {
             let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
             payload
                 .consensus_serialize(&mut bytes)
-                .map_err(|e| BurnchainControllerError::SerializerError(e))?;
+                .map_err(BurnchainControllerError::SerializerError)?;
             bytes
         };
 
@@ -1388,10 +1376,9 @@ impl BitcoinRegtestController {
     fn magic_bytes(&self) -> Vec<u8> {
         #[cfg(test)]
         {
-            if let Some(set_bytes) = TEST_MAGIC_BYTES
+            if let Some(set_bytes) = *TEST_MAGIC_BYTES
                 .lock()
                 .expect("FATAL: test magic bytes mutex poisoned")
-                .clone()
             {
                 return set_bytes.to_vec();
             }
@@ -1399,6 +1386,7 @@ impl BitcoinRegtestController {
         self.config.burnchain.magic_bytes.as_bytes().to_vec()
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn send_block_commit_operation(
         &mut self,
         epoch_id: StacksEpochId,
@@ -1407,7 +1395,7 @@ impl BitcoinRegtestController {
         utxos_to_include: Option<UTXOSet>,
         utxos_to_exclude: Option<UTXOSet>,
         previous_fees: Option<LeaderBlockCommitFees>,
-        previous_txids: &Vec<Txid>,
+        previous_txids: &[Txid],
     ) -> Result<Transaction, BurnchainControllerError> {
         let _ = self.sortdb_mut();
         let burn_chain_tip = self
@@ -1433,6 +1421,7 @@ impl BitcoinRegtestController {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn send_block_commit_operation_at_burnchain_height(
         &mut self,
         epoch_id: StacksEpochId,
@@ -1441,7 +1430,7 @@ impl BitcoinRegtestController {
         utxos_to_include: Option<UTXOSet>,
         utxos_to_exclude: Option<UTXOSet>,
         mut estimated_fees: LeaderBlockCommitFees,
-        previous_txids: &Vec<Txid>,
+        previous_txids: &[Txid],
         burnchain_block_height: u64,
     ) -> Result<Transaction, BurnchainControllerError> {
         let public_key = signer.get_public_key();
@@ -1500,10 +1489,10 @@ impl BitcoinRegtestController {
         let mut txid = tx.txid().as_bytes().to_vec();
         txid.reverse();
 
-        debug!("Transaction relying on UTXOs: {:?}", utxos);
+        debug!("Transaction relying on UTXOs: {utxos:?}");
         let txid = Txid::from_bytes(&txid[..]).unwrap();
-        let mut txids = previous_txids.clone();
-        txids.push(txid.clone());
+        let mut txids = previous_txids.to_vec();
+        txids.push(txid);
         let ongoing_block_commit = OngoingBlockCommit {
             payload,
             utxos,
@@ -1512,12 +1501,11 @@ impl BitcoinRegtestController {
         };
 
         info!(
-            "Miner node: submitting leader_block_commit (txid: {}, rbf: {}, total spent: {}, size: {}, fee_rate: {})",
+            "Miner node: submitting leader_block_commit (txid: {}, rbf: {}, total spent: {}, size: {}, fee_rate: {fee_rate})",
             txid.to_hex(),
             ongoing_block_commit.fees.is_rbf_enabled,
             ongoing_block_commit.fees.total_spent(),
-            ongoing_block_commit.fees.final_size,
-            fee_rate,
+            ongoing_block_commit.fees.final_size
         );
 
         self.ongoing_block_commit = Some(ongoing_block_commit);
@@ -1537,15 +1525,8 @@ impl BitcoinRegtestController {
         // Are we currently tracking an operation?
         if self.ongoing_block_commit.is_none() || !self.allow_rbf {
             // Good to go, let's build the transaction and send it.
-            let res = self.send_block_commit_operation(
-                epoch_id,
-                payload,
-                signer,
-                None,
-                None,
-                None,
-                &vec![],
-            );
+            let res =
+                self.send_block_commit_operation(epoch_id, payload, signer, None, None, None, &[]);
             return res;
         }
 
@@ -1563,10 +1544,7 @@ impl BitcoinRegtestController {
                     Ok(true)
                 );
             if ongoing_tx_confirmed {
-                debug!(
-                    "Was able to retrieve confirmation of ongoing burnchain TXID - {}",
-                    txid
-                );
+                debug!("Was able to retrieve confirmation of ongoing burnchain TXID - {txid}");
                 let res = self.send_block_commit_operation(
                     epoch_id,
                     payload,
@@ -1574,11 +1552,11 @@ impl BitcoinRegtestController {
                     None,
                     None,
                     None,
-                    &vec![],
+                    &[],
                 );
                 return res;
             } else {
-                debug!("Was unable to retrieve ongoing TXID - {}", txid);
+                debug!("Was unable to retrieve ongoing TXID - {txid}");
             };
         }
 
@@ -1589,13 +1567,13 @@ impl BitcoinRegtestController {
             .map_err(|_| BurnchainControllerError::BurnchainError)?;
         let mut found_last_mined_at = false;
         while traversal_depth < UTXO_CACHE_STALENESS_LIMIT {
-            if &burn_chain_tip.block_hash == &ongoing_op.utxos.bhh {
+            if burn_chain_tip.block_hash == ongoing_op.utxos.bhh {
                 found_last_mined_at = true;
                 break;
             }
 
             let parent = BurnchainDB::get_burnchain_block(
-                &burnchain_db.conn(),
+                burnchain_db.conn(),
                 &burn_chain_tip.parent_block_hash,
             )
             .map_err(|_| BurnchainControllerError::BurnchainError)?;
@@ -1609,15 +1587,8 @@ impl BitcoinRegtestController {
                 "Possible presence of fork or stale UTXO cache, invalidating cached set of UTXOs.";
                 "cached_burn_block_hash" => %ongoing_op.utxos.bhh,
             );
-            let res = self.send_block_commit_operation(
-                epoch_id,
-                payload,
-                signer,
-                None,
-                None,
-                None,
-                &vec![],
-            );
+            let res =
+                self.send_block_commit_operation(epoch_id, payload, signer, None, None, None, &[]);
             return res;
         }
 
@@ -1659,7 +1630,7 @@ impl BitcoinRegtestController {
                 None,
                 Some(ongoing_op.utxos.clone()),
                 None,
-                &vec![],
+                &[],
             )
         } else {
             // Case 2) ii): Attempt to RBF
@@ -1724,9 +1695,9 @@ impl BitcoinRegtestController {
         } else {
             // Fetch some UTXOs
             let addr = self.get_miner_address(epoch_id, public_key);
-            let utxos = match self.get_utxos(
+            match self.get_utxos(
                 epoch_id,
-                &public_key,
+                public_key,
                 total_required,
                 utxos_to_exclude,
                 block_height,
@@ -1734,15 +1705,13 @@ impl BitcoinRegtestController {
                 Some(utxos) => utxos,
                 None => {
                     warn!(
-                        "No UTXOs for {} ({}) in epoch {}",
+                        "No UTXOs for {} ({}) in epoch {epoch_id}",
                         &public_key.to_hex(),
-                        &addr2str(&addr),
-                        epoch_id
+                        &addr2str(&addr)
                     );
                     return Err(BurnchainControllerError::NoUTXOs);
                 }
-            };
-            utxos
+            }
         };
 
         // Prepare a backbone for the tx
@@ -1756,6 +1725,7 @@ impl BitcoinRegtestController {
         Ok((transaction, utxos))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn finalize_tx(
         &mut self,
         epoch_id: StacksEpochId,
@@ -1854,18 +1824,14 @@ impl BitcoinRegtestController {
         }
 
         if total_consumed < total_target {
-            warn!(
-                "Consumed total {} is less than intended spend: {}",
-                total_consumed, total_target
-            );
+            warn!("Consumed total {total_consumed} is less than intended spend: {total_target}");
             return false;
         }
 
         // Append the change output
         let value = total_consumed - tx_cost;
         debug!(
-            "Payments value: {:?}, total_consumed: {:?}, total_spent: {:?}",
-            value, total_consumed, total_target
+            "Payments value: {value:?}, total_consumed: {total_consumed:?}, total_spent: {total_target:?}"
         );
         if value >= DUST_UTXO_LIMIT {
             let change_output = if self.config.miner.segwit && epoch_id >= StacksEpochId::Epoch21 {
@@ -1884,7 +1850,7 @@ impl BitcoinRegtestController {
             debug!("Not enough change to clear dust limit. Not adding change address.");
         }
 
-        for (_i, utxo) in utxos_set.utxos.iter().enumerate() {
+        for utxo in utxos_set.utxos.iter() {
             let input = TxIn {
                 previous_output: OutPoint {
                     txid: utxo.txid,
@@ -1958,8 +1924,8 @@ impl BitcoinRegtestController {
                 transaction.txid()
             })
             .map_err(|e| {
-                error!("Bitcoin RPC error: transaction submission failed - {:?}", e);
-                BurnchainControllerError::TransactionSubmissionFailed(format!("{:?}", e))
+                error!("Bitcoin RPC error: transaction submission failed - {e:?}");
+                BurnchainControllerError::TransactionSubmissionFailed(format!("{e:?}"))
             })
     }
 
@@ -1977,8 +1943,8 @@ impl BitcoinRegtestController {
 
             if debug_ctr % 10 == 0 {
                 debug!(
-                    "Waiting until canonical sortition height reaches {} (currently {})",
-                    height_to_wait, canonical_sortition_tip.block_height
+                    "Waiting until canonical sortition height reaches {height_to_wait} (currently {})",
+                    canonical_sortition_tip.block_height
                 );
             }
             debug_ctr += 1;
@@ -2012,7 +1978,7 @@ impl BitcoinRegtestController {
 
     /// Instruct a regtest Bitcoin node to build the next block.
     pub fn build_next_block(&self, num_blocks: u64) {
-        debug!("Generate {} block(s)", num_blocks);
+        debug!("Generate {num_blocks} block(s)");
         let public_key_bytes = match &self.config.burnchain.local_mining_public_key {
             Some(public_key) => hex_bytes(public_key).expect("Invalid byte sequence"),
             None => panic!("Unable to make new block, mining public key"),
@@ -2028,7 +1994,7 @@ impl BitcoinRegtestController {
         match result {
             Ok(_) => {}
             Err(e) => {
-                error!("Bitcoin RPC failure: error generating block {:?}", e);
+                error!("Bitcoin RPC failure: error generating block {e:?}");
                 panic!();
             }
         }
@@ -2036,7 +2002,7 @@ impl BitcoinRegtestController {
 
     #[cfg(test)]
     pub fn invalidate_block(&self, block: &BurnchainHeaderHash) {
-        info!("Invalidating block {}", &block);
+        info!("Invalidating block {block}");
         let request = BitcoinRPCRequest {
             method: "invalidateblock".into(),
             params: vec![json!(&block.to_string())],
@@ -2044,7 +2010,7 @@ impl BitcoinRegtestController {
             jsonrpc: "2.0".into(),
         };
         if let Err(e) = BitcoinRPCRequest::send(&self.config, request) {
-            error!("Bitcoin RPC failure: error invalidating block {:?}", e);
+            error!("Bitcoin RPC failure: error invalidating block {e:?}");
             panic!();
         }
     }
@@ -2062,7 +2028,7 @@ impl BitcoinRegtestController {
                 BurnchainHeaderHash::from_hex(v.get("result").unwrap().as_str().unwrap()).unwrap()
             }
             Err(e) => {
-                error!("Bitcoin RPC failure: error invalidating block {:?}", e);
+                error!("Bitcoin RPC failure: error invalidating block {e:?}");
                 panic!();
             }
         }
@@ -2118,7 +2084,7 @@ impl BitcoinRegtestController {
             }
         };
 
-        transaction.map(|tx| SerializedTx::new(tx))
+        transaction.map(SerializedTx::new)
     }
 
     #[cfg(test)]
@@ -2139,7 +2105,7 @@ impl BitcoinRegtestController {
 
         for pk in pks {
             debug!("Import public key '{}'", &pk.to_hex());
-            if let Err(e) = BitcoinRPCRequest::import_public_key(&self.config, &pk) {
+            if let Err(e) = BitcoinRPCRequest::import_public_key(&self.config, pk) {
                 warn!("Error when importing pubkey: {e:?}");
             }
         }
@@ -2157,7 +2123,7 @@ impl BitcoinRegtestController {
                 num_blocks.try_into().unwrap(),
                 addr2str(&address),
             ) {
-                error!("Bitcoin RPC failure: error generating block {:?}", e);
+                error!("Bitcoin RPC failure: error generating block {e:?}");
                 panic!();
             }
             return;
@@ -2165,7 +2131,7 @@ impl BitcoinRegtestController {
 
         // otherwise, round robin generate blocks
         for i in 0..num_blocks {
-            let pk = &pks[usize::try_from(i % pks.len()).unwrap()];
+            let pk = &pks[i % pks.len()];
             let address = self.get_miner_address(StacksEpochId::Epoch21, pk);
             if i < pks.len() {
                 debug!(
@@ -2177,7 +2143,7 @@ impl BitcoinRegtestController {
             if let Err(e) =
                 BitcoinRPCRequest::generate_to_address(&self.config, 1, addr2str(&address))
             {
-                error!("Bitcoin RPC failure: error generating block {:?}", e);
+                error!("Bitcoin RPC failure: error generating block {e:?}");
                 panic!();
             }
         }
@@ -2240,7 +2206,7 @@ impl BurnchainController for BitcoinRegtestController {
         Ok(())
     }
 
-    fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {
+    fn get_stacks_epochs(&self) -> EpochList {
         self.indexer.get_stacks_epochs()
     }
 
@@ -2249,10 +2215,7 @@ impl BurnchainController for BitcoinRegtestController {
         target_block_height_opt: Option<u64>,
     ) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
         // if no target block height is given, just fetch the first burnchain block.
-        self.receive_blocks(
-            false,
-            target_block_height_opt.map_or_else(|| Some(1), |x| Some(x)),
-        )
+        self.receive_blocks(false, target_block_height_opt.map_or_else(|| Some(1), Some))
     }
 
     fn sync(
@@ -2271,10 +2234,7 @@ impl BurnchainController for BitcoinRegtestController {
         // Evaluate process_exit_at_block_height setting
         if let Some(cap) = self.config.burnchain.process_exit_at_block_height {
             if burnchain_tip.block_snapshot.block_height >= cap {
-                info!(
-                    "Node succesfully reached the end of the ongoing {} blocks epoch!",
-                    cap
-                );
+                info!("Node succesfully reached the end of the ongoing {cap} blocks epoch!");
                 info!("This process will automatically terminate in 30s, restart your node for participating in the next epoch.");
                 sleep_ms(30000);
                 std::process::exit(0);
@@ -2351,13 +2311,12 @@ impl SerializedTx {
     }
 
     pub fn txid(&self) -> Txid {
-        self.txid.clone()
+        self.txid
     }
 
     pub fn to_hex(&self) -> String {
-        let formatted_bytes: Vec<String> =
-            self.bytes.iter().map(|b| format!("{:02x}", b)).collect();
-        format!("{}", formatted_bytes.join(""))
+        let formatted_bytes: Vec<String> = self.bytes.iter().map(|b| format!("{b:02x}")).collect();
+        formatted_bytes.join("").to_string()
     }
 }
 
@@ -2389,7 +2348,7 @@ impl ParsedUTXO {
                 Some(Sha256dHash::from(&txid[..]))
             }
             Err(err) => {
-                warn!("Unable to get txid from UTXO {}", err);
+                warn!("Unable to get txid from UTXO {err}");
                 None
             }
         }
@@ -2418,8 +2377,8 @@ impl ParsedUTXO {
                         Some(amount)
                     }
                     (lhs, rhs) => {
-                        warn!("Error while converting BTC to sat {:?} - {:?}", lhs, rhs);
-                        return None;
+                        warn!("Error while converting BTC to sat {lhs:?} - {rhs:?}");
+                        None
                     }
                 }
             }
@@ -2431,7 +2390,7 @@ impl ParsedUTXO {
         let base: u64 = 10;
         let int_part = amount / base.pow(8);
         let frac_part = amount % base.pow(8);
-        let amount = format!("{}.{:08}", int_part, frac_part);
+        let amount = format!("{int_part}.{frac_part:08}");
         amount
     }
 
@@ -2469,13 +2428,13 @@ type RPCResult<T> = Result<T, RPCError>;
 
 impl From<io::Error> for RPCError {
     fn from(ioe: io::Error) -> Self {
-        Self::Network(format!("IO Error: {:?}", &ioe))
+        Self::Network(format!("IO Error: {ioe:?}"))
     }
 }
 
 impl From<NetError> for RPCError {
     fn from(ne: NetError) -> Self {
-        Self::Network(format!("Net Error: {:?}", &ne))
+        Self::Network(format!("Net Error: {ne:?}"))
     }
 }
 
@@ -2488,11 +2447,11 @@ impl BitcoinRPCRequest {
                 _ => None,
             };
             let url = config.burnchain.get_rpc_url(wallet_id);
-            Url::parse(&url).unwrap_or_else(|_| panic!("Unable to parse {} as a URL", url))
+            Url::parse(&url).unwrap_or_else(|_| panic!("Unable to parse {url} as a URL"))
         };
         debug!(
-            "BitcoinRPC builder '{}': {:?}:{:?}@{}",
-            &payload.method, &config.burnchain.username, &config.burnchain.password, &url
+            "BitcoinRPC builder '{}': {:?}:{:?}@{url}",
+            &payload.method, &config.burnchain.username, &config.burnchain.password
         );
 
         let host = url
@@ -2516,27 +2475,26 @@ impl BitcoinRPCRequest {
         .unwrap_or_else(|_| panic!("FATAL: failed to encode infallible data as HTTP request"));
         request.add_header("Connection".into(), "close".into());
 
-        match (&config.burnchain.username, &config.burnchain.password) {
-            (Some(username), Some(password)) => {
-                let auth_token = format!("Basic {}", encode(format!("{}:{}", username, password)));
-                request.add_header("Authorization".into(), auth_token);
-            }
-            (_, _) => {}
-        };
+        if let (Some(username), Some(password)) =
+            (&config.burnchain.username, &config.burnchain.password)
+        {
+            let auth_token = format!("Basic {}", encode(format!("{username}:{password}")));
+            request.add_header("Authorization".into(), auth_token);
+        }
         request
     }
 
     #[cfg(test)]
     pub fn get_raw_transaction(config: &Config, txid: &Txid) -> RPCResult<String> {
-        debug!("Get raw transaction {}", txid);
+        debug!("Get raw transaction {txid}");
         let payload = BitcoinRPCRequest {
             method: "getrawtransaction".to_string(),
-            params: vec![format!("{}", txid).into()],
+            params: vec![format!("{txid}").into()],
             id: "stacks".to_string(),
             jsonrpc: "2.0".to_string(),
         };
-        let res = BitcoinRPCRequest::send(&config, payload)?;
-        debug!("Got raw transaction {}: {:?}", txid, &res);
+        let res = BitcoinRPCRequest::send(config, payload)?;
+        debug!("Got raw transaction {txid}: {res:?}");
         Ok(res.get("result").unwrap().as_str().unwrap().to_string())
     }
 
@@ -2544,11 +2502,11 @@ impl BitcoinRPCRequest {
     pub fn check_transaction_confirmed(config: &Config, txid: &Txid) -> RPCResult<bool> {
         let payload = BitcoinRPCRequest {
             method: "gettransaction".to_string(),
-            params: vec![format!("{}", txid).into()],
+            params: vec![format!("{txid}").into()],
             id: "stacks".to_string(),
             jsonrpc: "2.0".to_string(),
         };
-        let res = BitcoinRPCRequest::send(&config, payload)?;
+        let res = BitcoinRPCRequest::send(config, payload)?;
         let confirmations = res
             .get("result")
             .ok_or_else(|| RPCError::Parsing("No 'result' field in bitcoind RPC response".into()))?
@@ -2567,7 +2525,7 @@ impl BitcoinRPCRequest {
     }
 
     pub fn generate_to_address(config: &Config, num_blocks: u64, address: String) -> RPCResult<()> {
-        debug!("Generate {} blocks to {}", num_blocks, &address);
+        debug!("Generate {num_blocks} blocks to {address}");
         let payload = BitcoinRPCRequest {
             method: "generatetoaddress".to_string(),
             params: vec![num_blocks.into(), address.clone().into()],
@@ -2575,11 +2533,8 @@ impl BitcoinRPCRequest {
             jsonrpc: "2.0".to_string(),
         };
 
-        let res = BitcoinRPCRequest::send(&config, payload)?;
-        debug!(
-            "Generated {} blocks to {}: {:?}",
-            num_blocks, &address, &res
-        );
+        let res = BitcoinRPCRequest::send(config, payload)?;
+        debug!("Generated {num_blocks} blocks to {address}: {res:?}");
         Ok(())
     }
 
@@ -2598,21 +2553,17 @@ impl BitcoinRPCRequest {
             jsonrpc: "2.0".to_string(),
         };
 
-        let mut res = BitcoinRPCRequest::send(&config, payload)?;
-        let bhh = match res.as_object_mut() {
-            Some(res) => {
-                let res = res
-                    .get("result")
-                    .ok_or(RPCError::Parsing("Failed to get bestblockhash".to_string()))?;
-                let bhh: String = serde_json::from_value(res.to_owned())
-                    .map_err(|_| RPCError::Parsing("Failed to get bestblockhash".to_string()))?;
-                let bhh = BurnchainHeaderHash::from_hex(&bhh)
-                    .map_err(|_| RPCError::Parsing("Failed to get bestblockhash".to_string()))?;
-                bhh
-            }
-            _ => return Err(RPCError::Parsing("Failed to get UTXOs".to_string())),
+        let mut res = BitcoinRPCRequest::send(config, payload)?;
+        let Some(res) = res.as_object_mut() else {
+            return Err(RPCError::Parsing("Failed to get UTXOs".to_string()));
         };
-
+        let res = res
+            .get("result")
+            .ok_or(RPCError::Parsing("Failed to get bestblockhash".to_string()))?;
+        let bhh_string: String = serde_json::from_value(res.to_owned())
+            .map_err(|_| RPCError::Parsing("Failed to get bestblockhash".to_string()))?;
+        let bhh = BurnchainHeaderHash::from_hex(&bhh_string)
+            .map_err(|_| RPCError::Parsing("Failed to get bestblockhash".to_string()))?;
         let min_conf = 0i64;
         let max_conf = 9999999i64;
         let minimum_amount = ParsedUTXO::sat_to_serialized_btc(minimum_sum_amount);
@@ -2630,7 +2581,7 @@ impl BitcoinRPCRequest {
             jsonrpc: "2.0".to_string(),
         };
 
-        let mut res = BitcoinRPCRequest::send(&config, payload)?;
+        let mut res = BitcoinRPCRequest::send(config, payload)?;
         let txids_to_filter = if let Some(utxos_to_exclude) = utxos_to_exclude {
             utxos_to_exclude
                 .utxos
@@ -2650,7 +2601,7 @@ impl BitcoinRPCRequest {
                         let parsed_utxo: ParsedUTXO = match serde_json::from_value(entry) {
                             Ok(utxo) => utxo,
                             Err(err) => {
-                                warn!("Failed parsing UTXO: {}", err);
+                                warn!("Failed parsing UTXO: {err}");
                                 continue;
                             }
                         };
@@ -2710,11 +2661,11 @@ impl BitcoinRPCRequest {
             jsonrpc: "2.0".to_string(),
         };
 
-        let json_resp = BitcoinRPCRequest::send(&config, payload)?;
+        let json_resp = BitcoinRPCRequest::send(config, payload)?;
 
         if let Some(e) = json_resp.get("error") {
             if !e.is_null() {
-                error!("Error submitting transaction: {}", json_resp);
+                error!("Error submitting transaction: {json_resp}");
                 return Err(RPCError::Bitcoind(json_resp.to_string()));
             }
         }
@@ -2756,9 +2707,9 @@ impl BitcoinRPCRequest {
                 jsonrpc: "2.0".to_string(),
             };
 
-            let result = BitcoinRPCRequest::send(&config, payload)?;
+            let result = BitcoinRPCRequest::send(config, payload)?;
             let checksum = result
-                .get(&"result".to_string())
+                .get("result")
                 .and_then(|res| res.as_object())
                 .and_then(|obj| obj.get("checksum"))
                 .and_then(|checksum_val| checksum_val.as_str())
@@ -2770,13 +2721,13 @@ impl BitcoinRPCRequest {
             let payload = BitcoinRPCRequest {
                 method: "importdescriptors".to_string(),
                 params: vec![
-                    json!([{ "desc": format!("addr({})#{}", &addr2str(&address), &checksum), "timestamp": 0, "internal": true }]),
+                    json!([{ "desc": format!("addr({})#{checksum}", &addr2str(&address)), "timestamp": 0, "internal": true }]),
                 ],
                 id: "stacks".to_string(),
                 jsonrpc: "2.0".to_string(),
             };
 
-            BitcoinRPCRequest::send(&config, payload)?;
+            BitcoinRPCRequest::send(config, payload)?;
         }
         Ok(())
     }
@@ -2790,7 +2741,7 @@ impl BitcoinRPCRequest {
             jsonrpc: "2.0".to_string(),
         };
 
-        let mut res = BitcoinRPCRequest::send(&config, payload)?;
+        let mut res = BitcoinRPCRequest::send(config, payload)?;
         let mut wallets = Vec::new();
         match res.as_object_mut() {
             Some(ref mut object) => match object.get_mut("result") {
@@ -2799,7 +2750,7 @@ impl BitcoinRPCRequest {
                         let parsed_wallet_name: String = match serde_json::from_value(entry) {
                             Ok(wallet_name) => wallet_name,
                             Err(err) => {
-                                warn!("Failed parsing wallet name: {}", err);
+                                warn!("Failed parsing wallet name: {err}");
                                 continue;
                             }
                         };
@@ -2828,12 +2779,12 @@ impl BitcoinRPCRequest {
             jsonrpc: "2.0".to_string(),
         };
 
-        BitcoinRPCRequest::send(&config, payload)?;
+        BitcoinRPCRequest::send(config, payload)?;
         Ok(())
     }
 
     pub fn send(config: &Config, payload: BitcoinRPCRequest) -> RPCResult<serde_json::Value> {
-        let request = BitcoinRPCRequest::build_rpc_request(&config, &payload);
+        let request = BitcoinRPCRequest::build_rpc_request(config, &payload);
         let timeout = Duration::from_secs(u64::from(config.burnchain.timeout));
 
         let host = request.preamble().host.hostname();
@@ -2841,9 +2792,9 @@ impl BitcoinRPCRequest {
 
         let response = send_http_request(&host, port, request, timeout)?;
         if let HttpResponsePayload::JSON(js) = response.destruct().1 {
-            return Ok(js);
+            Ok(js)
         } else {
-            return Err(RPCError::Parsing("Did not get a JSON response".into()));
+            Err(RPCError::Parsing("Did not get a JSON response".into()))
         }
     }
 }
@@ -3025,12 +2976,12 @@ mod tests {
                 Some(utxo_set),
                 None,
                 leader_fees,
-                &vec![],
+                &[],
                 2212,
             )
             .unwrap();
 
-        debug!("send_block_commit_operation:\n{:#?}", &block_commit);
+        debug!("send_block_commit_operation:\n{block_commit:#?}");
         debug!("{}", &SerializedTx::new(block_commit.clone()).to_hex());
         assert_eq!(block_commit.output[3].value, 323507);
 

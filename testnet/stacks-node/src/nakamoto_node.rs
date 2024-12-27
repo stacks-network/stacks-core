@@ -28,6 +28,8 @@ use stacks::monitoring::update_active_miners_count_gauge;
 use stacks::net::atlas::AtlasConfig;
 use stacks::net::relay::Relayer;
 use stacks::net::stackerdb::StackerDBs;
+use stacks::net::Error as NetError;
+use stacks::util_lib::db::Error as DBError;
 use stacks_common::types::chainstate::SortitionId;
 use stacks_common::types::StacksEpochId;
 
@@ -42,12 +44,13 @@ use crate::run_loop::RegisteredKey;
 pub mod miner;
 pub mod peer;
 pub mod relayer;
-pub mod sign_coordinator;
+pub mod signer_coordinator;
+pub mod stackerdb_listener;
 
 use self::peer::PeerThread;
 use self::relayer::{RelayerDirective, RelayerThread};
 
-pub const RELAYER_MAX_BUFFER: usize = 100;
+pub const RELAYER_MAX_BUFFER: usize = 1;
 const VRF_MOCK_MINER_KEY: u64 = 1;
 
 pub const BLOCK_PROCESSOR_STACK_SIZE: usize = 32 * 1024 * 1024; // 32 MB
@@ -71,46 +74,71 @@ pub struct StacksNode {
 }
 
 /// Types of errors that can arise during Nakamoto StacksNode operation
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum Error {
     /// Can't find the block sortition snapshot for the chain tip
+    #[error("Can't find the block sortition snapshot for the chain tip")]
     SnapshotNotFoundForChainTip,
     /// The burnchain tip changed while this operation was in progress
+    #[error("The burnchain tip changed while this operation was in progress")]
     BurnchainTipChanged,
     /// The Stacks tip changed while this operation was in progress
+    #[error("The Stacks tip changed while this operation was in progress")]
     StacksTipChanged,
     /// Signers rejected a block
+    #[error("Signers rejected a block")]
     SignersRejected,
     /// Error while spawning a subordinate thread
+    #[error("Error while spawning a subordinate thread: {0}")]
     SpawnError(std::io::Error),
     /// Injected testing errors
+    #[error("Injected testing errors")]
     FaultInjection,
     /// This miner was elected, but another sortition occurred before mining started
+    #[error("This miner was elected, but another sortition occurred before mining started")]
     MissedMiningOpportunity,
     /// Attempted to mine while there was no active VRF key
+    #[error("Attempted to mine while there was no active VRF key")]
     NoVRFKeyActive,
     /// The parent block or tenure could not be found
+    #[error("The parent block or tenure could not be found")]
     ParentNotFound,
     /// Something unexpected happened (e.g., hash mismatches)
+    #[error("Something unexpected happened (e.g., hash mismatches)")]
     UnexpectedChainState,
     /// A burnchain operation failed when submitting it to the burnchain
+    #[error("A burnchain operation failed when submitting it to the burnchain: {0}")]
     BurnchainSubmissionFailed(BurnchainsError),
     /// A new parent has been discovered since mining started
+    #[error("A new parent has been discovered since mining started")]
     NewParentDiscovered,
     /// A failure occurred while constructing a VRF Proof
+    #[error("A failure occurred while constructing a VRF Proof")]
     BadVrfConstruction,
-    CannotSelfSign,
-    MiningFailure(ChainstateError),
+    #[error("A failure occurred while mining: {0}")]
+    MiningFailure(#[from] ChainstateError),
     /// The miner didn't accept their own block
+    #[error("The miner didn't accept their own block: {0}")]
     AcceptFailure(ChainstateError),
+    #[error("A failure occurred while signing a miner's block: {0}")]
     MinerSignatureError(&'static str),
+    #[error("A failure occurred while signing a signer's block: {0}")]
     SignerSignatureError(String),
     /// A failure occurred while configuring the miner thread
+    #[error("A failure occurred while configuring the miner thread: {0}")]
     MinerConfigurationFailed(&'static str),
     /// An error occurred while operating as the signing coordinator
+    #[error("An error occurred while operating as the signing coordinator: {0}")]
     SigningCoordinatorFailure(String),
     // The thread that we tried to send to has closed
+    #[error("The thread that we tried to send to has closed")]
     ChannelClosed,
+    /// DBError wrapper
+    #[error("DBError: {0}")]
+    DBError(#[from] DBError),
+    /// NetError wrapper
+    #[error("NetError: {0}")]
+    NetError(#[from] NetError),
 }
 
 impl StacksNode {
@@ -131,7 +159,7 @@ impl StacksNode {
             .get_miner_address(StacksEpochId::Epoch21, &public_key);
         let miner_addr_str = addr2str(&miner_addr);
         let _ = monitoring::set_burnchain_signer(BurnchainSigner(miner_addr_str)).map_err(|e| {
-            warn!("Failed to set global burnchain signer: {:?}", &e);
+            warn!("Failed to set global burnchain signer: {e:?}");
             e
         });
     }
@@ -148,7 +176,7 @@ impl StacksNode {
         let burnchain = runloop.get_burnchain();
         let atlas_config = config.atlas.clone();
         let mut keychain = Keychain::default(config.node.seed.clone());
-        if let Some(mining_key) = config.miner.mining_key.clone() {
+        if let Some(mining_key) = config.miner.mining_key {
             keychain.set_nakamoto_sk(mining_key);
         }
 
@@ -195,7 +223,7 @@ impl StacksNode {
             match &data_from_neon.leader_key_registration_state {
                 LeaderKeyRegistrationState::Active(registered_key) => {
                     let pubkey_hash = keychain.get_nakamoto_pkh();
-                    if pubkey_hash.as_ref() == &registered_key.memo {
+                    if pubkey_hash.as_ref() == registered_key.memo {
                         data_from_neon.leader_key_registration_state
                     } else {
                         LeaderKeyRegistrationState::Inactive
@@ -308,13 +336,13 @@ impl StacksNode {
         for op in block_commits.into_iter() {
             if op.txid == block_snapshot.winning_block_txid {
                 info!(
-                    "Received burnchain block #{} including block_commit_op (winning) - {} ({})",
-                    block_height, op.apparent_sender, &op.block_header_hash
+                    "Received burnchain block #{block_height} including block_commit_op (winning) - {} ({})",
+                    op.apparent_sender, &op.block_header_hash
                 );
             } else if self.is_miner {
                 info!(
-                    "Received burnchain block #{} including block_commit_op - {} ({})",
-                    block_height, op.apparent_sender, &op.block_header_hash
+                    "Received burnchain block #{block_height} including block_commit_op - {} ({})",
+                    op.apparent_sender, &op.block_header_hash
                 );
             }
         }
@@ -359,25 +387,25 @@ impl StacksNode {
 }
 
 pub(crate) fn save_activated_vrf_key(path: &str, activated_key: &RegisteredKey) {
-    info!("Activated VRF key; saving to {}", path);
+    info!("Activated VRF key; saving to {path}");
 
     let Ok(key_json) = serde_json::to_string(&activated_key) else {
         warn!("Failed to serialize VRF key");
         return;
     };
 
-    let mut f = match fs::File::create(&path) {
+    let mut f = match fs::File::create(path) {
         Ok(f) => f,
         Err(e) => {
-            warn!("Failed to create {}: {:?}", &path, &e);
+            warn!("Failed to create {path}: {e:?}");
             return;
         }
     };
 
-    if let Err(e) = f.write_all(key_json.as_str().as_bytes()) {
-        warn!("Failed to write activated VRF key to {}: {:?}", &path, &e);
+    if let Err(e) = f.write_all(key_json.as_bytes()) {
+        warn!("Failed to write activated VRF key to {path}: {e:?}");
         return;
     }
 
-    info!("Saved activated VRF key to {}", &path);
+    info!("Saved activated VRF key to {path}");
 }

@@ -13,15 +13,12 @@ use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::{
     StacksBlockHeader, StacksPrivateKey, StacksTransaction, TransactionPayload,
 };
-use stacks::core;
 use stacks::core::{
-    StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
+    self, EpochList, StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
     PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
 };
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed,
-};
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::sleep_ms;
 
@@ -50,15 +47,15 @@ fn test_exact_block_costs() {
 
     let spender_sk = StacksPrivateKey::new();
     let spender_addr = PrincipalData::from(to_addr(&spender_sk));
-    let spender_addr_c32 = StacksAddress::from(to_addr(&spender_sk));
+    let spender_addr_c32 = to_addr(&spender_sk);
 
     let epoch_205_transition_height = 210;
     let transactions_to_broadcast = 25;
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
-    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_205_transition_height;
-    epochs[2].start_height = epoch_205_transition_height;
+    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    epochs[StacksEpochId::Epoch20].end_height = epoch_205_transition_height;
+    epochs[StacksEpochId::Epoch2_05].start_height = epoch_205_transition_height;
 
     conf.burnchain.epochs = Some(epochs);
     conf.node.mine_microblocks = true;
@@ -256,10 +253,8 @@ fn test_exact_block_costs() {
             if dbget_txs.len() >= 2 {
                 processed_txs_before_205 = true;
             }
-        } else {
-            if dbget_txs.len() >= 2 {
-                processed_txs_after_205 = true;
-            }
+        } else if dbget_txs.len() >= 2 {
+            processed_txs_after_205 = true;
         }
 
         assert_eq!(mined_anchor_cost, anchor_cost as u64);
@@ -287,7 +282,7 @@ fn test_dynamic_db_method_costs() {
 
     let spender_sk = StacksPrivateKey::new();
     let spender_addr = PrincipalData::from(to_addr(&spender_sk));
-    let spender_addr_c32 = StacksAddress::from(to_addr(&spender_sk));
+    let spender_addr_c32 = to_addr(&spender_sk);
     let contract_name = "test-contract";
 
     let epoch_205_transition_height = 210;
@@ -304,9 +299,9 @@ fn test_dynamic_db_method_costs() {
     ";
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
-    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_205_transition_height;
-    epochs[2].start_height = epoch_205_transition_height;
+    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    epochs[StacksEpochId::Epoch20].end_height = epoch_205_transition_height;
+    epochs[StacksEpochId::Epoch2_05].start_height = epoch_205_transition_height;
 
     conf.burnchain.epochs = Some(epochs);
 
@@ -455,8 +450,7 @@ fn test_dynamic_db_method_costs() {
                     .as_i64()
                     .unwrap();
                 eprintln!(
-                    "Burn height = {}, runtime_cost = {}, function_name = {}",
-                    burn_height, runtime_cost, function_name
+                    "Burn height = {burn_height}, runtime_cost = {runtime_cost}, function_name = {function_name}"
                 );
 
                 if function_name == "db-get1" {
@@ -507,9 +501,9 @@ fn transition_empty_blocks() {
 
     let (mut conf, miner_account) = neon_integration_test_conf();
 
-    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_2_05;
-    epochs[2].start_height = epoch_2_05;
+    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
 
     conf.burnchain.epochs = Some(epochs);
 
@@ -569,21 +563,20 @@ fn transition_empty_blocks() {
         )
         .unwrap();
         let res = StacksChainState::block_crosses_epoch_boundary(
-            &chainstate.db(),
+            chainstate.db(),
             &tip_info.stacks_tip_consensus_hash,
             &tip_info.stacks_tip,
         )
         .unwrap();
         debug!(
-            "Epoch transition at {} ({}/{}) height {}: {}",
+            "Epoch transition at {} ({}/{}) height {}: {res}",
             &StacksBlockHeader::make_index_block_hash(
                 &tip_info.stacks_tip_consensus_hash,
                 &tip_info.stacks_tip
             ),
             &tip_info.stacks_tip_consensus_hash,
             &tip_info.stacks_tip,
-            tip_info.burn_block_height,
-            res
+            tip_info.burn_block_height
         );
 
         if tip_info.burn_block_height == epoch_2_05 {
@@ -716,7 +709,7 @@ fn test_cost_limit_switch_version205() {
     let (mut conf, _) = neon_integration_test_conf();
 
     // Create a schedule where we lower the read_count on Epoch2_05.
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -769,7 +762,7 @@ fn test_cost_limit_switch_version205() {
             },
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ]);
+    ]));
     conf.burnchain.pox_2_activation = Some(10_003);
 
     conf.initial_balances.push(InitialBalance {
@@ -831,7 +824,7 @@ fn test_cost_limit_switch_version205() {
         &test_observer::get_blocks(),
         |transaction| match &transaction.payload {
             TransactionPayload::SmartContract(contract, ..) => {
-                contract.name == ContractName::try_from("increment-contract").unwrap()
+                contract.name == ContractName::from("increment-contract")
             }
             _ => false,
         },
@@ -847,7 +840,7 @@ fn test_cost_limit_switch_version205() {
             0,
             1000,
             conf.burnchain.chain_id,
-            &creator_addr.into(),
+            &creator_addr,
             "increment-contract",
             "increment-many",
             &[],
@@ -863,7 +856,7 @@ fn test_cost_limit_switch_version205() {
         &test_observer::get_blocks(),
         |transaction| match &transaction.payload {
             TransactionPayload::ContractCall(contract) => {
-                contract.contract_name == ContractName::try_from("increment-contract").unwrap()
+                contract.contract_name == ContractName::from("increment-contract")
             }
             _ => false,
         },
@@ -882,7 +875,7 @@ fn test_cost_limit_switch_version205() {
             0,
             1000,
             conf.burnchain.chain_id,
-            &creator_addr.into(),
+            &creator_addr,
             "increment-contract",
             "increment-many",
             &[],
@@ -897,7 +890,7 @@ fn test_cost_limit_switch_version205() {
         &test_observer::get_blocks(),
         |transaction| match &transaction.payload {
             TransactionPayload::ContractCall(contract) => {
-                contract.contract_name == ContractName::try_from("increment-contract").unwrap()
+                contract.contract_name == ContractName::from("increment-contract")
             }
             _ => false,
         },
@@ -916,10 +909,7 @@ fn bigger_microblock_streams_in_2_05() {
         return;
     }
 
-    let spender_sks: Vec<_> = (0..10)
-        .into_iter()
-        .map(|_| StacksPrivateKey::new())
-        .collect();
+    let spender_sks: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
 
     let (mut conf, miner_account) = neon_integration_test_conf();
@@ -940,7 +930,7 @@ fn bigger_microblock_streams_in_2_05() {
     conf.miner.first_attempt_time_ms = i64::MAX as u64;
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
@@ -980,7 +970,7 @@ fn bigger_microblock_streams_in_2_05() {
             },
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
-    ]);
+    ]));
     conf.burnchain.pox_2_activation = Some(10_003);
 
     let txs: Vec<Vec<_>> = spender_sks
@@ -993,7 +983,7 @@ fn bigger_microblock_streams_in_2_05() {
                 0,
                 1049230,
                 conf.burnchain.chain_id,
-                &format!("large-{}", ix),
+                &format!("large-{ix}"),
                 &format!("
                     ;; a single one of these transactions consumes over half the runtime budget
                     (define-constant BUFF_TO_BYTE (list
@@ -1035,9 +1025,8 @@ fn bigger_microblock_streams_in_2_05() {
                         )
                     )
                     (begin
-                        (crash-me \"{}\"))
-                    ",
-                    &format!("large-contract-{}", &ix)
+                        (crash-me \"large-contract-{ix}\"))
+                    "
                 )
             )
         })
@@ -1134,8 +1123,8 @@ fn bigger_microblock_streams_in_2_05() {
     sleep_ms(120_000);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let mut epoch_20_stream_cost = ExecutionCost::zero();
-    let mut epoch_205_stream_cost = ExecutionCost::zero();
+    let mut epoch_20_stream_cost = ExecutionCost::ZERO;
+    let mut epoch_205_stream_cost = ExecutionCost::ZERO;
 
     // max == largest number of transactions per stream in a given epoch (2.0 or 2.05)
     // total == number of transactions across all streams in a given epoch (2.0 or 2.05)
@@ -1166,7 +1155,7 @@ fn bigger_microblock_streams_in_2_05() {
             eprintln!("{}", transactions.len());
 
             let mut num_big_microblock_txs = 0;
-            let mut total_execution_cost = ExecutionCost::zero();
+            let mut total_execution_cost = ExecutionCost::ZERO;
 
             for tx in transactions.iter() {
                 let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
@@ -1176,9 +1165,9 @@ fn bigger_microblock_streams_in_2_05() {
                 let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
                 let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
                 if let TransactionPayload::SmartContract(tsc, ..) = parsed.payload {
-                    if tsc.name.to_string().find("costs-2").is_some() {
+                    if tsc.name.to_string().contains("costs-2") {
                         in_205 = true;
-                    } else if tsc.name.to_string().find("large").is_some() {
+                    } else if tsc.name.to_string().contains("large") {
                         num_big_microblock_txs += 1;
                         if in_205 {
                             total_big_txs_per_microblock_205 += 1;
@@ -1209,13 +1198,13 @@ fn bigger_microblock_streams_in_2_05() {
                 max_big_txs_per_microblock_20 = num_big_microblock_txs;
             }
 
-            eprintln!("Epoch size: {:?}", &total_execution_cost);
+            eprintln!("Epoch size: {total_execution_cost:?}");
 
             if !in_205 && total_execution_cost.exceeds(&epoch_20_stream_cost) {
                 epoch_20_stream_cost = total_execution_cost;
                 break;
             }
-            if in_205 && total_execution_cost.exceeds(&ExecutionCost::zero()) {
+            if in_205 && total_execution_cost.exceeds(&ExecutionCost::ZERO) {
                 have_confirmed_205_stream = true;
                 epoch_205_stream_cost = total_execution_cost;
                 break;
@@ -1232,21 +1221,13 @@ fn bigger_microblock_streams_in_2_05() {
     }
 
     eprintln!(
-        "max_big_txs_per_microblock_20: {}, total_big_txs_per_microblock_20: {}",
-        max_big_txs_per_microblock_20, total_big_txs_per_microblock_20
+        "max_big_txs_per_microblock_20: {max_big_txs_per_microblock_20}, total_big_txs_per_microblock_20: {total_big_txs_per_microblock_20}"
     );
     eprintln!(
-        "max_big_txs_per_microblock_205: {}, total_big_txs_per_microblock_205: {}",
-        max_big_txs_per_microblock_205, total_big_txs_per_microblock_205
+        "max_big_txs_per_microblock_205: {max_big_txs_per_microblock_205}, total_big_txs_per_microblock_205: {total_big_txs_per_microblock_205}"
     );
-    eprintln!(
-        "confirmed stream execution in 2.0: {:?}",
-        &epoch_20_stream_cost
-    );
-    eprintln!(
-        "confirmed stream execution in 2.05: {:?}",
-        &epoch_205_stream_cost
-    );
+    eprintln!("confirmed stream execution in 2.0: {epoch_20_stream_cost:?}");
+    eprintln!("confirmed stream execution in 2.05: {epoch_205_stream_cost:?}");
 
     // stuff happened
     assert!(epoch_20_stream_cost.runtime > 0);

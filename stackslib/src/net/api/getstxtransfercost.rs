@@ -108,7 +108,7 @@ impl RPCRequestHandler for RPCGetStxTransferCostRequestHandler {
 
             if let Some((_, fee_estimator, metric)) = rpc_args.get_estimators_ref() {
                 // STX transfer transactions have zero runtime cost
-                let estimated_cost = ExecutionCost::zero();
+                let estimated_cost = ExecutionCost::ZERO;
                 let estimations =
                     RPCPostFeeRateRequestHandler::estimate_tx_fee_from_cost_and_length(
                         &preamble,

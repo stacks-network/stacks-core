@@ -575,7 +575,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
     )
 }
 
-/// Execute for test in in Clarity2, Epoch21, testnet.
+/// Execute for test in Clarity2, Epoch21, testnet.
 #[cfg(any(test, feature = "testing"))]
 pub fn execute_v2(program: &str) -> Result<Option<Value>> {
     execute_with_parameters(
