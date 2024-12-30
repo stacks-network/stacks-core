@@ -112,14 +112,14 @@ impl BlockRequestKey {
         canonical_stacks_tip_height: u64,
     ) -> BlockRequestKey {
         BlockRequestKey {
-            neighbor: neighbor,
-            data_url: data_url,
-            consensus_hash: consensus_hash,
-            anchor_block_hash: anchor_block_hash,
-            index_block_hash: index_block_hash,
-            parent_block_header: parent_block_header,
-            parent_consensus_hash: parent_consensus_hash,
-            sortition_height: sortition_height,
+            neighbor,
+            data_url,
+            consensus_hash,
+            anchor_block_hash,
+            index_block_hash,
+            parent_block_header,
+            parent_consensus_hash,
+            sortition_height,
             download_start: get_epoch_time_secs(),
             kind,
             canonical_stacks_tip_height,
@@ -267,13 +267,13 @@ impl BlockDownloader {
             finished_scan_at: 0,
             last_inv_update_at: 0,
 
-            max_inflight_requests: max_inflight_requests,
+            max_inflight_requests,
             blocks_to_try: HashMap::new(),
             microblocks_to_try: HashMap::new(),
 
             parsed_urls: HashMap::new(),
             dns_lookups: HashMap::new(),
-            dns_timeout: dns_timeout,
+            dns_timeout,
 
             getblock_requests: HashMap::new(),
             getmicroblocks_requests: HashMap::new(),
@@ -285,7 +285,7 @@ impl BlockDownloader {
             broken_neighbors: vec![],
             blocked_urls: HashMap::new(),
 
-            download_interval: download_interval,
+            download_interval,
             requested_blocks: HashMap::new(),
             requested_microblocks: HashMap::new(),
         }
