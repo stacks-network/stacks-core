@@ -722,13 +722,13 @@ impl StacksTransaction {
         };
 
         StacksTransaction {
-            version: version,
+            version,
             chain_id: 0,
-            auth: auth,
-            anchor_mode: anchor_mode,
+            auth,
+            anchor_mode,
             post_condition_mode: TransactionPostConditionMode::Deny,
             post_conditions: vec![],
-            payload: payload,
+            payload,
         }
     }
 

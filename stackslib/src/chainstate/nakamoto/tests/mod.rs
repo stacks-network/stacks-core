@@ -2586,7 +2586,7 @@ fn valid_vote_transaction() {
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr,
-            contract_name: contract_name,
+            contract_name,
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: valid_function_args,
         }),

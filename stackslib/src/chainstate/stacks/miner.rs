@@ -903,7 +903,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         next_microblock_header.verify(&miner_pubkey_hash).unwrap();
         Ok(StacksMicroblock {
             header: next_microblock_header,
-            txs: txs,
+            txs,
         })
     }
 
@@ -1509,11 +1509,11 @@ impl StacksBlockBuilder {
             total_anchored_fees: 0,
             total_confirmed_streamed_fees: 0,
             total_streamed_fees: 0,
-            bytes_so_far: bytes_so_far,
+            bytes_so_far,
             anchored_done: false,
             parent_consensus_hash: parent_chain_tip.consensus_hash.clone(),
             parent_header_hash: header.parent_block.clone(),
-            header: header,
+            header,
             parent_microblock_hash: parent_chain_tip
                 .microblock_tail
                 .as_ref()
@@ -1524,7 +1524,7 @@ impl StacksBlockBuilder {
             ), // will be updated
             miner_privkey: StacksPrivateKey::new(), // caller should overwrite this, or refrain from mining microblocks
             miner_payouts: None,
-            miner_id: miner_id,
+            miner_id,
         }
     }
 
