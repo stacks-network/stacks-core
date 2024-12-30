@@ -39,7 +39,7 @@ use crate::util_lib::db::{
     FromRow,
 };
 
-const STACKER_DB_SCHEMA: &'static [&'static str] = &[
+const STACKER_DB_SCHEMA: &[&str] = &[
     r#"
     PRAGMA foreign_keys = ON;
     "#,

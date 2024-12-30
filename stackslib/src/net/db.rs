@@ -45,7 +45,7 @@ use crate::util_lib::db::{
 };
 use crate::util_lib::strings::UrlString;
 
-pub const PEERDB_VERSION: &'static str = "3";
+pub const PEERDB_VERSION: &str = "3";
 
 const NUM_SLOTS: usize = 8;
 
@@ -316,7 +316,7 @@ impl FromRow<Neighbor> for Neighbor {
 // This is done to ensure that the frontier represents live, long-lived peers to the greatest
 // extent possible.
 
-const PEERDB_INITIAL_SCHEMA: &'static [&'static str] = &[
+const PEERDB_INITIAL_SCHEMA: &[&str] = &[
     r#"
     CREATE TABLE frontier(
         peer_version INTEGER NOT NULL,
@@ -374,10 +374,10 @@ const PEERDB_INITIAL_SCHEMA: &'static [&'static str] = &[
     );"#,
 ];
 
-const PEERDB_INDEXES: &'static [&'static str] =
+const PEERDB_INDEXES: &[&str] =
     &["CREATE INDEX IF NOT EXISTS peer_address_index ON frontier(network_id,addrbytes,port);"];
 
-const PEERDB_SCHEMA_2: &'static [&'static str] = &[
+const PEERDB_SCHEMA_2: &[&str] = &[
     r#"PRAGMA foreign_keys = ON;"#,
     r#"
     CREATE TABLE stackerdb_peers(
@@ -401,7 +401,7 @@ const PEERDB_SCHEMA_2: &'static [&'static str] = &[
     "#,
 ];
 
-const PEERDB_SCHEMA_3: &'static [&'static str] = &[
+const PEERDB_SCHEMA_3: &[&str] = &[
     r#"
     ALTER TABLE frontier ADD COLUMN public BOOL NOT NULL DEFAULT 0;
     "#,
