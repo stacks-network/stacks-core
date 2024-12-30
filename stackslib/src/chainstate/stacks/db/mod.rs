@@ -681,9 +681,9 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &'static str = "8";
+pub const CHAINSTATE_VERSION: &str = "8";
 
-const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
+const CHAINSTATE_INITIAL_SCHEMA: &[&str] = &[
     "PRAGMA foreign_keys = ON;",
     r#"
     -- Anchored stacks block headers
@@ -815,7 +815,7 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     );"#,
 ];
 
-const CHAINSTATE_SCHEMA_2: &'static [&'static str] = &[
+const CHAINSTATE_SCHEMA_2: &[&str] = &[
     // new in epoch 2.05 (schema version 2)
     // table of blocks that applied an epoch transition
     r#"
@@ -827,7 +827,7 @@ const CHAINSTATE_SCHEMA_2: &'static [&'static str] = &[
     "#,
 ];
 
-const CHAINSTATE_SCHEMA_3: &'static [&'static str] = &[
+const CHAINSTATE_SCHEMA_3: &[&str] = &[
     // new in epoch 2.1 (schema version 3)
     // track mature miner rewards paid out, so we can report them in Clarity.
     r#"
@@ -880,7 +880,7 @@ const CHAINSTATE_SCHEMA_3: &'static [&'static str] = &[
     "#,
 ];
 
-const CHAINSTATE_INDEXES: &'static [&'static str] = &[
+const CHAINSTATE_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS index_block_hash_to_primary_key ON block_headers(index_block_hash,consensus_hash,block_hash);",
     "CREATE INDEX IF NOT EXISTS block_headers_hash_index ON block_headers(block_hash,block_height);",
     "CREATE INDEX IF NOT EXISTS block_index_hash_index ON block_headers(index_block_hash,consensus_hash,block_hash);",

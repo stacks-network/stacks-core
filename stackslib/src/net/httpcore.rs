@@ -59,10 +59,10 @@ use crate::net::{Error as NetError, MessageSequence, ProtocolFamily, StacksNodeS
 const CHUNK_BUF_LEN: usize = 32768;
 
 /// canonical stacks tip height header
-pub const STACKS_HEADER_HEIGHT: &'static str = "X-Canonical-Stacks-Tip-Height";
+pub const STACKS_HEADER_HEIGHT: &str = "X-Canonical-Stacks-Tip-Height";
 
 /// request ID header
-pub const STACKS_REQUEST_ID: &'static str = "X-Request-Id";
+pub const STACKS_REQUEST_ID: &str = "X-Request-Id";
 
 /// Request ID to use or expect from non-Stacks HTTP clients.
 /// In particular, if a HTTP response does not contain the x-request-id header, then it's assumed
