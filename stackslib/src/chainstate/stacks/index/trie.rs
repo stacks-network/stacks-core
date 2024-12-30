@@ -378,7 +378,7 @@ impl Trie {
         // append the new leaf and the end of the file.
         let new_leaf_disk_ptr = storage.last_ptr()?;
         let new_leaf_chr = cursor.path[cursor.tell()]; // NOTE: this is safe because !cursor.eop()
-        let new_leaf_path = cursor.path[(if cursor.tell() + 1 <= cursor.path.len() {
+        let new_leaf_path = cursor.path[(if cursor.tell() < cursor.path.len() {
             cursor.tell() + 1
         } else {
             cursor.path.len()
