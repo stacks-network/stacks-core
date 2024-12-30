@@ -335,7 +335,7 @@ impl BlockDownloader {
         self.pox_id = pox_id.clone();
         self.dns_lookups.clear();
         for url_str in urls.drain(..) {
-            if url_str.len() == 0 {
+            if url_str.is_empty() {
                 continue;
             }
             let url = url_str.parse_to_block_url()?; // NOTE: should always succeed, since a UrlString shouldn't decode unless it's a valid URL or the empty string
@@ -537,7 +537,7 @@ impl BlockDownloader {
         });
 
         // are we done?
-        if pending_block_requests.len() == 0 {
+        if pending_block_requests.is_empty() {
             self.state = BlockDownloaderState::GetMicroblocksBegin;
             return Ok(true);
         }
@@ -626,7 +626,7 @@ impl BlockDownloader {
                             Some(http_response) => {
                                 match StacksHttpResponse::decode_microblocks(http_response) {
                                     Ok(microblocks) => {
-                                        if microblocks.len() == 0 {
+                                        if microblocks.is_empty() {
                                             // we wouldn't have asked for a 0-length stream
                                             info!("Got unexpected zero-length microblock stream from {:?} ({:?})", &block_key.neighbor, &block_key.data_url;
                                                 "consensus_hash" => %block_key.consensus_hash
@@ -675,7 +675,7 @@ impl BlockDownloader {
         });
 
         // are we done?
-        if pending_microblock_requests.len() == 0 {
+        if pending_microblock_requests.is_empty() {
             self.state = BlockDownloaderState::Done;
             return Ok(true);
         }
@@ -997,7 +997,7 @@ impl BlockDownloader {
         if microblocks {
             // being requested now?
             for (_, reqs) in self.microblocks_to_try.iter() {
-                if reqs.len() > 0 {
+                if !reqs.is_empty() {
                     if reqs[0].index_block_hash == *index_hash {
                         return true;
                     }
@@ -1012,7 +1012,7 @@ impl BlockDownloader {
             }
         } else {
             for (_, reqs) in self.blocks_to_try.iter() {
-                if reqs.len() > 0 {
+                if !reqs.is_empty() {
                     if reqs[0].index_block_hash == *index_hash {
                         return true;
                     }
@@ -1060,10 +1060,10 @@ impl PeerNetwork {
         match self.events.get(neighbor_key) {
             Some(ref event_id) => match self.peers.get(event_id) {
                 Some(ref convo) => {
-                    if convo.data_url.len() > 0 {
-                        Some(convo.data_url.clone())
-                    } else {
+                    if convo.data_url.is_empty() {
                         None
+                    } else {
+                        Some(convo.data_url.clone())
                     }
                 }
                 None => None,
@@ -1461,7 +1461,7 @@ impl PeerNetwork {
                         continue;
                     }
                 };
-                if data_url.len() == 0 {
+                if data_url.is_empty() {
                     // peer doesn't yet know its public IP address, and isn't given a data URL
                     // directly
                     debug!(
@@ -1584,7 +1584,7 @@ impl PeerNetwork {
         let (need_blocks, block_sortition_height, microblock_sortition_height) =
             match self.block_downloader {
                 Some(ref mut downloader) => (
-                    downloader.blocks_to_try.len() == 0,
+                    downloader.blocks_to_try.is_empty(),
                     downloader.block_sortition_height,
                     downloader.microblock_sortition_height,
                 ),
@@ -1659,7 +1659,7 @@ impl PeerNetwork {
                         }
                     }
 
-                    if next_microblocks_to_try.len() == 0 {
+                    if next_microblocks_to_try.is_empty() {
                         // have no microblocks to try in the first place, so just advance to the
                         // next batch
                         debug!(
@@ -1711,7 +1711,7 @@ impl PeerNetwork {
                         let requests = next_blocks_to_try.remove(&height).expect(
                             "BUG: hashmap both contains and does not contain sortition height",
                         );
-                        if requests.len() == 0 {
+                        if requests.is_empty() {
                             height += 1;
                             continue;
                         }
@@ -1773,7 +1773,7 @@ impl PeerNetwork {
                         let requests = next_microblocks_to_try.remove(&mblock_height).expect(
                             "BUG: hashmap both contains and does not contain sortition height",
                         );
-                        if requests.len() == 0 {
+                        if requests.is_empty() {
                             debug!("No microblock requests for {}", mblock_height);
                             mblock_height += 1;
                             continue;
@@ -1849,7 +1849,7 @@ impl PeerNetwork {
                     }
                 }
 
-                if downloader.blocks_to_try.len() == 0 {
+                if downloader.blocks_to_try.is_empty() {
                     // nothing in this range, so advance sortition range to try for next time
                     next_block_sortition_height = next_block_sortition_height
                         + (network.burnchain.pox_constants.reward_cycle_length as u64);
@@ -1858,7 +1858,7 @@ impl PeerNetwork {
                         &network.local_peer, next_block_sortition_height
                     );
                 }
-                if downloader.microblocks_to_try.len() == 0 {
+                if downloader.microblocks_to_try.is_empty() {
                     // nothing in this range, so advance sortition range to try for next time
                     next_microblock_sortition_height = next_microblock_sortition_height
                         + (network.burnchain.pox_constants.reward_cycle_length as u64);
@@ -1926,7 +1926,7 @@ impl PeerNetwork {
             match requestables.pop_front() {
                 Some(requestable) => {
                     if let Some(Some(ref sockaddrs)) = dns_lookups.get(requestable.get_url()) {
-                        assert!(sockaddrs.len() > 0);
+                        assert!(!sockaddrs.is_empty());
 
                         let peerhost = match PeerHost::try_from_url(requestable.get_url()) {
                             Some(ph) => ph,
@@ -2182,12 +2182,12 @@ impl PeerNetwork {
             let mut microblocks_empty = vec![];
 
             for (height, requests) in downloader.blocks_to_try.iter() {
-                if requests.len() == 0 {
+                if requests.is_empty() {
                     blocks_empty.push(*height);
                 }
             }
             for (height, requests) in downloader.microblocks_to_try.iter() {
-                if requests.len() == 0 {
+                if requests.is_empty() {
                     microblocks_empty.push(*height);
                 }
             }
@@ -2278,9 +2278,8 @@ impl PeerNetwork {
                 debug!("Re-trying blocks:");
                 for (height, requests) in downloader.blocks_to_try.iter() {
                     assert!(
-                        requests.len() > 0,
-                        "Empty block requests at height {}",
-                        height
+                        !requests.is_empty(),
+                        "Empty block requests at height {height}"
                     );
                     debug!(
                         "   Height {}: anchored block {} available from {} peers: {:?}",
@@ -2295,9 +2294,8 @@ impl PeerNetwork {
                 }
                 for (height, requests) in downloader.microblocks_to_try.iter() {
                     assert!(
-                        requests.len() > 0,
-                        "Empty microblock requests at height {}",
-                        height
+                        !requests.is_empty(),
+                        "Empty microblock requests at height {height}"
                     );
                     debug!(
                         "   Height {}: microblocks {} available from {} peers: {:?}",

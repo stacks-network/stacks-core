@@ -133,7 +133,7 @@ impl HttpResponseContents {
             HttpResponseContents::RAM(ref mut buf) => {
                 // dump directly into the pipewrite
                 // TODO: zero-copy?
-                if buf.len() > 0 {
+                if !buf.is_empty() {
                     fd.write_all(&buf[..]).map_err(Error::WriteError)?;
                     buf.clear();
                 }

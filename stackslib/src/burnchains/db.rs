@@ -452,7 +452,7 @@ impl<'a> BurnchainDBTransaction<'a> {
                 })
                 .collect()
         };
-        if commits.len() == 0 {
+        if commits.is_empty() {
             test_debug!("No block-commits for block {}", hdr.block_height);
             return Ok(());
         }

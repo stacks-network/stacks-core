@@ -819,7 +819,7 @@ fn http_rpc(peer_http: u16, request: StacksHttpRequest) -> Result<StacksHttpResp
     let mut resp = vec![];
     match sock.read_to_end(&mut resp) {
         Ok(_) => {
-            if resp.len() == 0 {
+            if resp.is_empty() {
                 test_debug!("Client did not receive any data");
                 return Err(net_error::PermanentlyDrained);
             }
@@ -1200,16 +1200,16 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
                     let original_block_data = original_blocks_and_microblocks.borrow();
                     let mut next_idx = idx.borrow_mut();
                     let data_to_push = {
-                        if block_data.len() > 0 {
-                            let (consensus_hash, block, microblocks) =
-                                block_data[*next_idx].clone();
-                            Some((consensus_hash, block, microblocks))
-                        } else {
+                        if block_data.is_empty() {
                             // start over (can happen if a message gets
                             // dropped due to a timeout)
                             test_debug!("Reset block transmission (possible timeout)");
                             *block_data = (*original_block_data).clone();
                             *next_idx = thread_rng().gen::<usize>() % block_data.len();
+                            let (consensus_hash, block, microblocks) =
+                                block_data[*next_idx].clone();
+                            Some((consensus_hash, block, microblocks))
+                        } else {
                             let (consensus_hash, block, microblocks) =
                                 block_data[*next_idx].clone();
                             Some((consensus_hash, block, microblocks))
@@ -1259,7 +1259,7 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
 
                             if pushed_block && pushed_microblock {
                                 block_data.remove(*next_idx);
-                                if block_data.len() > 0 {
+                                if !block_data.is_empty() {
                                     *next_idx = thread_rng().gen::<usize>() % block_data.len();
                                 }
                                 *sent_blocks = false;

@@ -348,7 +348,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         network: &PeerNetwork,
     ) -> Result<NeighborWalk<DB, NC>, net_error> {
         let event_ids: Vec<_> = network.iter_peer_event_ids().collect();
-        if event_ids.len() == 0 {
+        if event_ids.is_empty() {
             debug!(
                 "{:?}: failed to begin inbound neighbor walk: no one's connected to us",
                 network.get_local_peer()
@@ -429,7 +429,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         comms: NC,
         network: &PeerNetwork,
     ) -> Result<NeighborWalk<DB, NC>, net_error> {
-        if network.get_walk_pingbacks().len() == 0 {
+        if network.get_walk_pingbacks().is_empty() {
             debug!("{:?}: no walk pingbacks", network.get_local_peer());
             return Err(net_error::NoSuchNeighbor);
         }
@@ -1043,7 +1043,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
             }
         }
 
-        if still_pending.len() > 0 {
+        if !still_pending.is_empty() {
             // try again
             self.pending_neighbor_addrs = Some(still_pending);
             return Ok(false);
@@ -1390,7 +1390,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         exclude: Option<&Neighbor>,
     ) -> Option<Neighbor> {
         let mut rnd = thread_rng();
-        if frontier.len() == 0 || (exclude.is_some() && frontier.len() == 1) {
+        if frontier.is_empty() || (exclude.is_some() && frontier.len() == 1) {
             return None;
         }
         // select a random neighbor index, if exclude is set, and matches this
@@ -1456,7 +1456,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         let mut rnd = thread_rng();
 
         // step to a node in cur_neighbor's frontier, per MHRWDA
-        let next_neighbor_opt = if self.frontier.len() == 0 {
+        let next_neighbor_opt = if self.frontier.is_empty() {
             // stay here for now -- we don't yet know this neighbor's
             // frontier
             if self.walk_outbound {
@@ -1467,7 +1467,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         } else {
             // continuing the walk
             let next_neighbor =
-                Self::pick_random_neighbor(&self.frontier, None).expect("BUG: empty frontier size"); // won't panic since self.frontier.len() > 0
+                Self::pick_random_neighbor(&self.frontier, None).expect("BUG: empty frontier size"); // won't panic since !self.frontier.is_empty()
             let walk_prob: f64 = rnd.gen();
             if walk_prob
                 < self
@@ -1603,7 +1603,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         }
 
         self.network_pingbacks = still_pending;
-        if self.network_pingbacks.len() > 0 {
+        if !self.network_pingbacks.is_empty() {
             // still connecting
             debug!(
                 "{:?}: Still trying to pingback-handshake with {} neighbors",

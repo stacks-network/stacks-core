@@ -378,6 +378,10 @@ impl AffirmationMap {
         self.affirmations.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.affirmations.is_empty()
+    }
+
     pub fn as_slice(&self) -> &[AffirmationMapEntry] {
         &self.affirmations
     }

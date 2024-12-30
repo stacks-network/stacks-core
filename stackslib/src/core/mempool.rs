@@ -1214,6 +1214,12 @@ impl CandidateCache {
     fn len(&self) -> usize {
         self.cache.len() + self.next.len()
     }
+
+    /// Is the cache empty?
+    #[cfg_attr(test, mutants::skip)]
+    fn is_empty(&self) -> bool {
+        self.cache.is_empty() && self.next.is_empty()
+    }
 }
 
 /// Evaluates the pair of nonces, to determine an order
@@ -1835,12 +1841,12 @@ impl MemPoolDB {
                 continue;
             }
 
-            let do_consider = if settings.filter_origins.len() > 0 {
+            let do_consider = if settings.filter_origins.is_empty() {
+                true
+            } else {
                 settings
                     .filter_origins
                     .contains(&tx_info.metadata.origin_address)
-            } else {
-                true
             };
 
             if !do_consider {
@@ -1933,7 +1939,7 @@ impl MemPoolDB {
         drop(query_stmt_null);
         drop(query_stmt_fee);
 
-        if retry_store.len() > 0 {
+        if !retry_store.is_empty() {
             let tx = self.tx_begin()?;
             for (address, nonce) in retry_store.into_iter() {
                 nonce_cache.update(address, nonce, &tx);

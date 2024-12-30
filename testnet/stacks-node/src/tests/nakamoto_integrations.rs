@@ -9403,7 +9403,7 @@ fn v3_blockbyheight_api_endpoint() {
 
     assert!(block_data.status().is_success());
     let block_bytes_vec = block_data.bytes().unwrap().to_vec();
-    assert!(block_bytes_vec.len() > 0);
+    assert!(!block_bytes_vec.is_empty());
 
     // does the block id of the returned blob matches ?
     let block_id = NakamotoBlockHeader::consensus_deserialize(&mut block_bytes_vec.as_slice())
@@ -9868,7 +9868,7 @@ fn test_shadow_recovery() {
 
     // fix node
     let shadow_blocks = shadow_chainstate_repair(&mut chainstate, &mut sortdb).unwrap();
-    assert!(shadow_blocks.len() > 0);
+    assert!(!shadow_blocks.is_empty());
 
     wait_for(30, || {
         let Some(info) = get_chain_info_opt(&naka_conf) else {

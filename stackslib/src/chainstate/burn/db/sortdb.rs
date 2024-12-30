@@ -1604,7 +1604,7 @@ impl<'a> SortitionHandleTx<'a> {
                     anchor_block,
                     reward_set.rewarded_addresses.len()
                 );
-                if reward_set.rewarded_addresses.len() == 0 {
+                if reward_set.rewarded_addresses.is_empty() {
                     return Ok(None);
                 }
 
@@ -3587,7 +3587,7 @@ impl SortitionDB {
             NO_PARAMS,
         )?;
 
-        assert!(ast_rule_sets.len() > 0);
+        assert!(!ast_rule_sets.is_empty());
         let mut last_height = ast_rule_sets[0].1;
         let mut last_rules = ast_rule_sets[0].0;
         for (ast_rules, ast_rule_height) in ast_rule_sets.into_iter() {
@@ -4593,10 +4593,10 @@ impl SortitionDB {
 
         // remove the first entry -- it's always `n` based on the way we construct it, while the
         // heaviest affirmation map just has nothing.
-        if am.len() > 0 {
-            Ok(AffirmationMap::new(am.as_slice()[1..].to_vec()))
-        } else {
+        if am.is_empty() {
             Ok(AffirmationMap::empty())
+        } else {
+            Ok(AffirmationMap::new(am.as_slice()[1..].to_vec()))
         }
     }
 
@@ -5239,7 +5239,7 @@ impl SortitionDB {
         cache: &mut BlockHeaderCache,
         header_data: &Vec<(ConsensusHash, Option<BlockHeaderHash>)>,
     ) -> () {
-        if header_data.len() > 0 {
+        if !header_data.is_empty() {
             let mut i = header_data.len() - 1;
             while i > 0 {
                 let cur_consensus_hash = &header_data[i].0;
@@ -5881,7 +5881,7 @@ impl<'a> SortitionHandleTx<'a> {
                 "SELECT 1 FROM snapshots WHERE burn_header_hash = ?1 AND pox_valid = 1 LIMIT 1",
                 &[&snapshot.burn_header_hash],
             )?;
-            if all_valid_sortitions.len() > 0 {
+            if !all_valid_sortitions.is_empty() {
                 error!("FATAL: Tried to insert snapshot {:?}, but already have pox-valid sortition for {:?}", &snapshot, &snapshot.burn_header_hash);
                 panic!();
             }
@@ -6118,7 +6118,10 @@ impl<'a> SortitionHandleTx<'a> {
                 if let Some(mut reward_set) = reward_info.known_selected_anchor_block_owned() {
                     // record payouts separately from the remaining addresses, since some of them
                     // could have just been consumed.
-                    if reward_set.rewarded_addresses.len() > 0 {
+                    if reward_set.rewarded_addresses.is_empty() {
+                        // no payouts
+                        pox_payout_addrs = vec![];
+                    } else {
                         // if we have a reward set, then we must also have produced a recipient
                         //   info for this block
                         let mut recipients_to_remove: Vec<_> = recipient_info
@@ -6136,9 +6139,6 @@ impl<'a> SortitionHandleTx<'a> {
                                        "BUG: Attempted to remove used address from reward set, but failed to do so safely");
                         }
                         pox_payout_addrs = addrs;
-                    } else {
-                        // no payouts
-                        pox_payout_addrs = vec![];
                     }
 
                     keys.push(db_keys::pox_reward_set_size().to_string());
@@ -6321,7 +6321,7 @@ impl<'a> SortitionHandleTx<'a> {
             }
         }
 
-        if tied.len() == 0 {
+        if tied.is_empty() {
             return None;
         }
         if tied.len() == 1 {
@@ -10635,10 +10635,10 @@ pub mod tests {
                         .map(|op| BlockstackOperationType::LeaderBlockCommit(op.clone()))
                 })
                 .collect();
-            let winner = if commit_set.len() > 0 {
-                commit_set[0].clone()
-            } else {
+            let winner = if commit_set.is_empty() {
                 None
+            } else {
+                commit_set[0].clone()
             };
             let burn_header_hash = headers[i + 1].block_hash.clone();
             let burn_block_height = headers[i + 1].block_height;

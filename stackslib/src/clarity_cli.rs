@@ -2054,7 +2054,7 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
 
         eprintln!("check tokens (idempotency)");
         let invoked = invoke_command(
@@ -2070,7 +2070,7 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
 
         eprintln!("launch tokens");
         let invoked = invoke_command(
@@ -2087,7 +2087,7 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
 
         eprintln!("check names");
         let invoked = invoke_command(
@@ -2103,7 +2103,7 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
 
         eprintln!("check names with different contract ID");
         let invoked = invoke_command(
@@ -2121,7 +2121,7 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
 
         eprintln!("check names with analysis");
         let invoked = invoke_command(
@@ -2138,7 +2138,7 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
         assert!(result["analysis"] != json!(null));
 
         eprintln!("check names with cost");
@@ -2156,7 +2156,7 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
         assert!(result["costs"] != json!(null));
         assert!(result["assets"] == json!(null));
 
@@ -2177,7 +2177,7 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
         assert!(result["costs"] != json!(null));
         assert!(result["assets"] != json!(null));
 
@@ -2198,8 +2198,8 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
-        assert!(result["events"].as_array().unwrap().len() == 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
+        assert!(result["events"].as_array().unwrap().is_empty());
         assert_eq!(result["output"], json!({"UInt": 1000}));
 
         eprintln!("eval tokens");
@@ -2335,7 +2335,7 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
 
         eprintln!("launch tokens");
         let invoked = invoke_command(
@@ -2355,7 +2355,7 @@ mod test {
         eprintln!("{}", serde_json::to_string(&result).unwrap());
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
         assert!(
             result["assets"]["tokens"]["S1G2081040G2081040G2081040G208105NK8PE5"]
                 ["S1G2081040G2081040G2081040G208105NK8PE5.tokens-ft::tokens"]

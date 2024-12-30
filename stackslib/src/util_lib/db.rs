@@ -510,14 +510,14 @@ where
     let mut rows = stmt.query(sql_args)?;
     let mut row_data = vec![];
     while let Some(row) = rows.next().map_err(|e| Error::SqliteError(e))? {
-        if row_data.len() > 0 {
+        if !row_data.is_empty() {
             return Err(Error::Overflow);
         }
         let i: i64 = row.get(0)?;
         row_data.push(i);
     }
 
-    if row_data.len() == 0 {
+    if row_data.is_empty() {
         return Err(Error::NotFoundError);
     }
 

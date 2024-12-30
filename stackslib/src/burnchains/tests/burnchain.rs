@@ -574,7 +574,7 @@ fn test_process_block_ops() {
             acc
         });
 
-        let next_sortition = block_ops_124.len() > 0 && burn_total > 0;
+        let next_sortition = !block_ops_124.is_empty() && burn_total > 0;
 
         let mut block_124_snapshot = BlockSnapshot {
             accumulated_coinbase_ustx: 400_000_000,

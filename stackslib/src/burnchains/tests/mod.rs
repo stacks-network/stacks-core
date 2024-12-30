@@ -178,7 +178,7 @@ impl TestMiner {
     }
 
     pub fn next_VRF_key(&mut self) -> VRFPrivateKey {
-        let pk = if self.vrf_keys.len() == 0 {
+        let pk = if self.vrf_keys.is_empty() {
             // first key is simply the 32-byte hash of the secret state
             let mut buf: Vec<u8> = vec![];
             for i in 0..self.privks.len() {
@@ -204,7 +204,7 @@ impl TestMiner {
     }
 
     pub fn next_microblock_privkey(&mut self) -> StacksPrivateKey {
-        let pk = if self.microblock_privks.len() == 0 {
+        let pk = if self.microblock_privks.is_empty() {
             // first key is simply the 32-byte hash of the secret state
             let mut buf: Vec<u8> = vec![];
             for i in 0..self.privks.len() {
@@ -858,7 +858,7 @@ fn process_next_sortition(
     let mut next_commits = vec![];
     let mut next_prev_keys = vec![];
 
-    if prev_keys.len() > 0 {
+    if !prev_keys.is_empty() {
         assert_eq!(miners.len(), prev_keys.len());
 
         // make a Stacks block (hash) for each of the prior block's keys

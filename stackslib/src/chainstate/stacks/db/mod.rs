@@ -1335,7 +1335,7 @@ impl StacksChainState {
             }
 
             let mut allocation_events: Vec<StacksTransactionEvent> = vec![];
-            if boot_data.initial_balances.len() > 0 {
+            if !boot_data.initial_balances.is_empty() {
                 warn!(
                     "Seeding {} balances coming from the config",
                     boot_data.initial_balances.len()
@@ -1554,7 +1554,7 @@ impl StacksChainState {
                                     StacksChainState::parse_genesis_address(&entry.owner, mainnet);
 
                                 let zonefile_hash = {
-                                    if entry.zonefile_hash.len() == 0 {
+                                    if entry.zonefile_hash.is_empty() {
                                         Value::buff_from(vec![]).unwrap()
                                     } else {
                                         let buffer = Hash160::from_hex(&entry.zonefile_hash)

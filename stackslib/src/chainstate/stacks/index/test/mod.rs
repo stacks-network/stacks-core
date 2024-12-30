@@ -62,7 +62,7 @@ where
     let (root, root_hash) = Trie::read_root(s).unwrap();
     frontier.push((root, root_hash, 0));
 
-    while frontier.len() > 0 {
+    while !frontier.is_empty() {
         let (next, next_hash, depth) = frontier.pop().unwrap();
         let (ptrs, path_len) = match next {
             TrieNodeType::Leaf(ref leaf_data) => {
