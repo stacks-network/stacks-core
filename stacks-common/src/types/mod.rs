@@ -18,7 +18,7 @@ use std::cell::LazyCell;
 use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 #[cfg(feature = "canonical")]
 pub mod sqlite;
@@ -136,75 +136,60 @@ pub struct CoinbaseInterval {
 // The above is for mainnet, which has a burnchain year of 52596 blocks and starts at burnchain height 666050.
 
 /// Mainnet coinbase intervals, as of SIP-029
-// This static value is lazily initialized using `OnceLock` to avoid unnecessary
-// computation at program startup while ensuring thread safety and one-time initialization.
-// The intervals define the emission schedule for mainnet and are validated at runtime.
-pub static COINBASE_INTERVALS_MAINNET: OnceLock<[CoinbaseInterval; 5]> = OnceLock::new();
+pub static COINBASE_INTERVALS_MAINNET: LazyLock<[CoinbaseInterval; 5]> = LazyLock::new(|| {
+    let emissions_schedule = [
+        CoinbaseInterval {
+            coinbase: 1_000 * u128::from(MICROSTACKS_PER_STACKS),
+            effective_start_height: 0,
+        },
+        CoinbaseInterval {
+            coinbase: 500 * u128::from(MICROSTACKS_PER_STACKS),
+            effective_start_height: 278_950,
+        },
+        CoinbaseInterval {
+            coinbase: 250 * u128::from(MICROSTACKS_PER_STACKS),
+            effective_start_height: 383_950,
+        },
+        CoinbaseInterval {
+            coinbase: 125 * u128::from(MICROSTACKS_PER_STACKS),
+            effective_start_height: 593_950,
+        },
+        CoinbaseInterval {
+            coinbase: (625 * u128::from(MICROSTACKS_PER_STACKS)) / 10,
+            effective_start_height: 803_950,
+        },
+    ];
+    assert!(CoinbaseInterval::check_order(&emissions_schedule));
+    emissions_schedule
+});
 
-pub fn get_coinbase_intervals_mainnet() -> &'static [CoinbaseInterval; 5] {
-    COINBASE_INTERVALS_MAINNET.get_or_init(|| {
-        let emissions_schedule = [
-            CoinbaseInterval {
-                coinbase: 1_000 * u128::from(MICROSTACKS_PER_STACKS),
-                effective_start_height: 0,
-            },
-            CoinbaseInterval {
-                coinbase: 500 * u128::from(MICROSTACKS_PER_STACKS),
-                effective_start_height: 278_950,
-            },
-            CoinbaseInterval {
-                coinbase: 250 * u128::from(MICROSTACKS_PER_STACKS),
-                effective_start_height: 383_950,
-            },
-            CoinbaseInterval {
-                coinbase: 125 * u128::from(MICROSTACKS_PER_STACKS),
-                effective_start_height: 593_950,
-            },
-            CoinbaseInterval {
-                coinbase: (625 * u128::from(MICROSTACKS_PER_STACKS)) / 10,
-                effective_start_height: 803_950,
-            },
-        ];
-        assert!(CoinbaseInterval::check_order(&emissions_schedule));
-        emissions_schedule
-    })
-}
-
-/// Testnet coinbase intervals as defined by SIP-029.
-///
-/// This static value is lazily initialized using `OnceLock` to avoid unnecessary
-/// computation at program startup while ensuring thread safety and one-time initialization.
-/// The intervals define the emission schedule for testnet and are validated at runtime.
-pub static COINBASE_INTERVALS_TESTNET: OnceLock<[CoinbaseInterval; 5]> = OnceLock::new();
-
-pub fn get_coinbase_intervals_testnet() -> &'static [CoinbaseInterval; 5] {
-    COINBASE_INTERVALS_TESTNET.get_or_init(|| {
-        let emissions_schedule = [
-            CoinbaseInterval {
-                coinbase: 1_000 * u128::from(MICROSTACKS_PER_STACKS),
-                effective_start_height: 0,
-            },
-            CoinbaseInterval {
-                coinbase: 500 * u128::from(MICROSTACKS_PER_STACKS),
-                effective_start_height: 77_777,
-            },
-            CoinbaseInterval {
-                coinbase: 250 * u128::from(MICROSTACKS_PER_STACKS),
-                effective_start_height: 77_777 * 7,
-            },
-            CoinbaseInterval {
-                coinbase: 125 * u128::from(MICROSTACKS_PER_STACKS),
-                effective_start_height: 77_777 * 14,
-            },
-            CoinbaseInterval {
-                coinbase: (625 * u128::from(MICROSTACKS_PER_STACKS)) / 10,
-                effective_start_height: 77_777 * 21,
-            },
-        ];
-        assert!(CoinbaseInterval::check_order(&emissions_schedule));
-        emissions_schedule
-    })
-}
+/// Testnet coinbase intervals, as of SIP-029
+pub static COINBASE_INTERVALS_TESTNET: LazyLock<[CoinbaseInterval; 5]> = LazyLock::new(|| {
+    let emissions_schedule = [
+        CoinbaseInterval {
+            coinbase: 1_000 * u128::from(MICROSTACKS_PER_STACKS),
+            effective_start_height: 0,
+        },
+        CoinbaseInterval {
+            coinbase: 500 * u128::from(MICROSTACKS_PER_STACKS),
+            effective_start_height: 77_777,
+        },
+        CoinbaseInterval {
+            coinbase: 250 * u128::from(MICROSTACKS_PER_STACKS),
+            effective_start_height: 77_777 * 7,
+        },
+        CoinbaseInterval {
+            coinbase: 125 * u128::from(MICROSTACKS_PER_STACKS),
+            effective_start_height: 77_777 * 14,
+        },
+        CoinbaseInterval {
+            coinbase: (625 * u128::from(MICROSTACKS_PER_STACKS)) / 10,
+            effective_start_height: 77_777 * 21,
+        },
+    ];
+    assert!(CoinbaseInterval::check_order(&emissions_schedule));
+    emissions_schedule
+});
 
 /// Used for testing to substitute a coinbase schedule
 #[cfg(any(test, feature = "testing"))]
@@ -500,18 +485,18 @@ impl StacksEpochId {
         }
 
         if mainnet {
-            get_coinbase_intervals_mainnet().to_vec()
+            COINBASE_INTERVALS_MAINNET.to_vec()
         } else {
-            get_coinbase_intervals_testnet().to_vec()
+            COINBASE_INTERVALS_TESTNET.to_vec()
         }
     }
 
     #[cfg(not(any(test, feature = "testing")))]
     pub(crate) fn get_coinbase_intervals(mainnet: bool) -> Vec<CoinbaseInterval> {
         if mainnet {
-            get_coinbase_intervals_mainnet().to_vec()
+            COINBASE_INTERVALS_MAINNET.to_vec()
         } else {
-            get_coinbase_intervals_testnet().to_vec()
+            COINBASE_INTERVALS_TESTNET.to_vec()
         }
     }
 
