@@ -481,7 +481,7 @@ impl ConversationHttp {
         self.pending_response.is_none()
             && self.connection.inbox_len() == 0
             && self.connection.outbox_len() == 0
-            && self.reply_streams.len() == 0
+            && self.reply_streams.is_empty()
     }
 
     /// Is the conversation out of pending data?

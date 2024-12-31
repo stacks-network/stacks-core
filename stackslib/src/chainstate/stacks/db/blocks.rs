@@ -936,7 +936,7 @@ impl StacksChainState {
             0 => Ok(None),
             1 => {
                 let blob = blobs.pop().unwrap();
-                if blob.len() == 0 {
+                if blob.is_empty() {
                     // cleared
                     Ok(None)
                 } else {
@@ -1041,7 +1041,7 @@ impl StacksChainState {
             block_hash,
         )? {
             Some(staging_block) => {
-                if staging_block.block_data.len() == 0 {
+                if staging_block.block_data.is_empty() {
                     return Ok(None);
                 }
 
@@ -1255,7 +1255,7 @@ impl StacksChainState {
         }
         ret.reverse();
 
-        if ret.len() > 0 {
+        if !ret.is_empty() {
             // should start with 0
             if ret[0].header.sequence != 0 {
                 warn!("Invalid microblock stream from {}/{} to {}: sequence does not start with 0, but with {}",
@@ -1338,7 +1338,7 @@ impl StacksChainState {
         let staging_microblocks =
             query_rows::<StagingMicroblock, _>(blocks_conn, &sql, args).map_err(Error::DBError)?;
 
-        if staging_microblocks.len() == 0 {
+        if staging_microblocks.is_empty() {
             // haven't seen any microblocks that descend from this block yet
             test_debug!(
                 "No microblocks built on {} up to {}",
@@ -1433,7 +1433,7 @@ impl StacksChainState {
 
             ret.push(mblock);
         }
-        if fork_poison.is_none() && ret.len() == 0 {
+        if fork_poison.is_none() && ret.is_empty() {
             // just as if there were no blocks loaded
             Ok(None)
         } else {
@@ -1583,8 +1583,8 @@ impl StacksChainState {
             )
             .map_err(Error::DBError)?;
             let parent_not_in_staging_blocks =
-                has_parent_rows.len() == 0 && block.header.parent_block != FIRST_STACKS_BLOCK_HASH;
-            if has_unprocessed_parent_rows.len() > 0 || parent_not_in_staging_blocks {
+                has_parent_rows.is_empty() && block.header.parent_block != FIRST_STACKS_BLOCK_HASH;
+            if !has_unprocessed_parent_rows.is_empty() || parent_not_in_staging_blocks {
                 // still have unprocessed parent OR its parent is not in staging_blocks at all -- this block is not attachable
                 debug!(
                     "Store non-attachable anchored block {}/{}",
@@ -1750,7 +1750,7 @@ impl StacksChainState {
     ) -> Result<Option<bool>, Error> {
         StacksChainState::read_i64s(blocks_conn, "SELECT processed FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2", &[block_hash, consensus_hash])
             .and_then(|processed| {
-                if processed.len() == 0 {
+                if processed.is_empty() {
                     Ok(None)
                 }
                 else if processed.len() == 1 {
@@ -1783,7 +1783,7 @@ impl StacksChainState {
     ) -> Result<bool, Error> {
         StacksChainState::read_i64s(blocks_conn, "SELECT orphaned FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2", &[block_hash, consensus_hash])
             .and_then(|orphaned| {
-                if orphaned.len() == 0 {
+                if orphaned.is_empty() {
                     Ok(false)
                 }
                 else if orphaned.len() == 1 {
@@ -1807,7 +1807,7 @@ impl StacksChainState {
     ) -> Result<Option<bool>, Error> {
         StacksChainState::read_i64s(&self.db(), "SELECT processed FROM staging_microblocks WHERE anchored_block_hash = ?1 AND microblock_hash = ?2 AND consensus_hash = ?3", &[&parent_block_hash, microblock_hash, &parent_consensus_hash])
             .and_then(|processed| {
-                if processed.len() == 0 {
+                if processed.is_empty() {
                     Ok(None)
                 }
                 else if processed.len() == 1 {
@@ -1881,7 +1881,7 @@ impl StacksChainState {
                                                 FROM staging_blocks JOIN staging_microblocks ON staging_blocks.parent_anchored_block_hash = staging_microblocks.anchored_block_hash AND staging_blocks.parent_consensus_hash = staging_microblocks.consensus_hash
                                                 WHERE staging_blocks.index_block_hash = ?1 AND staging_microblocks.microblock_hash = ?2 AND staging_microblocks.orphaned = 0", &[child_index_block_hash, &parent_microblock_hash])
             .and_then(|processed| {
-                if processed.len() == 0 {
+                if processed.is_empty() {
                     Ok(false)
                 }
                 else if processed.len() == 1 {
@@ -2162,13 +2162,12 @@ impl StacksChainState {
     /// Used to see if we have the block data for an unaffirmed PoX anchor block
     /// (hence the test_debug! macros referring to PoX anchor blocks)
     fn has_stacks_block_for(chainstate_conn: &DBConn, block_commit: LeaderBlockCommitOp) -> bool {
-        StacksChainState::get_known_consensus_hashes_for_block(
+        !StacksChainState::get_known_consensus_hashes_for_block(
             chainstate_conn,
             &block_commit.block_header_hash,
         )
         .expect("FATAL: failed to query staging blocks DB")
-        .len()
-            > 0
+        .is_empty()
     }
 
     /// Find the canonical affirmation map.  Handle unaffirmed anchor blocks by simply seeing if we
@@ -2714,7 +2713,7 @@ impl StacksChainState {
             StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_block_hash);
         StacksChainState::read_i64s(&self.db(), "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence = ?2", &[&parent_index_block_hash, &seq])
             .and_then(|processed| {
-                if processed.len() == 0 {
+                if processed.is_empty() {
                     Ok(false)
                 }
                 else if processed.len() == 1 {
@@ -2785,7 +2784,7 @@ impl StacksChainState {
         min_seq: u16,
     ) -> Result<bool, Error> {
         StacksChainState::read_i64s(&self.db(), "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence >= ?2 LIMIT 1", &[&parent_index_block_hash, &min_seq])
-            .and_then(|processed| Ok(processed.len() > 0))
+            .and_then(|processed| Ok(!processed.is_empty()))
     }
 
     /// Do we have a given microblock as a descendant of a given anchored block?
@@ -2798,7 +2797,7 @@ impl StacksChainState {
         microblock_hash: &BlockHeaderHash,
     ) -> Result<bool, Error> {
         StacksChainState::read_i64s(&self.db(), "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 AND microblock_hash = ?2 LIMIT 1", &[parent_index_block_hash, microblock_hash])
-            .and_then(|processed| Ok(processed.len() > 0))
+            .and_then(|processed| Ok(!processed.is_empty()))
     }
 
     /// Do we have any microblock available to serve in any capacity, given its parent anchored block's
@@ -2813,7 +2812,7 @@ impl StacksChainState {
             "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 LIMIT 1",
             &[&parent_index_block_hash],
         )
-        .and_then(|processed| Ok(processed.len() > 0))
+        .and_then(|processed| Ok(!processed.is_empty()))
     }
 
     /// Given an index block hash, get the consensus hash and block hash
@@ -3014,7 +3013,7 @@ impl StacksChainState {
             microblocks.to_owned()
         };
 
-        if signed_microblocks.len() == 0 {
+        if signed_microblocks.is_empty() {
             if anchored_block_header.parent_microblock == EMPTY_MICROBLOCK_PARENT_HASH
                 && anchored_block_header.parent_microblock_sequence == 0
             {
@@ -3750,7 +3749,7 @@ impl StacksChainState {
         let sql = "SELECT * FROM staging_blocks WHERE processed = 0 AND orphaned = 1 ORDER BY RANDOM() LIMIT 1";
         let mut rows =
             query_rows::<StagingBlock, _>(blocks_tx, sql, NO_PARAMS).map_err(Error::DBError)?;
-        if rows.len() == 0 {
+        if rows.is_empty() {
             test_debug!("No orphans to remove");
             return Ok(false);
         }
@@ -3955,7 +3954,7 @@ impl StacksChainState {
                         &candidate.anchored_block_hash,
                     )? {
                         Some(bytes) => {
-                            if bytes.len() == 0 {
+                            if bytes.is_empty() {
                                 error!(
                                     "CORRUPTION: No block data for {}/{}",
                                     &candidate.consensus_hash, &candidate.anchored_block_hash
@@ -5463,7 +5462,9 @@ impl StacksChainState {
             )
         };
 
-        let (last_microblock_hash, last_microblock_seq) = if microblocks.len() > 0 {
+        let (last_microblock_hash, last_microblock_seq) = if microblocks.is_empty() {
+            (EMPTY_MICROBLOCK_PARENT_HASH.clone(), 0)
+        } else {
             let _first_mblock_hash = microblocks[0].block_hash();
             let num_mblocks = microblocks.len();
             let last_microblock_hash = microblocks[num_mblocks - 1].block_hash();
@@ -5479,8 +5480,6 @@ impl StacksChainState {
                 parent_block_hash
             );
             (last_microblock_hash, last_microblock_seq)
-        } else {
-            (EMPTY_MICROBLOCK_PARENT_HASH.clone(), 0)
         };
 
         if last_microblock_hash != block.header.parent_microblock
@@ -5678,7 +5677,7 @@ impl StacksChainState {
             };
 
             // if any, append lockups events to the coinbase receipt
-            if lockup_events.len() > 0 {
+            if !lockup_events.is_empty() {
                 // Receipts are appended in order, so the first receipt should be
                 // the one of the coinbase transaction
                 if let Some(receipt) = tx_receipts.get_mut(0) {
@@ -5690,7 +5689,7 @@ impl StacksChainState {
                 }
             }
             // if any, append auto unlock events to the coinbase receipt
-            if auto_unlock_events.len() > 0 {
+            if !auto_unlock_events.is_empty() {
                 // Receipts are appended in order, so the first receipt should be
                 // the one of the coinbase transaction
                 if let Some(receipt) = tx_receipts.get_mut(0) {
@@ -9610,17 +9609,14 @@ pub mod test {
                 )
                 .unwrap()
                 .is_none());
-                assert!(
-                    StacksChainState::load_block_bytes(
-                        &chainstate.blocks_path,
-                        &consensus_hashes[i + 1],
-                        &blocks[i + 1].block_hash()
-                    )
-                    .unwrap()
-                    .unwrap()
-                    .len()
-                        > 0
-                );
+                assert!(!StacksChainState::load_block_bytes(
+                    &chainstate.blocks_path,
+                    &consensus_hashes[i + 1],
+                    &blocks[i + 1].block_hash()
+                )
+                .unwrap()
+                .unwrap()
+                .is_empty());
 
                 for mblock in microblocks[i + 1].iter() {
                     let staging_mblock = StacksChainState::load_staging_microblock(
@@ -9633,7 +9629,7 @@ pub mod test {
                     .unwrap();
                     assert!(!staging_mblock.processed);
                     assert!(!staging_mblock.orphaned);
-                    assert!(staging_mblock.block_data.len() > 0);
+                    assert!(!staging_mblock.block_data.is_empty());
                 }
             }
 
@@ -9956,7 +9952,7 @@ pub mod test {
                     .unwrap();
                 mblocks.push(next_mblock);
             }
-            if mblock_ptr.len() == 0 {
+            if mblock_ptr.is_empty() {
                 break;
             }
         }

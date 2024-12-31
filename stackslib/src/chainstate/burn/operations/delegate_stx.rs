@@ -136,7 +136,7 @@ impl DelegateStxOp {
             return Err(op_error::InvalidInput);
         }
 
-        if outputs.len() == 0 {
+        if outputs.is_empty() {
             warn!(
                 "Invalid tx: inputs: {}, outputs: {}",
                 tx.num_signers(),

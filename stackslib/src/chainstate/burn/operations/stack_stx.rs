@@ -119,7 +119,7 @@ impl PreStxOp {
         };
 
         let outputs = tx.get_recipients();
-        assert!(outputs.len() > 0);
+        assert!(!outputs.is_empty());
 
         let output = outputs[0]
             .as_ref()
@@ -317,7 +317,7 @@ impl StackStxOp {
         })?;
 
         let outputs = tx.get_recipients();
-        assert!(outputs.len() > 0);
+        assert!(!outputs.is_empty());
 
         let first_output = outputs[0].as_ref().ok_or_else(|| {
             warn!("Invalid tx: failed to decode first output");

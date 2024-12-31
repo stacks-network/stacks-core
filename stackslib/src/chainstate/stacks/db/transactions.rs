@@ -979,7 +979,7 @@ impl StacksChainState {
             TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) => {
                 // post-conditions are not allowed for this variant, since they're non-sensical.
                 // Their presence in this variant makes the transaction invalid.
-                if tx.post_conditions.len() > 0 {
+                if !tx.post_conditions.is_empty() {
                     let msg = format!("Invalid Stacks transaction: TokenTransfer transactions do not support post-conditions");
                     info!("{}", &msg; "txid" => %tx.txid());
 
@@ -1391,7 +1391,7 @@ impl StacksChainState {
             TransactionPayload::PoisonMicroblock(ref mblock_header_1, ref mblock_header_2) => {
                 // post-conditions are not allowed for this variant, since they're non-sensical.
                 // Their presence in this variant makes the transaction invalid.
-                if tx.post_conditions.len() > 0 {
+                if !tx.post_conditions.is_empty() {
                     let msg = format!("Invalid Stacks transaction: PoisonMicroblock transactions do not support post-conditions");
                     info!("{}", &msg);
 
@@ -1423,7 +1423,7 @@ impl StacksChainState {
             TransactionPayload::TenureChange(ref payload) => {
                 // post-conditions are not allowed for this variant, since they're non-sensical.
                 // Their presence in this variant makes the transaction invalid.
-                if tx.post_conditions.len() > 0 {
+                if !tx.post_conditions.is_empty() {
                     let msg = format!("Invalid Stacks transaction: TenureChange transactions do not support post-conditions");
                     info!("{msg}");
 

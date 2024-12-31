@@ -102,7 +102,7 @@ impl AttachmentsDownloader {
         let mut events_to_deregister = vec![];
 
         // Handle initial batch
-        if self.initial_batch.len() > 0 {
+        if !self.initial_batch.is_empty() {
             let mut resolved = self.enqueue_initial_attachments(&mut network.atlasdb)?;
             resolved_attachments.append(&mut resolved);
         }
@@ -703,7 +703,7 @@ impl BatchedDNSLookupsState {
                 let mut state = BatchedDNSLookupsResults::default();
 
                 for url_str in urls.drain(..) {
-                    if url_str.len() == 0 {
+                    if url_str.is_empty() {
                         continue;
                     }
                     let url = match url_str.parse_to_block_url() {
@@ -932,7 +932,7 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                     }
                 });
 
-                if pending_requests.len() > 0 {
+                if !pending_requests.is_empty() {
                     // We need to keep polling
                     for (event_id, request) in pending_requests.drain() {
                         state.remaining.insert(event_id, request);

@@ -1211,10 +1211,10 @@ fn test_iterate_candidates_concurrent_write_lock() {
 
         mempool_tx.commit().unwrap();
     }
-    assert!(expected_addr_nonces.len() > 0);
+    assert!(!expected_addr_nonces.is_empty());
 
     let all_addr_nonces = db_get_all_nonces(mempool.conn()).unwrap();
-    assert_eq!(all_addr_nonces.len(), 0);
+    assert!(all_addr_nonces.is_empty());
 
     // start a thread that holds a write-lock on the mempool
     let write_thread = std::thread::spawn(move || {
@@ -2377,7 +2377,7 @@ fn test_find_next_missing_transactions() {
         assert!(txs.len() <= page_size as usize);
         assert!(num_visited <= page_size as u64);
 
-        if txs.len() == 0 {
+        if txs.is_empty() {
             assert!(next_page_opt.is_none());
             break;
         }
@@ -2416,7 +2416,7 @@ fn test_find_next_missing_transactions() {
         assert!(txs.len() <= page_size as usize);
         assert!(num_visited <= page_size as u64);
 
-        if txs.len() == 0 {
+        if txs.is_empty() {
             assert!(next_page_opt.is_none());
             break;
         }

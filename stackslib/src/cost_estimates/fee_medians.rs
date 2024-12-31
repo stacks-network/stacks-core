@@ -200,7 +200,7 @@ impl<M: CostMetric> FeeEstimator for WeightedMedianFeeRateEstimator<M> {
         maybe_add_minimum_fee_rate(&mut working_fee_rates, self.full_block_weight);
 
         // If fee rates non-empty, then compute an update.
-        if working_fee_rates.len() > 0 {
+        if !working_fee_rates.is_empty() {
             // Values must be sorted.
             working_fee_rates.sort_by(|a, b| {
                 a.fee_rate

@@ -475,11 +475,11 @@ impl StacksHttpRequest {
         }
         let (decoded_path, _) = decode_request_path(&preamble.path_and_query_str)?;
         let full_query_string = contents.get_full_query_string();
-        if full_query_string.len() > 0 {
-            preamble.path_and_query_str = format!("{}?{}", &decoded_path, &full_query_string);
+        preamble.path_and_query_str = if full_query_string.is_empty() {
+            decoded_path
         } else {
-            preamble.path_and_query_str = decoded_path;
-        }
+            format!("{decoded_path}?{full_query_string}")
+        };
 
         Ok(Self {
             preamble,
@@ -1039,7 +1039,7 @@ impl StacksHttp {
         let payload = match handler.try_parse_request(
             preamble,
             &captures,
-            if query.len() > 0 { Some(&query) } else { None },
+            if query.is_empty() { None } else { Some(&query) },
             body,
         ) {
             Ok(p) => p,
@@ -1078,7 +1078,7 @@ impl StacksHttp {
             let payload = match request.try_parse_request(
                 preamble,
                 &captures,
-                if query.len() > 0 { Some(&query) } else { None },
+                if query.is_empty() { None } else { Some(&query) },
                 body,
             ) {
                 Ok(p) => p,

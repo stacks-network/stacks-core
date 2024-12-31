@@ -372,7 +372,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
     /// last ptr visited
     pub fn ptr(&self) -> TriePtr {
         // should always be true by construction
-        assert!(self.node_ptrs.len() > 0);
+        assert!(!self.node_ptrs.is_empty());
         self.node_ptrs[self.node_ptrs.len() - 1].clone()
     }
 

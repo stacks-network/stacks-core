@@ -910,7 +910,7 @@ pub fn calculate_paid_rewards(ops: &[BlockstackOperationType]) -> PaidRewards {
     let mut burn_amt = 0;
     for op in ops.iter() {
         if let BlockstackOperationType::LeaderBlockCommit(commit) = op {
-            if commit.commit_outs.len() == 0 {
+            if commit.commit_outs.is_empty() {
                 continue;
             }
             let amt_per_address = commit.burn_fee / (commit.commit_outs.len() as u64);
@@ -2773,7 +2773,7 @@ impl<
             }
             sortition_db_handle.commit()?;
 
-            if unorphan_blocks.len() > 0 {
+            if !unorphan_blocks.is_empty() {
                 revalidated_stacks_block = true;
                 let ic = self.sortition_db.index_conn();
                 let mut chainstate_db_tx = self.chain_state_db.db_tx_begin()?;
@@ -3104,7 +3104,7 @@ impl<
             }
         }
 
-        if !found && staging_block_chs.len() > 0 {
+        if !found && !staging_block_chs.is_empty() {
             // we have seen this block before, but in a different consensus fork.
             // queue it for re-processing -- it might still be valid if it's in a reward
             // cycle that exists on the new PoX fork.
