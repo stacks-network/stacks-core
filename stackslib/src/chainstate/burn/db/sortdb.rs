@@ -4049,7 +4049,7 @@ impl SortitionDB {
 
     fn parse_last_anchor_block_hash(s: Option<String>) -> Option<BlockHeaderHash> {
         s.map(|s| {
-            if s == "" {
+            if s.is_empty() {
                 None
             } else {
                 Some(BlockHeaderHash::from_hex(&s).expect("BUG: Bad BlockHeaderHash stored in DB"))
@@ -4060,7 +4060,7 @@ impl SortitionDB {
 
     fn parse_last_anchor_block_txid(s: Option<String>) -> Option<Txid> {
         s.map(|s| {
-            if s == "" {
+            if s.is_empty() {
                 None
             } else {
                 Some(Txid::from_hex(&s).expect("BUG: Bad Txid stored in DB"))
