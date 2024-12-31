@@ -1256,7 +1256,7 @@ fn test_build_anchored_blocks_incrementing_nonces() {
                 &parent_tip,
                 tip.total_burn,
                 vrf_proof,
-                Hash160([0 as u8; 20]),
+                Hash160([0; 20]),
                 &coinbase_tx,
                 BlockBuilderSettings::limited(),
                 None,
@@ -1637,7 +1637,7 @@ fn test_build_anchored_blocks_mempool_fee_transaction_too_low() {
                 &parent_tip,
                 tip.total_burn,
                 vrf_proof,
-                Hash160([0 as u8; 20]),
+                Hash160([0; 20]),
                 &coinbase_tx,
                 BlockBuilderSettings::max_value(),
                 None,
@@ -1728,7 +1728,7 @@ fn test_build_anchored_blocks_zero_fee_transaction() {
                 &parent_tip,
                 vrf_proof,
                 tip.total_burn,
-                Hash160([0 as u8; 20]),
+                Hash160([0; 20]),
             )
             .unwrap();
 
@@ -3355,10 +3355,10 @@ fn test_build_microblock_stream_forks_with_descendants() {
         for burn_op in burn_ops.iter_mut() {
             if let BlockstackOperationType::LeaderBlockCommit(ref mut op) = burn_op {
                 // patch it up
-                op.parent_block_ptr = (*parent_block_ptrs
+                op.parent_block_ptr = *parent_block_ptrs
                     .borrow()
                     .get(&stacks_block.header.parent_block)
-                    .unwrap()) as u32;
+                    .unwrap();
             }
         }
 
@@ -4841,7 +4841,7 @@ fn test_fee_order_mismatch_nonce_order() {
                 &parent_tip,
                 tip.total_burn,
                 vrf_proof,
-                Hash160([0 as u8; 20]),
+                Hash160([0; 20]),
                 &coinbase_tx,
                 BlockBuilderSettings::max_value(),
                 None,

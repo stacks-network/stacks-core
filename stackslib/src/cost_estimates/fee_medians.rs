@@ -244,7 +244,7 @@ pub fn fee_rate_estimate_from_sorted_weighted_fees(
     for rate_and_weight in sorted_fee_rates {
         cumulative_weight += rate_and_weight.weight as f64;
         let percentile_n: f64 =
-            (cumulative_weight as f64 - rate_and_weight.weight as f64 / 2f64) / total_weight as f64;
+            (cumulative_weight - rate_and_weight.weight as f64 / 2f64) / total_weight;
         percentiles.push(percentile_n);
     }
     assert_eq!(percentiles.len(), sorted_fee_rates.len());

@@ -10246,10 +10246,7 @@ pub mod test {
                 SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
-            assert_eq!(
-                tip.block_height,
-                first_stacks_block_height + (tenure_id as u64)
-            );
+            assert_eq!(tip.block_height, first_stacks_block_height + tenure_id);
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
                 |ref mut miner,

@@ -242,7 +242,7 @@ impl HttpChunkGenerator for StacksHeaderStream {
             // then write ']'
             test_debug!("Opening header stream");
             self.total_bytes += 1;
-            return Ok(vec!['[' as u8]);
+            return Ok(vec![b'[']);
         }
         if self.num_headers == 0 {
             test_debug!("End of header stream");
@@ -270,7 +270,7 @@ impl HttpChunkGenerator for StacksHeaderStream {
                     self.num_headers -= 1;
 
                     if self.num_headers > 0 {
-                        header_bytes.push(',' as u8);
+                        header_bytes.push(b',');
                     } else {
                         self.end_of_stream = true;
                     }
@@ -298,7 +298,7 @@ impl HttpChunkGenerator for StacksHeaderStream {
             test_debug!("Corking header stream");
             self.corked = true;
             self.total_bytes += 1;
-            return Ok(vec![']' as u8]);
+            return Ok(vec![b']']);
         }
 
         test_debug!("Header stream terminated");

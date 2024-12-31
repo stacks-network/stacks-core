@@ -6378,7 +6378,7 @@ fn stack_increase(use_nakamoto: bool) {
         &pox_addr,
         lock_period,
         &signing_pk,
-        block_height as u64,
+        block_height,
         Some(signature),
         u128::MAX,
         1,

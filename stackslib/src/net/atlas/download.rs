@@ -1314,10 +1314,11 @@ impl ReliabilityReport {
     }
 
     pub fn score(&self) -> u32 {
-        match self.total_requests_sent {
-            0 => 0 as u32,
-            n => self.total_requests_success * 1000 / (n * 1000) + n,
+        if self.total_requests_sent == 0 {
+            return 0;
         }
+        self.total_requests_success * 1000 / (self.total_requests_sent * 1000)
+            + self.total_requests_sent
     }
 }
 

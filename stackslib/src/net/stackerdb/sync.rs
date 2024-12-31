@@ -1334,7 +1334,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         network: &PeerNetwork,
     ) -> Result<(), net_error> {
         // figure out the new expected versions
-        let mut expected_versions = vec![0u32; self.num_slots as usize];
+        let mut expected_versions = vec![0u32; self.num_slots];
         for (_, chunk_inv) in self.chunk_invs.iter() {
             for (slot_id, slot_version) in chunk_inv.slot_versions.iter().enumerate() {
                 expected_versions[slot_id] = (*slot_version).max(expected_versions[slot_id]);

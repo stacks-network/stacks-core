@@ -3384,7 +3384,7 @@ mod test {
             .consensus_serialize(&mut contract_call_bytes)
             .unwrap();
 
-        let mut transaction_contract_call = vec![0xff as u8];
+        let mut transaction_contract_call = vec![0xff];
         transaction_contract_call.append(&mut contract_call_bytes.clone());
 
         assert!(
@@ -3489,14 +3489,14 @@ mod test {
         let asset_name = ClarityName::try_from("hello-asset").unwrap();
         let mut asset_name_bytes = vec![
             // length
-            asset_name.len() as u8,
+            asset_name.len(),
         ];
         asset_name_bytes.extend_from_slice(&asset_name.to_string().as_str().as_bytes());
 
         let contract_name = ContractName::try_from("hello-world").unwrap();
         let mut contract_name_bytes = vec![
             // length
-            contract_name.len() as u8,
+            contract_name.len(),
         ];
         contract_name_bytes.extend_from_slice(&contract_name.to_string().as_str().as_bytes());
 

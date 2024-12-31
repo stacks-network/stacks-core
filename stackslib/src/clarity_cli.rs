@@ -708,7 +708,7 @@ impl HeadersDB for CLIHeadersDB {
     ) -> Option<u64> {
         let conn = self.conn();
         if let Some(height) = get_cli_block_height(&conn, id_bhh) {
-            Some((height * 600 + 1231006505) as u64)
+            Some(height * 600 + 1231006505)
         } else {
             None
         }
@@ -717,7 +717,7 @@ impl HeadersDB for CLIHeadersDB {
     fn get_stacks_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
         let conn = self.conn();
         if let Some(height) = get_cli_block_height(&conn, id_bhh) {
-            Some((height * 10 + 1713799973) as u64)
+            Some(height * 10 + 1713799973)
         } else {
             None
         }

@@ -3269,9 +3269,9 @@ impl PeerNetwork {
         }
 
         let reward_cycle_start = self.antientropy_start_reward_cycle;
-        let reward_cycle_finish =
-            self.antientropy_start_reward_cycle
-                .saturating_sub(self.connection_opts.inv_reward_cycles) as u64;
+        let reward_cycle_finish = self
+            .antientropy_start_reward_cycle
+            .saturating_sub(self.connection_opts.inv_reward_cycles);
 
         self.antientropy_start_reward_cycle = reward_cycle_finish;
 

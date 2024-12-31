@@ -868,9 +868,9 @@ impl StacksChainState {
         // of all participants' burns.
         let coinbase_reward = participant
             .coinbase
-            .checked_mul(this_burn_total as u128)
+            .checked_mul(this_burn_total)
             .expect("FATAL: STX coinbase reward overflow")
-            / (burn_total as u128);
+            / burn_total;
 
         // process poison -- someone can steal a fraction of the total coinbase if they can present
         // evidence that the miner forked the microblock stream.  The remainder of the coinbase is
