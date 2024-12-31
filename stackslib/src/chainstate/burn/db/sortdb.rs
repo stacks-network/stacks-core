@@ -5774,10 +5774,9 @@ impl<'a> SortitionHandleTx<'a> {
             .map(|parent_commit_sn| parent_commit_sn.sortition_id)
             .unwrap_or(SortitionId([0x00; 32]));
 
-        if !cfg!(test) {
-            if block_commit.parent_block_ptr != 0 || block_commit.parent_vtxindex != 0 {
-                assert!(parent_sortition_id != SortitionId([0x00; 32]));
-            }
+        if !cfg!(test) && (block_commit.parent_block_ptr != 0 || block_commit.parent_vtxindex != 0)
+        {
+            assert!(parent_sortition_id != SortitionId([0x00; 32]));
         }
 
         let args = params![

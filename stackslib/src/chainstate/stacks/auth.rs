@@ -1407,12 +1407,10 @@ impl TransactionAuth {
                 };
                 origin_supported && sponsor_supported
             }
-            TransactionAuth::Standard(ref origin) => match origin {
-                TransactionSpendingCondition::OrderIndependentMultisig(..) => {
-                    epoch_id >= StacksEpochId::Epoch30
-                }
-                _ => true,
-            },
+            TransactionAuth::Standard(TransactionSpendingCondition::OrderIndependentMultisig(
+                ..,
+            )) => epoch_id >= StacksEpochId::Epoch30,
+            _ => true,
         }
     }
 }

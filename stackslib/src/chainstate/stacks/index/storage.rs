@@ -2163,17 +2163,16 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
 
         if *bhh == self.data.cur_block && self.data.cur_block_id.is_some() {
             // no-op
-            if self.unconfirmed() {
-                if self.data.cur_block_id
+            if self.unconfirmed()
+                && self.data.cur_block_id
                     == trie_sql::get_unconfirmed_block_identifier(&self.db, bhh)?
-                {
-                    test_debug!(
-                        "{} unconfirmed trie block ID is {:?}",
-                        bhh,
-                        &self.data.cur_block_id
-                    );
-                    self.unconfirmed_block_id = self.data.cur_block_id.clone();
-                }
+            {
+                test_debug!(
+                    "{} unconfirmed trie block ID is {:?}",
+                    bhh,
+                    &self.data.cur_block_id
+                );
+                self.unconfirmed_block_id = self.data.cur_block_id.clone();
             }
 
             self.bench.open_block_finish(true);
@@ -2194,17 +2193,16 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
             if uncommitted_bhh == bhh {
                 // nothing to do -- we're already ready.
                 // just clear out.
-                if self.unconfirmed() {
-                    if self.data.cur_block_id
+                if self.unconfirmed()
+                    && self.data.cur_block_id
                         == trie_sql::get_unconfirmed_block_identifier(&self.db, bhh)?
-                    {
-                        test_debug!(
-                            "{} unconfirmed trie block ID is {:?}",
-                            bhh,
-                            &self.data.cur_block_id
-                        );
-                        self.unconfirmed_block_id = self.data.cur_block_id.clone();
-                    }
+                {
+                    test_debug!(
+                        "{} unconfirmed trie block ID is {:?}",
+                        bhh,
+                        &self.data.cur_block_id
+                    );
+                    self.unconfirmed_block_id = self.data.cur_block_id.clone();
                 }
                 self.data.set_block(bhh.clone(), None);
                 self.bench.open_block_finish(true);
