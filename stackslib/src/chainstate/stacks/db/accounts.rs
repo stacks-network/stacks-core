@@ -1387,7 +1387,7 @@ mod test {
             StacksEpochId::Epoch2_05,
             &participant,
             &participant,
-            &vec![],
+            &[],
             &MinerPaymentSchedule::genesis(true),
             None,
         );
@@ -1418,7 +1418,7 @@ mod test {
             StacksEpochId::Epoch2_05,
             &participant,
             &participant,
-            &vec![],
+            &[],
             &MinerPaymentSchedule::genesis(true),
             None,
         );
@@ -1461,7 +1461,7 @@ mod test {
             StacksEpochId::Epoch2_05,
             &miner,
             &miner,
-            &vec![user.clone()],
+            &[user.clone()],
             &MinerPaymentSchedule::genesis(true),
             None,
         );
@@ -1470,7 +1470,7 @@ mod test {
             StacksEpochId::Epoch2_05,
             &user,
             &miner,
-            &vec![user.clone()],
+            &[user.clone()],
             &MinerPaymentSchedule::genesis(true),
             None,
         );
@@ -1511,7 +1511,7 @@ mod test {
             StacksEpochId::Epoch2_05,
             &participant,
             &participant,
-            &vec![],
+            &[],
             &parent_participant,
             None,
         );

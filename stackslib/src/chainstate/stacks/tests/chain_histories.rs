@@ -83,7 +83,7 @@ where
         usize,
         Option<&StacksMicroblockHeader>,
     ) -> (StacksBlock, Vec<StacksMicroblock>),
-    G: FnMut(&StacksBlock, &Vec<StacksMicroblock>) -> bool,
+    G: FnMut(&StacksBlock, &[StacksMicroblock]) -> bool,
 {
     let full_test_name = format!("{}-1_fork_1_miner_1_burnchain", test_name);
     let mut burn_node = TestBurnchainNode::new();
@@ -2646,7 +2646,7 @@ fn miner_trace_replay_randomized(miner_trace: &mut TestMinerTrace) {
                             &mut miner_trace.burn_node,
                             &fork_snapshot,
                             &stacks_block,
-                            &vec![],
+                            &[],
                             &block_commit_op,
                         );
 
@@ -2657,7 +2657,7 @@ fn miner_trace_replay_randomized(miner_trace: &mut TestMinerTrace) {
                                     &mut miner_trace.burn_node,
                                     &fork_snapshot,
                                     &stacks_block,
-                                    &vec![mblock.clone()],
+                                    &[mblock.clone()],
                                     &block_commit_op,
                                 );
 

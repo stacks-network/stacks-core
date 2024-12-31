@@ -110,7 +110,7 @@ fn helper_execute_epoch(
     owned_env.stx_faucet(&sender, 10);
 
     let (value, _, events) = owned_env
-        .execute_transaction(sender, None, contract_id, method, &vec![])
+        .execute_transaction(sender, None, contract_id, method, &[])
         .unwrap();
     (value, events)
 }

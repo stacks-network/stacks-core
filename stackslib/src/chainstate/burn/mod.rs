@@ -532,8 +532,8 @@ mod tests {
                     .append_chain_tip_snapshot(
                         &prev_snapshot,
                         &snapshot_row,
-                        &vec![],
-                        &vec![],
+                        &[],
+                        &[],
                         None,
                         None,
                         None,

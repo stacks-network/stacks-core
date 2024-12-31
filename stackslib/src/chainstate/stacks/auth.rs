@@ -1478,11 +1478,11 @@ mod test {
             0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe,
         ];
 
-        let spending_conditions = vec![
+        let spending_conditions = [
             spending_condition_p2pkh_compressed,
             spending_condition_p2pkh_uncompressed,
         ];
-        let spending_conditions_bytes = vec![
+        let spending_conditions_bytes = [
             spending_condition_p2pkh_compressed_bytes,
             spending_condition_p2pkh_uncompressed_bytes,
         ];
@@ -1589,11 +1589,11 @@ mod test {
             0x00, 0x02,
         ];
 
-        let spending_conditions = vec![
+        let spending_conditions = [
             spending_condition_p2sh_compressed,
             spending_condition_p2sh_uncompressed,
         ];
-        let spending_conditions_bytes = vec![
+        let spending_conditions_bytes = [
             spending_condition_p2sh_compressed_bytes,
             spending_condition_p2sh_uncompressed_bytes,
         ];
@@ -1700,11 +1700,11 @@ mod test {
             0x00, 0x02,
         ];
 
-        let spending_conditions = vec![
+        let spending_conditions = [
             spending_condition_order_independent_p2sh_compressed,
             spending_condition_order_independent_p2sh_uncompressed,
         ];
-        let spending_conditions_bytes = vec![
+        let spending_conditions_bytes = [
             spending_condition_order_independent_p2sh_compressed_bytes,
             spending_condition_order_independent_p2sh_uncompressed_bytes,
         ];
@@ -1743,15 +1743,10 @@ mod test {
             0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe,
         ];
 
-        let spending_conditions = vec![spending_condition_p2wpkh_compressed];
-        let spending_conditions_bytes = vec![spending_condition_p2wpkh_compressed_bytes];
-
-        for i in 0..spending_conditions.len() {
-            check_codec_and_corruption::<SinglesigSpendingCondition>(
-                &spending_conditions[i],
-                &spending_conditions_bytes[i],
-            );
-        }
+        check_codec_and_corruption::<SinglesigSpendingCondition>(
+            &spending_condition_p2wpkh_compressed,
+            &spending_condition_p2wpkh_compressed_bytes,
+        );
     }
 
     #[test]
@@ -1807,15 +1802,10 @@ mod test {
             0x00, 0x02,
         ];
 
-        let spending_conditions = vec![spending_condition_p2wsh];
-        let spending_conditions_bytes = vec![spending_condition_p2wsh_bytes];
-
-        for i in 0..spending_conditions.len() {
-            check_codec_and_corruption::<MultisigSpendingCondition>(
-                &spending_conditions[i],
-                &spending_conditions_bytes[i],
-            );
-        }
+        check_codec_and_corruption::<MultisigSpendingCondition>(
+            &spending_condition_p2wsh,
+            &spending_condition_p2wsh_bytes,
+        );
     }
 
     #[test]
@@ -1986,7 +1976,7 @@ mod test {
 
     #[test]
     fn tx_stacks_invalid_spending_conditions() {
-        let bad_hash_mode_bytes = vec![
+        let bad_hash_mode_bytes = [
             // singlesig
             // hash mode
             0xff,
@@ -2002,7 +1992,7 @@ mod test {
             0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd,
         ];
 
-        let bad_hash_mode_multisig_bytes = vec![
+        let bad_hash_mode_multisig_bytes = [
             // hash mode
             MultisigHashMode::P2SH as u8,
             // signer
@@ -2017,7 +2007,7 @@ mod test {
             0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd,
         ];
 
-        let bad_hash_mode_order_independent_multisig_bytes = vec![
+        let bad_hash_mode_order_independent_multisig_bytes = [
             // hash mode
             OrderIndependentMultisigHashMode::P2SH as u8,
             // signer
@@ -2035,7 +2025,7 @@ mod test {
         // this will parse into a singlesig spending condition, but data will still remain.
         // the reason it parses is because the public keys length field encodes a valid 2-byte
         // prefix of a public key, and the parser will lump it into a public key
-        let bad_hash_mode_singlesig_bytes_parseable = vec![
+        let bad_hash_mode_singlesig_bytes_parseable = [
             // hash mode
             SinglesigHashMode::P2PKH as u8,
             // signer
@@ -2317,28 +2307,28 @@ mod test {
         )
         .unwrap();
 
-        let keys = vec![
+        let keys = [
             privk.clone(),
             privk.clone(),
             privk_uncompressed.clone(),
             privk_uncompressed.clone(),
         ];
 
-        let key_modes = vec![
+        let key_modes = [
             TransactionPublicKeyEncoding::Compressed,
             TransactionPublicKeyEncoding::Compressed,
             TransactionPublicKeyEncoding::Uncompressed,
             TransactionPublicKeyEncoding::Uncompressed,
         ];
 
-        let auth_flags = vec![
+        let auth_flags = [
             TransactionAuthFlags::AuthStandard,
             TransactionAuthFlags::AuthSponsored,
             TransactionAuthFlags::AuthStandard,
             TransactionAuthFlags::AuthSponsored,
         ];
 
-        let tx_fees = vec![123, 456, 123, 456];
+        let tx_fees = [123, 456, 123, 456];
 
         let nonces: Vec<u64> = vec![1, 2, 3, 4];
 

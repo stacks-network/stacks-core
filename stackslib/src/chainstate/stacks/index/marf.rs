@@ -514,11 +514,7 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
 
     /// Insert a batch of key/value pairs.  More efficient than inserting them individually, since
     /// the trie root hash will only be calculated once (which is an O(log B) operation).
-    pub fn insert_batch(
-        &mut self,
-        keys: &Vec<String>,
-        values: Vec<MARFValue>,
-    ) -> Result<(), Error> {
+    pub fn insert_batch(&mut self, keys: &[String], values: Vec<MARFValue>) -> Result<(), Error> {
         if self.storage.readonly() {
             return Err(Error::ReadOnlyError);
         }
@@ -789,7 +785,7 @@ impl<T: MarfTrieId> MARF<T> {
             trace!("Brand new storage -- start with {:?}", new_bhh);
             storage.extend_to_block(new_bhh)?;
             let node = TrieNode256::new(&[]);
-            let hash = get_node_hash(&node, &vec![], storage.deref_mut());
+            let hash = get_node_hash(&node, &[], storage.deref_mut());
             let root_ptr = storage.root_ptr();
             storage.write_nodetype(root_ptr, &TrieNodeType::Node256(Box::new(node)), hash)?;
             Ok(())
@@ -1028,7 +1024,7 @@ impl<T: MarfTrieId> MARF<T> {
         storage.format()?;
         storage.extend_to_block(first_block_hash)?;
         let node = TrieNode256::new(&[]);
-        let hash = get_node_hash(&node, &vec![], storage.deref_mut());
+        let hash = get_node_hash(&node, &[], storage.deref_mut());
         let root_ptr = storage.root_ptr();
         let node_type = TrieNodeType::Node256(Box::new(node));
         storage.write_nodetype(root_ptr, &node_type, hash)
@@ -1343,7 +1339,7 @@ impl<T: MarfTrieId> MARF<T> {
     fn inner_insert_batch(
         conn: &mut TrieStorageTransaction<T>,
         block_hash: &T,
-        keys: &Vec<String>,
+        keys: &[String],
         values: Vec<MARFValue>,
     ) -> Result<(), Error> {
         assert_eq!(keys.len(), values.len());
@@ -1441,11 +1437,7 @@ impl<T: MarfTrieId> MARF<T> {
 
     /// Insert a batch of key/value pairs.  More efficient than inserting them individually, since
     /// the trie root hash will only be calculated once (which is an O(log B) operation).
-    pub fn insert_batch(
-        &mut self,
-        keys: &Vec<String>,
-        values: Vec<MARFValue>,
-    ) -> Result<(), Error> {
+    pub fn insert_batch(&mut self, keys: &[String], values: Vec<MARFValue>) -> Result<(), Error> {
         if self.storage.readonly() {
             return Err(Error::ReadOnlyError);
         }

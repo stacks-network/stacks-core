@@ -276,7 +276,7 @@ impl BlocksInvData {
         }
     }
 
-    pub fn compress_bools(bits: &Vec<bool>) -> Vec<u8> {
+    pub fn compress_bools(bits: &[bool]) -> Vec<u8> {
         let bvl: u16 = bits
             .len()
             .try_into()
@@ -1665,7 +1665,7 @@ pub mod test {
 
     pub fn check_codec_and_corruption<T: StacksMessageCodec + fmt::Debug + Clone + PartialEq>(
         obj: &T,
-        bytes: &Vec<u8>,
+        bytes: &[u8],
     ) -> () {
         // obj should serialize to bytes
         let mut write_buf: Vec<u8> = Vec::with_capacity(bytes.len());
@@ -1718,43 +1718,43 @@ pub mod test {
 
     #[test]
     fn codec_primitive_types() {
-        check_codec_and_corruption::<u8>(&0x01, &vec![0x01]);
-        check_codec_and_corruption::<u16>(&0x0203, &vec![0x02, 0x03]);
-        check_codec_and_corruption::<u32>(&0x04050607, &vec![0x04, 0x05, 0x06, 0x07]);
+        check_codec_and_corruption::<u8>(&0x01, &[0x01]);
+        check_codec_and_corruption::<u16>(&0x0203, &[0x02, 0x03]);
+        check_codec_and_corruption::<u32>(&0x04050607, &[0x04, 0x05, 0x06, 0x07]);
         check_codec_and_corruption::<u64>(
             &0x08090a0b0c0d0e0f,
-            &vec![0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f],
+            &[0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f],
         );
     }
 
     #[test]
     fn codec_primitive_vector() {
-        check_codec_and_corruption::<Vec<u8>>(&vec![], &vec![0x00, 0x00, 0x00, 0x00]);
+        check_codec_and_corruption::<Vec<u8>>(&vec![], &[0x00, 0x00, 0x00, 0x00]);
         check_codec_and_corruption::<Vec<u8>>(
             &vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09],
-            &vec![
+            &[
                 0x00, 0x00, 0x00, 0x0a, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
             ],
         );
 
-        check_codec_and_corruption::<Vec<u16>>(&vec![], &vec![0x00, 0x00, 0x00, 0x00]);
+        check_codec_and_corruption::<Vec<u16>>(&vec![], &[0x00, 0x00, 0x00, 0x00]);
         check_codec_and_corruption::<Vec<u16>>(
             &vec![
                 0xf000, 0xf101, 0xf202, 0xf303, 0xf404, 0xf505, 0xf606, 0xf707, 0xf808, 0xf909,
             ],
-            &vec![
+            &[
                 0x00, 0x00, 0x00, 0x0a, 0xf0, 0x00, 0xf1, 0x01, 0xf2, 0x02, 0xf3, 0x03, 0xf4, 0x04,
                 0xf5, 0x05, 0xf6, 0x06, 0xf7, 0x07, 0xf8, 0x08, 0xf9, 0x09,
             ],
         );
 
-        check_codec_and_corruption::<Vec<u32>>(&vec![], &vec![0x00, 0x00, 0x00, 0x00]);
+        check_codec_and_corruption::<Vec<u32>>(&vec![], &[0x00, 0x00, 0x00, 0x00]);
         check_codec_and_corruption::<Vec<u32>>(
             &vec![
                 0xa0b0f000, 0xa1b1f101, 0xa2b2f202, 0xa3b3f303, 0xa4b4f404, 0xa5b5f505, 0xa6b6f606,
                 0xa7b7f707, 0xa8b8f808, 0xa9b9f909,
             ],
-            &vec![
+            &[
                 0x00, 0x00, 0x00, 0x0a, 0xa0, 0xb0, 0xf0, 0x00, 0xa1, 0xb1, 0xf1, 0x01, 0xa2, 0xb2,
                 0xf2, 0x02, 0xa3, 0xb3, 0xf3, 0x03, 0xa4, 0xb4, 0xf4, 0x04, 0xa5, 0xb5, 0xf5, 0x05,
                 0xa6, 0xb6, 0xf6, 0x06, 0xa7, 0xb7, 0xf7, 0x07, 0xa8, 0xb8, 0xf8, 0x08, 0xa9, 0xb9,
@@ -1762,7 +1762,7 @@ pub mod test {
             ],
         );
 
-        check_codec_and_corruption::<Vec<u64>>(&vec![], &vec![0x00, 0x00, 0x00, 0x00]);
+        check_codec_and_corruption::<Vec<u64>>(&vec![], &[0x00, 0x00, 0x00, 0x00]);
         check_codec_and_corruption::<Vec<u64>>(
             &vec![
                 0x1020304050607080,
@@ -1775,7 +1775,7 @@ pub mod test {
                 0x1727374757677787,
                 0x1828384858687888,
             ],
-            &vec![
+            &[
                 0x00, 0x00, 0x00, 0x09, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80, 0x11, 0x21,
                 0x31, 0x41, 0x51, 0x61, 0x71, 0x81, 0x12, 0x22, 0x32, 0x42, 0x52, 0x62, 0x72, 0x82,
                 0x13, 0x23, 0x33, 0x43, 0x53, 0x63, 0x73, 0x83, 0x14, 0x24, 0x34, 0x44, 0x54, 0x64,
@@ -1924,7 +1924,7 @@ pub mod test {
             bitlen: 0,
             pox_bitvec: vec![],
         };
-        let empty_inv_bytes = vec![
+        let empty_inv_bytes = [
             // bitlen
             0x00, 0x00, 0x00, 0x00, // bitvec
             0x00, 0x00, 0x00, 0x00,
@@ -1999,7 +1999,7 @@ pub mod test {
             block_bitvec: vec![],
             microblocks_bitvec: vec![],
         };
-        let empty_inv_bytes = vec![
+        let empty_inv_bytes = [
             // bitlen
             0x00, 0x00, 0x00, 0x00, // bitvec
             0x00, 0x00, 0x00, 0x00, // microblock bitvec
@@ -2451,7 +2451,7 @@ pub mod test {
             .unwrap(),
         };
 
-        let nakamoto_inv_bytes = vec![
+        let nakamoto_inv_bytes = [
             // bitlen
             0x00, 0x40, // vec len
             0x00, 0x00, 0x00, 0x08, // bits
@@ -2461,7 +2461,7 @@ pub mod test {
         check_codec_and_corruption::<NakamotoInvData>(&nakamoto_inv, &nakamoto_inv_bytes);
 
         // should fail
-        let nakamoto_inv_bytes = vec![
+        let nakamoto_inv_bytes = [
             // bitlen
             0x00, 0x20, // vec len
             0x00, 0x00, 0x00, 0x05, // bits
@@ -2471,7 +2471,7 @@ pub mod test {
         let _ = NakamotoInvData::consensus_deserialize(&mut &nakamoto_inv_bytes[..]).unwrap_err();
 
         // should fail
-        let nakamoto_inv_bytes = vec![
+        let nakamoto_inv_bytes = [
             // bitlen
             0x00, 0x21, // vec len
             0x00, 0x00, 0x00, 0x04, // bits

@@ -670,7 +670,7 @@ impl StacksChainState {
     ) -> Result<(), Error> {
         let block_path =
             StacksChainState::make_block_dir(blocks_path, consensus_hash, &block_hash)?;
-        StacksChainState::atomic_file_write(&block_path, &vec![])
+        StacksChainState::atomic_file_write(&block_path, &[])
     }
 
     /// Mark a block in the filesystem as invalid
@@ -2559,7 +2559,7 @@ impl StacksChainState {
                 StacksChainState::free_block(blocks_path, consensus_hash, anchored_block_hash);
             }
             Err(_) => {
-                StacksChainState::atomic_file_write(&block_path, &vec![])?;
+                StacksChainState::atomic_file_write(&block_path, &[])?;
             }
         }
 
@@ -3584,7 +3584,7 @@ impl StacksChainState {
         sort_ic: &SortitionDBConn,
         snapshot: &BlockSnapshot,
         block: &StacksBlock,
-        microblocks: &Vec<StacksMicroblock>,
+        microblocks: &[StacksMicroblock],
     ) -> Result<(), Error> {
         let parent_sn = match SortitionDB::get_block_snapshot_for_winning_stacks_block(
             sort_ic,
@@ -5048,7 +5048,7 @@ impl StacksChainState {
         burn_tip_height: u32,
         parent_consensus_hash: ConsensusHash,
         parent_header_hash: BlockHeaderHash,
-        parent_microblocks: &Vec<StacksMicroblock>,
+        parent_microblocks: &[StacksMicroblock],
         mainnet: bool,
         miner_id_opt: Option<usize>,
     ) -> Result<SetupBlockResult<'a, 'b>, Error> {
@@ -5401,7 +5401,7 @@ impl StacksChainState {
         chain_tip_burn_header_timestamp: u64,
         block: &StacksBlock,
         block_size: u64,
-        microblocks: &Vec<StacksMicroblock>, // parent microblocks
+        microblocks: &[StacksMicroblock], // parent microblocks
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
         affirmation_weight: u64,
@@ -7165,7 +7165,7 @@ pub mod test {
                 all_txs[3 * i + 2].clone(),
             ];
 
-            let txid_vecs = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+            let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
 
             let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
             let tx_merkle_root = merkle_tree.root();
@@ -7205,7 +7205,7 @@ pub mod test {
     }
 
     fn resign_microblocks(
-        microblocks: &mut Vec<StacksMicroblock>,
+        microblocks: &mut [StacksMicroblock],
         privk: &StacksPrivateKey,
     ) -> BlockHeaderHash {
         for i in 0..microblocks.len() {
@@ -8618,7 +8618,7 @@ pub mod test {
             let res = StacksChainState::validate_parent_microblock_stream(
                 &block.header,
                 &child_block_header_empty,
-                &vec![],
+                &[],
                 true,
             );
             assert!(res.is_some());
@@ -8846,7 +8846,7 @@ pub mod test {
 
                     conflicting_microblock.txs.push(extra_tx);
 
-                    let txid_vecs = conflicting_microblock
+                    let txid_vecs: Vec<_> = conflicting_microblock
                         .txs
                         .iter()
                         .map(|tx| tx.txid().as_bytes().to_vec())
@@ -8907,14 +8907,14 @@ pub mod test {
         block_3.header.parent_block = block_2.block_hash();
         block_4.header.parent_block = block_3.block_hash();
 
-        let consensus_hashes = vec![
+        let consensus_hashes = [
             ConsensusHash([2u8; 20]),
             ConsensusHash([3u8; 20]),
             ConsensusHash([4u8; 20]),
             ConsensusHash([5u8; 20]),
         ];
 
-        let parent_consensus_hashes = vec![
+        let parent_consensus_hashes = [
             FIRST_BURNCHAIN_CONSENSUS_HASH,
             ConsensusHash([2u8; 20]),
             ConsensusHash([3u8; 20]),
@@ -9043,14 +9043,14 @@ pub mod test {
         block_3.header.parent_block = block_2.block_hash();
         block_4.header.parent_block = block_3.block_hash();
 
-        let consensus_hashes = vec![
+        let consensus_hashes = [
             ConsensusHash([2u8; 20]),
             ConsensusHash([3u8; 20]),
             ConsensusHash([4u8; 20]),
             ConsensusHash([5u8; 20]),
         ];
 
-        let parent_consensus_hashes = vec![
+        let parent_consensus_hashes = [
             FIRST_BURNCHAIN_CONSENSUS_HASH,
             ConsensusHash([2u8; 20]),
             ConsensusHash([3u8; 20]),
@@ -9188,14 +9188,14 @@ pub mod test {
         block_3.header.parent_block = block_1.block_hash();
         block_4.header.parent_block = block_3.block_hash();
 
-        let consensus_hashes = vec![
+        let consensus_hashes = [
             ConsensusHash([2u8; 20]),
             ConsensusHash([3u8; 20]),
             ConsensusHash([4u8; 20]),
             ConsensusHash([5u8; 20]),
         ];
 
-        let parent_consensus_hashes = vec![
+        let parent_consensus_hashes = [
             FIRST_BURNCHAIN_CONSENSUS_HASH,
             ConsensusHash([2u8; 20]),
             ConsensusHash([3u8; 20]),
@@ -9380,7 +9380,7 @@ pub mod test {
         block_4.header.parent_microblock = mblocks[2].block_hash();
         block_4.header.parent_microblock_sequence = mblocks[2].header.sequence;
 
-        let consensus_hashes = vec![
+        let consensus_hashes = [
             ConsensusHash([2u8; 20]),
             ConsensusHash([3u8; 20]),
             ConsensusHash([4u8; 20]),
@@ -9511,14 +9511,14 @@ pub mod test {
             microblocks.push(mblocks);
         }
 
-        let consensus_hashes = vec![
+        let consensus_hashes = [
             ConsensusHash([2u8; 20]),
             ConsensusHash([3u8; 20]),
             ConsensusHash([4u8; 20]),
             ConsensusHash([5u8; 20]),
         ];
 
-        let parent_consensus_hashes = vec![
+        let parent_consensus_hashes = [
             ConsensusHash([1u8; 20]),
             ConsensusHash([2u8; 20]),
             ConsensusHash([3u8; 20]),
@@ -9935,9 +9935,9 @@ pub mod test {
         }
     }
 
-    pub fn decode_microblock_stream(mblock_bytes: &Vec<u8>) -> Vec<StacksMicroblock> {
+    pub fn decode_microblock_stream(mblock_bytes: &[u8]) -> Vec<StacksMicroblock> {
         // decode stream
-        let mut mblock_ptr = mblock_bytes.as_slice();
+        let mut mblock_ptr = mblock_bytes;
         let mut mblocks = vec![];
         loop {
             test_debug!("decoded {}", mblocks.len());
@@ -10637,7 +10637,7 @@ pub mod test {
         block_3.header.parent_microblock = mblocks_2[2].block_hash();
         block_3.header.parent_microblock_sequence = mblocks_2[2].header.sequence;
 
-        let consensus_hashes = vec![
+        let consensus_hashes = [
             ConsensusHash([2u8; 20]),
             ConsensusHash([3u8; 20]),
             ConsensusHash([4u8; 20]),

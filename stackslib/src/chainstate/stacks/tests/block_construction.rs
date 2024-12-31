@@ -823,7 +823,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
 
         // should always succeed
         peer.next_burnchain_block(burn_ops.clone());
-        peer.process_stacks_epoch_at_tip_checked(&stacks_block, &vec![])
+        peer.process_stacks_epoch_at_tip_checked(&stacks_block, &[])
             .unwrap();
     }
 
@@ -1089,12 +1089,12 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
 
         if tenure_id != 5 {
             // should always succeed
-            peer.process_stacks_epoch_at_tip_checked(&stacks_block, &vec![])
+            peer.process_stacks_epoch_at_tip_checked(&stacks_block, &[])
                 .unwrap();
         } else {
             // should fail at first, since the block won't be available
             // (since validate_anchored_block_burnchain() will fail)
-            if let Err(e) = peer.process_stacks_epoch_at_tip_checked(&stacks_block, &vec![]) {
+            if let Err(e) = peer.process_stacks_epoch_at_tip_checked(&stacks_block, &[]) {
                 match e {
                     CoordinatorError::ChainstateError(ChainstateError::InvalidStacksBlock(_)) => {}
                     x => {
@@ -1126,7 +1126,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
 
             // should run to completion, but the block should *not* be processed
             // (this tests append_block())
-            peer.process_stacks_epoch_at_tip_checked(&stacks_block, &vec![])
+            peer.process_stacks_epoch_at_tip_checked(&stacks_block, &[])
                 .unwrap();
         }
 
@@ -3912,7 +3912,7 @@ fn test_contract_call_across_clarity_versions() {
 
         // should always succeed
         peer.next_burnchain_block(burn_ops.clone());
-        peer.process_stacks_epoch_at_tip_checked(&stacks_block, &vec![])
+        peer.process_stacks_epoch_at_tip_checked(&stacks_block, &[])
             .unwrap();
     }
 

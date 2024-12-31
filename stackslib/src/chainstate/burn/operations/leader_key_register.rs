@@ -85,7 +85,7 @@ impl LeaderKeyRegisterOp {
         self.memo[0..20].copy_from_slice(&pubkey_hash160.0);
     }
 
-    fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
+    fn parse_data(data: &[u8]) -> Option<ParsedData> {
         /*
             Wire format:
 
@@ -503,7 +503,7 @@ pub mod tests {
             burn_header_hash: block_123_hash.clone(),
         };
 
-        let block_ops = vec![
+        let block_ops = [
             // 122
             vec![],
             // 123
@@ -598,7 +598,7 @@ pub mod tests {
                         &prev_snapshot,
                         &snapshot_row,
                         &block_ops[i as usize],
-                        &vec![],
+                        &[],
                         None,
                         None,
                         None,

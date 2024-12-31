@@ -487,8 +487,8 @@ impl<'a> TestRPC<'a> {
         let (_, _, consensus_hash) = peer_1.next_burnchain_block(burn_ops.clone());
         peer_2.next_burnchain_block(burn_ops.clone());
 
-        peer_1.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
-        peer_2.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
+        peer_1.process_stacks_epoch_at_tip(&stacks_block, &[]);
+        peer_2.process_stacks_epoch_at_tip(&stacks_block, &[]);
 
         // build 1-block microblock stream with the contract-call and the unconfirmed contract
         let microblock = {

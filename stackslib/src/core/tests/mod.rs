@@ -142,8 +142,8 @@ pub fn make_block(
         .put_indexed_all(
             &StacksBlockId::new(&parent.0, &parent.1),
             &new_index_hash,
-            &vec![],
-            &vec![],
+            &[],
+            &[],
         )
         .unwrap();
 

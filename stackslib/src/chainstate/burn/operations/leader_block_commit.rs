@@ -2043,7 +2043,7 @@ mod tests {
             StacksEpoch::all(0, 0, first_block_height),
         )
         .unwrap();
-        let block_ops = vec![
+        let block_ops = [
             // 122
             vec![],
             // 123
@@ -2129,7 +2129,7 @@ mod tests {
                         &prev_snapshot,
                         &snapshot_row,
                         &block_ops[i],
-                        &vec![],
+                        &[],
                         None,
                         None,
                         None,
@@ -2578,7 +2578,7 @@ mod tests {
         };
 
         let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
-        let block_ops = vec![
+        let block_ops = [
             // 122
             vec![],
             // 123
@@ -2664,7 +2664,7 @@ mod tests {
                         &prev_snapshot,
                         &snapshot_row,
                         &block_ops[i],
-                        &vec![],
+                        &[],
                         None,
                         None,
                         None,
@@ -3515,7 +3515,7 @@ mod tests {
             first_block_height,
             &first_burn_hash,
             get_epoch_time_secs(),
-            &vec![
+            &[
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch10,
                     start_height: 0,

@@ -1448,7 +1448,7 @@ fn test_make_tenure_downloaders() {
     {
         let sortdb = peer.sortdb();
         let wanted_tenures =
-            NakamotoDownloadStateMachine::load_wanted_tenures_at_tip(None, &tip, sortdb, &vec![])
+            NakamotoDownloadStateMachine::load_wanted_tenures_at_tip(None, &tip, sortdb, &[])
                 .unwrap();
         assert_eq!(wanted_tenures.len(), 2);
         for i in (tip.block_height - 1)..=(tip.block_height) {
@@ -1470,7 +1470,7 @@ fn test_make_tenure_downloaders() {
             None,
             &tip,
             sortdb,
-            &vec![all_wanted_tenures[0].clone()],
+            &[all_wanted_tenures[0].clone()],
         )
         .unwrap();
         assert_eq!(wanted_tenures.len(), 1);
