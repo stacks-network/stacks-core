@@ -56,7 +56,7 @@ impl DNSRequest {
 }
 
 impl Hash for DNSRequest {
-    fn hash<H: Hasher>(&self, state: &mut H) -> () {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.host.hash(state);
         self.port.hash(state);
     }
@@ -128,7 +128,7 @@ impl DNSResolver {
         (resolver, client)
     }
 
-    pub fn add_hardcoded(&mut self, host: &str, port: u16, addrs: Vec<SocketAddr>) -> () {
+    pub fn add_hardcoded(&mut self, host: &str, port: u16, addrs: Vec<SocketAddr>) {
         self.hardcoded.insert((host.to_string(), port), addrs);
     }
 
@@ -269,7 +269,7 @@ impl DNSClient {
         Ok(())
     }
 
-    fn clear_timeouts(&mut self) -> () {
+    fn clear_timeouts(&mut self) {
         let mut to_remove = vec![];
         for req in self.requests.keys() {
             if req.is_timed_out() {
@@ -350,7 +350,7 @@ impl DNSClient {
         Ok(Some(resp))
     }
 
-    pub fn clear_all_requests(&mut self) -> () {
+    pub fn clear_all_requests(&mut self) {
         self.requests.clear()
     }
 }

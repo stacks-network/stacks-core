@@ -159,7 +159,7 @@ const TEST_CONTRACT_UNCONFIRMED: &'static str = "
 ";
 
 /// This helper function drives I/O between a sender and receiver Http conversation.
-fn convo_send_recv(sender: &mut ConversationHttp, receiver: &mut ConversationHttp) -> () {
+fn convo_send_recv(sender: &mut ConversationHttp, receiver: &mut ConversationHttp) {
     let (mut pipe_read, mut pipe_write) = Pipe::new();
     pipe_read.set_nonblocking(true);
 

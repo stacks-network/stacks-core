@@ -502,7 +502,7 @@ impl BlocksData {
         BlocksData { blocks: vec![] }
     }
 
-    pub fn push(&mut self, ch: ConsensusHash, block: StacksBlock) -> () {
+    pub fn push(&mut self, ch: ConsensusHash, block: StacksBlock) {
         self.blocks.push(BlocksDatum(ch, block))
     }
 }
@@ -1666,7 +1666,7 @@ pub mod test {
     pub fn check_codec_and_corruption<T: StacksMessageCodec + fmt::Debug + Clone + PartialEq>(
         obj: &T,
         bytes: &Vec<u8>,
-    ) -> () {
+    ) {
         // obj should serialize to bytes
         let mut write_buf: Vec<u8> = Vec::with_capacity(bytes.len());
         obj.consensus_serialize(&mut write_buf).unwrap();

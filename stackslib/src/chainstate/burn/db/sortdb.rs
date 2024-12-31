@@ -4120,8 +4120,8 @@ impl SortitionDB {
         mut after: G,
     ) -> Result<(), BurnchainError>
     where
-        F: FnMut(&mut SortitionDBTx, &BurnchainHeaderHash, &Vec<BurnchainHeaderHash>) -> (),
-        G: FnMut(&mut SortitionDBTx) -> (),
+        F: FnMut(&mut SortitionDBTx, &BurnchainHeaderHash, &Vec<BurnchainHeaderHash>),
+        G: FnMut(&mut SortitionDBTx),
     {
         let mut db_tx = self.tx_begin()?;
         let mut queue = vec![burn_block.clone()];
@@ -4287,7 +4287,7 @@ impl SortitionDB {
     /// * `next_pox_info` - iff this sortition is the first block in a reward cycle, this should be Some
     /// * `announce_to` - a function that will be invoked with the calculated reward set before this method
     ///                   commits its results. This is used to post the calculated reward set to an event observer.
-    pub fn evaluate_sortition<F: FnOnce(Option<RewardSetInfo>) -> ()>(
+    pub fn evaluate_sortition<F: FnOnce(Option<RewardSetInfo>)>(
         &mut self,
         mainnet: bool,
         burn_header: &BurnchainBlockHeader,
@@ -5238,7 +5238,7 @@ impl SortitionDB {
     pub fn merge_block_header_cache(
         cache: &mut BlockHeaderCache,
         header_data: &Vec<(ConsensusHash, Option<BlockHeaderHash>)>,
-    ) -> () {
+    ) {
         if header_data.len() > 0 {
             let mut i = header_data.len() - 1;
             while i > 0 {

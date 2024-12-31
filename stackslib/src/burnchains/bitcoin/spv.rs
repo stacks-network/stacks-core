@@ -358,7 +358,7 @@ impl SpvClient {
     }
 
     /// Get the block range to scan
-    pub fn set_scan_range(&mut self, start_block: u64, end_block: Option<u64>) -> () {
+    pub fn set_scan_range(&mut self, start_block: u64, end_block: Option<u64>) {
         self.start_block_height = start_block;
         self.end_block_height = end_block;
         self.cur_block_height = start_block;

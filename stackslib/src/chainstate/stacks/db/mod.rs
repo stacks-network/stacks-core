@@ -546,7 +546,7 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
     }
 
     #[cfg(test)]
-    pub fn commit_block(self) -> () {
+    pub fn commit_block(self) {
         self.block.commit_block();
     }
 
@@ -557,11 +557,7 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
         Ok(self.block.commit_mined_block(block_hash)?.get_total())
     }
 
-    pub fn commit_to_block(
-        self,
-        consensus_hash: &ConsensusHash,
-        block_hash: &BlockHeaderHash,
-    ) -> () {
+    pub fn commit_to_block(self, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) {
         let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
         self.block.commit_to_block(&index_block_hash);
     }
@@ -575,19 +571,19 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
         self.block.precommit_to_block(index_block_hash)
     }
 
-    pub fn commit_unconfirmed(self) -> () {
+    pub fn commit_unconfirmed(self) {
         self.block.commit_unconfirmed();
     }
 
-    pub fn rollback_block(self) -> () {
+    pub fn rollback_block(self) {
         self.block.rollback_block()
     }
 
-    pub fn rollback_unconfirmed(self) -> () {
+    pub fn rollback_unconfirmed(self) {
         self.block.rollback_unconfirmed()
     }
 
-    pub fn reset_cost(&mut self, cost: ExecutionCost) -> () {
+    pub fn reset_cost(&mut self, cost: ExecutionCost) {
         self.block.reset_block_cost(cost);
     }
 
@@ -959,7 +955,7 @@ pub struct ChainStateBootData {
     pub first_burnchain_block_timestamp: u32,
     pub initial_balances: Vec<(PrincipalData, u64)>,
     pub pox_constants: PoxConstants,
-    pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
+    pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx)>>,
     pub get_bulk_initial_lockups:
         Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainstateAccountLockup>>>>,
     pub get_bulk_initial_balances:
@@ -974,7 +970,7 @@ impl ChainStateBootData {
     pub fn new(
         burnchain: &Burnchain,
         initial_balances: Vec<(PrincipalData, u64)>,
-        post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
+        post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx)>>,
     ) -> ChainStateBootData {
         ChainStateBootData {
             first_burnchain_block_hash: burnchain.first_block_hash.clone(),

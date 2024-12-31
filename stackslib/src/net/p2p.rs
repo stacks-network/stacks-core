@@ -1885,7 +1885,7 @@ impl PeerNetwork {
     }
 
     /// Deregister a socket from our p2p network instance.
-    fn deregister_socket(&mut self, event_id: usize, socket: mio_net::TcpStream) -> () {
+    fn deregister_socket(&mut self, event_id: usize, socket: mio_net::TcpStream) {
         match self.network {
             Some(ref mut network) => {
                 let _ = network.deregister(event_id, &socket);
@@ -1895,7 +1895,7 @@ impl PeerNetwork {
     }
 
     /// Deregister a socket/event pair
-    pub fn deregister_peer(&mut self, event_id: usize) -> () {
+    pub fn deregister_peer(&mut self, event_id: usize) {
         debug!("{:?}: Disconnect event {}", &self.local_peer, event_id);
 
         let mut nk_remove: Vec<(NeighborKey, Hash160)> = vec![];
@@ -1956,7 +1956,7 @@ impl PeerNetwork {
     }
 
     /// Deregister by neighbor key
-    pub fn deregister_neighbor(&mut self, neighbor_key: &NeighborKey) -> () {
+    pub fn deregister_neighbor(&mut self, neighbor_key: &NeighborKey) {
         debug!("Disconnect from {:?}", neighbor_key);
         let event_id = match self.events.get(&neighbor_key) {
             None => {
@@ -1968,7 +1968,7 @@ impl PeerNetwork {
     }
 
     /// Deregister and ban a neighbor
-    pub fn deregister_and_ban_neighbor(&mut self, neighbor: &NeighborKey) -> () {
+    pub fn deregister_and_ban_neighbor(&mut self, neighbor: &NeighborKey) {
         debug!("Disconnect from and ban {:?}", neighbor);
         match self.events.get(neighbor) {
             Some(event_id) => {
@@ -2294,7 +2294,7 @@ impl PeerNetwork {
     /// -- Drop broken connections.
     /// -- Update our frontier.
     /// -- Prune our frontier if it gets too big.
-    fn process_neighbor_walk(&mut self, walk_result: NeighborWalkResult) -> () {
+    fn process_neighbor_walk(&mut self, walk_result: NeighborWalkResult) {
         for broken in walk_result.broken_connections.iter() {
             self.deregister_and_ban_neighbor(broken);
         }
@@ -2313,7 +2313,7 @@ impl PeerNetwork {
 
     /// Queue up pings to everyone we haven't spoken to in a while to let them know that we're still
     /// alive.
-    pub fn queue_ping_heartbeats(&mut self) -> () {
+    pub fn queue_ping_heartbeats(&mut self) {
         let now = get_epoch_time_secs();
         let mut relay_handles = HashMap::new();
         for (_, convo) in self.peers.iter_mut() {
@@ -2418,7 +2418,7 @@ impl PeerNetwork {
     }
 
     /// Prune inbound and outbound connections if we can
-    pub(crate) fn prune_connections(&mut self) -> () {
+    pub(crate) fn prune_connections(&mut self) {
         if cfg!(test) && self.connection_opts.disable_network_prune {
             return;
         }
@@ -2729,7 +2729,7 @@ impl PeerNetwork {
     }
 
     /// Disconnect from all peers
-    fn disconnect_all(&mut self) -> () {
+    fn disconnect_all(&mut self) {
         let mut all_event_ids = vec![];
         for (eid, _) in self.peers.iter() {
             all_event_ids.push(*eid);

@@ -291,7 +291,7 @@ impl BlockDownloader {
         }
     }
 
-    pub fn reset(&mut self) -> () {
+    pub fn reset(&mut self) {
         debug!("Downloader reset");
         self.state = BlockDownloaderState::DNSLookupBegin;
 
@@ -313,7 +313,7 @@ impl BlockDownloader {
         // preserve download accounting
     }
 
-    pub fn restart_scan(&mut self, sortition_start: u64) -> () {
+    pub fn restart_scan(&mut self, sortition_start: u64) {
         // prepare to restart a full-chain scan for block downloads
         self.block_sortition_height = sortition_start;
         self.microblock_sortition_height = sortition_start;
@@ -418,7 +418,7 @@ impl BlockDownloader {
         Ok(inflight == 0)
     }
 
-    pub fn getblocks_begin(&mut self, requests: HashMap<BlockRequestKey, usize>) -> () {
+    pub fn getblocks_begin(&mut self, requests: HashMap<BlockRequestKey, usize>) {
         assert_eq!(self.state, BlockDownloaderState::GetBlocksBegin);
 
         // don't touch blocks-to-try -- that's managed by the peer network directly.
@@ -550,7 +550,7 @@ impl BlockDownloader {
     }
 
     /// Start fetching microblocks
-    pub fn getmicroblocks_begin(&mut self, requests: HashMap<BlockRequestKey, usize>) -> () {
+    pub fn getmicroblocks_begin(&mut self, requests: HashMap<BlockRequestKey, usize>) {
         assert_eq!(self.state, BlockDownloaderState::GetMicroblocksBegin);
 
         self.getmicroblocks_requests = requests;
@@ -910,7 +910,7 @@ impl BlockDownloader {
         block_sortition_height: u64,
         ibd: bool,
         force: bool,
-    ) -> () {
+    ) {
         if force
             || (ibd && self.state == BlockDownloaderState::DNSLookupBegin)
             || (self.empty_block_download_passes > 0
@@ -945,7 +945,7 @@ impl BlockDownloader {
         mblock_sortition_height: u64,
         ibd: bool,
         force: bool,
-    ) -> () {
+    ) {
         if force
             || (ibd && self.state == BlockDownloaderState::DNSLookupBegin)
             || (self.empty_microblock_download_passes > 0
@@ -972,7 +972,7 @@ impl BlockDownloader {
     }
 
     /// Set a hint that we should re-scan for blocks
-    pub fn hint_download_rescan(&mut self, target_sortition_height: u64, ibd: bool) -> () {
+    pub fn hint_download_rescan(&mut self, target_sortition_height: u64, ibd: bool) {
         self.hint_block_sortition_height_available(target_sortition_height, ibd, false);
         self.hint_microblock_sortition_height_available(target_sortition_height, ibd, false);
     }
@@ -1048,7 +1048,7 @@ impl PeerNetwork {
     }
 
     /// Pass a hint to the downloader to re-scan
-    pub fn hint_download_rescan(&mut self, target_height: u64, ibd: bool) -> () {
+    pub fn hint_download_rescan(&mut self, target_height: u64, ibd: bool) {
         match self.block_downloader {
             Some(ref mut dl) => dl.hint_download_rescan(target_height, ibd),
             None => {}
@@ -2319,7 +2319,7 @@ impl PeerNetwork {
     }
 
     /// Initialize the downloader
-    pub fn init_block_downloader(&mut self) -> () {
+    pub fn init_block_downloader(&mut self) {
         self.block_downloader = Some(BlockDownloader::new(
             self.connection_opts.dns_timeout,
             self.connection_opts.download_interval,
@@ -2328,7 +2328,7 @@ impl PeerNetwork {
     }
 
     /// Initialize the attachment downloader
-    pub fn init_attachments_downloader(&mut self, initial_batch: Vec<AttachmentInstance>) -> () {
+    pub fn init_attachments_downloader(&mut self, initial_batch: Vec<AttachmentInstance>) {
         self.attachments_downloader = Some(AttachmentsDownloader::new(initial_batch));
     }
 

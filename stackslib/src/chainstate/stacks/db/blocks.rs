@@ -678,7 +678,7 @@ impl StacksChainState {
         blocks_dir: &str,
         consensus_hash: &ConsensusHash,
         block_header_hash: &BlockHeaderHash,
-    ) -> () {
+    ) {
         let block_path =
             StacksChainState::make_block_dir(blocks_dir, consensus_hash, &block_header_hash)
                 .expect("FATAL: failed to create block directory");
@@ -737,7 +737,7 @@ impl StacksChainState {
         blocks_path: &str,
         consensus_hash: &ConsensusHash,
         block_header: &StacksBlockHeader,
-    ) -> () {
+    ) {
         StacksChainState::free_block(blocks_path, consensus_hash, &block_header.block_hash())
     }
 
@@ -7223,7 +7223,7 @@ pub mod test {
         chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
-    ) -> () {
+    ) {
         assert!(StacksChainState::load_staging_block_data(
             &chainstate.db(),
             &chainstate.blocks_path,
@@ -7266,7 +7266,7 @@ pub mod test {
         chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
-    ) -> () {
+    ) {
         assert!(!StacksChainState::has_stored_block(
             &chainstate.db(),
             &chainstate.blocks_path,
@@ -7290,7 +7290,7 @@ pub mod test {
         chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
-    ) -> () {
+    ) {
         assert!(StacksChainState::has_stored_block(
             &chainstate.db(),
             &chainstate.blocks_path,
@@ -7351,7 +7351,7 @@ pub mod test {
         chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
-    ) -> () {
+    ) {
         assert!(StacksChainState::has_stored_block(
             &chainstate.db(),
             &chainstate.blocks_path,
