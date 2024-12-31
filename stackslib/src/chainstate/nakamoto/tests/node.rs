@@ -961,19 +961,17 @@ impl TestStacksNode {
                             .expect("FATAL: chain tip is not a Nakamoto block");
                         assert_eq!(nakamoto_chain_tip, &nakamoto_block.header);
                     }
+                } else if try_to_process {
+                    test_debug!(
+                        "Did NOT accept Nakamoto block {}",
+                        &block_to_store.block_id()
+                    );
+                    break;
                 } else {
-                    if try_to_process {
-                        test_debug!(
-                            "Did NOT accept Nakamoto block {}",
-                            &block_to_store.block_id()
-                        );
-                        break;
-                    } else {
-                        test_debug!(
-                            "Test will NOT process Nakamoto block {}",
-                            &block_to_store.block_id()
-                        );
-                    }
+                    test_debug!(
+                        "Test will NOT process Nakamoto block {}",
+                        &block_to_store.block_id()
+                    );
                 }
 
                 if !malleablize {
@@ -2029,34 +2027,32 @@ impl<'a> TestPeer<'a> {
                 .unwrap()
                 .is_none());
             }
-        } else {
-            if parent_block_header
-                .anchored_header
-                .as_stacks_nakamoto()
-                .is_some()
-            {
-                assert_eq!(
-                    NakamotoChainState::get_ongoing_tenure(
-                        &mut chainstate.index_conn(),
-                        &block.block_id()
-                    )
-                    .unwrap()
-                    .unwrap(),
-                    NakamotoChainState::get_ongoing_tenure(
-                        &mut chainstate.index_conn(),
-                        &parent_block_header.index_block_hash()
-                    )
-                    .unwrap()
-                    .unwrap()
-                );
-            } else {
-                assert!(NakamotoChainState::get_ongoing_tenure(
+        } else if parent_block_header
+            .anchored_header
+            .as_stacks_nakamoto()
+            .is_some()
+        {
+            assert_eq!(
+                NakamotoChainState::get_ongoing_tenure(
+                    &mut chainstate.index_conn(),
+                    &block.block_id()
+                )
+                .unwrap()
+                .unwrap(),
+                NakamotoChainState::get_ongoing_tenure(
                     &mut chainstate.index_conn(),
                     &parent_block_header.index_block_hash()
                 )
                 .unwrap()
-                .is_none());
-            }
+                .unwrap()
+            );
+        } else {
+            assert!(NakamotoChainState::get_ongoing_tenure(
+                &mut chainstate.index_conn(),
+                &parent_block_header.index_block_hash()
+            )
+            .unwrap()
+            .is_none());
         }
 
         // get_block_found_tenure
@@ -2093,37 +2089,35 @@ impl<'a> TestPeer<'a> {
                 .unwrap()
                 .is_none());
             }
-        } else {
-            if parent_block_header
-                .anchored_header
-                .as_stacks_nakamoto()
-                .is_some()
-            {
-                assert_eq!(
-                    NakamotoChainState::get_block_found_tenure(
-                        &mut chainstate.index_conn(),
-                        &block.block_id(),
-                        &block.header.consensus_hash
-                    )
-                    .unwrap()
-                    .unwrap(),
-                    NakamotoChainState::get_block_found_tenure(
-                        &mut chainstate.index_conn(),
-                        &block.block_id(),
-                        &parent_block_header.consensus_hash
-                    )
-                    .unwrap()
-                    .unwrap()
-                );
-            } else {
-                assert!(NakamotoChainState::get_block_found_tenure(
+        } else if parent_block_header
+            .anchored_header
+            .as_stacks_nakamoto()
+            .is_some()
+        {
+            assert_eq!(
+                NakamotoChainState::get_block_found_tenure(
+                    &mut chainstate.index_conn(),
+                    &block.block_id(),
+                    &block.header.consensus_hash
+                )
+                .unwrap()
+                .unwrap(),
+                NakamotoChainState::get_block_found_tenure(
                     &mut chainstate.index_conn(),
                     &block.block_id(),
                     &parent_block_header.consensus_hash
                 )
                 .unwrap()
-                .is_none());
-            }
+                .unwrap()
+            );
+        } else {
+            assert!(NakamotoChainState::get_block_found_tenure(
+                &mut chainstate.index_conn(),
+                &block.block_id(),
+                &parent_block_header.consensus_hash
+            )
+            .unwrap()
+            .is_none());
         }
 
         // get_nakamoto_tenure_length

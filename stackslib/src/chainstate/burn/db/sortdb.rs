@@ -1849,21 +1849,19 @@ impl<'a> SortitionHandleTx<'a> {
                     true
                 } else if cur_height > stacks_block_height {
                     false
+                } else if &cur_ch == consensus_hash {
+                    // same sortition (i.e. nakamoto block)
+                    // no replacement
+                    false
                 } else {
-                    if &cur_ch == consensus_hash {
-                        // same sortition (i.e. nakamoto block)
-                        // no replacement
-                        false
-                    } else {
-                        // tips come from different sortitions
-                        // break ties by going with the latter-signed block
-                        let sn_current = SortitionDB::get_block_snapshot_consensus(self, &cur_ch)?
+                    // tips come from different sortitions
+                    // break ties by going with the latter-signed block
+                    let sn_current = SortitionDB::get_block_snapshot_consensus(self, &cur_ch)?
+                        .ok_or(db_error::NotFoundError)?;
+                    let sn_accepted =
+                        SortitionDB::get_block_snapshot_consensus(self, &consensus_hash)?
                             .ok_or(db_error::NotFoundError)?;
-                        let sn_accepted =
-                            SortitionDB::get_block_snapshot_consensus(self, &consensus_hash)?
-                                .ok_or(db_error::NotFoundError)?;
-                        sn_current.block_height < sn_accepted.block_height
-                    }
+                    sn_current.block_height < sn_accepted.block_height
                 };
 
                 debug!("Setting Stacks tip as accepted";

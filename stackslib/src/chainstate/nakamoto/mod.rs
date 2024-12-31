@@ -4431,13 +4431,11 @@ impl NakamotoChainState {
                     "Could not advance tenure, even though tenure changed".into(),
                 ));
             }
-        } else {
-            if coinbase_height != parent_coinbase_height {
-                // this should be unreachable
-                return Err(ChainstateError::InvalidStacksBlock(
-                    "Advanced tenure even though a new tenure did not happen".into(),
-                ));
-            }
+        } else if coinbase_height != parent_coinbase_height {
+            // this should be unreachable
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Advanced tenure even though a new tenure did not happen".into(),
+            ));
         }
 
         // begin processing this block

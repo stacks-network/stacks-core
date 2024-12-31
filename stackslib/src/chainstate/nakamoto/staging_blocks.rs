@@ -823,12 +823,10 @@ impl StacksChainState {
             } else {
                 return Err(DBError::NotFoundError.into());
             }
+        } else if readwrite {
+            OpenFlags::SQLITE_OPEN_READ_WRITE
         } else {
-            if readwrite {
-                OpenFlags::SQLITE_OPEN_READ_WRITE
-            } else {
-                OpenFlags::SQLITE_OPEN_READ_ONLY
-            }
+            OpenFlags::SQLITE_OPEN_READ_ONLY
         };
         let conn = sqlite_open(path, flags, false)?;
         if !exists {

@@ -917,12 +917,10 @@ pub fn calculate_paid_rewards(ops: &[BlockstackOperationType]) -> PaidRewards {
             for addr in commit.commit_outs.iter() {
                 if addr.is_burn() {
                     burn_amt += amt_per_address;
+                } else if let Some(prior_amt) = reward_recipients.get_mut(addr) {
+                    *prior_amt += amt_per_address;
                 } else {
-                    if let Some(prior_amt) = reward_recipients.get_mut(addr) {
-                        *prior_amt += amt_per_address;
-                    } else {
-                        reward_recipients.insert(addr.clone(), amt_per_address);
-                    }
+                    reward_recipients.insert(addr.clone(), amt_per_address);
                 }
             }
         }
