@@ -162,15 +162,15 @@ impl LocalPeer {
         );
 
         LocalPeer {
-            network_id: network_id,
-            parent_network_id: parent_network_id,
+            network_id,
+            parent_network_id,
             nonce: my_nonce,
             private_key: pkey,
             private_key_expire: key_expire,
             addrbytes: addr,
-            port: port,
+            port,
             services,
-            data_url: data_url,
+            data_url,
             public_ip_address: None,
             stacker_dbs,
         }
@@ -237,15 +237,15 @@ impl FromRow<LocalPeer> for LocalPeer {
             };
 
         Ok(LocalPeer {
-            network_id: network_id,
-            parent_network_id: parent_network_id,
+            network_id,
+            parent_network_id,
             private_key: privkey,
             nonce: nonce_buf,
             private_key_expire: privkey_expire,
-            addrbytes: addrbytes,
-            port: port,
-            services: services,
-            data_url: data_url,
+            addrbytes,
+            port,
+            services,
+            data_url,
             public_ip_address: None,
             stacker_dbs,
         })
@@ -289,20 +289,20 @@ impl FromRow<Neighbor> for Neighbor {
 
         Ok(Neighbor {
             addr: NeighborKey {
-                peer_version: peer_version,
-                network_id: network_id,
-                addrbytes: addrbytes,
-                port: port,
+                peer_version,
+                network_id,
+                addrbytes,
+                port,
             },
-            public_key: public_key,
+            public_key,
             expire_block: expire_block_height,
-            last_contact_time: last_contact_time,
-            asn: asn,
-            org: org,
-            allowed: allowed,
-            denied: denied,
-            in_degree: in_degree,
-            out_degree: out_degree,
+            last_contact_time,
+            asn,
+            org,
+            allowed,
+            denied,
+            in_degree,
+            out_degree,
         })
     }
 }
@@ -668,10 +668,7 @@ impl PeerDB {
 
         let conn = sqlite_open(path, open_flags, false)?;
 
-        let mut db = PeerDB {
-            conn: conn,
-            readwrite: readwrite,
-        };
+        let mut db = PeerDB { conn, readwrite };
 
         if create_flag {
             // instantiate!
@@ -753,10 +750,7 @@ impl PeerDB {
 
         let conn = sqlite_open(path, open_flags, true)?;
 
-        let db = PeerDB {
-            conn: conn,
-            readwrite: readwrite,
-        };
+        let db = PeerDB { conn, readwrite };
         Ok(db)
     }
 
@@ -773,10 +767,7 @@ impl PeerDB {
         };
         let conn = sqlite_open(path, open_flags, true)?;
 
-        let db = PeerDB {
-            conn: conn,
-            readwrite: readwrite,
-        };
+        let db = PeerDB { conn, readwrite };
 
         Ok(db)
     }
@@ -794,7 +785,7 @@ impl PeerDB {
         let conn = Connection::open_in_memory().map_err(|e| db_error::SqliteError(e))?;
 
         let mut db = PeerDB {
-            conn: conn,
+            conn,
             readwrite: true,
         };
 
@@ -1246,7 +1237,7 @@ impl PeerDB {
             // we're preemptively allowing
             let nk = NeighborKey {
                 peer_version: 0,
-                network_id: network_id,
+                network_id,
                 addrbytes: peer_addr.clone(),
                 port: peer_port,
             };
@@ -1292,7 +1283,7 @@ impl PeerDB {
             // we're preemptively denying
             let nk = NeighborKey {
                 peer_version: 0,
-                network_id: network_id,
+                network_id,
                 addrbytes: peer_addr.clone(),
                 port: peer_port,
             };

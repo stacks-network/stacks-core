@@ -464,7 +464,7 @@ impl NakamotoBlockBuilder {
     /// Returns the unsigned Nakamoto block
     fn finalize_block(&mut self, clarity_tx: &mut ClarityTx) -> NakamotoBlock {
         // done!  Calculate state root and tx merkle root
-        let txid_vecs = self
+        let txid_vecs: Vec<_> = self
             .txs
             .iter()
             .map(|tx| tx.txid().as_bytes().to_vec())

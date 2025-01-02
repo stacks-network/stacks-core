@@ -976,9 +976,9 @@ impl StacksChainState {
             address: child_address,
             recipient: child_recipient,
             coinbase: coinbase_reward,
-            tx_fees_anchored: tx_fees_anchored,
+            tx_fees_anchored,
             tx_fees_streamed_produced: 0,
-            tx_fees_streamed_confirmed: tx_fees_streamed_confirmed,
+            tx_fees_streamed_confirmed,
             vtxindex: participant.vtxindex,
         };
 

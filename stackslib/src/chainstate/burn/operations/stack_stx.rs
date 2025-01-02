@@ -145,7 +145,7 @@ impl PreStxOp {
         }
 
         Ok(PreStxOp {
-            output: output,
+            output,
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
             block_height,
@@ -689,7 +689,7 @@ mod tests {
             txid: Txid([0; 32]),
             vtxindex: 0,
             opcode: Opcodes::StackStx as u8,
-            data: data,
+            data,
             data_amt: 0,
             inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],

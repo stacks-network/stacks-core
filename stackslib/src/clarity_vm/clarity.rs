@@ -190,7 +190,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             cost_track: Some(LimitedCostTracker::new_free()),
             mainnet: false,
             chain_id: CHAIN_ID_TESTNET,
-            epoch: epoch,
+            epoch,
         }
     }
 

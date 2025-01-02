@@ -547,7 +547,7 @@ impl CLIHeadersDB {
         let conn = create_or_open_db(&cli_db_path);
         let mut db = CLIHeadersDB {
             db_path: db_path.to_string(),
-            conn: conn,
+            conn,
         };
 
         if instantiate {
@@ -567,7 +567,7 @@ impl CLIHeadersDB {
         let conn = create_or_open_db(&cli_db_path);
         let db = CLIHeadersDB {
             db_path: db_path.to_string(),
-            conn: conn,
+            conn,
         };
 
         Ok(db)

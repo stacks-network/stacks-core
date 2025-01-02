@@ -545,7 +545,7 @@ pub fn make_simple_block_commit(
 
         txid: next_txid(),
         vtxindex: 0,
-        block_height: block_height,
+        block_height,
         burn_parent_modulus: ((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
         burn_header_hash: burn_header.block_hash.clone(),
     };

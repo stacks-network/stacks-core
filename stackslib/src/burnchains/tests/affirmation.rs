@@ -249,8 +249,8 @@ pub fn make_simple_key_register(
         memo: vec![01, 02, 03, 04, 05],
 
         txid: next_txid(),
-        vtxindex: vtxindex,
-        block_height: block_height,
+        vtxindex,
+        block_height,
         burn_header_hash: burn_header_hash.clone(),
     }
 }

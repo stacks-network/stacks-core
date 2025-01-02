@@ -1602,7 +1602,7 @@ pub mod test {
             }
         }
 
-        let txid_vecs = txs_anchored
+        let txid_vecs: Vec<_> = txs_anchored
             .iter()
             .map(|tx| tx.txid().as_bytes().to_vec())
             .collect();
@@ -1626,7 +1626,7 @@ pub mod test {
             parent_block: BlockHeaderHash([5u8; 32]),
             parent_microblock: BlockHeaderHash([6u8; 32]),
             parent_microblock_sequence: 4,
-            tx_merkle_root: tx_merkle_root,
+            tx_merkle_root,
             state_index_root: TrieHash([8u8; 32]),
             microblock_pubkey_hash: Hash160([9u8; 20]),
         };
@@ -1718,7 +1718,7 @@ pub mod test {
         );
 
         let txs_mblock: Vec<_> = all_txs.into_iter().take(num_txs).collect();
-        let txid_vecs = txs_mblock
+        let txid_vecs: Vec<_> = txs_mblock
             .iter()
             .map(|tx| tx.txid().as_bytes().to_vec())
             .collect();
@@ -1736,7 +1736,7 @@ pub mod test {
 
         header.sign(&privk).unwrap();
         StacksMicroblock {
-            header: header,
+            header,
             txs: txs_mblock,
         }
     }

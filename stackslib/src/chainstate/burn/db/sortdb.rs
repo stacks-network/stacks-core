@@ -225,14 +225,14 @@ impl FromRow<LeaderKeyRegisterOp> for LeaderKeyRegisterOp {
         let memo = memo_bytes.to_vec();
 
         let leader_key_row = LeaderKeyRegisterOp {
-            txid: txid,
-            vtxindex: vtxindex,
-            block_height: block_height,
-            burn_header_hash: burn_header_hash,
+            txid,
+            vtxindex,
+            block_height,
+            burn_header_hash,
 
-            consensus_hash: consensus_hash,
-            public_key: public_key,
-            memo: memo,
+            consensus_hash,
+            public_key,
+            memo,
         };
 
         Ok(leader_key_row)
@@ -4536,8 +4536,8 @@ impl SortitionDB {
             burn_block_height: chain_tip.block_height,
             burn_block_hash: chain_tip.burn_header_hash,
             burn_stable_block_height: stable_block_height,
-            burn_stable_block_hash: burn_stable_block_hash,
-            last_burn_block_hashes: last_burn_block_hashes,
+            burn_stable_block_hash,
+            last_burn_block_hashes,
             rc_consensus_hash: chain_tip.canonical_stacks_tip_consensus_hash,
         })
     }
@@ -7073,7 +7073,7 @@ pub mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            vtxindex: vtxindex,
+            vtxindex,
             block_height: block_height + 1,
             burn_header_hash: BurnchainHeaderHash([0x01; 32]),
         };
@@ -7152,7 +7152,7 @@ pub mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            vtxindex: vtxindex,
+            vtxindex,
             block_height: block_height + 1,
             burn_header_hash: BurnchainHeaderHash([0x01; 32]),
         };
@@ -7192,7 +7192,7 @@ pub mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            vtxindex: vtxindex,
+            vtxindex,
             block_height: block_height + 2,
             burn_parent_modulus: ((block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
@@ -7376,7 +7376,7 @@ pub mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            vtxindex: vtxindex,
+            vtxindex,
             block_height: block_height + 2,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
         };
@@ -7871,7 +7871,7 @@ pub mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            vtxindex: vtxindex,
+            vtxindex,
             block_height: block_height + 1,
             burn_header_hash: BurnchainHeaderHash([0x01; 32]),
         };
@@ -7911,7 +7911,7 @@ pub mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            vtxindex: vtxindex,
+            vtxindex,
             block_height: block_height + 2,
             burn_parent_modulus: ((block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
@@ -7995,7 +7995,7 @@ pub mod tests {
         let mut snapshot_with_sortition = BlockSnapshot {
             accumulated_coinbase_ustx: 0,
             pox_valid: true,
-            block_height: block_height,
+            block_height,
             burn_header_timestamp: get_epoch_time_secs(),
             burn_header_hash: BurnchainHeaderHash::from_bytes(&[
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -8719,7 +8719,7 @@ pub mod tests {
                             0, 0, 0, 0, 0, 0, 0, i as u8,
                         ])
                         .unwrap(),
-                        total_burn: total_burn,
+                        total_burn,
                         sortition: false,
                         sortition_hash: SortitionHash([(i as u8); 32]),
                         winning_block_txid: Txid([(i as u8); 32]),
@@ -8796,7 +8796,7 @@ pub mod tests {
                             0, 0, 0, 0, 0, 0, 0, i as u8,
                         ])
                         .unwrap(),
-                        total_burn: total_burn,
+                        total_burn,
                         sortition: true,
                         sortition_hash: SortitionHash([(i as u8); 32]),
                         winning_block_txid: Txid([(i as u8); 32]),
@@ -10087,7 +10087,7 @@ pub mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            vtxindex: vtxindex,
+            vtxindex,
             block_height: block_height + 1,
             burn_header_hash: BurnchainHeaderHash([0x01; 32]),
         };
