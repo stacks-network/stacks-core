@@ -1414,7 +1414,7 @@ impl TransactionAuth {
             | TransactionAuth::Sponsored(
                 TransactionSpendingCondition::Singlesig(..),
                 TransactionSpendingCondition::OrderIndependentMultisig(..),
-            ) => epoch_id >= Epoch30,
+            ) => epoch_id >= StacksEpochId::Epoch30,
             TransactionAuth::Standard(TransactionSpendingCondition::Multisig(..))
             | TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(..))
             | TransactionAuth::Sponsored(
