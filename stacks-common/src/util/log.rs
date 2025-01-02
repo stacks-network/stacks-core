@@ -190,6 +190,10 @@ impl<D: Decorator> TermFormat<D> {
 
 #[cfg(feature = "slog_json")]
 fn make_json_logger() -> Logger {
+    use std::sync::Mutex;
+
+    use slog::FnValue;
+
     let def_keys = o!("file" => FnValue(move |info| {
                           info.file()
                       }),
