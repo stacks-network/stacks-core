@@ -15,9 +15,6 @@ use crate::util::vrf::{VRFProof, VRF_PROOF_ENCODED_SIZE};
 pub type StacksPublicKey = Secp256k1PublicKey;
 pub type StacksPrivateKey = Secp256k1PrivateKey;
 
-#[cfg(any(test, feature = "testing"))]
-use crate::util::hash::DoubleSha256;
-
 /// Hash of a Trie node.  This is a SHA2-512/256.
 #[derive(Default)]
 pub struct TrieHash(pub [u8; 32]);
@@ -450,6 +447,8 @@ impl BurnchainHeaderHash {
         index_root: &TrieHash,
         noise: u64,
     ) -> BurnchainHeaderHash {
+        use crate::util::hash::DoubleSha256;
+
         let mut bytes = vec![];
         bytes.extend_from_slice(&block_height.to_be_bytes());
         bytes.extend_from_slice(index_root.as_bytes());
