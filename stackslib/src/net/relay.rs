@@ -3208,7 +3208,7 @@ impl PeerNetwork {
         let idx_bhh = index_block_hash.clone();
         let payload = MicroblocksData {
             index_anchor_block: index_block_hash,
-            microblocks: microblocks,
+            microblocks,
         };
         let message =
             match self.sign_for_neighbor(recipient, StacksMessageType::Microblocks(payload)) {
