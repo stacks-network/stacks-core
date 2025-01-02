@@ -1256,7 +1256,7 @@ impl StacksHttp {
     }
 
     /// Clear any pending response state -- i.e. due to a failed request.
-    fn reset(&mut self) -> () {
+    fn reset(&mut self) {
         self.request_handler_index = None;
         self.reply = None;
     }

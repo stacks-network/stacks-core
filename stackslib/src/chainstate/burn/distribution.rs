@@ -365,7 +365,7 @@ impl BurnSamplePoint {
 
     /// Calculate the ranges between 0 and 2**256 - 1 over which each point in the burn sample
     /// applies, so we can later select which block to use.
-    fn make_sortition_ranges(burn_sample: &mut Vec<BurnSamplePoint>) -> () {
+    fn make_sortition_ranges(burn_sample: &mut Vec<BurnSamplePoint>) {
         if burn_sample.len() == 0 {
             // empty sample
             return;

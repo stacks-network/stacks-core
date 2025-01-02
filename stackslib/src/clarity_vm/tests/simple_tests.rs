@@ -11,7 +11,7 @@ use crate::clarity_vm::database::marf::MarfedKV;
 
 pub fn with_marfed_environment<F>(f: F, top_level: bool)
 where
-    F: FnOnce(&mut OwnedEnvironment) -> (),
+    F: FnOnce(&mut OwnedEnvironment),
 {
     let mut marf_kv = MarfedKV::temporary();
 

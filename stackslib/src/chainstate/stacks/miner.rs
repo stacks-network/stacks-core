@@ -1610,7 +1610,7 @@ impl StacksBlockBuilder {
     }
 
     /// Assign the block parent
-    pub fn set_parent_block(&mut self, parent_block_hash: &BlockHeaderHash) -> () {
+    pub fn set_parent_block(&mut self, parent_block_hash: &BlockHeaderHash) {
         self.header.parent_block = parent_block_hash.clone();
     }
 
@@ -1619,7 +1619,7 @@ impl StacksBlockBuilder {
         &mut self,
         parent_mblock_hash: &BlockHeaderHash,
         parent_mblock_seq: u16,
-    ) -> () {
+    ) {
         self.header.parent_microblock = parent_mblock_hash.clone();
         self.header.parent_microblock_sequence = parent_mblock_seq;
     }
@@ -1641,7 +1641,7 @@ impl StacksBlockBuilder {
     }
 
     /// Reset measured costs and fees
-    pub fn reset_costs(&mut self) -> () {
+    pub fn reset_costs(&mut self) {
         self.total_anchored_fees = 0;
         self.total_confirmed_streamed_fees = 0;
         self.total_streamed_fees = 0;

@@ -683,7 +683,7 @@ impl<T: MarfTrieId> MARF<T> {
         }
     }
 
-    fn node_copy_update_ptrs(ptrs: &mut [TriePtr], child_block_id: u32) -> () {
+    fn node_copy_update_ptrs(ptrs: &mut [TriePtr], child_block_id: u32) {
         for pointer in ptrs.iter_mut() {
             // if the node is empty, do nothing, if it's a back pointer,
             if pointer.id() == TrieNodeID::Empty as u8 || is_backptr(pointer.id()) {
