@@ -515,9 +515,9 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: &'static str = "9";
+pub const SORTITION_DB_VERSION: &str = "9";
 
-const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
+const SORTITION_DB_INITIAL_SCHEMA: &[&str] = &[
     r#"
     PRAGMA foreign_keys = ON;
     "#,
@@ -652,7 +652,7 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     "CREATE TABLE db_config(version TEXT PRIMARY KEY);",
 ];
 
-const SORTITION_DB_SCHEMA_2: &'static [&'static str] = &[r#"
+const SORTITION_DB_SCHEMA_2: &[&str] = &[r#"
      CREATE TABLE epochs (
          start_block_height INTEGER NOT NULL,
          end_block_height INTEGER NOT NULL,
@@ -662,7 +662,7 @@ const SORTITION_DB_SCHEMA_2: &'static [&'static str] = &[r#"
          PRIMARY KEY(start_block_height,epoch_id)
      );"#];
 
-const SORTITION_DB_SCHEMA_3: &'static [&'static str] = &[r#"
+const SORTITION_DB_SCHEMA_3: &[&str] = &[r#"
     CREATE TABLE block_commit_parents (
         block_commit_txid TEXT NOT NULL,
         block_commit_sortition_id TEXT NOT NULL,
@@ -673,7 +673,7 @@ const SORTITION_DB_SCHEMA_3: &'static [&'static str] = &[r#"
         FOREIGN KEY(block_commit_txid,block_commit_sortition_id) REFERENCES block_commits(txid,sortition_id)
     );"#];
 
-const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
+const SORTITION_DB_SCHEMA_4: &[&str] = &[
     r#"
     CREATE TABLE delegate_stx (
         txid TEXT NOT NULL,
@@ -698,16 +698,16 @@ const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
 
 /// The changes for version five *just* replace the existing epochs table
 ///  by deleting all the current entries and inserting the new epochs definition.
-const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[r#"
+const SORTITION_DB_SCHEMA_5: &[&str] = &[r#"
      DELETE FROM epochs;"#];
 
-const SORTITION_DB_SCHEMA_6: &'static [&'static str] = &[r#"
+const SORTITION_DB_SCHEMA_6: &[&str] = &[r#"
      DELETE FROM epochs;"#];
 
-const SORTITION_DB_SCHEMA_7: &'static [&'static str] = &[r#"
+const SORTITION_DB_SCHEMA_7: &[&str] = &[r#"
      DELETE FROM epochs;"#];
 
-const SORTITION_DB_SCHEMA_8: &'static [&'static str] = &[
+const SORTITION_DB_SCHEMA_8: &[&str] = &[
     r#"DELETE FROM epochs;"#,
     r#"DROP INDEX IF EXISTS index_user_burn_support_txid;"#,
     r#"DROP INDEX IF EXISTS index_user_burn_support_sortition_id_vtxindex;"#,
@@ -751,11 +751,11 @@ const SORTITION_DB_SCHEMA_8: &'static [&'static str] = &[
     );"#,
 ];
 
-static SORTITION_DB_SCHEMA_9: &[&'static str] =
+static SORTITION_DB_SCHEMA_9: &[&str] =
     &[r#"ALTER TABLE block_commits ADD punished TEXT DEFAULT NULL;"#];
 
-const LAST_SORTITION_DB_INDEX: &'static str = "index_block_commits_by_sender";
-const SORTITION_DB_INDEXES: &'static [&'static str] = &[
+const LAST_SORTITION_DB_INDEX: &str = "index_block_commits_by_sender";
+const SORTITION_DB_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
     "CREATE INDEX IF NOT EXISTS snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);",
     "CREATE INDEX IF NOT EXISTS snapshots_block_heights ON snapshots(burn_header_hash,block_height);",

@@ -95,7 +95,7 @@ mod postmicroblock;
 mod poststackerdbchunk;
 mod posttransaction;
 
-const TEST_CONTRACT: &'static str = "
+const TEST_CONTRACT: &str = "
     (define-trait test-trait
         (
             (do-test () (response uint uint))
@@ -149,7 +149,7 @@ const TEST_CONTRACT: &'static str = "
         }))
 ";
 
-const TEST_CONTRACT_UNCONFIRMED: &'static str = "
+const TEST_CONTRACT_UNCONFIRMED: &str = "
 (define-read-only (ro-test) (ok 1))
 (define-constant cst-unconfirmed 456)
 (define-data-var bar-unconfirmed uint u1)
