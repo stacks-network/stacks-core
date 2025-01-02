@@ -681,6 +681,7 @@ pub fn tx_begin_immediate_sqlite<'a>(conn: &'a mut Connection) -> Result<DBTx<'a
 
 #[cfg(feature = "profile-sqlite")]
 fn trace_profile(query: &str, duration: Duration) {
+    use serde_json::json;
     let obj = json!({"millis":duration.as_millis(), "query":query});
     debug!(
         "sqlite trace profile {}",
@@ -804,7 +805,7 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
         IndexDBTx {
             _index: Some(tx),
             block_linkage: None,
-            context: context,
+            context,
         }
     }
 

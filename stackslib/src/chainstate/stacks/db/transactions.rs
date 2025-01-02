@@ -250,7 +250,7 @@ impl StacksTransactionReceipt {
             transaction: tx.into(),
             events: vec![],
             post_condition_aborted: false,
-            result: result,
+            result,
             stx_burned: 0,
             contract_analysis: None,
             execution_cost: cost,
@@ -449,10 +449,10 @@ impl StacksChainState {
                     txid: tx.txid(),
                     principal: payer_account.principal.clone(),
                     is_origin: false,
-                    quiet: quiet,
+                    quiet,
                 };
                 if !quiet {
-                    warn!("{}", &e);
+                    warn!("{e}");
                 }
                 return Err((e, (origin_account, payer_account)));
             }
@@ -470,10 +470,10 @@ impl StacksChainState {
                 txid: tx.txid(),
                 principal: origin_account.principal.clone(),
                 is_origin: true,
-                quiet: quiet,
+                quiet,
             };
             if !quiet {
-                warn!("{}", &e);
+                warn!("{e}");
             }
             return Err((e, (origin_account, payer_account)));
         }
@@ -8238,7 +8238,7 @@ pub mod test {
 
         // make block
         let txs = vec![signed_contract_tx];
-        let txid_vecs = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+        let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
         let tx_merkle_root = merkle_tree.root();
 
@@ -8247,10 +8247,10 @@ pub mod test {
                 version: 0x12,
                 sequence: seq,
                 prev_block: parent_block,
-                tx_merkle_root: tx_merkle_root,
+                tx_merkle_root,
                 signature: MessageSignature([0u8; 65]),
             },
-            txs: txs,
+            txs,
         };
         mblock.sign(block_privk).unwrap();
         mblock

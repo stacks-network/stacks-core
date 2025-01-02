@@ -880,7 +880,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             return Err(Error::NoTransactionsToMine);
         }
 
-        let txid_vecs = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+        let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
 
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
         let tx_merkle_root = merkle_tree.root();
@@ -903,7 +903,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         next_microblock_header.verify(&miner_pubkey_hash).unwrap();
         Ok(StacksMicroblock {
             header: next_microblock_header,
-            txs: txs,
+            txs,
         })
     }
 
@@ -1509,11 +1509,11 @@ impl StacksBlockBuilder {
             total_anchored_fees: 0,
             total_confirmed_streamed_fees: 0,
             total_streamed_fees: 0,
-            bytes_so_far: bytes_so_far,
+            bytes_so_far,
             anchored_done: false,
             parent_consensus_hash: parent_chain_tip.consensus_hash.clone(),
             parent_header_hash: header.parent_block.clone(),
-            header: header,
+            header,
             parent_microblock_hash: parent_chain_tip
                 .microblock_tail
                 .as_ref()
@@ -1524,7 +1524,7 @@ impl StacksBlockBuilder {
             ), // will be updated
             miner_privkey: StacksPrivateKey::new(), // caller should overwrite this, or refrain from mining microblocks
             miner_payouts: None,
-            miner_id: miner_id,
+            miner_id,
         }
     }
 
@@ -1704,7 +1704,7 @@ impl StacksBlockBuilder {
 
     pub fn finalize_block(&mut self, clarity_tx: &mut ClarityTx) -> StacksBlock {
         // done!  Calculate state root and tx merkle root
-        let txid_vecs = self
+        let txid_vecs: Vec<_> = self
             .txs
             .iter()
             .map(|tx| tx.txid().as_bytes().to_vec())
@@ -1770,7 +1770,7 @@ impl StacksBlockBuilder {
 
     /// Cut the next microblock.
     pub fn mine_next_microblock<'a>(&mut self) -> Result<StacksMicroblock, Error> {
-        let txid_vecs = self
+        let txid_vecs: Vec<_> = self
             .micro_txs
             .iter()
             .map(|tx| tx.txid().as_bytes().to_vec())

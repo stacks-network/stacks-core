@@ -160,7 +160,7 @@ impl BitcoinIndexerConfig {
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
             timeout: 30,
-            spv_headers_path: spv_headers_path,
+            spv_headers_path,
             first_block: 0,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
             epochs: None,
@@ -193,7 +193,7 @@ impl BitcoinIndexerRuntime {
             services: 0,
             user_agent: USER_AGENT.to_owned(),
             version_nonce: rng.gen(),
-            network_id: network_id,
+            network_id,
             block_height: 0,
             last_getdata_send_time: 0,
             last_getheaders_send_time: 0,
@@ -924,7 +924,7 @@ impl BitcoinIndexer {
             return Ok(());
         }
         warn!(
-            "Header at height {} is not wihtin 2 hours of now (is at {})",
+            "Header at height {} is not within 2 hours of now (is at {})",
             highest_header_height, highest_header.block_header.header.time
         );
         self.drop_headers(highest_header_height.saturating_sub(1))?;
