@@ -327,14 +327,14 @@ impl BlockDownloader {
         &mut self,
         pox_id: &PoxId,
         dns_client: &mut DNSClient,
-        mut urls: Vec<UrlString>,
+        urls: Vec<UrlString>,
     ) -> Result<(), net_error> {
         assert_eq!(self.state, BlockDownloaderState::DNSLookupBegin);
 
         // optimistic concurrency control: remember the current PoX Id
         self.pox_id = pox_id.clone();
         self.dns_lookups.clear();
-        for url_str in urls.drain(..) {
+        for url_str in urls.into_iter() {
             if url_str.len() == 0 {
                 continue;
             }
@@ -1214,7 +1214,7 @@ impl PeerNetwork {
             start_sortition_height + scan_batch_size
         );
 
-        let mut availability =
+        let availability =
             PeerNetwork::with_inv_state(self, |ref mut network, ref mut inv_state| {
                 BlockDownloader::get_block_availability(
                     &network.local_peer,
@@ -1240,7 +1240,7 @@ impl PeerNetwork {
         );
 
         for (i, (consensus_hash, block_hash_opt, mut neighbors)) in
-            availability.drain(..).enumerate()
+            availability.into_iter().enumerate()
         {
             test_debug!(
                 "{:?}: consider availability of {}/{:?}",
@@ -1255,11 +1255,8 @@ impl PeerNetwork {
                 break;
             }
 
-            let block_hash = match block_hash_opt {
-                Some(h) => h,
-                None => {
-                    continue;
-                }
+            let Some(block_hash) = block_hash_opt else {
+                continue;
             };
 
             let mut parent_block_header_opt = None;
@@ -1450,16 +1447,13 @@ impl PeerNetwork {
             (&mut neighbors[..]).shuffle(&mut thread_rng());
 
             let mut requests = VecDeque::new();
-            for nk in neighbors.drain(..) {
-                let data_url = match self.get_data_url(&nk) {
-                    Some(url) => url,
-                    None => {
-                        debug!(
-                            "{:?}: Unable to request {} from {}: no data URL",
-                            &self.local_peer, &target_index_block_hash, &nk
-                        );
-                        continue;
-                    }
+            for nk in neighbors.into_iter() {
+                let Some(data_url) = self.get_data_url(&nk) else {
+                    debug!(
+                        "{:?}: Unable to request {} from {}: no data URL",
+                        &self.local_peer, &target_index_block_hash, &nk
+                    );
+                    continue;
                 };
                 if data_url.len() == 0 {
                     // peer doesn't yet know its public IP address, and isn't given a data URL
@@ -1983,9 +1977,9 @@ impl PeerNetwork {
     pub fn block_getblocks_begin(&mut self) -> Result<(), net_error> {
         test_debug!("{:?}: block_getblocks_begin", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
-            let mut priority = PeerNetwork::prioritize_requests(&downloader.blocks_to_try);
+            let priority = PeerNetwork::prioritize_requests(&downloader.blocks_to_try);
             let mut requests = HashMap::new();
-            for sortition_height in priority.drain(..) {
+            for sortition_height in priority.into_iter() {
                 match downloader.blocks_to_try.get_mut(&sortition_height) {
                     Some(ref mut keys) => {
                         match PeerNetwork::begin_request(network, &downloader.dns_lookups, keys) {
@@ -2021,9 +2015,9 @@ impl PeerNetwork {
     pub fn block_getmicroblocks_begin(&mut self) -> Result<(), net_error> {
         test_debug!("{:?}: block_getmicroblocks_begin", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
-            let mut priority = PeerNetwork::prioritize_requests(&downloader.microblocks_to_try);
+            let priority = PeerNetwork::prioritize_requests(&downloader.microblocks_to_try);
             let mut requests = HashMap::new();
-            for sortition_height in priority.drain(..) {
+            for sortition_height in priority.into_iter() {
                 match downloader.microblocks_to_try.get_mut(&sortition_height) {
                     Some(ref mut keys) => {
                         match PeerNetwork::begin_request(network, &downloader.dns_lookups, keys) {
@@ -2192,11 +2186,11 @@ impl PeerNetwork {
                 }
             }
 
-            for height in blocks_empty.drain(..) {
+            for height in blocks_empty.into_iter() {
                 downloader.blocks_to_try.remove(&height);
             }
 
-            for height in microblocks_empty.drain(..) {
+            for height in microblocks_empty.into_iter() {
                 downloader.microblocks_to_try.remove(&height);
             }
 

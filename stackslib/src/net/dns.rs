@@ -277,7 +277,7 @@ impl DNSClient {
                 to_remove.push(req.clone());
             }
         }
-        for req in to_remove.drain(..) {
+        for req in to_remove.into_iter() {
             self.requests.insert(
                 req.clone(),
                 Some(DNSResponse::error(req, "DNS lookup timed out".to_string())),

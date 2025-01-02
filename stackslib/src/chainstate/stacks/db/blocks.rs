@@ -746,11 +746,11 @@ impl StacksChainState {
         blocks_conn: &DBConn,
     ) -> Result<Vec<(ConsensusHash, BlockHeaderHash)>, Error> {
         let list_block_sql = "SELECT * FROM staging_blocks ORDER BY height".to_string();
-        let mut blocks = query_rows::<StagingBlock, _>(blocks_conn, &list_block_sql, NO_PARAMS)
+        let blocks = query_rows::<StagingBlock, _>(blocks_conn, &list_block_sql, NO_PARAMS)
             .map_err(Error::DBError)?;
 
         Ok(blocks
-            .drain(..)
+            .into_iter()
             .map(|b| (b.consensus_hash, b.anchored_block_hash))
             .collect())
     }
@@ -767,20 +767,23 @@ impl StacksChainState {
         blocks_conn: &DBConn,
         blocks_dir: &str,
     ) -> Result<Vec<(ConsensusHash, BlockHeaderHash, Vec<BlockHeaderHash>)>, Error> {
-        let mut blocks = StacksChainState::list_blocks(blocks_conn)?;
+        let blocks = StacksChainState::list_blocks(blocks_conn)?;
         let mut ret = vec![];
 
-        for (consensus_hash, block_hash) in blocks.drain(..) {
+        for (consensus_hash, block_hash) in blocks.into_iter() {
             let list_microblock_sql = "SELECT * FROM staging_microblocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 ORDER BY sequence".to_string();
             let list_microblock_args = params![block_hash, consensus_hash];
-            let mut microblocks = query_rows::<StagingMicroblock, _>(
+            let microblocks = query_rows::<StagingMicroblock, _>(
                 blocks_conn,
                 &list_microblock_sql,
                 list_microblock_args,
             )
             .map_err(Error::DBError)?;
 
-            let microblock_hashes = microblocks.drain(..).map(|mb| mb.microblock_hash).collect();
+            let microblock_hashes = microblocks
+                .into_iter()
+                .map(|mb| mb.microblock_hash)
+                .collect();
             ret.push((consensus_hash, block_hash, microblock_hashes));
         }
 

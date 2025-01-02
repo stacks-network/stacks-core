@@ -1035,13 +1035,13 @@ fn mine_10_stacks_blocks_2_forks_disjoint() {
     let mut miners_1 = vec![];
     let mut miners_2 = vec![];
 
-    let mut miners_drain = miners.drain(..);
+    let mut miners_iter = miners.into_iter();
     for i in 0..5 {
-        let m = miners_drain.next().unwrap();
+        let m = miners_iter.next().unwrap();
         miners_1.push(m);
     }
     for i in 0..5 {
-        let m = miners_drain.next().unwrap();
+        let m = miners_iter.next().unwrap();
         miners_2.push(m);
     }
 
@@ -1150,13 +1150,13 @@ fn mine_10_stacks_blocks_2_forks_disjoint_same_blocks() {
     let mut miners_1 = vec![];
     let mut miners_2 = vec![];
 
-    let mut miners_drain = miners.drain(..);
+    let mut miners_iter = miners.into_iter();
     for i in 0..5 {
-        let m = miners_drain.next().unwrap();
+        let m = miners_iter.next().unwrap();
         miners_1.push(m);
     }
     for i in 0..5 {
-        let m = miners_drain.next().unwrap();
+        let m = miners_iter.next().unwrap();
         miners_2.push(m);
     }
 

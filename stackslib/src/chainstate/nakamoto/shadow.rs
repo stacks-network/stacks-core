@@ -506,7 +506,7 @@ impl NakamotoBlockBuilder {
         chainstate_handle: &StacksChainState,
         burn_dbconn: &SortitionHandleConn,
         tenure_id_consensus_hash: &ConsensusHash,
-        mut txs: Vec<StacksTransaction>,
+        txs: Vec<StacksTransaction>,
     ) -> Result<(NakamotoBlock, u64, ExecutionCost), Error> {
         use clarity::vm::ast::ASTRules;
 
@@ -532,7 +532,7 @@ impl NakamotoBlockBuilder {
             &mut miner_tenure_info,
             tenure_id_consensus_hash,
         )?;
-        for tx in txs.drain(..) {
+        for tx in txs.into_iter() {
             let tx_len = tx.tx_len();
             match builder.try_mine_tx_with_len(
                 &mut tenure_tx,
