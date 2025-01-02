@@ -156,8 +156,8 @@ impl StacksBlockHeader {
             total_work: total_work.clone(),
             proof: proof.clone(),
             parent_block: parent_header_hash,
-            parent_microblock: parent_microblock,
-            parent_microblock_sequence: parent_microblock_sequence,
+            parent_microblock,
+            parent_microblock_sequence,
             tx_merkle_root: tx_merkle_root.clone(),
             state_index_root: state_index_root.clone(),
             microblock_pubkey_hash: microblock_pubkey_hash.clone(),
@@ -887,10 +887,7 @@ impl StacksMicroblock {
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
         let header = StacksMicroblockHeader::first_unsigned(parent_block_hash, &tx_merkle_root);
-        StacksMicroblock {
-            header: header,
-            txs: txs,
-        }
+        StacksMicroblock { header, txs }
     }
 
     pub fn from_parent_unsigned(
@@ -911,10 +908,7 @@ impl StacksMicroblock {
                 }
             };
 
-        Some(StacksMicroblock {
-            header: header,
-            txs: txs,
-        })
+        Some(StacksMicroblock { header, txs })
     }
 
     pub fn sign(&mut self, privk: &StacksPrivateKey) -> Result<(), net_error> {
@@ -1005,7 +999,7 @@ mod test {
                 burn: 123,
                 work: 456,
             },
-            proof: proof,
+            proof,
             parent_block: FIRST_STACKS_BLOCK_HASH.clone(),
             parent_microblock: BlockHeaderHash([1u8; 32]),
             parent_microblock_sequence: 3,
@@ -1183,7 +1177,7 @@ mod test {
                 version: 0x12,
                 sequence: 0x34,
                 prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
-                tx_merkle_root: tx_merkle_root,
+                tx_merkle_root,
                 signature: MessageSignature([
                     0x00, 0x35, 0x44, 0x45, 0xa1, 0xdc, 0x98, 0xa1, 0xbd, 0x27, 0x98, 0x4d, 0xbe,
                     0x69, 0x97, 0x9a, 0x5c, 0xd7, 0x78, 0x86, 0xb4, 0xd9, 0x13, 0x4a, 0xf5, 0xc4,
@@ -1216,10 +1210,7 @@ mod test {
             txs.consensus_serialize(&mut tx_bytes).unwrap();
             block_bytes.append(&mut tx_bytes);
 
-            let mblock = StacksMicroblock {
-                header: header,
-                txs: txs,
-            };
+            let mblock = StacksMicroblock { header, txs };
 
             check_codec_and_corruption::<StacksMicroblock>(&mblock, &block_bytes);
         }

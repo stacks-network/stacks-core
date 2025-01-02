@@ -82,7 +82,7 @@ impl PeerBlocksInv {
             num_sortitions: 0,
             num_reward_cycles: 0,
             last_updated_at: 0,
-            first_block_height: first_block_height,
+            first_block_height,
         }
     }
 
@@ -96,13 +96,13 @@ impl PeerBlocksInv {
     ) -> PeerBlocksInv {
         assert_eq!(block_inv.len(), microblocks_inv.len());
         PeerBlocksInv {
-            block_inv: block_inv,
-            microblocks_inv: microblocks_inv,
-            num_sortitions: num_sortitions,
-            num_reward_cycles: num_reward_cycles,
-            pox_inv: pox_inv,
+            block_inv,
+            microblocks_inv,
+            num_sortitions,
+            num_reward_cycles,
+            pox_inv,
             last_updated_at: get_epoch_time_secs(),
-            first_block_height: first_block_height,
+            first_block_height,
         }
     }
 
@@ -541,7 +541,7 @@ impl NeighborBlockStats {
         is_bootstrap_peer: bool,
     ) -> NeighborBlockStats {
         NeighborBlockStats {
-            nk: nk,
+            nk,
             inv: PeerBlocksInv::empty(first_block_height),
             pox_reward_cycle: 0,
             block_reward_cycle: 0,
@@ -558,7 +558,7 @@ impl NeighborBlockStats {
             learned_data: false,
             learned_data_height: u64::MAX,
             scans: 0,
-            is_bootstrap_peer: is_bootstrap_peer,
+            is_bootstrap_peer,
         }
     }
 
@@ -983,11 +983,11 @@ impl InvState {
         InvState {
             block_stats: HashMap::new(),
 
-            request_timeout: request_timeout,
-            first_block_height: first_block_height,
+            request_timeout,
+            first_block_height,
 
             last_change_at: 0,
-            sync_interval: sync_interval,
+            sync_interval,
 
             hint_learned_data: false,
             hint_learned_data_height: u64::MAX,

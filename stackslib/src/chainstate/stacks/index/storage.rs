@@ -416,8 +416,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
     /// Inner method to instantiate a TrieRAM from existing Trie data.
     fn from_data(block_header: T, data: Vec<(TrieNodeType, TrieHash)>, parent: T) -> TrieRAM<T> {
         TrieRAM {
-            data: data,
-            block_header: block_header,
+            data,
+            block_header,
             readonly: false,
 
             read_count: 0,
@@ -433,7 +433,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
             is_moved: false,
 
-            parent: parent,
+            parent,
         }
     }
 
@@ -1463,8 +1463,8 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
 
                 trie_ancestor_hash_bytes_cache: None,
 
-                readonly: readonly,
-                unconfirmed: unconfirmed,
+                readonly,
+                unconfirmed,
             },
 
             // used in testing in order to short-circuit block-height lookups
@@ -1530,9 +1530,9 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         // TODO: borrow self.uncommitted_writes; don't copy them
         let ret = TrieFileStorage {
             db_path: self.db_path.clone(),
-            db: db,
+            db,
             blobs,
-            cache: cache,
+            cache,
             bench: TrieBenchmark::new(),
             hash_calculation_mode: self.hash_calculation_mode,
 
@@ -1599,9 +1599,9 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
         // TODO: borrow self.uncommitted_writes; don't copy them
         let ret = TrieFileStorage {
             db_path: self.db_path.to_string(),
-            db: db,
-            blobs: blobs,
-            cache: cache,
+            db,
+            blobs,
+            cache,
             bench: TrieBenchmark::new(),
             hash_calculation_mode: self.hash_calculation_mode,
 
