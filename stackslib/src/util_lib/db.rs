@@ -805,7 +805,7 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
         IndexDBTx {
             _index: Some(tx),
             block_linkage: None,
-            context: context,
+            context,
         }
     }
 

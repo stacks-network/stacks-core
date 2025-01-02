@@ -934,7 +934,7 @@ fn push_microblocks(
     );
     let msg = StacksMessageType::Microblocks(MicroblocksData {
         index_anchor_block: StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash),
-        microblocks: microblocks,
+        microblocks,
     });
     push_message(peer, dest, relay_hints, msg)
 }
@@ -955,7 +955,7 @@ fn broadcast_microblocks(
     );
     let msg = StacksMessageType::Microblocks(MicroblocksData {
         index_anchor_block: StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash),
-        microblocks: microblocks,
+        microblocks,
     });
     broadcast_message(peer, relay_hints, msg)
 }
