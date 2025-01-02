@@ -1141,7 +1141,7 @@ impl<T: MarfTrieId> MARF<T> {
     /// Instantiate the MARF from a TrieFileStorage instance
     pub fn from_storage(storage: TrieFileStorage<T>) -> MARF<T> {
         MARF {
-            storage: storage,
+            storage,
             open_chain_tip: None,
         }
     }

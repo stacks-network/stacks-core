@@ -558,12 +558,12 @@ impl StacksMessageCodec for SinglesigSpendingCondition {
         }
 
         Ok(SinglesigSpendingCondition {
-            signer: signer,
-            nonce: nonce,
-            tx_fee: tx_fee,
-            hash_mode: hash_mode,
-            key_encoding: key_encoding,
-            signature: signature,
+            signer,
+            nonce,
+            tx_fee,
+            hash_mode,
+            key_encoding,
+            signature,
         })
     }
 }
@@ -593,7 +593,7 @@ impl SinglesigSpendingCondition {
             SinglesigHashMode::P2WPKH => C32_ADDRESS_VERSION_MAINNET_MULTISIG,
         };
         StacksAddress {
-            version: version,
+            version,
             bytes: self.signer.clone(),
         }
     }
@@ -604,7 +604,7 @@ impl SinglesigSpendingCondition {
             SinglesigHashMode::P2WPKH => C32_ADDRESS_VERSION_TESTNET_MULTISIG,
         };
         StacksAddress {
-            version: version,
+            version,
             bytes: self.signer.clone(),
         }
     }

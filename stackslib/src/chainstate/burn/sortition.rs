@@ -254,12 +254,12 @@ impl BlockSnapshot {
         debug!("SORTITION({}): NO BLOCK CHOSEN", block_height);
 
         Ok(BlockSnapshot {
-            block_height: block_height,
+            block_height,
             burn_header_hash: block_hash,
             burn_header_timestamp: block_header.timestamp,
             parent_burn_header_hash: parent_block_hash,
             consensus_hash: ch,
-            ops_hash: ops_hash,
+            ops_hash,
             total_burn: burn_total,
             sortition: false,
             sortition_hash: sortition_hash.clone(),

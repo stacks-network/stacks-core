@@ -136,7 +136,7 @@ pub struct NeighborStats {
 impl NeighborStats {
     pub fn new(outbound: bool) -> NeighborStats {
         NeighborStats {
-            outbound: outbound,
+            outbound,
             first_contact_time: 0,
             last_contact_time: 0,
             last_send_time: 0,
@@ -164,7 +164,7 @@ impl NeighborStats {
     /// message, or failed to do so (indicated by `success`).
     pub fn add_healthpoint(&mut self, success: bool) -> () {
         let hp = NeighborHealthPoint {
-            success: success,
+            success,
             time: get_epoch_time_secs(),
         };
         self.healthpoints.push_back(hp);
@@ -236,7 +236,7 @@ impl NeighborStats {
         } else {
             let info = RelayStats {
                 num_messages: 1,
-                num_bytes: num_bytes,
+                num_bytes,
                 last_seen: get_epoch_time_secs(),
             };
             self.relayed_messages.insert(addr.clone(), info);
@@ -427,8 +427,8 @@ impl NeighborKey {
         handshake_data: &HandshakeData,
     ) -> NeighborKey {
         NeighborKey {
-            peer_version: peer_version,
-            network_id: network_id,
+            peer_version,
+            network_id,
             addrbytes: handshake_data.addrbytes.clone(),
             port: handshake_data.port,
         }
@@ -436,8 +436,8 @@ impl NeighborKey {
 
     pub fn from_socketaddr(peer_version: u32, network_id: u32, addr: &SocketAddr) -> NeighborKey {
         NeighborKey {
-            peer_version: peer_version,
-            network_id: network_id,
+            peer_version,
+            network_id,
             addrbytes: PeerAddress::from_socketaddr(addr),
             port: addr.port(),
         }
@@ -1202,7 +1202,7 @@ impl ConversationP2P {
         let natpunch_data = NatPunchData {
             addrbytes: self.peer_addrbytes.clone(),
             port: self.peer_port,
-            nonce: nonce,
+            nonce,
         };
         let msg = StacksMessage::from_chain_view(
             self.version,
@@ -3345,7 +3345,7 @@ mod test {
             network_id: 0,
             chain_name: "bitcoin".to_string(),
             network_name: "testnet".to_string(),
-            working_dir: format!("/tmp/stacks-test-databases-{}", test_name),
+            working_dir: format!("/tmp/stacks-test-databases-{test_name}"),
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: 12300,

@@ -1868,18 +1868,18 @@ impl StacksChainState {
         let clarity_state = ClarityInstance::new(mainnet, chain_id, vm_state);
 
         let mut chainstate = StacksChainState {
-            mainnet: mainnet,
-            chain_id: chain_id,
-            clarity_state: clarity_state,
+            mainnet,
+            chain_id,
+            clarity_state,
             nakamoto_staging_blocks_conn,
-            state_index: state_index,
+            state_index,
             blocks_path: blocks_path_root,
             clarity_state_index_path: clarity_state_index_marf,
-            clarity_state_index_root: clarity_state_index_root,
+            clarity_state_index_root,
             root_path: path_str.to_string(),
             unconfirmed_state: None,
             fault_injection: StacksChainStateFaults::new(),
-            marf_opts: marf_opts,
+            marf_opts,
         };
 
         let mut receipts = vec![];

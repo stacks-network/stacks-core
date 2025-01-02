@@ -102,7 +102,7 @@ impl LeaderBlockCommitOp {
     ) -> LeaderBlockCommitOp {
         LeaderBlockCommitOp {
             sunset_burn: 0,
-            block_height: block_height,
+            block_height,
             burn_parent_modulus: if block_height > 0 {
                 u8::try_from((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS)
                     .expect("FATAL: unreachable: unable to form u8 from 3-bit number")
@@ -117,7 +117,7 @@ impl LeaderBlockCommitOp {
             parent_block_ptr: 0,
             parent_vtxindex: 0,
             memo: vec![0x00],
-            burn_fee: burn_fee,
+            burn_fee,
             input: input.clone(),
             block_header_hash: block_header_hash.clone(),
             commit_outs: vec![],
@@ -147,12 +147,12 @@ impl LeaderBlockCommitOp {
         LeaderBlockCommitOp {
             sunset_burn: 0,
             new_seed: new_seed.clone(),
-            key_block_ptr: key_block_ptr,
-            key_vtxindex: key_vtxindex,
+            key_block_ptr,
+            key_vtxindex,
             parent_block_ptr: parent_block_height,
-            parent_vtxindex: parent_vtxindex,
+            parent_vtxindex,
             memo: vec![],
-            burn_fee: burn_fee,
+            burn_fee,
             input: input.clone(),
             block_header_hash: block_header_hash.clone(),
             commit_outs: vec![],
@@ -458,7 +458,7 @@ impl LeaderBlockCommitOp {
             treatment: Vec::new(),
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
-            block_height: block_height,
+            block_height,
             burn_header_hash: block_hash.clone(),
         })
     }
@@ -1777,10 +1777,10 @@ mod tests {
                     apparent_sender: BurnchainSigner("mgbpit8FvkVJ9kuXY8QSM5P7eibnhcEMBk".to_string()),
 
                     txid: Txid::from_hex("502f3e5756de7e1bdba8c713cd2daab44adb5337d14ff668fdc57cc27d67f0d4").unwrap(),
-                    vtxindex: vtxindex,
-                    block_height: block_height,
+                    vtxindex,
+                    block_height,
                     burn_parent_modulus: ((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-                    burn_header_hash: burn_header_hash,
+                    burn_header_hash,
                     treatment: vec![],                })
             },
             OpFixture {

@@ -203,9 +203,9 @@ impl TestMinerTrace {
         points: Vec<TestMinerTracePoint>,
     ) -> TestMinerTrace {
         TestMinerTrace {
-            points: points,
-            burn_node: burn_node,
-            miners: miners,
+            points,
+            burn_node,
+            miners,
         }
     }
 
@@ -288,7 +288,7 @@ impl TestStacksNode {
         let chainstate =
             instantiate_chainstate_with_balances(mainnet, chain_id, test_name, initial_balances);
         TestStacksNode {
-            chainstate: chainstate,
+            chainstate,
             prev_keys: vec![],
             key_ops: HashMap::new(),
             anchored_blocks: vec![],
@@ -304,7 +304,7 @@ impl TestStacksNode {
     pub fn open(mainnet: bool, chain_id: u32, test_name: &str) -> TestStacksNode {
         let chainstate = open_chainstate(mainnet, chain_id, test_name);
         TestStacksNode {
-            chainstate: chainstate,
+            chainstate,
             prev_keys: vec![],
             key_ops: HashMap::new(),
             anchored_blocks: vec![],
@@ -319,7 +319,7 @@ impl TestStacksNode {
 
     pub fn from_chainstate(chainstate: StacksChainState) -> TestStacksNode {
         TestStacksNode {
-            chainstate: chainstate,
+            chainstate,
             prev_keys: vec![],
             key_ops: HashMap::new(),
             anchored_blocks: vec![],
@@ -356,7 +356,7 @@ impl TestStacksNode {
             new_test_name,
         );
         TestStacksNode {
-            chainstate: chainstate,
+            chainstate,
             prev_keys: self.prev_keys.clone(),
             key_ops: self.key_ops.clone(),
             anchored_blocks: self.anchored_blocks.clone(),

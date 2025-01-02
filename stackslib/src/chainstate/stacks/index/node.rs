@@ -231,9 +231,9 @@ impl TriePtr {
     #[inline]
     pub fn new(id: u8, chr: u8, ptr: u32) -> TriePtr {
         TriePtr {
-            id: id,
-            chr: chr,
-            ptr: ptr,
+            id,
+            chr,
+            ptr,
             back_block: 0,
         }
     }
@@ -308,10 +308,10 @@ impl TriePtr {
         let back_block = u32::from_be_bytes([bytes[6], bytes[7], bytes[8], bytes[9]]);
 
         TriePtr {
-            id: id,
-            chr: chr,
-            ptr: ptr,
-            back_block: back_block,
+            id,
+            chr,
+            ptr,
+            back_block,
         }
     }
 }
@@ -781,7 +781,7 @@ impl TrieNode256 {
         }
         TrieNode256 {
             path: node4.path.clone(),
-            ptrs: ptrs,
+            ptrs,
         }
     }
 
@@ -794,7 +794,7 @@ impl TrieNode256 {
         }
         TrieNode256 {
             path: node48.path.clone(),
-            ptrs: ptrs,
+            ptrs,
         }
     }
 }
@@ -1191,7 +1191,7 @@ impl TrieNode for TrieLeaf {
         }
 
         Ok(TrieLeaf {
-            path: path,
+            path,
             data: MARFValue(leaf_data),
         })
     }

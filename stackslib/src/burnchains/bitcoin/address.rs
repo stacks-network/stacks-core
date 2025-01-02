@@ -234,8 +234,8 @@ impl LegacyBitcoinAddress {
         payload_bytes.copy_from_slice(b);
 
         Ok(LegacyBitcoinAddress {
-            network_id: network_id,
-            addrtype: addrtype,
+            network_id,
+            addrtype,
             bytes: Hash160(payload_bytes),
         })
     }
@@ -436,8 +436,8 @@ impl BitcoinAddress {
         my_bytes.copy_from_slice(b);
 
         Ok(BitcoinAddress::Legacy(LegacyBitcoinAddress {
-            network_id: network_id,
-            addrtype: addrtype,
+            network_id,
+            addrtype,
             bytes: Hash160(my_bytes),
         }))
     }
@@ -478,7 +478,7 @@ impl BitcoinAddress {
             my_bytes.copy_from_slice(b);
 
             Some(BitcoinAddress::Legacy(LegacyBitcoinAddress {
-                network_id: network_id,
+                network_id,
                 addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                 bytes: Hash160(my_bytes),
             }))
@@ -492,7 +492,7 @@ impl BitcoinAddress {
             my_bytes.copy_from_slice(b);
 
             Some(BitcoinAddress::Legacy(LegacyBitcoinAddress {
-                network_id: network_id,
+                network_id,
                 addrtype: LegacyBitcoinAddressType::ScriptHash,
                 bytes: Hash160(my_bytes),
             }))

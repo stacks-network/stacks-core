@@ -136,7 +136,7 @@ impl BitcoinTxInputStructured {
 
         Some(BitcoinTxInputStructured {
             tx_ref: input_txid,
-            keys: keys,
+            keys,
             num_required: num_sigs,
             in_type: if segwit {
                 BitcoinInputType::SegwitP2SH
@@ -184,7 +184,7 @@ impl BitcoinTxInputStructured {
 
         let tx_input = BitcoinTxInputStructured {
             tx_ref: input_txid,
-            keys: keys,
+            keys,
             num_required: num_sigs,
             in_type: BitcoinInputType::SegwitP2SH,
         };
@@ -498,7 +498,7 @@ impl BitcoinTxInputRaw {
     ) -> BitcoinTxInputRaw {
         BitcoinTxInputRaw {
             scriptSig: script_sig.clone().into_bytes(),
-            witness: witness,
+            witness,
             tx_ref: input_txid,
         }
     }
