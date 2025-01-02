@@ -1841,13 +1841,10 @@ impl MemPoolDB {
                 continue;
             }
 
-            let do_consider = if settings.filter_origins.is_empty() {
-                true
-            } else {
-                settings
+            let do_consider = settings.filter_origins.is_empty()
+                || settings
                     .filter_origins
-                    .contains(&tx_info.metadata.origin_address)
-            };
+                    .contains(&tx_info.metadata.origin_address);
 
             if !do_consider {
                 debug!("Will skip mempool tx, since it does not have an allowed origin";
