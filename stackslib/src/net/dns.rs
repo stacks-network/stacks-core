@@ -43,9 +43,9 @@ pub struct DNSRequest {
 impl DNSRequest {
     pub fn new(host: String, port: u16, timeout: u128) -> DNSRequest {
         DNSRequest {
-            host: host,
-            port: port,
-            timeout: timeout,
+            host,
+            port,
+            timeout,
         }
     }
 
@@ -76,15 +76,12 @@ pub struct DNSResponse {
 
 impl DNSResponse {
     pub fn new(request: DNSRequest, result: Result<Vec<SocketAddr>, String>) -> DNSResponse {
-        DNSResponse {
-            request: request,
-            result: result,
-        }
+        DNSResponse { request, result }
     }
 
     pub fn error(request: DNSRequest, errstr: String) -> DNSResponse {
         DNSResponse {
-            request: request,
+            request,
             result: Err(errstr),
         }
     }
@@ -122,7 +119,7 @@ impl DNSResolver {
             queries: VecDeque::new(),
             inbound: socket_chan_rx,
             outbound: dns_chan_tx,
-            max_inflight: max_inflight,
+            max_inflight,
             hardcoded: HashMap::new(),
         };
         (resolver, client)

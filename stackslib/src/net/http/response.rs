@@ -159,12 +159,12 @@ impl HttpResponsePreamble {
         keep_alive: bool,
     ) -> HttpResponsePreamble {
         HttpResponsePreamble {
-            client_http_version: client_http_version,
-            status_code: status_code,
-            reason: reason,
-            keep_alive: keep_alive,
+            client_http_version,
+            status_code,
+            reason,
+            keep_alive,
             content_length: content_length_opt,
-            content_type: content_type,
+            content_type,
             headers: BTreeMap::new(),
         }
     }
@@ -590,12 +590,12 @@ impl StacksMessageCodec for HttpResponsePreamble {
 
                 Ok(HttpResponsePreamble {
                     client_http_version,
-                    status_code: status_code,
-                    reason: reason,
-                    keep_alive: keep_alive,
+                    status_code,
+                    reason,
+                    keep_alive,
                     content_type: content_type.unwrap_or(HttpContentType::Bytes), // per the RFC
-                    content_length: content_length,
-                    headers: headers,
+                    content_length,
+                    headers,
                 })
             }
         }

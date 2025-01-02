@@ -2007,8 +2007,8 @@ impl StacksChainState {
         Ok(BlocksInvData {
             bitlen: u16::try_from(block_bits.len())
                 .expect("FATAL: unreachable: more than 2^16 block bits"),
-            block_bitvec: block_bitvec,
-            microblocks_bitvec: microblocks_bitvec,
+            block_bitvec,
+            microblocks_bitvec,
         })
     }
 
@@ -2130,8 +2130,8 @@ impl StacksChainState {
         Ok(BlocksInvData {
             bitlen: u16::try_from(block_bits.len())
                 .expect("FATAL: block bits has more than 2^16 members"),
-            block_bitvec: block_bitvec,
-            microblocks_bitvec: microblocks_bitvec,
+            block_bitvec,
+            microblocks_bitvec,
         })
     }
 
@@ -2916,7 +2916,7 @@ impl StacksChainState {
 
         let extended_header = ExtendedStacksHeader {
             consensus_hash: header_info.consensus_hash,
-            header: header,
+            header,
             parent_block_id: parent_index_block_hash,
         };
         Ok(extended_header)
@@ -7164,7 +7164,7 @@ pub mod test {
                 all_txs[3 * i + 2].clone(),
             ];
 
-            let txid_vecs = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+            let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
 
             let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
             let tx_merkle_root = merkle_tree.root();
@@ -7179,15 +7179,12 @@ pub mod test {
             let header = StacksMicroblockHeader {
                 version: 0x12,
                 sequence: initial_seq + (i as u16),
-                prev_block: prev_block,
-                tx_merkle_root: tx_merkle_root,
+                prev_block,
+                tx_merkle_root,
                 signature: MessageSignature([0u8; 65]),
             };
 
-            let mut mblock = StacksMicroblock {
-                header: header,
-                txs: txs,
-            };
+            let mut mblock = StacksMicroblock { header, txs };
 
             mblock.sign(privk).unwrap();
             microblocks.push(mblock);
@@ -8845,7 +8842,7 @@ pub mod test {
 
                     conflicting_microblock.txs.push(extra_tx);
 
-                    let txid_vecs = conflicting_microblock
+                    let txid_vecs: Vec<_> = conflicting_microblock
                         .txs
                         .iter()
                         .map(|tx| tx.txid().as_bytes().to_vec())

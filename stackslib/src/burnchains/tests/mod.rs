@@ -74,9 +74,9 @@ impl BurnchainBlockHeader {
     ) -> BurnchainBlockHeader {
         BurnchainBlockHeader {
             block_height: parent_sn.block_height + 1,
-            block_hash: block_hash,
+            block_hash,
             parent_block_hash: parent_sn.burn_header_hash.clone(),
-            num_txs: num_txs,
+            num_txs,
             timestamp: get_epoch_time_secs(),
         }
     }
@@ -375,7 +375,7 @@ impl TestBurnchainBlock {
                     burn_header_hash,
                 }),
             ],
-            fork_id: fork_id,
+            fork_id,
             timestamp: get_epoch_time_secs(),
         }
     }
@@ -724,7 +724,7 @@ impl TestBurnchainFork {
             tip_index_root: start_index_root.clone(),
             blocks: vec![],
             pending_blocks: vec![],
-            fork_id: fork_id,
+            fork_id,
         }
     }
 

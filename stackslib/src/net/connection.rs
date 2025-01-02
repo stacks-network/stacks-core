@@ -63,7 +63,7 @@ impl<P: ProtocolFamily> ReceiverNotify<P> {
         ReceiverNotify {
             expected_seq: seq,
             receiver_input: input,
-            ttl: ttl,
+            ttl,
         }
     }
 
@@ -104,7 +104,7 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
             receiver_output: Some(output),
             request_pipe_write: Some(write),
             deadline: 0,
-            socket_event_id: socket_event_id,
+            socket_event_id,
         }
     }
 
@@ -113,7 +113,7 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
             receiver_output: None,
             request_pipe_write: Some(write),
             deadline: 0,
-            socket_event_id: socket_event_id,
+            socket_event_id,
         }
     }
 
@@ -1084,7 +1084,7 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
     pub fn new(outbox_maxlen: usize) -> ConnectionOutbox<P> {
         ConnectionOutbox {
             outbox: VecDeque::with_capacity(outbox_maxlen),
-            outbox_maxlen: outbox_maxlen,
+            outbox_maxlen,
             pending_message_fd: None,
             socket_out_buf: vec![],
             socket_out_ptr: 0,
@@ -1301,7 +1301,7 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
         public_key_opt: Option<Secp256k1PublicKey>,
     ) -> NetworkConnection<P> {
         NetworkConnection {
-            protocol: protocol,
+            protocol,
             options: (*options).clone(),
 
             inbox: ConnectionInbox::new(options.inbox_maxlen, public_key_opt),
@@ -1867,7 +1867,7 @@ mod test {
             &BurnchainHeaderHash([0x11; 32]),
             12339,
             &BurnchainHeaderHash([0x22; 32]),
-            StacksMessageType::Ping(PingData { nonce: nonce }),
+            StacksMessageType::Ping(PingData { nonce }),
         );
         let privkey = Secp256k1PrivateKey::new();
         ping.sign(request_id, &privkey).unwrap();

@@ -132,7 +132,7 @@ impl FromRow<BlockCommitMetadata> for BlockCommitMetadata {
             block_height,
             vtxindex,
             affirmation_id,
-            anchor_block: anchor_block,
+            anchor_block,
             anchor_block_descendant,
         })
     }
@@ -1106,7 +1106,7 @@ impl BurnchainDB {
 
     pub fn tx_begin<'a>(&'a mut self) -> Result<BurnchainDBTransaction<'a>, BurnchainError> {
         let sql_tx = tx_begin_immediate(&mut self.conn)?;
-        Ok(BurnchainDBTransaction { sql_tx: sql_tx })
+        Ok(BurnchainDBTransaction { sql_tx })
     }
 
     fn inner_get_canonical_chain_tip(
