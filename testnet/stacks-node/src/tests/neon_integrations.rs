@@ -200,6 +200,7 @@ pub mod test_observer {
     use stacks::chainstate::stacks::{StacksTransaction, TransactionPayload};
     use stacks::codec::StacksMessageCodec;
     use stacks::config::{EventKeyType, EventObserverConfig};
+    use stacks::core::CHAIN_ID_MAINNET;
     use stacks::net::api::postblock_proposal::BlockValidateResponse;
     use stacks::util::hash::hex_bytes;
     use stacks_common::types::chainstate::StacksBlockId;
@@ -599,10 +600,9 @@ pub mod test_observer {
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
 
-                let mainnet_address = boot_code_addr(true).into();
-                let testnet_address = boot_code_addr(false).into();
+                let boot_address = boot_code_addr(tx.chain_id == CHAIN_ID_MAINNET).into();
                 if let TransactionPayload::TokenTransfer(address, amount, _) = &tx.payload {
-                    if *address == mainnet_address || *address == testnet_address && *amount == 0 {
+                    if *address == boot_address && *amount == 0 {
                         return None;
                     }
                 }
