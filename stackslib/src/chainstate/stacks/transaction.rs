@@ -5077,7 +5077,7 @@ mod test {
 
             // auth is standard and first & third auth fields are signatures for (un)compressed keys.
             // 2nd field is the 2nd public key
-            if let TransactionAuth::Standard(TransactionSpendingCondition::Multisig) =
+            if let TransactionAuth::Standard(TransactionSpendingCondition::Multisig(data)) =
                 &signed_tx.auth
             {
                 assert_eq!(data.signer, origin_address.bytes);
