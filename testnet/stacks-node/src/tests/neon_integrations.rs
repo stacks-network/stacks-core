@@ -194,9 +194,10 @@ pub mod test_observer {
     use std::sync::Mutex;
     use std::thread;
 
+    use clarity::boot_util::boot_code_addr;
     use stacks::chainstate::stacks::boot::RewardSet;
     use stacks::chainstate::stacks::events::StackerDBChunksEvent;
-    use stacks::chainstate::stacks::StacksTransaction;
+    use stacks::chainstate::stacks::{StacksTransaction, TransactionPayload};
     use stacks::codec::StacksMessageCodec;
     use stacks::config::{EventKeyType, EventObserverConfig};
     use stacks::net::api::postblock_proposal::BlockValidateResponse;
@@ -578,7 +579,7 @@ pub mod test_observer {
         PROPOSAL_RESPONSES.lock().unwrap().clear();
     }
 
-    /// Parse the StacksTransactions from a block (does not include burn ops)
+    /// Parse the StacksTransactions from a block (does not include burn ops or phantom txs)
     ///  panics on any failures to parse
     pub fn parse_transactions(block: &serde_json::Value) -> Vec<StacksTransaction> {
         block
@@ -597,6 +598,14 @@ pub mod test_observer {
                 let tx_bytes = hex_bytes(&tx_hex[2..]).unwrap();
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+
+                let mainnet_address = boot_code_addr(true).into();
+                let testnet_address = boot_code_addr(false).into();
+                if let TransactionPayload::TokenTransfer(address, amount, _) = &tx.payload {
+                    if *address == mainnet_address || *address == testnet_address && *amount == 0 {
+                        return None;
+                    }
+                }
                 Some(tx)
             })
             .collect()
