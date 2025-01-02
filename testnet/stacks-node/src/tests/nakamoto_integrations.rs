@@ -241,7 +241,7 @@ impl TestSigningChannel {
 
 /// Assert that the block events captured by the test observer
 ///  all match the miner heuristic of *exclusively* including the
-///  tenure change transaction in tenure changing blocks.
+///  tenure change transaction and token transfers in tenure changing blocks.
 pub fn check_nakamoto_empty_block_heuristics() {
     let blocks = test_observer::get_blocks();
     for block in blocks.iter() {
@@ -257,10 +257,12 @@ pub fn check_nakamoto_empty_block_heuristics() {
             let only_coinbase_and_tenure_change = txs.iter().all(|tx| {
                 matches!(
                     tx.payload,
-                    TransactionPayload::TenureChange(_) | TransactionPayload::Coinbase(..)
+                    TransactionPayload::TenureChange(_)
+                        | TransactionPayload::Coinbase(..)
+                        | TransactionPayload::TokenTransfer(..)
                 )
             });
-            assert!(only_coinbase_and_tenure_change, "Nakamoto blocks with a tenure change in them should only have coinbase or tenure changes");
+            assert!(only_coinbase_and_tenure_change, "Nakamoto blocks with a tenure change in them should only have coinbase, tenure changes, or token transfers.");
         }
     }
 }
