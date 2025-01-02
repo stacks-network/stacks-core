@@ -35,7 +35,7 @@ use crate::chainstate::stacks::index::{Error as MARFError, MARFValue, MarfTrieId
 use crate::core::INITIAL_MINING_BONUS_WINDOW;
 use crate::util_lib::db::Error as DBError;
 
-impl<'a> SortitionHandleTx<'a> {
+impl SortitionHandleTx<'_> {
     /// Run a blockstack operation's "check()" method and return the result.
     fn check_transaction(
         &mut self,

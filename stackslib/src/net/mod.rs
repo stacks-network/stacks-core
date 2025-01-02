@@ -637,7 +637,7 @@ pub struct RPCHandlerArgs<'a> {
     pub coord_comms: Option<&'a CoordinatorChannels>,
 }
 
-impl<'a> RPCHandlerArgs<'a> {
+impl RPCHandlerArgs<'_> {
     pub fn get_estimators_ref(
         &self,
     ) -> Option<(&dyn CostEstimator, &dyn FeeEstimator, &dyn CostMetric)> {

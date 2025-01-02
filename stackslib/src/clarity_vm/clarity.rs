@@ -175,9 +175,9 @@ macro_rules! using {
     }};
 }
 
-impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
+impl ClarityBlockConnection<'_, '_> {
     #[cfg(test)]
-    pub fn new_test_conn(
+    pub fn new_test_conn<'a, 'b>(
         datastore: WritableMarfStore<'a>,
         header_db: &'b dyn HeadersDB,
         burn_state_db: &'b dyn BurnStateDB,
@@ -632,7 +632,7 @@ impl ClarityInstance {
     }
 }
 
-impl<'a, 'b> ClarityConnection for ClarityBlockConnection<'a, 'b> {
+impl ClarityConnection for ClarityBlockConnection<'_, '_> {
     /// Do something with ownership of the underlying DB that involves only reading.
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where
@@ -696,7 +696,7 @@ impl ClarityConnection for ClarityReadOnlyConnection<'_> {
     }
 }
 
-impl<'a> PreCommitClarityBlock<'a> {
+impl PreCommitClarityBlock<'_> {
     pub fn commit(self) {
         debug!("Committing Clarity block connection"; "index_block" => %self.commit_to);
         self.datastore
@@ -705,7 +705,7 @@ impl<'a> PreCommitClarityBlock<'a> {
     }
 }
 
-impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
+impl<'a> ClarityBlockConnection<'a, '_> {
     /// Rolls back all changes in the current block by
     /// (1) dropping all writes from the current MARF tip,
     /// (2) rolling back side-storage
@@ -1597,7 +1597,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
     }
 }
 
-impl<'a, 'b> ClarityConnection for ClarityTransactionConnection<'a, 'b> {
+impl ClarityConnection for ClarityTransactionConnection<'_, '_> {
     /// Do something with ownership of the underlying DB that involves only reading.
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where
@@ -1636,7 +1636,7 @@ impl<'a, 'b> ClarityConnection for ClarityTransactionConnection<'a, 'b> {
     }
 }
 
-impl<'a, 'b> Drop for ClarityTransactionConnection<'a, 'b> {
+impl Drop for ClarityTransactionConnection<'_, '_> {
     fn drop(&mut self) {
         if thread::panicking() {
             // if the thread is panicking, we've likely lost our cost_tracker handle,
@@ -1656,7 +1656,7 @@ impl<'a, 'b> Drop for ClarityTransactionConnection<'a, 'b> {
     }
 }
 
-impl<'a, 'b> TransactionConnection for ClarityTransactionConnection<'a, 'b> {
+impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
     fn with_abort_callback<F, A, R, E>(
         &mut self,
         to_do: F,
@@ -1730,7 +1730,7 @@ impl<'a, 'b> TransactionConnection for ClarityTransactionConnection<'a, 'b> {
     }
 }
 
-impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
+impl ClarityTransactionConnection<'_, '_> {
     /// Do something to the underlying DB that involves writing.
     pub fn with_clarity_db<F, R>(&mut self, to_do: F) -> Result<R, Error>
     where

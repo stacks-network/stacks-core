@@ -50,7 +50,7 @@ pub const PEERDB_VERSION: &'static str = "3";
 const NUM_SLOTS: usize = 8;
 
 impl FromColumn<PeerAddress> for PeerAddress {
-    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<PeerAddress, db_error> {
+    fn from_column(row: &Row, column_name: &str) -> Result<PeerAddress, db_error> {
         let addrbytes_bin: String = row.get_unwrap(column_name);
         if addrbytes_bin.len() != 128 {
             error!("Unparsable peer address {}", addrbytes_bin);
@@ -74,7 +74,7 @@ impl FromColumn<PeerAddress> for PeerAddress {
 }
 
 impl FromRow<QualifiedContractIdentifier> for QualifiedContractIdentifier {
-    fn from_row<'a>(row: &'a Row) -> Result<QualifiedContractIdentifier, db_error> {
+    fn from_row(row: &Row) -> Result<QualifiedContractIdentifier, db_error> {
         let cid_str: String = row.get_unwrap("smart_contract_id");
         let cid =
             QualifiedContractIdentifier::parse(&cid_str).map_err(|_e| db_error::ParseError)?;
@@ -203,7 +203,7 @@ impl LocalPeer {
 }
 
 impl FromRow<LocalPeer> for LocalPeer {
-    fn from_row<'a>(row: &'a Row) -> Result<LocalPeer, db_error> {
+    fn from_row(row: &Row) -> Result<LocalPeer, db_error> {
         let network_id: u32 = row.get_unwrap("network_id");
         let parent_network_id: u32 = row.get_unwrap("parent_network_id");
         let nonce_hex: String = row.get_unwrap("nonce");
@@ -253,7 +253,7 @@ impl FromRow<LocalPeer> for LocalPeer {
 }
 
 impl FromRow<ASEntry4> for ASEntry4 {
-    fn from_row<'a>(row: &'a Row) -> Result<ASEntry4, db_error> {
+    fn from_row(row: &Row) -> Result<ASEntry4, db_error> {
         let prefix: u32 = row.get_unwrap("prefix");
         let mask: u8 = row.get_unwrap("mask");
         let asn: u32 = row.get_unwrap("asn");
@@ -269,7 +269,7 @@ impl FromRow<ASEntry4> for ASEntry4 {
 }
 
 impl FromRow<Neighbor> for Neighbor {
-    fn from_row<'a>(row: &'a Row) -> Result<Neighbor, db_error> {
+    fn from_row(row: &Row) -> Result<Neighbor, db_error> {
         let peer_version: u32 = row.get_unwrap("peer_version");
         let network_id: u32 = row.get_unwrap("network_id");
         let addrbytes: PeerAddress = PeerAddress::from_column(row, "addrbytes")?;
@@ -821,7 +821,7 @@ impl PeerDB {
         &self.conn
     }
 
-    pub fn tx_begin<'a>(&'a mut self) -> Result<Transaction<'a>, db_error> {
+    pub fn tx_begin(&mut self) -> Result<Transaction<'_>, db_error> {
         if !self.readwrite {
             return Err(db_error::ReadOnly);
         }

@@ -765,7 +765,7 @@ impl PeerNetwork {
     }
 
     /// Create a transaction against the PeerDB
-    pub fn peerdb_tx_begin<'a>(&'a mut self) -> Result<DBTx<'a>, db_error> {
+    pub fn peerdb_tx_begin(&mut self) -> Result<DBTx<'_>, db_error> {
         self.peerdb.tx_begin()
     }
 

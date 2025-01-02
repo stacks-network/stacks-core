@@ -132,7 +132,7 @@ impl FromColumn<Sha256dHash> for Sha256dHash {
 }
 
 impl FromRow<BlockHeader> for BlockHeader {
-    fn from_row<'a>(row: &'a Row) -> Result<BlockHeader, db_error> {
+    fn from_row(row: &Row) -> Result<BlockHeader, db_error> {
         let version: u32 = row.get_unwrap("version");
         let prev_blockhash: Sha256dHash = Sha256dHash::from_column(row, "prev_blockhash")?;
         let merkle_root: Sha256dHash = Sha256dHash::from_column(row, "merkle_root")?;
@@ -225,7 +225,7 @@ impl SpvClient {
         &mut self.headers_db
     }
 
-    pub fn tx_begin<'a>(&'a mut self) -> Result<DBTx<'a>, btc_error> {
+    pub fn tx_begin(&mut self) -> Result<DBTx<'_>, btc_error> {
         if !self.readwrite {
             return Err(db_error::ReadOnly.into());
         }
@@ -741,8 +741,8 @@ impl SpvClient {
     }
 
     /// Insert a block header
-    fn insert_block_header<'a>(
-        tx: &mut DBTx<'a>,
+    fn insert_block_header(
+        tx: &mut DBTx<'_>,
         header: BlockHeader,
         height: u64,
     ) -> Result<(), btc_error> {

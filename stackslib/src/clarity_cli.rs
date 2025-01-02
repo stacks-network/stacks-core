@@ -173,7 +173,7 @@ trait ClarityStorage {
         headers_db: &'a dyn HeadersDB,
         burn_db: &'a dyn BurnStateDB,
     ) -> ClarityDatabase<'a>;
-    fn get_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a>;
+    fn get_analysis_db(&mut self) -> AnalysisDatabase<'_>;
 }
 
 impl ClarityStorage for WritableMarfStore<'_> {
@@ -185,7 +185,7 @@ impl ClarityStorage for WritableMarfStore<'_> {
         self.as_clarity_db(headers_db, burn_db)
     }
 
-    fn get_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
+    fn get_analysis_db(&mut self) -> AnalysisDatabase<'_> {
         self.as_analysis_db()
     }
 }
@@ -199,7 +199,7 @@ impl ClarityStorage for MemoryBackingStore {
         self.as_clarity_db()
     }
 
-    fn get_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
+    fn get_analysis_db(&mut self) -> AnalysisDatabase<'_> {
         self.as_analysis_db()
     }
 }

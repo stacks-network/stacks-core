@@ -291,7 +291,7 @@ impl TestMiner {
     }
 }
 
-impl<'a> NakamotoStagingBlocksConnRef<'a> {
+impl NakamotoStagingBlocksConnRef<'_> {
     pub fn get_any_normal_tenure(&self) -> Result<Option<ConsensusHash>, ChainstateError> {
         let qry = "SELECT consensus_hash FROM nakamoto_staging_blocks WHERE obtain_method != ?1 ORDER BY RANDOM() LIMIT 1";
         let args = params![&NakamotoBlockObtainMethod::Shadow.to_string()];
@@ -1088,7 +1088,7 @@ impl TestStacksNode {
     }
 }
 
-impl<'a> TestPeer<'a> {
+impl TestPeer<'_> {
     /// Get the Nakamoto parent linkage data for building atop the last-produced tenure or
     /// Stacks 2.x block.
     /// Returns (last-tenure-id, epoch2-parent, nakamoto-parent-tenure, parent-sortition)

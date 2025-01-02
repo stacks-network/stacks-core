@@ -39,7 +39,7 @@ use crate::chainstate::stacks::{
 };
 
 /// Parse a script into its structured constituant opcodes and data and collect them
-pub fn parse_script<'a>(script: &'a Script) -> Vec<Instruction<'a>> {
+pub fn parse_script(script: &Script) -> Vec<Instruction<'_>> {
     // we will have to accept non-minimial pushdata since there's at least one OP_RETURN
     // in the transaction stream that has this property already.
     script.iter(false).collect()
