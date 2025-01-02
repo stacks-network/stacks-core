@@ -4323,7 +4323,7 @@ pub mod test {
                 &mut burn_block,
                 &mut self.miner,
                 &stacks_block,
-                &microblocks,
+                microblocks.clone(),
                 1000,
                 &last_key,
                 parent_sortition_opt.as_ref(),

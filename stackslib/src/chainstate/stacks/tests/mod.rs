@@ -555,13 +555,13 @@ impl TestStacksNode {
         burn_block: &mut TestBurnchainBlock,
         miner: &mut TestMiner,
         stacks_block: &StacksBlock,
-        microblocks: &[StacksMicroblock],
+        microblocks: Vec<StacksMicroblock>,
         burn_amount: u64,
         miner_key: &LeaderKeyRegisterOp,
         parent_block_snapshot_opt: Option<&BlockSnapshot>,
     ) -> LeaderBlockCommitOp {
         self.anchored_blocks.push(stacks_block.clone());
-        self.microblocks.push(microblocks.to_vec());
+        self.microblocks.push(microblocks);
 
         test_debug!(
             "Miner {}: Commit to stacks block {} (work {},{})",
@@ -704,7 +704,7 @@ impl TestStacksNode {
             burn_block,
             miner,
             &stacks_block,
-            &microblocks,
+            microblocks.clone(),
             burn_amount,
             miner_key,
             parent_block_snapshot_opt.as_ref(),

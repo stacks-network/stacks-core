@@ -135,14 +135,14 @@ pub struct TestMinerFactory {
 impl TestMiner {
     pub fn new(
         burnchain: &Burnchain,
-        privks: &[StacksPrivateKey],
+        privks: Vec<StacksPrivateKey>,
         num_sigs: u16,
         hash_mode: &AddressHashMode,
         chain_id: u32,
     ) -> TestMiner {
         TestMiner {
             burnchain: burnchain.clone(),
-            privks: privks.to_vec(),
+            privks,
             num_sigs,
             hash_mode: hash_mode.clone(),
             microblock_privks: vec![],
@@ -342,7 +342,7 @@ impl TestMinerFactory {
         }
 
         test_debug!("New miner: {:?} {}:{:?}", &hash_mode, num_sigs, &keys);
-        let mut m = TestMiner::new(burnchain, &keys, num_sigs, &hash_mode, self.chain_id);
+        let mut m = TestMiner::new(burnchain, keys, num_sigs, &hash_mode, self.chain_id);
         m.id = self.next_miner_id;
         self.next_miner_id += 1;
         m
