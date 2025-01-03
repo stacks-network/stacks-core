@@ -194,13 +194,11 @@ pub mod test_observer {
     use std::sync::Mutex;
     use std::thread;
 
-    use clarity::boot_util::boot_code_addr;
     use stacks::chainstate::stacks::boot::RewardSet;
     use stacks::chainstate::stacks::events::StackerDBChunksEvent;
-    use stacks::chainstate::stacks::{StacksTransaction, TransactionPayload};
+    use stacks::chainstate::stacks::StacksTransaction;
     use stacks::codec::StacksMessageCodec;
     use stacks::config::{EventKeyType, EventObserverConfig};
-    use stacks::core::CHAIN_ID_MAINNET;
     use stacks::net::api::postblock_proposal::BlockValidateResponse;
     use stacks::util::hash::hex_bytes;
     use stacks_common::types::chainstate::StacksBlockId;
@@ -590,21 +588,19 @@ pub mod test_observer {
             .unwrap()
             .iter()
             .filter_map(|tx_json| {
+                // Filter out burn ops
                 if let Some(burnchain_op_val) = tx_json.get("burnchain_op") {
                     if !burnchain_op_val.is_null() {
                         return None;
                     }
                 }
+                // Filter out phantom txs
                 let tx_hex = tx_json.get("raw_tx").unwrap().as_str().unwrap();
                 let tx_bytes = hex_bytes(&tx_hex[2..]).unwrap();
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-
-                let boot_address = boot_code_addr(tx.chain_id == CHAIN_ID_MAINNET).into();
-                if let TransactionPayload::TokenTransfer(address, amount, _) = &tx.payload {
-                    if *address == boot_address && *amount == 0 {
-                        return None;
-                    }
+                if tx.is_phantom() {
+                    return None;
                 }
                 Some(tx)
             })
