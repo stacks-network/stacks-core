@@ -1181,7 +1181,8 @@ impl ConversationP2P {
         &mut self,
         stacker_db_data: &StackerDBHandshakeData,
     ) {
-        self.db_smart_contracts = stacker_db_data.smart_contracts.clone();
+        self.db_smart_contracts
+            .clone_from(&stacker_db_data.smart_contracts);
     }
 
     /// Forget about this peer's stacker DB replication state
