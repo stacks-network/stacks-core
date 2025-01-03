@@ -596,7 +596,7 @@ fn check_inv_state(
                 tenure_inv.get(bit.try_into().unwrap()).unwrap_or(false)
             };
 
-            let burn_block_height = (*tenure_rc as u64) * u64::from(rc_len) + (bit as u64);
+            let burn_block_height = *tenure_rc * u64::from(rc_len) + (bit as u64);
             if burn_block_height < nakamoto_start_burn_height {
                 // inv doesn't cover epoch 2
                 assert!(

@@ -3631,7 +3631,7 @@ fn test_pox_2_getters() {
         .expect_optional()
         .unwrap();
     assert_eq!(bob_delegation_addr, charlie_address.to_account_principal());
-    assert_eq!(bob_delegation_amt, LOCKUP_AMT as u128);
+    assert_eq!(bob_delegation_amt, LOCKUP_AMT);
     assert!(bob_pox_addr_opt.is_none());
 
     let allowance = data
@@ -3679,7 +3679,7 @@ fn test_pox_2_getters() {
         .unwrap()
         .expect_u128()
         .unwrap();
-    assert_eq!(partial_stacked, LOCKUP_AMT as u128);
+    assert_eq!(partial_stacked, LOCKUP_AMT);
 
     let rejected = data
         .get("get-total-pox-rejection-now")
@@ -3695,7 +3695,7 @@ fn test_pox_2_getters() {
         .unwrap()
         .expect_u128()
         .unwrap();
-    assert_eq!(rejected, LOCKUP_AMT as u128);
+    assert_eq!(rejected, LOCKUP_AMT);
 
     let rejected = data
         .get("get-total-pox-rejection-future")
@@ -3848,10 +3848,9 @@ fn test_get_pox_addrs() {
 
         if tenure_id <= 1 {
             // record the first reward cycle when tokens get stacked
-            lockup_reward_cycle = 1
-                + (burnchain
-                    .block_height_to_reward_cycle(tip_burn_block_height)
-                    .unwrap()) as u64;
+            lockup_reward_cycle = 1 + burnchain
+                .block_height_to_reward_cycle(tip_burn_block_height)
+                .unwrap();
             eprintln!(
                 "\nlockup reward cycle: {}\ncur reward cycle: {}\n",
                 lockup_reward_cycle, cur_reward_cycle
@@ -4145,10 +4144,9 @@ fn test_stack_with_segwit() {
 
         if tenure_id <= 1 {
             // record the first reward cycle when tokens get stacked
-            lockup_reward_cycle = 1
-                + (burnchain
-                    .block_height_to_reward_cycle(tip_burn_block_height)
-                    .unwrap()) as u64;
+            lockup_reward_cycle = 1 + burnchain
+                .block_height_to_reward_cycle(tip_burn_block_height)
+                .unwrap();
             eprintln!(
                 "\nlockup reward cycle: {}\ncur reward cycle: {}\n",
                 lockup_reward_cycle, cur_reward_cycle
@@ -4460,7 +4458,7 @@ fn test_pox_2_delegate_stx_addr_validation() {
         alice_delegation_addr,
         charlie_address.to_account_principal()
     );
-    assert_eq!(alice_delegation_amt, LOCKUP_AMT as u128);
+    assert_eq!(alice_delegation_amt, LOCKUP_AMT);
     assert!(alice_pox_addr_opt.is_some());
 
     let alice_pox_addr = alice_pox_addr_opt.unwrap();

@@ -135,7 +135,7 @@ fn setup_stackerdb(peer: &mut TestPeer, idx: usize, fill: bool, num_slots: usize
             thread_rng().fill(&mut inner_data[..]);
 
             let mut chunk_data = StackerDBChunkData::new(i as u32, 1, inner_data);
-            chunk_data.sign(&pks[i as usize]).unwrap();
+            chunk_data.sign(&pks[i]).unwrap();
 
             let chunk_md = chunk_data.get_slot_metadata();
             tx.try_replace_chunk(contract_id, &chunk_md, &chunk_data.data)
@@ -167,13 +167,13 @@ fn load_stackerdb(peer: &TestPeer, idx: usize) -> Vec<(SlotMetadata, Vec<u8>)> {
         let chunk_metadata = peer
             .network
             .stackerdbs
-            .get_slot_metadata(&peer.config.stacker_dbs[idx], i as u32)
+            .get_slot_metadata(&peer.config.stacker_dbs[idx], i)
             .unwrap()
             .unwrap();
         let chunk = peer
             .network
             .stackerdbs
-            .get_latest_chunk(&peer.config.stacker_dbs[idx], i as u32)
+            .get_latest_chunk(&peer.config.stacker_dbs[idx], i)
             .unwrap()
             .unwrap_or(vec![]);
         ret.push((chunk_metadata, chunk));

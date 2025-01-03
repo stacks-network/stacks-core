@@ -88,7 +88,7 @@ use crate::util_lib::db::{
     u64_to_sql, DBConn, DBTx, Error as db_error, FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
 
-const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;
+const BLOCK_HEIGHT_MAX: u64 = (1 << 63) - 1;
 
 pub const REWARD_WINDOW_START: u64 = 144 * 15;
 pub const REWARD_WINDOW_END: u64 = 144 * 90 + REWARD_WINDOW_START;
@@ -7422,7 +7422,7 @@ pub mod tests {
             for i in 0..255 {
                 let sortition_id = SortitionId([
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, i as u8,
+                    0, 0, 0, 0, 0, i,
                 ]);
                 let parent_sortition_id = if i == 0 {
                     last_snapshot.sortition_id.clone()
@@ -7459,7 +7459,7 @@ pub mod tests {
                         0,
                         0,
                         0,
-                        i - 1 as u8,
+                        i - 1,
                     ])
                 };
 
@@ -7471,7 +7471,7 @@ pub mod tests {
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[
                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, i as u8,
+                        0, 0, 0, 0, 0, 0, i,
                     ])
                     .unwrap(),
                     sortition_id,
@@ -7508,7 +7508,7 @@ pub mod tests {
                         0,
                         0,
                         0,
-                        (if i == 0 { 0xff } else { i - 1 }) as u8,
+                        (if i == 0 { 0xff } else { i - 1 }),
                     ])
                     .unwrap(),
                     consensus_hash: ConsensusHash::from_bytes(&[
@@ -7531,12 +7531,12 @@ pub mod tests {
                         0,
                         0,
                         0,
-                        (i + 1) as u8,
+                        i + 1,
                     ])
                     .unwrap(),
                     ops_hash: OpsHash::from_bytes(&[
                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, i as u8,
+                        0, 0, 0, 0, 0, 0, i,
                     ])
                     .unwrap(),
                     total_burn: i as u64,
@@ -7717,7 +7717,7 @@ pub mod tests {
                 let snapshot_row = BlockSnapshot {
                     accumulated_coinbase_ustx: 0,
                     pox_valid: true,
-                    block_height: i as u64 + 1,
+                    block_height: i + 1,
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[
                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -7789,7 +7789,7 @@ pub mod tests {
                         0, 0, 0, 0, 0, 0, i as u8,
                     ])
                     .unwrap(),
-                    total_burn: i as u64,
+                    total_burn: i,
                     sortition: true,
                     sortition_hash: SortitionHash::initial(),
                     winning_block_txid: Txid::from_hex(
@@ -7801,7 +7801,7 @@ pub mod tests {
                     )
                     .unwrap(),
                     index_root: TrieHash::from_empty_data(),
-                    num_sortitions: i as u64 + 1,
+                    num_sortitions: i + 1,
                     stacks_block_accepted: false,
                     stacks_block_height: 0,
                     arrival_index: 0,
@@ -7824,7 +7824,7 @@ pub mod tests {
                 last_snapshot = snapshot_row;
                 last_snapshot.index_root = index_root;
                 // should succeed within the tx
-                let ch = tx.get_consensus_at(i as u64 + 1).unwrap().unwrap();
+                let ch = tx.get_consensus_at(i + 1).unwrap().unwrap();
                 assert_eq!(ch, last_snapshot.consensus_hash);
 
                 tx.commit().unwrap();

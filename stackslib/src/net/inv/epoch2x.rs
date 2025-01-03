@@ -175,8 +175,8 @@ impl PeerBlocksInv {
         assert!(block_height >= self.first_block_height);
         let sortition_height = block_height - self.first_block_height;
 
-        self.num_sortitions = if self.num_sortitions < sortition_height + (bitlen as u64) {
-            sortition_height + (bitlen as u64)
+        self.num_sortitions = if self.num_sortitions < sortition_height + bitlen {
+            sortition_height + bitlen
         } else {
             self.num_sortitions
         };

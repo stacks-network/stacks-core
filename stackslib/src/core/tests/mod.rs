@@ -1992,8 +1992,7 @@ fn test_txtags() {
 
         let txtags = mempool.get_txtags(&seed).unwrap();
         let len_txtags = all_txtags.len();
-        let last_txtags =
-            &all_txtags[len_txtags.saturating_sub(BLOOM_COUNTER_DEPTH as usize)..len_txtags];
+        let last_txtags = &all_txtags[len_txtags.saturating_sub(BLOOM_COUNTER_DEPTH)..len_txtags];
 
         let mut expected_txtag_set = HashSet::new();
         for txtags in last_txtags.iter() {
@@ -2240,7 +2239,7 @@ fn test_find_next_missing_transactions() {
             txid.clone(),
             tx_bytes,
             tx_fee,
-            block_height as u64,
+            block_height,
             &origin_addr,
             origin_nonce,
             &sponsor_addr,
@@ -2375,7 +2374,7 @@ fn test_find_next_missing_transactions() {
             )
             .unwrap();
         assert!(txs.len() <= page_size as usize);
-        assert!(num_visited <= page_size as u64);
+        assert!(num_visited <= page_size);
 
         if txs.len() == 0 {
             assert!(next_page_opt.is_none());
@@ -2414,7 +2413,7 @@ fn test_find_next_missing_transactions() {
         eprintln!("find_next_missing_transactions with empty bloom filter took {} ms to serve {} transactions", ts_after.saturating_sub(ts_before), page_size);
 
         assert!(txs.len() <= page_size as usize);
-        assert!(num_visited <= page_size as u64);
+        assert!(num_visited <= page_size);
 
         if txs.len() == 0 {
             assert!(next_page_opt.is_none());

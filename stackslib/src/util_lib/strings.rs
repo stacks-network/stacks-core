@@ -207,7 +207,7 @@ impl StacksString {
         // This is 0x20 through 0x7e, inclusive, as well as '\t' and '\n'
         // TODO: DRY up with vm::representations
         for c in s.as_bytes().iter() {
-            if (*c < 0x20 && *c != ('\t' as u8) && *c != ('\n' as u8)) || (*c > 0x7e) {
+            if (*c < 0x20 && *c != b'\t' && *c != b'\n') || *c > 0x7e {
                 return false;
             }
         }

@@ -2123,8 +2123,8 @@ fn test_get_blocks_and_microblocks_peers_broadcast() {
 
                 let ((tip_consensus_hash, tip_block, _), idx) = {
                     let block_data = blocks_and_microblocks.borrow();
-                    let idx = blocks_idx.borrow();
-                    (block_data[(*idx as usize).saturating_sub(1)].clone(), *idx)
+                    let idx: usize = *blocks_idx.borrow();
+                    (block_data[idx.saturating_sub(1)].clone(), idx)
                 };
 
                 if idx > 0 {

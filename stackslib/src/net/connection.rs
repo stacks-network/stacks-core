@@ -1989,12 +1989,12 @@ mod test {
         let mut serialized_ping = vec![];
         ping.consensus_serialize(&mut serialized_ping).unwrap();
         assert_eq!(
-            conn.outbox.socket_out_buf[0..(conn.outbox.socket_out_ptr as usize)],
-            serialized_ping[0..(conn.outbox.socket_out_ptr as usize)]
+            conn.outbox.socket_out_buf[0..conn.outbox.socket_out_ptr],
+            serialized_ping[0..conn.outbox.socket_out_ptr]
         );
 
         let mut half_ping =
-            conn.outbox.socket_out_buf.clone()[0..(conn.outbox.socket_out_ptr as usize)].to_vec();
+            conn.outbox.socket_out_buf.clone()[0..conn.outbox.socket_out_ptr].to_vec();
         let mut ping_buf_05 = vec![0; 2 * ping_size - (ping_size + ping_size / 2)];
 
         // flush the remaining half-ping

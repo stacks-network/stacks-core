@@ -2070,7 +2070,7 @@ mod tests {
                     block_height: (i + 1 + first_block_height as usize) as u64,
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: block_header_hashes[i].clone(),
-                    sortition_id: SortitionId(block_header_hashes[i as usize].0.clone()),
+                    sortition_id: SortitionId(block_header_hashes[i].0.clone()),
                     parent_sortition_id: prev_snapshot.sortition_id.clone(),
                     parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
                     consensus_hash: ConsensusHash::from_bytes(&[
@@ -2605,7 +2605,7 @@ mod tests {
                     block_height: (i + 1 + first_block_height as usize) as u64,
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: block_header_hashes[i].clone(),
-                    sortition_id: SortitionId(block_header_hashes[i as usize].0.clone()),
+                    sortition_id: SortitionId(block_header_hashes[i].0.clone()),
                     parent_sortition_id: prev_snapshot.sortition_id.clone(),
                     parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
                     consensus_hash: ConsensusHash::from_bytes(&[

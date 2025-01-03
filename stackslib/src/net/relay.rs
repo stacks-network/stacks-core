@@ -342,7 +342,7 @@ impl RelayerStats {
                 let mut to_remove = vec![];
                 for (ts, old_nk) in self.recent_updates.iter() {
                     self.recent_messages.remove(old_nk);
-                    if self.recent_messages.len() <= (MAX_RELAYER_STATS as usize) - 1 {
+                    if self.recent_messages.len() <= MAX_RELAYER_STATS - 1 {
                         break;
                     }
                     to_remove.push(*ts);
