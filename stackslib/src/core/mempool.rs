@@ -587,13 +587,13 @@ impl MemPoolWalkSettings {
 }
 
 impl FromRow<Txid> for Txid {
-    fn from_row<'a>(row: &'a Row) -> Result<Txid, db_error> {
+    fn from_row(row: &Row) -> Result<Txid, db_error> {
         row.get(0).map_err(db_error::SqliteError)
     }
 }
 
 impl FromRow<MemPoolTxMetadata> for MemPoolTxMetadata {
-    fn from_row<'a>(row: &'a Row) -> Result<MemPoolTxMetadata, db_error> {
+    fn from_row(row: &Row) -> Result<MemPoolTxMetadata, db_error> {
         let txid = Txid::from_column(row, "txid")?;
         let tenure_consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let tenure_block_header_hash = BlockHeaderHash::from_column(row, "block_header_hash")?;
@@ -629,7 +629,7 @@ impl FromRow<MemPoolTxMetadata> for MemPoolTxMetadata {
 }
 
 impl FromRow<MemPoolTxInfo> for MemPoolTxInfo {
-    fn from_row<'a>(row: &'a Row) -> Result<MemPoolTxInfo, db_error> {
+    fn from_row(row: &Row) -> Result<MemPoolTxInfo, db_error> {
         let md = MemPoolTxMetadata::from_row(row)?;
         let tx_bytes: Vec<u8> = row.get_unwrap("tx");
         let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])
@@ -644,7 +644,7 @@ impl FromRow<MemPoolTxInfo> for MemPoolTxInfo {
 }
 
 impl FromRow<MemPoolTxInfoPartial> for MemPoolTxInfoPartial {
-    fn from_row<'a>(row: &'a Row) -> Result<MemPoolTxInfoPartial, db_error> {
+    fn from_row(row: &Row) -> Result<MemPoolTxInfoPartial, db_error> {
         let txid = Txid::from_column(row, "txid")?;
         let fee_rate: Option<f64> = match row.get("fee_rate") {
             Ok(rate) => Some(rate),
@@ -667,7 +667,7 @@ impl FromRow<MemPoolTxInfoPartial> for MemPoolTxInfoPartial {
 }
 
 impl FromRow<(u64, u64)> for (u64, u64) {
-    fn from_row<'a>(row: &'a Row) -> Result<(u64, u64), db_error> {
+    fn from_row(row: &Row) -> Result<(u64, u64), db_error> {
         let t1: i64 = row.get_unwrap(0);
         let t2: i64 = row.get_unwrap(1);
         if t1 < 0 || t2 < 0 {
@@ -1958,7 +1958,7 @@ impl MemPoolDB {
         &self.db
     }
 
-    pub fn tx_begin<'a>(&'a mut self) -> Result<MemPoolTx<'a>, db_error> {
+    pub fn tx_begin(&mut self) -> Result<MemPoolTx<'_>, db_error> {
         let tx = tx_begin_immediate(&mut self.db)?;
         Ok(MemPoolTx::new(
             tx,
@@ -2577,11 +2577,7 @@ impl MemPoolDB {
 
     /// Blacklist transactions from the mempool
     /// Do not call directly; it's `pub` only for testing
-    pub fn inner_blacklist_txs<'a>(
-        tx: &DBTx<'a>,
-        txids: &[Txid],
-        now: u64,
-    ) -> Result<(), db_error> {
+    pub fn inner_blacklist_txs(tx: &DBTx<'_>, txids: &[Txid], now: u64) -> Result<(), db_error> {
         for txid in txids {
             let sql = "INSERT OR REPLACE INTO tx_blacklist (txid, arrival_time) VALUES (?1, ?2)";
             let args = params![txid, &u64_to_sql(now)?];
@@ -2592,8 +2588,8 @@ impl MemPoolDB {
 
     /// garbage-collect the tx blacklist -- delete any transactions whose blacklist timeout has
     /// been exceeded
-    pub fn garbage_collect_tx_blacklist<'a>(
-        tx: &DBTx<'a>,
+    pub fn garbage_collect_tx_blacklist(
+        tx: &DBTx<'_>,
         now: u64,
         timeout: u64,
         max_size: u64,
@@ -2654,7 +2650,7 @@ impl MemPoolDB {
 
     /// Inner code body for dropping transactions.
     /// Note that the bloom filter will *NOT* be updated.  That's the caller's job, if desired.
-    fn inner_drop_txs<'a>(tx: &DBTx<'a>, txids: &[Txid]) -> Result<(), db_error> {
+    fn inner_drop_txs(tx: &DBTx<'_>, txids: &[Txid]) -> Result<(), db_error> {
         let sql = "DELETE FROM mempool WHERE txid = ?";
         for txid in txids.iter() {
             tx.execute(sql, &[txid])?;

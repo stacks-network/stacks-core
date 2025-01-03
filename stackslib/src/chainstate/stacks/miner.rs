@@ -1471,7 +1471,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
     }
 }
 
-impl<'a> Drop for StacksMicroblockBuilder<'a> {
+impl Drop for StacksMicroblockBuilder<'_> {
     fn drop(&mut self) {
         debug!(
             "Drop StacksMicroblockBuilder";

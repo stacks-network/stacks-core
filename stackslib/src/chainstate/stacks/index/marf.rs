@@ -239,7 +239,7 @@ pub trait MarfConnection<T: MarfTrieId> {
     }
 }
 
-impl<'a, T: MarfTrieId> MarfConnection<T> for MarfTransaction<'a, T> {
+impl<T: MarfTrieId> MarfConnection<T> for MarfTransaction<'_, T> {
     fn with_conn<F, R>(&mut self, exec: F) -> R
     where
         F: FnOnce(&mut TrieStorageConnection<T>) -> R,
@@ -1394,7 +1394,7 @@ impl<T: MarfTrieId> MARF<T> {
 
 // instance methods
 impl<T: MarfTrieId> MARF<T> {
-    pub fn begin_tx<'a>(&'a mut self) -> Result<MarfTransaction<'a, T>, Error> {
+    pub fn begin_tx(&mut self) -> Result<MarfTransaction<'_, T>, Error> {
         let storage = self.storage.transaction()?;
         Ok(MarfTransaction {
             storage,
@@ -1620,7 +1620,7 @@ impl<T: MarfTrieId> MARF<T> {
     }
 
     /// Make a raw transaction to the underlying storage
-    pub fn storage_tx<'a>(&'a mut self) -> Result<Transaction<'a>, db_error> {
+    pub fn storage_tx(&mut self) -> Result<Transaction<'_>, db_error> {
         self.storage.sqlite_tx()
     }
 

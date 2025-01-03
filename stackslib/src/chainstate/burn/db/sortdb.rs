@@ -96,25 +96,25 @@ pub const REWARD_WINDOW_END: u64 = 144 * 90 + REWARD_WINDOW_START;
 pub type BlockHeaderCache = HashMap<ConsensusHash, (Option<BlockHeaderHash>, ConsensusHash)>;
 
 impl FromRow<SortitionId> for SortitionId {
-    fn from_row<'a>(row: &'a Row) -> Result<SortitionId, db_error> {
+    fn from_row(row: &Row) -> Result<SortitionId, db_error> {
         SortitionId::from_column(row, "sortition_id")
     }
 }
 
 impl FromRow<ConsensusHash> for ConsensusHash {
-    fn from_row<'a>(row: &'a Row) -> Result<ConsensusHash, db_error> {
+    fn from_row(row: &Row) -> Result<ConsensusHash, db_error> {
         ConsensusHash::from_column(row, "consensus_hash")
     }
 }
 
 impl FromRow<BurnchainHeaderHash> for BurnchainHeaderHash {
-    fn from_row<'a>(row: &'a Row) -> Result<BurnchainHeaderHash, db_error> {
+    fn from_row(row: &Row) -> Result<BurnchainHeaderHash, db_error> {
         BurnchainHeaderHash::from_column(row, "burn_header_hash")
     }
 }
 
 impl FromRow<MissedBlockCommit> for MissedBlockCommit {
-    fn from_row<'a>(row: &'a Row) -> Result<MissedBlockCommit, db_error> {
+    fn from_row(row: &Row) -> Result<MissedBlockCommit, db_error> {
         let intended_sortition = SortitionId::from_column(row, "intended_sortition_id")?;
         let input_json: String = row.get_unwrap("input");
         let input =
@@ -130,7 +130,7 @@ impl FromRow<MissedBlockCommit> for MissedBlockCommit {
 }
 
 impl FromRow<BlockSnapshot> for BlockSnapshot {
-    fn from_row<'a>(row: &'a Row) -> Result<BlockSnapshot, db_error> {
+    fn from_row(row: &Row) -> Result<BlockSnapshot, db_error> {
         let block_height = u64::from_column(row, "block_height")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
         let burn_header_timestamp = u64::from_column(row, "burn_header_timestamp")?;
@@ -211,7 +211,7 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
 }
 
 impl FromRow<LeaderKeyRegisterOp> for LeaderKeyRegisterOp {
-    fn from_row<'a>(row: &'a Row) -> Result<LeaderKeyRegisterOp, db_error> {
+    fn from_row(row: &Row) -> Result<LeaderKeyRegisterOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
         let vtxindex: u32 = row.get_unwrap("vtxindex");
         let block_height = u64::from_column(row, "block_height")?;
@@ -240,7 +240,7 @@ impl FromRow<LeaderKeyRegisterOp> for LeaderKeyRegisterOp {
 }
 
 impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
-    fn from_row<'a>(row: &'a Row) -> Result<LeaderBlockCommitOp, db_error> {
+    fn from_row(row: &Row) -> Result<LeaderBlockCommitOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
         let vtxindex: u32 = row.get_unwrap("vtxindex");
         let block_height = u64::from_column(row, "block_height")?;
@@ -314,7 +314,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
 }
 
 impl FromRow<StackStxOp> for StackStxOp {
-    fn from_row<'a>(row: &'a Row) -> Result<StackStxOp, db_error> {
+    fn from_row(row: &Row) -> Result<StackStxOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
         let vtxindex: u32 = row.get_unwrap("vtxindex");
         let block_height = u64::from_column(row, "block_height")?;
@@ -357,7 +357,7 @@ impl FromRow<StackStxOp> for StackStxOp {
 }
 
 impl FromRow<DelegateStxOp> for DelegateStxOp {
-    fn from_row<'a>(row: &'a Row) -> Result<DelegateStxOp, db_error> {
+    fn from_row(row: &Row) -> Result<DelegateStxOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
         let vtxindex: u32 = row.get_unwrap("vtxindex");
         let block_height = u64::from_column(row, "block_height")?;
@@ -389,7 +389,7 @@ impl FromRow<DelegateStxOp> for DelegateStxOp {
 }
 
 impl FromRow<TransferStxOp> for TransferStxOp {
-    fn from_row<'a>(row: &'a Row) -> Result<TransferStxOp, db_error> {
+    fn from_row(row: &Row) -> Result<TransferStxOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
         let vtxindex: u32 = row.get_unwrap("vtxindex");
         let block_height = u64::from_column(row, "block_height")?;
@@ -417,7 +417,7 @@ impl FromRow<TransferStxOp> for TransferStxOp {
 }
 
 impl FromRow<VoteForAggregateKeyOp> for VoteForAggregateKeyOp {
-    fn from_row<'a>(row: &'a Row) -> Result<VoteForAggregateKeyOp, db_error> {
+    fn from_row(row: &Row) -> Result<VoteForAggregateKeyOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
         let vtxindex: u32 = row.get_unwrap("vtxindex");
         let block_height = u64::from_column(row, "block_height")?;
@@ -450,7 +450,7 @@ impl FromRow<VoteForAggregateKeyOp> for VoteForAggregateKeyOp {
 }
 
 impl FromColumn<ASTRules> for ASTRules {
-    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<ASTRules, db_error> {
+    fn from_column(row: &Row, column_name: &str) -> Result<ASTRules, db_error> {
         let x: u8 = row.get_unwrap(column_name);
         let ast_rules = ASTRules::from_u8(x).ok_or(db_error::ParseError)?;
         Ok(ast_rules)
@@ -458,7 +458,7 @@ impl FromColumn<ASTRules> for ASTRules {
 }
 
 impl FromRow<(ASTRules, u64)> for (ASTRules, u64) {
-    fn from_row<'a>(row: &'a Row) -> Result<(ASTRules, u64), db_error> {
+    fn from_row(row: &Row) -> Result<(ASTRules, u64), db_error> {
         let ast_rules = ASTRules::from_column(row, "ast_rule_id")?;
         let height = u64::from_column(row, "block_height")?;
         Ok((ast_rules, height))
@@ -479,7 +479,7 @@ pub struct InitialMiningBonus {
 }
 
 impl FromRow<AcceptedStacksBlockHeader> for AcceptedStacksBlockHeader {
-    fn from_row<'a>(row: &'a Row) -> Result<AcceptedStacksBlockHeader, db_error> {
+    fn from_row(row: &Row) -> Result<AcceptedStacksBlockHeader, db_error> {
         let tip_consensus_hash = ConsensusHash::from_column(row, "tip_consensus_hash")?;
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let block_hash = BlockHeaderHash::from_column(row, "stacks_block_hash")?;
@@ -495,7 +495,7 @@ impl FromRow<AcceptedStacksBlockHeader> for AcceptedStacksBlockHeader {
 }
 
 impl FromRow<StacksEpoch> for StacksEpoch {
-    fn from_row<'a>(row: &'a Row) -> Result<StacksEpoch, db_error> {
+    fn from_row(row: &Row) -> Result<StacksEpoch, db_error> {
         let epoch_id_u32: u32 = row.get_unwrap("epoch_id");
         let epoch_id = StacksEpochId::try_from(epoch_id_u32).map_err(|_| db_error::ParseError)?;
 
@@ -1533,7 +1533,7 @@ impl SortitionHandle for SortitionHandleConn<'_> {
     }
 }
 
-impl<'a> SortitionHandleTx<'a> {
+impl SortitionHandleTx<'_> {
     pub fn set_stacks_block_accepted(
         &mut self,
         consensus_hash: &ConsensusHash,
@@ -2646,7 +2646,7 @@ impl<'a> SortitionHandleConn<'a> {
 // Connection methods
 impl SortitionDB {
     /// Begin a transaction.
-    pub fn tx_begin<'a>(&'a mut self) -> Result<SortitionDBTx<'a>, db_error> {
+    pub fn tx_begin(&mut self) -> Result<SortitionDBTx<'_>, db_error> {
         if !self.readwrite {
             return Err(db_error::ReadOnly);
         }
@@ -2663,7 +2663,7 @@ impl SortitionDB {
     }
 
     /// Make an indexed connection
-    pub fn index_conn<'a>(&'a self) -> SortitionDBConn<'a> {
+    pub fn index_conn(&self) -> SortitionDBConn<'_> {
         SortitionDBConn::new(
             &self.marf,
             SortitionDBTxContext {
@@ -2739,7 +2739,7 @@ impl SortitionDB {
         ))
     }
 
-    pub fn conn<'a>(&'a self) -> &'a Connection {
+    pub fn conn(&self) -> &Connection {
         self.marf.sqlite_conn()
     }
 
@@ -3556,8 +3556,8 @@ impl SortitionDB {
     }
 
     #[cfg(any(test, feature = "testing"))]
-    pub fn override_ast_rule_height<'a>(
-        tx: &mut DBTx<'a>,
+    pub fn override_ast_rule_height(
+        tx: &mut DBTx<'_>,
         ast_rules: ASTRules,
         height: u64,
     ) -> Result<(), db_error> {
@@ -3699,7 +3699,7 @@ impl SortitionDB {
     }
 }
 
-impl<'a> SortitionDBTx<'a> {
+impl SortitionDBTx<'_> {
     pub fn find_sortition_tip_affirmation_map(
         &mut self,
         chain_tip: &SortitionId,
@@ -3720,7 +3720,7 @@ impl<'a> SortitionDBTx<'a> {
     }
 }
 
-impl<'a> SortitionDBConn<'a> {
+impl SortitionDBConn<'_> {
     pub fn as_handle<'b>(&'b self, chain_tip: &SortitionId) -> SortitionHandleConn<'b> {
         SortitionHandleConn {
             index: self.index,
@@ -4719,7 +4719,7 @@ impl SortitionDB {
     }
 
     /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
-    pub fn index_handle_at_tip<'a>(&'a self) -> SortitionHandleConn<'a> {
+    pub fn index_handle_at_tip(&self) -> SortitionHandleConn<'_> {
         let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn()).unwrap();
         self.index_handle(&sortition_id)
     }
@@ -4737,7 +4737,7 @@ impl SortitionDB {
 
     /// Open a tx handle at the burn chain tip
     /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
-    pub fn tx_begin_at_tip<'a>(&'a mut self) -> SortitionHandleTx<'a> {
+    pub fn tx_begin_at_tip(&mut self) -> SortitionHandleTx<'_> {
         let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn()).unwrap();
         self.tx_handle_begin(&sortition_id).unwrap()
     }
@@ -5394,7 +5394,7 @@ impl SortitionDB {
     }
 }
 
-impl<'a> SortitionHandleTx<'a> {
+impl SortitionHandleTx<'_> {
     /// Append a snapshot to a chain tip, and update various chain tip statistics.
     /// Returns the new state root of this fork.
     /// `initialize_bonus` - if Some(..), then this snapshot is the first mined snapshot,
@@ -6608,7 +6608,7 @@ pub mod tests {
     use crate::core::{StacksEpochExtension, *};
     use crate::util_lib::db::Error as db_error;
 
-    impl<'a> SortitionHandleTx<'a> {
+    impl SortitionHandleTx<'_> {
         /// Update the canonical Stacks tip (testing only)
         pub fn test_update_canonical_stacks_tip(
             &mut self,

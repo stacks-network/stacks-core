@@ -644,7 +644,6 @@ impl TestBurnchainBlock {
     }
 
     pub fn mine_pox<
-        'a,
         T: BlockEventDispatcher,
         N: CoordinatorNotices,
         R: RewardSetProvider,
@@ -655,7 +654,7 @@ impl TestBurnchainBlock {
         &self,
         db: &mut SortitionDB,
         burnchain: &Burnchain,
-        coord: &mut ChainsCoordinator<'a, T, N, R, CE, FE, B>,
+        coord: &mut ChainsCoordinator<'_, T, N, R, CE, FE, B>,
     ) -> BlockSnapshot {
         let mut indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
         let parent_hdr = indexer
@@ -783,7 +782,6 @@ impl TestBurnchainFork {
     }
 
     pub fn mine_pending_blocks_pox<
-        'a,
         T: BlockEventDispatcher,
         N: CoordinatorNotices,
         R: RewardSetProvider,
@@ -794,7 +792,7 @@ impl TestBurnchainFork {
         &mut self,
         db: &mut SortitionDB,
         burnchain: &Burnchain,
-        coord: &mut ChainsCoordinator<'a, T, N, R, CE, FE, B>,
+        coord: &mut ChainsCoordinator<'_, T, N, R, CE, FE, B>,
     ) -> BlockSnapshot {
         let mut snapshot = {
             let ic = db.index_conn();
