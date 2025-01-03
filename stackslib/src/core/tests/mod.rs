@@ -1397,7 +1397,7 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
     let chainstate_path = chainstate_path(&path_name);
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
-    let mut txs = codec_all_transactions(
+    let txs = codec_all_transactions(
         &TransactionVersion::Testnet,
         0x80000000,
         &TransactionAnchorMode::Any,
@@ -1409,7 +1409,7 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
     let mut mempool_tx = mempool.tx_begin().unwrap();
 
     eprintln!("add all txs");
-    for (i, mut tx) in txs.drain(..).enumerate() {
+    for (i, mut tx) in txs.into_iter().enumerate() {
         // make sure each address is unique per tx (not the case in codec_all_transactions)
         let origin_address = StacksAddress {
             version: 22,

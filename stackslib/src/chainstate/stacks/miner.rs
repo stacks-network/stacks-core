@@ -2073,7 +2073,7 @@ impl StacksBlockBuilder {
         mut builder: StacksBlockBuilder,
         chainstate_handle: &StacksChainState,
         burn_dbconn: &SortitionHandleConn,
-        mut txs: Vec<StacksTransaction>,
+        txs: Vec<StacksTransaction>,
         mut mblock_txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost, Option<StacksMicroblock>), Error> {
         debug!("Build anchored block from {} transactions", txs.len());
@@ -2081,7 +2081,7 @@ impl StacksBlockBuilder {
         let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn, true)?;
         let ast_rules = miner_epoch_info.ast_rules;
         let (mut epoch_tx, _) = builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
-        for tx in txs.drain(..) {
+        for tx in txs.into_iter() {
             match builder.try_mine_tx(&mut epoch_tx, &tx, ast_rules.clone()) {
                 Ok(_) => {
                     debug!("Included {}", &tx.txid());

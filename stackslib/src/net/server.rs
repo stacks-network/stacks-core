@@ -338,7 +338,7 @@ impl HttpPeer {
             }
         }
 
-        for event_id in to_remove.drain(0..) {
+        for event_id in to_remove.into_iter() {
             self.deregister_http(network_state, event_id);
         }
     }

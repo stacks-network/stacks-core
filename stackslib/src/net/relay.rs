@@ -291,7 +291,7 @@ impl RelayerStats {
                         }
                         to_remove.push(*ts);
                     }
-                    for ts in to_remove.drain(..) {
+                    for ts in to_remove.into_iter() {
                         self.relay_updates.remove(&ts);
                     }
                 }
@@ -3353,7 +3353,7 @@ impl PeerNetwork {
         availability_data: BlocksAvailableMap,
         blocks: HashMap<ConsensusHash, StacksBlock>,
     ) -> Result<(usize, usize), net_error> {
-        let (mut outbound_recipients, mut inbound_recipients) =
+        let (outbound_recipients, inbound_recipients) =
             self.find_block_recipients(&availability_data)?;
         debug!(
             "{:?}: Advertize {} blocks to {} inbound peers, {} outbound peers",
@@ -3366,7 +3366,7 @@ impl PeerNetwork {
         let num_inbound = inbound_recipients.len();
         let num_outbound = outbound_recipients.len();
 
-        for recipient in outbound_recipients.drain(..) {
+        for recipient in outbound_recipients.into_iter() {
             debug!(
                 "{:?}: Advertize {} blocks to outbound peer {}",
                 &self.local_peer,
@@ -3379,7 +3379,7 @@ impl PeerNetwork {
                 &blocks,
             )?;
         }
-        for recipient in inbound_recipients.drain(..) {
+        for recipient in inbound_recipients.into_iter() {
             debug!(
                 "{:?}: Advertize {} blocks to inbound peer {}",
                 &self.local_peer,
@@ -3404,14 +3404,14 @@ impl PeerNetwork {
         availability_data: BlocksAvailableMap,
         microblocks: HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
     ) -> Result<(usize, usize), net_error> {
-        let (mut outbound_recipients, mut inbound_recipients) =
+        let (outbound_recipients, inbound_recipients) =
             self.find_block_recipients(&availability_data)?;
         debug!("{:?}: Advertize {} confirmed microblock streams to {} inbound peers, {} outbound peers", &self.local_peer, availability_data.len(), outbound_recipients.len(), inbound_recipients.len());
 
         let num_inbound = inbound_recipients.len();
         let num_outbound = outbound_recipients.len();
 
-        for recipient in outbound_recipients.drain(..) {
+        for recipient in outbound_recipients.into_iter() {
             debug!(
                 "{:?}: Advertize {} confirmed microblock streams to outbound peer {}",
                 &self.local_peer,
@@ -3424,7 +3424,7 @@ impl PeerNetwork {
                 &microblocks,
             )?;
         }
-        for recipient in inbound_recipients.drain(..) {
+        for recipient in inbound_recipients.into_iter() {
             debug!(
                 "{:?}: Advertize {} confirmed microblock streams to inbound peer {}",
                 &self.local_peer,
