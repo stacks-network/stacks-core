@@ -375,7 +375,7 @@ fn handle_contract_publish(
 ) -> Result<String, CliError> {
     let mut args = args_slice.to_vec();
 
-    if args.len() >= 1 && args[0] == "-h" {
+    if !args.is_empty() && args[0] == "-h" {
         return Err(CliError::Message(format!("USAGE:\n {}", PUBLISH_USAGE)));
     }
     if args.len() != 5 {
@@ -433,7 +433,7 @@ fn handle_contract_call(
     clarity_version: ClarityVersion,
 ) -> Result<String, CliError> {
     let mut args = args_slice.to_vec();
-    if args.len() >= 1 && args[0] == "-h" {
+    if !args.is_empty() && args[0] == "-h" {
         return Err(CliError::Message(format!("USAGE:\n {}", CALL_USAGE)));
     }
     if args.len() < 6 {
@@ -518,7 +518,7 @@ fn handle_token_transfer(
     chain_id: u32,
 ) -> Result<String, CliError> {
     let mut args = args_slice.to_vec();
-    if args.len() >= 1 && args[0] == "-h" {
+    if !args.is_empty() && args[0] == "-h" {
         return Err(CliError::Message(format!(
             "USAGE:\n {}",
             TOKEN_TRANSFER_USAGE
@@ -575,7 +575,7 @@ fn handle_token_transfer(
 }
 
 fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
-    if args.len() >= 1 && args[0] == "-h" {
+    if !args.is_empty() && args[0] == "-h" {
         return Err(CliError::Message(format!("USAGE:\n {}", GENERATE_USAGE)));
     }
 
@@ -606,7 +606,7 @@ fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<S
 }
 
 fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
-    if (args.len() >= 1 && args[0] == "-h") || args.len() != 1 {
+    if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!("USAGE:\n {}", ADDRESSES_USAGE)));
     }
 
@@ -645,7 +645,7 @@ fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String,
 }
 
 fn decode_transaction(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
-    if (args.len() >= 1 && args[0] == "-h") || args.len() != 1 {
+    if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
             "Usage: {}\n",
             DECODE_TRANSACTION_USAGE
@@ -683,7 +683,7 @@ fn decode_transaction(args: &[String], _version: TransactionVersion) -> Result<S
 }
 
 fn decode_header(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
-    if (args.len() >= 1 && args[0] == "-h") || args.len() != 1 {
+    if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
             "Usage: {}\n",
             DECODE_HEADER_USAGE
@@ -722,7 +722,7 @@ fn decode_header(args: &[String], _version: TransactionVersion) -> Result<String
 }
 
 fn decode_block(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
-    if (args.len() >= 1 && args[0] == "-h") || args.len() != 1 {
+    if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
             "Usage: {}\n",
             DECODE_BLOCK_USAGE
@@ -759,7 +759,7 @@ fn decode_block(args: &[String], _version: TransactionVersion) -> Result<String,
 }
 
 fn decode_microblock(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
-    if (args.len() >= 1 && args[0] == "-h") || args.len() != 1 {
+    if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
             "Usage: {}\n",
             DECODE_MICROBLOCK_USAGE
@@ -798,7 +798,7 @@ fn decode_microblock(args: &[String], _version: TransactionVersion) -> Result<St
 }
 
 fn decode_microblocks(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
-    if (args.len() >= 1 && args[0] == "-h") || args.len() != 1 {
+    if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
             "Usage: {}\n",
             DECODE_MICROBLOCKS_USAGE
