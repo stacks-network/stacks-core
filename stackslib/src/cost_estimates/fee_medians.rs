@@ -21,7 +21,7 @@ use crate::util_lib::db::{
     sql_pragma, sqlite_open, table_exists, tx_begin_immediate_sqlite, u64_to_sql,
 };
 
-const CREATE_TABLE: &'static str = "
+const CREATE_TABLE: &str = "
 CREATE TABLE median_fee_estimator (
     measure_key INTEGER PRIMARY KEY AUTOINCREMENT,
     high NUMBER NOT NULL,

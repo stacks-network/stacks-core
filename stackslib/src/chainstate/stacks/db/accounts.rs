@@ -123,7 +123,7 @@ impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
 }
 
 impl FromRow<MinerReward> for MinerReward {
-    fn from_row<'a>(row: &'a Row) -> Result<MinerReward, db_error> {
+    fn from_row(row: &Row) -> Result<MinerReward, db_error> {
         let address = StacksAddress::from_column(row, "address")?;
         let recipient_str: Option<String> = row.get_unwrap("recipient");
         let recipient = recipient_str
@@ -503,8 +503,8 @@ impl StacksChainState {
     }
 
     /// Store a matured miner reward for subsequent query in Clarity, without doing any validation
-    fn inner_insert_matured_miner_reward<'a>(
-        tx: &mut DBTx<'a>,
+    fn inner_insert_matured_miner_reward(
+        tx: &mut DBTx<'_>,
         parent_block_id: &StacksBlockId,
         child_block_id: &StacksBlockId,
         reward: &MinerReward,
@@ -564,8 +564,8 @@ impl StacksChainState {
 
     /// Store a parent block's matured reward.  This is the share of the streamed tx fees produced
     /// by the miner who mined this block, and nothing else.
-    pub fn insert_matured_parent_miner_reward<'a>(
-        tx: &mut DBTx<'a>,
+    pub fn insert_matured_parent_miner_reward(
+        tx: &mut DBTx<'_>,
         parent_block_id: &StacksBlockId,
         child_block_id: &StacksBlockId,
         parent_reward: &MinerReward,
@@ -594,8 +594,8 @@ impl StacksChainState {
 
     /// Store a child block's matured miner reward.  This is the block's coinbase, anchored tx fees, and
     /// share of the confirmed streamed tx fees
-    pub fn insert_matured_child_miner_reward<'a>(
-        tx: &mut DBTx<'a>,
+    pub fn insert_matured_child_miner_reward(
+        tx: &mut DBTx<'_>,
         parent_block_id: &StacksBlockId,
         child_block_id: &StacksBlockId,
         child_reward: &MinerReward,
@@ -625,8 +625,8 @@ impl StacksChainState {
     /// Store a child block's matured user burn-support reward.  This is the share of the
     /// block's coinbase, anchored tx fees, and share of the confirmed streamed tx fees that go to
     /// the user burn-support sender
-    pub fn insert_matured_child_user_reward<'a>(
-        tx: &mut DBTx<'a>,
+    pub fn insert_matured_child_user_reward(
+        tx: &mut DBTx<'_>,
         parent_block_id: &StacksBlockId,
         child_block_id: &StacksBlockId,
         child_reward: &MinerReward,
@@ -724,8 +724,8 @@ impl StacksChainState {
     }
 
     /// Get the scheduled miner rewards in a particular Stacks fork at a particular height.
-    pub fn get_scheduled_block_rewards_in_fork_at_height<'a>(
-        tx: &mut StacksDBTx<'a>,
+    pub fn get_scheduled_block_rewards_in_fork_at_height(
+        tx: &mut StacksDBTx<'_>,
         tip: &StacksHeaderInfo,
         block_height: u64,
     ) -> Result<Vec<MinerPaymentSchedule>, Error> {

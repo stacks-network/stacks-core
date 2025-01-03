@@ -78,23 +78,23 @@ impl NeighborWalkResult {
         }
     }
 
-    pub fn add_new(&mut self, nk: NeighborKey) -> () {
+    pub fn add_new(&mut self, nk: NeighborKey) {
         self.new_connections.insert(nk);
     }
 
-    pub fn add_broken(&mut self, nk: NeighborKey) -> () {
+    pub fn add_broken(&mut self, nk: NeighborKey) {
         self.broken_connections.insert(nk);
     }
 
-    pub fn add_dead(&mut self, nk: NeighborKey) -> () {
+    pub fn add_dead(&mut self, nk: NeighborKey) {
         self.dead_connections.insert(nk);
     }
 
-    pub fn add_replaced(&mut self, nk: NeighborKey) -> () {
+    pub fn add_replaced(&mut self, nk: NeighborKey) {
         self.replaced_neighbors.insert(nk);
     }
 
-    pub fn clear(&mut self) -> () {
+    pub fn clear(&mut self) {
         self.new_connections.clear();
         self.dead_connections.clear();
         self.broken_connections.clear();
@@ -532,7 +532,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     }
 
     /// Clear the walk's connection state
-    fn clear_connections(&mut self, _local_peer: &LocalPeer) -> () {
+    fn clear_connections(&mut self, _local_peer: &LocalPeer) {
         test_debug!("{:?}: Walk clear connections", _local_peer);
         self.pending_neighbor_addrs = None;
         self.comms.reset();

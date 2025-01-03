@@ -118,7 +118,7 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
     }
 
     /// deadline is in seconds
-    pub fn set_deadline(&mut self, dl: u64) -> () {
+    pub fn set_deadline(&mut self, dl: u64) {
         self.deadline = dl;
     }
 
@@ -1109,7 +1109,7 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
         pending_message_fd
     }
 
-    fn finish_message(&mut self) -> () {
+    fn finish_message(&mut self) {
         assert!(!self.outbox.is_empty());
 
         // wake up any receivers when (if) we get a reply
@@ -1470,7 +1470,7 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
     }
 
     /// set the public key
-    pub fn set_public_key(&mut self, pubk: Option<Secp256k1PublicKey>) -> () {
+    pub fn set_public_key(&mut self, pubk: Option<Secp256k1PublicKey>) {
         self.inbox.public_key = pubk;
     }
 

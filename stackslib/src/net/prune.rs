@@ -397,7 +397,7 @@ impl PeerNetwork {
     }
 
     /// Prune our frontier.  Ignore connections in the preserve set.
-    pub fn prune_frontier(&mut self, preserve: &HashSet<usize>) -> () {
+    pub fn prune_frontier(&mut self, preserve: &HashSet<usize>) {
         let num_outbound = PeerNetwork::count_outbound_conversations(&self.peers);
         let num_inbound = (self.peers.len() as u64).saturating_sub(num_outbound);
         debug!(
