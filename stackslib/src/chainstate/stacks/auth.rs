@@ -1135,6 +1135,18 @@ impl TransactionSpendingCondition {
             }
         }
     }
+
+    /// Checks if this TransactionSpendingCondition is supported in the passed epoch
+    /// OrderIndependent multisig is not supported before epoch 3.0
+    pub fn is_supported_in_epoch(&self, epoch_id: StacksEpochId) -> bool {
+        match self {
+            TransactionSpendingCondition::Singlesig(..)
+            | TransactionSpendingCondition::Multisig(..) => true,
+            TransactionSpendingCondition::OrderIndependentMultisig(..) => {
+                epoch_id >= StacksEpochId::Epoch30
+            }
+        }
+    }
 }
 
 impl StacksMessageCodec for TransactionAuth {
@@ -1391,48 +1403,11 @@ impl TransactionAuth {
     /// Checks if this TransactionAuth is supported in the passed epoch
     /// OrderIndependent multisig is not supported before epoch 3.0
     pub fn is_supported_in_epoch(&self, epoch_id: StacksEpochId) -> bool {
-        match &self {
-            TransactionAuth::Standard(TransactionSpendingCondition::OrderIndependentMultisig(
-                ..,
-            ))
-            | TransactionAuth::Sponsored(
-                TransactionSpendingCondition::OrderIndependentMultisig(..),
-                TransactionSpendingCondition::Multisig(..),
-            )
-            | TransactionAuth::Sponsored(
-                TransactionSpendingCondition::OrderIndependentMultisig(..),
-                TransactionSpendingCondition::Singlesig(..),
-            )
-            | TransactionAuth::Sponsored(
-                TransactionSpendingCondition::OrderIndependentMultisig(..),
-                TransactionSpendingCondition::OrderIndependentMultisig(..),
-            )
-            | TransactionAuth::Sponsored(
-                TransactionSpendingCondition::Multisig(..),
-                TransactionSpendingCondition::OrderIndependentMultisig(..),
-            )
-            | TransactionAuth::Sponsored(
-                TransactionSpendingCondition::Singlesig(..),
-                TransactionSpendingCondition::OrderIndependentMultisig(..),
-            ) => epoch_id >= StacksEpochId::Epoch30,
-            TransactionAuth::Standard(TransactionSpendingCondition::Multisig(..))
-            | TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(..))
-            | TransactionAuth::Sponsored(
-                TransactionSpendingCondition::Multisig(..),
-                TransactionSpendingCondition::Multisig(..),
-            )
-            | TransactionAuth::Sponsored(
-                TransactionSpendingCondition::Multisig(..),
-                TransactionSpendingCondition::Singlesig(..),
-            )
-            | TransactionAuth::Sponsored(
-                TransactionSpendingCondition::Singlesig(..),
-                TransactionSpendingCondition::Singlesig(..),
-            )
-            | TransactionAuth::Sponsored(
-                TransactionSpendingCondition::Singlesig(..),
-                TransactionSpendingCondition::Multisig(..),
-            ) => true,
+        match self {
+            TransactionAuth::Standard(origin) => origin.is_supported_in_epoch(epoch_id),
+            TransactionAuth::Sponsored(origin, sponsor) => {
+                origin.is_supported_in_epoch(epoch_id) && sponsor.is_supported_in_epoch(epoch_id)
+            }
         }
     }
 }
