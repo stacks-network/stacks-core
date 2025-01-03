@@ -34,6 +34,7 @@ use crate::chainstate::stacks::{TransactionPayloadID, *};
 use crate::codec::Error as CodecError;
 use crate::core::*;
 use crate::net::Error as net_error;
+use crate::util_lib::boot::boot_code_addr;
 
 impl StacksMessageCodec for TransactionContractCall {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
@@ -1029,6 +1030,16 @@ impl StacksTransaction {
         match self.version {
             TransactionVersion::Mainnet => true,
             _ => false,
+        }
+    }
+
+    /// Is this a phantom transaction?
+    pub fn is_phantom(&self) -> bool {
+        let boot_address = boot_code_addr(self.is_mainnet()).into();
+        if let TransactionPayload::TokenTransfer(address, amount, _) = &self.payload {
+            *address == boot_address && *amount == 0
+        } else {
+            false
         }
     }
 }
