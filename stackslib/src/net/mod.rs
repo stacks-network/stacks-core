@@ -1804,7 +1804,7 @@ impl NetworkResult {
                     }
                     retain
                 });
-                mblocks.len() > 0
+                !mblocks.is_empty()
             });
         newer
             .confirmed_microblocks
@@ -1832,7 +1832,7 @@ impl NetworkResult {
                 }
                 retain
             });
-            if tx_data.len() == 0 {
+            if tx_data.is_empty() {
                 continue;
             }
 
@@ -1854,9 +1854,9 @@ impl NetworkResult {
                     }
                     retain
                 });
-                block_data.blocks.len() > 0
+                !block_data.blocks.is_empty()
             });
-            if block_list.len() == 0 {
+            if block_list.is_empty() {
                 continue;
             }
 
@@ -1877,9 +1877,9 @@ impl NetworkResult {
                     }
                     retain
                 });
-                mblock_data.microblocks.len() > 0
+                !mblock_data.microblocks.is_empty()
             });
-            if microblock_data.len() == 0 {
+            if microblock_data.is_empty() {
                 continue;
             }
 
@@ -1900,9 +1900,9 @@ impl NetworkResult {
                     }
                     retain
                 });
-                naka_blocks.blocks.len() > 0
+                !naka_blocks.blocks.is_empty()
             });
-            if nakamoto_block_data.len() == 0 {
+            if nakamoto_block_data.is_empty() {
                 continue;
             }
 
@@ -1931,7 +1931,7 @@ impl NetworkResult {
                 retain
             });
 
-            blk_data.blocks.len() > 0
+            !blk_data.blocks.is_empty()
         });
         self.uploaded_microblocks.retain_mut(|ref mut mblock_data| {
             mblock_data.microblocks.retain(|mblk| {
@@ -1942,7 +1942,7 @@ impl NetworkResult {
                 retain
             });
 
-            mblock_data.microblocks.len() > 0
+            !mblock_data.microblocks.is_empty()
         });
         self.uploaded_nakamoto_blocks.retain(|nblk| {
             let retain = !newer_naka_blocks.contains(&nblk.block_id());
@@ -2071,38 +2071,37 @@ impl NetworkResult {
     }
 
     pub fn has_blocks(&self) -> bool {
-        self.blocks.len() > 0 || self.pushed_blocks.len() > 0
+        !self.blocks.is_empty() || !self.pushed_blocks.is_empty()
     }
 
     pub fn has_microblocks(&self) -> bool {
-        self.confirmed_microblocks.len() > 0
-            || self.pushed_microblocks.len() > 0
-            || self.uploaded_microblocks.len() > 0
+        !self.confirmed_microblocks.is_empty()
+            || !self.pushed_microblocks.is_empty()
+            || !self.uploaded_microblocks.is_empty()
     }
 
     pub fn has_nakamoto_blocks(&self) -> bool {
-        self.nakamoto_blocks.len() > 0
-            || self.pushed_nakamoto_blocks.len() > 0
-            || self.uploaded_nakamoto_blocks.len() > 0
+        !self.nakamoto_blocks.is_empty()
+            || !self.pushed_nakamoto_blocks.is_empty()
+            || !self.uploaded_nakamoto_blocks.is_empty()
     }
 
     pub fn has_transactions(&self) -> bool {
-        self.pushed_transactions.len() > 0
-            || self.uploaded_transactions.len() > 0
-            || self.synced_transactions.len() > 0
+        !self.pushed_transactions.is_empty()
+            || !self.uploaded_transactions.is_empty()
+            || !self.synced_transactions.is_empty()
     }
 
     pub fn has_attachments(&self) -> bool {
-        self.attachments.len() > 0
+        !self.attachments.is_empty()
     }
 
     pub fn has_stackerdb_chunks(&self) -> bool {
         self.stacker_db_sync_results
             .iter()
-            .fold(0, |acc, x| acc + x.chunks_to_store.len())
-            > 0
-            || self.uploaded_stackerdb_chunks.len() > 0
-            || self.pushed_stackerdb_chunks.len() > 0
+            .any(|x| !x.chunks_to_store.is_empty())
+            || !self.uploaded_stackerdb_chunks.is_empty()
+            || !self.pushed_stackerdb_chunks.is_empty()
     }
 
     pub fn transactions(&self) -> Vec<StacksTransaction> {
@@ -2977,7 +2976,7 @@ pub mod test {
                     debug!("Not setting aggregate public key");
                 }
                 // add test-specific boot code
-                if conf.setup_code.len() > 0 {
+                if !conf.setup_code.is_empty() {
                     let receipt = clarity_tx.connection().as_transaction(|clarity| {
                         let boot_code_addr = boot_code_test_addr();
                         let boot_code_account = StacksAccount {
@@ -3856,7 +3855,7 @@ pub mod test {
             &mut self,
             microblocks: &Vec<StacksMicroblock>,
         ) -> Result<bool, String> {
-            assert!(microblocks.len() > 0);
+            assert!(!microblocks.is_empty());
             let sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
             let res = {

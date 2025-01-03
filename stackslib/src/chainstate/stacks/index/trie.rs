@@ -341,7 +341,7 @@ impl Trie {
     ) -> Result<TriePtr, Error> {
         // can only work if we're not at the end of the path, and the current node has a path
         assert!(!cursor.eop());
-        assert!(cur_leaf_data.path.len() > 0);
+        assert!(!cur_leaf_data.path.is_empty());
 
         // switch from lazy expansion to path compression --
         // * the current and new leaves will have unique suffixes
@@ -361,11 +361,8 @@ impl Trie {
 
         // update current leaf (path changed) and save it
         let cur_leaf_disk_ptr = cur_leaf_ptr.ptr();
-        let cur_leaf_new_ptr = TriePtr::new(
-            TrieNodeID::Leaf as u8,
-            cur_leaf_chr,
-            cur_leaf_disk_ptr as u32,
-        );
+        let cur_leaf_new_ptr =
+            TriePtr::new(TrieNodeID::Leaf as u8, cur_leaf_chr, cur_leaf_disk_ptr);
 
         assert!(cur_leaf_path.len() <= cur_leaf_data.path.len());
         let _sav_cur_leaf_data = cur_leaf_data.clone();
@@ -563,7 +560,7 @@ impl Trie {
         // append this leaf to the Trie
         let new_node_disk_ptr = storage.last_ptr()?;
 
-        let ret = TriePtr::new(new_node.id(), node_ptr.chr(), new_node_disk_ptr as u32);
+        let ret = TriePtr::new(new_node.id(), node_ptr.chr(), new_node_disk_ptr);
         storage.write_nodetype(new_node_disk_ptr, &new_node, new_node_hash)?;
 
         // update the cursor so its path of nodes and ptrs accurately reflects that we would have
@@ -639,7 +636,7 @@ impl Trie {
         let new_cur_node_ptr = TriePtr::new(
             cur_node_cur_ptr.id(),
             new_cur_node_chr,
-            new_cur_node_disk_ptr as u32,
+            new_cur_node_disk_ptr,
         );
 
         node.set_path(new_cur_node_path);
@@ -873,13 +870,13 @@ impl Trie {
         cursor: &TrieCursor<T>,
         update_skiplist: bool,
     ) -> Result<(), Error> {
-        assert!(cursor.node_ptrs.len() > 0);
+        assert!(!cursor.node_ptrs.is_empty());
 
         let mut ptrs = cursor.node_ptrs.clone();
         trace!("update_root_hash: ptrs = {:?}", &ptrs);
         let mut child_ptr = ptrs.pop().unwrap();
 
-        if ptrs.len() == 0 {
+        if ptrs.is_empty() {
             // root node was already updated by trie operations, but it will have the wrong hash.
             // we need to "fix" the root node so it mixes in its ancestor hashes.
             trace!("Fix up root node so it mixes in its ancestor hashes");

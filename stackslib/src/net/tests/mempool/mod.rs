@@ -1144,7 +1144,7 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
             .map(|e_id| *e_id)
             .collect();
 
-        if event_ids.len() > 0 && other_event_ids.len() > 0 {
+        if !event_ids.is_empty() && !other_event_ids.is_empty() {
             break;
         }
     }

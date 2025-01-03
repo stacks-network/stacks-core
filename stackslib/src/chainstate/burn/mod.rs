@@ -62,13 +62,13 @@ impl_byte_array_newtype!(SortitionHash, u8, 32);
 #[derive(Debug, Clone, PartialEq)]
 #[repr(u8)]
 pub enum Opcodes {
-    LeaderBlockCommit = '[' as u8,
-    LeaderKeyRegister = '^' as u8,
-    StackStx = 'x' as u8,
-    PreStx = 'p' as u8,
-    TransferStx = '$' as u8,
-    DelegateStx = '#' as u8,
-    VoteForAggregateKey = 'v' as u8,
+    LeaderBlockCommit = b'[',
+    LeaderKeyRegister = b'^',
+    StackStx = b'x',
+    PreStx = b'p',
+    TransferStx = b'$',
+    DelegateStx = b'#',
+    VoteForAggregateKey = b'v',
 }
 
 // a burnchain block snapshot
@@ -350,8 +350,8 @@ impl ConsensusHashExtensions for ConsensusHash {
     ) -> Result<Vec<ConsensusHash>, db_error> {
         let mut i = 0;
         let mut prev_chs = vec![];
-        while i < 64 && block_height - (((1 as u64) << i) - 1) >= first_block_height {
-            let prev_block: u64 = block_height - (((1 as u64) << i) - 1);
+        while i < 64 && block_height - ((1 << i) - 1) >= first_block_height {
+            let prev_block: u64 = block_height - ((1 << i) - 1);
             let prev_ch = sort_tx
                 .get_consensus_at(prev_block)
                 .unwrap_or_else(|_| {
@@ -366,7 +366,7 @@ impl ConsensusHashExtensions for ConsensusHash {
             prev_chs.push(prev_ch.clone());
             i += 1;
 
-            if block_height < (((1 as u64) << i) - 1) {
+            if block_height < ((1 << i) - 1) {
                 break;
             }
         }

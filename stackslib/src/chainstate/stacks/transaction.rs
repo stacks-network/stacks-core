@@ -34,6 +34,7 @@ use crate::chainstate::stacks::{TransactionPayloadID, *};
 use crate::codec::Error as CodecError;
 use crate::core::*;
 use crate::net::Error as net_error;
+use crate::util_lib::boot::boot_code_addr;
 
 impl StacksMessageCodec for TransactionContractCall {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
@@ -1029,6 +1030,16 @@ impl StacksTransaction {
         match self.version {
             TransactionVersion::Mainnet => true,
             _ => false,
+        }
+    }
+
+    /// Is this a phantom transaction?
+    pub fn is_phantom(&self) -> bool {
+        let boot_address = boot_code_addr(self.is_mainnet()).into();
+        if let TransactionPayload::TokenTransfer(address, amount, _) = &self.payload {
+            *address == boot_address && *amount == 0
+        } else {
+            false
         }
     }
 }
@@ -3384,7 +3395,7 @@ mod test {
             .consensus_serialize(&mut contract_call_bytes)
             .unwrap();
 
-        let mut transaction_contract_call = vec![0xff as u8];
+        let mut transaction_contract_call = vec![0xff];
         transaction_contract_call.append(&mut contract_call_bytes.clone());
 
         assert!(
@@ -3489,14 +3500,14 @@ mod test {
         let asset_name = ClarityName::try_from("hello-asset").unwrap();
         let mut asset_name_bytes = vec![
             // length
-            asset_name.len() as u8,
+            asset_name.len(),
         ];
         asset_name_bytes.extend_from_slice(&asset_name.to_string().as_str().as_bytes());
 
         let contract_name = ContractName::try_from("hello-world").unwrap();
         let mut contract_name_bytes = vec![
             // length
-            contract_name.len() as u8,
+            contract_name.len(),
         ];
         contract_name_bytes.extend_from_slice(&contract_name.to_string().as_str().as_bytes());
 

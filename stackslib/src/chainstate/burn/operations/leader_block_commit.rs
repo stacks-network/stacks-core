@@ -293,7 +293,7 @@ impl LeaderBlockCommitOp {
             return Err(op_error::InvalidInput);
         }
 
-        if outputs.len() == 0 {
+        if outputs.is_empty() {
             warn!(
                 "Invalid tx: inputs: {}, outputs: {}",
                 tx.num_signers(),
@@ -832,7 +832,7 @@ impl LeaderBlockCommitOp {
     /// Check the epoch marker in a block-commit to make sure it matches the right epoch.
     /// Valid in Stacks 2.05+
     fn check_epoch_commit_marker(&self, marker: u8) -> Result<(), op_error> {
-        if self.memo.len() < 1 {
+        if self.memo.is_empty() {
             debug!(
                 "Invalid block commit";
                 "reason" => "no epoch marker byte given",
@@ -860,7 +860,7 @@ impl LeaderBlockCommitOp {
             }
             StacksEpochId::Epoch20 => {
                 // no-op, but log for helping node operators watch for old nodes
-                if self.memo.len() < 1 {
+                if self.memo.is_empty() {
                     debug!(
                         "Soon-to-be-invalid block commit";
                         "reason" => "no epoch marker byte given",
@@ -2070,7 +2070,7 @@ mod tests {
                     block_height: (i + 1 + first_block_height as usize) as u64,
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: block_header_hashes[i].clone(),
-                    sortition_id: SortitionId(block_header_hashes[i as usize].0.clone()),
+                    sortition_id: SortitionId(block_header_hashes[i].0.clone()),
                     parent_sortition_id: prev_snapshot.sortition_id.clone(),
                     parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
                     consensus_hash: ConsensusHash::from_bytes(&[
@@ -2605,7 +2605,7 @@ mod tests {
                     block_height: (i + 1 + first_block_height as usize) as u64,
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: block_header_hashes[i].clone(),
-                    sortition_id: SortitionId(block_header_hashes[i as usize].0.clone()),
+                    sortition_id: SortitionId(block_header_hashes[i].0.clone()),
                     parent_sortition_id: prev_snapshot.sortition_id.clone(),
                     parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
                     consensus_hash: ConsensusHash::from_bytes(&[

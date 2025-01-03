@@ -175,8 +175,8 @@ impl PeerBlocksInv {
         assert!(block_height >= self.first_block_height);
         let sortition_height = block_height - self.first_block_height;
 
-        self.num_sortitions = if self.num_sortitions < sortition_height + (bitlen as u64) {
-            sortition_height + (bitlen as u64)
+        self.num_sortitions = if self.num_sortitions < sortition_height + bitlen {
+            sortition_height + bitlen
         } else {
             self.num_sortitions
         };
@@ -2402,7 +2402,7 @@ impl PeerNetwork {
                     &network.local_peer, inv_state.block_sortition_start,
                 );
 
-                if !inv_state.hint_learned_data && inv_state.block_stats.len() > 0 {
+                if !inv_state.hint_learned_data && !inv_state.block_stats.is_empty() {
                     // did a full scan without learning anything new
                     inv_state.last_rescanned_at = get_epoch_time_secs();
                     inv_state.hint_do_rescan = false;
@@ -2729,7 +2729,7 @@ impl PeerNetwork {
         // always-allowed peer?
         let mut finished_always_allowed_inv_sync = false;
 
-        if always_allowed.len() == 0 {
+        if always_allowed.is_empty() {
             // vacuously, we are done so we can return
             return true;
         }
