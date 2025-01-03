@@ -3239,7 +3239,7 @@ pub mod test {
             self.network.chain_view = chain_view;
 
             for n in self.config.initial_neighbors.iter() {
-                self.network.connect_peer(&n.addr).and_then(|e| Ok(()))?;
+                self.network.connect_peer(&n.addr).map(|e| ())?;
             }
             Ok(())
         }
@@ -3382,7 +3382,7 @@ pub mod test {
             self.coord.handle_new_stacks_block().unwrap();
             self.coord.handle_new_nakamoto_stacks_block().unwrap();
 
-            receipts_res.and_then(|receipts| Ok((net_result, receipts)))
+            receipts_res.map(|receipts| (net_result, receipts))
         }
 
         pub fn step_dns(&mut self, dns_client: &mut DNSClient) -> Result<NetworkResult, net_error> {

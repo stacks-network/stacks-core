@@ -1972,7 +1972,7 @@ impl MemPoolDB {
 
     pub fn db_has_tx(conn: &DBConn, txid: &Txid) -> Result<bool, db_error> {
         query_row(conn, "SELECT 1 FROM mempool WHERE txid = ?1", params![txid])
-            .and_then(|row_opt: Option<i64>| Ok(row_opt.is_some()))
+            .map(|row_opt: Option<i64>| row_opt.is_some())
     }
 
     pub fn get_tx(conn: &DBConn, txid: &Txid) -> Result<Option<MemPoolTxInfo>, db_error> {

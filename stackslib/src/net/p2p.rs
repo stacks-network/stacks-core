@@ -1400,9 +1400,9 @@ impl PeerNetwork {
                 }
                 Ok(())
             }
-            NetworkRequest::Relay(neighbor_key, msg) => self
-                .relay_signed_message(&neighbor_key, msg)
-                .and_then(|_| Ok(())),
+            NetworkRequest::Relay(neighbor_key, msg) => {
+                self.relay_signed_message(&neighbor_key, msg).map(|_| ())
+            }
             NetworkRequest::Broadcast(relay_hints, msg) => {
                 // pick some neighbors. Note that only some messages can be broadcasted.
                 let neighbor_keys = match msg {

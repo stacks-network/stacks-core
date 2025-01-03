@@ -3936,7 +3936,7 @@ impl SortitionDBConn<'_> {
             tip,
             reward_cycle_id,
         )
-        .and_then(|(reward_cycle_info, _anchor_sortition_id)| Ok(reward_cycle_info))
+        .map(|(reward_cycle_info, _anchor_sortition_id)| reward_cycle_info)
     }
 
     /// Get the prepare phase start sortition ID of a reward cycle.  This is the first prepare

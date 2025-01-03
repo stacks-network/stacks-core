@@ -2138,7 +2138,7 @@ impl ConversationP2P {
             );
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
-                .and_then(|handle| Ok(Some(handle)));
+                .map(|handle| Some(handle));
         }
         Ok(None)
     }
@@ -2176,7 +2176,7 @@ impl ConversationP2P {
             debug!("{:?}: Neighbor {:?} exceeded max microblocks-push bandwidth of {} bytes/sec (currently at {})", self, &self.to_neighbor_key(), self.connection.options.max_microblocks_push_bandwidth, self.stats.get_microblocks_push_bandwidth());
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
-                .and_then(|handle| Ok(Some(handle)));
+                .map(|handle| Some(handle));
         }
         Ok(None)
     }
@@ -2213,7 +2213,7 @@ impl ConversationP2P {
             debug!("{:?}: Neighbor {:?} exceeded max transaction-push bandwidth of {} bytes/sec (currently at {})", self, &self.to_neighbor_key(), self.connection.options.max_transaction_push_bandwidth, self.stats.get_transaction_push_bandwidth());
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
-                .and_then(|handle| Ok(Some(handle)));
+                .map(|handle| Some(handle));
         }
         Ok(None)
     }
@@ -2251,7 +2251,7 @@ impl ConversationP2P {
             debug!("{:?}: Neighbor {:?} exceeded max stackerdb-push bandwidth of {} bytes/sec (currently at {})", self, &self.to_neighbor_key(), self.connection.options.max_stackerdb_push_bandwidth, self.stats.get_stackerdb_push_bandwidth());
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
-                .and_then(|handle| Ok(Some(handle)));
+                .map(|handle| Some(handle));
         }
 
         Ok(None)
@@ -2290,7 +2290,7 @@ impl ConversationP2P {
             debug!("{:?}: Neighbor {:?} exceeded max Nakamoto block push bandwidth of {} bytes/sec (currently at {})", self, &self.to_neighbor_key(), self.connection.options.max_nakamoto_block_push_bandwidth, self.stats.get_nakamoto_block_push_bandwidth());
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
-                .and_then(|handle| Ok(Some(handle)));
+                .map(|handle| Some(handle));
         }
 
         Ok(None)
@@ -2568,7 +2568,7 @@ impl ConversationP2P {
             StacksMessageType::HandshakeAccept(ref data) => {
                 debug!("{:?}: Got HandshakeAccept", &self);
                 self.handle_handshake_accept(network.get_chain_view(), &msg.preamble, data, None)
-                    .and_then(|_| Ok(None))
+                    .map(|_| None)
             }
             StacksMessageType::StackerDBHandshakeAccept(ref data, ref db_data) => {
                 debug!("{:?}: Got StackerDBHandshakeAccept", &self);
@@ -2578,7 +2578,7 @@ impl ConversationP2P {
                     data,
                     Some(db_data),
                 )
-                .and_then(|_| Ok(None))
+                .map(|_| None)
             }
             StacksMessageType::Ping(_) => {
                 debug!("{:?}: Got Ping", &self);
@@ -2652,7 +2652,7 @@ impl ConversationP2P {
                         data,
                         None,
                     )
-                    .and_then(|_| Ok(None))
+                    .map(|_| None)
                 } else {
                     debug!("{:?}: Unsolicited unauthenticated HandshakeAccept", &self);
 
@@ -2670,7 +2670,7 @@ impl ConversationP2P {
                         data,
                         Some(db_data),
                     )
-                    .and_then(|_| Ok(None))
+                    .map(|_| None)
                 } else {
                     debug!(
                         "{:?}: Unsolicited unauthenticated StackerDBHandshakeAccept",
