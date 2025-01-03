@@ -72,7 +72,7 @@ impl GetTenureStartId for StacksDBConn<'_> {
             )?
             .map(|id_str| nakamoto_keys::parse_block_id(&id_str))
             .flatten()
-            .map(|block_id| TenureBlockId::from(block_id)))
+            .map(TenureBlockId::from))
     }
 
     fn get_tenure_block_id_at_cb_height(
@@ -108,7 +108,7 @@ impl GetTenureStartId for StacksDBTx<'_> {
             )?
             .map(|id_str| nakamoto_keys::parse_block_id(&id_str))
             .flatten()
-            .map(|block_id| TenureBlockId::from(block_id)))
+            .map(TenureBlockId::from))
     }
 
     fn get_tenure_block_id_at_cb_height(

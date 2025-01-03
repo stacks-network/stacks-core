@@ -676,8 +676,7 @@ impl ConversationP2P {
     }
 
     pub fn get_public_key_hash(&self) -> Option<Hash160> {
-        self.ref_public_key()
-            .map(|pubk| Hash160::from_node_public_key(pubk))
+        self.ref_public_key().map(Hash160::from_node_public_key)
     }
 
     pub fn ref_public_key(&self) -> Option<&StacksPublicKey> {
@@ -1461,7 +1460,7 @@ impl ConversationP2P {
 
         let neighbor_addrs: Vec<NeighborAddress> = neighbors
             .iter()
-            .map(|n| NeighborAddress::from_neighbor(n))
+            .map(NeighborAddress::from_neighbor)
             .collect();
 
         debug!(
@@ -1642,7 +1641,7 @@ impl ConversationP2P {
                 reward_cycle,
                 &block_hashes,
             )
-            .map_err(|e| net_error::from(e))?;
+            .map_err(net_error::from)?;
 
         if cfg!(test) {
             // make *sure* the behavior stays the same in epoch 2

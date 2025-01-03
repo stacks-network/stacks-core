@@ -419,7 +419,7 @@ pub fn make_reward_cycle_with_vote(
             commits
                 .into_iter()
                 .filter_map(|cmt| cmt)
-                .map(|cmt| BlockstackOperationType::LeaderBlockCommit(cmt))
+                .map(BlockstackOperationType::LeaderBlockCommit)
                 .collect()
         };
 
@@ -1617,7 +1617,7 @@ fn test_update_pox_affirmation_maps_unique_anchor_block() {
         let cmt_ops: Vec<BlockstackOperationType> = cmts
             .iter()
             .filter_map(|op| op.clone())
-            .map(|op| BlockstackOperationType::LeaderBlockCommit(op))
+            .map(BlockstackOperationType::LeaderBlockCommit)
             .collect();
 
         burnchain_db
