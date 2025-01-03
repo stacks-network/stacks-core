@@ -140,7 +140,7 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
                 let node = Node {
                     key: key.clone(),
                     value,
-                    dirty: dirty,
+                    dirty,
                     next: self.head,
                     prev: self.capacity,
                 };
