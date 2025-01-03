@@ -316,7 +316,7 @@ impl HttpRequestContentsExtensions for HttpRequestContents {
     /// Use a particular tip request
     fn for_tip(mut self, tip_req: TipRequest) -> Self {
         if tip_req != TipRequest::UseLatestAnchoredTip {
-            self.query_arg("tip".to_string(), format!("{}", &tip_req.to_string()))
+            self.query_arg("tip".to_string(), tip_req.to_string())
         } else {
             let _ = self.take_query_arg(&"tip".to_string());
             self
