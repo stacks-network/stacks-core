@@ -64,6 +64,7 @@ use crate::neon_node::{
 };
 use crate::run_loop::nakamoto::{Globals, RunLoop};
 use crate::run_loop::RegisteredKey;
+use crate::syncctl::PoxSyncWatchdog;
 use crate::BitcoinRegtestController;
 
 /// Command types for the Nakamoto relayer thread, issued to it by other threads
@@ -325,6 +326,39 @@ impl RelayerThread {
             net_result.burn_height
         );
 
+        let cur_sn = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn())
+            .expect("FATAL: failed to query sortition DB");
+
+        let headers_height = self.bitcoin_controller.get_headers_height();
+
+        // are we still processing sortitions?
+        let burnchain_ibd = PoxSyncWatchdog::infer_initial_burnchain_block_download(
+            &self.burnchain,
+            cur_sn.block_height,
+            headers_height,
+        );
+
+        // if the highest available tenure is known, then is it the same as the ongoing stacks
+        // tenure?
+        let stacks_ibd = net_result
+            .highest_available_tenure
+            .as_ref()
+            .map(|ch| *ch == net_result.rc_consensus_hash)
+            .unwrap_or(false);
+
+        debug!("Relayer: set initial block download inference ({})", burnchain_ibd || stacks_ibd;
+               "burnchain_ibd" => %burnchain_ibd,
+               "stacks_ibd" => %stacks_ibd,
+               "highest_available_tenure" => ?net_result.highest_available_tenure,
+               "rc_consensus_hash" => %net_result.rc_consensus_hash,
+               "cur_sn.block_height" => cur_sn.block_height,
+               "burnchain_headers_height" => headers_height);
+
+        // we're in IBD if we're either still processing sortitions, or the highest available
+        // tenure is different from the highest processed tenure.
+        self.globals
+            .set_initial_block_download(burnchain_ibd || stacks_ibd);
+
         if self.last_network_block_height != net_result.burn_height {
             // burnchain advanced; disable mining until we also do a download pass.
             self.last_network_block_height = net_result.burn_height;
@@ -342,7 +376,7 @@ impl RelayerThread {
                 &mut self.sortdb,
                 &mut self.chainstate,
                 &mut self.mempool,
-                self.globals.sync_comms.get_ibd(),
+                self.globals.in_initial_block_download(),
                 Some(&self.globals.coord_comms),
                 Some(&self.event_dispatcher),
             )
