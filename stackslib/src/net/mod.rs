@@ -1523,6 +1523,8 @@ pub struct NetworkResult {
     pub rc_consensus_hash: ConsensusHash,
     /// The current StackerDB configs
     pub stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
+    /// Highest available tenure, if known
+    pub highest_available_tenure: Option<ConsensusHash>,
 }
 
 impl NetworkResult {
@@ -1537,6 +1539,7 @@ impl NetworkResult {
         stacks_tip_height: u64,
         rc_consensus_hash: ConsensusHash,
         stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
+        highest_available_tenure: Option<ConsensusHash>,
     ) -> NetworkResult {
         NetworkResult {
             stacks_tip,
@@ -1567,6 +1570,7 @@ impl NetworkResult {
             stacks_tip_height,
             rc_consensus_hash,
             stacker_db_configs,
+            highest_available_tenure,
         }
     }
 
