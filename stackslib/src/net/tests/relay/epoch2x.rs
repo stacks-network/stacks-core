@@ -3101,6 +3101,7 @@ fn process_new_blocks_rejects_problematic_asts() {
         0,
         ConsensusHash([0x01; 20]),
         HashMap::new(),
+        None,
     );
     network_result.consume_unsolicited(unsolicited);
 

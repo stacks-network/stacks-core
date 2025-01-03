@@ -1172,6 +1172,7 @@ fn test_network_result_update() {
         1,
         ConsensusHash([0x11; 20]),
         HashMap::new(),
+        None,
     );
 
     let mut network_result_2 = NetworkResult::new(
@@ -1185,6 +1186,7 @@ fn test_network_result_update() {
         2,
         ConsensusHash([0x22; 20]),
         HashMap::new(),
+        None,
     );
 
     let nk1 = NeighborKey {
@@ -1622,6 +1624,7 @@ fn test_network_result_update() {
         10,
         ConsensusHash([0xaa; 20]),
         HashMap::new(),
+        None,
     );
     let mut new = old.clone();
 
@@ -1681,6 +1684,7 @@ fn test_network_result_update() {
         10,
         ConsensusHash([0xaa; 20]),
         HashMap::new(),
+        None,
     );
     let mut new = old.clone();
 
@@ -1740,6 +1744,7 @@ fn test_network_result_update() {
         11,
         ConsensusHash([0xbb; 20]),
         HashMap::new(),
+        None,
     );
     old.nakamoto_blocks.insert(nblk1.block_id(), nblk1.clone());
     old.pushed_nakamoto_blocks.insert(
@@ -1764,6 +1769,7 @@ fn test_network_result_update() {
         11,
         ConsensusHash([0xbb; 20]),
         HashMap::new(),
+        None,
     );
 
     let mut new_pushed = new.clone();
