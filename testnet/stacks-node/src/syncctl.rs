@@ -130,7 +130,7 @@ impl PoxSyncWatchdog {
 
     /// Are we in the initial burnchain block download? i.e. is the burn tip snapshot far enough away
     /// from the burnchain height that we should be eagerly downloading snapshots?
-    fn infer_initial_burnchain_block_download(
+    pub fn infer_initial_burnchain_block_download(
         burnchain: &Burnchain,
         last_processed_height: u64,
         burnchain_height: u64,
@@ -151,9 +151,18 @@ impl PoxSyncWatchdog {
         ibd
     }
 
-    /// Wait until the next PoX anchor block arrives.
-    /// We know for a fact that they all exist for Epochs 2.5 and earlier, in both mainnet and
-    /// testnet.
+    /// This code path is only used for Epoch 2.5 and earlier.
+    ///
+    /// Wait to poll the burnchain for its height, and compute the maximum height up to which we
+    /// should process sortitions.
+    ///
+    /// This code used to be much more elaborate, and would use a set of heuristics to determine
+    /// whether or not there could be an outstanding PoX anchor block to try waiting for before
+    /// attempting to process sortitions without it.  However, we now know for a fact that in epoch
+    /// 2.5 and earlier, in both mainnet and testnet, there are no missing anchor blocks, so this
+    /// code instead just sleeps for `[burnchain].poll_time_secs` and computes the burn block height of
+    /// the start of the first reward cycle for which we don't yet have an anchor block.
+    ///
     /// Return (still-in-ibd?, maximum-burnchain-sync-height) on success.
     pub fn pox_sync_wait(
         &mut self,
