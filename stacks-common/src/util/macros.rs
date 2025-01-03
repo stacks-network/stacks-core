@@ -47,8 +47,8 @@ macro_rules! define_named_enum {
             $($Variant),*,
         }
         impl $Name {
-            pub const ALL: &'static [$Name] = &[$($Name::$Variant),*];
-            pub const ALL_NAMES: &'static [&'static str] = &[$($VarName),*];
+            pub const ALL: &[$Name] = &[$($Name::$Variant),*];
+            pub const ALL_NAMES: &[&str] = &[$($VarName),*];
 
             pub fn lookup_by_name(name: &str) -> Option<Self> {
                 match name {
@@ -113,8 +113,8 @@ macro_rules! define_versioned_named_enum_internal {
         }
 
         impl $Name {
-            pub const ALL: &'static [$Name] = &[$($Name::$Variant),*];
-            pub const ALL_NAMES: &'static [&'static str] = &[$($VarName),*];
+            pub const ALL: &[$Name] = &[$($Name::$Variant),*];
+            pub const ALL_NAMES: &[&str] = &[$($VarName),*];
 
             pub fn lookup_by_name(name: &str) -> Option<Self> {
                 match name {

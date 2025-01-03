@@ -58,7 +58,7 @@ pub struct StacksString(Vec<u8>);
 
 pub struct VecDisplay<'a, T: fmt::Display>(pub &'a [T]);
 
-impl<'a, T: fmt::Display> fmt::Display for VecDisplay<'a, T> {
+impl<T: fmt::Display> fmt::Display for VecDisplay<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "[")?;
         for (ix, val) in self.0.iter().enumerate() {

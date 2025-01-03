@@ -1864,11 +1864,11 @@ impl NakamotoChainState {
     ///
     /// It returns Err(..) on DB error, or if the child block does not connect to the parent.
     /// The caller should keep calling this until it gets Ok(None)
-    pub fn process_next_nakamoto_block<'a, T: BlockEventDispatcher>(
+    pub fn process_next_nakamoto_block<T: BlockEventDispatcher>(
         stacks_chain_state: &mut StacksChainState,
         sort_db: &mut SortitionDB,
         canonical_sortition_tip: &SortitionId,
-        dispatcher_opt: Option<&'a T>,
+        dispatcher_opt: Option<&T>,
     ) -> Result<Option<StacksEpochReceipt>, ChainstateError> {
         #[cfg(test)]
         fault_injection::stall_block_processing();

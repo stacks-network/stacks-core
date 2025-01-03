@@ -1007,7 +1007,7 @@ impl InvState {
         peers: HashSet<NeighborKey>,
         bootstrap_peers: &HashSet<NeighborKey>,
         max_neighbors: usize,
-    ) -> () {
+    ) {
         for (nk, stats) in self.block_stats.iter_mut() {
             if stats.status != NodeStatus::Online {
                 stats.status = NodeStatus::Online;
@@ -1167,14 +1167,14 @@ impl InvState {
     }
 
     #[cfg(test)]
-    pub fn add_peer(&mut self, nk: NeighborKey, is_bootstrap_peer: bool) -> () {
+    pub fn add_peer(&mut self, nk: NeighborKey, is_bootstrap_peer: bool) {
         self.block_stats.insert(
             nk.clone(),
             NeighborBlockStats::new(nk, self.first_block_height, is_bootstrap_peer),
         );
     }
 
-    pub fn del_peer(&mut self, nk: &NeighborKey) -> () {
+    pub fn del_peer(&mut self, nk: &NeighborKey) {
         self.block_stats.remove(&nk);
     }
 
@@ -2561,7 +2561,7 @@ impl PeerNetwork {
     }
 
     /// Initialize inv state
-    pub fn init_inv_sync_epoch2x(&mut self, sortdb: &SortitionDB) -> () {
+    pub fn init_inv_sync_epoch2x(&mut self, sortdb: &SortitionDB) {
         // find out who we'll be synchronizing with for the duration of this inv sync
         debug!(
             "{:?}: Initializing peer block inventory state",

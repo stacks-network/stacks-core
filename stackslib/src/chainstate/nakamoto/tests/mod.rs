@@ -94,7 +94,7 @@ use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::strings::StacksString;
 
-impl<'a> NakamotoStagingBlocksConnRef<'a> {
+impl NakamotoStagingBlocksConnRef<'_> {
     pub fn get_all_blocks_in_tenure(
         &self,
         tenure_id_consensus_hash: &ConsensusHash,

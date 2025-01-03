@@ -326,7 +326,7 @@ impl OnChainRewardSetProvider<'static, DummyEventDispatcher> {
     }
 }
 
-impl<'a, T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider<'a, T> {
+impl<T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider<'_, T> {
     fn get_reward_set(
         &self,
         cycle_start_burn_height: u64,
@@ -394,7 +394,7 @@ impl<'a, T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider
     }
 }
 
-impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
+impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
     fn get_reward_set_epoch2(
         &self,
         // Todo: `current_burn_height` is a misleading name: should be the `cycle_start_burn_height`
@@ -634,12 +634,12 @@ impl<
     }
 }
 
-impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
-    ChainsCoordinator<'a, T, (), U, (), (), B>
+impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
+    ChainsCoordinator<'_, T, (), U, (), (), B>
 {
     /// Create a coordinator for testing, with some parameters defaulted to None
     #[cfg(test)]
-    pub fn test_new(
+    pub fn test_new<'a>(
         burnchain: &Burnchain,
         chain_id: u32,
         path: &str,
@@ -659,7 +659,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader
 
     /// Create a coordinator for testing allowing for all configurable params
     #[cfg(test)]
-    pub fn test_new_full(
+    pub fn test_new_full<'a>(
         burnchain: &Burnchain,
         chain_id: u32,
         path: &str,
@@ -1112,14 +1112,13 @@ pub fn static_get_stacks_tip_affirmation_map(
 }
 
 impl<
-        'a,
         T: BlockEventDispatcher,
         N: CoordinatorNotices,
         U: RewardSetProvider,
         CE: CostEstimator + ?Sized,
         FE: FeeEstimator + ?Sized,
         B: BurnchainHeaderReader,
-    > ChainsCoordinator<'a, T, N, U, CE, FE, B>
+    > ChainsCoordinator<'_, T, N, U, CE, FE, B>
 {
     /// Process new Stacks blocks.  If we get stuck for want of a missing PoX anchor block, return
     /// its hash.

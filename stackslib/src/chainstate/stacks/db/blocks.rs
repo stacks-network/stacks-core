@@ -344,7 +344,7 @@ impl StagingBlock {
 }
 
 impl FromRow<StagingMicroblock> for StagingMicroblock {
-    fn from_row<'a>(row: &'a Row) -> Result<StagingMicroblock, db_error> {
+    fn from_row(row: &Row) -> Result<StagingMicroblock, db_error> {
         let anchored_block_hash: BlockHeaderHash =
             BlockHeaderHash::from_column(row, "anchored_block_hash")?;
         let consensus_hash: ConsensusHash = ConsensusHash::from_column(row, "consensus_hash")?;
@@ -373,7 +373,7 @@ impl FromRow<StagingMicroblock> for StagingMicroblock {
 }
 
 impl FromRow<StagingBlock> for StagingBlock {
-    fn from_row<'a>(row: &'a Row) -> Result<StagingBlock, db_error> {
+    fn from_row(row: &Row) -> Result<StagingBlock, db_error> {
         let anchored_block_hash: BlockHeaderHash =
             BlockHeaderHash::from_column(row, "anchored_block_hash")?;
         let parent_anchored_block_hash: BlockHeaderHash =
@@ -678,7 +678,7 @@ impl StacksChainState {
         blocks_dir: &str,
         consensus_hash: &ConsensusHash,
         block_header_hash: &BlockHeaderHash,
-    ) -> () {
+    ) {
         let block_path =
             StacksChainState::make_block_dir(blocks_dir, consensus_hash, &block_header_hash)
                 .expect("FATAL: failed to create block directory");
@@ -737,7 +737,7 @@ impl StacksChainState {
         blocks_path: &str,
         consensus_hash: &ConsensusHash,
         block_header: &StacksBlockHeader,
-    ) -> () {
+    ) {
         StacksChainState::free_block(blocks_path, consensus_hash, &block_header.block_hash())
     }
 
@@ -746,11 +746,11 @@ impl StacksChainState {
         blocks_conn: &DBConn,
     ) -> Result<Vec<(ConsensusHash, BlockHeaderHash)>, Error> {
         let list_block_sql = "SELECT * FROM staging_blocks ORDER BY height".to_string();
-        let mut blocks = query_rows::<StagingBlock, _>(blocks_conn, &list_block_sql, NO_PARAMS)
+        let blocks = query_rows::<StagingBlock, _>(blocks_conn, &list_block_sql, NO_PARAMS)
             .map_err(Error::DBError)?;
 
         Ok(blocks
-            .drain(..)
+            .into_iter()
             .map(|b| (b.consensus_hash, b.anchored_block_hash))
             .collect())
     }
@@ -767,20 +767,23 @@ impl StacksChainState {
         blocks_conn: &DBConn,
         blocks_dir: &str,
     ) -> Result<Vec<(ConsensusHash, BlockHeaderHash, Vec<BlockHeaderHash>)>, Error> {
-        let mut blocks = StacksChainState::list_blocks(blocks_conn)?;
+        let blocks = StacksChainState::list_blocks(blocks_conn)?;
         let mut ret = vec![];
 
-        for (consensus_hash, block_hash) in blocks.drain(..) {
+        for (consensus_hash, block_hash) in blocks.into_iter() {
             let list_microblock_sql = "SELECT * FROM staging_microblocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 ORDER BY sequence".to_string();
             let list_microblock_args = params![block_hash, consensus_hash];
-            let mut microblocks = query_rows::<StagingMicroblock, _>(
+            let microblocks = query_rows::<StagingMicroblock, _>(
                 blocks_conn,
                 &list_microblock_sql,
                 list_microblock_args,
             )
             .map_err(Error::DBError)?;
 
-            let microblock_hashes = microblocks.drain(..).map(|mb| mb.microblock_hash).collect();
+            let microblock_hashes = microblocks
+                .into_iter()
+                .map(|mb| mb.microblock_hash)
+                .collect();
             ret.push((consensus_hash, block_hash, microblock_hashes));
         }
 
@@ -1540,8 +1543,8 @@ impl StacksChainState {
     /// Store a preprocessed block, queuing it up for subsequent processing.
     /// The caller should at least verify that the block is attached to some fork in the burn
     /// chain.
-    fn store_staging_block<'a>(
-        tx: &mut DBTx<'a>,
+    fn store_staging_block(
+        tx: &mut DBTx<'_>,
         blocks_path: &str,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
@@ -1662,8 +1665,8 @@ impl StacksChainState {
     /// order, this method does not check that.
     /// The consensus_hash and anchored_block_hash correspond to the _parent_ Stacks block.
     /// Microblocks ought to only be stored if they are first confirmed to have been signed.
-    pub fn store_staging_microblock<'a>(
-        tx: &mut DBTx<'a>,
+    pub fn store_staging_microblock(
+        tx: &mut DBTx<'_>,
         parent_consensus_hash: &ConsensusHash,
         parent_anchored_block_hash: &BlockHeaderHash,
         microblock: &StacksMicroblock,
@@ -2292,8 +2295,8 @@ impl StacksChainState {
 
     /// Mark an anchored block as orphaned and both orphan and delete its descendant microblock data.
     /// The blocks database will eventually delete all orphaned data.
-    fn delete_orphaned_epoch_data<'a>(
-        tx: &mut DBTx<'a>,
+    fn delete_orphaned_epoch_data(
+        tx: &mut DBTx<'_>,
         blocks_path: &str,
         consensus_hash: &ConsensusHash,
         anchored_block_hash: &BlockHeaderHash,
@@ -2354,8 +2357,8 @@ impl StacksChainState {
     /// fork but processable on another (i.e. the same block can show up in two different PoX
     /// forks, but will only be valid in at most one of them).
     /// This does not restore any block data; it merely makes it possible to go re-process them.
-    pub fn forget_orphaned_epoch_data<'a>(
-        tx: &mut DBTx<'a>,
+    pub fn forget_orphaned_epoch_data(
+        tx: &mut DBTx<'_>,
         consensus_hash: &ConsensusHash,
         anchored_block_hash: &BlockHeaderHash,
     ) -> Result<(), Error> {
@@ -2381,9 +2384,9 @@ impl StacksChainState {
     /// Mark its children as attachable.
     /// Idempotent.
     /// sort_tx_opt is required if accept is true
-    fn set_block_processed<'a, 'b>(
-        tx: &mut DBTx<'a>,
-        mut sort_tx_opt: Option<&mut SortitionHandleTx<'b>>,
+    fn set_block_processed(
+        tx: &mut DBTx<'_>,
+        mut sort_tx_opt: Option<&mut SortitionHandleTx<'_>>,
         blocks_path: &str,
         consensus_hash: &ConsensusHash,
         anchored_block_hash: &BlockHeaderHash,
@@ -2503,8 +2506,8 @@ impl StacksChainState {
     }
 
     #[cfg(test)]
-    fn set_block_orphaned<'a>(
-        tx: &mut DBTx<'a>,
+    fn set_block_orphaned(
+        tx: &mut DBTx<'_>,
         blocks_path: &str,
         consensus_hash: &ConsensusHash,
         anchored_block_hash: &BlockHeaderHash,
@@ -2568,8 +2571,8 @@ impl StacksChainState {
 
     /// Drop a trail of staging microblocks.  Mark them as orphaned and delete their data.
     /// Also, orphan any anchored children blocks that build off of the now-orphaned microblocks.
-    fn drop_staging_microblocks<'a>(
-        tx: &mut DBTx<'a>,
+    fn drop_staging_microblocks(
+        tx: &mut DBTx<'_>,
         consensus_hash: &ConsensusHash,
         anchored_block_hash: &BlockHeaderHash,
         invalid_block_hash: &BlockHeaderHash,
@@ -2635,8 +2638,8 @@ impl StacksChainState {
 
     /// Mark a range of a stream of microblocks as confirmed.
     /// All the corresponding blocks must have been validated and proven contiguous.
-    fn set_microblocks_processed<'a>(
-        tx: &mut DBTx<'a>,
+    fn set_microblocks_processed(
+        tx: &mut DBTx<'_>,
         child_consensus_hash: &ConsensusHash,
         child_anchored_block_hash: &BlockHeaderHash,
         last_microblock_hash: &BlockHeaderHash,
@@ -3739,8 +3742,8 @@ impl StacksChainState {
     /// Call this method repeatedly to remove long chains of orphaned blocks and microblocks from
     /// staging.
     /// Returns true if an orphan block was processed
-    fn process_next_orphaned_staging_block<'a>(
-        blocks_tx: &mut DBTx<'a>,
+    fn process_next_orphaned_staging_block(
+        blocks_tx: &mut DBTx<'_>,
         blocks_path: &str,
     ) -> Result<bool, Error> {
         test_debug!("Find next orphaned block");
@@ -3836,8 +3839,8 @@ impl StacksChainState {
     /// can process, as well as its parent microblocks that it confirms
     /// Returns Some(microblocks, staging block) if we found a sequence of blocks to process.
     /// Returns None if not.
-    fn find_next_staging_block<'a>(
-        blocks_tx: &mut StacksDBTx<'a>,
+    fn find_next_staging_block(
+        blocks_tx: &mut StacksDBTx<'_>,
         blocks_path: &str,
         sort_tx: &mut SortitionHandleTx,
     ) -> Result<Option<(Vec<StacksMicroblock>, StagingBlock)>, Error> {
@@ -4627,8 +4630,8 @@ impl StacksChainState {
 
     /// Process matured miner rewards for this block.
     /// Returns the number of liquid uSTX created -- i.e. the coinbase
-    pub fn process_matured_miner_rewards<'a, 'b>(
-        clarity_tx: &mut ClarityTx<'a, 'b>,
+    pub fn process_matured_miner_rewards(
+        clarity_tx: &mut ClarityTx<'_, '_>,
         miner_share: &MinerReward,
         users_share: &[MinerReward],
         parent_share: &MinerReward,
@@ -4648,8 +4651,8 @@ impl StacksChainState {
 
     /// Process all STX that unlock at this block height.
     /// Return the total number of uSTX unlocked in this block
-    pub fn process_stx_unlocks<'a, 'b>(
-        clarity_tx: &mut ClarityTx<'a, 'b>,
+    pub fn process_stx_unlocks(
+        clarity_tx: &mut ClarityTx<'_, '_>,
     ) -> Result<(u128, Vec<StacksTransactionEvent>), Error> {
         let mainnet = clarity_tx.config.mainnet;
         let lockup_contract_id = boot_code_id("lockup", mainnet);
@@ -6042,11 +6045,11 @@ impl StacksChainState {
     /// Return a poison microblock transaction payload if the microblock stream contains a
     /// deliberate miner fork (this is NOT consensus-critical information, but is instead meant for
     /// consumption by future miners).
-    pub fn process_next_staging_block<'a, T: BlockEventDispatcher>(
+    pub fn process_next_staging_block<T: BlockEventDispatcher>(
         &mut self,
         burnchain_dbconn: &DBConn,
         sort_tx: &mut SortitionHandleTx,
-        dispatcher_opt: Option<&'a T>,
+        dispatcher_opt: Option<&T>,
     ) -> Result<(Option<StacksEpochReceipt>, Option<TransactionPayload>), Error> {
         let blocks_path = self.blocks_path.clone();
         let (mut chainstate_tx, clarity_instance) = self.chainstate_tx_begin()?;
@@ -6444,12 +6447,12 @@ impl StacksChainState {
     /// found.  For each chain tip produced, return the header info, receipts, parent microblock
     /// stream execution cost, and block execution cost.  A value of None will be returned for the
     /// epoch receipt if the block was invalid.
-    pub fn process_blocks<'a, T: BlockEventDispatcher>(
+    pub fn process_blocks<T: BlockEventDispatcher>(
         &mut self,
         burnchain_db_conn: &DBConn,
         mut sort_tx: SortitionHandleTx,
         max_blocks: usize,
-        dispatcher_opt: Option<&'a T>,
+        dispatcher_opt: Option<&T>,
     ) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
         // first, clear out orphans
         let blocks_path = self.blocks_path.clone();
@@ -7220,7 +7223,7 @@ pub mod test {
         chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
-    ) -> () {
+    ) {
         assert!(StacksChainState::load_staging_block_data(
             &chainstate.db(),
             &chainstate.blocks_path,
@@ -7263,7 +7266,7 @@ pub mod test {
         chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
-    ) -> () {
+    ) {
         assert!(!StacksChainState::has_stored_block(
             &chainstate.db(),
             &chainstate.blocks_path,
@@ -7287,7 +7290,7 @@ pub mod test {
         chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
-    ) -> () {
+    ) {
         assert!(StacksChainState::has_stored_block(
             &chainstate.db(),
             &chainstate.blocks_path,
@@ -7348,7 +7351,7 @@ pub mod test {
         chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
-    ) -> () {
+    ) {
         assert!(StacksChainState::has_stored_block(
             &chainstate.db(),
             &chainstate.blocks_path,

@@ -102,7 +102,7 @@ impl NakamotoDownloadStateMachine {
     }
 }
 
-impl<'a> NakamotoStagingBlocksConnRef<'a> {
+impl NakamotoStagingBlocksConnRef<'_> {
     pub fn load_nakamoto_tenure(
         &self,
         tip: &StacksBlockId,

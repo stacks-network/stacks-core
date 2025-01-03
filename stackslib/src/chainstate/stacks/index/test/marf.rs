@@ -1349,7 +1349,7 @@ fn marf_insert_random_10485760_4096_file_storage() {
         start_time = get_epoch_time_ms();
 
         let values = values
-            .drain(..)
+            .into_iter()
             .map(|x| MARFValue::from_value(&x))
             .collect();
 
@@ -1769,7 +1769,7 @@ fn marf_insert_get_128_fork_256() {
                 }
 
                 let values = values
-                    .drain(..)
+                    .into_iter()
                     .map(|x| MARFValue::from_value(&x))
                     .collect();
 
