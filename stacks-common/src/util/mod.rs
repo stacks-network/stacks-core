@@ -30,13 +30,13 @@ pub mod vrf;
 
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{error, fmt, thread, time};
 
 /// Given a relative path inside the Cargo workspace, return the absolute path
 #[cfg(any(test, feature = "testing"))]
-pub fn cargo_workspace<P>(relative_path: P) -> PathBuf
+pub fn cargo_workspace<P>(relative_path: P) -> std::path::PathBuf
 where
     P: AsRef<Path>,
 {

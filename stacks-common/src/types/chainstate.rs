@@ -1,4 +1,4 @@
-use std::fmt::{self, Display};
+use std::fmt;
 use std::io::{Read, Write};
 use std::str::FromStr;
 
