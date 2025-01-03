@@ -291,7 +291,7 @@ impl TestMiner {
     }
 }
 
-impl<'a> NakamotoStagingBlocksConnRef<'a> {
+impl NakamotoStagingBlocksConnRef<'_> {
     pub fn get_any_normal_tenure(&self) -> Result<Option<ConsensusHash>, ChainstateError> {
         let qry = "SELECT consensus_hash FROM nakamoto_staging_blocks WHERE obtain_method != ?1 ORDER BY RANDOM() LIMIT 1";
         let args = params![&NakamotoBlockObtainMethod::Shadow.to_string()];
@@ -1016,7 +1016,7 @@ impl TestStacksNode {
         mut builder: NakamotoBlockBuilder,
         chainstate_handle: &StacksChainState,
         burn_dbconn: &SortitionHandleConn,
-        mut txs: Vec<StacksTransaction>,
+        txs: Vec<StacksTransaction>,
     ) -> Result<(NakamotoBlock, u64, ExecutionCost), ChainstateError> {
         use clarity::vm::ast::ASTRules;
 
@@ -1035,7 +1035,7 @@ impl TestStacksNode {
         let mut miner_tenure_info =
             builder.load_tenure_info(&mut chainstate, burn_dbconn, tenure_cause)?;
         let mut tenure_tx = builder.tenure_begin(burn_dbconn, &mut miner_tenure_info)?;
-        for tx in txs.drain(..) {
+        for tx in txs.into_iter() {
             let tx_len = tx.tx_len();
             match builder.try_mine_tx_with_len(
                 &mut tenure_tx,
@@ -1088,7 +1088,7 @@ impl TestStacksNode {
     }
 }
 
-impl<'a> TestPeer<'a> {
+impl TestPeer<'_> {
     /// Get the Nakamoto parent linkage data for building atop the last-produced tenure or
     /// Stacks 2.x block.
     /// Returns (last-tenure-id, epoch2-parent, nakamoto-parent-tenure, parent-sortition)

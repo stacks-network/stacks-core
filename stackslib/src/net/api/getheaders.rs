@@ -90,7 +90,7 @@ impl StacksHeaderStream {
             index_block_hash: tip.clone(),
             offset: 0,
             total_bytes: 0,
-            num_headers: num_headers,
+            num_headers,
             end_of_stream: false,
             corked: false,
             chainstate_db: db,

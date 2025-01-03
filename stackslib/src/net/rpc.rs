@@ -593,7 +593,7 @@ impl ConversationHttp {
 
     /// Remove all timed-out messages, and ding the remote peer as unhealthy
     #[cfg_attr(test, mutants::skip)]
-    pub fn clear_timeouts(&mut self) -> () {
+    pub fn clear_timeouts(&mut self) {
         self.connection.drain_timeouts();
     }
 

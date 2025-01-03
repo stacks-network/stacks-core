@@ -82,7 +82,7 @@ impl PeerBlocksInv {
             num_sortitions: 0,
             num_reward_cycles: 0,
             last_updated_at: 0,
-            first_block_height: first_block_height,
+            first_block_height,
         }
     }
 
@@ -96,13 +96,13 @@ impl PeerBlocksInv {
     ) -> PeerBlocksInv {
         assert_eq!(block_inv.len(), microblocks_inv.len());
         PeerBlocksInv {
-            block_inv: block_inv,
-            microblocks_inv: microblocks_inv,
-            num_sortitions: num_sortitions,
-            num_reward_cycles: num_reward_cycles,
-            pox_inv: pox_inv,
+            block_inv,
+            microblocks_inv,
+            num_sortitions,
+            num_reward_cycles,
+            pox_inv,
             last_updated_at: get_epoch_time_secs(),
-            first_block_height: first_block_height,
+            first_block_height,
         }
     }
 
@@ -541,7 +541,7 @@ impl NeighborBlockStats {
         is_bootstrap_peer: bool,
     ) -> NeighborBlockStats {
         NeighborBlockStats {
-            nk: nk,
+            nk,
             inv: PeerBlocksInv::empty(first_block_height),
             pox_reward_cycle: 0,
             block_reward_cycle: 0,
@@ -558,7 +558,7 @@ impl NeighborBlockStats {
             learned_data: false,
             learned_data_height: u64::MAX,
             scans: 0,
-            is_bootstrap_peer: is_bootstrap_peer,
+            is_bootstrap_peer,
         }
     }
 
@@ -983,11 +983,11 @@ impl InvState {
         InvState {
             block_stats: HashMap::new(),
 
-            request_timeout: request_timeout,
-            first_block_height: first_block_height,
+            request_timeout,
+            first_block_height,
 
             last_change_at: 0,
-            sync_interval: sync_interval,
+            sync_interval,
 
             hint_learned_data: false,
             hint_learned_data_height: u64::MAX,
@@ -1007,7 +1007,7 @@ impl InvState {
         peers: HashSet<NeighborKey>,
         bootstrap_peers: &HashSet<NeighborKey>,
         max_neighbors: usize,
-    ) -> () {
+    ) {
         for (nk, stats) in self.block_stats.iter_mut() {
             if stats.status != NodeStatus::Online {
                 stats.status = NodeStatus::Online;
@@ -1167,14 +1167,14 @@ impl InvState {
     }
 
     #[cfg(test)]
-    pub fn add_peer(&mut self, nk: NeighborKey, is_bootstrap_peer: bool) -> () {
+    pub fn add_peer(&mut self, nk: NeighborKey, is_bootstrap_peer: bool) {
         self.block_stats.insert(
             nk.clone(),
             NeighborBlockStats::new(nk, self.first_block_height, is_bootstrap_peer),
         );
     }
 
-    pub fn del_peer(&mut self, nk: &NeighborKey) -> () {
+    pub fn del_peer(&mut self, nk: &NeighborKey) {
         self.block_stats.remove(&nk);
     }
 
@@ -2561,7 +2561,7 @@ impl PeerNetwork {
     }
 
     /// Initialize inv state
-    pub fn init_inv_sync_epoch2x(&mut self, sortdb: &SortitionDB) -> () {
+    pub fn init_inv_sync_epoch2x(&mut self, sortdb: &SortitionDB) {
         // find out who we'll be synchronizing with for the duration of this inv sync
         debug!(
             "{:?}: Initializing peer block inventory state",

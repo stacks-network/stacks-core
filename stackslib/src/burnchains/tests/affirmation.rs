@@ -246,11 +246,11 @@ pub fn make_simple_key_register(
             &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap(),
         )
         .unwrap(),
-        memo: vec![01, 02, 03, 04, 05],
+        memo: vec![1, 2, 3, 4, 5],
 
         txid: next_txid(),
-        vtxindex: vtxindex,
-        block_height: block_height,
+        vtxindex,
+        block_height,
         burn_header_hash: burn_header_hash.clone(),
     }
 }

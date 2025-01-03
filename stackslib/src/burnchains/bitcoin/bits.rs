@@ -39,7 +39,7 @@ use crate::chainstate::stacks::{
 };
 
 /// Parse a script into its structured constituant opcodes and data and collect them
-pub fn parse_script<'a>(script: &'a Script) -> Vec<Instruction<'a>> {
+pub fn parse_script(script: &Script) -> Vec<Instruction<'_>> {
     // we will have to accept non-minimial pushdata since there's at least one OP_RETURN
     // in the transaction stream that has this property already.
     script.iter(false).collect()
@@ -136,7 +136,7 @@ impl BitcoinTxInputStructured {
 
         Some(BitcoinTxInputStructured {
             tx_ref: input_txid,
-            keys: keys,
+            keys,
             num_required: num_sigs,
             in_type: if segwit {
                 BitcoinInputType::SegwitP2SH
@@ -184,7 +184,7 @@ impl BitcoinTxInputStructured {
 
         let tx_input = BitcoinTxInputStructured {
             tx_ref: input_txid,
-            keys: keys,
+            keys,
             num_required: num_sigs,
             in_type: BitcoinInputType::SegwitP2SH,
         };
@@ -498,7 +498,7 @@ impl BitcoinTxInputRaw {
     ) -> BitcoinTxInputRaw {
         BitcoinTxInputRaw {
             scriptSig: script_sig.clone().into_bytes(),
-            witness: witness,
+            witness,
             tx_ref: input_txid,
         }
     }
