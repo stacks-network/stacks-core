@@ -80,12 +80,12 @@ pub enum TipRequest {
 
 impl TipRequest {}
 
-impl ToString for TipRequest {
-    fn to_string(&self) -> String {
+impl fmt::Display for TipRequest {
+    fn fmt(&self, f: &mut fmt::Formatter) -> std::fmt::Result {
         match self {
-            Self::UseLatestAnchoredTip => "".to_string(),
-            Self::UseLatestUnconfirmedTip => "latest".to_string(),
-            Self::SpecificTip(ref tip) => format!("{}", tip),
+            Self::UseLatestAnchoredTip => write!(f, ""),
+            Self::UseLatestUnconfirmedTip => write!(f, "latest"),
+            Self::SpecificTip(ref tip) => write!(f, "{tip}"),
         }
     }
 }
