@@ -81,7 +81,7 @@ pub enum TipRequest {
 impl TipRequest {}
 
 impl fmt::Display for TipRequest {
-    fn fmt(&self, f: &mut fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::UseLatestAnchoredTip => write!(f, ""),
             Self::UseLatestUnconfirmedTip => write!(f, "latest"),
