@@ -5266,6 +5266,10 @@ impl PeerNetwork {
             self.stacks_tip.height,
             self.chain_view.rc_consensus_hash.clone(),
             self.get_stacker_db_configs_owned(),
+            self.block_downloader_nakamoto
+                .as_ref()
+                .map(|dler| dler.find_highest_available_tenure())
+                .flatten(),
         );
 
         network_result.consume_unsolicited(unsolicited_buffered_messages);
