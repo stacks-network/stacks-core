@@ -293,7 +293,7 @@ impl LeaderBlockCommitOp {
             return Err(op_error::InvalidInput);
         }
 
-        if outputs.len() == 0 {
+        if outputs.is_empty() {
             warn!(
                 "Invalid tx: inputs: {}, outputs: {}",
                 tx.num_signers(),
@@ -832,7 +832,7 @@ impl LeaderBlockCommitOp {
     /// Check the epoch marker in a block-commit to make sure it matches the right epoch.
     /// Valid in Stacks 2.05+
     fn check_epoch_commit_marker(&self, marker: u8) -> Result<(), op_error> {
-        if self.memo.len() < 1 {
+        if self.memo.is_empty() {
             debug!(
                 "Invalid block commit";
                 "reason" => "no epoch marker byte given",
@@ -860,7 +860,7 @@ impl LeaderBlockCommitOp {
             }
             StacksEpochId::Epoch20 => {
                 // no-op, but log for helping node operators watch for old nodes
-                if self.memo.len() < 1 {
+                if self.memo.is_empty() {
                     debug!(
                         "Soon-to-be-invalid block commit";
                         "reason" => "no epoch marker byte given",

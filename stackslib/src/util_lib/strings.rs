@@ -139,7 +139,7 @@ impl StacksMessageCodec for UrlString {
         }
 
         // must be a valid block URL, or empty string
-        if self.as_bytes().len() > 0 {
+        if !self.as_bytes().is_empty() {
             let _ = self.parse_to_block_url()?;
         }
 
@@ -172,7 +172,7 @@ impl StacksMessageCodec for UrlString {
         })?;
 
         // must be a valid block URL, or empty string
-        if url.len() > 0 {
+        if !url.is_empty() {
             let _ = url.parse_to_block_url()?;
         }
         Ok(url)
@@ -254,7 +254,7 @@ impl UrlString {
             )));
         }
 
-        if url.username().len() > 0 || url.password().is_some() {
+        if !url.username().is_empty() || url.password().is_some() {
             return Err(codec_error::DeserializeError(
                 "Invalid URL: must not contain a username/password".to_string(),
             ));

@@ -779,7 +779,7 @@ mod test {
                 let mut resp = vec![];
                 match sock.read_to_end(&mut resp) {
                     Ok(_) => {
-                        if resp.len() == 0 {
+                        if resp.is_empty() {
                             test_debug!("Client {} did not receive any data", i);
                             client_sx.send(Err(net_error::PermanentlyDrained)).unwrap();
                             return;
@@ -1106,7 +1106,7 @@ mod test {
             },
             |client_id, http_response_bytes_res| {
                 match http_response_bytes_res {
-                    Ok(bytes) => bytes.len() == 0, // should not have gotten any data
+                    Ok(bytes) => bytes.is_empty(), // should not have gotten any data
                     Err(net_error::PermanentlyDrained) => true,
                     Err(err) => {
                         // should have failed

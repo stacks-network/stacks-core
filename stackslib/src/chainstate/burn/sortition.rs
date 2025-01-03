@@ -132,7 +132,7 @@ impl BlockSnapshot {
         VRF_seed: &VRFSeed,
         sortition_hash: &SortitionHash,
     ) -> Option<usize> {
-        if dist.len() == 0 {
+        if dist.is_empty() {
             // no winners
             return None;
         }
@@ -592,7 +592,7 @@ impl BlockSnapshot {
             )
         };
 
-        if state_transition.burn_dist.len() == 0 {
+        if state_transition.burn_dist.is_empty() {
             // no burns happened
             debug!(
                 "No burns happened in block";

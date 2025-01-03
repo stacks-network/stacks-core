@@ -625,7 +625,7 @@ impl TestPeer<'_> {
             &mut test_signers,
             miner_setup,
             |_miner, chainstate, sortdb, blocks_so_far| {
-                if blocks_so_far.len() < 1 {
+                if blocks_so_far.is_empty() {
                     let stx_transfer = make_token_transfer(
                         chainstate,
                         sortdb,
@@ -1005,7 +1005,7 @@ fn block_info_tests(use_primary_testnet: bool) {
     let (last_2x_block_id, last_2x_block_ht) = get_tip_info(&mut peer);
 
     peer.mine_tenure(|miner, chainstate, sortdb, blocks_so_far| {
-        if blocks_so_far.len() > 0 {
+        if !blocks_so_far.is_empty() {
             return vec![];
         }
         info!("Producing first nakamoto block, publishing our three contracts");

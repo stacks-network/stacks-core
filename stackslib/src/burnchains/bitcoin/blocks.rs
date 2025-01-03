@@ -381,7 +381,7 @@ impl BitcoinBlockParser {
         tx: &Transaction,
         epoch_id: StacksEpochId,
     ) -> Option<Vec<BitcoinTxOutput>> {
-        if tx.output.len() == 0 {
+        if tx.output.is_empty() {
             return None;
         }
 

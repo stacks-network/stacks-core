@@ -529,7 +529,7 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
             Some(WriteChainTip { ref block_hash, .. }) => Ok(block_hash.clone()),
         }?;
 
-        if keys.len() == 0 {
+        if keys.is_empty() {
             return Ok(());
         }
 
@@ -1348,7 +1348,7 @@ impl<T: MarfTrieId> MARF<T> {
     ) -> Result<(), Error> {
         assert_eq!(keys.len(), values.len());
 
-        if keys.len() == 0 {
+        if keys.is_empty() {
             return Ok(());
         }
 
@@ -1456,7 +1456,7 @@ impl<T: MarfTrieId> MARF<T> {
             Some(WriteChainTip { ref block_hash, .. }) => Ok(block_hash.clone()),
         }?;
 
-        if keys.len() == 0 {
+        if keys.is_empty() {
             return Ok(());
         }
 
