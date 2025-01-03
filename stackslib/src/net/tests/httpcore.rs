@@ -767,11 +767,11 @@ fn test_http_response_type_codec() {
         match preamble {
             StacksHttpPreamble::Response(ref mut req) => {
                 assert_eq!(req.headers.len(), 5);
-                assert!(req.headers.get("access-control-allow-headers").is_some());
-                assert!(req.headers.get("access-control-allow-methods").is_some());
-                assert!(req.headers.get("access-control-allow-origin").is_some());
-                assert!(req.headers.get("server").is_some());
-                assert!(req.headers.get("date").is_some());
+                assert!(req.headers.contains_key("access-control-allow-headers"));
+                assert!(req.headers.contains_key("access-control-allow-methods"));
+                assert!(req.headers.contains_key("access-control-allow-origin"));
+                assert!(req.headers.contains_key("server"));
+                assert!(req.headers.contains_key("date"));
                 req.headers.clear();
             }
             StacksHttpPreamble::Request(_) => {
