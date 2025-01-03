@@ -436,7 +436,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
 
 pub fn with_versioned_memory_environment<F>(f: F, version: ClarityVersion, top_level: bool)
 where
-    F: FnOnce(&mut OwnedEnvironment, ClarityVersion) -> (),
+    F: FnOnce(&mut OwnedEnvironment, ClarityVersion),
 {
     let mut marf_kv = MemoryBackingStore::new();
 

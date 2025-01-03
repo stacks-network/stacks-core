@@ -82,7 +82,7 @@ use crate::util_lib::db::{query_rows, u64_to_sql};
 use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
 use crate::util_lib::strings::StacksString;
 
-impl<'a> NakamotoStagingBlocksConnRef<'a> {
+impl NakamotoStagingBlocksConnRef<'_> {
     pub fn get_blocks_at_height(&self, height: u64) -> Vec<NakamotoBlock> {
         let sql = "SELECT data FROM nakamoto_staging_blocks WHERE height = ?1";
         let args = rusqlite::params![&u64_to_sql(height).unwrap()];
@@ -568,7 +568,7 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
     peer.check_nakamoto_migration();
 }
 
-impl<'a> TestPeer<'a> {
+impl TestPeer<'_> {
     pub fn mine_single_block_tenure<F, G>(
         &mut self,
         sender_key: &StacksPrivateKey,
@@ -2318,9 +2318,9 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
         debug!("{}: {:?}", i, &matured_reward);
 
         if i < 10 {
-            assert_eq!(matured_reward.parent_miner.coinbase, 3600_000_000);
+            assert_eq!(matured_reward.parent_miner.coinbase, 3_600_000_000);
         } else {
-            assert_eq!(matured_reward.parent_miner.coinbase, 1000_000_000);
+            assert_eq!(matured_reward.parent_miner.coinbase, 1_000_000_000);
         }
 
         if i < 11 {
@@ -2353,9 +2353,9 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
         let miner_reward = &matured_reward.latest_miners[0];
 
         if i < 9 {
-            assert_eq!(miner_reward.coinbase, 3600_000_000);
+            assert_eq!(miner_reward.coinbase, 3_600_000_000);
         } else {
-            assert_eq!(miner_reward.coinbase, 1000_000_000);
+            assert_eq!(miner_reward.coinbase, 1_000_000_000);
         }
         if i < 10 {
             // epoch2

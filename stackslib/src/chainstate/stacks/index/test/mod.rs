@@ -104,7 +104,7 @@ pub fn merkle_test(
     s: &mut TrieStorageConnection<BlockHeaderHash>,
     path: &Vec<u8>,
     value: &Vec<u8>,
-) -> () {
+) {
     let (_, root_hash) = Trie::read_root(s).unwrap();
     let triepath = TrieHash::from_bytes(&path[..]).unwrap();
 

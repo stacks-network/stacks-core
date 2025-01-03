@@ -1572,7 +1572,7 @@ pub mod test {
 
         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
 
-        let mut all_txs = codec_all_transactions(
+        let all_txs = codec_all_transactions(
             &TransactionVersion::Testnet,
             0x80000000,
             &TransactionAnchorMode::OnChainOnly,
@@ -1589,7 +1589,7 @@ pub mod test {
             txs_anchored.push(tx_coinbase);
         }
 
-        for tx in all_txs.drain(..) {
+        for tx in all_txs.into_iter() {
             match tx.payload {
                 TransactionPayload::Coinbase(..) => {
                     continue;

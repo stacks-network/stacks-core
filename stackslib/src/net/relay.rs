@@ -274,7 +274,7 @@ impl RelayerStats {
     }
 
     /// Add in new stats gleaned from the PeerNetwork's network result
-    pub fn merge_relay_stats(&mut self, mut stats: HashMap<NeighborAddress, RelayStats>) -> () {
+    pub fn merge_relay_stats(&mut self, mut stats: HashMap<NeighborAddress, RelayStats>) {
         for (mut addr, new_stats) in stats.drain() {
             addr.clear_public_key();
             let inserted = if let Some(stats) = self.relay_stats.get_mut(&addr) {
@@ -291,7 +291,7 @@ impl RelayerStats {
                         }
                         to_remove.push(*ts);
                     }
-                    for ts in to_remove.drain(..) {
+                    for ts in to_remove.into_iter() {
                         self.relay_updates.remove(&ts);
                     }
                 }
@@ -307,7 +307,7 @@ impl RelayerStats {
     }
 
     /// Record that we've seen a relayed message from one of our neighbors.
-    pub fn add_relayed_message<R: RelayPayload>(&mut self, nk: NeighborKey, msg: &R) -> () {
+    pub fn add_relayed_message<R: RelayPayload>(&mut self, nk: NeighborKey, msg: &R) {
         let h = msg.get_digest();
         let now = get_epoch_time_secs();
         let inserted = if let Some(relayed) = self.recent_messages.get_mut(&nk) {
@@ -363,7 +363,7 @@ impl RelayerStats {
     }
 
     /// Process a neighbor ban -- remove any state for this neighbor
-    pub fn process_neighbor_ban(&mut self, nk: &NeighborKey) -> () {
+    pub fn process_neighbor_ban(&mut self, nk: &NeighborKey) {
         let addr = NeighborAddress::from_neighbor_key((*nk).clone(), Hash160([0u8; 20]));
         self.recent_messages.remove(nk);
         self.relay_stats.remove(&addr);
@@ -3123,8 +3123,7 @@ impl PeerNetwork {
         recipient: &NeighborKey,
         wanted: &[(ConsensusHash, BurnchainHeaderHash)],
         mut msg_builder: S,
-    ) -> ()
-    where
+    ) where
         S: FnMut(BlocksAvailableData) -> StacksMessageType,
     {
         for i in (0..wanted.len()).step_by(BLOCKS_AVAILABLE_MAX_LEN as usize) {
@@ -3165,7 +3164,7 @@ impl PeerNetwork {
         recipient: &NeighborKey,
         consensus_hash: ConsensusHash,
         block: StacksBlock,
-    ) -> () {
+    ) {
         let blk_hash = block.block_hash();
         let ch = consensus_hash.clone();
         let payload = BlocksData {
@@ -3204,7 +3203,7 @@ impl PeerNetwork {
         recipient: &NeighborKey,
         index_block_hash: StacksBlockId,
         microblocks: Vec<StacksMicroblock>,
-    ) -> () {
+    ) {
         let idx_bhh = index_block_hash.clone();
         let payload = MicroblocksData {
             index_anchor_block: index_block_hash,
@@ -3354,7 +3353,7 @@ impl PeerNetwork {
         availability_data: BlocksAvailableMap,
         blocks: HashMap<ConsensusHash, StacksBlock>,
     ) -> Result<(usize, usize), net_error> {
-        let (mut outbound_recipients, mut inbound_recipients) =
+        let (outbound_recipients, inbound_recipients) =
             self.find_block_recipients(&availability_data)?;
         debug!(
             "{:?}: Advertize {} blocks to {} inbound peers, {} outbound peers",
@@ -3367,7 +3366,7 @@ impl PeerNetwork {
         let num_inbound = inbound_recipients.len();
         let num_outbound = outbound_recipients.len();
 
-        for recipient in outbound_recipients.drain(..) {
+        for recipient in outbound_recipients.into_iter() {
             debug!(
                 "{:?}: Advertize {} blocks to outbound peer {}",
                 &self.local_peer,
@@ -3380,7 +3379,7 @@ impl PeerNetwork {
                 &blocks,
             )?;
         }
-        for recipient in inbound_recipients.drain(..) {
+        for recipient in inbound_recipients.into_iter() {
             debug!(
                 "{:?}: Advertize {} blocks to inbound peer {}",
                 &self.local_peer,
@@ -3405,14 +3404,14 @@ impl PeerNetwork {
         availability_data: BlocksAvailableMap,
         microblocks: HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
     ) -> Result<(usize, usize), net_error> {
-        let (mut outbound_recipients, mut inbound_recipients) =
+        let (outbound_recipients, inbound_recipients) =
             self.find_block_recipients(&availability_data)?;
         debug!("{:?}: Advertize {} confirmed microblock streams to {} inbound peers, {} outbound peers", &self.local_peer, availability_data.len(), outbound_recipients.len(), inbound_recipients.len());
 
         let num_inbound = inbound_recipients.len();
         let num_outbound = outbound_recipients.len();
 
-        for recipient in outbound_recipients.drain(..) {
+        for recipient in outbound_recipients.into_iter() {
             debug!(
                 "{:?}: Advertize {} confirmed microblock streams to outbound peer {}",
                 &self.local_peer,
@@ -3425,7 +3424,7 @@ impl PeerNetwork {
                 &microblocks,
             )?;
         }
-        for recipient in inbound_recipients.drain(..) {
+        for recipient in inbound_recipients.into_iter() {
             debug!(
                 "{:?}: Advertize {} confirmed microblock streams to inbound peer {}",
                 &self.local_peer,
@@ -3441,7 +3440,7 @@ impl PeerNetwork {
 
     /// Update accounting information for relayed messages from a network result.
     /// This influences selecting next-hop neighbors to get data from us.
-    pub fn update_relayer_stats(&mut self, network_result: &NetworkResult) -> () {
+    pub fn update_relayer_stats(&mut self, network_result: &NetworkResult) {
         // synchronize
         for (_, convo) in self.peers.iter_mut() {
             let stats = convo.get_stats_mut().take_relayers();

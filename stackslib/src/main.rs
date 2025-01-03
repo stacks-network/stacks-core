@@ -1317,7 +1317,7 @@ check if the associated microblocks can be downloaded
         let old_sortition_db =
             SortitionDB::open(old_sort_path, true, PoxConstants::mainnet_default()).unwrap();
 
-        // initial argon balances -- see testnet/stacks-node/conf/testnet-follower-conf.toml
+        // initial argon balances -- see sample/conf/testnet-follower-conf.toml
         let initial_balances = vec![
             (
                 StacksAddress::from_string("ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2")

@@ -291,7 +291,7 @@ impl BlockDownloader {
         }
     }
 
-    pub fn reset(&mut self) -> () {
+    pub fn reset(&mut self) {
         debug!("Downloader reset");
         self.state = BlockDownloaderState::DNSLookupBegin;
 
@@ -313,7 +313,7 @@ impl BlockDownloader {
         // preserve download accounting
     }
 
-    pub fn restart_scan(&mut self, sortition_start: u64) -> () {
+    pub fn restart_scan(&mut self, sortition_start: u64) {
         // prepare to restart a full-chain scan for block downloads
         self.block_sortition_height = sortition_start;
         self.microblock_sortition_height = sortition_start;
@@ -327,14 +327,14 @@ impl BlockDownloader {
         &mut self,
         pox_id: &PoxId,
         dns_client: &mut DNSClient,
-        mut urls: Vec<UrlString>,
+        urls: Vec<UrlString>,
     ) -> Result<(), net_error> {
         assert_eq!(self.state, BlockDownloaderState::DNSLookupBegin);
 
         // optimistic concurrency control: remember the current PoX Id
         self.pox_id = pox_id.clone();
         self.dns_lookups.clear();
-        for url_str in urls.drain(..) {
+        for url_str in urls.into_iter() {
             if url_str.len() == 0 {
                 continue;
             }
@@ -418,7 +418,7 @@ impl BlockDownloader {
         Ok(inflight == 0)
     }
 
-    pub fn getblocks_begin(&mut self, requests: HashMap<BlockRequestKey, usize>) -> () {
+    pub fn getblocks_begin(&mut self, requests: HashMap<BlockRequestKey, usize>) {
         assert_eq!(self.state, BlockDownloaderState::GetBlocksBegin);
 
         // don't touch blocks-to-try -- that's managed by the peer network directly.
@@ -550,7 +550,7 @@ impl BlockDownloader {
     }
 
     /// Start fetching microblocks
-    pub fn getmicroblocks_begin(&mut self, requests: HashMap<BlockRequestKey, usize>) -> () {
+    pub fn getmicroblocks_begin(&mut self, requests: HashMap<BlockRequestKey, usize>) {
         assert_eq!(self.state, BlockDownloaderState::GetMicroblocksBegin);
 
         self.getmicroblocks_requests = requests;
@@ -910,7 +910,7 @@ impl BlockDownloader {
         block_sortition_height: u64,
         ibd: bool,
         force: bool,
-    ) -> () {
+    ) {
         if force
             || (ibd && self.state == BlockDownloaderState::DNSLookupBegin)
             || (self.empty_block_download_passes > 0
@@ -945,7 +945,7 @@ impl BlockDownloader {
         mblock_sortition_height: u64,
         ibd: bool,
         force: bool,
-    ) -> () {
+    ) {
         if force
             || (ibd && self.state == BlockDownloaderState::DNSLookupBegin)
             || (self.empty_microblock_download_passes > 0
@@ -972,7 +972,7 @@ impl BlockDownloader {
     }
 
     /// Set a hint that we should re-scan for blocks
-    pub fn hint_download_rescan(&mut self, target_sortition_height: u64, ibd: bool) -> () {
+    pub fn hint_download_rescan(&mut self, target_sortition_height: u64, ibd: bool) {
         self.hint_block_sortition_height_available(target_sortition_height, ibd, false);
         self.hint_microblock_sortition_height_available(target_sortition_height, ibd, false);
     }
@@ -1048,7 +1048,7 @@ impl PeerNetwork {
     }
 
     /// Pass a hint to the downloader to re-scan
-    pub fn hint_download_rescan(&mut self, target_height: u64, ibd: bool) -> () {
+    pub fn hint_download_rescan(&mut self, target_height: u64, ibd: bool) {
         match self.block_downloader {
             Some(ref mut dl) => dl.hint_download_rescan(target_height, ibd),
             None => {}
@@ -1214,7 +1214,7 @@ impl PeerNetwork {
             start_sortition_height + scan_batch_size
         );
 
-        let mut availability =
+        let availability =
             PeerNetwork::with_inv_state(self, |ref mut network, ref mut inv_state| {
                 BlockDownloader::get_block_availability(
                     &network.local_peer,
@@ -1240,7 +1240,7 @@ impl PeerNetwork {
         );
 
         for (i, (consensus_hash, block_hash_opt, mut neighbors)) in
-            availability.drain(..).enumerate()
+            availability.into_iter().enumerate()
         {
             test_debug!(
                 "{:?}: consider availability of {}/{:?}",
@@ -1255,11 +1255,8 @@ impl PeerNetwork {
                 break;
             }
 
-            let block_hash = match block_hash_opt {
-                Some(h) => h,
-                None => {
-                    continue;
-                }
+            let Some(block_hash) = block_hash_opt else {
+                continue;
             };
 
             let mut parent_block_header_opt = None;
@@ -1450,16 +1447,13 @@ impl PeerNetwork {
             (&mut neighbors[..]).shuffle(&mut thread_rng());
 
             let mut requests = VecDeque::new();
-            for nk in neighbors.drain(..) {
-                let data_url = match self.get_data_url(&nk) {
-                    Some(url) => url,
-                    None => {
-                        debug!(
-                            "{:?}: Unable to request {} from {}: no data URL",
-                            &self.local_peer, &target_index_block_hash, &nk
-                        );
-                        continue;
-                    }
+            for nk in neighbors.into_iter() {
+                let Some(data_url) = self.get_data_url(&nk) else {
+                    debug!(
+                        "{:?}: Unable to request {} from {}: no data URL",
+                        &self.local_peer, &target_index_block_hash, &nk
+                    );
+                    continue;
                 };
                 if data_url.len() == 0 {
                     // peer doesn't yet know its public IP address, and isn't given a data URL
@@ -1983,9 +1977,9 @@ impl PeerNetwork {
     pub fn block_getblocks_begin(&mut self) -> Result<(), net_error> {
         test_debug!("{:?}: block_getblocks_begin", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
-            let mut priority = PeerNetwork::prioritize_requests(&downloader.blocks_to_try);
+            let priority = PeerNetwork::prioritize_requests(&downloader.blocks_to_try);
             let mut requests = HashMap::new();
-            for sortition_height in priority.drain(..) {
+            for sortition_height in priority.into_iter() {
                 match downloader.blocks_to_try.get_mut(&sortition_height) {
                     Some(ref mut keys) => {
                         match PeerNetwork::begin_request(network, &downloader.dns_lookups, keys) {
@@ -2021,9 +2015,9 @@ impl PeerNetwork {
     pub fn block_getmicroblocks_begin(&mut self) -> Result<(), net_error> {
         test_debug!("{:?}: block_getmicroblocks_begin", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
-            let mut priority = PeerNetwork::prioritize_requests(&downloader.microblocks_to_try);
+            let priority = PeerNetwork::prioritize_requests(&downloader.microblocks_to_try);
             let mut requests = HashMap::new();
-            for sortition_height in priority.drain(..) {
+            for sortition_height in priority.into_iter() {
                 match downloader.microblocks_to_try.get_mut(&sortition_height) {
                     Some(ref mut keys) => {
                         match PeerNetwork::begin_request(network, &downloader.dns_lookups, keys) {
@@ -2192,11 +2186,11 @@ impl PeerNetwork {
                 }
             }
 
-            for height in blocks_empty.drain(..) {
+            for height in blocks_empty.into_iter() {
                 downloader.blocks_to_try.remove(&height);
             }
 
-            for height in microblocks_empty.drain(..) {
+            for height in microblocks_empty.into_iter() {
                 downloader.microblocks_to_try.remove(&height);
             }
 
@@ -2319,7 +2313,7 @@ impl PeerNetwork {
     }
 
     /// Initialize the downloader
-    pub fn init_block_downloader(&mut self) -> () {
+    pub fn init_block_downloader(&mut self) {
         self.block_downloader = Some(BlockDownloader::new(
             self.connection_opts.dns_timeout,
             self.connection_opts.download_interval,
@@ -2328,7 +2322,7 @@ impl PeerNetwork {
     }
 
     /// Initialize the attachment downloader
-    pub fn init_attachments_downloader(&mut self, initial_batch: Vec<AttachmentInstance>) -> () {
+    pub fn init_attachments_downloader(&mut self, initial_batch: Vec<AttachmentInstance>) {
         self.attachments_downloader = Some(AttachmentsDownloader::new(initial_batch));
     }
 
