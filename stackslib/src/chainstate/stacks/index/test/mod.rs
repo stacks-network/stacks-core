@@ -100,11 +100,7 @@ where
     test_debug!("----- END TRIE ------\n");
 }
 
-pub fn merkle_test(
-    s: &mut TrieStorageConnection<BlockHeaderHash>,
-    path: &[u8],
-    value: &[u8],
-) {
+pub fn merkle_test(s: &mut TrieStorageConnection<BlockHeaderHash>, path: &[u8], value: &[u8]) {
     let (_, root_hash) = Trie::read_root(s).unwrap();
     let triepath = TrieHash::from_bytes(&path[..]).unwrap();
 

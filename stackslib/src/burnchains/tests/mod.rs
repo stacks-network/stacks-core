@@ -910,10 +910,7 @@ fn verify_keys_accepted(node: &mut TestBurnchainNode, prev_keys: &[LeaderKeyRegi
     }
 }
 
-fn verify_commits_accepted(
-    node: &TestBurnchainNode,
-    next_block_commits: &[LeaderBlockCommitOp],
-) {
+fn verify_commits_accepted(node: &TestBurnchainNode, next_block_commits: &[LeaderBlockCommitOp]) {
     // all commits accepted
     for commit in next_block_commits.iter() {
         let tx_opt =

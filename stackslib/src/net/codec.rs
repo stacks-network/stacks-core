@@ -1792,7 +1792,7 @@ pub mod test {
             burn_stable_block_height: 0x00001111,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             additional_data: 0x33333333,
-            signature: MessageSignature::from_raw(&vec![0x44; 65]),
+            signature: MessageSignature::from_raw(&[0x44; 65]),
             payload_len: 0x000007ff,
         };
         let preamble_bytes: Vec<u8> = vec![
@@ -2344,7 +2344,7 @@ pub mod test {
         let data = StackerDBChunkData {
             slot_id: 2,
             slot_version: 3,
-            sig: MessageSignature::from_raw(&vec![0x44; 65]),
+            sig: MessageSignature::from_raw(&[0x44; 65]),
             data: vec![
                 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
             ],
@@ -2371,7 +2371,7 @@ pub mod test {
         let data = StackerDBChunkData {
             slot_id: 2,
             slot_version: 3,
-            sig: MessageSignature::from_raw(&vec![0x44; 65]),
+            sig: MessageSignature::from_raw(&[0x44; 65]),
             data: vec![
                 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
             ],
@@ -2636,7 +2636,7 @@ pub mod test {
             StacksMessageType::StackerDBChunk(StackerDBChunkData {
                 slot_id: 2,
                 slot_version: 3,
-                sig: MessageSignature::from_raw(&vec![0x44; 65]),
+                sig: MessageSignature::from_raw(&[0x44; 65]),
                 data: vec![0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]
             }),
             StacksMessageType::StackerDBPushChunk(StackerDBPushChunkData {
@@ -2645,7 +2645,7 @@ pub mod test {
                 chunk_data: StackerDBChunkData {
                     slot_id: 2,
                     slot_version: 3,
-                    sig: MessageSignature::from_raw(&vec![0x44; 65]),
+                    sig: MessageSignature::from_raw(&[0x44; 65]),
                     data: vec![0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]
                 }
             }),
@@ -2734,7 +2734,7 @@ pub mod test {
                 burn_stable_block_height: 0x00001111,
                 burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
                 additional_data: 0x33333333,
-                signature: MessageSignature::from_raw(&vec![0x44; 65]),
+                signature: MessageSignature::from_raw(&[0x44; 65]),
                 payload_len: (relayers_bytes.len() + payload_bytes.len()) as u32,
             };
 

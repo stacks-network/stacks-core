@@ -1666,7 +1666,7 @@ fn mempool_db_test_rbf() {
         key_encoding: TransactionPublicKeyEncoding::Uncompressed,
         nonce: 123,
         tx_fee: 456,
-        signature: MessageSignature::from_raw(&vec![0xff; 65]),
+        signature: MessageSignature::from_raw(&[0xff; 65]),
     });
     let stx_address = StacksAddress {
         version: 1,
