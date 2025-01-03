@@ -74,9 +74,9 @@ impl BurnchainBlockHeader {
     ) -> BurnchainBlockHeader {
         BurnchainBlockHeader {
             block_height: parent_sn.block_height + 1,
-            block_hash: block_hash,
+            block_hash,
             parent_block_hash: parent_sn.burn_header_hash.clone(),
-            num_txs: num_txs,
+            num_txs,
             timestamp: get_epoch_time_secs(),
         }
     }
@@ -279,11 +279,11 @@ impl TestMiner {
         self.nonce
     }
 
-    pub fn set_nonce(&mut self, n: u64) -> () {
+    pub fn set_nonce(&mut self, n: u64) {
         self.nonce = n;
     }
 
-    pub fn sign_as_origin(&mut self, tx_signer: &mut StacksTransactionSigner) -> () {
+    pub fn sign_as_origin(&mut self, tx_signer: &mut StacksTransactionSigner) {
         let num_keys = if self.privks.len() < self.num_sigs as usize {
             self.privks.len()
         } else {
@@ -297,7 +297,7 @@ impl TestMiner {
         self.nonce += 1
     }
 
-    pub fn sign_as_sponsor(&mut self, tx_signer: &mut StacksTransactionSigner) -> () {
+    pub fn sign_as_sponsor(&mut self, tx_signer: &mut StacksTransactionSigner) {
         let num_keys = if self.privks.len() < self.num_sigs as usize {
             self.privks.len()
         } else {
@@ -375,7 +375,7 @@ impl TestBurnchainBlock {
                     burn_header_hash,
                 }),
             ],
-            fork_id: fork_id,
+            fork_id,
             timestamp: get_epoch_time_secs(),
         }
     }
@@ -576,7 +576,7 @@ impl TestBurnchainBlock {
         )
     }
 
-    pub fn patch_from_chain_tip(&mut self, parent_snapshot: &BlockSnapshot) -> () {
+    pub fn patch_from_chain_tip(&mut self, parent_snapshot: &BlockSnapshot) {
         assert_eq!(parent_snapshot.block_height + 1, self.block_height);
 
         for i in 0..self.txs.len() {
@@ -724,7 +724,7 @@ impl TestBurnchainFork {
             tip_index_root: start_index_root.clone(),
             blocks: vec![],
             pending_blocks: vec![],
-            fork_id: fork_id,
+            fork_id,
         }
     }
 
@@ -734,7 +734,7 @@ impl TestBurnchainFork {
         new_fork
     }
 
-    pub fn append_block(&mut self, b: TestBurnchainBlock) -> () {
+    pub fn append_block(&mut self, b: TestBurnchainBlock) {
         self.pending_blocks.push(b);
     }
 
@@ -894,7 +894,7 @@ fn process_next_sortition(
     (tip_snapshot, next_prev_keys, next_commits)
 }
 
-fn verify_keys_accepted(node: &mut TestBurnchainNode, prev_keys: &Vec<LeaderKeyRegisterOp>) -> () {
+fn verify_keys_accepted(node: &mut TestBurnchainNode, prev_keys: &Vec<LeaderKeyRegisterOp>) {
     // all keys accepted
     for key in prev_keys.iter() {
         let tx_opt = SortitionDB::get_burnchain_transaction(node.sortdb.conn(), &key.txid).unwrap();
@@ -915,7 +915,7 @@ fn verify_keys_accepted(node: &mut TestBurnchainNode, prev_keys: &Vec<LeaderKeyR
 fn verify_commits_accepted(
     node: &TestBurnchainNode,
     next_block_commits: &Vec<LeaderBlockCommitOp>,
-) -> () {
+) {
     // all commits accepted
     for commit in next_block_commits.iter() {
         let tx_opt =
@@ -1035,13 +1035,13 @@ fn mine_10_stacks_blocks_2_forks_disjoint() {
     let mut miners_1 = vec![];
     let mut miners_2 = vec![];
 
-    let mut miners_drain = miners.drain(..);
+    let mut miners_iter = miners.into_iter();
     for i in 0..5 {
-        let m = miners_drain.next().unwrap();
+        let m = miners_iter.next().unwrap();
         miners_1.push(m);
     }
     for i in 0..5 {
-        let m = miners_drain.next().unwrap();
+        let m = miners_iter.next().unwrap();
         miners_2.push(m);
     }
 
@@ -1150,13 +1150,13 @@ fn mine_10_stacks_blocks_2_forks_disjoint_same_blocks() {
     let mut miners_1 = vec![];
     let mut miners_2 = vec![];
 
-    let mut miners_drain = miners.drain(..);
+    let mut miners_iter = miners.into_iter();
     for i in 0..5 {
-        let m = miners_drain.next().unwrap();
+        let m = miners_iter.next().unwrap();
         miners_1.push(m);
     }
     for i in 0..5 {
-        let m = miners_drain.next().unwrap();
+        let m = miners_iter.next().unwrap();
         miners_2.push(m);
     }
 

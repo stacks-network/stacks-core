@@ -50,15 +50,15 @@ use crate::core::{
 };
 use crate::util_lib::db::Error as DBError;
 
-pub const USER_AGENT: &'static str = "Stacks/2.1";
+pub const USER_AGENT: &str = "Stacks/2.1";
 
 pub const BITCOIN_MAINNET: u32 = 0xD9B4BEF9;
 pub const BITCOIN_TESTNET: u32 = 0x0709110B;
 pub const BITCOIN_REGTEST: u32 = 0xDAB5BFFA;
 
-pub const BITCOIN_MAINNET_NAME: &'static str = "mainnet";
-pub const BITCOIN_TESTNET_NAME: &'static str = "testnet";
-pub const BITCOIN_REGTEST_NAME: &'static str = "regtest";
+pub const BITCOIN_MAINNET_NAME: &str = "mainnet";
+pub const BITCOIN_TESTNET_NAME: &str = "testnet";
+pub const BITCOIN_REGTEST_NAME: &str = "regtest";
 
 // batch size for searching for a reorg
 // kept small since sometimes bitcoin will just send us one header at a time
@@ -160,7 +160,7 @@ impl BitcoinIndexerConfig {
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
             timeout: 30,
-            spv_headers_path: spv_headers_path,
+            spv_headers_path,
             first_block: 0,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
             epochs: None,
@@ -193,7 +193,7 @@ impl BitcoinIndexerRuntime {
             services: 0,
             user_agent: USER_AGENT.to_owned(),
             version_nonce: rng.gen(),
-            network_id: network_id,
+            network_id,
             block_height: 0,
             last_getdata_send_time: 0,
             last_getheaders_send_time: 0,

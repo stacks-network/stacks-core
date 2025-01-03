@@ -225,14 +225,14 @@ impl FromRow<LeaderKeyRegisterOp> for LeaderKeyRegisterOp {
         let memo = memo_bytes.to_vec();
 
         let leader_key_row = LeaderKeyRegisterOp {
-            txid: txid,
-            vtxindex: vtxindex,
-            block_height: block_height,
-            burn_header_hash: burn_header_hash,
+            txid,
+            vtxindex,
+            block_height,
+            burn_header_hash,
 
-            consensus_hash: consensus_hash,
-            public_key: public_key,
-            memo: memo,
+            consensus_hash,
+            public_key,
+            memo,
         };
 
         Ok(leader_key_row)
@@ -515,9 +515,9 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: &'static str = "9";
+pub const SORTITION_DB_VERSION: &str = "9";
 
-const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
+const SORTITION_DB_INITIAL_SCHEMA: &[&str] = &[
     r#"
     PRAGMA foreign_keys = ON;
     "#,
@@ -652,7 +652,7 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     "CREATE TABLE db_config(version TEXT PRIMARY KEY);",
 ];
 
-const SORTITION_DB_SCHEMA_2: &'static [&'static str] = &[r#"
+const SORTITION_DB_SCHEMA_2: &[&str] = &[r#"
      CREATE TABLE epochs (
          start_block_height INTEGER NOT NULL,
          end_block_height INTEGER NOT NULL,
@@ -662,7 +662,7 @@ const SORTITION_DB_SCHEMA_2: &'static [&'static str] = &[r#"
          PRIMARY KEY(start_block_height,epoch_id)
      );"#];
 
-const SORTITION_DB_SCHEMA_3: &'static [&'static str] = &[r#"
+const SORTITION_DB_SCHEMA_3: &[&str] = &[r#"
     CREATE TABLE block_commit_parents (
         block_commit_txid TEXT NOT NULL,
         block_commit_sortition_id TEXT NOT NULL,
@@ -673,7 +673,7 @@ const SORTITION_DB_SCHEMA_3: &'static [&'static str] = &[r#"
         FOREIGN KEY(block_commit_txid,block_commit_sortition_id) REFERENCES block_commits(txid,sortition_id)
     );"#];
 
-const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
+const SORTITION_DB_SCHEMA_4: &[&str] = &[
     r#"
     CREATE TABLE delegate_stx (
         txid TEXT NOT NULL,
@@ -698,16 +698,16 @@ const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
 
 /// The changes for version five *just* replace the existing epochs table
 ///  by deleting all the current entries and inserting the new epochs definition.
-const SORTITION_DB_SCHEMA_5: &'static [&'static str] = &[r#"
+const SORTITION_DB_SCHEMA_5: &[&str] = &[r#"
      DELETE FROM epochs;"#];
 
-const SORTITION_DB_SCHEMA_6: &'static [&'static str] = &[r#"
+const SORTITION_DB_SCHEMA_6: &[&str] = &[r#"
      DELETE FROM epochs;"#];
 
-const SORTITION_DB_SCHEMA_7: &'static [&'static str] = &[r#"
+const SORTITION_DB_SCHEMA_7: &[&str] = &[r#"
      DELETE FROM epochs;"#];
 
-const SORTITION_DB_SCHEMA_8: &'static [&'static str] = &[
+const SORTITION_DB_SCHEMA_8: &[&str] = &[
     r#"DELETE FROM epochs;"#,
     r#"DROP INDEX IF EXISTS index_user_burn_support_txid;"#,
     r#"DROP INDEX IF EXISTS index_user_burn_support_sortition_id_vtxindex;"#,
@@ -751,11 +751,11 @@ const SORTITION_DB_SCHEMA_8: &'static [&'static str] = &[
     );"#,
 ];
 
-static SORTITION_DB_SCHEMA_9: &[&'static str] =
+static SORTITION_DB_SCHEMA_9: &[&str] =
     &[r#"ALTER TABLE block_commits ADD punished TEXT DEFAULT NULL;"#];
 
-const LAST_SORTITION_DB_INDEX: &'static str = "index_block_commits_by_sender";
-const SORTITION_DB_INDEXES: &'static [&'static str] = &[
+const LAST_SORTITION_DB_INDEX: &str = "index_block_commits_by_sender";
+const SORTITION_DB_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
     "CREATE INDEX IF NOT EXISTS snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);",
     "CREATE INDEX IF NOT EXISTS snapshots_block_heights ON snapshots(burn_header_hash,block_height);",
@@ -4120,8 +4120,8 @@ impl SortitionDB {
         mut after: G,
     ) -> Result<(), BurnchainError>
     where
-        F: FnMut(&mut SortitionDBTx, &BurnchainHeaderHash, &Vec<BurnchainHeaderHash>) -> (),
-        G: FnMut(&mut SortitionDBTx) -> (),
+        F: FnMut(&mut SortitionDBTx, &BurnchainHeaderHash, &Vec<BurnchainHeaderHash>),
+        G: FnMut(&mut SortitionDBTx),
     {
         let mut db_tx = self.tx_begin()?;
         let mut queue = vec![burn_block.clone()];
@@ -4287,7 +4287,7 @@ impl SortitionDB {
     /// * `next_pox_info` - iff this sortition is the first block in a reward cycle, this should be Some
     /// * `announce_to` - a function that will be invoked with the calculated reward set before this method
     ///                   commits its results. This is used to post the calculated reward set to an event observer.
-    pub fn evaluate_sortition<F: FnOnce(Option<RewardSetInfo>) -> ()>(
+    pub fn evaluate_sortition<F: FnOnce(Option<RewardSetInfo>)>(
         &mut self,
         mainnet: bool,
         burn_header: &BurnchainBlockHeader,
@@ -4536,8 +4536,8 @@ impl SortitionDB {
             burn_block_height: chain_tip.block_height,
             burn_block_hash: chain_tip.burn_header_hash,
             burn_stable_block_height: stable_block_height,
-            burn_stable_block_hash: burn_stable_block_hash,
-            last_burn_block_hashes: last_burn_block_hashes,
+            burn_stable_block_hash,
+            last_burn_block_hashes,
             rc_consensus_hash: chain_tip.canonical_stacks_tip_consensus_hash,
         })
     }
@@ -5238,7 +5238,7 @@ impl SortitionDB {
     pub fn merge_block_header_cache(
         cache: &mut BlockHeaderCache,
         header_data: &Vec<(ConsensusHash, Option<BlockHeaderHash>)>,
-    ) -> () {
+    ) {
         if header_data.len() > 0 {
             let mut i = header_data.len() - 1;
             while i > 0 {
@@ -7073,7 +7073,7 @@ pub mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            vtxindex: vtxindex,
+            vtxindex,
             block_height: block_height + 1,
             burn_header_hash: BurnchainHeaderHash([0x01; 32]),
         };
@@ -7152,7 +7152,7 @@ pub mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            vtxindex: vtxindex,
+            vtxindex,
             block_height: block_height + 1,
             burn_header_hash: BurnchainHeaderHash([0x01; 32]),
         };
@@ -7192,7 +7192,7 @@ pub mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            vtxindex: vtxindex,
+            vtxindex,
             block_height: block_height + 2,
             burn_parent_modulus: ((block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
@@ -7376,7 +7376,7 @@ pub mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            vtxindex: vtxindex,
+            vtxindex,
             block_height: block_height + 2,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
         };
@@ -7871,7 +7871,7 @@ pub mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            vtxindex: vtxindex,
+            vtxindex,
             block_height: block_height + 1,
             burn_header_hash: BurnchainHeaderHash([0x01; 32]),
         };
@@ -7911,7 +7911,7 @@ pub mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            vtxindex: vtxindex,
+            vtxindex,
             block_height: block_height + 2,
             burn_parent_modulus: ((block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
@@ -7995,7 +7995,7 @@ pub mod tests {
         let mut snapshot_with_sortition = BlockSnapshot {
             accumulated_coinbase_ustx: 0,
             pox_valid: true,
-            block_height: block_height,
+            block_height,
             burn_header_timestamp: get_epoch_time_secs(),
             burn_header_hash: BurnchainHeaderHash::from_bytes(&[
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -8719,7 +8719,7 @@ pub mod tests {
                             0, 0, 0, 0, 0, 0, 0, i as u8,
                         ])
                         .unwrap(),
-                        total_burn: total_burn,
+                        total_burn,
                         sortition: false,
                         sortition_hash: SortitionHash([(i as u8); 32]),
                         winning_block_txid: Txid([(i as u8); 32]),
@@ -8796,7 +8796,7 @@ pub mod tests {
                             0, 0, 0, 0, 0, 0, 0, i as u8,
                         ])
                         .unwrap(),
-                        total_burn: total_burn,
+                        total_burn,
                         sortition: true,
                         sortition_hash: SortitionHash([(i as u8); 32]),
                         winning_block_txid: Txid([(i as u8); 32]),
@@ -10087,7 +10087,7 @@ pub mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            vtxindex: vtxindex,
+            vtxindex,
             block_height: block_height + 1,
             burn_header_hash: BurnchainHeaderHash([0x01; 32]),
         };

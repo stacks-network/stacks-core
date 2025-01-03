@@ -678,7 +678,7 @@ impl StacksChainState {
         blocks_dir: &str,
         consensus_hash: &ConsensusHash,
         block_header_hash: &BlockHeaderHash,
-    ) -> () {
+    ) {
         let block_path =
             StacksChainState::make_block_dir(blocks_dir, consensus_hash, &block_header_hash)
                 .expect("FATAL: failed to create block directory");
@@ -737,7 +737,7 @@ impl StacksChainState {
         blocks_path: &str,
         consensus_hash: &ConsensusHash,
         block_header: &StacksBlockHeader,
-    ) -> () {
+    ) {
         StacksChainState::free_block(blocks_path, consensus_hash, &block_header.block_hash())
     }
 
@@ -746,11 +746,11 @@ impl StacksChainState {
         blocks_conn: &DBConn,
     ) -> Result<Vec<(ConsensusHash, BlockHeaderHash)>, Error> {
         let list_block_sql = "SELECT * FROM staging_blocks ORDER BY height".to_string();
-        let mut blocks = query_rows::<StagingBlock, _>(blocks_conn, &list_block_sql, NO_PARAMS)
+        let blocks = query_rows::<StagingBlock, _>(blocks_conn, &list_block_sql, NO_PARAMS)
             .map_err(Error::DBError)?;
 
         Ok(blocks
-            .drain(..)
+            .into_iter()
             .map(|b| (b.consensus_hash, b.anchored_block_hash))
             .collect())
     }
@@ -767,20 +767,23 @@ impl StacksChainState {
         blocks_conn: &DBConn,
         blocks_dir: &str,
     ) -> Result<Vec<(ConsensusHash, BlockHeaderHash, Vec<BlockHeaderHash>)>, Error> {
-        let mut blocks = StacksChainState::list_blocks(blocks_conn)?;
+        let blocks = StacksChainState::list_blocks(blocks_conn)?;
         let mut ret = vec![];
 
-        for (consensus_hash, block_hash) in blocks.drain(..) {
+        for (consensus_hash, block_hash) in blocks.into_iter() {
             let list_microblock_sql = "SELECT * FROM staging_microblocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 ORDER BY sequence".to_string();
             let list_microblock_args = params![block_hash, consensus_hash];
-            let mut microblocks = query_rows::<StagingMicroblock, _>(
+            let microblocks = query_rows::<StagingMicroblock, _>(
                 blocks_conn,
                 &list_microblock_sql,
                 list_microblock_args,
             )
             .map_err(Error::DBError)?;
 
-            let microblock_hashes = microblocks.drain(..).map(|mb| mb.microblock_hash).collect();
+            let microblock_hashes = microblocks
+                .into_iter()
+                .map(|mb| mb.microblock_hash)
+                .collect();
             ret.push((consensus_hash, block_hash, microblock_hashes));
         }
 
@@ -2007,8 +2010,8 @@ impl StacksChainState {
         Ok(BlocksInvData {
             bitlen: u16::try_from(block_bits.len())
                 .expect("FATAL: unreachable: more than 2^16 block bits"),
-            block_bitvec: block_bitvec,
-            microblocks_bitvec: microblocks_bitvec,
+            block_bitvec,
+            microblocks_bitvec,
         })
     }
 
@@ -2130,8 +2133,8 @@ impl StacksChainState {
         Ok(BlocksInvData {
             bitlen: u16::try_from(block_bits.len())
                 .expect("FATAL: block bits has more than 2^16 members"),
-            block_bitvec: block_bitvec,
-            microblocks_bitvec: microblocks_bitvec,
+            block_bitvec,
+            microblocks_bitvec,
         })
     }
 
@@ -2917,7 +2920,7 @@ impl StacksChainState {
 
         let extended_header = ExtendedStacksHeader {
             consensus_hash: header_info.consensus_hash,
-            header: header,
+            header,
             parent_block_id: parent_index_block_hash,
         };
         Ok(extended_header)
@@ -7185,7 +7188,7 @@ pub mod test {
                 all_txs[3 * i + 2].clone(),
             ];
 
-            let txid_vecs = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+            let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
 
             let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
             let tx_merkle_root = merkle_tree.root();
@@ -7200,15 +7203,12 @@ pub mod test {
             let header = StacksMicroblockHeader {
                 version: 0x12,
                 sequence: initial_seq + (i as u16),
-                prev_block: prev_block,
-                tx_merkle_root: tx_merkle_root,
+                prev_block,
+                tx_merkle_root,
                 signature: MessageSignature([0u8; 65]),
             };
 
-            let mut mblock = StacksMicroblock {
-                header: header,
-                txs: txs,
-            };
+            let mut mblock = StacksMicroblock { header, txs };
 
             mblock.sign(privk).unwrap();
             microblocks.push(mblock);
@@ -7243,7 +7243,7 @@ pub mod test {
         chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
-    ) -> () {
+    ) {
         assert!(StacksChainState::load_staging_block_data(
             &chainstate.db(),
             &chainstate.blocks_path,
@@ -7286,7 +7286,7 @@ pub mod test {
         chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
-    ) -> () {
+    ) {
         assert!(!StacksChainState::has_stored_block(
             &chainstate.db(),
             &chainstate.blocks_path,
@@ -7310,7 +7310,7 @@ pub mod test {
         chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
-    ) -> () {
+    ) {
         assert!(StacksChainState::has_stored_block(
             &chainstate.db(),
             &chainstate.blocks_path,
@@ -7371,7 +7371,7 @@ pub mod test {
         chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
-    ) -> () {
+    ) {
         assert!(StacksChainState::has_stored_block(
             &chainstate.db(),
             &chainstate.blocks_path,
@@ -8866,7 +8866,7 @@ pub mod test {
 
                     conflicting_microblock.txs.push(extra_tx);
 
-                    let txid_vecs = conflicting_microblock
+                    let txid_vecs: Vec<_> = conflicting_microblock
                         .txs
                         .iter()
                         .map(|tx| tx.txid().as_bytes().to_vec())

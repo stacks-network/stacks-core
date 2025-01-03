@@ -140,7 +140,7 @@ impl TestMinerTracePoint {
         stacks_block: StacksBlock,
         microblocks: Vec<StacksMicroblock>,
         block_commit: LeaderBlockCommitOp,
-    ) -> () {
+    ) {
         self.fork_snapshots.insert(miner_id, fork_snapshot);
         self.stacks_blocks.insert(miner_id, stacks_block);
         self.microblocks.insert(miner_id, microblocks);
@@ -203,9 +203,9 @@ impl TestMinerTrace {
         points: Vec<TestMinerTracePoint>,
     ) -> TestMinerTrace {
         TestMinerTrace {
-            points: points,
-            burn_node: burn_node,
-            miners: miners,
+            points,
+            burn_node,
+            miners,
         }
     }
 
@@ -288,7 +288,7 @@ impl TestStacksNode {
         let chainstate =
             instantiate_chainstate_with_balances(mainnet, chain_id, test_name, initial_balances);
         TestStacksNode {
-            chainstate: chainstate,
+            chainstate,
             prev_keys: vec![],
             key_ops: HashMap::new(),
             anchored_blocks: vec![],
@@ -304,7 +304,7 @@ impl TestStacksNode {
     pub fn open(mainnet: bool, chain_id: u32, test_name: &str) -> TestStacksNode {
         let chainstate = open_chainstate(mainnet, chain_id, test_name);
         TestStacksNode {
-            chainstate: chainstate,
+            chainstate,
             prev_keys: vec![],
             key_ops: HashMap::new(),
             anchored_blocks: vec![],
@@ -319,7 +319,7 @@ impl TestStacksNode {
 
     pub fn from_chainstate(chainstate: StacksChainState) -> TestStacksNode {
         TestStacksNode {
-            chainstate: chainstate,
+            chainstate,
             prev_keys: vec![],
             key_ops: HashMap::new(),
             anchored_blocks: vec![],
@@ -356,7 +356,7 @@ impl TestStacksNode {
             new_test_name,
         );
         TestStacksNode {
-            chainstate: chainstate,
+            chainstate,
             prev_keys: self.prev_keys.clone(),
             key_ops: self.key_ops.clone(),
             anchored_blocks: self.anchored_blocks.clone(),
@@ -392,7 +392,7 @@ impl TestStacksNode {
         key_register_op
     }
 
-    pub fn add_key_register_op(&mut self, op: &LeaderKeyRegisterOp) -> () {
+    pub fn add_key_register_op(&mut self, op: &LeaderKeyRegisterOp) {
         self.prev_keys.push(op.clone());
         self.key_ops
             .insert(op.public_key.clone(), self.prev_keys.len() - 1);
@@ -1421,7 +1421,7 @@ pub fn instantiate_and_exec(
     chain_id: u32,
     test_name: &str,
     balances: Vec<(StacksAddress, u64)>,
-    post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
+    post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx)>>,
 ) -> StacksChainState {
     let path = chainstate_path(test_name);
     match fs::metadata(&path) {

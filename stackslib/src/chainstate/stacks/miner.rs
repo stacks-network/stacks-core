@@ -880,7 +880,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             return Err(Error::NoTransactionsToMine);
         }
 
-        let txid_vecs = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+        let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
 
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
         let tx_merkle_root = merkle_tree.root();
@@ -903,7 +903,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         next_microblock_header.verify(&miner_pubkey_hash).unwrap();
         Ok(StacksMicroblock {
             header: next_microblock_header,
-            txs: txs,
+            txs,
         })
     }
 
@@ -1509,11 +1509,11 @@ impl StacksBlockBuilder {
             total_anchored_fees: 0,
             total_confirmed_streamed_fees: 0,
             total_streamed_fees: 0,
-            bytes_so_far: bytes_so_far,
+            bytes_so_far,
             anchored_done: false,
             parent_consensus_hash: parent_chain_tip.consensus_hash.clone(),
             parent_header_hash: header.parent_block.clone(),
-            header: header,
+            header,
             parent_microblock_hash: parent_chain_tip
                 .microblock_tail
                 .as_ref()
@@ -1524,7 +1524,7 @@ impl StacksBlockBuilder {
             ), // will be updated
             miner_privkey: StacksPrivateKey::new(), // caller should overwrite this, or refrain from mining microblocks
             miner_payouts: None,
-            miner_id: miner_id,
+            miner_id,
         }
     }
 
@@ -1610,7 +1610,7 @@ impl StacksBlockBuilder {
     }
 
     /// Assign the block parent
-    pub fn set_parent_block(&mut self, parent_block_hash: &BlockHeaderHash) -> () {
+    pub fn set_parent_block(&mut self, parent_block_hash: &BlockHeaderHash) {
         self.header.parent_block = parent_block_hash.clone();
     }
 
@@ -1619,7 +1619,7 @@ impl StacksBlockBuilder {
         &mut self,
         parent_mblock_hash: &BlockHeaderHash,
         parent_mblock_seq: u16,
-    ) -> () {
+    ) {
         self.header.parent_microblock = parent_mblock_hash.clone();
         self.header.parent_microblock_sequence = parent_mblock_seq;
     }
@@ -1641,7 +1641,7 @@ impl StacksBlockBuilder {
     }
 
     /// Reset measured costs and fees
-    pub fn reset_costs(&mut self) -> () {
+    pub fn reset_costs(&mut self) {
         self.total_anchored_fees = 0;
         self.total_confirmed_streamed_fees = 0;
         self.total_streamed_fees = 0;
@@ -1704,7 +1704,7 @@ impl StacksBlockBuilder {
 
     pub fn finalize_block(&mut self, clarity_tx: &mut ClarityTx) -> StacksBlock {
         // done!  Calculate state root and tx merkle root
-        let txid_vecs = self
+        let txid_vecs: Vec<_> = self
             .txs
             .iter()
             .map(|tx| tx.txid().as_bytes().to_vec())
@@ -1770,7 +1770,7 @@ impl StacksBlockBuilder {
 
     /// Cut the next microblock.
     pub fn mine_next_microblock<'a>(&mut self) -> Result<StacksMicroblock, Error> {
-        let txid_vecs = self
+        let txid_vecs: Vec<_> = self
             .micro_txs
             .iter()
             .map(|tx| tx.txid().as_bytes().to_vec())
@@ -2073,7 +2073,7 @@ impl StacksBlockBuilder {
         mut builder: StacksBlockBuilder,
         chainstate_handle: &StacksChainState,
         burn_dbconn: &SortitionHandleConn,
-        mut txs: Vec<StacksTransaction>,
+        txs: Vec<StacksTransaction>,
         mut mblock_txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost, Option<StacksMicroblock>), Error> {
         debug!("Build anchored block from {} transactions", txs.len());
@@ -2081,7 +2081,7 @@ impl StacksBlockBuilder {
         let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn, true)?;
         let ast_rules = miner_epoch_info.ast_rules;
         let (mut epoch_tx, _) = builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
-        for tx in txs.drain(..) {
+        for tx in txs.into_iter() {
             match builder.try_mine_tx(&mut epoch_tx, &tx, ast_rules.clone()) {
                 Ok(_) => {
                     debug!("Included {}", &tx.txid());

@@ -4991,7 +4991,7 @@ impl StacksMessageCodec for NakamotoBlock {
         }
 
         // header and transactions must be consistent
-        let txid_vecs = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+        let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
 
         let merkle_tree = MerkleTree::new(&txid_vecs);
         let tx_merkle_root: Sha512Trunc256Sum = merkle_tree.root();

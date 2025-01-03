@@ -982,7 +982,7 @@ impl fmt::Debug for NeighborAddress {
 }
 
 impl NeighborAddress {
-    pub fn clear_public_key(&mut self) -> () {
+    pub fn clear_public_key(&mut self) {
         self.public_key_hash = Hash160([0u8; 20]);
     }
 
@@ -1384,8 +1384,8 @@ impl NeighborKey {
         na: &NeighborAddress,
     ) -> NeighborKey {
         NeighborKey {
-            peer_version: peer_version,
-            network_id: network_id,
+            peer_version,
+            network_id,
             addrbytes: na.addrbytes.clone(),
             port: na.port,
         }
@@ -1558,9 +1558,9 @@ impl NetworkResult {
             attachments: vec![],
             synced_transactions: vec![],
             stacker_db_sync_results: vec![],
-            num_state_machine_passes: num_state_machine_passes,
-            num_inv_sync_passes: num_inv_sync_passes,
-            num_download_passes: num_download_passes,
+            num_state_machine_passes,
+            num_inv_sync_passes,
+            num_download_passes,
             num_connected_peers,
             burn_height,
             coinbase_height,
@@ -2180,7 +2180,7 @@ impl NetworkResult {
         }
     }
 
-    pub fn consume_http_uploads(&mut self, msgs: Vec<StacksMessageType>) -> () {
+    pub fn consume_http_uploads(&mut self, msgs: Vec<StacksMessageType>) {
         for msg in msgs.into_iter() {
             match msg {
                 StacksMessageType::Transaction(tx_data) => {
@@ -2345,23 +2345,23 @@ pub mod test {
             }
         }
 
-        pub fn close(&mut self) -> () {
+        pub fn close(&mut self) {
             self.closed = true;
         }
 
-        pub fn block(&mut self) -> () {
+        pub fn block(&mut self) {
             self.block = true;
         }
 
-        pub fn unblock(&mut self) -> () {
+        pub fn unblock(&mut self) {
             self.block = false;
         }
 
-        pub fn set_read_error(&mut self, e: Option<io::ErrorKind>) -> () {
+        pub fn set_read_error(&mut self, e: Option<io::ErrorKind>) {
             self.read_error = e;
         }
 
-        pub fn set_write_error(&mut self, e: Option<io::ErrorKind>) -> () {
+        pub fn set_write_error(&mut self, e: Option<io::ErrorKind>) {
             self.write_error = e;
         }
     }
@@ -2639,7 +2639,7 @@ pub mod test {
                 private_key_expire: start_block + conn_opts.private_key_lifetime,
                 initial_neighbors: vec![],
                 asn4_entries: vec![],
-                burnchain: burnchain,
+                burnchain,
                 connection_opts: conn_opts,
                 server_port: 32000,
                 http_port: 32001,
@@ -2651,7 +2651,7 @@ pub mod test {
                 test_name: "".into(),
                 initial_balances: vec![],
                 initial_lockups: vec![],
-                spending_account: spending_account,
+                spending_account,
                 setup_code: "".into(),
                 epochs: None,
                 check_pox_invariants: None,
@@ -2691,7 +2691,7 @@ pub mod test {
             config
         }
 
-        pub fn add_neighbor(&mut self, n: &Neighbor) -> () {
+        pub fn add_neighbor(&mut self, n: &Neighbor) {
             self.initial_neighbors.push(n.clone());
         }
 
@@ -3204,15 +3204,15 @@ pub mod test {
             peer_network.local_peer = local_peer;
 
             TestPeer {
-                config: config,
+                config,
                 network: peer_network,
                 sortdb: Some(sortdb),
                 miner,
                 stacks_node: Some(stacks_node),
-                relayer: relayer,
+                relayer,
                 mempool: Some(mempool),
-                chainstate_path: chainstate_path,
-                coord: coord,
+                chainstate_path,
+                coord,
                 indexer: Some(indexer),
                 malleablized_blocks: vec![],
                 mine_malleablized_blocks: true,
@@ -3904,7 +3904,7 @@ pub mod test {
             &mut self,
             block: &StacksBlock,
             microblocks: &Vec<StacksMicroblock>,
-        ) -> () {
+        ) {
             let sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
             {
@@ -3988,7 +3988,7 @@ pub mod test {
             block: &StacksBlock,
             consensus_hash: &ConsensusHash,
             microblocks: &Vec<StacksMicroblock>,
-        ) -> () {
+        ) {
             let sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
             {
@@ -4503,7 +4503,7 @@ pub mod test {
             view_res
         }
 
-        pub fn dump_frontier(&self) -> () {
+        pub fn dump_frontier(&self) {
             let conn = self.network.peerdb.conn();
             let peers = PeerDB::get_all_peers(conn).unwrap();
             debug!("--- BEGIN ALL PEERS ({}) ---", peers.len());

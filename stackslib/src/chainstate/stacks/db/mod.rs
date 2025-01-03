@@ -546,7 +546,7 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
     }
 
     #[cfg(test)]
-    pub fn commit_block(self) -> () {
+    pub fn commit_block(self) {
         self.block.commit_block();
     }
 
@@ -557,11 +557,7 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
         Ok(self.block.commit_mined_block(block_hash)?.get_total())
     }
 
-    pub fn commit_to_block(
-        self,
-        consensus_hash: &ConsensusHash,
-        block_hash: &BlockHeaderHash,
-    ) -> () {
+    pub fn commit_to_block(self, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) {
         let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
         self.block.commit_to_block(&index_block_hash);
     }
@@ -575,19 +571,19 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
         self.block.precommit_to_block(index_block_hash)
     }
 
-    pub fn commit_unconfirmed(self) -> () {
+    pub fn commit_unconfirmed(self) {
         self.block.commit_unconfirmed();
     }
 
-    pub fn rollback_block(self) -> () {
+    pub fn rollback_block(self) {
         self.block.rollback_block()
     }
 
-    pub fn rollback_unconfirmed(self) -> () {
+    pub fn rollback_unconfirmed(self) {
         self.block.rollback_unconfirmed()
     }
 
-    pub fn reset_cost(&mut self, cost: ExecutionCost) -> () {
+    pub fn reset_cost(&mut self, cost: ExecutionCost) {
         self.block.reset_block_cost(cost);
     }
 
@@ -681,9 +677,9 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &'static str = "8";
+pub const CHAINSTATE_VERSION: &str = "8";
 
-const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
+const CHAINSTATE_INITIAL_SCHEMA: &[&str] = &[
     "PRAGMA foreign_keys = ON;",
     r#"
     -- Anchored stacks block headers
@@ -815,7 +811,7 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     );"#,
 ];
 
-const CHAINSTATE_SCHEMA_2: &'static [&'static str] = &[
+const CHAINSTATE_SCHEMA_2: &[&str] = &[
     // new in epoch 2.05 (schema version 2)
     // table of blocks that applied an epoch transition
     r#"
@@ -827,7 +823,7 @@ const CHAINSTATE_SCHEMA_2: &'static [&'static str] = &[
     "#,
 ];
 
-const CHAINSTATE_SCHEMA_3: &'static [&'static str] = &[
+const CHAINSTATE_SCHEMA_3: &[&str] = &[
     // new in epoch 2.1 (schema version 3)
     // track mature miner rewards paid out, so we can report them in Clarity.
     r#"
@@ -880,7 +876,7 @@ const CHAINSTATE_SCHEMA_3: &'static [&'static str] = &[
     "#,
 ];
 
-const CHAINSTATE_INDEXES: &'static [&'static str] = &[
+const CHAINSTATE_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS index_block_hash_to_primary_key ON block_headers(index_block_hash,consensus_hash,block_hash);",
     "CREATE INDEX IF NOT EXISTS block_headers_hash_index ON block_headers(block_hash,block_height);",
     "CREATE INDEX IF NOT EXISTS block_index_hash_index ON block_headers(index_block_hash,consensus_hash,block_hash);",
@@ -959,7 +955,7 @@ pub struct ChainStateBootData {
     pub first_burnchain_block_timestamp: u32,
     pub initial_balances: Vec<(PrincipalData, u64)>,
     pub pox_constants: PoxConstants,
-    pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
+    pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx)>>,
     pub get_bulk_initial_lockups:
         Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainstateAccountLockup>>>>,
     pub get_bulk_initial_balances:
@@ -974,7 +970,7 @@ impl ChainStateBootData {
     pub fn new(
         burnchain: &Burnchain,
         initial_balances: Vec<(PrincipalData, u64)>,
-        post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
+        post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx)>>,
     ) -> ChainStateBootData {
         ChainStateBootData {
             first_burnchain_block_hash: burnchain.first_block_hash.clone(),
@@ -1869,18 +1865,18 @@ impl StacksChainState {
         let clarity_state = ClarityInstance::new(mainnet, chain_id, vm_state);
 
         let mut chainstate = StacksChainState {
-            mainnet: mainnet,
-            chain_id: chain_id,
-            clarity_state: clarity_state,
+            mainnet,
+            chain_id,
+            clarity_state,
             nakamoto_staging_blocks_conn,
-            state_index: state_index,
+            state_index,
             blocks_path: blocks_path_root,
             clarity_state_index_path: clarity_state_index_marf,
-            clarity_state_index_root: clarity_state_index_root,
+            clarity_state_index_root,
             root_path: path_str.to_string(),
             unconfirmed_state: None,
             fault_injection: StacksChainStateFaults::new(),
-            marf_opts: marf_opts,
+            marf_opts,
         };
 
         let mut receipts = vec![];

@@ -136,7 +136,7 @@ pub struct NeighborStats {
 impl NeighborStats {
     pub fn new(outbound: bool) -> NeighborStats {
         NeighborStats {
-            outbound: outbound,
+            outbound,
             first_contact_time: 0,
             last_contact_time: 0,
             last_send_time: 0,
@@ -162,9 +162,9 @@ impl NeighborStats {
     /// Add a neighbor health point for this peer.
     /// This updates the recent list of instances where this peer either successfully replied to a
     /// message, or failed to do so (indicated by `success`).
-    pub fn add_healthpoint(&mut self, success: bool) -> () {
+    pub fn add_healthpoint(&mut self, success: bool) {
         let hp = NeighborHealthPoint {
-            success: success,
+            success,
             time: get_epoch_time_secs(),
         };
         self.healthpoints.push_back(hp);
@@ -176,7 +176,7 @@ impl NeighborStats {
     /// Record that we recently received a block of the given size.
     /// Keeps track of the last `NUM_BANDWIDTH_POINTS` such events, so we can estimate the current
     /// bandwidth consumed by block pushes.
-    pub fn add_block_push(&mut self, message_size: u64) -> () {
+    pub fn add_block_push(&mut self, message_size: u64) {
         self.block_push_rx_counts
             .push_back((get_epoch_time_secs(), message_size));
         while self.block_push_rx_counts.len() > NUM_BANDWIDTH_POINTS {
@@ -187,7 +187,7 @@ impl NeighborStats {
     /// Record that we recently received a microblock of the given size.
     /// Keeps track of the last `NUM_BANDWIDTH_POINTS` such events, so we can estimate the current
     /// bandwidth consumed by microblock pushes.
-    pub fn add_microblocks_push(&mut self, message_size: u64) -> () {
+    pub fn add_microblocks_push(&mut self, message_size: u64) {
         self.microblocks_push_rx_counts
             .push_back((get_epoch_time_secs(), message_size));
         while self.microblocks_push_rx_counts.len() > NUM_BANDWIDTH_POINTS {
@@ -198,7 +198,7 @@ impl NeighborStats {
     /// Record that we recently received a transaction of the given size.
     /// Keeps track of the last `NUM_BANDWIDTH_POINTS` such events, so we can estimate the current
     /// bandwidth consumed by transaction pushes.
-    pub fn add_transaction_push(&mut self, message_size: u64) -> () {
+    pub fn add_transaction_push(&mut self, message_size: u64) {
         self.transaction_push_rx_counts
             .push_back((get_epoch_time_secs(), message_size));
         while self.transaction_push_rx_counts.len() > NUM_BANDWIDTH_POINTS {
@@ -209,7 +209,7 @@ impl NeighborStats {
     /// Record that we recently received a stackerdb chunk push of the given size.
     /// Keeps track of the last `NUM_BANDWIDTH_POINTS` such events, so we can estimate the current
     /// bandwidth consumed by stackerdb chunk pushes.
-    pub fn add_stackerdb_push(&mut self, message_size: u64) -> () {
+    pub fn add_stackerdb_push(&mut self, message_size: u64) {
         self.stackerdb_push_rx_counts
             .push_back((get_epoch_time_secs(), message_size));
         while self.stackerdb_push_rx_counts.len() > NUM_BANDWIDTH_POINTS {
@@ -220,7 +220,7 @@ impl NeighborStats {
     /// Record that we recently received a Nakamoto blcok push of the given size.
     /// Keeps track of the last `NUM_BANDWIDTH_POINTS` such events, so we can estimate the current
     /// bandwidth consumed by Nakamoto block pushes
-    pub fn add_nakamoto_block_push(&mut self, message_size: u64) -> () {
+    pub fn add_nakamoto_block_push(&mut self, message_size: u64) {
         self.nakamoto_block_push_rx_counts
             .push_back((get_epoch_time_secs(), message_size));
         while self.nakamoto_block_push_rx_counts.len() > NUM_BANDWIDTH_POINTS {
@@ -228,7 +228,7 @@ impl NeighborStats {
         }
     }
 
-    pub fn add_relayer(&mut self, addr: &NeighborAddress, num_bytes: u64) -> () {
+    pub fn add_relayer(&mut self, addr: &NeighborAddress, num_bytes: u64) {
         if let Some(stats) = self.relayed_messages.get_mut(addr) {
             stats.num_messages += 1;
             stats.num_bytes += num_bytes;
@@ -236,7 +236,7 @@ impl NeighborStats {
         } else {
             let info = RelayStats {
                 num_messages: 1,
-                num_bytes: num_bytes,
+                num_bytes,
                 last_seen: get_epoch_time_secs(),
             };
             self.relayed_messages.insert(addr.clone(), info);
@@ -427,8 +427,8 @@ impl NeighborKey {
         handshake_data: &HandshakeData,
     ) -> NeighborKey {
         NeighborKey {
-            peer_version: peer_version,
-            network_id: network_id,
+            peer_version,
+            network_id,
             addrbytes: handshake_data.addrbytes.clone(),
             port: handshake_data.port,
         }
@@ -436,8 +436,8 @@ impl NeighborKey {
 
     pub fn from_socketaddr(peer_version: u32, network_id: u32, addr: &SocketAddr) -> NeighborKey {
         NeighborKey {
-            peer_version: peer_version,
-            network_id: network_id,
+            peer_version,
+            network_id,
             addrbytes: PeerAddress::from_socketaddr(addr),
             port: addr.port(),
         }
@@ -613,7 +613,7 @@ impl ConversationP2P {
         get_epoch_time_secs().saturating_sub(self.instantiated)
     }
 
-    pub fn set_public_key(&mut self, pubkey_opt: Option<Secp256k1PublicKey>) -> () {
+    pub fn set_public_key(&mut self, pubkey_opt: Option<Secp256k1PublicKey>) {
         self.connection.set_public_key(pubkey_opt);
     }
 
@@ -1202,7 +1202,7 @@ impl ConversationP2P {
         let natpunch_data = NatPunchData {
             addrbytes: self.peer_addrbytes.clone(),
             port: self.peer_port,
-            nonce: nonce,
+            nonce,
         };
         let msg = StacksMessage::from_chain_view(
             self.version,
@@ -3044,7 +3044,7 @@ impl ConversationP2P {
     }
 
     /// Remove all timed-out messages, and ding the remote peer as unhealthy
-    pub fn clear_timeouts(&mut self) -> () {
+    pub fn clear_timeouts(&mut self) {
         let num_drained = self.connection.drain_timeouts();
         for _ in 0..num_drained {
             self.stats.add_healthpoint(false);
@@ -3190,7 +3190,7 @@ mod test {
         sender: &mut ConversationP2P,
         mut sender_handles: Vec<&mut ReplyHandleP2P>,
         receiver: &mut ConversationP2P,
-    ) -> () {
+    ) {
         let (mut pipe_read, mut pipe_write) = Pipe::new();
         pipe_read.set_nonblocking(true);
 
@@ -3347,7 +3347,7 @@ mod test {
             network_id: 0,
             chain_name: "bitcoin".to_string(),
             network_name: "testnet".to_string(),
-            working_dir: format!("/tmp/stacks-test-databases-{}", test_name),
+            working_dir: format!("/tmp/stacks-test-databases-{test_name}"),
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: 12300,

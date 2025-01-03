@@ -1042,7 +1042,7 @@ impl PeerNetwork {
     /// sent this peer the message in the first place.
     pub fn broadcast_message(
         &mut self,
-        mut neighbor_keys: Vec<NeighborKey>,
+        neighbor_keys: Vec<NeighborKey>,
         relay_hints: Vec<RelayData>,
         message_payload: StacksMessageType,
     ) {
@@ -1053,7 +1053,7 @@ impl PeerNetwork {
             neighbor_keys.len(),
             &relay_hints
         );
-        for nk in neighbor_keys.drain(..) {
+        for nk in neighbor_keys.into_iter() {
             if let Some(event_id) = self.events.get(&nk) {
                 let event_id = *event_id;
                 if let Some(convo) = self.peers.get_mut(&event_id) {
@@ -1410,8 +1410,8 @@ impl PeerNetwork {
                         // send to each neighbor that needs one
                         let mut all_neighbors = HashSet::new();
                         for BlocksDatum(_, block) in data.blocks.iter() {
-                            let mut neighbors = self.sample_broadcast_peers(&relay_hints, block)?;
-                            for nk in neighbors.drain(..) {
+                            let neighbors = self.sample_broadcast_peers(&relay_hints, block)?;
+                            for nk in neighbors.into_iter() {
                                 all_neighbors.insert(nk);
                             }
                         }
@@ -1421,9 +1421,8 @@ impl PeerNetwork {
                         // send to each neighbor that needs at least one
                         let mut all_neighbors = HashSet::new();
                         for mblock in data.microblocks.iter() {
-                            let mut neighbors =
-                                self.sample_broadcast_peers(&relay_hints, mblock)?;
-                            for nk in neighbors.drain(..) {
+                            let neighbors = self.sample_broadcast_peers(&relay_hints, mblock)?;
+                            for nk in neighbors.into_iter() {
                                 all_neighbors.insert(nk);
                             }
                         }
@@ -1885,7 +1884,7 @@ impl PeerNetwork {
     }
 
     /// Deregister a socket from our p2p network instance.
-    fn deregister_socket(&mut self, event_id: usize, socket: mio_net::TcpStream) -> () {
+    fn deregister_socket(&mut self, event_id: usize, socket: mio_net::TcpStream) {
         match self.network {
             Some(ref mut network) => {
                 let _ = network.deregister(event_id, &socket);
@@ -1895,7 +1894,7 @@ impl PeerNetwork {
     }
 
     /// Deregister a socket/event pair
-    pub fn deregister_peer(&mut self, event_id: usize) -> () {
+    pub fn deregister_peer(&mut self, event_id: usize) {
         debug!("{:?}: Disconnect event {}", &self.local_peer, event_id);
 
         let mut nk_remove: Vec<(NeighborKey, Hash160)> = vec![];
@@ -1956,7 +1955,7 @@ impl PeerNetwork {
     }
 
     /// Deregister by neighbor key
-    pub fn deregister_neighbor(&mut self, neighbor_key: &NeighborKey) -> () {
+    pub fn deregister_neighbor(&mut self, neighbor_key: &NeighborKey) {
         debug!("Disconnect from {:?}", neighbor_key);
         let event_id = match self.events.get(&neighbor_key) {
             None => {
@@ -1968,7 +1967,7 @@ impl PeerNetwork {
     }
 
     /// Deregister and ban a neighbor
-    pub fn deregister_and_ban_neighbor(&mut self, neighbor: &NeighborKey) -> () {
+    pub fn deregister_and_ban_neighbor(&mut self, neighbor: &NeighborKey) {
         debug!("Disconnect from and ban {:?}", neighbor);
         match self.events.get(neighbor) {
             Some(event_id) => {
@@ -2294,7 +2293,7 @@ impl PeerNetwork {
     /// -- Drop broken connections.
     /// -- Update our frontier.
     /// -- Prune our frontier if it gets too big.
-    fn process_neighbor_walk(&mut self, walk_result: NeighborWalkResult) -> () {
+    fn process_neighbor_walk(&mut self, walk_result: NeighborWalkResult) {
         for broken in walk_result.broken_connections.iter() {
             self.deregister_and_ban_neighbor(broken);
         }
@@ -2313,7 +2312,7 @@ impl PeerNetwork {
 
     /// Queue up pings to everyone we haven't spoken to in a while to let them know that we're still
     /// alive.
-    pub fn queue_ping_heartbeats(&mut self) -> () {
+    pub fn queue_ping_heartbeats(&mut self) {
         let now = get_epoch_time_secs();
         let mut relay_handles = HashMap::new();
         for (_, convo) in self.peers.iter_mut() {
@@ -2418,7 +2417,7 @@ impl PeerNetwork {
     }
 
     /// Prune inbound and outbound connections if we can
-    pub(crate) fn prune_connections(&mut self) -> () {
+    pub(crate) fn prune_connections(&mut self) {
         if cfg!(test) && self.connection_opts.disable_network_prune {
             return;
         }
@@ -2620,7 +2619,7 @@ impl PeerNetwork {
                 }
             }
         }
-        for empty in drained.drain(..) {
+        for empty in drained.into_iter() {
             relay_handles.remove(&empty);
         }
 
@@ -2729,7 +2728,7 @@ impl PeerNetwork {
     }
 
     /// Disconnect from all peers
-    fn disconnect_all(&mut self) -> () {
+    fn disconnect_all(&mut self) {
         let mut all_event_ids = vec![];
         for (eid, _) in self.peers.iter() {
             all_event_ids.push(*eid);
@@ -2949,8 +2948,8 @@ impl PeerNetwork {
             old_pox_id,
             mut blocks,
             mut microblocks,
-            mut broken_http_peers,
-            mut broken_p2p_peers,
+            broken_http_peers,
+            broken_p2p_peers,
         ) = match self.download_blocks(sortdb, chainstate, dns_client, ibd) {
             Ok(x) => x,
             Err(net_error::NotConnected) => {
@@ -3004,7 +3003,7 @@ impl PeerNetwork {
         }
 
         let _ = PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
-            for dead_event in broken_http_peers.drain(..) {
+            for dead_event in broken_http_peers.into_iter() {
                 debug!(
                     "{:?}: De-register dead/broken HTTP connection {}",
                     &network.local_peer, dead_event
@@ -3016,7 +3015,7 @@ impl PeerNetwork {
             Ok(())
         });
 
-        for broken_neighbor in broken_p2p_peers.drain(..) {
+        for broken_neighbor in broken_p2p_peers.into_iter() {
             debug!(
                 "{:?}: De-register dead/broken neighbor {:?}",
                 &self.local_peer, &broken_neighbor
@@ -3831,7 +3830,7 @@ impl PeerNetwork {
 
         match dns_client_opt {
             Some(ref mut dns_client) => {
-                let mut dead_events = PeerNetwork::with_attachments_downloader(
+                let dead_events = PeerNetwork::with_attachments_downloader(
                     self,
                     |network, attachments_downloader| {
                         let mut dead_events = vec![];
@@ -3854,7 +3853,7 @@ impl PeerNetwork {
                 let _ = PeerNetwork::with_network_state(
                     self,
                     |ref mut network, ref mut network_state| {
-                        for event_id in dead_events.drain(..) {
+                        for event_id in dead_events.into_iter() {
                             debug!(
                                 "Atlas: Deregistering faulty connection (event_id: {})",
                                 event_id
@@ -4831,8 +4830,8 @@ impl PeerNetwork {
             // prune back our connections if it's been a while
             // (only do this if we're done with all other tasks).
             // Also, process banned peers.
-            if let Ok(mut dead_events) = self.process_bans() {
-                for dead in dead_events.drain(..) {
+            if let Ok(dead_events) = self.process_bans() {
+                for dead in dead_events.into_iter() {
                     debug!(
                         "{:?}: Banned connection on event {}",
                         &self.local_peer, dead
