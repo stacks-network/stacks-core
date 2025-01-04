@@ -564,7 +564,10 @@ impl NakamotoBlockProposal {
         // Clone signatures from block proposal
         // These have already been validated by `validate_nakamoto_block_burnchain()``
         block.header.miner_signature = self.block.header.miner_signature.clone();
-        block.header.signer_signature = self.block.header.signer_signature.clone();
+        block
+            .header
+            .signer_signature
+            .clone_from(&self.block.header.signer_signature);
 
         // Clone the timestamp from the block proposal, which has already been validated
         block.header.timestamp = self.block.header.timestamp;
