@@ -3592,6 +3592,7 @@ fn follower_bootup_simple() {
                     thread::sleep(Duration::from_millis(100));
                     continue;
                 };
+                assert!(info.is_fully_synced, "{:?}", &info);
 
                 let Ok(follower_info) = get_chain_info_result(&follower_conf) else {
                     debug!("follower_bootup: Could not get follower chain info");
@@ -3601,6 +3602,7 @@ fn follower_bootup_simple() {
 
                 if follower_info.burn_block_height < info.burn_block_height {
                     debug!("follower_bootup: Follower is behind miner's burnchain view");
+                    assert!(!follower_info.is_fully_synced, "{:?}", &follower_info);
                     thread::sleep(Duration::from_millis(100));
                     continue;
                 }
@@ -3634,6 +3636,7 @@ fn follower_bootup_simple() {
                     thread::sleep(Duration::from_millis(100));
                     continue;
                 };
+                assert!(info.is_fully_synced, "{:?}", &info);
 
                 let Ok(follower_info) = get_chain_info_result(&follower_conf) else {
                     debug!("follower_bootup: Could not get follower chain info");
@@ -3645,11 +3648,13 @@ fn follower_bootup_simple() {
                         "follower_bootup: Follower has advanced to miner's tip {}",
                         &info.stacks_tip
                     );
+                    assert!(follower_info.is_fully_synced, "{:?}", &follower_info);
                 } else {
                     debug!(
                         "follower_bootup: Follower has NOT advanced to miner's tip: {} != {}",
                         &info.stacks_tip, follower_info.stacks_tip
                     );
+                    assert!(!follower_info.is_fully_synced, "{:?}", &follower_info);
                 }
 
                 last_tip = info.stacks_tip;
@@ -3697,8 +3702,10 @@ fn follower_bootup_simple() {
         if follower_node_info.stacks_tip_consensus_hash == tip.consensus_hash
             && follower_node_info.stacks_tip == tip.anchored_header.block_hash()
         {
+            assert!(follower_node_info.is_fully_synced);
             break;
         }
+        assert!(!follower_node_info.is_fully_synced);
     }
 
     coord_channel
