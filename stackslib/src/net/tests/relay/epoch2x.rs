@@ -3092,6 +3092,7 @@ fn process_new_blocks_rejects_problematic_asts() {
 
     let mut network_result = NetworkResult::new(
         peer.network.stacks_tip.block_id(),
+        ConsensusHash([0x01; 20]),
         0,
         0,
         0,

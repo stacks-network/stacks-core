@@ -1163,6 +1163,7 @@ fn test_boot_nakamoto_peer() {
 fn test_network_result_update() {
     let mut network_result_1 = NetworkResult::new(
         StacksBlockId([0x11; 32]),
+        ConsensusHash([0x01; 20]),
         1,
         1,
         1,
@@ -1177,6 +1178,7 @@ fn test_network_result_update() {
 
     let mut network_result_2 = NetworkResult::new(
         StacksBlockId([0x22; 32]),
+        ConsensusHash([0x01; 20]),
         2,
         2,
         2,
@@ -1615,6 +1617,7 @@ fn test_network_result_update() {
     // stackerdb uploaded chunks get consolidated correctly
     let mut old = NetworkResult::new(
         StacksBlockId([0xaa; 32]),
+        ConsensusHash([0x01; 20]),
         10,
         10,
         10,
@@ -1675,6 +1678,7 @@ fn test_network_result_update() {
     // stackerdb pushed chunks get consolidated correctly
     let mut old = NetworkResult::new(
         StacksBlockId([0xaa; 32]),
+        ConsensusHash([0x01; 20]),
         10,
         10,
         10,
@@ -1735,6 +1739,7 @@ fn test_network_result_update() {
     // nakamoto blocks obtained via download, upload, or pushed get consoldated
     let mut old = NetworkResult::new(
         StacksBlockId([0xbb; 32]),
+        ConsensusHash([0x01; 20]),
         11,
         11,
         11,
@@ -1760,6 +1765,7 @@ fn test_network_result_update() {
 
     let new = NetworkResult::new(
         StacksBlockId([0xbb; 32]),
+        ConsensusHash([0x01; 20]),
         11,
         11,
         11,
