@@ -1792,7 +1792,7 @@ impl ClarityTransactionConnection<'_, '_> {
             },
             |_, _| false,
         )
-        .and_then(|(value, ..)| Ok(value))
+        .map(|(value, ..)| value)
     }
 
     pub fn is_mainnet(&self) -> bool {

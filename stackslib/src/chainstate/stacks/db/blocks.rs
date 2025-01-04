@@ -1459,9 +1459,9 @@ impl StacksChainState {
             seq,
             seq,
         )
-        .and_then(|list_opt| match list_opt {
-            Some(mut list) => Ok(list.pop()),
-            None => Ok(None),
+        .map(|list_opt| match list_opt {
+            Some(mut list) => list.pop(),
+            None => None,
         })
     }
 
@@ -2787,7 +2787,7 @@ impl StacksChainState {
         min_seq: u16,
     ) -> Result<bool, Error> {
         StacksChainState::read_i64s(&self.db(), "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence >= ?2 LIMIT 1", &[&parent_index_block_hash, &min_seq])
-            .and_then(|processed| Ok(!processed.is_empty()))
+            .map(|processed| !processed.is_empty())
     }
 
     /// Do we have a given microblock as a descendant of a given anchored block?
@@ -2800,7 +2800,7 @@ impl StacksChainState {
         microblock_hash: &BlockHeaderHash,
     ) -> Result<bool, Error> {
         StacksChainState::read_i64s(&self.db(), "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 AND microblock_hash = ?2 LIMIT 1", &[parent_index_block_hash, microblock_hash])
-            .and_then(|processed| Ok(!processed.is_empty()))
+            .map(|processed| !processed.is_empty())
     }
 
     /// Do we have any microblock available to serve in any capacity, given its parent anchored block's
@@ -2815,7 +2815,7 @@ impl StacksChainState {
             "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 LIMIT 1",
             &[&parent_index_block_hash],
         )
-        .and_then(|processed| Ok(!processed.is_empty()))
+        .map(|processed| !processed.is_empty())
     }
 
     /// Given an index block hash, get the consensus hash and block hash

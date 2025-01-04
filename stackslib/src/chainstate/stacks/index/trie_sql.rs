@@ -569,7 +569,7 @@ pub fn set_migrated(conn: &Connection) -> Result<(), Error> {
         &[&u64_to_sql(SQL_MARF_SCHEMA_VERSION)?],
     )
     .map_err(|e| e.into())
-    .and_then(|_| Ok(()))
+    .map(|_| ())
 }
 
 pub fn get_node_hash_bytes(
