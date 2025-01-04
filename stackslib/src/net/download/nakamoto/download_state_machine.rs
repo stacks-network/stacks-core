@@ -109,6 +109,8 @@ pub struct NakamotoDownloadStateMachine {
     tenure_block_ids: HashMap<NeighborAddress, AvailableTenures>,
     /// Who can serve a given tenure
     pub(crate) available_tenures: HashMap<ConsensusHash, Vec<NeighborAddress>>,
+    /// What is the highest available tenure, if known?
+    pub(crate) highest_available_tenure: Option<ConsensusHash>,
     /// Confirmed tenure download schedule
     pub(crate) tenure_download_schedule: VecDeque<ConsensusHash>,
     /// Unconfirmed tenure download schedule
@@ -140,6 +142,7 @@ impl NakamotoDownloadStateMachine {
             state: NakamotoDownloadState::Confirmed,
             tenure_block_ids: HashMap::new(),
             available_tenures: HashMap::new(),
+            highest_available_tenure: None,
             tenure_download_schedule: VecDeque::new(),
             unconfirmed_tenure_download_schedule: VecDeque::new(),
             tenure_downloads: NakamotoTenureDownloaderSet::new(),
@@ -862,6 +865,14 @@ impl NakamotoDownloadStateMachine {
         self.tenure_download_schedule = schedule;
         self.tenure_block_ids = tenure_block_ids;
         self.available_tenures = available;
+
+        let highest_available_tenure = self.find_highest_available_tenure();
+        self.highest_available_tenure = highest_available_tenure;
+
+        test_debug!(
+            "new highest_available_tenure: {:?}",
+            &self.highest_available_tenure
+        );
     }
 
     /// Update our tenure download state machines, given our download schedule, our peers' tenure
@@ -1556,7 +1567,7 @@ impl NakamotoDownloadStateMachine {
     /// Find the highest available tenure ID.
     /// Returns Some(consensus_hash) for the highest tenure available from at least one node.
     /// Returns None if no tenures are available from any peer.
-    pub fn find_highest_available_tenure(&self) -> Option<ConsensusHash> {
+    fn find_highest_available_tenure(&self) -> Option<ConsensusHash> {
         let (t1, t2) = Self::find_unconfirmed_tenure_ids(
             &self.wanted_tenures,
             self.prev_wanted_tenures.as_ref().unwrap_or(&vec![]),
