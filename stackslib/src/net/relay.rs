@@ -291,7 +291,7 @@ impl RelayerStats {
                         }
                         to_remove.push(*ts);
                     }
-                    for ts in to_remove.drain(..) {
+                    for ts in to_remove.into_iter() {
                         self.relay_updates.remove(&ts);
                     }
                 }
@@ -319,7 +319,7 @@ impl RelayerStats {
             }
 
             // prune stale
-            while relayed.len() > 0 {
+            while !relayed.is_empty() {
                 let head_ts = match relayed.front() {
                     Some((ts, _)) => *ts,
                     None => {
@@ -342,7 +342,7 @@ impl RelayerStats {
                 let mut to_remove = vec![];
                 for (ts, old_nk) in self.recent_updates.iter() {
                     self.recent_messages.remove(old_nk);
-                    if self.recent_messages.len() <= (MAX_RELAYER_STATS as usize) - 1 {
+                    if self.recent_messages.len() <= MAX_RELAYER_STATS - 1 {
                         break;
                     }
                     to_remove.push(*ts);
@@ -516,10 +516,10 @@ impl RelayerStats {
 
         if norm <= 1 {
             // there is one or zero options
-            if rankings_vec.len() > 0 {
-                return vec![rankings_vec[0].0.clone()];
-            } else {
+            if rankings_vec.is_empty() {
                 return vec![];
+            } else {
+                return vec![rankings_vec[0].0.clone()];
             }
         }
 
@@ -1437,7 +1437,7 @@ impl Relayer {
         for (consensus_hash, microblock_stream, _download_time) in
             network_result.confirmed_microblocks.iter()
         {
-            if microblock_stream.len() == 0 {
+            if microblock_stream.is_empty() {
                 continue;
             }
             let anchored_block_hash = microblock_stream[0].header.prev_block.clone();
@@ -1798,7 +1798,7 @@ impl Relayer {
                     }
                 }
 
-                if accepted_blocks.len() > 0 {
+                if !accepted_blocks.is_empty() {
                     pushed_blocks.push(AcceptedNakamotoBlocks {
                         relayers: relayers.clone(),
                         blocks: accepted_blocks,
@@ -2078,7 +2078,9 @@ impl Relayer {
             Relayer::preprocess_pushed_microblocks(&sort_ic, network_result, chainstate)?;
         bad_neighbors.append(&mut new_bad_neighbors);
 
-        if new_blocks.len() > 0 || new_microblocks.len() > 0 || new_confirmed_microblocks.len() > 0
+        if !new_blocks.is_empty()
+            || !new_microblocks.is_empty()
+            || !new_confirmed_microblocks.is_empty()
         {
             info!(
                 "Processing newly received Stacks blocks: {}, microblocks: {}, confirmed microblocks: {}",
@@ -2237,7 +2239,7 @@ impl Relayer {
                 }
                 filtered_tx_data.push((relayers, tx));
             }
-            if filtered_tx_data.len() > 0 {
+            if !filtered_tx_data.is_empty() {
                 filtered_pushed_transactions.insert(nk, filtered_tx_data);
             }
         }
@@ -2608,7 +2610,7 @@ impl Relayer {
         let new_block_chs = new_blocks.iter().map(|(ch, _)| ch.clone()).collect();
         let available = Relayer::load_blocks_available_data(sortdb, new_block_chs)
             .unwrap_or(BlocksAvailableMap::new());
-        if available.len() > 0 {
+        if !available.is_empty() {
             debug!("{:?}: Blocks available: {}", &_local_peer, available.len());
             if let Err(e) = self.p2p.advertize_blocks(available, new_blocks) {
                 warn!("Failed to advertize new blocks: {:?}", &e);
@@ -2622,7 +2624,7 @@ impl Relayer {
             .collect();
         let mblocks_available = Relayer::load_blocks_available_data(sortdb, new_mblock_chs)
             .unwrap_or(BlocksAvailableMap::new());
-        if mblocks_available.len() > 0 {
+        if !mblocks_available.is_empty() {
             debug!(
                 "{:?}: Confirmed microblock streams available: {}",
                 &_local_peer,
@@ -2637,7 +2639,7 @@ impl Relayer {
         }
 
         // have the p2p thread forward all new unconfirmed microblocks
-        if new_microblocks.len() > 0 {
+        if !new_microblocks.is_empty() {
             debug!(
                 "{:?}: Unconfirmed microblocks: {}",
                 &_local_peer,
@@ -2685,7 +2687,7 @@ impl Relayer {
 
                 // attempt to relay messages (note that this is all best-effort).
                 // punish bad peers
-                if bad_block_neighbors.len() > 0 {
+                if !bad_block_neighbors.is_empty() {
                     debug!(
                         "{:?}: Ban {} peers",
                         &_local_peer,
@@ -2776,7 +2778,7 @@ impl Relayer {
 
         for blocks_and_relayers in accepted_blocks.into_iter() {
             let AcceptedNakamotoBlocks { relayers, blocks } = blocks_and_relayers;
-            if blocks.len() == 0 {
+            if blocks.is_empty() {
                 continue;
             }
 
@@ -2817,7 +2819,7 @@ impl Relayer {
                 &relayers
             );
 
-            if relay_blocks.len() == 0 {
+            if relay_blocks.is_empty() {
                 continue;
             }
 
@@ -2883,7 +2885,7 @@ impl Relayer {
             .unwrap_or(u64::MAX); // don't panic if we somehow receive more than u64::MAX blocks
 
         // punish bad peers
-        if bad_neighbors.len() > 0 {
+        if !bad_neighbors.is_empty() {
             debug!("{:?}: Ban {} peers", &local_peer, bad_neighbors.len());
             if let Err(e) = self.p2p.ban_peers(bad_neighbors) {
                 warn!("Failed to ban bad-block peers: {:?}", &e);
@@ -2891,7 +2893,7 @@ impl Relayer {
         }
 
         // relay if not IBD
-        if !ibd && accepted_blocks.len() > 0 {
+        if !ibd && !accepted_blocks.is_empty() {
             self.relay_epoch3_blocks(local_peer, sortdb, accepted_blocks);
         }
         num_new_nakamoto_blocks
@@ -2932,7 +2934,7 @@ impl Relayer {
         )
         .unwrap_or(vec![]);
 
-        if new_txs.len() > 0 {
+        if !new_txs.is_empty() {
             debug!(
                 "{:?}: Send {} transactions to neighbors",
                 &_local_peer,
@@ -3353,7 +3355,7 @@ impl PeerNetwork {
         availability_data: BlocksAvailableMap,
         blocks: HashMap<ConsensusHash, StacksBlock>,
     ) -> Result<(usize, usize), net_error> {
-        let (mut outbound_recipients, mut inbound_recipients) =
+        let (outbound_recipients, inbound_recipients) =
             self.find_block_recipients(&availability_data)?;
         debug!(
             "{:?}: Advertize {} blocks to {} inbound peers, {} outbound peers",
@@ -3366,7 +3368,7 @@ impl PeerNetwork {
         let num_inbound = inbound_recipients.len();
         let num_outbound = outbound_recipients.len();
 
-        for recipient in outbound_recipients.drain(..) {
+        for recipient in outbound_recipients.into_iter() {
             debug!(
                 "{:?}: Advertize {} blocks to outbound peer {}",
                 &self.local_peer,
@@ -3379,7 +3381,7 @@ impl PeerNetwork {
                 &blocks,
             )?;
         }
-        for recipient in inbound_recipients.drain(..) {
+        for recipient in inbound_recipients.into_iter() {
             debug!(
                 "{:?}: Advertize {} blocks to inbound peer {}",
                 &self.local_peer,
@@ -3404,14 +3406,14 @@ impl PeerNetwork {
         availability_data: BlocksAvailableMap,
         microblocks: HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
     ) -> Result<(usize, usize), net_error> {
-        let (mut outbound_recipients, mut inbound_recipients) =
+        let (outbound_recipients, inbound_recipients) =
             self.find_block_recipients(&availability_data)?;
         debug!("{:?}: Advertize {} confirmed microblock streams to {} inbound peers, {} outbound peers", &self.local_peer, availability_data.len(), outbound_recipients.len(), inbound_recipients.len());
 
         let num_inbound = inbound_recipients.len();
         let num_outbound = outbound_recipients.len();
 
-        for recipient in outbound_recipients.drain(..) {
+        for recipient in outbound_recipients.into_iter() {
             debug!(
                 "{:?}: Advertize {} confirmed microblock streams to outbound peer {}",
                 &self.local_peer,
@@ -3424,7 +3426,7 @@ impl PeerNetwork {
                 &microblocks,
             )?;
         }
-        for recipient in inbound_recipients.drain(..) {
+        for recipient in inbound_recipients.into_iter() {
             debug!(
                 "{:?}: Advertize {} confirmed microblock streams to inbound peer {}",
                 &self.local_peer,

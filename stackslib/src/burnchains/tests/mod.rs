@@ -178,7 +178,7 @@ impl TestMiner {
     }
 
     pub fn next_VRF_key(&mut self) -> VRFPrivateKey {
-        let pk = if self.vrf_keys.len() == 0 {
+        let pk = if self.vrf_keys.is_empty() {
             // first key is simply the 32-byte hash of the secret state
             let mut buf: Vec<u8> = vec![];
             for i in 0..self.privks.len() {
@@ -204,7 +204,7 @@ impl TestMiner {
     }
 
     pub fn next_microblock_privkey(&mut self) -> StacksPrivateKey {
-        let pk = if self.microblock_privks.len() == 0 {
+        let pk = if self.microblock_privks.is_empty() {
             // first key is simply the 32-byte hash of the secret state
             let mut buf: Vec<u8> = vec![];
             for i in 0..self.privks.len() {
@@ -644,7 +644,6 @@ impl TestBurnchainBlock {
     }
 
     pub fn mine_pox<
-        'a,
         T: BlockEventDispatcher,
         N: CoordinatorNotices,
         R: RewardSetProvider,
@@ -655,7 +654,7 @@ impl TestBurnchainBlock {
         &self,
         db: &mut SortitionDB,
         burnchain: &Burnchain,
-        coord: &mut ChainsCoordinator<'a, T, N, R, CE, FE, B>,
+        coord: &mut ChainsCoordinator<'_, T, N, R, CE, FE, B>,
     ) -> BlockSnapshot {
         let mut indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
         let parent_hdr = indexer
@@ -783,7 +782,6 @@ impl TestBurnchainFork {
     }
 
     pub fn mine_pending_blocks_pox<
-        'a,
         T: BlockEventDispatcher,
         N: CoordinatorNotices,
         R: RewardSetProvider,
@@ -794,7 +792,7 @@ impl TestBurnchainFork {
         &mut self,
         db: &mut SortitionDB,
         burnchain: &Burnchain,
-        coord: &mut ChainsCoordinator<'a, T, N, R, CE, FE, B>,
+        coord: &mut ChainsCoordinator<'_, T, N, R, CE, FE, B>,
     ) -> BlockSnapshot {
         let mut snapshot = {
             let ic = db.index_conn();
@@ -858,7 +856,7 @@ fn process_next_sortition(
     let mut next_commits = vec![];
     let mut next_prev_keys = vec![];
 
-    if prev_keys.len() > 0 {
+    if !prev_keys.is_empty() {
         assert_eq!(miners.len(), prev_keys.len());
 
         // make a Stacks block (hash) for each of the prior block's keys
@@ -1035,13 +1033,13 @@ fn mine_10_stacks_blocks_2_forks_disjoint() {
     let mut miners_1 = vec![];
     let mut miners_2 = vec![];
 
-    let mut miners_drain = miners.drain(..);
+    let mut miners_iter = miners.into_iter();
     for i in 0..5 {
-        let m = miners_drain.next().unwrap();
+        let m = miners_iter.next().unwrap();
         miners_1.push(m);
     }
     for i in 0..5 {
-        let m = miners_drain.next().unwrap();
+        let m = miners_iter.next().unwrap();
         miners_2.push(m);
     }
 
@@ -1150,13 +1148,13 @@ fn mine_10_stacks_blocks_2_forks_disjoint_same_blocks() {
     let mut miners_1 = vec![];
     let mut miners_2 = vec![];
 
-    let mut miners_drain = miners.drain(..);
+    let mut miners_iter = miners.into_iter();
     for i in 0..5 {
-        let m = miners_drain.next().unwrap();
+        let m = miners_iter.next().unwrap();
         miners_1.push(m);
     }
     for i in 0..5 {
-        let m = miners_drain.next().unwrap();
+        let m = miners_iter.next().unwrap();
         miners_2.push(m);
     }
 

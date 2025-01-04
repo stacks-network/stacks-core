@@ -1443,7 +1443,7 @@ impl ConversationP2P {
             peer_dbconn,
             self.network_id,
             epoch.network_epoch,
-            (get_epoch_time_secs() as u64).saturating_sub(self.connection.options.max_neighbor_age),
+            get_epoch_time_secs().saturating_sub(self.connection.options.max_neighbor_age),
             MAX_NEIGHBORS_DATA_LEN,
             chain_view.burn_block_height,
             false,
@@ -3253,7 +3253,7 @@ mod test {
         for i in prev_snapshot.block_height..chain_view.burn_block_height + 1 {
             let mut next_snapshot = prev_snapshot.clone();
 
-            let big_i = Uint256::from_u64(i as u64);
+            let big_i = Uint256::from_u64(i);
             let mut big_i_bytes_32 = [0u8; 32];
             let mut big_i_bytes_20 = [0u8; 20];
             big_i_bytes_32.copy_from_slice(&big_i.to_u8_slice());
@@ -5576,7 +5576,7 @@ mod test {
 
             let getblocksdata_1 = GetBlocksInv {
                 consensus_hash: convo_1_ancestor.consensus_hash,
-                num_blocks: 10 as u16,
+                num_blocks: 10,
             };
             let getblocksdata_1_msg = convo_1
                 .sign_message(

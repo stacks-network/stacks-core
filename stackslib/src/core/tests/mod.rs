@@ -1211,10 +1211,10 @@ fn test_iterate_candidates_concurrent_write_lock() {
 
         mempool_tx.commit().unwrap();
     }
-    assert!(expected_addr_nonces.len() > 0);
+    assert!(!expected_addr_nonces.is_empty());
 
     let all_addr_nonces = db_get_all_nonces(mempool.conn()).unwrap();
-    assert_eq!(all_addr_nonces.len(), 0);
+    assert!(all_addr_nonces.is_empty());
 
     // start a thread that holds a write-lock on the mempool
     let write_thread = std::thread::spawn(move || {
@@ -1397,7 +1397,7 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
     let chainstate_path = chainstate_path(&path_name);
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
-    let mut txs = codec_all_transactions(
+    let txs = codec_all_transactions(
         &TransactionVersion::Testnet,
         0x80000000,
         &TransactionAnchorMode::Any,
@@ -1409,7 +1409,7 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
     let mut mempool_tx = mempool.tx_begin().unwrap();
 
     eprintln!("add all txs");
-    for (i, mut tx) in txs.drain(..).enumerate() {
+    for (i, mut tx) in txs.into_iter().enumerate() {
         // make sure each address is unique per tx (not the case in codec_all_transactions)
         let origin_address = StacksAddress {
             version: 22,
@@ -1992,8 +1992,7 @@ fn test_txtags() {
 
         let txtags = mempool.get_txtags(&seed).unwrap();
         let len_txtags = all_txtags.len();
-        let last_txtags =
-            &all_txtags[len_txtags.saturating_sub(BLOOM_COUNTER_DEPTH as usize)..len_txtags];
+        let last_txtags = &all_txtags[len_txtags.saturating_sub(BLOOM_COUNTER_DEPTH)..len_txtags];
 
         let mut expected_txtag_set = HashSet::new();
         for txtags in last_txtags.iter() {
@@ -2240,7 +2239,7 @@ fn test_find_next_missing_transactions() {
             txid.clone(),
             tx_bytes,
             tx_fee,
-            block_height as u64,
+            block_height,
             &origin_addr,
             origin_nonce,
             &sponsor_addr,
@@ -2375,9 +2374,9 @@ fn test_find_next_missing_transactions() {
             )
             .unwrap();
         assert!(txs.len() <= page_size as usize);
-        assert!(num_visited <= page_size as u64);
+        assert!(num_visited <= page_size);
 
-        if txs.len() == 0 {
+        if txs.is_empty() {
             assert!(next_page_opt.is_none());
             break;
         }
@@ -2414,9 +2413,9 @@ fn test_find_next_missing_transactions() {
         eprintln!("find_next_missing_transactions with empty bloom filter took {} ms to serve {} transactions", ts_after.saturating_sub(ts_before), page_size);
 
         assert!(txs.len() <= page_size as usize);
-        assert!(num_visited <= page_size as u64);
+        assert!(num_visited <= page_size);
 
-        if txs.len() == 0 {
+        if txs.is_empty() {
             assert!(next_page_opt.is_none());
             break;
         }

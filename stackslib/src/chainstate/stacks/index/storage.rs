@@ -103,7 +103,7 @@ impl<T: MarfTrieId> BlockMap for TrieFileStorage<T> {
     }
 }
 
-impl<'a, T: MarfTrieId> BlockMap for TrieStorageConnection<'a, T> {
+impl<T: MarfTrieId> BlockMap for TrieStorageConnection<'_, T> {
     type TrieId = T;
 
     fn get_block_hash(&self, id: u32) -> Result<T, Error> {
@@ -142,7 +142,7 @@ impl<'a, T: MarfTrieId> BlockMap for TrieStorageConnection<'a, T> {
     }
 }
 
-impl<'a, T: MarfTrieId> BlockMap for TrieStorageTransaction<'a, T> {
+impl<T: MarfTrieId> BlockMap for TrieStorageTransaction<'_, T> {
     type TrieId = T;
 
     fn get_block_hash(&self, id: u32) -> Result<T, Error> {
@@ -925,7 +925,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
         data.push((root_node, root_hash));
 
-        while frontier.len() > 0 {
+        while !frontier.is_empty() {
             let next_ptr = frontier
                 .pop_front()
                 .expect("BUG: no ptr in non-empty frontier");
@@ -1162,7 +1162,7 @@ enum SqliteConnection<'a> {
     Tx(Transaction<'a>),
 }
 
-impl<'a> Deref for SqliteConnection<'a> {
+impl Deref for SqliteConnection<'_> {
     type Target = Connection;
     fn deref(&self) -> &Connection {
         match self {
@@ -1322,7 +1322,7 @@ impl<T: MarfTrieId> TrieStorageTransientData<T> {
 }
 
 impl<T: MarfTrieId> TrieFileStorage<T> {
-    pub fn connection<'a>(&'a mut self) -> TrieStorageConnection<'a, T> {
+    pub fn connection(&mut self) -> TrieStorageConnection<'_, T> {
         TrieStorageConnection {
             db: SqliteConnection::ConnRef(&self.db),
             db_path: &self.db_path,
@@ -1338,7 +1338,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         }
     }
 
-    pub fn transaction<'a>(&'a mut self) -> Result<TrieStorageTransaction<'a, T>, Error> {
+    pub fn transaction(&mut self) -> Result<TrieStorageTransaction<'_, T>, Error> {
         if self.readonly() {
             return Err(Error::ReadOnlyError);
         }
@@ -1363,7 +1363,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         &self.db
     }
 
-    pub fn sqlite_tx<'a>(&'a mut self) -> Result<Transaction<'a>, db_error> {
+    pub fn sqlite_tx(&mut self) -> Result<Transaction<'_>, db_error> {
         tx_begin_immediate(&mut self.db)
     }
 
@@ -1956,7 +1956,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     }
 }
 
-impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
+impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
     pub fn readonly(&self) -> bool {
         self.data.readonly
     }
