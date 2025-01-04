@@ -93,7 +93,7 @@ impl BitcoinTxInputStructured {
         segwit: bool,
         input_txid: (Txid, u32),
     ) -> Option<BitcoinTxInputStructured> {
-        if num_sigs < 1 || pubkey_pushbytes.len() < 1 || pubkey_pushbytes.len() < num_sigs {
+        if num_sigs < 1 || pubkey_pushbytes.is_empty() || pubkey_pushbytes.len() < num_sigs {
             test_debug!(
                 "Not a multisig script: num_sigs = {}, num_pubkeys <= {}",
                 num_sigs,
@@ -153,7 +153,7 @@ impl BitcoinTxInputStructured {
         pubkey_vecs: &[Vec<u8>],
         input_txid: (Txid, u32),
     ) -> Option<BitcoinTxInputStructured> {
-        if num_sigs < 1 || pubkey_vecs.len() < 1 || pubkey_vecs.len() < num_sigs {
+        if num_sigs < 1 || pubkey_vecs.is_empty() || pubkey_vecs.len() < num_sigs {
             test_debug!(
                 "Not a multisig script: num_sigs = {}, num_pubkeys <= {}",
                 num_sigs,

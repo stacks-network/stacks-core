@@ -529,7 +529,7 @@ impl SpvClient {
         headers: &Vec<LoneBlockHeader>,
         check_txcount: bool,
     ) -> Result<(), btc_error> {
-        if headers.len() == 0 {
+        if headers.is_empty() {
             return Ok(());
         }
 
@@ -945,7 +945,7 @@ impl SpvClient {
     ) -> Result<(), btc_error> {
         assert!(self.readwrite, "SPV header DB is open read-only");
 
-        if block_headers.len() == 0 {
+        if block_headers.is_empty() {
             // no-op
             return Ok(());
         }
@@ -996,7 +996,7 @@ impl SpvClient {
         block_headers: Vec<LoneBlockHeader>,
     ) -> Result<(), btc_error> {
         assert!(self.readwrite, "SPV header DB is open read-only");
-        if block_headers.len() == 0 {
+        if block_headers.is_empty() {
             // no-op
             return Ok(());
         }
@@ -1137,7 +1137,7 @@ impl SpvClient {
         ]);
         let max_target_bits = BlockHeader::compact_target_from_u256(&max_target);
 
-        let parent_header = if headers_in_range.len() > 0 {
+        let parent_header = if !headers_in_range.is_empty() {
             headers_in_range[0]
         } else {
             match self.read_block_header(current_header_height - 1)? {

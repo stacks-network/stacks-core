@@ -120,7 +120,7 @@ impl MinerStatus {
     }
 
     pub fn is_blocked(&self) -> bool {
-        if self.blockers.len() > 0 {
+        if !self.blockers.is_empty() {
             debug!("Miner: blocked by {:?}", &self.blockers);
             true
         } else {
@@ -876,7 +876,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
     ) -> Result<StacksMicroblock, Error> {
         let miner_pubkey_hash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(miner_key));
-        if txs.len() == 0 {
+        if txs.is_empty() {
             return Err(Error::NoTransactionsToMine);
         }
 
@@ -1387,7 +1387,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                     },
                 );
 
-                if to_drop_and_blacklist.len() > 0 {
+                if !to_drop_and_blacklist.is_empty() {
                     debug!(
                         "Dropping and blacklisting {} problematic transaction(s)",
                         &to_drop_and_blacklist.len()
@@ -1961,7 +1961,7 @@ impl StacksBlockBuilder {
             parent_microblocks.len()
         );
 
-        if parent_microblocks.len() == 0 {
+        if parent_microblocks.is_empty() {
             self.set_parent_microblock(&EMPTY_MICROBLOCK_PARENT_HASH, 0);
         } else {
             let num_mblocks = parent_microblocks.len();
@@ -2122,12 +2122,12 @@ impl StacksBlockBuilder {
         let block = builder.mine_anchored_block(&mut epoch_tx);
         let size = builder.bytes_so_far;
 
-        let mblock_opt = if mblock_txs.len() > 0 {
+        let mblock_opt = if mblock_txs.is_empty() {
+            None
+        } else {
             builder.micro_txs.append(&mut mblock_txs);
             let mblock = builder.mine_next_microblock()?;
             Some(mblock)
-        } else {
-            None
         };
 
         let cost = builder.epoch_finish(epoch_tx)?;
@@ -2521,7 +2521,7 @@ impl StacksBlockBuilder {
                     }
                 }
 
-                if to_drop_and_blacklist.len() > 0 {
+                if !to_drop_and_blacklist.is_empty() {
                     let _ = mempool.drop_and_blacklist_txs(&to_drop_and_blacklist);
                 }
 

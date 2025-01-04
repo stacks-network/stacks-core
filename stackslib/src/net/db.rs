@@ -157,7 +157,7 @@ impl LocalPeer {
         info!(
             "Will be authenticating p2p messages with the following";
             "public key" => &Secp256k1PublicKey::from_private(&pkey).to_hex(),
-            "services" => &to_hex(&(services as u16).to_be_bytes()),
+            "services" => &to_hex(&services.to_be_bytes()),
             "Stacker DBs" => stacker_dbs.iter().map(|cid| format!("{}", &cid)).collect::<Vec<String>>().join(",")
         );
 
@@ -876,7 +876,7 @@ impl PeerDB {
 
     /// Re-key and return the new local peer
     pub fn rekey(&mut self, new_expire_block: u64) -> Result<LocalPeer, db_error> {
-        if new_expire_block > ((1 as u64) << 63) - 1 {
+        if new_expire_block > (1 << 63) - 1 {
             return Err(db_error::Overflow);
         }
 
@@ -1244,7 +1244,7 @@ impl PeerDB {
             let empty_key = StacksPublicKey::from_private(&StacksPrivateKey::new());
             let mut empty_neighbor = Neighbor::empty(&nk, &empty_key, 0);
 
-            empty_neighbor.allowed = allow_deadline as i64;
+            empty_neighbor.allowed = allow_deadline;
 
             debug!("Preemptively allow peer {:?}", &nk);
             if !PeerDB::try_insert_peer(tx, &empty_neighbor, &[])? {
@@ -2821,7 +2821,7 @@ mod test {
                 },
                 public_key: Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
                 expire_block: (i + 23456) as u64,
-                last_contact_time: (1552509642 + (i as u64)) as u64,
+                last_contact_time: (1552509642 + (i as u64)),
                 allowed: (now_secs + 600) as i64,
                 denied: -1,
                 asn: (34567 + i) as u32,
@@ -2841,7 +2841,7 @@ mod test {
                 },
                 public_key: Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
                 expire_block: (i + 23456) as u64,
-                last_contact_time: (1552509642 + (i as u64)) as u64,
+                last_contact_time: (1552509642 + (i as u64)),
                 allowed: 0,
                 denied: -1,
                 asn: (34567 + i) as u32,
@@ -2925,7 +2925,7 @@ mod test {
                 },
                 public_key: Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
                 expire_block: (i + 23456) as u64,
-                last_contact_time: (1552509642 + (i as u64)) as u64,
+                last_contact_time: (1552509642 + (i as u64)),
                 allowed: -1,
                 denied: -1,
                 asn: (34567 + i) as u32,
@@ -2946,7 +2946,7 @@ mod test {
                 },
                 public_key: Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
                 expire_block: (i + 23456) as u64,
-                last_contact_time: (1552509642 + (i as u64)) as u64,
+                last_contact_time: (1552509642 + (i as u64)),
                 allowed: -1,
                 denied: -1,
                 asn: (34567 + i) as u32,

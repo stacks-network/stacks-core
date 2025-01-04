@@ -1745,7 +1745,7 @@ impl PeerNetwork {
 
         self.can_register_peer(nk, outbound).and_then(|_| {
             let other_events = self.get_pubkey_events(pubkh);
-            if other_events.len() > 0 {
+            if !other_events.is_empty() {
                 for event_id in other_events.into_iter() {
                     if let Some(convo) = self.peers.get(&event_id) {
                         // only care if we're trying to connect in the same direction
@@ -2551,7 +2551,7 @@ impl PeerNetwork {
         // flush each outgoing conversation
         let mut relay_handles = std::mem::replace(&mut self.relay_handles, HashMap::new());
         for (event_id, handle_list) in relay_handles.iter_mut() {
-            if handle_list.len() == 0 {
+            if handle_list.is_empty() {
                 debug!("No handles for event {}", event_id);
                 drained.push(*event_id);
                 continue;
@@ -2563,7 +2563,7 @@ impl PeerNetwork {
                 event_id
             );
 
-            while handle_list.len() > 0 {
+            while !handle_list.is_empty() {
                 debug!("Flush {} relay handles", handle_list.len());
                 let res = self.with_p2p_convo(*event_id, |_network, convo, client_sock| {
                     if let Some(handle) = handle_list.front_mut() {
@@ -2654,7 +2654,7 @@ impl PeerNetwork {
     /// Return Err(..) on failure
     #[cfg_attr(test, mutants::skip)]
     fn begin_learn_public_ip(&mut self) -> Result<bool, net_error> {
-        if self.peers.len() == 0 {
+        if self.peers.is_empty() {
             return Err(net_error::NoSuchNeighbor);
         }
 
@@ -3268,13 +3268,13 @@ impl PeerNetwork {
         }
 
         let reward_cycle_start = self.antientropy_start_reward_cycle;
-        let reward_cycle_finish =
-            self.antientropy_start_reward_cycle
-                .saturating_sub(self.connection_opts.inv_reward_cycles) as u64;
+        let reward_cycle_finish = self
+            .antientropy_start_reward_cycle
+            .saturating_sub(self.connection_opts.inv_reward_cycles);
 
         self.antientropy_start_reward_cycle = reward_cycle_finish;
 
-        if neighbor_keys.len() == 0 {
+        if neighbor_keys.is_empty() {
             return;
         }
 
@@ -5656,7 +5656,7 @@ mod test {
                     p2p.process_connecting_sockets(&mut p2p_poll_state);
 
                     let mut banned = p2p.process_bans().unwrap();
-                    if banned.len() > 0 {
+                    if !banned.is_empty() {
                         test_debug!("Banned {} peer(s)", banned.len());
                     }
 
@@ -5686,7 +5686,7 @@ mod test {
             }
 
             let banned = rx.recv().unwrap();
-            assert!(banned.len() >= 1);
+            assert!(!banned.is_empty());
 
             p2p_thread.join().unwrap();
             test_debug!("dispatcher thread joined");

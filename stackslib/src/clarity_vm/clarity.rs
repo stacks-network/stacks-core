@@ -1906,7 +1906,7 @@ mod tests {
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
@@ -1914,8 +1914,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([0 as u8; 32]),
-                &StacksBlockId([1 as u8; 32]),
+                &StacksBlockId([0; 32]),
+                &StacksBlockId([1; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -1959,7 +1959,7 @@ mod tests {
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
@@ -1967,8 +1967,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([0 as u8; 32]),
-                &StacksBlockId([1 as u8; 32]),
+                &StacksBlockId([0; 32]),
+                &StacksBlockId([1; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2020,7 +2020,7 @@ mod tests {
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
@@ -2028,8 +2028,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([0 as u8; 32]),
-                &StacksBlockId([1 as u8; 32]),
+                &StacksBlockId([0; 32]),
+                &StacksBlockId([1; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2132,7 +2132,7 @@ mod tests {
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
@@ -2140,8 +2140,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([0 as u8; 32]),
-                &StacksBlockId([1 as u8; 32]),
+                &StacksBlockId([0; 32]),
+                &StacksBlockId([1; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2188,7 +2188,7 @@ mod tests {
         }
 
         let mut marf = clarity_instance.destroy();
-        let mut conn = marf.begin_read_only(Some(&StacksBlockId([1 as u8; 32])));
+        let mut conn = marf.begin_read_only(Some(&StacksBlockId([1; 32])));
         assert!(conn.get_contract_hash(&contract_identifier).is_ok());
     }
 
@@ -2201,7 +2201,7 @@ mod tests {
         {
             let mut conn = clarity_instance.begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2235,7 +2235,7 @@ mod tests {
 
         let mut marf = clarity_instance.destroy();
 
-        let mut conn = marf.begin(&StacksBlockId::sentinel(), &StacksBlockId([0 as u8; 32]));
+        let mut conn = marf.begin(&StacksBlockId::sentinel(), &StacksBlockId([0; 32]));
         // should not be in the marf.
         assert_eq!(
             conn.get_contract_hash(&contract_identifier).unwrap_err(),
@@ -2273,7 +2273,7 @@ mod tests {
         confirmed_clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
@@ -2295,7 +2295,7 @@ mod tests {
         // make an unconfirmed block off of the confirmed block
         {
             let mut conn = clarity_instance.begin_unconfirmed(
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2328,7 +2328,7 @@ mod tests {
         // contract is still there, in unconfirmed status
         {
             let mut conn = clarity_instance.begin_unconfirmed(
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2347,7 +2347,7 @@ mod tests {
         // rolled back (but that should only drop the current TrieRAM)
         {
             let mut conn = clarity_instance.begin_unconfirmed(
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2365,7 +2365,7 @@ mod tests {
         // contract is now absent, now that we did a rollback of unconfirmed state
         {
             let mut conn = clarity_instance.begin_unconfirmed(
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2380,7 +2380,7 @@ mod tests {
         }
 
         let mut marf = clarity_instance.destroy();
-        let mut conn = marf.begin_unconfirmed(&StacksBlockId([0 as u8; 32]));
+        let mut conn = marf.begin_unconfirmed(&StacksBlockId([0; 32]));
 
         // should not be in the marf.
         assert_eq!(
@@ -2411,7 +2411,7 @@ mod tests {
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
@@ -2419,8 +2419,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([0 as u8; 32]),
-                &StacksBlockId([1 as u8; 32]),
+                &StacksBlockId([0; 32]),
+                &StacksBlockId([1; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2631,7 +2631,7 @@ mod tests {
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
@@ -2639,8 +2639,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([0 as u8; 32]),
-                &StacksBlockId([1 as u8; 32]),
+                &StacksBlockId([0; 32]),
+                &StacksBlockId([1; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2792,7 +2792,7 @@ mod tests {
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
@@ -2800,8 +2800,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([0 as u8; 32]),
-                &StacksBlockId([1 as u8; 32]),
+                &StacksBlockId([0; 32]),
+                &StacksBlockId([1; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2842,8 +2842,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([1 as u8; 32]),
-                &StacksBlockId([2 as u8; 32]),
+                &StacksBlockId([1; 32]),
+                &StacksBlockId([2; 32]),
                 &TEST_HEADER_DB,
                 &burn_state_db,
             );

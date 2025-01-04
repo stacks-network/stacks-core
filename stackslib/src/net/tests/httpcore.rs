@@ -316,7 +316,7 @@ fn test_http_request_type_codec() {
             str::from_utf8(&expected_bytes).unwrap()
         );
 
-        if expected_http_body.len() > 0 {
+        if !expected_http_body.is_empty() {
             expected_http_preamble.set_content_type(HttpContentType::Bytes);
             expected_http_preamble.set_content_length(expected_http_body.len() as u32)
         }
