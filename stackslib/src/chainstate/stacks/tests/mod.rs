@@ -86,7 +86,7 @@ pub fn copy_dir(src_dir: &str, dest_dir: &str) -> Result<(), io::Error> {
     let mut dir_queue = VecDeque::new();
     dir_queue.push_back("/".to_string());
 
-    while dir_queue.len() > 0 {
+    while !dir_queue.is_empty() {
         let next_dir = dir_queue.pop_front().unwrap();
         let next_src_dir = path_join(&src_dir, &next_dir);
         let next_dest_dir = path_join(&dest_dir, &next_dir);
@@ -140,7 +140,7 @@ impl TestMinerTracePoint {
         stacks_block: StacksBlock,
         microblocks: Vec<StacksMicroblock>,
         block_commit: LeaderBlockCommitOp,
-    ) -> () {
+    ) {
         self.fork_snapshots.insert(miner_id, fork_snapshot);
         self.stacks_blocks.insert(miner_id, stacks_block);
         self.microblocks.insert(miner_id, microblocks);
@@ -392,7 +392,7 @@ impl TestStacksNode {
         key_register_op
     }
 
-    pub fn add_key_register_op(&mut self, op: &LeaderKeyRegisterOp) -> () {
+    pub fn add_key_register_op(&mut self, op: &LeaderKeyRegisterOp) {
         self.prev_keys.push(op.clone());
         self.key_ops
             .insert(op.public_key.clone(), self.prev_keys.len() - 1);
@@ -974,7 +974,7 @@ pub fn get_last_microblock_header(
 
     let last_microblock_header_opt = match last_microblocks_opt {
         Some(last_microblocks) => {
-            if last_microblocks.len() == 0 {
+            if last_microblocks.is_empty() {
                 None
             } else {
                 let l = last_microblocks.len() - 1;
@@ -1421,7 +1421,7 @@ pub fn instantiate_and_exec(
     chain_id: u32,
     test_name: &str,
     balances: Vec<(StacksAddress, u64)>,
-    post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
+    post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx)>>,
 ) -> StacksChainState {
     let path = chainstate_path(test_name);
     match fs::metadata(&path) {

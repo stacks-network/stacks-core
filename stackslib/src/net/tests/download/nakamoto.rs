@@ -102,7 +102,7 @@ impl NakamotoDownloadStateMachine {
     }
 }
 
-impl<'a> NakamotoStagingBlocksConnRef<'a> {
+impl NakamotoStagingBlocksConnRef<'_> {
     pub fn load_nakamoto_tenure(
         &self,
         tip: &StacksBlockId,
@@ -474,8 +474,8 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
     .unwrap()
     .unwrap();
 
-    assert!(unconfirmed_tenure.len() > 0);
-    assert!(last_confirmed_tenure.len() > 0);
+    assert!(!unconfirmed_tenure.is_empty());
+    assert!(!last_confirmed_tenure.is_empty());
 
     assert_eq!(
         unconfirmed_tenure.first().as_ref().unwrap().block_id(),

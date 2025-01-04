@@ -175,9 +175,9 @@ macro_rules! using {
     }};
 }
 
-impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
+impl ClarityBlockConnection<'_, '_> {
     #[cfg(test)]
-    pub fn new_test_conn(
+    pub fn new_test_conn<'a, 'b>(
         datastore: WritableMarfStore<'a>,
         header_db: &'b dyn HeadersDB,
         burn_state_db: &'b dyn BurnStateDB,
@@ -196,7 +196,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
     /// Reset the block's total execution to the given cost, if there is a cost tracker at all.
     /// Used by the miner to "undo" applying a transaction that exceeded the budget.
-    pub fn reset_block_cost(&mut self, cost: ExecutionCost) -> () {
+    pub fn reset_block_cost(&mut self, cost: ExecutionCost) {
         if let Some(ref mut cost_tracker) = self.cost_track {
             cost_tracker.set_total(cost);
         }
@@ -632,7 +632,7 @@ impl ClarityInstance {
     }
 }
 
-impl<'a, 'b> ClarityConnection for ClarityBlockConnection<'a, 'b> {
+impl ClarityConnection for ClarityBlockConnection<'_, '_> {
     /// Do something with ownership of the underlying DB that involves only reading.
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where
@@ -696,7 +696,7 @@ impl ClarityConnection for ClarityReadOnlyConnection<'_> {
     }
 }
 
-impl<'a> PreCommitClarityBlock<'a> {
+impl PreCommitClarityBlock<'_> {
     pub fn commit(self) {
         debug!("Committing Clarity block connection"; "index_block" => %self.commit_to);
         self.datastore
@@ -705,7 +705,7 @@ impl<'a> PreCommitClarityBlock<'a> {
     }
 }
 
-impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
+impl<'a> ClarityBlockConnection<'a, '_> {
     /// Rolls back all changes in the current block by
     /// (1) dropping all writes from the current MARF tip,
     /// (2) rolling back side-storage
@@ -1597,7 +1597,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
     }
 }
 
-impl<'a, 'b> ClarityConnection for ClarityTransactionConnection<'a, 'b> {
+impl ClarityConnection for ClarityTransactionConnection<'_, '_> {
     /// Do something with ownership of the underlying DB that involves only reading.
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where
@@ -1636,7 +1636,7 @@ impl<'a, 'b> ClarityConnection for ClarityTransactionConnection<'a, 'b> {
     }
 }
 
-impl<'a, 'b> Drop for ClarityTransactionConnection<'a, 'b> {
+impl Drop for ClarityTransactionConnection<'_, '_> {
     fn drop(&mut self) {
         if thread::panicking() {
             // if the thread is panicking, we've likely lost our cost_tracker handle,
@@ -1656,7 +1656,7 @@ impl<'a, 'b> Drop for ClarityTransactionConnection<'a, 'b> {
     }
 }
 
-impl<'a, 'b> TransactionConnection for ClarityTransactionConnection<'a, 'b> {
+impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
     fn with_abort_callback<F, A, R, E>(
         &mut self,
         to_do: F,
@@ -1730,7 +1730,7 @@ impl<'a, 'b> TransactionConnection for ClarityTransactionConnection<'a, 'b> {
     }
 }
 
-impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
+impl ClarityTransactionConnection<'_, '_> {
     /// Do something to the underlying DB that involves writing.
     pub fn with_clarity_db<F, R>(&mut self, to_do: F) -> Result<R, Error>
     where
@@ -1906,7 +1906,7 @@ mod tests {
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
@@ -1914,8 +1914,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([0 as u8; 32]),
-                &StacksBlockId([1 as u8; 32]),
+                &StacksBlockId([0; 32]),
+                &StacksBlockId([1; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -1959,7 +1959,7 @@ mod tests {
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
@@ -1967,8 +1967,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([0 as u8; 32]),
-                &StacksBlockId([1 as u8; 32]),
+                &StacksBlockId([0; 32]),
+                &StacksBlockId([1; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2020,7 +2020,7 @@ mod tests {
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
@@ -2028,8 +2028,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([0 as u8; 32]),
-                &StacksBlockId([1 as u8; 32]),
+                &StacksBlockId([0; 32]),
+                &StacksBlockId([1; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2132,7 +2132,7 @@ mod tests {
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
@@ -2140,8 +2140,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([0 as u8; 32]),
-                &StacksBlockId([1 as u8; 32]),
+                &StacksBlockId([0; 32]),
+                &StacksBlockId([1; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2188,7 +2188,7 @@ mod tests {
         }
 
         let mut marf = clarity_instance.destroy();
-        let mut conn = marf.begin_read_only(Some(&StacksBlockId([1 as u8; 32])));
+        let mut conn = marf.begin_read_only(Some(&StacksBlockId([1; 32])));
         assert!(conn.get_contract_hash(&contract_identifier).is_ok());
     }
 
@@ -2201,7 +2201,7 @@ mod tests {
         {
             let mut conn = clarity_instance.begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2235,7 +2235,7 @@ mod tests {
 
         let mut marf = clarity_instance.destroy();
 
-        let mut conn = marf.begin(&StacksBlockId::sentinel(), &StacksBlockId([0 as u8; 32]));
+        let mut conn = marf.begin(&StacksBlockId::sentinel(), &StacksBlockId([0; 32]));
         // should not be in the marf.
         assert_eq!(
             conn.get_contract_hash(&contract_identifier).unwrap_err(),
@@ -2273,7 +2273,7 @@ mod tests {
         confirmed_clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
@@ -2295,7 +2295,7 @@ mod tests {
         // make an unconfirmed block off of the confirmed block
         {
             let mut conn = clarity_instance.begin_unconfirmed(
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2328,7 +2328,7 @@ mod tests {
         // contract is still there, in unconfirmed status
         {
             let mut conn = clarity_instance.begin_unconfirmed(
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2347,7 +2347,7 @@ mod tests {
         // rolled back (but that should only drop the current TrieRAM)
         {
             let mut conn = clarity_instance.begin_unconfirmed(
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2365,7 +2365,7 @@ mod tests {
         // contract is now absent, now that we did a rollback of unconfirmed state
         {
             let mut conn = clarity_instance.begin_unconfirmed(
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2380,7 +2380,7 @@ mod tests {
         }
 
         let mut marf = clarity_instance.destroy();
-        let mut conn = marf.begin_unconfirmed(&StacksBlockId([0 as u8; 32]));
+        let mut conn = marf.begin_unconfirmed(&StacksBlockId([0; 32]));
 
         // should not be in the marf.
         assert_eq!(
@@ -2411,7 +2411,7 @@ mod tests {
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
@@ -2419,8 +2419,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([0 as u8; 32]),
-                &StacksBlockId([1 as u8; 32]),
+                &StacksBlockId([0; 32]),
+                &StacksBlockId([1; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2631,7 +2631,7 @@ mod tests {
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
@@ -2639,8 +2639,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([0 as u8; 32]),
-                &StacksBlockId([1 as u8; 32]),
+                &StacksBlockId([0; 32]),
+                &StacksBlockId([1; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2792,7 +2792,7 @@ mod tests {
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
-                &StacksBlockId([0 as u8; 32]),
+                &StacksBlockId([0; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             )
@@ -2800,8 +2800,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([0 as u8; 32]),
-                &StacksBlockId([1 as u8; 32]),
+                &StacksBlockId([0; 32]),
+                &StacksBlockId([1; 32]),
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
@@ -2842,8 +2842,8 @@ mod tests {
 
         {
             let mut conn = clarity_instance.begin_block(
-                &StacksBlockId([1 as u8; 32]),
-                &StacksBlockId([2 as u8; 32]),
+                &StacksBlockId([1; 32]),
+                &StacksBlockId([2; 32]),
                 &TEST_HEADER_DB,
                 &burn_state_db,
             );

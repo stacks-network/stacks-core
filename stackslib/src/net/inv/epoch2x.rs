@@ -175,8 +175,8 @@ impl PeerBlocksInv {
         assert!(block_height >= self.first_block_height);
         let sortition_height = block_height - self.first_block_height;
 
-        self.num_sortitions = if self.num_sortitions < sortition_height + (bitlen as u64) {
-            sortition_height + (bitlen as u64)
+        self.num_sortitions = if self.num_sortitions < sortition_height + bitlen {
+            sortition_height + bitlen
         } else {
             self.num_sortitions
         };
@@ -1007,7 +1007,7 @@ impl InvState {
         peers: HashSet<NeighborKey>,
         bootstrap_peers: &HashSet<NeighborKey>,
         max_neighbors: usize,
-    ) -> () {
+    ) {
         for (nk, stats) in self.block_stats.iter_mut() {
             if stats.status != NodeStatus::Online {
                 stats.status = NodeStatus::Online;
@@ -1167,14 +1167,14 @@ impl InvState {
     }
 
     #[cfg(test)]
-    pub fn add_peer(&mut self, nk: NeighborKey, is_bootstrap_peer: bool) -> () {
+    pub fn add_peer(&mut self, nk: NeighborKey, is_bootstrap_peer: bool) {
         self.block_stats.insert(
             nk.clone(),
             NeighborBlockStats::new(nk, self.first_block_height, is_bootstrap_peer),
         );
     }
 
-    pub fn del_peer(&mut self, nk: &NeighborKey) -> () {
+    pub fn del_peer(&mut self, nk: &NeighborKey) {
         self.block_stats.remove(&nk);
     }
 
@@ -2400,7 +2400,7 @@ impl PeerNetwork {
                     &network.local_peer, inv_state.block_sortition_start,
                 );
 
-                if !inv_state.hint_learned_data && inv_state.block_stats.len() > 0 {
+                if !inv_state.hint_learned_data && !inv_state.block_stats.is_empty() {
                     // did a full scan without learning anything new
                     inv_state.last_rescanned_at = get_epoch_time_secs();
                     inv_state.hint_do_rescan = false;
@@ -2559,7 +2559,7 @@ impl PeerNetwork {
     }
 
     /// Initialize inv state
-    pub fn init_inv_sync_epoch2x(&mut self, sortdb: &SortitionDB) -> () {
+    pub fn init_inv_sync_epoch2x(&mut self, sortdb: &SortitionDB) {
         // find out who we'll be synchronizing with for the duration of this inv sync
         debug!(
             "{:?}: Initializing peer block inventory state",
@@ -2727,7 +2727,7 @@ impl PeerNetwork {
         // always-allowed peer?
         let mut finished_always_allowed_inv_sync = false;
 
-        if always_allowed.len() == 0 {
+        if always_allowed.is_empty() {
             // vacuously, we are done so we can return
             return true;
         }

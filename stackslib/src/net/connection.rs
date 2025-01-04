@@ -118,7 +118,7 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
     }
 
     /// deadline is in seconds
-    pub fn set_deadline(&mut self, dl: u64) -> () {
+    pub fn set_deadline(&mut self, dl: u64) {
         self.deadline = dl;
     }
 
@@ -689,7 +689,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
             }
             Err(net_error::UnderflowError(_)) => {
                 // not enough data to form a preamble yet
-                if bytes_consumed == 0 && bytes.len() > 0 {
+                if bytes_consumed == 0 && !bytes.is_empty() {
                     // preamble is too long
                     return Err(net_error::DeserializeError(
                         "Preamble size would exceed maximum allowed size".to_string(),
@@ -773,7 +773,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                     self.payload_ptr = 0;
                     self.buf = trailer;
 
-                    if self.buf.len() > 0 {
+                    if !self.buf.is_empty() {
                         test_debug!(
                             "Buffer has {} bytes remaining: {:?}",
                             self.buf.len(),
@@ -956,7 +956,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
 
         // we can buffer bytes faster than we can process messages, so be sure to drain the buffer
         // before returning.
-        if self.buf.len() > 0 {
+        if !self.buf.is_empty() {
             loop {
                 let mut consumed_message = false;
 
@@ -1093,7 +1093,7 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
     }
 
     fn begin_next_message(&mut self) -> Option<PipeRead> {
-        if self.outbox.len() == 0 {
+        if self.outbox.is_empty() {
             // nothing to send
             return None;
         }
@@ -1109,8 +1109,8 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
         pending_message_fd
     }
 
-    fn finish_message(&mut self) -> () {
-        assert!(self.outbox.len() > 0);
+    fn finish_message(&mut self) {
+        assert!(!self.outbox.is_empty());
 
         // wake up any receivers when (if) we get a reply
         let mut inflight_message = self.outbox.pop_front();
@@ -1468,7 +1468,7 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
     }
 
     /// set the public key
-    pub fn set_public_key(&mut self, pubk: Option<Secp256k1PublicKey>) -> () {
+    pub fn set_public_key(&mut self, pubk: Option<Secp256k1PublicKey>) {
         self.inbox.public_key = pubk;
     }
 
@@ -1560,7 +1560,7 @@ mod test {
             let mut i = 0;
 
             // push the message, and force pipes to go out of scope to close the write end
-            while pipes.len() > 0 {
+            while !pipes.is_empty() {
                 let mut p = pipes.remove(0);
                 protocol.write_message(&mut p, &messages[i]).unwrap();
                 i += 1;
@@ -1723,7 +1723,7 @@ mod test {
             let mut rhs = vec![];
 
             // push the message, and force pipes to go out of scope to close the write end
-            while handles.len() > 0 {
+            while !handles.is_empty() {
                 let mut rh = handles.remove(0);
                 protocol.write_message(&mut rh, &messages[i]).unwrap();
                 i += 1;
@@ -1987,12 +1987,12 @@ mod test {
         let mut serialized_ping = vec![];
         ping.consensus_serialize(&mut serialized_ping).unwrap();
         assert_eq!(
-            conn.outbox.socket_out_buf[0..(conn.outbox.socket_out_ptr as usize)],
-            serialized_ping[0..(conn.outbox.socket_out_ptr as usize)]
+            conn.outbox.socket_out_buf[0..conn.outbox.socket_out_ptr],
+            serialized_ping[0..conn.outbox.socket_out_ptr]
         );
 
         let mut half_ping =
-            conn.outbox.socket_out_buf.clone()[0..(conn.outbox.socket_out_ptr as usize)].to_vec();
+            conn.outbox.socket_out_buf.clone()[0..conn.outbox.socket_out_ptr].to_vec();
         let mut ping_buf_05 = vec![0; 2 * ping_size - (ping_size + ping_size / 2)];
 
         // flush the remaining half-ping
@@ -2095,7 +2095,7 @@ mod test {
 
         let pinger = thread::spawn(move || {
             let mut i = 0;
-            while pipes.len() > 0 {
+            while !pipes.is_empty() {
                 let mut p = pipes.remove(0);
                 i += 1;
 
@@ -2201,7 +2201,7 @@ mod test {
             let pinger = thread::spawn(move || {
                 let mut rhs = vec![];
 
-                while handle_vec.len() > 0 {
+                while !handle_vec.is_empty() {
                     let mut handle = handle_vec.remove(0);
                     handle.flush().unwrap();
                     rhs.push(handle);
@@ -2315,7 +2315,7 @@ mod test {
         let pinger = thread::spawn(move || {
             let mut rhs = vec![];
 
-            while handle_vec.len() > 0 {
+            while !handle_vec.is_empty() {
                 let mut handle = handle_vec.remove(0);
                 handle.flush().unwrap();
                 rhs.push(handle);

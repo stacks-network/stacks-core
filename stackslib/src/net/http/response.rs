@@ -133,7 +133,7 @@ impl HttpResponseContents {
             HttpResponseContents::RAM(ref mut buf) => {
                 // dump directly into the pipewrite
                 // TODO: zero-copy?
-                if buf.len() > 0 {
+                if !buf.is_empty() {
                     fd.write_all(&buf[..]).map_err(Error::WriteError)?;
                     buf.clear();
                 }
@@ -280,7 +280,7 @@ impl HttpResponsePreamble {
 
     /// Add a header.
     /// Reserved headers will not be directly added to self.headers.
-    pub fn add_header(&mut self, key: String, value: String) -> () {
+    pub fn add_header(&mut self, key: String, value: String) {
         let hdr = key.to_lowercase();
         if HttpReservedHeader::is_reserved(&hdr) {
             match HttpReservedHeader::try_from_str(&hdr, &value) {
@@ -336,7 +336,7 @@ impl HttpResponsePreamble {
         }
     }
 
-    pub fn add_CORS_headers(&mut self) -> () {
+    pub fn add_CORS_headers(&mut self) {
         self.headers
             .insert("Access-Control-Allow-Origin".to_string(), "*".to_string());
     }
