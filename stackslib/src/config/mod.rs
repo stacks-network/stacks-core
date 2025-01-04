@@ -1440,7 +1440,7 @@ impl BurnchainConfigFile {
             // check magic bytes and set if not defined
             let mainnet_magic = ConfigFile::mainnet().burnchain.unwrap().magic_bytes;
             if self.magic_bytes.is_none() {
-                self.magic_bytes = mainnet_magic.clone();
+                self.magic_bytes.clone_from(&mainnet_magic);
             }
             if self.magic_bytes != mainnet_magic {
                 return Err(format!(
@@ -1502,21 +1502,15 @@ impl BurnchainConfigFile {
                 .unwrap_or(default_burnchain_config.commit_anchor_block_within),
             peer_host: match self.peer_host.as_ref() {
                 Some(peer_host) => {
-                    // Using std::net::LookupHost would be preferable, but it's
-                    // unfortunately unstable at this point.
-                    // https://doc.rust-lang.org/1.6.0/std/net/struct.LookupHost.html
-                    let mut sock_addrs = format!("{peer_host}:1")
+                    format!("{}:1", &peer_host)
                         .to_socket_addrs()
-                        .map_err(|e| format!("Invalid burnchain.peer_host: {e}"))?;
-                    let sock_addr = match sock_addrs.next() {
-                        Some(addr) => addr,
-                        None => {
-                            return Err(format!(
-                                "No IP address could be queried for '{peer_host}'"
-                            ));
-                        }
-                    };
-                    format!("{}", sock_addr.ip())
+                        .map_err(|e| format!("Invalid burnchain.peer_host: {}", &e))?
+                        .next()
+                        .is_none()
+                        .then(|| {
+                            return format!("No IP address could be queried for '{}'", &peer_host);
+                        });
+                    peer_host.clone()
                 }
                 None => default_burnchain_config.peer_host,
             },

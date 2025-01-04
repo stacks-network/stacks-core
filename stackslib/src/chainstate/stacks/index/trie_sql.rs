@@ -399,7 +399,7 @@ pub fn write_trie_blob_to_unconfirmed<T: MarfTrieId>(
 }
 
 /// Open a trie blob. Returns a Blob<'a> readable/writeable handle to it.
-pub fn open_trie_blob<'a>(conn: &'a Connection, block_id: u32) -> Result<Blob<'a>, Error> {
+pub fn open_trie_blob(conn: &Connection, block_id: u32) -> Result<Blob<'_>, Error> {
     let blob = conn.blob_open(
         DatabaseName::Main,
         "marf_data",
@@ -411,7 +411,7 @@ pub fn open_trie_blob<'a>(conn: &'a Connection, block_id: u32) -> Result<Blob<'a
 }
 
 /// Open a trie blob. Returns a Blob<'a> readable handle to it.
-pub fn open_trie_blob_readonly<'a>(conn: &'a Connection, block_id: u32) -> Result<Blob<'a>, Error> {
+pub fn open_trie_blob_readonly(conn: &Connection, block_id: u32) -> Result<Blob<'_>, Error> {
     let blob = conn.blob_open(
         DatabaseName::Main,
         "marf_data",

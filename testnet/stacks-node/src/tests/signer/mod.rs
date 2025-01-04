@@ -594,24 +594,21 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                 .filter_map(|chunk| {
                     let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
                         .expect("Failed to deserialize SignerMessage");
-                    match message {
-                        SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) => {
-                            if accepted.signer_signature_hash == *signer_signature_hash
-                                && expected_signers.iter().any(|pk| {
-                                    pk.verify(
-                                        accepted.signer_signature_hash.bits(),
-                                        &accepted.signature,
-                                    )
-                                    .expect("Failed to verify signature")
-                                })
-                            {
-                                Some(accepted.signature)
-                            } else {
-                                None
-                            }
+                    if let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = message
+                    {
+                        if accepted.signer_signature_hash == *signer_signature_hash
+                            && expected_signers.iter().any(|pk| {
+                                pk.verify(
+                                    accepted.signer_signature_hash.bits(),
+                                    &accepted.signature,
+                                )
+                                .expect("Failed to verify signature")
+                            })
+                        {
+                            return Some(accepted.signature);
                         }
-                        _ => None,
                     }
+                    None
                 })
                 .collect::<HashSet<_>>();
             Ok(signatures.len() > expected_signers.len() * 7 / 10)
@@ -675,11 +672,10 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
     /// Get the latest block acceptance from the given slot
     pub fn get_latest_block_acceptance(&self, slot_id: u32) -> BlockAccepted {
-        let block_response = self.get_latest_block_response(slot_id);
-        match block_response {
-            BlockResponse::Accepted(accepted) => accepted,
-            _ => panic!("Latest block response from slot #{slot_id} isn't a block acceptance"),
-        }
+        self.get_latest_block_response(slot_id)
+            .as_block_accepted()
+            .expect("Latest block response from slot #{slot_id} isn't a block acceptance")
+            .clone()
     }
 
     /// Get /v2/info from the node
