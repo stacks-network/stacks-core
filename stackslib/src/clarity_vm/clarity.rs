@@ -822,9 +822,9 @@ impl<'a> ClarityBlockConnection<'a, '_> {
 
             // instantiate costs 2 contract...
             let cost_2_code = if mainnet {
-                &*BOOT_CODE_COSTS_2
+                BOOT_CODE_COSTS_2
             } else {
-                &*BOOT_CODE_COSTS_2_TESTNET
+                BOOT_CODE_COSTS_2_TESTNET
             };
 
             let payload = TransactionPayload::SmartContract(
@@ -1013,7 +1013,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
             }
 
             /////////////////// .costs-3 ////////////////////////
-            let cost_3_code = &*BOOT_CODE_COSTS_3;
+            let cost_3_code = BOOT_CODE_COSTS_3;
 
             let payload = TransactionPayload::SmartContract(
                 TransactionSmartContract {
