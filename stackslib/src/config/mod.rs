@@ -1438,7 +1438,7 @@ impl BurnchainConfigFile {
             // check magic bytes and set if not defined
             let mainnet_magic = ConfigFile::mainnet().burnchain.unwrap().magic_bytes;
             if self.magic_bytes.is_none() {
-                self.magic_bytes = mainnet_magic.clone();
+                self.magic_bytes.clone_from(&mainnet_magic);
             }
             if self.magic_bytes != mainnet_magic {
                 return Err(format!(

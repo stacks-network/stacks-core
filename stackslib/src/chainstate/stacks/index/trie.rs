@@ -281,7 +281,7 @@ impl Trie {
             )));
         }
 
-        value.path = cur_leaf.path_bytes().clone();
+        value.path.clone_from(cur_leaf.path_bytes());
 
         let leaf_hash = get_leaf_hash(value);
 
