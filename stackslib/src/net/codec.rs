@@ -1426,7 +1426,7 @@ impl StacksMessage {
     /// Sign the StacksMessage.  The StacksMessage must _not_ have any relayers (i.e. we're
     /// originating this messsage).
     pub fn sign(&mut self, seq: u32, private_key: &Secp256k1PrivateKey) -> Result<(), net_error> {
-        if self.relayers.len() > 0 {
+        if !self.relayers.is_empty() {
             return Err(net_error::InvalidMessage);
         }
         self.preamble.seq = seq;
@@ -1682,7 +1682,7 @@ pub mod test {
         }
 
         // short message shouldn't parse, but should EOF
-        if write_buf.len() > 0 {
+        if !write_buf.is_empty() {
             let mut short_buf = write_buf.clone();
             let short_len = short_buf.len() - 1;
             short_buf.truncate(short_len);

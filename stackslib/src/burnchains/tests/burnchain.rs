@@ -464,11 +464,8 @@ fn test_process_block_ops() {
         123,
     ));
 
-    let initial_snapshot = BlockSnapshot::initial(
-        first_block_height,
-        &first_burn_hash,
-        first_block_height as u64,
-    );
+    let initial_snapshot =
+        BlockSnapshot::initial(first_block_height, &first_burn_hash, first_block_height);
 
     // process up to 124
     {
@@ -574,7 +571,7 @@ fn test_process_block_ops() {
             acc
         });
 
-        let next_sortition = block_ops_124.len() > 0 && burn_total > 0;
+        let next_sortition = !block_ops_124.is_empty() && burn_total > 0;
 
         let mut block_124_snapshot = BlockSnapshot {
             accumulated_coinbase_ustx: 400_000_000,
@@ -733,11 +730,8 @@ fn test_burn_snapshot_sequence() {
 
     // insert all operations
     let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
-    let mut prev_snapshot = BlockSnapshot::initial(
-        first_block_height,
-        &first_burn_hash,
-        first_block_height as u64,
-    );
+    let mut prev_snapshot =
+        BlockSnapshot::initial(first_block_height, &first_burn_hash, first_block_height);
     let mut all_stacks_block_hashes = vec![];
 
     for i in 0..32 {

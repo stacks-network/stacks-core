@@ -86,7 +86,7 @@ pub fn copy_dir(src_dir: &str, dest_dir: &str) -> Result<(), io::Error> {
     let mut dir_queue = VecDeque::new();
     dir_queue.push_back("/".to_string());
 
-    while dir_queue.len() > 0 {
+    while !dir_queue.is_empty() {
         let next_dir = dir_queue.pop_front().unwrap();
         let next_src_dir = path_join(&src_dir, &next_dir);
         let next_dest_dir = path_join(&dest_dir, &next_dir);
@@ -974,7 +974,7 @@ pub fn get_last_microblock_header(
 
     let last_microblock_header_opt = match last_microblocks_opt {
         Some(last_microblocks) => {
-            if last_microblocks.len() == 0 {
+            if last_microblocks.is_empty() {
                 None
             } else {
                 let l = last_microblocks.len() - 1;

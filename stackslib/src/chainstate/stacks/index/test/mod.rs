@@ -62,7 +62,7 @@ where
     let (root, root_hash) = Trie::read_root(s).unwrap();
     frontier.push((root, root_hash, 0));
 
-    while frontier.len() > 0 {
+    while !frontier.is_empty() {
         let (next, next_hash, depth) = frontier.pop().unwrap();
         let (ptrs, path_len) = match next {
             TrieNodeType::Leaf(ref leaf_data) => {
@@ -244,16 +244,16 @@ pub fn make_node_path(
         // update parent
         match parent {
             TrieNodeType::Node256(ref mut data) => {
-                assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr as u32)))
+                assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr)))
             }
             TrieNodeType::Node48(ref mut data) => {
-                assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr as u32)))
+                assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr)))
             }
             TrieNodeType::Node16(ref mut data) => {
-                assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr as u32)))
+                assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr)))
             }
             TrieNodeType::Node4(ref mut data) => {
-                assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr as u32)))
+                assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr)))
             }
             TrieNodeType::Leaf(_) => panic!("can't insert into leaf"),
         };
@@ -266,7 +266,7 @@ pub fn make_node_path(
         .unwrap();
 
         nodes.push(parent.clone());
-        node_ptrs.push(TriePtr::new(node_id, chr, node_ptr as u32));
+        node_ptrs.push(TriePtr::new(node_id, chr, node_ptr));
         hashes.push(TrieHash::from_data(&[(seg_id + 1) as u8; 32]));
 
         parent = node;
@@ -288,26 +288,18 @@ pub fn make_node_path(
 
     // update parent
     match parent {
-        TrieNodeType::Node256(ref mut data) => assert!(data.insert(&TriePtr::new(
-            TrieNodeID::Leaf as u8,
-            child_chr,
-            child_ptr as u32
-        ))),
-        TrieNodeType::Node48(ref mut data) => assert!(data.insert(&TriePtr::new(
-            TrieNodeID::Leaf as u8,
-            child_chr,
-            child_ptr as u32
-        ))),
-        TrieNodeType::Node16(ref mut data) => assert!(data.insert(&TriePtr::new(
-            TrieNodeID::Leaf as u8,
-            child_chr,
-            child_ptr as u32
-        ))),
-        TrieNodeType::Node4(ref mut data) => assert!(data.insert(&TriePtr::new(
-            TrieNodeID::Leaf as u8,
-            child_chr,
-            child_ptr as u32
-        ))),
+        TrieNodeType::Node256(ref mut data) => {
+            assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf as u8, child_chr, child_ptr)))
+        }
+        TrieNodeType::Node48(ref mut data) => {
+            assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf as u8, child_chr, child_ptr)))
+        }
+        TrieNodeType::Node16(ref mut data) => {
+            assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf as u8, child_chr, child_ptr)))
+        }
+        TrieNodeType::Node4(ref mut data) => {
+            assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf as u8, child_chr, child_ptr)))
+        }
         TrieNodeType::Leaf(_) => panic!("can't insert into leaf"),
     };
 
@@ -319,11 +311,7 @@ pub fn make_node_path(
     .unwrap();
 
     nodes.push(parent.clone());
-    node_ptrs.push(TriePtr::new(
-        TrieNodeID::Leaf as u8,
-        child_chr,
-        child_ptr as u32,
-    ));
+    node_ptrs.push(TriePtr::new(TrieNodeID::Leaf as u8, child_chr, child_ptr));
     hashes.push(TrieHash::from_data(&[(seg_id + 1) as u8; 32]));
 
     (nodes, node_ptrs, hashes)

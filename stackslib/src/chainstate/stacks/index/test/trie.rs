@@ -461,7 +461,7 @@ fn trie_cursor_promote_node4_to_node16() {
                 Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&[], &[128 + j as u8; 40]),
+                    &mut TrieLeaf::new(&[], &[128 + j; 40]),
                     &mut node,
                 )
                 .unwrap()
@@ -477,12 +477,12 @@ fn trie_cursor_promote_node4_to_node16() {
                     )
                     .unwrap()
                     .unwrap(),
-                    TrieLeaf::new(&path[k + 1..], &[128 + j as u8; 40])
+                    TrieLeaf::new(&path[k + 1..], &[128 + j; 40])
                 );
 
                 // without a MARF commit, merkle tests will fail in deferred mode
                 if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
-                    merkle_test(&mut f, &path, &[(j + 128) as u8; 40]);
+                    merkle_test(&mut f, &path, &[j + 128; 40]);
                 }
             }
         }
@@ -622,7 +622,7 @@ fn trie_cursor_promote_node16_to_node48() {
                 Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&[], &[128 + j as u8; 40]),
+                    &mut TrieLeaf::new(&[], &[128 + j; 40]),
                     &mut node,
                 )
                 .unwrap()
@@ -639,12 +639,12 @@ fn trie_cursor_promote_node16_to_node48() {
                     )
                     .unwrap()
                     .unwrap(),
-                    TrieLeaf::new(&path[k + 1..], &[128 + j as u8; 40])
+                    TrieLeaf::new(&path[k + 1..], &[128 + j; 40])
                 );
 
                 // without a MARF commit, merkle tests will fail in deferred mode
                 if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
-                    merkle_test(&mut f, &path, &[(j + 128) as u8; 40]);
+                    merkle_test(&mut f, &path, &[j + 128; 40]);
                 }
             }
         }
@@ -729,7 +729,7 @@ fn trie_cursor_promote_node16_to_node48() {
                 Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&[], &[128 + j as u8; 40]),
+                    &mut TrieLeaf::new(&[], &[128 + j; 40]),
                     &mut node,
                 )
                 .unwrap()
@@ -746,12 +746,12 @@ fn trie_cursor_promote_node16_to_node48() {
                     )
                     .unwrap()
                     .unwrap(),
-                    TrieLeaf::new(&path[k + 1..], &[128 + j as u8; 40])
+                    TrieLeaf::new(&path[k + 1..], &[128 + j; 40])
                 );
 
                 // without a MARF commit, merkle tests will fail in deferred mode
                 if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
-                    merkle_test(&mut f, &path, &[(j + 128) as u8; 40]);
+                    merkle_test(&mut f, &path, &[j + 128; 40]);
                 }
             }
         }
@@ -892,7 +892,7 @@ fn trie_cursor_promote_node48_to_node256() {
                 Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&[], &[128 + j as u8; 40]),
+                    &mut TrieLeaf::new(&[], &[128 + j; 40]),
                     &mut node,
                 )
                 .unwrap()
@@ -909,12 +909,12 @@ fn trie_cursor_promote_node48_to_node256() {
                     )
                     .unwrap()
                     .unwrap(),
-                    TrieLeaf::new(&path[k + 1..], &[128 + j as u8; 40])
+                    TrieLeaf::new(&path[k + 1..], &[128 + j; 40])
                 );
 
                 // without a MARF commit, merkle tests will fail in deferred mode
                 if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
-                    merkle_test(&mut f, &path, &[(j + 128) as u8; 40]);
+                    merkle_test(&mut f, &path, &[j + 128; 40]);
                 }
             }
         }
@@ -999,7 +999,7 @@ fn trie_cursor_promote_node48_to_node256() {
                 Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&[], &[128 + j as u8; 40]),
+                    &mut TrieLeaf::new(&[], &[128 + j; 40]),
                     &mut node,
                 )
                 .unwrap()
@@ -1015,12 +1015,12 @@ fn trie_cursor_promote_node48_to_node256() {
                     )
                     .unwrap()
                     .unwrap(),
-                    TrieLeaf::new(&path[k + 1..], &[128 + j as u8; 40])
+                    TrieLeaf::new(&path[k + 1..], &[128 + j; 40])
                 );
 
                 // without a MARF commit, merkle tests will fail in deferred mode
                 if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
-                    merkle_test(&mut f, &path, &[(j + 128) as u8; 40]);
+                    merkle_test(&mut f, &path, &[j + 128; 40]);
                 }
             }
         }
@@ -1105,7 +1105,7 @@ fn trie_cursor_promote_node48_to_node256() {
                 Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&[], &[128 + j as u8; 40]),
+                    &mut TrieLeaf::new(&[], &[128 + j; 40]),
                     &mut node,
                 )
                 .unwrap()
@@ -1122,12 +1122,12 @@ fn trie_cursor_promote_node48_to_node256() {
                     )
                     .unwrap()
                     .unwrap(),
-                    TrieLeaf::new(&path[k + 1..], &[128 + j as u8; 40])
+                    TrieLeaf::new(&path[k + 1..], &[128 + j; 40])
                 );
 
                 // without a MARF commit, merkle tests will fail in deferred mode
                 if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
-                    merkle_test(&mut f, &path, &[(j + 128) as u8; 40]);
+                    merkle_test(&mut f, &path, &[j + 128; 40]);
                 }
             }
         }
