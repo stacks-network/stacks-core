@@ -1622,9 +1622,9 @@ impl ClarityConnection for ClarityTransactionConnection<'_, '_> {
     where
         F: FnOnce(&mut AnalysisDatabase) -> R,
     {
-        self.with_analysis_db(|mut db, cost_tracker| {
+        self.with_analysis_db(|db, cost_tracker| {
             db.begin();
-            let result = to_do(&mut db);
+            let result = to_do(db);
             db.roll_back()
                 .expect("FATAL: failed to rollback changes during read-only connection");
             (cost_tracker, result)
@@ -1927,7 +1927,7 @@ mod tests {
                     tx.analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                 })
@@ -1940,7 +1940,7 @@ mod tests {
                     tx.analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                 })
@@ -1988,7 +1988,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -1996,7 +1996,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
-                    &contract,
+                    contract,
                     None,
                     |_, _| false,
                 )
@@ -2041,7 +2041,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2049,7 +2049,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
-                    &contract,
+                    contract,
                     None,
                     |_, _| false,
                 )
@@ -2069,7 +2069,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2077,7 +2077,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
-                    &contract,
+                    contract,
                     None,
                     |_, _| false,
                 )
@@ -2099,7 +2099,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2109,7 +2109,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         &ct_ast,
-                        &contract,
+                        contract,
                         None,
                         |_, _| false
                     )
@@ -2153,7 +2153,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2161,7 +2161,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
-                    &contract,
+                    contract,
                     None,
                     |_, _| false,
                 )
@@ -2213,7 +2213,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2221,7 +2221,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
-                    &contract,
+                    contract,
                     None,
                     |_, _| false,
                 )
@@ -2305,7 +2305,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2313,7 +2313,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
-                    &contract,
+                    contract,
                     None,
                     |_, _| false,
                 )
@@ -2436,7 +2436,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2444,7 +2444,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
-                    &contract,
+                    contract,
                     None,
                     |_, _| false,
                 )
@@ -2820,7 +2820,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2828,7 +2828,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
-                    &contract,
+                    contract,
                     None,
                     |_, _| false,
                 )
