@@ -313,7 +313,7 @@ impl StacksMessageCodec for StacksBlock {
         }?;
 
         // there must be at least one transaction (the coinbase)
-        if txs.len() == 0 {
+        if txs.is_empty() {
             warn!("Invalid block: Zero-transaction block");
             return Err(codec_error::DeserializeError(
                 "Invalid block: zero transactions".to_string(),
@@ -429,7 +429,7 @@ impl StacksBlock {
     /// Find and return the coinbase transaction.  It's always the first transaction.
     /// If there are 0 coinbase txs, or more than 1, then return None
     pub fn get_coinbase_tx(&self) -> Option<StacksTransaction> {
-        if self.txs.len() == 0 {
+        if self.txs.is_empty() {
             return None;
         }
         match self.txs[0].payload {
@@ -831,7 +831,7 @@ impl StacksMessageCodec for StacksMicroblock {
             read_next(&mut bound_read)
         }?;
 
-        if txs.len() == 0 {
+        if txs.is_empty() {
             warn!("Invalid microblock: zero transactions");
             return Err(codec_error::DeserializeError(
                 "Invalid microblock: zero transactions".to_string(),

@@ -389,16 +389,11 @@ pub fn make_reward_cycle_with_vote(
                     );
 
                     if let Some(ref parent_commit) = parent_commits[i].as_ref() {
+                        assert!(parent_commit.block_height != block_commit.block_height);
                         assert!(
-                            parent_commit.block_height as u64 != block_commit.block_height as u64
+                            parent_commit.block_height == u64::from(block_commit.parent_block_ptr)
                         );
-                        assert!(
-                            parent_commit.block_height as u64
-                                == block_commit.parent_block_ptr as u64
-                        );
-                        assert!(
-                            parent_commit.vtxindex as u64 == block_commit.parent_vtxindex as u64
-                        );
+                        assert!(parent_commit.vtxindex == u32::from(block_commit.parent_vtxindex));
                     }
 
                     parent_commits[i] = Some(block_commit.clone());

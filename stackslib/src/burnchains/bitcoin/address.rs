@@ -317,7 +317,7 @@ impl SegwitBitcoinAddress {
             None
         }?;
 
-        if quintets.len() == 0 || quintets.len() > 65 {
+        if quintets.is_empty() || quintets.len() > 65 {
             test_debug!("Invalid prog length: {}", quintets.len());
             return None;
         }

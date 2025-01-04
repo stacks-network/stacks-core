@@ -516,7 +516,7 @@ impl StacksChainState {
             &(*parent_block_id).into(),
             &(*child_block_id).into(),
         )?;
-        if cur_rewards.len() > 0 {
+        if !cur_rewards.is_empty() {
             let mut present = false;
             for rw in cur_rewards.iter() {
                 if (rw.is_parent() && reward.is_parent()) || (rw.is_child() && reward.is_child()) {
@@ -868,9 +868,9 @@ impl StacksChainState {
         // of all participants' burns.
         let coinbase_reward = participant
             .coinbase
-            .checked_mul(this_burn_total as u128)
+            .checked_mul(this_burn_total)
             .expect("FATAL: STX coinbase reward overflow")
-            / (burn_total as u128);
+            / burn_total;
 
         // process poison -- someone can steal a fraction of the total coinbase if they can present
         // evidence that the miner forked the microblock stream.  The remainder of the coinbase is
@@ -1003,7 +1003,7 @@ impl StacksChainState {
 
         let reward_height = tip_stacks_height - MINER_REWARD_MATURITY;
 
-        assert!(latest_matured_miners.len() > 0);
+        assert!(!latest_matured_miners.is_empty());
         assert!(latest_matured_miners[0].vtxindex == 0);
         assert!(latest_matured_miners[0].miner);
 

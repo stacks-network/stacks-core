@@ -924,7 +924,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
         data.push((root_node, root_hash));
 
-        while frontier.len() > 0 {
+        while !frontier.is_empty() {
             let next_ptr = frontier
                 .pop_front()
                 .expect("BUG: no ptr in non-empty frontier");
