@@ -130,7 +130,7 @@ impl PoxSyncWatchdog {
 
     /// Are we in the initial burnchain block download? i.e. is the burn tip snapshot far enough away
     /// from the burnchain height that we should be eagerly downloading snapshots?
-    pub fn infer_initial_burnchain_block_download(
+    fn infer_initial_burnchain_block_download(
         burnchain: &Burnchain,
         last_processed_height: u64,
         burnchain_height: u64,
