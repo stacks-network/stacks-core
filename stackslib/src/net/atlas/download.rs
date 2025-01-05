@@ -533,8 +533,8 @@ impl AttachmentsBatchStateContext {
         }
         let mut events_ids = results
             .faulty_peers
-            .iter()
-            .map(|(k, _)| *k)
+            .keys()
+            .map(|k| *k)
             .collect::<Vec<usize>>();
         self.events_to_deregister.append(&mut events_ids);
 
@@ -567,8 +567,8 @@ impl AttachmentsBatchStateContext {
         }
         let mut events_ids = results
             .faulty_peers
-            .iter()
-            .map(|(k, _)| *k)
+            .keys()
+            .map(|k| *k)
             .collect::<Vec<usize>>();
         self.events_to_deregister.append(&mut events_ids);
 

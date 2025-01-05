@@ -750,8 +750,8 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
     /// Highest reward cycle learned
     pub fn highest_reward_cycle(&self) -> u64 {
         self.inventories
-            .iter()
-            .map(|(_, inv)| inv.highest_reward_cycle())
+            .values()
+            .map(|inv| inv.highest_reward_cycle())
             .max()
             .unwrap_or(0)
     }

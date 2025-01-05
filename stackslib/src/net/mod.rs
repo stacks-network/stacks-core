@@ -1580,8 +1580,8 @@ impl NetworkResult {
 
         let pushed_blocks: HashSet<_> = self
             .pushed_blocks
-            .iter()
-            .map(|(_, block_list)| {
+            .values()
+            .map(|block_list| {
                 block_list
                     .iter()
                     .map(|block_data| {
@@ -1626,8 +1626,8 @@ impl NetworkResult {
 
         let pushed_microblocks: HashSet<_> = self
             .pushed_microblocks
-            .iter()
-            .map(|(_, mblock_list)| {
+            .values()
+            .map(|mblock_list| {
                 mblock_list
                     .iter()
                     .map(|(_, mblock_data)| {
@@ -1657,14 +1657,14 @@ impl NetworkResult {
     fn all_nakamoto_block_ids(&self) -> HashSet<StacksBlockId> {
         let mut naka_block_ids: HashSet<_> = self
             .nakamoto_blocks
-            .iter()
-            .map(|(_, nblk)| nblk.block_id())
+            .values()
+            .map(|nblk| nblk.block_id())
             .collect();
 
         let pushed_nakamoto_blocks: HashSet<_> = self
             .pushed_nakamoto_blocks
-            .iter()
-            .map(|(_, naka_blocks_list)| {
+            .values()
+            .map(|naka_blocks_list| {
                 naka_blocks_list
                     .iter()
                     .map(|(_, naka_blocks)| {
@@ -1705,8 +1705,8 @@ impl NetworkResult {
             .collect();
         let pushed_txids: HashSet<_> = self
             .pushed_transactions
-            .iter()
-            .map(|(_, tx_list)| {
+            .values()
+            .map(|tx_list| {
                 tx_list
                     .iter()
                     .map(|(_, tx)| tx.txid())
@@ -1734,8 +1734,8 @@ impl NetworkResult {
     /// This is unique per message.
     fn all_msg_sigs(&self) -> HashSet<MessageSignature> {
         self.unhandled_messages
-            .iter()
-            .map(|(_, msgs)| {
+            .values()
+            .map(|msgs| {
                 msgs.iter()
                     .map(|msg| msg.preamble.signature.clone())
                     .collect::<HashSet<_>>()

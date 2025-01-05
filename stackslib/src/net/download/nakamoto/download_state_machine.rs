@@ -1402,8 +1402,7 @@ impl NakamotoDownloadStateMachine {
         let tenure_blocks = coalesced_blocks
             .into_iter()
             .map(|(consensus_hash, block_map)| {
-                let mut block_list: Vec<_> =
-                    block_map.into_iter().map(|(_, block)| block).collect();
+                let mut block_list: Vec<_> = block_map.into_values().collect();
                 block_list.sort_unstable_by_key(|blk| blk.header.chain_length);
                 (consensus_hash, block_list)
             })
