@@ -1144,7 +1144,7 @@ impl NakamotoDownloadStateMachine {
     ) {
         debug!("Run unconfirmed tenure downloaders");
 
-        let addrs: Vec<_> = downloaders.keys().map(|addr| addr.clone()).collect();
+        let addrs: Vec<_> = downloaders.keys().cloned().collect();
         let mut finished = vec![];
         let mut unconfirmed_blocks = HashMap::new();
         let mut highest_completed_tenure_downloaders = HashMap::new();

@@ -2104,8 +2104,8 @@ impl NetworkResult {
         self.pushed_transactions
             .values()
             .flat_map(|pushed_txs| pushed_txs.iter().map(|(_, tx)| tx.clone()))
-            .chain(self.uploaded_transactions.iter().map(|x| x.clone()))
-            .chain(self.synced_transactions.iter().map(|x| x.clone()))
+            .chain(self.uploaded_transactions.iter().cloned())
+            .chain(self.synced_transactions.iter().cloned())
             .collect()
     }
 
@@ -2553,7 +2553,7 @@ pub mod test {
                 parent: parent.clone(),
                 winner_txid,
                 matured_rewards: matured_rewards.to_owned(),
-                matured_rewards_info: matured_rewards_info.map(|info| info.clone()),
+                matured_rewards_info: matured_rewards_info.cloned(),
                 reward_set_data: reward_set_data.clone(),
             })
         }
@@ -3147,8 +3147,7 @@ pub mod test {
             let stacker_db_syncs =
                 Self::init_stackerdb_syncs(&test_path, &peerdb, &mut stackerdb_configs);
 
-            let stackerdb_contracts: Vec<_> =
-                stacker_db_syncs.keys().map(|cid| cid.clone()).collect();
+            let stackerdb_contracts: Vec<_> = stacker_db_syncs.keys().cloned().collect();
 
             let burnchain_db = config.burnchain.open_burnchain_db(false).unwrap();
 
