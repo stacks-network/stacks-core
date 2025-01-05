@@ -1811,7 +1811,7 @@ mod test {
 
         test_debug!("Received {} bytes in total", total_bytes);
 
-        let mut flushed_handles = rx.recv().unwrap();
+        let flushed_handles = rx.recv().unwrap();
 
         match shared_state.lock() {
             Ok(ref mut conn) => {
@@ -1838,15 +1838,15 @@ mod test {
                 assert_eq!(recved.len(), 0);
             }
             Err(e) => {
-                assert!(false, "{:?}", &e);
+                assert!(false, "{e:?}");
                 unreachable!();
             }
         }
 
         // got all messages
         let mut recved = vec![];
-        for (i, rh) in flushed_handles.drain(..).enumerate() {
-            test_debug!("recv {}", i);
+        for (i, rh) in flushed_handles.into_iter().enumerate() {
+            test_debug!("recv {i}");
             let res = rh.recv(0).unwrap();
             recved.push(res);
         }
