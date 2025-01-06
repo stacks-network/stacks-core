@@ -16,6 +16,7 @@
 
 #[cfg(feature = "monitoring_prom")]
 use ::prometheus::HistogramTimer;
+use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 #[cfg(feature = "monitoring_prom")]
 use slog::slog_error;
 #[cfg(not(feature = "monitoring_prom"))]
@@ -121,6 +122,33 @@ impl NoOpTimer {
 #[cfg(not(feature = "monitoring_prom"))]
 pub fn new_rpc_call_timer(_full_path: &str, _origin: &str) -> NoOpTimer {
     NoOpTimer
+}
+
+/// Record the time taken to issue a block response for
+/// a given block. The block's timestamp is used to calculate the latency.
+///
+/// Call this right after broadcasting a BlockResponse
+#[allow(unused_variables)]
+pub fn record_block_response_latency(block: &NakamotoBlock) {
+    #[cfg(feature = "monitoring_prom")]
+    {
+        use clarity::util::get_epoch_time_ms;
+
+        let diff =
+            get_epoch_time_ms().saturating_sub(block.header.timestamp.saturating_mul(1000).into());
+        prometheus::SIGNER_BLOCK_RESPONSE_LATENCIES_HISTOGRAM
+            .with_label_values(&[])
+            .observe(diff as f64 / 1000.0);
+    }
+}
+
+/// Record the time taken to validate a block, as reported by the Stacks node.
+#[allow(unused_variables)]
+pub fn record_block_validation_latency(latency_ms: u64) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::SIGNER_BLOCK_VALIDATION_LATENCIES_HISTOGRAM
+        .with_label_values(&[])
+        .observe(latency_ms as f64 / 1000.0);
 }
 
 /// Start serving monitoring metrics.

@@ -164,6 +164,16 @@ pub enum BlockValidateResponse {
     Reject(BlockValidateReject),
 }
 
+impl BlockValidateResponse {
+    /// Get the signer signature hash from the block validate response
+    pub fn signer_signature_hash(&self) -> Sha512Trunc256Sum {
+        match self {
+            BlockValidateResponse::Ok(ok) => ok.signer_signature_hash,
+            BlockValidateResponse::Reject(reject) => reject.signer_signature_hash,
+        }
+    }
+}
+
 impl From<Result<BlockValidateOk, BlockValidateReject>> for BlockValidateResponse {
     fn from(value: Result<BlockValidateOk, BlockValidateReject>) -> Self {
         match value {
