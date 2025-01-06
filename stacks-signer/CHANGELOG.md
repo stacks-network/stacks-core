@@ -10,6 +10,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ## Added
 
 - Introduced the `block_proposal_max_age_secs` configuration option for signers, enabling them to automatically ignore block proposals that exceed the specified age in seconds.
+- Introduced two new prometheus metrics:
+  - `stacks_signer_block_validation_latencies_histogram`: the validation_time_ms reported by the node when validating a block proposal
+  - `stacks_signer_block_response_latencies_histogram`: the "end-to-end" time it takes for the signer to issue a block response
 
 ## Changed
 - Improvements to the stale signer cleanup logic: deletes the prior signer if it has no remaining unprocessed blocks in its database
