@@ -39,7 +39,7 @@ use stacks::chainstate::stacks::{
 };
 use stacks::net::p2p::NetworkHandle;
 use stacks::net::stackerdb::StackerDBs;
-use stacks::net::{NakamotoBlocksData, StacksMessageType};
+use stacks::net::{relay, NakamotoBlocksData, StacksMessageType};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::secp256k1::MessageSignature;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
@@ -58,8 +58,6 @@ use crate::run_loop::RegisteredKey;
 pub static TEST_MINE_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
 #[cfg(test)]
 pub static TEST_BROADCAST_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
-#[cfg(test)]
-pub static TEST_BLOCK_ANNOUNCE_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
 #[cfg(test)]
 pub static TEST_SKIP_P2P_BROADCAST: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
 
@@ -219,7 +217,7 @@ impl BlockMinerThread {
 
     #[cfg(test)]
     fn fault_injection_block_announce_stall(new_block: &NakamotoBlock) {
-        if *TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap() == Some(true) {
+        if relay::fault_injection::stacks_announce_is_blocked() {
             // Do an extra check just so we don't log EVERY time.
             warn!("Fault injection: Block announcement is stalled due to testing directive.";
                       "stacks_block_id" => %new_block.block_id(),
@@ -227,7 +225,7 @@ impl BlockMinerThread {
                       "height" => new_block.header.chain_length,
                       "consensus_hash" => %new_block.header.consensus_hash
             );
-            while *TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap() == Some(true) {
+            while relay::fault_injection::stacks_announce_is_blocked() {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
             info!("Fault injection: Block announcement is no longer stalled due to testing directive.";
@@ -495,7 +493,11 @@ impl BlockMinerThread {
 
             // wake up chains coordinator
             Self::fault_injection_block_announce_stall(&new_block);
-            self.globals.coord().announce_new_stacks_block();
+            if !relay::fault_injection::stacks_announce_is_skipped() {
+                self.globals.coord().announce_new_stacks_block();
+            } else {
+                info!("Miner: skip block announce due to fault injection directive");
+            }
 
             self.last_block_mined = Some(new_block);
             self.mined_blocks += 1;
