@@ -149,6 +149,10 @@ pub mod fault_injection {
     pub fn no_stacks_announce() -> bool {
         false
     }
+    
+    pub fn stacks_announce_is_skipped() -> bool {
+        false
+    }
 }
 
 pub struct Relayer {
