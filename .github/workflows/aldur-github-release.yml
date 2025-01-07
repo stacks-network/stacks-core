@@ -50,7 +50,7 @@ jobs:
         with:
           file: ./.github/actions/dockerfiles/Dockerfile.${{matrix.dist}}-source
           platforms: ${{ env.docker_platforms }}
-          tags: stacks-network/stacks-blockchain:release-aldur-docker_releases_poc
+          tags: blockstack/stacks-blockchain:release-aldur-docker_releases_poc
           labels: ${{ steps.docker_metadata.outputs.labels }}
           build-args: |
             STACKS_NODE_VERSION=${{ env.GITHUB_SHA_SHORT }}
