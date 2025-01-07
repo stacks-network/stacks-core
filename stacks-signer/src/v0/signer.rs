@@ -618,6 +618,11 @@ impl Signer {
                             "proposed_block_signer_sighash" => %signer_signature_hash,
                             "proposed_chain_length" => proposed_block.header.chain_length,
                             "expected_at_least" => last_block_info.block.header.chain_length + 1,
+                            "last_block_info.block.header.consensus_hash" => %last_block_info.block.header.consensus_hash,
+                            "proposed_block_consensus_hash" => %proposed_block_consensus_hash,
+                            "last_block_info.state" => %last_block_info.state,
+                            "non_reorgable_block" => non_reorgable_block,
+                            "reorg_timeout_exceeded" => reorg_timeout_exceeded
                         );
                         return Some(self.create_block_rejection(
                             RejectCode::SortitionViewMismatch,
