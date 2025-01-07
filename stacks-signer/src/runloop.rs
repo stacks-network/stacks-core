@@ -26,6 +26,8 @@ use stacks_common::{debug, error, info, warn};
 use crate::chainstate::SortitionsView;
 use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
 use crate::config::{GlobalConfig, SignerConfig};
+#[cfg(any(test, feature = "testing"))]
+use crate::v0::tests::TEST_SKIP_SIGNER_CLEANUP;
 use crate::Signer as SignerTrait;
 
 #[derive(thiserror::Error, Debug)]
@@ -423,6 +425,11 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
     }
 
     fn cleanup_stale_signers(&mut self, current_reward_cycle: u64) {
+        #[cfg(any(test, feature = "testing"))]
+        if TEST_SKIP_SIGNER_CLEANUP.get() {
+            warn!("Skipping signer cleanup due to testing directive.");
+            return;
+        }
         let mut to_delete = Vec::new();
         for (idx, signer) in &mut self.stacks_signers {
             let reward_cycle = signer.reward_cycle();

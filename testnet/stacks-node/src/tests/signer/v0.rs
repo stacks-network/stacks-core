@@ -10346,10 +10346,6 @@ fn outgoing_signers_ignore_block_proposals() {
     let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
 
-    let old_signature_hash = test_observer::get_mined_nakamoto_blocks()
-        .last()
-        .unwrap()
-        .signer_signature_hash;
     test_observer::clear();
 
     info!("------------------------- Test Mine A Valid Block -------------------------");
@@ -10371,6 +10367,10 @@ fn outgoing_signers_ignore_block_proposals() {
     })
     .expect("Timed out waiting for a block to be mined");
 
+    let new_signature_hash = test_observer::get_mined_nakamoto_blocks()
+        .last()
+        .unwrap()
+        .signer_signature_hash;
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let mut stackerdb = StackerDB::new(
         &signer_test.running_nodes.conf.node.rpc_bind,
@@ -10386,7 +10386,7 @@ fn outgoing_signers_ignore_block_proposals() {
         .map(|id| id.0)
         .collect();
 
-    let mut old_signers_ignore_block_proposals = || {
+    let mut old_signers_ignore_block_proposals = |hash| {
         let _ = wait_for(10, || {
             for slot_id in old_signer_slot_ids.iter() {
                 let latest_msgs = StackerDB::get_messages::<SignerMessage>(
@@ -10398,14 +10398,14 @@ fn outgoing_signers_ignore_block_proposals() {
                 .expect("Failed to get message from stackerdb");
                 for msg in latest_msgs.iter() {
                     if let SignerMessage::BlockResponse(response) = msg {
-                        assert_eq!(response.get_signer_signature_hash(), old_signature_hash);
+                        assert_ne!(response.get_signer_signature_hash(), hash);
                     }
                 }
             }
             Ok(false)
         });
     };
-    old_signers_ignore_block_proposals();
+    old_signers_ignore_block_proposals(new_signature_hash);
 
     let proposal_conf = ProposalEvalConfig {
         first_proposal_burn_block_timing: Duration::from_secs(0),
@@ -10434,7 +10434,7 @@ fn outgoing_signers_ignore_block_proposals() {
     signer_test
         .wait_for_block_rejections(30, &all_signers)
         .expect("Timed out waiting for block rejections");
-    old_signers_ignore_block_proposals();
+    old_signers_ignore_block_proposals(signer_signature_hash_1);
     test_observer::clear();
 
     // Propose a block to the signers that passes initial checks but will be rejected by the stacks node
@@ -10453,7 +10453,7 @@ fn outgoing_signers_ignore_block_proposals() {
     signer_test
         .wait_for_block_rejections(30, &all_signers)
         .expect("Timed out waiting for block rejections");
-    old_signers_ignore_block_proposals();
+    old_signers_ignore_block_proposals(signer_signature_hash_2);
 
     assert_eq!(blocks_before, mined_blocks.load(Ordering::SeqCst));
     signer_test.shutdown();
