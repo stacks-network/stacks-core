@@ -5219,7 +5219,7 @@ impl PeerNetwork {
         poll_timeout: u64,
         handler_args: &RPCHandlerArgs,
     ) -> Result<NetworkResult, net_error> {
-        debug!(">>>>>>>>>>>>>>>>>>>>>>> Begin Network Dispatch (poll for {}) >>>>>>>>>>>>>>>>>>>>>>>>>>>>", poll_timeout);
+        debug!(">>>>>>>>>>>>>>>>>>>>>>> Begin Network Dispatch (poll for {}, ibd={}) >>>>>>>>>>>>>>>>>>>>>>>>>>>>", poll_timeout, ibd);
         let mut poll_states = match self.network {
             None => {
                 debug!("{:?}: network not connected", &self.local_peer);
