@@ -45,6 +45,7 @@ use stacks::net::api::postblock_proposal::{
     BlockValidateResponse, ValidateRejectCode, TEST_VALIDATE_DELAY_DURATION_SECS,
     TEST_VALIDATE_STALL,
 };
+use stacks::net::relay;
 use stacks::net::relay::fault_injection::set_ignore_block;
 use stacks::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey};
 use stacks::types::PublicKey;
@@ -57,7 +58,7 @@ use stacks::util_lib::signed_structured_data::pox4::{
 };
 use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::TrieHash;
-use stacks_common::util::sleep_ms;
+use stacks_common::util::{get_epoch_time_ms, sleep_ms};
 use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
 use stacks_signer::client::{SignerSlotID, StackerDB};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
@@ -71,9 +72,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 
 use super::SignerTest;
 use crate::event_dispatcher::{MinedNakamotoBlockEvent, TEST_SKIP_BLOCK_ANNOUNCEMENT};
-use crate::nakamoto_node::miner::{
-    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL,
-};
+use crate::nakamoto_node::miner::{TEST_BROADCAST_STALL, TEST_MINE_STALL};
 use crate::nakamoto_node::stackerdb_listener::TEST_IGNORE_SIGNERS;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
@@ -952,6 +951,8 @@ fn forked_tenure_testing(
         |config| {
             // make the duration long enough that the reorg attempt will definitely be accepted
             config.first_proposal_burn_block_timing = proposal_limit;
+            config.tenure_last_block_proposal_timeout = Duration::from_secs(0);
+
             // don't allow signers to post signed blocks (limits the amount of fault injection we
             // need)
             TEST_SKIP_BLOCK_BROADCAST.set(true);
@@ -1019,7 +1020,7 @@ fn forked_tenure_testing(
 
     // For the next tenure, submit the commit op but do not allow any stacks blocks to be broadcasted
     TEST_BROADCAST_STALL.lock().unwrap().replace(true);
-    TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap().replace(true);
+    relay::fault_injection::block_stacks_announce();
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let commits_before = commits_submitted.load(Ordering::SeqCst);
 
@@ -1094,13 +1095,13 @@ fn forked_tenure_testing(
     );
     assert_ne!(tip_b, tip_a);
 
+    info!("Starting Tenure C.");
     if !expect_tenure_c {
+        info!("Process Tenure B");
         // allow B to process, so it'll be distinct from C
-        TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap().replace(false);
+        relay::fault_injection::unblock_stacks_announce();
         sleep_ms(1000);
     }
-
-    info!("Starting Tenure C.");
 
     // Submit a block commit op for tenure C
     let commits_before = commits_submitted.load(Ordering::SeqCst);
@@ -1115,14 +1116,29 @@ fn forked_tenure_testing(
         .nakamoto_test_skip_commit_op
         .set(false);
 
+    let mut tenure_b_deadline = None;
+
+    // have the current miner thread just skip block-processing, so tenure C can start
+    relay::fault_injection::skip_stacks_announce();
+    relay::fault_injection::unblock_stacks_announce();
+
     next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
         60,
         || {
             let commits_count = commits_submitted.load(Ordering::SeqCst);
             if commits_count > commits_before {
-                // now allow block B to process if it hasn't already.
-                TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap().replace(false);
+                // once the commit happens, give a grace period for tenure C to be mined and
+                // procesed
+                if let Some(dl) = tenure_b_deadline.as_mut() {
+                    if *dl < get_epoch_time_ms() {
+                        // unblock miner thread, but don't process tenure B just yet
+                        coord_channel.lock().unwrap().announce_new_stacks_block();
+                        *dl = get_epoch_time_ms() + 100_000_000_000;
+                    }
+                } else {
+                    tenure_b_deadline = Some(get_epoch_time_ms() + 10_000);
+                }
             }
             let rejected_count = rejected_blocks.load(Ordering::SeqCst);
             let (blocks_count, rbf_count, has_reject_count) = if expect_tenure_c {
@@ -1170,6 +1186,9 @@ fn forked_tenure_testing(
         );
         panic!();
     });
+
+    relay::fault_injection::unskip_stacks_announce();
+    coord_channel.lock().unwrap().announce_new_stacks_block();
 
     // allow blocks B and C to be processed
     sleep_ms(1000);
