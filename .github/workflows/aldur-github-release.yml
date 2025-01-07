@@ -13,27 +13,9 @@ concurrency:
 run-name: "docker_releases_poc"
 
 jobs:
-  ## Build arch dependent binaries from source
-  ##
-  ## Runs when the following is true:
-  ##  - tag is provided
-  build-binaries:
-    name: Build Binaries
-    uses: ./.github/workflows/create-source-binary.yml
-    with:
-      tag: "aldur-docker_releases_poc"
-    secrets: inherit
-
-  ## Builds arch dependent Docker images from binaries
-  ##
-  ## Runs when the following is true:
-  ##  - tag is provided
-  ##  - workflow is building default branch (master)
   docker-image:
     name: Docker Image (Binary)
-    uses: ./.github/workflows/image-build-binary.yml
-    needs:
-      - build-binaries
+    uses: ./.github/workflows/image-build-source.yml
     with:
       tag: "aldur-docker_releases_poc"
       docker_tag: "release-aldur-docker_releases_poc"
