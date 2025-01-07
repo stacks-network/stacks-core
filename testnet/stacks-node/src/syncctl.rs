@@ -195,7 +195,6 @@ impl PoxSyncWatchdog {
                 .max(burnchain_height)
         };
 
-        self.relayer_comms.set_ibd(ibbd);
         if !self.unconditionally_download {
             self.relayer_comms
                 .interruptable_sleep(self.steady_state_burnchain_sync_interval)?;

@@ -43,7 +43,7 @@ use stacks::monitoring::increment_stx_blocks_mined_counter;
 use stacks::net::db::LocalPeer;
 use stacks::net::p2p::NetworkHandle;
 use stacks::net::relay::Relayer;
-use stacks::net::NetworkResult;
+use stacks::net::{relay, NetworkResult};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksBlockId, StacksPublicKey, VRFSeed,
 };
@@ -551,7 +551,9 @@ impl RelayerThread {
         self.globals.counters.bump_blocks_processed();
 
         // there may be a bufferred stacks block to process, so wake up the coordinator to check
-        self.globals.coord_comms.announce_new_stacks_block();
+        if !relay::fault_injection::no_stacks_announce() {
+            self.globals.coord_comms.announce_new_stacks_block();
+        }
 
         info!(
             "Relayer: Process sortition";
