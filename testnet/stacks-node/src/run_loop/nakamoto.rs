@@ -648,7 +648,6 @@ impl RunLoop {
                             self.config(),
                             burnchain.sortdb_mut(),
                             sortition_id,
-                            ibd,
                         ) {
                             // relayer errored, exit.
                             error!("Runloop: Block relayer and miner errored, exiting."; "err" => ?e);
@@ -725,6 +724,11 @@ impl RunLoop {
                         globals.raise_initiative("runloop-synced".to_string());
                     }
                 }
+            } else {
+                info!("Runloop: still synchronizing";
+                    "sortition_db_height" => sortition_db_height,
+                    "burnchain_height" => burnchain_height,
+                    "ibd" => ibd);
             }
         }
     }
