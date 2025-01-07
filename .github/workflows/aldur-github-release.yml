@@ -3,7 +3,7 @@ name: Github Release 2 (aldur)
 on:
   push:
     branches:
-      - "docker_releases_poc_override"
+      - "docker_release_poc_override"
 
 concurrency:
   group: docker-image-source-${{ github.head_ref || github.ref || github.run_id }}
