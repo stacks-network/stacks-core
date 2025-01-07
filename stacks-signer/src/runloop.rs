@@ -46,6 +46,8 @@ pub struct StateInfo {
     pub runloop_state: State,
     /// the current reward cycle info
     pub reward_cycle_info: Option<RewardCycleInfo>,
+    /// The current running signers reward cycles
+    pub running_signers: Vec<u64>,
 }
 
 /// The signer result that can be sent across threads
@@ -467,6 +469,11 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
             if let Err(e) = res.send(vec![StateInfo {
                 runloop_state: self.state,
                 reward_cycle_info: self.current_reward_cycle_info,
+                running_signers: self
+                    .stacks_signers
+                    .values()
+                    .map(|s| s.reward_cycle())
+                    .collect(),
             }
             .into()])
             {

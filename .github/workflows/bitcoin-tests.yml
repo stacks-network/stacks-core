@@ -136,6 +136,7 @@ jobs:
           - tests::signer::v0::block_proposal_max_age_rejections
           - tests::signer::v0::global_acceptance_depends_on_block_announcement
           - tests::signer::v0::no_reorg_due_to_successive_block_validation_ok
+          - tests::signer::v0::incoming_signers_ignore_block_proposals
           - tests::nakamoto_integrations::burn_ops_integration_test
           - tests::nakamoto_integrations::check_block_heights
           - tests::nakamoto_integrations::clarity_burn_state
