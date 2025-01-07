@@ -24,7 +24,7 @@ use blockstack_lib::net::api::postblock_proposal::{
 use blockstack_lib::util_lib::db::Error as DBError;
 use clarity::types::chainstate::StacksPrivateKey;
 use clarity::types::{PrivateKey, StacksEpochId};
-use clarity::util::hash::MerkleHashFunc;
+use clarity::util::hash::{MerkleHashFunc, Sha512Trunc256Sum};
 use clarity::util::secp256k1::Secp256k1PublicKey;
 use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MockProposal, MockSignature,
@@ -455,20 +455,7 @@ impl Signer {
         // TODO: should add a check to ignore an old burn block height if we know its outdated. Would require us to store the burn block height we last saw on the side.
         //  the signer needs to be able to determine whether or not the block they're about to sign would conflict with an already-signed Stacks block
         let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
-        if let Some(block_info) = self
-            .signer_db
-            .block_lookup(&signer_signature_hash)
-            .expect("Failed to connect to signer DB")
-        {
-            // Redundant check, but just in case the block proposal reward cycle was incorrectly overwritten, check again
-            if block_info.reward_cycle != self.reward_cycle {
-                // We are not signing for this reward cycle. Ignore the block.
-                debug!(
-                    "{self}: Received a block proposal for a different reward cycle. Ignore it.";
-                    "requested_reward_cycle" => block_proposal.reward_cycle
-                );
-                return;
-            }
+        if let Some(block_info) = self.block_lookup_by_reward_cycle(&signer_signature_hash) {
             let Some(block_response) = self.determine_response(&block_info) else {
                 // We are still waiting for a response for this block. Do nothing.
                 debug!("{self}: Received a block proposal for a block we are already validating.";
@@ -677,32 +664,15 @@ impl Signer {
             self.submitted_block_proposal = None;
         }
         // For mutability reasons, we need to take the block_info out of the map and add it back after processing
-        let mut block_info = match self.signer_db.block_lookup(&signer_signature_hash) {
-            Ok(Some(block_info)) => {
-                if block_info.reward_cycle != self.reward_cycle {
-                    // We are not signing for this reward cycle. Ignore the block.
-                    debug!(
-                        "{self}: Received a block validation for a block from a different reward cycle. Ignore it.";
-                        "requested_reward_cycle" => block_info.reward_cycle
-                    );
-                    return None;
-                }
-                if block_info.is_locally_finalized() {
-                    debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
-                    return None;
-                }
-                block_info
-            }
-            Ok(None) => {
-                // We have not seen this block before. Why are we getting a response for it?
-                debug!("{self}: Received a block validate response for a block we have not seen before. Ignoring...");
-                return None;
-            }
-            Err(e) => {
-                error!("{self}: Failed to lookup block in signer db: {e:?}",);
-                return None;
-            }
+        let Some(mut block_info) = self.block_lookup_by_reward_cycle(&signer_signature_hash) else {
+            // We have not seen this block before. Why are we getting a response for it?
+            debug!("{self}: Received a block validate response for a block we have not seen before. Ignoring...");
+            return None;
         };
+        if block_info.is_locally_finalized() {
+            debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
+            return None;
+        }
 
         if let Some(block_response) = self.check_block_against_signer_db_state(&block_info.block) {
             // The signer db state has changed. We no longer view this block as valid. Override the validation response.
@@ -770,32 +740,15 @@ impl Signer {
         {
             self.submitted_block_proposal = None;
         }
-        let mut block_info = match self.signer_db.block_lookup(&signer_signature_hash) {
-            Ok(Some(block_info)) => {
-                if block_info.reward_cycle != self.reward_cycle {
-                    // We are not signing for this reward cycle. Ignore the block.
-                    debug!(
-                        "{self}: Received a block validation for a block from a different reward cycle. Ignore it.";
-                        "requested_reward_cycle" => block_info.reward_cycle
-                    );
-                    return None;
-                }
-                if block_info.is_locally_finalized() {
-                    debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
-                    return None;
-                }
-                block_info
-            }
-            Ok(None) => {
-                // We have not seen this block before. Why are we getting a response for it?
-                debug!("{self}: Received a block validate response for a block we have not seen before. Ignoring...");
-                return None;
-            }
-            Err(e) => {
-                error!("{self}: Failed to lookup block in signer db: {e:?}");
-                return None;
-            }
+        let Some(mut block_info) = self.block_lookup_by_reward_cycle(&signer_signature_hash) else {
+            // We have not seen this block before. Why are we getting a response for it?
+            debug!("{self}: Received a block validate response for a block we have not seen before. Ignoring...");
+            return None;
         };
+        if block_info.is_locally_finalized() {
+            debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
+            return None;
+        }
         if let Err(e) = block_info.mark_locally_rejected() {
             if !block_info.has_reached_consensus() {
                 warn!("{self}: Failed to mark block as locally rejected: {e:?}",);
@@ -871,9 +824,7 @@ impl Signer {
         // For mutability reasons, we need to take the block_info out of the map and add it back after processing
         let mut block_info = match self.signer_db.block_lookup(&signature_sighash) {
             Ok(Some(block_info)) => {
-                if block_info.state == BlockState::GloballyRejected
-                    || block_info.state == BlockState::GloballyAccepted
-                {
+                if block_info.has_reached_consensus() {
                     // The block has already reached consensus.
                     return;
                 }
@@ -950,33 +901,16 @@ impl Signer {
         let block_hash = &rejection.signer_signature_hash;
         let signature = &rejection.signature;
 
-        let mut block_info = match self.signer_db.block_lookup(block_hash) {
-            Ok(Some(block_info)) => {
-                if block_info.reward_cycle != self.reward_cycle {
-                    // We are not signing for this reward cycle. Ignore the block.
-                    debug!(
-                        "{self}: Received a block rejection for a block from a different reward cycle. Ignore it.";
-                        "requested_reward_cycle" => block_info.reward_cycle
-                    );
-                    return;
-                }
-                if block_info.state == BlockState::GloballyRejected
-                    || block_info.state == BlockState::GloballyAccepted
-                {
-                    debug!("{self}: Received block rejection for a block that is already marked as {}. Ignoring...", block_info.state);
-                    return;
-                }
-                block_info
-            }
-            Ok(None) => {
-                debug!("{self}: Received block rejection for a block we have not seen before. Ignoring...");
-                return;
-            }
-            Err(e) => {
-                warn!("{self}: Failed to load block state: {e:?}",);
-                return;
-            }
+        let Some(mut block_info) = self.block_lookup_by_reward_cycle(block_hash) else {
+            debug!(
+                "{self}: Received block rejection for a block we have not seen before. Ignoring..."
+            );
+            return;
         };
+        if block_info.has_reached_consensus() {
+            debug!("{self}: Received block rejection for a block that is already marked as {}. Ignoring...", block_info.state);
+            return;
+        }
 
         // recover public key
         let Ok(public_key) = rejection.recover_public_key() else {
@@ -1062,33 +996,16 @@ impl Signer {
             "{self}: Received a block-accept signature: ({block_hash}, {signature}, {})",
             metadata.server_version
         );
-        let mut block_info = match self.signer_db.block_lookup(block_hash) {
-            Ok(Some(block_info)) => {
-                if block_info.reward_cycle != self.reward_cycle {
-                    // We are not signing for this reward cycle. Ignore the block.
-                    debug!(
-                        "{self}: Received a block signature for a block from a different reward cycle. Ignore it.";
-                        "requested_reward_cycle" => block_info.reward_cycle
-                    );
-                    return;
-                }
-                if block_info.state == BlockState::GloballyRejected
-                    || block_info.state == BlockState::GloballyAccepted
-                {
-                    debug!("{self}: Received block signature for a block that is already marked as {}. Ignoring...", block_info.state);
-                    return;
-                }
-                block_info
-            }
-            Ok(None) => {
-                debug!("{self}: Received block signature for a block we have not seen before. Ignoring...");
-                return;
-            }
-            Err(e) => {
-                warn!("{self}: Failed to load block state: {e:?}",);
-                return;
-            }
+        let Some(mut block_info) = self.block_lookup_by_reward_cycle(block_hash) else {
+            debug!(
+                "{self}: Received block signature for a block we have not seen before. Ignoring..."
+            );
+            return;
         };
+        if block_info.has_reached_consensus() {
+            debug!("{self}: Received block signature for a block that is already marked as {}. Ignoring...", block_info.state);
+            return;
+        }
 
         // recover public key
         let Ok(public_key) = Secp256k1PublicKey::recover_to_pubkey(block_hash.bits(), signature)
@@ -1235,5 +1152,25 @@ impl Signer {
     pub fn handle_insert_block_error(&self, e: DBError) {
         error!("{self}: Failed to insert block into signer-db: {e:?}");
         panic!("{self} Failed to write block to signerdb: {e}");
+    }
+
+    /// Helper for getting the block info from the db while accommodating for reward cycle
+    pub fn block_lookup_by_reward_cycle(
+        &self,
+        block_hash: &Sha512Trunc256Sum,
+    ) -> Option<BlockInfo> {
+        let block_info = self
+            .signer_db
+            .block_lookup(block_hash)
+            .inspect_err(|e| {
+                error!("{self}: Failed to lookup block hash {block_hash} in signer db: {e:?}");
+            })
+            .ok()
+            .flatten()?;
+        if block_info.reward_cycle == self.reward_cycle {
+            Some(block_info)
+        } else {
+            None
+        }
     }
 }
