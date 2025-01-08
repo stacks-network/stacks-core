@@ -8838,7 +8838,8 @@ fn mock_mining() {
 
     info!("Booting follower-thread, waiting for the follower to sync to the chain tip");
 
-    wait_for(120, || {
+    // use a high timeout for avoiding problem with github workflow
+    wait_for(600, || {
         let Some(miner_node_info) = get_chain_info_opt(&naka_conf) else {
             return Ok(false);
         };

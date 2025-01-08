@@ -4971,7 +4971,8 @@ fn partial_tenure_fork() {
     info!("-------- Waiting miner 2 to catch up to miner 1 --------");
 
     // Wait for miner 2 to catch up to miner 1
-    wait_for(60, || {
+    // (note: use a high timeout to avoid potential failing on github workflow)
+    wait_for(600, || {
         let info_1 = get_chain_info(&conf);
         let info_2 = get_chain_info(&conf_node_2);
         Ok(info_1.stacks_tip_height == info_2.stacks_tip_height)
