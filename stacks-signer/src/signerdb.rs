@@ -1028,11 +1028,11 @@ impl SignerDb {
     pub fn get_and_remove_pending_block_validation(
         &self,
     ) -> Result<Option<Sha512Trunc256Sum>, DBError> {
-        if let Some(sighash) = self.get_pending_block_validation()? {
-            self.remove_pending_block_validation(&sighash)?;
-            return Ok(Some(sighash));
-        }
-        Ok(None)
+        let qry = "DELETE FROM block_validations_pending WHERE signer_signature_hash = (SELECT signer_signature_hash FROM block_validations_pending ORDER BY added_time ASC LIMIT 1) RETURNING signer_signature_hash";
+        let args = params![];
+        let mut stmt = self.db.prepare(qry)?;
+        let sighash: Option<String> = stmt.query_row(args, |row| row.get(0)).optional()?;
+        Ok(sighash.and_then(|sighash| Sha512Trunc256Sum::from_hex(&sighash).ok()))
     }
 
     /// Get a pending block validation, sorted by the time at which it was added to the pending table.
@@ -1974,5 +1974,39 @@ mod tests {
             db.get_signer_last_accepted_block().unwrap().unwrap(),
             block_info_3
         );
+    }
+
+    #[test]
+    fn test_get_and_remove_pending_block_validation() {
+        let db_path = tmp_db_path();
+        let db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+        let pending_hash = db.get_and_remove_pending_block_validation().unwrap();
+        assert!(pending_hash.is_none());
+
+        db.insert_pending_block_validation(&Sha512Trunc256Sum([0x01; 32]), 1000)
+            .unwrap();
+        db.insert_pending_block_validation(&Sha512Trunc256Sum([0x02; 32]), 2000)
+            .unwrap();
+        db.insert_pending_block_validation(&Sha512Trunc256Sum([0x03; 32]), 3000)
+            .unwrap();
+
+        let pending_hash = db.get_and_remove_pending_block_validation().unwrap();
+        assert_eq!(pending_hash, Some(Sha512Trunc256Sum([0x01; 32])));
+
+        let pendings = db.get_all_pending_block_validations().unwrap();
+        assert_eq!(pendings.len(), 2);
+
+        let pending_hash = db.get_and_remove_pending_block_validation().unwrap();
+        assert_eq!(pending_hash, Some(Sha512Trunc256Sum([0x02; 32])));
+
+        let pendings = db.get_all_pending_block_validations().unwrap();
+        assert_eq!(pendings.len(), 1);
+
+        let pending_hash = db.get_and_remove_pending_block_validation().unwrap();
+        assert_eq!(pending_hash, Some(Sha512Trunc256Sum([0x03; 32])));
+
+        let pendings = db.get_all_pending_block_validations().unwrap();
+        assert_eq!(pendings.len(), 0);
     }
 }

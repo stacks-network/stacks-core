@@ -9924,7 +9924,7 @@ fn no_reorg_due_to_successive_block_validation_ok() {
     debug!("Miner 1 mined block N: {block_n_signature_hash}");
 
     info!("------------------------- Pause Block Validation Response of N+1 -------------------------");
-    TEST_VALIDATE_STALL.lock().unwrap().replace(true);
+    TEST_VALIDATE_STALL.set(true);
     let proposals_before_2 = rl2_proposals.load(Ordering::SeqCst);
     let rejections_before_2 = rl2_rejections.load(Ordering::SeqCst);
     let blocks_before = test_observer::get_blocks().len();
@@ -10059,7 +10059,7 @@ fn no_reorg_due_to_successive_block_validation_ok() {
 
     info!("------------------------- Unpause Block Validation Response of N+1 -------------------------");
 
-    TEST_VALIDATE_STALL.lock().unwrap().replace(false);
+    TEST_VALIDATE_STALL.set(false);
 
     // Verify that the node accepted the proposed N+1, sending back a validate ok response
     wait_for(30, || {
