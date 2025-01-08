@@ -226,6 +226,21 @@ impl ClarityBlockConnection<'_, '_> {
             None => None,
         }
     }
+
+    /// Load the epoch ID from the clarity DB.
+    /// Used to sanity-check epoch transitions.
+    pub fn get_clarity_db_epoch_version(
+        &mut self,
+        burn_state_db: &dyn BurnStateDB,
+    ) -> Result<StacksEpochId, Error> {
+        let mut db = self.datastore.as_clarity_db(self.header_db, burn_state_db);
+        // NOTE: the begin/roll_back shouldn't be necessary with how this gets used in practice,
+        // but is put here defensively.
+        db.begin();
+        let result = db.get_clarity_epoch_version();
+        db.roll_back()?;
+        Ok(result?)
+    }
 }
 
 impl ClarityInstance {
@@ -1520,6 +1535,32 @@ impl<'a> ClarityBlockConnection<'a, '_> {
             });
 
             debug!("Epoch 3.0 initialized");
+            (old_cost_tracker, Ok(vec![]))
+        })
+    }
+
+    pub fn initialize_epoch_3_1(&mut self) -> Result<Vec<StacksTransactionReceipt>, Error> {
+        // use the `using!` statement to ensure that the old cost_tracker is placed
+        //  back in all branches after initialization
+        using!(self.cost_track, "cost tracker", |old_cost_tracker| {
+            // epoch initialization is *free*.
+            // NOTE: this also means that cost functions won't be evaluated.
+            self.cost_track.replace(LimitedCostTracker::new_free());
+            self.epoch = StacksEpochId::Epoch31;
+            self.as_transaction(|tx_conn| {
+                // bump the epoch in the Clarity DB
+                tx_conn
+                    .with_clarity_db(|db| {
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch31)?;
+                        Ok(())
+                    })
+                    .unwrap();
+
+                // require 3.1 rules henceforth in this connection as well
+                tx_conn.epoch = StacksEpochId::Epoch31;
+            });
+
+            debug!("Epoch 3.1 initialized");
             (old_cost_tracker, Ok(vec![]))
         })
     }
