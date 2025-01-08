@@ -326,7 +326,7 @@ impl OnChainRewardSetProvider<'static, DummyEventDispatcher> {
     }
 }
 
-impl<'a, T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider<'a, T> {
+impl<T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider<'_, T> {
     fn get_reward_set(
         &self,
         cycle_start_burn_height: u64,
@@ -394,7 +394,7 @@ impl<'a, T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider
     }
 }
 
-impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
+impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
     fn get_reward_set_epoch2(
         &self,
         // Todo: `current_burn_height` is a misleading name: should be the `cycle_start_burn_height`
@@ -634,12 +634,12 @@ impl<
     }
 }
 
-impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
-    ChainsCoordinator<'a, T, (), U, (), (), B>
+impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
+    ChainsCoordinator<'_, T, (), U, (), (), B>
 {
     /// Create a coordinator for testing, with some parameters defaulted to None
     #[cfg(test)]
-    pub fn test_new(
+    pub fn test_new<'a>(
         burnchain: &Burnchain,
         chain_id: u32,
         path: &str,
@@ -659,7 +659,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader
 
     /// Create a coordinator for testing allowing for all configurable params
     #[cfg(test)]
-    pub fn test_new_full(
+    pub fn test_new_full<'a>(
         burnchain: &Burnchain,
         chain_id: u32,
         path: &str,
@@ -910,7 +910,7 @@ pub fn calculate_paid_rewards(ops: &[BlockstackOperationType]) -> PaidRewards {
     let mut burn_amt = 0;
     for op in ops.iter() {
         if let BlockstackOperationType::LeaderBlockCommit(commit) = op {
-            if commit.commit_outs.len() == 0 {
+            if commit.commit_outs.is_empty() {
                 continue;
             }
             let amt_per_address = commit.burn_fee / (commit.commit_outs.len() as u64);
@@ -1112,14 +1112,13 @@ pub fn static_get_stacks_tip_affirmation_map(
 }
 
 impl<
-        'a,
         T: BlockEventDispatcher,
         N: CoordinatorNotices,
         U: RewardSetProvider,
         CE: CostEstimator + ?Sized,
         FE: FeeEstimator + ?Sized,
         B: BurnchainHeaderReader,
-    > ChainsCoordinator<'a, T, N, U, CE, FE, B>
+    > ChainsCoordinator<'_, T, N, U, CE, FE, B>
 {
     /// Process new Stacks blocks.  If we get stuck for want of a missing PoX anchor block, return
     /// its hash.
@@ -2773,7 +2772,7 @@ impl<
             }
             sortition_db_handle.commit()?;
 
-            if unorphan_blocks.len() > 0 {
+            if !unorphan_blocks.is_empty() {
                 revalidated_stacks_block = true;
                 let ic = self.sortition_db.index_conn();
                 let mut chainstate_db_tx = self.chain_state_db.db_tx_begin()?;
@@ -3104,7 +3103,7 @@ impl<
             }
         }
 
-        if !found && staging_block_chs.len() > 0 {
+        if !found && !staging_block_chs.is_empty() {
             // we have seen this block before, but in a different consensus fork.
             // queue it for re-processing -- it might still be valid if it's in a reward
             // cycle that exists on the new PoX fork.

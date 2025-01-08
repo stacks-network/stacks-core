@@ -734,10 +734,8 @@ pub fn next_block_and_wait_for_commits(
         .map(|x| x.load(Ordering::SeqCst))
         .collect();
 
-    let mut block_processed_time: Vec<Option<Instant>> =
-        (0..commits_before.len()).map(|_| None).collect();
-    let mut commit_sent_time: Vec<Option<Instant>> =
-        (0..commits_before.len()).map(|_| None).collect();
+    let mut block_processed_time: Vec<Option<Instant>> = vec![None; commits_before.len()];
+    let mut commit_sent_time: Vec<Option<Instant>> = vec![None; commits_before.len()];
     next_block_and(btc_controller, timeout_secs, || {
         for i in 0..commits_submitted.len() {
             let commits_sent = commits_submitted[i].load(Ordering::SeqCst);
@@ -9415,7 +9413,7 @@ fn v3_blockbyheight_api_endpoint() {
 
     assert!(block_data.status().is_success());
     let block_bytes_vec = block_data.bytes().unwrap().to_vec();
-    assert!(block_bytes_vec.len() > 0);
+    assert!(!block_bytes_vec.is_empty());
 
     // does the block id of the returned blob matches ?
     let block_id = NakamotoBlockHeader::consensus_deserialize(&mut block_bytes_vec.as_slice())
@@ -9880,7 +9878,7 @@ fn test_shadow_recovery() {
 
     // fix node
     let shadow_blocks = shadow_chainstate_repair(&mut chainstate, &mut sortdb).unwrap();
-    assert!(shadow_blocks.len() > 0);
+    assert!(!shadow_blocks.is_empty());
 
     wait_for(30, || {
         let Some(info) = get_chain_info_opt(&naka_conf) else {
