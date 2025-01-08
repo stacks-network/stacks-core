@@ -593,7 +593,7 @@ impl Signer {
     ) -> Option<BlockResponse> {
         let signer_signature_hash = proposed_block.header.signer_signature_hash();
         let proposed_block_consensus_hash = proposed_block.header.consensus_hash;
-        // If the tenure change block confirms the expected parent block, it should confirm at least one more block than the last accepted block in the parent tenure.
+        // If this is a tenure change block, ensure that it confirms the correct number of blocks from the parent tenure.
         if let Some(tenure_change) = proposed_block.get_tenure_change_tx_payload() {
             // Ensure that the tenure change block confirms the expected parent block
             match SortitionsView::check_tenure_change_confirms_parent(
