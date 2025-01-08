@@ -637,7 +637,7 @@ pub struct RPCHandlerArgs<'a> {
     pub coord_comms: Option<&'a CoordinatorChannels>,
 }
 
-impl<'a> RPCHandlerArgs<'a> {
+impl RPCHandlerArgs<'_> {
     pub fn get_estimators_ref(
         &self,
     ) -> Option<(&dyn CostEstimator, &dyn FeeEstimator, &dyn CostMetric)> {
@@ -982,7 +982,7 @@ impl fmt::Debug for NeighborAddress {
 }
 
 impl NeighborAddress {
-    pub fn clear_public_key(&mut self) -> () {
+    pub fn clear_public_key(&mut self) {
         self.public_key_hash = Hash160([0u8; 20]);
     }
 
@@ -1384,8 +1384,8 @@ impl NeighborKey {
         na: &NeighborAddress,
     ) -> NeighborKey {
         NeighborKey {
-            peer_version: peer_version,
-            network_id: network_id,
+            peer_version,
+            network_id,
             addrbytes: na.addrbytes.clone(),
             port: na.port,
         }
@@ -1558,9 +1558,9 @@ impl NetworkResult {
             attachments: vec![],
             synced_transactions: vec![],
             stacker_db_sync_results: vec![],
-            num_state_machine_passes: num_state_machine_passes,
-            num_inv_sync_passes: num_inv_sync_passes,
-            num_download_passes: num_download_passes,
+            num_state_machine_passes,
+            num_inv_sync_passes,
+            num_download_passes,
             num_connected_peers,
             burn_height,
             coinbase_height,
@@ -1800,7 +1800,7 @@ impl NetworkResult {
                     }
                     retain
                 });
-                mblocks.len() > 0
+                !mblocks.is_empty()
             });
         newer
             .confirmed_microblocks
@@ -1828,7 +1828,7 @@ impl NetworkResult {
                 }
                 retain
             });
-            if tx_data.len() == 0 {
+            if tx_data.is_empty() {
                 continue;
             }
 
@@ -1850,9 +1850,9 @@ impl NetworkResult {
                     }
                     retain
                 });
-                block_data.blocks.len() > 0
+                !block_data.blocks.is_empty()
             });
-            if block_list.len() == 0 {
+            if block_list.is_empty() {
                 continue;
             }
 
@@ -1873,9 +1873,9 @@ impl NetworkResult {
                     }
                     retain
                 });
-                mblock_data.microblocks.len() > 0
+                !mblock_data.microblocks.is_empty()
             });
-            if microblock_data.len() == 0 {
+            if microblock_data.is_empty() {
                 continue;
             }
 
@@ -1896,9 +1896,9 @@ impl NetworkResult {
                     }
                     retain
                 });
-                naka_blocks.blocks.len() > 0
+                !naka_blocks.blocks.is_empty()
             });
-            if nakamoto_block_data.len() == 0 {
+            if nakamoto_block_data.is_empty() {
                 continue;
             }
 
@@ -1927,7 +1927,7 @@ impl NetworkResult {
                 retain
             });
 
-            blk_data.blocks.len() > 0
+            !blk_data.blocks.is_empty()
         });
         self.uploaded_microblocks.retain_mut(|ref mut mblock_data| {
             mblock_data.microblocks.retain(|mblk| {
@@ -1938,7 +1938,7 @@ impl NetworkResult {
                 retain
             });
 
-            mblock_data.microblocks.len() > 0
+            !mblock_data.microblocks.is_empty()
         });
         self.uploaded_nakamoto_blocks.retain(|nblk| {
             let retain = !newer_naka_blocks.contains(&nblk.block_id());
@@ -2067,38 +2067,37 @@ impl NetworkResult {
     }
 
     pub fn has_blocks(&self) -> bool {
-        self.blocks.len() > 0 || self.pushed_blocks.len() > 0
+        !self.blocks.is_empty() || !self.pushed_blocks.is_empty()
     }
 
     pub fn has_microblocks(&self) -> bool {
-        self.confirmed_microblocks.len() > 0
-            || self.pushed_microblocks.len() > 0
-            || self.uploaded_microblocks.len() > 0
+        !self.confirmed_microblocks.is_empty()
+            || !self.pushed_microblocks.is_empty()
+            || !self.uploaded_microblocks.is_empty()
     }
 
     pub fn has_nakamoto_blocks(&self) -> bool {
-        self.nakamoto_blocks.len() > 0
-            || self.pushed_nakamoto_blocks.len() > 0
-            || self.uploaded_nakamoto_blocks.len() > 0
+        !self.nakamoto_blocks.is_empty()
+            || !self.pushed_nakamoto_blocks.is_empty()
+            || !self.uploaded_nakamoto_blocks.is_empty()
     }
 
     pub fn has_transactions(&self) -> bool {
-        self.pushed_transactions.len() > 0
-            || self.uploaded_transactions.len() > 0
-            || self.synced_transactions.len() > 0
+        !self.pushed_transactions.is_empty()
+            || !self.uploaded_transactions.is_empty()
+            || !self.synced_transactions.is_empty()
     }
 
     pub fn has_attachments(&self) -> bool {
-        self.attachments.len() > 0
+        !self.attachments.is_empty()
     }
 
     pub fn has_stackerdb_chunks(&self) -> bool {
         self.stacker_db_sync_results
             .iter()
-            .fold(0, |acc, x| acc + x.chunks_to_store.len())
-            > 0
-            || self.uploaded_stackerdb_chunks.len() > 0
-            || self.pushed_stackerdb_chunks.len() > 0
+            .any(|x| !x.chunks_to_store.is_empty())
+            || !self.uploaded_stackerdb_chunks.is_empty()
+            || !self.pushed_stackerdb_chunks.is_empty()
     }
 
     pub fn transactions(&self) -> Vec<StacksTransaction> {
@@ -2180,7 +2179,7 @@ impl NetworkResult {
         }
     }
 
-    pub fn consume_http_uploads(&mut self, msgs: Vec<StacksMessageType>) -> () {
+    pub fn consume_http_uploads(&mut self, msgs: Vec<StacksMessageType>) {
         for msg in msgs.into_iter() {
             match msg {
                 StacksMessageType::Transaction(tx_data) => {
@@ -2345,23 +2344,23 @@ pub mod test {
             }
         }
 
-        pub fn close(&mut self) -> () {
+        pub fn close(&mut self) {
             self.closed = true;
         }
 
-        pub fn block(&mut self) -> () {
+        pub fn block(&mut self) {
             self.block = true;
         }
 
-        pub fn unblock(&mut self) -> () {
+        pub fn unblock(&mut self) {
             self.block = false;
         }
 
-        pub fn set_read_error(&mut self, e: Option<io::ErrorKind>) -> () {
+        pub fn set_read_error(&mut self, e: Option<io::ErrorKind>) {
             self.read_error = e;
         }
 
-        pub fn set_write_error(&mut self, e: Option<io::ErrorKind>) -> () {
+        pub fn set_write_error(&mut self, e: Option<io::ErrorKind>) {
             self.write_error = e;
         }
     }
@@ -2639,7 +2638,7 @@ pub mod test {
                 private_key_expire: start_block + conn_opts.private_key_lifetime,
                 initial_neighbors: vec![],
                 asn4_entries: vec![],
-                burnchain: burnchain,
+                burnchain,
                 connection_opts: conn_opts,
                 server_port: 32000,
                 http_port: 32001,
@@ -2651,7 +2650,7 @@ pub mod test {
                 test_name: "".into(),
                 initial_balances: vec![],
                 initial_lockups: vec![],
-                spending_account: spending_account,
+                spending_account,
                 setup_code: "".into(),
                 epochs: None,
                 check_pox_invariants: None,
@@ -2691,7 +2690,7 @@ pub mod test {
             config
         }
 
-        pub fn add_neighbor(&mut self, n: &Neighbor) -> () {
+        pub fn add_neighbor(&mut self, n: &Neighbor) {
             self.initial_neighbors.push(n.clone());
         }
 
@@ -2973,7 +2972,7 @@ pub mod test {
                     debug!("Not setting aggregate public key");
                 }
                 // add test-specific boot code
-                if conf.setup_code.len() > 0 {
+                if !conf.setup_code.is_empty() {
                     let receipt = clarity_tx.connection().as_transaction(|clarity| {
                         let boot_code_addr = boot_code_test_addr();
                         let boot_code_account = StacksAccount {
@@ -3204,15 +3203,15 @@ pub mod test {
             peer_network.local_peer = local_peer;
 
             TestPeer {
-                config: config,
+                config,
                 network: peer_network,
                 sortdb: Some(sortdb),
                 miner,
                 stacks_node: Some(stacks_node),
-                relayer: relayer,
+                relayer,
                 mempool: Some(mempool),
-                chainstate_path: chainstate_path,
-                coord: coord,
+                chainstate_path,
+                coord,
                 indexer: Some(indexer),
                 malleablized_blocks: vec![],
                 mine_malleablized_blocks: true,
@@ -3852,7 +3851,7 @@ pub mod test {
             &mut self,
             microblocks: &Vec<StacksMicroblock>,
         ) -> Result<bool, String> {
-            assert!(microblocks.len() > 0);
+            assert!(!microblocks.is_empty());
             let sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
             let res = {
@@ -3904,7 +3903,7 @@ pub mod test {
             &mut self,
             block: &StacksBlock,
             microblocks: &Vec<StacksMicroblock>,
-        ) -> () {
+        ) {
             let sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
             {
@@ -3988,7 +3987,7 @@ pub mod test {
             block: &StacksBlock,
             consensus_hash: &ConsensusHash,
             microblocks: &Vec<StacksMicroblock>,
-        ) -> () {
+        ) {
             let sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
             {
@@ -4503,7 +4502,7 @@ pub mod test {
             view_res
         }
 
-        pub fn dump_frontier(&self) -> () {
+        pub fn dump_frontier(&self) {
             let conn = self.network.peerdb.conn();
             let peers = PeerDB::get_all_peers(conn).unwrap();
             debug!("--- BEGIN ALL PEERS ({}) ---", peers.len());

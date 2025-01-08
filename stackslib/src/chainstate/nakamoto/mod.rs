@@ -1098,7 +1098,7 @@ impl NakamotoBlock {
     /// Return Some(tenure-change-payload) if it's a tenure change
     /// Return None if not
     pub fn try_get_tenure_change_payload(&self) -> Option<&TenureChangePayload> {
-        if self.txs.len() == 0 {
+        if self.txs.is_empty() {
             return None;
         }
         if let TransactionPayload::TenureChange(ref tc) = &self.txs[0].payload {
@@ -1145,7 +1145,7 @@ impl NakamotoBlock {
             })
             .collect::<Vec<_>>();
 
-        if tenure_change_positions.len() == 0 {
+        if tenure_change_positions.is_empty() {
             return Ok(false);
         }
 
@@ -1246,7 +1246,7 @@ impl NakamotoBlock {
             })
             .collect::<Vec<_>>();
 
-        if coinbase_positions.len() == 0 && tenure_change_positions.len() == 0 {
+        if coinbase_positions.is_empty() && tenure_change_positions.is_empty() {
             // can't be a first block in a tenure
             return Ok(false);
         }
@@ -1264,7 +1264,7 @@ impl NakamotoBlock {
             return Err(());
         }
 
-        if coinbase_positions.len() == 1 && tenure_change_positions.len() == 0 {
+        if coinbase_positions.len() == 1 && tenure_change_positions.is_empty() {
             // coinbase unaccompanied by a tenure change
             warn!("Invalid block -- have coinbase without tenure change";
                 "consensus_hash" => %self.header.consensus_hash,
@@ -1274,7 +1274,7 @@ impl NakamotoBlock {
             return Err(());
         }
 
-        if coinbase_positions.len() == 0 && tenure_change_positions.len() == 1 {
+        if coinbase_positions.is_empty() && tenure_change_positions.len() == 1 {
             // this is possibly a block with a tenure-extend transaction.
             // It must be the first tx
             if tenure_change_positions[0] != 0 {
@@ -1864,11 +1864,11 @@ impl NakamotoChainState {
     ///
     /// It returns Err(..) on DB error, or if the child block does not connect to the parent.
     /// The caller should keep calling this until it gets Ok(None)
-    pub fn process_next_nakamoto_block<'a, T: BlockEventDispatcher>(
+    pub fn process_next_nakamoto_block<T: BlockEventDispatcher>(
         stacks_chain_state: &mut StacksChainState,
         sort_db: &mut SortitionDB,
         canonical_sortition_tip: &SortitionId,
-        dispatcher_opt: Option<&'a T>,
+        dispatcher_opt: Option<&T>,
     ) -> Result<Option<StacksEpochReceipt>, ChainstateError> {
         #[cfg(test)]
         fault_injection::stall_block_processing();
@@ -3032,7 +3032,7 @@ impl NakamotoChainState {
         let args = params![tenure_start_block_id];
         let proof_bytes: Option<String> = query_row(chainstate_conn, sql, args)?;
         if let Some(bytes) = proof_bytes {
-            if bytes.len() == 0 {
+            if bytes.is_empty() {
                 // no VRF proof
                 return Ok(None);
             }
@@ -4560,7 +4560,7 @@ impl NakamotoChainState {
         }
 
         // if any, append auto unlock events to the coinbase receipt
-        if auto_unlock_events.len() > 0 {
+        if !auto_unlock_events.is_empty() {
             // Receipts are appended in order, so the first receipt should be
             // the one of the coinbase transaction
             if let Some(receipt) = tx_receipts.get_mut(0) {
@@ -4987,7 +4987,7 @@ impl StacksMessageCodec for NakamotoBlock {
         }
 
         // header and transactions must be consistent
-        let txid_vecs = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+        let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
 
         let merkle_tree = MerkleTree::new(&txid_vecs);
         let tx_merkle_root: Sha512Trunc256Sum = merkle_tree.root();
