@@ -19,12 +19,13 @@ use clarity::codec::read_next;
 use hashbrown::HashMap;
 use libsigner::{MessageSlotID, SignerMessage, SignerSession, StackerDBSession};
 use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
-use slog::{slog_debug, slog_warn};
+use slog::{slog_debug, slog_info, slog_warn};
 use stacks_common::types::chainstate::StacksPrivateKey;
-use stacks_common::{debug, warn};
+use stacks_common::util::hash::to_hex;
+use stacks_common::{debug, info, warn};
 
 use crate::client::{retry_with_exponential_backoff, ClientError};
-use crate::config::SignerConfig;
+use crate::config::{SignerConfig, SignerConfigMode};
 
 /// The signer StackerDB slot ID, purposefully wrapped to prevent conflation with SignerID
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy, PartialOrd, Ord)]
@@ -34,6 +35,12 @@ impl std::fmt::Display for SignerSlotID {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
+}
+
+#[derive(Debug)]
+enum StackerDBMode {
+    DryRun,
+    Normal { signer_slot_id: SignerSlotID },
 }
 
 /// The StackerDB client for communicating with the .signers contract
@@ -46,32 +53,42 @@ pub struct StackerDB<M: MessageSlotID + std::cmp::Eq> {
     stacks_private_key: StacksPrivateKey,
     /// A map of a message ID to last chunk version for each session
     slot_versions: HashMap<M, HashMap<SignerSlotID, u32>>,
-    /// The signer slot ID -- the index into the signer list for this signer daemon's signing key.
-    signer_slot_id: SignerSlotID,
+    /// The running mode of the stackerdb (whether the signer is running in dry-run or
+    ///  normal operation)
+    mode: StackerDBMode,
     /// The reward cycle of the connecting signer
     reward_cycle: u64,
 }
 
 impl<M: MessageSlotID + 'static> From<&SignerConfig> for StackerDB<M> {
     fn from(config: &SignerConfig) -> Self {
+        let mode = match config.signer_mode {
+            SignerConfigMode::DryRun => StackerDBMode::DryRun,
+            SignerConfigMode::Normal {
+                ref signer_slot_id, ..
+            } => StackerDBMode::Normal {
+                signer_slot_id: *signer_slot_id,
+            },
+        };
+
         Self::new(
             &config.node_host,
             config.stacks_private_key,
             config.mainnet,
             config.reward_cycle,
-            config.signer_slot_id,
+            mode,
         )
     }
 }
 
 impl<M: MessageSlotID + 'static> StackerDB<M> {
-    /// Create a new StackerDB client
-    pub fn new(
+    /// Create a new StackerDB client running in normal operation
+    fn new(
         host: &str,
         stacks_private_key: StacksPrivateKey,
         is_mainnet: bool,
         reward_cycle: u64,
-        signer_slot_id: SignerSlotID,
+        signer_mode: StackerDBMode,
     ) -> Self {
         let mut signers_message_stackerdb_sessions = HashMap::new();
         for msg_id in M::all() {
@@ -84,7 +101,7 @@ impl<M: MessageSlotID + 'static> StackerDB<M> {
             signers_message_stackerdb_sessions,
             stacks_private_key,
             slot_versions: HashMap::new(),
-            signer_slot_id,
+            mode: signer_mode,
             reward_cycle,
         }
     }
@@ -110,18 +127,33 @@ impl<M: MessageSlotID + 'static> StackerDB<M> {
         msg_id: &M,
         message_bytes: Vec<u8>,
     ) -> Result<StackerDBChunkAckData, ClientError> {
-        let slot_id = self.signer_slot_id;
+        let StackerDBMode::Normal {
+            signer_slot_id: slot_id,
+        } = &self.mode
+        else {
+            info!(
+                "Dry-run signer would have sent a stackerdb message";
+                "message_id" => ?msg_id,
+                "message_bytes" => to_hex(&message_bytes)
+            );
+            return Ok(StackerDBChunkAckData {
+                accepted: true,
+                reason: None,
+                metadata: None,
+                code: None,
+            });
+        };
         loop {
             let mut slot_version = if let Some(versions) = self.slot_versions.get_mut(msg_id) {
-                if let Some(version) = versions.get(&slot_id) {
+                if let Some(version) = versions.get(slot_id) {
                     *version
                 } else {
-                    versions.insert(slot_id, 0);
+                    versions.insert(*slot_id, 0);
                     1
                 }
             } else {
                 let mut versions = HashMap::new();
-                versions.insert(slot_id, 0);
+                versions.insert(*slot_id, 0);
                 self.slot_versions.insert(*msg_id, versions);
                 1
             };
@@ -143,7 +175,7 @@ impl<M: MessageSlotID + 'static> StackerDB<M> {
 
             if let Some(versions) = self.slot_versions.get_mut(msg_id) {
                 // NOTE: per the above, this is always executed
-                versions.insert(slot_id, slot_version.saturating_add(1));
+                versions.insert(*slot_id, slot_version.saturating_add(1));
             } else {
                 return Err(ClientError::NotConnected);
             }
@@ -165,7 +197,7 @@ impl<M: MessageSlotID + 'static> StackerDB<M> {
                         }
                         if let Some(versions) = self.slot_versions.get_mut(msg_id) {
                             // NOTE: per the above, this is always executed
-                            versions.insert(slot_id, slot_version.saturating_add(1));
+                            versions.insert(*slot_id, slot_version.saturating_add(1));
                         } else {
                             return Err(ClientError::NotConnected);
                         }
@@ -214,11 +246,6 @@ impl<M: MessageSlotID + 'static> StackerDB<M> {
     /// Retrieve the signer set this stackerdb client is attached to
     pub fn get_signer_set(&self) -> u32 {
         u32::try_from(self.reward_cycle % 2).expect("FATAL: reward cycle % 2 exceeds u32::MAX")
-    }
-
-    /// Retrieve the signer slot ID
-    pub fn get_signer_slot_id(&self) -> SignerSlotID {
-        self.signer_slot_id
     }
 
     /// Get the session corresponding to the given message ID if it exists
