@@ -291,7 +291,7 @@ impl TestMiner {
     }
 }
 
-impl<'a> NakamotoStagingBlocksConnRef<'a> {
+impl NakamotoStagingBlocksConnRef<'_> {
     pub fn get_any_normal_tenure(&self) -> Result<Option<ConsensusHash>, ChainstateError> {
         let qry = "SELECT consensus_hash FROM nakamoto_staging_blocks WHERE obtain_method != ?1 ORDER BY RANDOM() LIMIT 1";
         let args = params![&NakamotoBlockObtainMethod::Shadow.to_string()];
@@ -444,7 +444,7 @@ impl TestStacksNode {
     /// Record the nakamoto blocks as a new tenure
     pub fn add_nakamoto_tenure_blocks(&mut self, tenure_blocks: Vec<NakamotoBlock>) {
         if let Some(last_tenure) = self.nakamoto_blocks.last_mut() {
-            if tenure_blocks.len() > 0 {
+            if !tenure_blocks.is_empty() {
                 // this tenure is overwriting the last tenure
                 if last_tenure.first().unwrap().header.consensus_hash
                     == tenure_blocks.first().unwrap().header.consensus_hash
@@ -743,7 +743,7 @@ impl TestStacksNode {
             let mut next_block_txs = block_builder(miner, chainstate, sortdb, &blocks);
             txs.append(&mut next_block_txs);
 
-            if txs.len() == 0 {
+            if txs.is_empty() {
                 break;
             }
 
@@ -1088,7 +1088,7 @@ impl TestStacksNode {
     }
 }
 
-impl<'a> TestPeer<'a> {
+impl TestPeer<'_> {
     /// Get the Nakamoto parent linkage data for building atop the last-produced tenure or
     /// Stacks 2.x block.
     /// Returns (last-tenure-id, epoch2-parent, nakamoto-parent-tenure, parent-sortition)
@@ -2129,7 +2129,7 @@ impl<'a> TestPeer<'a> {
         // get_nakamoto_tenure_length
         // compare the DB to the block's ancestors
         let ancestors = Self::load_nakamoto_tenure(chainstate, &block.block_id());
-        assert!(ancestors.len() > 0);
+        assert!(!ancestors.is_empty());
         assert_eq!(
             ancestors.len(),
             NakamotoChainState::get_nakamoto_tenure_length(chainstate.db(), &block.block_id())

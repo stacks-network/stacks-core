@@ -157,7 +157,7 @@ impl GetTenureStartId for MARF<StacksBlockId> {
 
 pub struct HeadersDBConn<'a>(pub StacksDBConn<'a>);
 
-impl<'a> HeadersDB for HeadersDBConn<'a> {
+impl HeadersDB for HeadersDBConn<'_> {
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
@@ -328,7 +328,7 @@ impl<'a> HeadersDB for HeadersDBConn<'a> {
     }
 }
 
-impl<'a> HeadersDB for ChainstateTx<'a> {
+impl HeadersDB for ChainstateTx<'_> {
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
@@ -1205,7 +1205,7 @@ impl MemoryBackingStore {
         memory_marf
     }
 
-    pub fn as_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
+    pub fn as_clarity_db(&mut self) -> ClarityDatabase<'_> {
         ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
     }
 
@@ -1219,7 +1219,7 @@ impl MemoryBackingStore {
         ClarityDatabase::new(self, headers_db, burn_state_db)
     }
 
-    pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
+    pub fn as_analysis_db(&mut self) -> AnalysisDatabase<'_> {
         AnalysisDatabase::new(self)
     }
 }

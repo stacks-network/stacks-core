@@ -50,7 +50,7 @@ pub const PEERDB_VERSION: &str = "3";
 const NUM_SLOTS: usize = 8;
 
 impl FromColumn<PeerAddress> for PeerAddress {
-    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<PeerAddress, db_error> {
+    fn from_column(row: &Row, column_name: &str) -> Result<PeerAddress, db_error> {
         let addrbytes_bin: String = row.get_unwrap(column_name);
         if addrbytes_bin.len() != 128 {
             error!("Unparsable peer address {}", addrbytes_bin);
@@ -74,7 +74,7 @@ impl FromColumn<PeerAddress> for PeerAddress {
 }
 
 impl FromRow<QualifiedContractIdentifier> for QualifiedContractIdentifier {
-    fn from_row<'a>(row: &'a Row) -> Result<QualifiedContractIdentifier, db_error> {
+    fn from_row(row: &Row) -> Result<QualifiedContractIdentifier, db_error> {
         let cid_str: String = row.get_unwrap("smart_contract_id");
         let cid =
             QualifiedContractIdentifier::parse(&cid_str).map_err(|_e| db_error::ParseError)?;
@@ -157,7 +157,7 @@ impl LocalPeer {
         info!(
             "Will be authenticating p2p messages with the following";
             "public key" => &Secp256k1PublicKey::from_private(&pkey).to_hex(),
-            "services" => &to_hex(&(services as u16).to_be_bytes()),
+            "services" => &to_hex(&services.to_be_bytes()),
             "Stacker DBs" => stacker_dbs.iter().map(|cid| format!("{}", &cid)).collect::<Vec<String>>().join(",")
         );
 
@@ -203,7 +203,7 @@ impl LocalPeer {
 }
 
 impl FromRow<LocalPeer> for LocalPeer {
-    fn from_row<'a>(row: &'a Row) -> Result<LocalPeer, db_error> {
+    fn from_row(row: &Row) -> Result<LocalPeer, db_error> {
         let network_id: u32 = row.get_unwrap("network_id");
         let parent_network_id: u32 = row.get_unwrap("parent_network_id");
         let nonce_hex: String = row.get_unwrap("nonce");
@@ -253,7 +253,7 @@ impl FromRow<LocalPeer> for LocalPeer {
 }
 
 impl FromRow<ASEntry4> for ASEntry4 {
-    fn from_row<'a>(row: &'a Row) -> Result<ASEntry4, db_error> {
+    fn from_row(row: &Row) -> Result<ASEntry4, db_error> {
         let prefix: u32 = row.get_unwrap("prefix");
         let mask: u8 = row.get_unwrap("mask");
         let asn: u32 = row.get_unwrap("asn");
@@ -269,7 +269,7 @@ impl FromRow<ASEntry4> for ASEntry4 {
 }
 
 impl FromRow<Neighbor> for Neighbor {
-    fn from_row<'a>(row: &'a Row) -> Result<Neighbor, db_error> {
+    fn from_row(row: &Row) -> Result<Neighbor, db_error> {
         let peer_version: u32 = row.get_unwrap("peer_version");
         let network_id: u32 = row.get_unwrap("network_id");
         let addrbytes: PeerAddress = PeerAddress::from_column(row, "addrbytes")?;
@@ -812,7 +812,7 @@ impl PeerDB {
         &self.conn
     }
 
-    pub fn tx_begin<'a>(&'a mut self) -> Result<Transaction<'a>, db_error> {
+    pub fn tx_begin(&mut self) -> Result<Transaction<'_>, db_error> {
         if !self.readwrite {
             return Err(db_error::ReadOnly);
         }
@@ -876,7 +876,7 @@ impl PeerDB {
 
     /// Re-key and return the new local peer
     pub fn rekey(&mut self, new_expire_block: u64) -> Result<LocalPeer, db_error> {
-        if new_expire_block > ((1 as u64) << 63) - 1 {
+        if new_expire_block > (1 << 63) - 1 {
             return Err(db_error::Overflow);
         }
 
@@ -1244,7 +1244,7 @@ impl PeerDB {
             let empty_key = StacksPublicKey::from_private(&StacksPrivateKey::new());
             let mut empty_neighbor = Neighbor::empty(&nk, &empty_key, 0);
 
-            empty_neighbor.allowed = allow_deadline as i64;
+            empty_neighbor.allowed = allow_deadline;
 
             debug!("Preemptively allow peer {:?}", &nk);
             if !PeerDB::try_insert_peer(tx, &empty_neighbor, &[])? {
@@ -2821,7 +2821,7 @@ mod test {
                 },
                 public_key: Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
                 expire_block: (i + 23456) as u64,
-                last_contact_time: (1552509642 + (i as u64)) as u64,
+                last_contact_time: (1552509642 + (i as u64)),
                 allowed: (now_secs + 600) as i64,
                 denied: -1,
                 asn: (34567 + i) as u32,
@@ -2841,7 +2841,7 @@ mod test {
                 },
                 public_key: Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
                 expire_block: (i + 23456) as u64,
-                last_contact_time: (1552509642 + (i as u64)) as u64,
+                last_contact_time: (1552509642 + (i as u64)),
                 allowed: 0,
                 denied: -1,
                 asn: (34567 + i) as u32,
@@ -2925,7 +2925,7 @@ mod test {
                 },
                 public_key: Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
                 expire_block: (i + 23456) as u64,
-                last_contact_time: (1552509642 + (i as u64)) as u64,
+                last_contact_time: (1552509642 + (i as u64)),
                 allowed: -1,
                 denied: -1,
                 asn: (34567 + i) as u32,
@@ -2946,7 +2946,7 @@ mod test {
                 },
                 public_key: Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
                 expire_block: (i + 23456) as u64,
-                last_contact_time: (1552509642 + (i as u64)) as u64,
+                last_contact_time: (1552509642 + (i as u64)),
                 allowed: -1,
                 denied: -1,
                 asn: (34567 + i) as u32,
