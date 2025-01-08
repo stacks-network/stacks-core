@@ -10,7 +10,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Added
 
 - Add `tenure_timeout_secs` to the miner for determining when a time-based tenure extend should be attempted.
-- Added configuration option `connections.block_proposal_max_age_secs` to prevent processing stale block proposals
+- Added configuration option `block_proposal_max_age_secs` under `[connection_options]` to prevent processing stale block proposals
 
 ### Changed
 - The RPC endpoint `/v3/block_proposal` no longer will evaluate block proposals more than `block_proposal_max_age_secs` old
