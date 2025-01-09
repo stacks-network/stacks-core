@@ -127,16 +127,16 @@ impl BitcoinIndexer {
         // classify the message here, so we can pass it along to the handler explicitly
         match message {
             btc_message::NetworkMessage::Version(..) => {
-                return self.handle_version(message).and_then(|_r| Ok(true));
+                return self.handle_version(message).map(|_r| true);
             }
             btc_message::NetworkMessage::Verack => {
-                return self.handle_verack(message).and_then(|_r| Ok(true));
+                return self.handle_verack(message).map(|_r| true);
             }
             btc_message::NetworkMessage::Ping(..) => {
-                return self.handle_ping(message).and_then(|_r| Ok(true));
+                return self.handle_ping(message).map(|_r| true);
             }
             btc_message::NetworkMessage::Pong(..) => {
-                return self.handle_pong(message).and_then(|_r| Ok(true));
+                return self.handle_pong(message).map(|_r| true);
             }
             _ => match handler {
                 Some(custom_handler) => custom_handler.handle_message(self, message),
