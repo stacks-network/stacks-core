@@ -5105,6 +5105,17 @@ fn forked_tenure_is_ignored() {
     .unwrap();
 
     info!("Tenure C produced a block!");
+    wait_for(30, || {
+        let block_tenure_c =
+            NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+                .unwrap()
+                .unwrap();
+        let blocks = test_observer::get_mined_nakamoto_blocks();
+        let block_c = blocks.last().unwrap();
+        Ok(block_tenure_c.index_block_hash().to_string() == block_c.block_id)
+    })
+    .expect("Failed to wait for block processing");
+
     let block_tenure_c = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
