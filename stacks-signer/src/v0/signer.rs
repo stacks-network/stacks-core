@@ -659,6 +659,14 @@ impl Signer {
         // For mutability reasons, we need to take the block_info out of the map and add it back after processing
         let mut block_info = match self.signer_db.block_lookup(&signer_signature_hash) {
             Ok(Some(block_info)) => {
+                if block_info.reward_cycle != self.reward_cycle {
+                    // We are not signing for this reward cycle. Ignore the block.
+                    debug!(
+                        "{self}: Received a block validation response for a different reward cycle. Ignore it.";
+                        "requested_reward_cycle" => block_info.reward_cycle,
+                    );
+                    return None;
+                }
                 if block_info.is_locally_finalized() {
                     debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
                     return None;
@@ -744,6 +752,14 @@ impl Signer {
         }
         let mut block_info = match self.signer_db.block_lookup(&signer_signature_hash) {
             Ok(Some(block_info)) => {
+                if block_info.reward_cycle != self.reward_cycle {
+                    // We are not signing for this reward cycle. Ignore the block.
+                    debug!(
+                        "{self}: Received a block validation response for a different reward cycle. Ignore it.";
+                        "requested_reward_cycle" => block_info.reward_cycle,
+                    );
+                    return None;
+                }
                 if block_info.is_locally_finalized() {
                     debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
                     return None;

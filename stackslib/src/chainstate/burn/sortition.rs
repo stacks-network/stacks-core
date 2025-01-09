@@ -731,8 +731,7 @@ impl BlockSnapshot {
                 winning_block.key_vtxindex.into(),
                 &parent_snapshot.sortition_id,
             )?
-            .map(|key_op| key_op.interpret_nakamoto_signing_key())
-            .flatten();
+            .and_then(|key_op| key_op.interpret_nakamoto_signing_key());
 
         Ok(BlockSnapshot {
             block_height,

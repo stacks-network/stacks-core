@@ -406,7 +406,7 @@ impl RelayerStats {
         // look up ASNs
         let mut asns = HashMap::new();
         for nk in neighbors.iter() {
-            if asns.get(nk).is_none() {
+            if !asns.contains_key(nk) {
                 match PeerDB::asn_lookup(conn, &nk.addrbytes)? {
                     Some(asn) => asns.insert((*nk).clone(), asn),
                     None => asns.insert((*nk).clone(), 0),
@@ -1150,7 +1150,7 @@ impl Relayer {
 
         for (anchored_block_hash, (relayers, mblocks_map)) in new_microblocks.into_iter() {
             for (_, mblock) in mblocks_map.into_iter() {
-                if mblocks_data.get(&anchored_block_hash).is_none() {
+                if !mblocks_data.contains_key(&anchored_block_hash) {
                     mblocks_data.insert(anchored_block_hash.clone(), vec![]);
                 }
 

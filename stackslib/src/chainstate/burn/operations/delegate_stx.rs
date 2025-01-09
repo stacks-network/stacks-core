@@ -237,7 +237,7 @@ impl StacksMessageCodec for DelegateStxOp {
         } else {
             fd.write_all(&0_u8.to_be_bytes())
                 .map_err(|e| codec_error::WriteError(e))?;
-            fd.write_all(&0_u8.to_be_bytes())
+            fd.write_all(&0_u32.to_be_bytes())
                 .map_err(|e| codec_error::WriteError(e))?;
         }
 

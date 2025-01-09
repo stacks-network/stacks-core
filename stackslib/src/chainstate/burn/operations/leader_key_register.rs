@@ -72,7 +72,7 @@ impl LeaderKeyRegisterOp {
     /// Interpret the first 20 bytes of the key registration's memo field as the Hash160 of
     ///  of the public key that will sign this miner's nakamoto blocks.
     pub fn interpret_nakamoto_signing_key(&self) -> Option<Hash160> {
-        self.memo.get(0..20).map(Hash160::from_bytes).flatten()
+        self.memo.get(0..20).and_then(Hash160::from_bytes)
     }
 
     /// Set the miner public key hash160 for block-signing

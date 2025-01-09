@@ -150,7 +150,7 @@ impl BitcoinMessageHandler for BitcoinBlockDownloader {
             None => panic!("No block header set"),
             Some(ref ipc_header) => {
                 let block_hash = ipc_header.block_header.header.bitcoin_hash().clone();
-                indexer.send_getdata(&[block_hash]).and_then(|_r| Ok(true))
+                indexer.send_getdata(&[block_hash]).map(|_r| true)
             }
         }
     }
