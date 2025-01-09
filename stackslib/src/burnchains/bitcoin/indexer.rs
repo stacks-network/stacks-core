@@ -458,7 +458,7 @@ impl BitcoinIndexer {
         }
         spv_client
             .run(self)
-            .and_then(|_r| Ok(spv_client.end_block_height.unwrap()))
+            .map(|_r| spv_client.end_block_height.unwrap())
     }
 
     #[cfg(test)]

@@ -2780,9 +2780,9 @@ pub mod test {
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
         state
             .get_reward_addresses(burnchain, sortdb, burn_block_height, block_id)
-            .and_then(|mut addrs| {
+            .map(|mut addrs| {
                 addrs.sort_by_key(|k| k.reward_address.bytes());
-                Ok(addrs)
+                addrs
             })
     }
 

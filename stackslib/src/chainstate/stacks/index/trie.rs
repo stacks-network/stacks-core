@@ -281,7 +281,7 @@ impl Trie {
             )));
         }
 
-        value.path = cur_leaf.path_bytes().clone();
+        value.path.clone_from(cur_leaf.path_bytes());
 
         let leaf_hash = get_leaf_hash(value);
 
@@ -907,10 +907,9 @@ impl Trie {
             if cfg!(test) && is_trace() {
                 let node_hash = my_hash.clone();
                 let _ = Trie::get_trie_root_ancestor_hashes_bytes(storage, &node_hash)
-                    .and_then(|_hs| {
+                    .map(|_hs| {
                         storage.clear_cached_ancestor_hashes_bytes();
                         trace!("update_root_hash: Updated {:?} with {:?} from {} to {} + {:?} = {} (fixed root)", &node, &child_ptr, &_cur_hash, &node_hash, &_hs[1..].to_vec(), &h);
-                        Ok(())
                     });
             }
 
@@ -971,10 +970,9 @@ impl Trie {
 
                         if cfg!(test) && is_trace() {
                             let _ = Trie::get_trie_root_ancestor_hashes_bytes(storage, &content_hash)
-                                        .and_then(|_hs| {
+                                        .map(|_hs| {
                                             storage.clear_cached_ancestor_hashes_bytes();
                                             trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?} + {:?} = {:?}", &node, &child_ptr, &_cur_hash, &content_hash, &_hs[1..].to_vec(), &h);
-                                            Ok(())
                                         });
                         }
 
