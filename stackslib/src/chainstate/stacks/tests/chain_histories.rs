@@ -2857,7 +2857,7 @@ pub fn mine_invalid_token_transfers_block(
     );
     builder.force_mine_tx(clarity_tx, &tx1).unwrap();
 
-    if miner.spent_at_nonce.get(&1).is_none() {
+    if !miner.spent_at_nonce.contains_key(&1) {
         miner.spent_at_nonce.insert(1, 11111);
     }
 
@@ -2871,7 +2871,7 @@ pub fn mine_invalid_token_transfers_block(
     );
     builder.force_mine_tx(clarity_tx, &tx2).unwrap();
 
-    if miner.spent_at_nonce.get(&2).is_none() {
+    if !miner.spent_at_nonce.contains_key(&2) {
         miner.spent_at_nonce.insert(2, 22222);
     }
 

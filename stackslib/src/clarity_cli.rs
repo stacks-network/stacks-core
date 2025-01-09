@@ -35,7 +35,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::{bytes_to_hex, Hash160, Sha512Trunc256Sum};
-use stacks_common::util::{cargo_workspace, get_epoch_time_ms, log};
+use stacks_common::util::{get_epoch_time_ms, log};
 
 use crate::burnchains::{Address, PoxConstants, Txid};
 use crate::chainstate::stacks::boot::{
@@ -1946,6 +1946,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 #[cfg(test)]
 mod test {
     use std::path::Path;
+
+    use stacks_common::util::cargo_workspace;
 
     use super::*;
 

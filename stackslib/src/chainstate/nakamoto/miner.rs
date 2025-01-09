@@ -596,7 +596,7 @@ impl NakamotoBlockBuilder {
             tenure_info.coinbase_tx.clone(),
         ]
         .into_iter()
-        .filter_map(|x| x)
+        .flatten()
         .collect();
 
         // TODO: update this mempool check to prioritize signer vote transactions over other transactions

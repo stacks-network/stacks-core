@@ -3934,7 +3934,7 @@ impl SortitionDBConn<'_> {
             tip,
             reward_cycle_id,
         )
-        .and_then(|(reward_cycle_info, _anchor_sortition_id)| Ok(reward_cycle_info))
+        .map(|(reward_cycle_info, _anchor_sortition_id)| reward_cycle_info)
     }
 
     /// Get the prepare phase start sortition ID of a reward cycle.  This is the first prepare
@@ -4046,25 +4046,23 @@ impl SortitionDB {
     }
 
     fn parse_last_anchor_block_hash(s: Option<String>) -> Option<BlockHeaderHash> {
-        s.map(|s| {
+        s.and_then(|s| {
             if s.is_empty() {
                 None
             } else {
                 Some(BlockHeaderHash::from_hex(&s).expect("BUG: Bad BlockHeaderHash stored in DB"))
             }
         })
-        .flatten()
     }
 
     fn parse_last_anchor_block_txid(s: Option<String>) -> Option<Txid> {
-        s.map(|s| {
+        s.and_then(|s| {
             if s.is_empty() {
                 None
             } else {
                 Some(Txid::from_hex(&s).expect("BUG: Bad Txid stored in DB"))
             }
         })
-        .flatten()
     }
 
     /// Mark a Stacks block snapshot as valid again, but update its memoized canonical Stacks tip

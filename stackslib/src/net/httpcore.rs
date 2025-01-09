@@ -80,12 +80,12 @@ pub enum TipRequest {
 
 impl TipRequest {}
 
-impl ToString for TipRequest {
-    fn to_string(&self) -> String {
+impl fmt::Display for TipRequest {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::UseLatestAnchoredTip => "".to_string(),
-            Self::UseLatestUnconfirmedTip => "latest".to_string(),
-            Self::SpecificTip(ref tip) => format!("{}", tip),
+            Self::UseLatestAnchoredTip => write!(f, ""),
+            Self::UseLatestUnconfirmedTip => write!(f, "latest"),
+            Self::SpecificTip(ref tip) => write!(f, "{tip}"),
         }
     }
 }
@@ -316,7 +316,7 @@ impl HttpRequestContentsExtensions for HttpRequestContents {
     /// Use a particular tip request
     fn for_tip(mut self, tip_req: TipRequest) -> Self {
         if tip_req != TipRequest::UseLatestAnchoredTip {
-            self.query_arg("tip".to_string(), format!("{}", &tip_req.to_string()))
+            self.query_arg("tip".to_string(), tip_req.to_string())
         } else {
             let _ = self.take_query_arg(&"tip".to_string());
             self

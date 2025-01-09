@@ -550,7 +550,7 @@ fn inner_sql_pragma(
 pub fn sql_vacuum(conn: &Connection) -> Result<(), Error> {
     conn.execute("VACUUM", NO_PARAMS)
         .map_err(Error::SqliteError)
-        .and_then(|_| Ok(()))
+        .map(|_| ())
 }
 
 /// Returns true if the database table `table_name` exists in the active

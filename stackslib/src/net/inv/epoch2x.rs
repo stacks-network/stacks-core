@@ -1768,9 +1768,8 @@ impl PeerNetwork {
     ) -> Result<Option<(u64, GetBlocksInv)>, net_error> {
         if stats.block_reward_cycle <= stats.inv.num_reward_cycles {
             self.make_getblocksinv(sortdb, nk, stats, stats.block_reward_cycle)
-                .and_then(|getblocksinv_opt| {
-                    Ok(getblocksinv_opt
-                        .map(|getblocksinv| (stats.block_reward_cycle, getblocksinv)))
+                .map(|getblocksinv_opt| {
+                    getblocksinv_opt.map(|getblocksinv| (stats.block_reward_cycle, getblocksinv))
                 })
         } else {
             Ok(None)
@@ -2167,13 +2166,13 @@ impl PeerNetwork {
             let again = match stats.state {
                 InvWorkState::GetPoxInvBegin => self
                     .inv_getpoxinv_begin(pins, sortdb, nk, stats, request_timeout)
-                    .and_then(|_| Ok(true))?,
+                    .map(|_| true)?,
                 InvWorkState::GetPoxInvFinish => {
                     self.inv_getpoxinv_try_finish(sortdb, nk, stats, ibd)?
                 }
                 InvWorkState::GetBlocksInvBegin => self
                     .inv_getblocksinv_begin(pins, sortdb, nk, stats, request_timeout)
-                    .and_then(|_| Ok(true))?,
+                    .map(|_| true)?,
                 InvWorkState::GetBlocksInvFinish => {
                     self.inv_getblocksinv_try_finish(nk, stats, ibd)?
                 }

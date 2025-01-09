@@ -1458,9 +1458,9 @@ impl StacksChainState {
             seq,
             seq,
         )
-        .and_then(|list_opt| match list_opt {
-            Some(mut list) => Ok(list.pop()),
-            None => Ok(None),
+        .map(|list_opt| match list_opt {
+            Some(mut list) => list.pop(),
+            None => None,
         })
     }
 
@@ -2786,7 +2786,7 @@ impl StacksChainState {
         min_seq: u16,
     ) -> Result<bool, Error> {
         StacksChainState::read_i64s(self.db(), "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence >= ?2 LIMIT 1", &[&parent_index_block_hash, &min_seq])
-            .and_then(|processed| Ok(!processed.is_empty()))
+            .map(|processed| !processed.is_empty())
     }
 
     /// Do we have a given microblock as a descendant of a given anchored block?
@@ -2799,7 +2799,7 @@ impl StacksChainState {
         microblock_hash: &BlockHeaderHash,
     ) -> Result<bool, Error> {
         StacksChainState::read_i64s(self.db(), "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 AND microblock_hash = ?2 LIMIT 1", &[parent_index_block_hash, microblock_hash])
-            .and_then(|processed| Ok(!processed.is_empty()))
+            .map(|processed| !processed.is_empty())
     }
 
     /// Do we have any microblock available to serve in any capacity, given its parent anchored block's
@@ -2814,7 +2814,7 @@ impl StacksChainState {
             "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 LIMIT 1",
             &[&parent_index_block_hash],
         )
-        .and_then(|processed| Ok(!processed.is_empty()))
+        .map(|processed| !processed.is_empty())
     }
 
     /// Given an index block hash, get the consensus hash and block hash
@@ -4045,6 +4045,7 @@ impl StacksChainState {
     /// Return (applied?, receipts)
     pub fn process_epoch_transition(
         clarity_tx: &mut ClarityTx,
+        burn_dbconn: &dyn BurnStateDB,
         chain_tip_burn_header_height: u32,
     ) -> Result<(bool, Vec<StacksTransactionReceipt>), Error> {
         // is this stacks block the first of a new epoch?
@@ -4105,13 +4106,28 @@ impl StacksChainState {
                         current_epoch = StacksEpochId::Epoch30;
                     }
                     StacksEpochId::Epoch30 => {
-                        // no special initialization is needed, since only the coinbase emission
-                        // schedule is changing.
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_3_1()?);
                         current_epoch = StacksEpochId::Epoch31;
                     }
                     StacksEpochId::Epoch31 => {
                         panic!("No defined transition from Epoch31 forward")
                     }
+                }
+
+                if current_epoch > StacksEpochId::Epoch2_05 {
+                    // clarity tx should now have the current epoch
+                    assert_eq!(
+                        clarity_tx.block.get_epoch(),
+                        current_epoch,
+                        "FATAL: clarity_tx does not have the current epoch"
+                    );
+
+                    // clarity DB should now have the current epoch
+                    assert_eq!(
+                        clarity_tx.block.get_clarity_db_epoch_version(burn_dbconn)?,
+                        current_epoch,
+                        "FATAL: clarity DB does not report the current epoch"
+                    );
                 }
             }
         }
@@ -5199,7 +5215,11 @@ impl StacksChainState {
 
         // is this stacks block the first of a new epoch?
         let (applied_epoch_transition, mut tx_receipts) =
-            StacksChainState::process_epoch_transition(&mut clarity_tx, burn_tip_height)?;
+            StacksChainState::process_epoch_transition(
+                &mut clarity_tx,
+                burn_dbconn,
+                burn_tip_height,
+            )?;
 
         debug!(
             "Setup block: Processed epoch transition at {}/{}",

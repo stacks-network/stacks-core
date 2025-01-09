@@ -1371,7 +1371,7 @@ impl TransactionAuth {
             TransactionAuth::Standard(_) => Ok(()),
             TransactionAuth::Sponsored(_, ref sponsor_condition) => sponsor_condition
                 .verify(&origin_sighash, &TransactionAuthFlags::AuthSponsored)
-                .and_then(|_sigh| Ok(())),
+                .map(|_sigh| ()),
         }
     }
 

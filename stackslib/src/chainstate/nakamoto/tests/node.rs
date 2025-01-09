@@ -1509,8 +1509,7 @@ impl TestPeer<'_> {
             let mut malleablized_blocks: Vec<NakamotoBlock> = blocks
                 .clone()
                 .into_iter()
-                .map(|(_, _, _, malleablized)| malleablized)
-                .flatten()
+                .flat_map(|(_, _, _, malleablized)| malleablized)
                 .collect();
 
             peer.malleablized_blocks.append(&mut malleablized_blocks);
@@ -1600,8 +1599,7 @@ impl TestPeer<'_> {
         let mut malleablized_blocks: Vec<NakamotoBlock> = blocks
             .clone()
             .into_iter()
-            .map(|(_, _, _, malleablized)| malleablized)
-            .flatten()
+            .flat_map(|(_, _, _, malleablized)| malleablized)
             .collect();
 
         self.malleablized_blocks.append(&mut malleablized_blocks);

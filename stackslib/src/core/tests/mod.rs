@@ -1266,7 +1266,7 @@ fn test_iterate_candidates_concurrent_write_lock() {
     assert_eq!(all_addr_nonces.len(), expected_addr_nonces.len());
 
     for (addr, nonce) in all_addr_nonces {
-        assert!(expected_addr_nonces.get(&addr).is_some());
+        assert!(expected_addr_nonces.contains_key(&addr));
         assert_eq!(nonce, 24);
     }
 }
