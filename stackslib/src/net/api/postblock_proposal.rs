@@ -747,6 +747,20 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
                     NetError::SendError("Proposal currently being evaluated".into()),
                 ));
             }
+
+            if block_proposal
+                .block
+                .header
+                .timestamp
+                .saturating_add(network.get_connection_opts().block_proposal_max_age_secs)
+                < get_epoch_time_secs()
+            {
+                return Err((
+                    422,
+                    NetError::SendError("Block proposal is too old to process.".into()),
+                ));
+            }
+
             let (chainstate, _) = chainstate.reopen().map_err(|e| (400, NetError::from(e)))?;
             let sortdb = sortdb.reopen().map_err(|e| (400, NetError::from(e)))?;
             let receiver = rpc_args

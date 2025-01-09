@@ -589,60 +589,80 @@ impl Signer {
         }
     }
 
-    /// WARNING: Do NOT call this function PRIOR to check_proposal or block_proposal validation succeeds.
+    /// WARNING: This is an incomplete check. Do NOT call this function PRIOR to check_proposal or block_proposal validation succeeds.
     ///
     /// Re-verify a block's chain length against the last signed block within signerdb.
     /// This is required in case a block has been approved since the initial checks of the block validation endpoint.
     fn check_block_against_signer_db_state(
-        &self,
+        &mut self,
+        stacks_client: &StacksClient,
         proposed_block: &NakamotoBlock,
     ) -> Option<BlockResponse> {
         let signer_signature_hash = proposed_block.header.signer_signature_hash();
         let proposed_block_consensus_hash = proposed_block.header.consensus_hash;
-
-        match self.signer_db.get_signer_last_accepted_block() {
-            Ok(Some(last_block_info)) => {
-                if proposed_block.header.chain_length <= last_block_info.block.header.chain_length {
-                    // We do not allow reorgs at any time within the same consensus hash OR of globally accepted blocks
-                    let non_reorgable_block = last_block_info.block.header.consensus_hash
-                        == proposed_block_consensus_hash
-                        || last_block_info.state == BlockState::GloballyAccepted;
-                    // Is the reorg timeout requirement exceeded?
-                    let reorg_timeout_exceeded = last_block_info
-                        .signed_self
-                        .map(|signed_over_time| {
-                            signed_over_time.saturating_add(
-                                self.proposal_config
-                                    .tenure_last_block_proposal_timeout
-                                    .as_secs(),
-                            ) <= get_epoch_time_secs()
-                        })
-                        .unwrap_or(false);
-                    if non_reorgable_block || !reorg_timeout_exceeded {
-                        warn!(
-                            "Miner's block proposal does not confirm as many blocks as we expect";
-                            "proposed_block_consensus_hash" => %proposed_block_consensus_hash,
-                            "proposed_block_signer_sighash" => %signer_signature_hash,
-                            "proposed_chain_length" => proposed_block.header.chain_length,
-                            "expected_at_least" => last_block_info.block.header.chain_length + 1,
-                        );
-                        return Some(self.create_block_rejection(
+        // If this is a tenure change block, ensure that it confirms the correct number of blocks from the parent tenure.
+        if let Some(tenure_change) = proposed_block.get_tenure_change_tx_payload() {
+            // Ensure that the tenure change block confirms the expected parent block
+            match SortitionsView::check_tenure_change_confirms_parent(
+                tenure_change,
+                proposed_block,
+                &mut self.signer_db,
+                stacks_client,
+                self.proposal_config.tenure_last_block_proposal_timeout,
+            ) {
+                Ok(true) => {}
+                Ok(false) => {
+                    return Some(
+                        self.create_block_rejection(
                             RejectCode::SortitionViewMismatch,
                             proposed_block,
-                        ));
-                    }
+                        ),
+                    )
                 }
-                None
+                Err(e) => {
+                    warn!("{self}: Error checking block proposal: {e}";
+                        "signer_sighash" => %signer_signature_hash,
+                        "block_id" => %proposed_block.block_id()
+                    );
+                    return Some(
+                        self.create_block_rejection(RejectCode::ConnectivityIssues, proposed_block),
+                    );
+                }
             }
-            Ok(_) => None,
+        }
+
+        // Ensure that the block is the last block in the chain of its current tenure.
+        match self
+            .signer_db
+            .get_last_accepted_block(&proposed_block_consensus_hash)
+        {
+            Ok(Some(last_block_info)) => {
+                if proposed_block.header.chain_length <= last_block_info.block.header.chain_length {
+                    warn!(
+                        "Miner's block proposal does not confirm as many blocks as we expect";
+                        "proposed_block_consensus_hash" => %proposed_block_consensus_hash,
+                        "proposed_block_signer_sighash" => %signer_signature_hash,
+                        "proposed_chain_length" => proposed_block.header.chain_length,
+                        "expected_at_least" => last_block_info.block.header.chain_length + 1,
+                    );
+                    return Some(self.create_block_rejection(
+                        RejectCode::SortitionViewMismatch,
+                        proposed_block,
+                    ));
+                }
+            }
+            Ok(_) => {}
             Err(e) => {
                 warn!("{self}: Failed to check block against signer db: {e}";
                     "signer_sighash" => %signer_signature_hash,
                     "block_id" => %proposed_block.block_id()
                 );
-                Some(self.create_block_rejection(RejectCode::ConnectivityIssues, proposed_block))
+                return Some(
+                    self.create_block_rejection(RejectCode::ConnectivityIssues, proposed_block),
+                );
             }
         }
+        None
     }
 
     /// Handle the block validate ok response. Returns our block response if we have one
@@ -674,7 +694,9 @@ impl Signer {
             return None;
         }
 
-        if let Some(block_response) = self.check_block_against_signer_db_state(&block_info.block) {
+        if let Some(block_response) =
+            self.check_block_against_signer_db_state(stacks_client, &block_info.block)
+        {
             // The signer db state has changed. We no longer view this block as valid. Override the validation response.
             if let Err(e) = block_info.mark_locally_rejected() {
                 if !block_info.has_reached_consensus() {
