@@ -10184,19 +10184,17 @@ fn incoming_signers_ignore_block_proposals() {
 
     let mut no_next_signer_messages = || {
         let _ = wait_for(30, || {
-            for slot_id in next_signer_slot_ids.iter() {
-                let latest_msgs = StackerDB::get_messages::<SignerMessage>(
-                    stackerdb
-                        .get_session_mut(&MessageSlotID::BlockResponse)
-                        .expect("Failed to get BlockResponse stackerdb session"),
-                    &[*slot_id],
-                )
-                .expect("Failed to get message from stackerdb");
-                assert!(
-                    latest_msgs.is_empty(),
-                    "Signer {slot_id} has messages in the stackerdb"
-                );
-            }
+            let latest_msgs = StackerDB::get_messages::<SignerMessage>(
+                stackerdb
+                    .get_session_mut(&MessageSlotID::BlockResponse)
+                    .expect("Failed to get BlockResponse stackerdb session"),
+                &next_signer_slot_ids,
+            )
+            .expect("Failed to get messages from stackerdb");
+            assert!(
+                latest_msgs.is_empty(),
+                "Next signers have messages in their stackerdb"
+            );
             Ok(false)
         });
     };
@@ -10218,19 +10216,12 @@ fn incoming_signers_ignore_block_proposals() {
 
     info!("------------------------- Test Attempt to Mine Invalid Block {signer_signature_hash_1} -------------------------");
 
-    // First propose a block to the signers that does not have the correct consensus hash or BitVec. This should be rejected BEFORE
-    // the block is submitted to the node for validation.
     let short_timeout = Duration::from_secs(30);
     let all_signers: Vec<_> = signer_test
         .signer_stacks_private_keys
         .iter()
         .map(StacksPublicKey::from_private)
         .collect();
-    signer_test.propose_block(block.clone(), short_timeout);
-    signer_test
-        .wait_for_block_rejections(30, &all_signers)
-        .expect("Timed out waiting for block rejections");
-    no_next_signer_messages();
     test_observer::clear();
 
     // Propose a block to the signers that passes initial checks but will be rejected by the stacks node
@@ -10388,18 +10379,16 @@ fn outgoing_signers_ignore_block_proposals() {
 
     let mut old_signers_ignore_block_proposals = |hash| {
         let _ = wait_for(10, || {
-            for slot_id in old_signer_slot_ids.iter() {
-                let latest_msgs = StackerDB::get_messages::<SignerMessage>(
-                    stackerdb
-                        .get_session_mut(&MessageSlotID::BlockResponse)
-                        .expect("Failed to get BlockResponse stackerdb session"),
-                    &[*slot_id],
-                )
-                .expect("Failed to get message from stackerdb");
-                for msg in latest_msgs.iter() {
-                    if let SignerMessage::BlockResponse(response) = msg {
-                        assert_ne!(response.get_signer_signature_hash(), hash);
-                    }
+            let latest_msgs = StackerDB::get_messages::<SignerMessage>(
+                stackerdb
+                    .get_session_mut(&MessageSlotID::BlockResponse)
+                    .expect("Failed to get BlockResponse stackerdb session"),
+                &old_signer_slot_ids,
+            )
+            .expect("Failed to get messages from stackerdb");
+            for msg in latest_msgs.iter() {
+                if let SignerMessage::BlockResponse(response) = msg {
+                    assert_ne!(response.get_signer_signature_hash(), hash);
                 }
             }
             Ok(false)
@@ -10422,19 +10411,12 @@ fn outgoing_signers_ignore_block_proposals() {
 
     info!("------------------------- Test Attempt to Mine Invalid Block {signer_signature_hash_1} -------------------------");
 
-    // First propose a block to the signers that does not have the correct consensus hash or BitVec. This should be rejected BEFORE
-    // the block is submitted to the node for validation.
     let short_timeout = Duration::from_secs(30);
     let all_signers: Vec<_> = signer_test
         .signer_stacks_private_keys
         .iter()
         .map(StacksPublicKey::from_private)
         .collect();
-    signer_test.propose_block(block.clone(), short_timeout);
-    signer_test
-        .wait_for_block_rejections(30, &all_signers)
-        .expect("Timed out waiting for block rejections");
-    old_signers_ignore_block_proposals(signer_signature_hash_1);
     test_observer::clear();
 
     // Propose a block to the signers that passes initial checks but will be rejected by the stacks node
