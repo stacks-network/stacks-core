@@ -5020,8 +5020,8 @@ fn forked_tenure_is_ignored() {
 
     // For the next tenure, submit the commit op but do not allow any stacks blocks to be broadcasted.
     // Stall the miner thread; only wait until the number of submitted commits increases.
-    TEST_BROADCAST_STALL.lock().unwrap().replace(true);
-    TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap().replace(true);
+    TEST_BROADCAST_STALL.set(true);
+    TEST_BLOCK_ANNOUNCE_STALL.set(true);
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let commits_before = commits_submitted.load(Ordering::SeqCst);
 
@@ -5038,7 +5038,7 @@ fn forked_tenure_is_ignored() {
     // Unpause the broadcast of Tenure B's block, do not submit commits, and do not allow blocks to
     // be processed
     test_skip_commit_op.set(true);
-    TEST_BROADCAST_STALL.lock().unwrap().replace(false);
+    TEST_BROADCAST_STALL.set(false);
 
     // Wait for a stacks block to be broadcasted.
     // However, it will not be processed.
@@ -5091,7 +5091,7 @@ fn forked_tenure_is_ignored() {
         .get_stacks_blocks_processed();
     next_block_and(&mut btc_regtest_controller, 60, || {
         test_skip_commit_op.set(false);
-        TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap().replace(false);
+        TEST_BLOCK_ANNOUNCE_STALL.set(false);
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         let blocks_count = mined_blocks.load(Ordering::SeqCst);
         let blocks_processed = coord_channel
@@ -6129,7 +6129,7 @@ fn clarity_burn_state() {
             result.expect_result_ok().expect("Read-only call failed");
 
             // Pause mining to prevent the stacks block from being mined before the tenure change is processed
-            TEST_MINE_STALL.lock().unwrap().replace(true);
+            TEST_MINE_STALL.set(true);
             // Submit a tx for the next block (the next block will be a new tenure, so the burn block height will increment)
             let call_tx = tests::make_contract_call(
                 &sender_sk,
@@ -6154,7 +6154,7 @@ fn clarity_burn_state() {
             Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
         })
         .unwrap();
-        TEST_MINE_STALL.lock().unwrap().replace(false);
+        TEST_MINE_STALL.set(false);
         wait_for(20, || {
             Ok(coord_channel
                 .lock()
@@ -9749,7 +9749,7 @@ fn skip_mining_long_tx() {
             })
             .unwrap();
 
-            TEST_SKIP_P2P_BROADCAST.lock().unwrap().replace(true);
+            TEST_SKIP_P2P_BROADCAST.set(true);
             let tx = make_contract_publish(
                 &sender_2_sk,
                 0,
@@ -9776,7 +9776,7 @@ fn skip_mining_long_tx() {
             })
             .unwrap();
 
-            TEST_SKIP_P2P_BROADCAST.lock().unwrap().replace(false);
+            TEST_SKIP_P2P_BROADCAST.set(false);
         } else {
             let transfer_tx = make_stacks_transfer(
                 &sender_1_sk,
@@ -10435,7 +10435,7 @@ fn clarity_cost_spend_down() {
             .expect("Mutex poisoned")
             .get_stacks_blocks_processed();
         // Pause mining so we can add all our transactions to the mempool at once.
-        TEST_MINE_STALL.lock().unwrap().replace(true);
+        TEST_MINE_STALL.set(true);
         let mut submitted_txs = vec![];
         for _nmb_tx in 0..nmb_txs_per_signer {
             for sender_sk in sender_sks.iter() {
@@ -10464,7 +10464,7 @@ fn clarity_cost_spend_down() {
                 }
             }
         }
-        TEST_MINE_STALL.lock().unwrap().replace(false);
+        TEST_MINE_STALL.set(false);
         wait_for(120, || {
             let blocks_processed = coord_channel
                 .lock()
@@ -10693,8 +10693,8 @@ fn test_tenure_extend_from_flashblocks() {
     assert_eq!(sort_tip.consensus_hash, election_tip.consensus_hash);
 
     // stop the relayer thread from starting a miner thread, and stop the miner thread from mining
-    TEST_MINE_STALL.lock().unwrap().replace(true);
-    TEST_MINER_THREAD_STALL.lock().unwrap().replace(true);
+    TEST_MINE_STALL.set(true);
+    TEST_MINER_THREAD_STALL.set(true);
 
     // mine another Bitcoin block right away, and force it to be a flash block
     btc_regtest_controller.bootstrap_chain(1);
@@ -10703,7 +10703,7 @@ fn test_tenure_extend_from_flashblocks() {
 
     // unblock the relayer so it can process the flash block sortition.
     // Given the above, this will be an `Extend` tenure.
-    TEST_MINER_THREAD_STALL.lock().unwrap().replace(false);
+    TEST_MINER_THREAD_STALL.set(false);
 
     let sortitions_processed_before = sortitions_processed.load(Ordering::SeqCst);
     wait_for(60, || {
@@ -10781,7 +10781,7 @@ fn test_tenure_extend_from_flashblocks() {
 
     // unstall miner thread and allow block-commits again
     nakamoto_test_skip_commit_op.set(false);
-    TEST_MINE_STALL.lock().unwrap().replace(false);
+    TEST_MINE_STALL.set(false);
 
     // wait for the miner directive to be processed
     wait_for(60, || {

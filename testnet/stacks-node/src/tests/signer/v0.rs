@@ -585,9 +585,7 @@ fn miner_gather_signatures() {
 
     // Disable p2p broadcast of the nakamoto blocks, so that we rely
     //  on the signer's using StackerDB to get pushed blocks
-    *nakamoto_node::miner::TEST_SKIP_P2P_BROADCAST
-        .lock()
-        .unwrap() = Some(true);
+    nakamoto_node::miner::TEST_SKIP_P2P_BROADCAST.set(true);
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
@@ -1018,8 +1016,8 @@ fn forked_tenure_testing(
         .unwrap();
 
     // For the next tenure, submit the commit op but do not allow any stacks blocks to be broadcasted
-    TEST_BROADCAST_STALL.lock().unwrap().replace(true);
-    TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap().replace(true);
+    TEST_BROADCAST_STALL.set(true);
+    TEST_BLOCK_ANNOUNCE_STALL.set(true);
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let commits_before = commits_submitted.load(Ordering::SeqCst);
 
@@ -1042,7 +1040,7 @@ fn forked_tenure_testing(
         .running_nodes
         .nakamoto_test_skip_commit_op
         .set(true);
-    TEST_BROADCAST_STALL.lock().unwrap().replace(false);
+    TEST_BROADCAST_STALL.set(false);
 
     // Wait for a stacks block to be broadcasted
     let start_time = Instant::now();
@@ -1096,7 +1094,7 @@ fn forked_tenure_testing(
 
     if !expect_tenure_c {
         // allow B to process, so it'll be distinct from C
-        TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap().replace(false);
+        TEST_BLOCK_ANNOUNCE_STALL.set(false);
         sleep_ms(1000);
     }
 
@@ -1122,7 +1120,7 @@ fn forked_tenure_testing(
             let commits_count = commits_submitted.load(Ordering::SeqCst);
             if commits_count > commits_before {
                 // now allow block B to process if it hasn't already.
-                TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap().replace(false);
+                TEST_BLOCK_ANNOUNCE_STALL.set(false);
             }
             let rejected_count = rejected_blocks.load(Ordering::SeqCst);
             let (blocks_count, rbf_count, has_reject_count) = if expect_tenure_c {
@@ -1944,7 +1942,7 @@ fn miner_forking() {
 
     info!("------------------------- RL1 Wins Sortition -------------------------");
     info!("Pausing stacks block proposal to force an empty tenure commit from RL2");
-    TEST_BROADCAST_STALL.lock().unwrap().replace(true);
+    TEST_BROADCAST_STALL.set(true);
     let rl1_commits_before = commits_submitted_rl1.load(Ordering::SeqCst);
 
     info!("Unpausing commits from RL1");
@@ -1998,7 +1996,7 @@ fn miner_forking() {
 
     // unblock block mining
     let blocks_len = test_observer::get_blocks().len();
-    TEST_BROADCAST_STALL.lock().unwrap().replace(false);
+    TEST_BROADCAST_STALL.set(false);
 
     // Wait for the block to be broadcasted and processed
     wait_for(30, || Ok(test_observer::get_blocks().len() > blocks_len))
@@ -2084,7 +2082,7 @@ fn miner_forking() {
 
     info!("------------------------- RL1 RBFs its Own Commit -------------------------");
     info!("Pausing stacks block proposal to test RBF capability");
-    TEST_BROADCAST_STALL.lock().unwrap().replace(true);
+    TEST_BROADCAST_STALL.set(true);
     let rl1_commits_before = commits_submitted_rl1.load(Ordering::SeqCst);
 
     info!("Unpausing commits from RL1");
@@ -2122,7 +2120,7 @@ fn miner_forking() {
     let rl1_commits_before = commits_submitted_rl1.load(Ordering::SeqCst);
     // unblock block mining
     let blocks_len = test_observer::get_blocks().len();
-    TEST_BROADCAST_STALL.lock().unwrap().replace(false);
+    TEST_BROADCAST_STALL.set(false);
 
     // Wait for the block to be broadcasted and processed
     wait_for(30, || Ok(test_observer::get_blocks().len() > blocks_len))
@@ -2263,7 +2261,7 @@ fn end_of_tenure() {
     );
 
     info!("------------------------- Test Block Validation Stalled -------------------------");
-    TEST_VALIDATE_STALL.lock().unwrap().replace(true);
+    TEST_VALIDATE_STALL.set(true);
 
     let proposals_before = signer_test
         .running_nodes
@@ -2335,7 +2333,7 @@ fn end_of_tenure() {
 
     info!("Unpausing block validation and waiting for block to be processed");
     // Disable the stall and wait for the block to be processed
-    TEST_VALIDATE_STALL.lock().unwrap().replace(false);
+    TEST_VALIDATE_STALL.set(false);
     wait_for(short_timeout.as_secs(), || {
         let processed_now = get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height;
         Ok(processed_now > blocks_before)
@@ -2831,7 +2829,7 @@ fn stx_transfers_dont_effect_idle_timeout() {
     signer_test.boot_to_epoch_3();
 
     // Add a delay to the block validation process
-    TEST_VALIDATE_DELAY_DURATION_SECS.lock().unwrap().replace(5);
+    TEST_VALIDATE_DELAY_DURATION_SECS.set(5);
 
     let info_before = signer_test.get_peer_info();
     let blocks_before = signer_test.running_nodes.nakamoto_blocks_mined.get();
@@ -2975,7 +2973,7 @@ fn idle_tenure_extend_active_mining() {
     signer_test.boot_to_epoch_3();
 
     // Add a delay to the block validation process
-    TEST_VALIDATE_DELAY_DURATION_SECS.lock().unwrap().replace(3);
+    TEST_VALIDATE_DELAY_DURATION_SECS.set(3);
 
     signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
@@ -3217,7 +3215,7 @@ fn empty_sortition() {
 
     signer_test.boot_to_epoch_3();
 
-    TEST_BROADCAST_STALL.lock().unwrap().replace(true);
+    TEST_BROADCAST_STALL.set(true);
 
     info!("------------------------- Test Mine Regular Tenure A  -------------------------");
     let commits_before = signer_test
@@ -3264,7 +3262,7 @@ fn empty_sortition() {
     .unwrap();
 
     info!("Pausing stacks block proposal to force an empty tenure");
-    TEST_BROADCAST_STALL.lock().unwrap().replace(true);
+    TEST_BROADCAST_STALL.set(true);
 
     info!("Pausing commit op to prevent tenure C from starting...");
     signer_test
@@ -3297,7 +3295,7 @@ fn empty_sortition() {
 
     std::thread::sleep(block_proposal_timeout.add(Duration::from_secs(1)));
 
-    TEST_BROADCAST_STALL.lock().unwrap().replace(false);
+    TEST_BROADCAST_STALL.set(false);
 
     info!("------------------------- Test Delayed Block is Rejected  -------------------------");
     let reward_cycle = signer_test.get_current_reward_cycle();
@@ -3575,7 +3573,7 @@ fn empty_sortition_before_proposal() {
         .replace(true);
 
     info!("Pause miner so it doesn't propose a block before the next tenure arrives");
-    TEST_MINE_STALL.lock().unwrap().replace(true);
+    TEST_MINE_STALL.set(true);
 
     let burn_height_before = get_chain_info(&signer_test.running_nodes.conf).burn_block_height;
 
@@ -3595,7 +3593,7 @@ fn empty_sortition_before_proposal() {
     sleep_ms(5_000);
 
     info!("Unpause miner");
-    TEST_MINE_STALL.lock().unwrap().replace(false);
+    TEST_MINE_STALL.set(false);
 
     info!("Unpause block commits");
     signer_test
@@ -4437,9 +4435,7 @@ fn duplicate_signers() {
 
     // Disable p2p broadcast of the nakamoto blocks, so that we rely
     //  on the signer's using StackerDB to get pushed blocks
-    *nakamoto_node::miner::TEST_SKIP_P2P_BROADCAST
-        .lock()
-        .unwrap() = Some(true);
+    nakamoto_node::miner::TEST_SKIP_P2P_BROADCAST.set(true);
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
@@ -7642,7 +7638,7 @@ fn block_validation_response_timeout() {
     info!("------------------------- Test Mine and Verify Confirmed Nakamoto Block -------------------------");
     signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers, true);
     info!("------------------------- Test Block Validation Stalled -------------------------");
-    TEST_VALIDATE_STALL.lock().unwrap().replace(true);
+    TEST_VALIDATE_STALL.set(true);
     let validation_stall_start = Instant::now();
 
     let proposals_before = signer_test
@@ -7744,7 +7740,7 @@ fn block_validation_response_timeout() {
     let info_before = info_after;
     info!("Unpausing block validation");
     // Disable the stall and wait for the block to be processed successfully
-    TEST_VALIDATE_STALL.lock().unwrap().replace(false);
+    TEST_VALIDATE_STALL.set(false);
     wait_for(30, || {
         let info = get_chain_info(&signer_test.running_nodes.conf);
         Ok(info.stacks_tip_height > info_before.stacks_tip_height)
@@ -8022,7 +8018,7 @@ fn tenure_extend_after_failed_miner() {
     .expect("Timed out waiting for block to be mined and processed");
 
     info!("------------------------- Pause Block Proposals -------------------------");
-    TEST_MINE_STALL.lock().unwrap().replace(true);
+    TEST_MINE_STALL.set(true);
 
     // Unpause miner 2's block commits
     let rl2_commits_before = rl2_commits.load(Ordering::SeqCst);
@@ -8067,7 +8063,7 @@ fn tenure_extend_after_failed_miner() {
     info!("------------------------- Miner 1 Extends Tenure A -------------------------");
 
     // Re-enable block mining
-    TEST_MINE_STALL.lock().unwrap().replace(false);
+    TEST_MINE_STALL.set(false);
 
     // wait for a tenure extend block from miner 1 to be processed
     wait_for(60, || {
@@ -8432,7 +8428,7 @@ fn tenure_extend_after_bad_commit() {
     .expect("Timed out waiting for block to be mined and processed");
 
     info!("------------------------- Pause Block Proposals -------------------------");
-    TEST_MINE_STALL.lock().unwrap().replace(true);
+    TEST_MINE_STALL.set(true);
 
     // Unpause miner 1's block commits
     let rl1_commits_before = rl1_commits.load(Ordering::SeqCst);
@@ -8483,7 +8479,7 @@ fn tenure_extend_after_bad_commit() {
 
     info!("----------------------------- Resume Block Production -----------------------------");
 
-    TEST_MINE_STALL.lock().unwrap().replace(false);
+    TEST_MINE_STALL.set(false);
 
     wait_for(60, || {
         let stacks_height = signer_test
@@ -8906,7 +8902,7 @@ fn tenure_extend_after_2_bad_commits() {
     .expect("Timed out waiting for block to be mined and processed");
 
     info!("------------------------- Pause Block Proposals -------------------------");
-    TEST_MINE_STALL.lock().unwrap().replace(true);
+    TEST_MINE_STALL.set(true);
 
     // Unpause miner 1's block commits
     let rl1_commits_before = rl1_commits.load(Ordering::SeqCst);
@@ -8957,7 +8953,7 @@ fn tenure_extend_after_2_bad_commits() {
 
     info!("----------------------------- Resume Block Production -----------------------------");
 
-    TEST_MINE_STALL.lock().unwrap().replace(false);
+    TEST_MINE_STALL.set(false);
 
     wait_for(60, || {
         let stacks_height = signer_test
@@ -8986,7 +8982,7 @@ fn tenure_extend_after_2_bad_commits() {
 
     // Pause block production again so that we can make sure miner 2 commits
     // to the wrong block again.
-    TEST_MINE_STALL.lock().unwrap().replace(true);
+    TEST_MINE_STALL.set(true);
 
     next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
@@ -9015,7 +9011,7 @@ fn tenure_extend_after_2_bad_commits() {
 
     info!("------------------------- Miner 1 Extends Tenure B -------------------------");
 
-    TEST_MINE_STALL.lock().unwrap().replace(false);
+    TEST_MINE_STALL.set(false);
 
     // wait for a tenure extend block from miner 1 to be processed
     // (miner 2's proposals will be rejected)
@@ -9101,7 +9097,7 @@ fn tenure_extend_after_2_bad_commits() {
 
     info!("---------------------- Miner 1 Extends Tenure B (again) ---------------------");
 
-    TEST_MINE_STALL.lock().unwrap().replace(false);
+    TEST_MINE_STALL.set(false);
 
     // wait for a tenure extend block from miner 1 to be processed
     // (miner 2's proposals will be rejected)
@@ -9820,7 +9816,7 @@ fn no_reorg_due_to_successive_block_validation_ok() {
     debug!("Miner 1 mined block N: {block_n_signature_hash}");
 
     info!("------------------------- Pause Block Validation Response of N+1 -------------------------");
-    TEST_VALIDATE_STALL.lock().unwrap().replace(true);
+    TEST_VALIDATE_STALL.set(true);
     let proposals_before_2 = rl2_proposals.load(Ordering::SeqCst);
     let rejections_before_2 = rl2_rejections.load(Ordering::SeqCst);
     let blocks_before = test_observer::get_blocks().len();
@@ -9955,7 +9951,7 @@ fn no_reorg_due_to_successive_block_validation_ok() {
 
     info!("------------------------- Unpause Block Validation Response of N+1 -------------------------");
 
-    TEST_VALIDATE_STALL.lock().unwrap().replace(false);
+    TEST_VALIDATE_STALL.set(false);
 
     // Verify that the node accepted the proposed N+1, sending back a validate ok response
     wait_for(30, || {

@@ -13,6 +13,8 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#[cfg(test)]
+use std::sync::LazyLock;
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -45,6 +47,8 @@ use stacks::util::get_epoch_time_secs;
 use stacks::util::secp256k1::MessageSignature;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::{PrivateKey, StacksEpochId};
+#[cfg(test)]
+use stacks_common::util::tests::TestFlag;
 use stacks_common::util::vrf::VRFProof;
 
 use super::relayer::RelayerThread;
@@ -56,13 +60,13 @@ use crate::run_loop::nakamoto::Globals;
 use crate::run_loop::RegisteredKey;
 
 #[cfg(test)]
-pub static TEST_MINE_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+pub static TEST_MINE_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 #[cfg(test)]
-pub static TEST_BROADCAST_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+pub static TEST_BROADCAST_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 #[cfg(test)]
-pub static TEST_BLOCK_ANNOUNCE_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+pub static TEST_BLOCK_ANNOUNCE_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 #[cfg(test)]
-pub static TEST_SKIP_P2P_BROADCAST: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+pub static TEST_SKIP_P2P_BROADCAST: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
 /// If the miner was interrupted while mining a block, how long should the
 ///  miner thread sleep before trying again?
@@ -197,7 +201,7 @@ impl BlockMinerThread {
 
     #[cfg(test)]
     fn fault_injection_block_broadcast_stall(new_block: &NakamotoBlock) {
-        if *TEST_BROADCAST_STALL.lock().unwrap() == Some(true) {
+        if TEST_BROADCAST_STALL.get() {
             // Do an extra check just so we don't log EVERY time.
             warn!("Fault injection: Broadcasting is stalled due to testing directive.";
                       "stacks_block_id" => %new_block.block_id(),
@@ -205,7 +209,7 @@ impl BlockMinerThread {
                       "height" => new_block.header.chain_length,
                       "consensus_hash" => %new_block.header.consensus_hash
             );
-            while *TEST_BROADCAST_STALL.lock().unwrap() == Some(true) {
+            while TEST_BROADCAST_STALL.get() {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
             info!("Fault injection: Broadcasting is no longer stalled due to testing directive.";
@@ -221,7 +225,7 @@ impl BlockMinerThread {
 
     #[cfg(test)]
     fn fault_injection_block_announce_stall(new_block: &NakamotoBlock) {
-        if *TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap() == Some(true) {
+        if TEST_BLOCK_ANNOUNCE_STALL.get() {
             // Do an extra check just so we don't log EVERY time.
             warn!("Fault injection: Block announcement is stalled due to testing directive.";
                       "stacks_block_id" => %new_block.block_id(),
@@ -229,7 +233,7 @@ impl BlockMinerThread {
                       "height" => new_block.header.chain_length,
                       "consensus_hash" => %new_block.header.consensus_hash
             );
-            while *TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap() == Some(true) {
+            while TEST_BLOCK_ANNOUNCE_STALL.get() {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
             info!("Fault injection: Block announcement is no longer stalled due to testing directive.";
@@ -245,7 +249,7 @@ impl BlockMinerThread {
 
     #[cfg(test)]
     fn fault_injection_skip_block_broadcast() -> bool {
-        if *TEST_SKIP_P2P_BROADCAST.lock().unwrap() == Some(true) {
+        if TEST_SKIP_P2P_BROADCAST.get() {
             return true;
         }
         false
@@ -282,10 +286,10 @@ impl BlockMinerThread {
 
     #[cfg(test)]
     fn fault_injection_stall_miner() {
-        if *TEST_MINE_STALL.lock().unwrap() == Some(true) {
+        if TEST_MINE_STALL.get() {
             // Do an extra check just so we don't log EVERY time.
             warn!("Mining is stalled due to testing directive");
-            while *TEST_MINE_STALL.lock().unwrap() == Some(true) {
+            while TEST_MINE_STALL.get() {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
             warn!("Mining is no longer stalled due to testing directive. Continuing...");

@@ -18,6 +18,8 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::Read;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
+#[cfg(test)]
+use std::sync::LazyLock;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -50,6 +52,8 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::Hash160;
+#[cfg(test)]
+use stacks_common::util::tests::TestFlag;
 use stacks_common::util::vrf::VRFPublicKey;
 
 use super::miner::MinerReason;
@@ -68,12 +72,12 @@ use crate::BitcoinRegtestController;
 
 /// Mutex to stall the relayer thread right before it creates a miner thread.
 #[cfg(test)]
-pub static TEST_MINER_THREAD_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+pub static TEST_MINER_THREAD_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
 /// Mutex to stall the miner thread right after it starts up (does not block the relayer thread)
 #[cfg(test)]
-pub static TEST_MINER_THREAD_START_STALL: std::sync::Mutex<Option<bool>> =
-    std::sync::Mutex::new(None);
+pub static TEST_MINER_THREAD_START_STALL: LazyLock<TestFlag<bool>> =
+    LazyLock::new(TestFlag::default);
 
 /// Command types for the Nakamoto relayer thread, issued to it by other threads
 #[allow(clippy::large_enum_variant)]
@@ -920,10 +924,10 @@ impl RelayerThread {
 
     #[cfg(test)]
     fn fault_injection_stall_miner_startup() {
-        if *TEST_MINER_THREAD_STALL.lock().unwrap() == Some(true) {
+        if TEST_MINER_THREAD_STALL.get() {
             // Do an extra check just so we don't log EVERY time.
             warn!("Relayer miner thread startup is stalled due to testing directive to stall the miner");
-            while *TEST_MINER_THREAD_STALL.lock().unwrap() == Some(true) {
+            while TEST_MINER_THREAD_STALL.get() {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
             warn!(
@@ -937,10 +941,10 @@ impl RelayerThread {
 
     #[cfg(test)]
     fn fault_injection_stall_miner_thread_startup() {
-        if *TEST_MINER_THREAD_START_STALL.lock().unwrap() == Some(true) {
+        if TEST_MINER_THREAD_START_STALL.get() {
             // Do an extra check just so we don't log EVERY time.
             warn!("Miner thread startup is stalled due to testing directive");
-            while *TEST_MINER_THREAD_START_STALL.lock().unwrap() == Some(true) {
+            while TEST_MINER_THREAD_START_STALL.get() {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
             warn!(
