@@ -1357,6 +1357,8 @@ fn bitcoind_forking_test() {
 
     info!("Wait for block off of shallow fork");
 
+    TEST_MINE_STALL.set(true);
+
     // we need to mine some blocks to get back to being considered a frequent miner
     for i in 0..3 {
         let current_burn_height = get_chain_info(&signer_test.running_nodes.conf).burn_block_height;
@@ -1400,8 +1402,10 @@ fn bitcoind_forking_test() {
 
     let post_fork_1_nonce = get_account(&http_origin, &miner_address).nonce;
 
+    // We should have forked 1 block (-2 nonces)
     assert_eq!(post_fork_1_nonce, pre_fork_1_nonce - 2);
 
+    TEST_MINE_STALL.set(false);
     for i in 0..5 {
         info!("Mining post-fork tenure {} of 5", i + 1);
         signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
@@ -1434,6 +1438,7 @@ fn bitcoind_forking_test() {
     info!("Wait for block off of deep fork");
 
     // we need to mine some blocks to get back to being considered a frequent miner
+    TEST_MINE_STALL.set(true);
     for i in 0..3 {
         let current_burn_height = get_chain_info(&signer_test.running_nodes.conf).burn_block_height;
         info!(
@@ -1477,6 +1482,8 @@ fn bitcoind_forking_test() {
     let post_fork_2_nonce = get_account(&http_origin, &miner_address).nonce;
 
     assert_eq!(post_fork_2_nonce, pre_fork_2_nonce - 4 * 2);
+
+    TEST_MINE_STALL.set(false);
 
     for i in 0..5 {
         info!("Mining post-fork tenure {} of 5", i + 1);
