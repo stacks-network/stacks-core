@@ -1493,8 +1493,7 @@ impl StacksMessage {
         self.payload.consensus_serialize(&mut message_bits)?;
 
         let mut p = self.preamble.clone();
-        p.verify(&message_bits, &secp256k1_pubkey)
-            .and_then(|_m| Ok(()))
+        p.verify(&message_bits, &secp256k1_pubkey).map(|_m| ())
     }
 }
 
@@ -1583,7 +1582,7 @@ impl ProtocolFamily for StacksP2P {
         preamble
             .clone()
             .verify(&bytes[0..(preamble.payload_len as usize)], key)
-            .and_then(|_m| Ok(()))
+            .map(|_m| ())
     }
 
     fn write_message<W: Write>(
