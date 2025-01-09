@@ -10020,8 +10020,9 @@ pub mod test {
         let block_hashes: Vec<BlockHeaderHash> = blocks.iter().map(|b| b.block_hash()).collect();
         let header_hashes_all: Vec<(ConsensusHash, Option<BlockHeaderHash>)> = consensus_hashes
             .iter()
-            .zip(block_hashes.iter())
-            .map(|(burn, block)| ((*burn).clone(), Some((*block).clone())))
+            .cloned()
+            .zip(block_hashes.iter().cloned())
+            .map(|(burn, block)| (burn, Some(block)))
             .collect();
 
         // nothing is stored, so our inventory should be empty

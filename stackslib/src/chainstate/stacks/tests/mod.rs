@@ -967,10 +967,8 @@ pub fn get_last_microblock_header(
     miner: &TestMiner,
     parent_block_opt: Option<&StacksBlock>,
 ) -> Option<StacksMicroblockHeader> {
-    let last_microblocks_opt = match parent_block_opt {
-        Some(block) => node.get_microblock_stream(miner, &block.block_hash()),
-        None => None,
-    };
+    let last_microblocks_opt =
+        parent_block_opt.and_then(|block| node.get_microblock_stream(miner, &block.block_hash()));
 
     let last_microblock_header_opt = match last_microblocks_opt {
         Some(last_microblocks) => {

@@ -861,10 +861,7 @@ fn dump_peers(peers: &Vec<TestPeer>) {
         }
 
         let all_neighbors = PeerDB::get_all_peers(peers[i].network.peerdb.conn()).unwrap();
-        let num_allowed = all_neighbors.iter().fold(0, |mut sum, n2| {
-            sum += if n2.allowed < 0 { 1 } else { 0 };
-            sum
-        });
+        let num_allowed = all_neighbors.iter().filter(|n2| n2.allowed < 0).count();
         test_debug!("Neighbor {} (all={}, outbound={}) (total neighbors = {}, total allowed = {}): outbound={:?} all={:?}", i, neighbor_index.len(), outbound_neighbor_index.len(), all_neighbors.len(), num_allowed, &outbound_neighbor_index, &neighbor_index);
     }
     test_debug!("\n");
