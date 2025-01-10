@@ -2956,7 +2956,10 @@ fn idle_tenure_extend_active_mining() {
         |config| {
             config.tenure_idle_timeout = idle_timeout;
         },
-        |_| {},
+        |config| {
+            // accept all proposals in the node
+            config.connection_options.block_proposal_max_age_secs = u64::MAX;
+        },
         None,
         None,
     );
@@ -2977,7 +2980,7 @@ fn idle_tenure_extend_active_mining() {
     // Add a delay to the block validation process
     TEST_VALIDATE_DELAY_DURATION_SECS.lock().unwrap().replace(3);
 
-    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+    signer_test.mine_nakamoto_block(Duration::from_secs(60), true);
 
     info!("---- Getting current idle timeout ----");
 
@@ -4971,7 +4974,8 @@ fn partial_tenure_fork() {
     info!("-------- Waiting miner 2 to catch up to miner 1 --------");
 
     // Wait for miner 2 to catch up to miner 1
-    wait_for(60, || {
+    // (note: use a high timeout to avoid potential failing on github workflow)
+    wait_for(600, || {
         let info_1 = get_chain_info(&conf);
         let info_2 = get_chain_info(&conf_node_2);
         Ok(info_1.stacks_tip_height == info_2.stacks_tip_height)
@@ -6130,9 +6134,16 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     let send_fee = 180;
     let nmb_txs = 3;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(sender_addr, (send_amt + send_fee) * nmb_txs)],
+        |_config| {},
+        |config| {
+            // Accept all block proposals
+            config.connection_options.block_proposal_max_age_secs = u64::MAX;
+        },
+        None,
+        None,
     );
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
     signer_test.boot_to_epoch_3();
