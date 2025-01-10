@@ -960,22 +960,6 @@ impl SignerDb {
         Ok(Some(broadcasted))
     }
 
-    /// Get the current state of a given block in the database
-    pub fn get_block_state(
-        &self,
-        block_sighash: &Sha512Trunc256Sum,
-    ) -> Result<Option<BlockState>, DBError> {
-        let qry = "SELECT state FROM blocks WHERE signer_signature_hash = ?1 LIMIT 1";
-        let args = params![block_sighash];
-        let state_opt: Option<String> = query_row(&self.db, qry, args)?;
-        let Some(state) = state_opt else {
-            return Ok(None);
-        };
-        Ok(Some(
-            BlockState::try_from(state.as_str()).map_err(|_| DBError::Corruption)?,
-        ))
-    }
-
     /// Return the start time (epoch time in seconds) and the processing time in milliseconds of the tenure (idenfitied by consensus_hash).
     fn get_tenure_times(&self, tenure: &ConsensusHash) -> Result<(u64, u64), DBError> {
         let query = "SELECT tenure_change, proposed_time, validation_time_ms FROM blocks WHERE consensus_hash = ?1 AND state = ?2 ORDER BY stacks_height DESC";
@@ -1133,13 +1117,6 @@ mod tests {
             .expect("Unable to get block from db");
 
         assert_eq!(BlockInfo::from(block_proposal_2.clone()), block_info);
-        // test getting the block state
-        let block_state = db
-            .get_block_state(&block_proposal_1.block.header.signer_signature_hash())
-            .unwrap()
-            .expect("Unable to get block state from db");
-
-        assert_eq!(block_state, BlockInfo::from(block_proposal_1.clone()).state);
     }
 
     #[test]

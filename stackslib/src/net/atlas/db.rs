@@ -127,14 +127,14 @@ pub enum AttachmentInstanceStatus {
 }
 
 impl FromRow<Attachment> for Attachment {
-    fn from_row<'a>(row: &'a Row) -> Result<Attachment, db_error> {
+    fn from_row(row: &Row) -> Result<Attachment, db_error> {
         let content: Vec<u8> = row.get_unwrap("content");
         Ok(Attachment { content })
     }
 }
 
 impl FromRow<AttachmentInstance> for AttachmentInstance {
-    fn from_row<'a>(row: &'a Row) -> Result<AttachmentInstance, db_error> {
+    fn from_row(row: &Row) -> Result<AttachmentInstance, db_error> {
         let hex_content_hash: String = row.get_unwrap("content_hash");
         let attachment_index: u32 = row.get_unwrap("attachment_index");
         let block_height =
@@ -160,7 +160,7 @@ impl FromRow<AttachmentInstance> for AttachmentInstance {
 }
 
 impl FromRow<(u32, u32)> for (u32, u32) {
-    fn from_row<'a>(row: &'a Row) -> Result<(u32, u32), db_error> {
+    fn from_row(row: &Row) -> Result<(u32, u32), db_error> {
         let t1: u32 = row.get_unwrap(0);
         let t2: u32 = row.get_unwrap(1);
         Ok((t1, t2))
@@ -445,7 +445,7 @@ impl AtlasDB {
         &self.conn
     }
 
-    pub fn tx_begin<'a>(&'a mut self) -> Result<Transaction<'a>, db_error> {
+    pub fn tx_begin(&mut self) -> Result<Transaction<'_>, db_error> {
         if !self.readwrite {
             return Err(db_error::ReadOnly);
         }

@@ -458,7 +458,7 @@ impl BitcoinIndexer {
         }
         spv_client
             .run(self)
-            .and_then(|_r| Ok(spv_client.end_block_height.unwrap()))
+            .map(|_r| spv_client.end_block_height.unwrap())
     }
 
     #[cfg(test)]
@@ -705,7 +705,7 @@ impl BitcoinIndexer {
                     e
                 })?;
 
-            if reorg_headers.len() == 0 {
+            if reorg_headers.is_empty() {
                 // chain shrank considerably
                 info!(
                     "Missing Bitcoin headers in block range {}-{} -- did the Bitcoin chain shrink?",
@@ -736,7 +736,7 @@ impl BitcoinIndexer {
                 })?;
 
             assert!(
-                canonical_headers.len() > 0,
+                !canonical_headers.is_empty(),
                 "BUG: uninitialized canonical SPV headers DB"
             );
 
@@ -1379,7 +1379,7 @@ mod test {
                         spv_client
                             .insert_block_headers_before(start_block - 1, hdrs)
                             .unwrap();
-                    } else if hdrs.len() > 0 {
+                    } else if !hdrs.is_empty() {
                         test_debug!("insert at {}: {:?}", 0, &hdrs);
                         spv_client.test_write_block_headers(0, hdrs).unwrap();
                     }
@@ -1552,7 +1552,7 @@ mod test {
                         spv_client
                             .insert_block_headers_before(start_block - 1, hdrs)
                             .unwrap();
-                    } else if hdrs.len() > 0 {
+                    } else if !hdrs.is_empty() {
                         test_debug!("insert at {}: {:?}", 0, &hdrs);
                         spv_client.test_write_block_headers(0, hdrs).unwrap();
                     }

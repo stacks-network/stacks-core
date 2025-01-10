@@ -750,7 +750,7 @@ impl NakamotoBlockBuilder {
     }
 }
 
-impl<'a> NakamotoStagingBlocksConnRef<'a> {
+impl NakamotoStagingBlocksConnRef<'_> {
     /// Determine if we have a particular block with the given index hash.
     /// Returns Ok(true) if so
     /// Returns Ok(false) if not
@@ -812,7 +812,7 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
     }
 }
 
-impl<'a> NakamotoStagingBlocksTx<'a> {
+impl NakamotoStagingBlocksTx<'_> {
     /// Add a shadow block.
     /// Fails if there are any non-shadow blocks present in the tenure.
     pub fn add_shadow_block(&self, shadow_block: &NakamotoBlock) -> Result<(), ChainstateError> {

@@ -2873,6 +2873,7 @@ fn block_proposal_api_endpoint() {
     const HTTP_ACCEPTED: u16 = 202;
     const HTTP_TOO_MANY: u16 = 429;
     const HTTP_NOT_AUTHORIZED: u16 = 401;
+    const HTTP_UNPROCESSABLE: u16 = 422;
     let test_cases = [
         (
             "Valid Nakamoto block proposal",
@@ -2922,6 +2923,16 @@ fn block_proposal_api_endpoint() {
             Some(Err(ValidateRejectCode::ChainstateError)),
         ),
         ("Not authorized", sign(&proposal), HTTP_NOT_AUTHORIZED, None),
+        (
+            "Unprocessable entity",
+            {
+                let mut p = proposal.clone();
+                p.block.header.timestamp = 0;
+                sign(&p)
+            },
+            HTTP_UNPROCESSABLE,
+            None,
+        ),
     ];
 
     // Build HTTP client
@@ -6843,6 +6854,7 @@ fn continue_tenure_extend() {
     let prom_bind = "127.0.0.1:6000".to_string();
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    naka_conf.connection_options.block_proposal_max_age_secs = u64::MAX;
     let http_origin = naka_conf.node.data_url.clone();
     let sender_sk = Secp256k1PrivateKey::new();
     // setup sender + recipient for a test stx transfer
@@ -8838,7 +8850,8 @@ fn mock_mining() {
 
     info!("Booting follower-thread, waiting for the follower to sync to the chain tip");
 
-    wait_for(120, || {
+    // use a high timeout for avoiding problem with github workflow
+    wait_for(600, || {
         let Some(miner_node_info) = get_chain_info_opt(&naka_conf) else {
             return Ok(false);
         };
@@ -9401,7 +9414,7 @@ fn v3_blockbyheight_api_endpoint() {
 
     assert!(block_data.status().is_success());
     let block_bytes_vec = block_data.bytes().unwrap().to_vec();
-    assert!(block_bytes_vec.len() > 0);
+    assert!(!block_bytes_vec.is_empty());
 
     // does the block id of the returned blob matches ?
     let block_id = NakamotoBlockHeader::consensus_deserialize(&mut block_bytes_vec.as_slice())
@@ -9866,7 +9879,7 @@ fn test_shadow_recovery() {
 
     // fix node
     let shadow_blocks = shadow_chainstate_repair(&mut chainstate, &mut sortdb).unwrap();
-    assert!(shadow_blocks.len() > 0);
+    assert!(!shadow_blocks.is_empty());
 
     wait_for(30, || {
         let Some(info) = get_chain_info_opt(&naka_conf) else {

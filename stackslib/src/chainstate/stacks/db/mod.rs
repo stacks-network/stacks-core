@@ -413,7 +413,7 @@ impl StacksHeaderInfo {
 }
 
 impl FromRow<DBConfig> for DBConfig {
-    fn from_row<'a>(row: &'a Row) -> Result<DBConfig, db_error> {
+    fn from_row(row: &Row) -> Result<DBConfig, db_error> {
         let version: String = row.get_unwrap("version");
         let mainnet_i64: i64 = row.get_unwrap("mainnet");
         let chain_id_i64: i64 = row.get_unwrap("chain_id");
@@ -430,7 +430,7 @@ impl FromRow<DBConfig> for DBConfig {
 }
 
 impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
-    fn from_row<'a>(row: &'a Row) -> Result<StacksHeaderInfo, db_error> {
+    fn from_row(row: &Row) -> Result<StacksHeaderInfo, db_error> {
         let block_height: u64 = u64::from_column(row, "block_height")?;
         let index_root = TrieHash::from_column(row, "index_root")?;
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
@@ -485,7 +485,7 @@ pub struct ClarityTx<'a, 'b> {
     pub config: DBConfig,
 }
 
-impl<'a, 'b> ClarityConnection for ClarityTx<'a, 'b> {
+impl ClarityConnection for ClarityTx<'_, '_> {
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where
         F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase),
@@ -1069,11 +1069,7 @@ impl StacksChainState {
         Ok(db_config.version != CHAINSTATE_VERSION)
     }
 
-    fn apply_schema_migrations<'a>(
-        tx: &DBTx<'a>,
-        mainnet: bool,
-        chain_id: u32,
-    ) -> Result<(), Error> {
+    fn apply_schema_migrations(tx: &DBTx<'_>, mainnet: bool, chain_id: u32) -> Result<(), Error> {
         if !Self::need_schema_migrations(tx, mainnet, chain_id)? {
             return Ok(());
         }
@@ -1145,7 +1141,7 @@ impl StacksChainState {
         Ok(())
     }
 
-    fn add_indexes<'a>(tx: &DBTx<'a>) -> Result<(), Error> {
+    fn add_indexes(tx: &DBTx<'_>) -> Result<(), Error> {
         for cmd in CHAINSTATE_INDEXES {
             tx.execute_batch(cmd)?;
         }
@@ -1331,7 +1327,7 @@ impl StacksChainState {
             }
 
             let mut allocation_events: Vec<StacksTransactionEvent> = vec![];
-            if boot_data.initial_balances.len() > 0 {
+            if !boot_data.initial_balances.is_empty() {
                 warn!(
                     "Seeding {} balances coming from the config",
                     boot_data.initial_balances.len()
@@ -1550,7 +1546,7 @@ impl StacksChainState {
                                     StacksChainState::parse_genesis_address(&entry.owner, mainnet);
 
                                 let zonefile_hash = {
-                                    if entry.zonefile_hash.len() == 0 {
+                                    if entry.zonefile_hash.is_empty() {
                                         Value::buff_from(vec![]).unwrap()
                                     } else {
                                         let buffer = Hash160::from_hex(&entry.zonefile_hash)
@@ -1907,25 +1903,25 @@ impl StacksChainState {
 
     /// Begin a transaction against the (indexed) stacks chainstate DB.
     /// Does not create a Clarity instance.
-    pub fn index_tx_begin<'a>(&'a mut self) -> StacksDBTx<'a> {
+    pub fn index_tx_begin(&mut self) -> StacksDBTx<'_> {
         StacksDBTx::new(&mut self.state_index, ())
     }
 
-    pub fn index_conn<'a>(&'a self) -> StacksDBConn<'a> {
+    pub fn index_conn(&self) -> StacksDBConn<'_> {
         StacksDBConn::new(&self.state_index, ())
     }
 
     /// Begin a transaction against the underlying DB
     /// Does not create a Clarity instance, and does not affect the MARF.
-    pub fn db_tx_begin<'a>(&'a mut self) -> Result<DBTx<'a>, Error> {
+    pub fn db_tx_begin(&mut self) -> Result<DBTx<'_>, Error> {
         self.state_index.storage_tx().map_err(Error::DBError)
     }
 
     /// Simultaneously begin a transaction against both the headers and blocks.
     /// Used when considering a new block to append the chain state.
-    pub fn chainstate_tx_begin<'a>(
-        &'a mut self,
-    ) -> Result<(ChainstateTx<'a>, &'a mut ClarityInstance), Error> {
+    pub fn chainstate_tx_begin(
+        &mut self,
+    ) -> Result<(ChainstateTx<'_>, &mut ClarityInstance), Error> {
         let config = self.config();
         let blocks_path = self.blocks_path.clone();
         let clarity_instance = &mut self.clarity_state;
@@ -2592,8 +2588,8 @@ impl StacksChainState {
 
     /// Append a Stacks block to an existing Stacks block, and grant the miner the block reward.
     /// Return the new Stacks header info.
-    pub fn advance_tip<'a>(
-        headers_tx: &mut StacksDBTx<'a>,
+    pub fn advance_tip(
+        headers_tx: &mut StacksDBTx<'_>,
         parent_tip: &StacksBlockHeader,
         parent_consensus_hash: &ConsensusHash,
         new_tip: &StacksBlockHeader,
