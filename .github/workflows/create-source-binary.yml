@@ -1,0 +1,60 @@
+## Github workflow to create multiarch binaries from source
+
+name: Create Binaries
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Tag name of this release (x.y.z)"
+        required: true
+        type: string
+
+## change the display name to the tag being built
+run-name: ${{ inputs.tag }}
+
+concurrency:
+  group: create-binary-${{ github.head_ref || github.ref || github.run_id}}
+  ## Only cancel in progress if this is for a PR
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ## Runs when the following is true:
+  ##  - tag is provided
+  artifact:
+    if: |
+      inputs.tag != ''
+    name: Build Binaries
+    runs-on: ubuntu-latest
+    strategy:
+      ## Run a maximum of 10 builds concurrently, using the matrix defined in inputs.arch
+      max-parallel: 10
+      matrix:
+        arch:
+          - linux-musl
+          - linux-glibc
+          - macos
+          - windows
+        cpu:
+          - arm64
+          - armv7
+          - x86-64 ## defaults to x86-64-v3 variant - intel haswell (2013) and newer
+          # - x86-64-v2 ## intel nehalem (2008) and newer
+          # - x86-64-v3 ## intel haswell (2013) and newer
+          # - x86-64-v4 ## intel skylake (2017) and newer
+        exclude:
+          - arch: windows # excludes windows-arm64
+            cpu: arm64
+          - arch: windows # excludes windows-armv7
+            cpu: armv7
+          - arch: macos # excludes macos-armv7
+            cpu: armv7
+
+    steps:
+      - name: Build Binary (${{ matrix.arch }}_${{ matrix.cpu }})
+        id: build_binary
+        uses: stacks-network/actions/stacks-core/create-source-binary@main
+        with:
+          arch: ${{ matrix.arch }}
+          cpu: ${{ matrix.cpu }}
+          tag: ${{ inputs.tag }}
