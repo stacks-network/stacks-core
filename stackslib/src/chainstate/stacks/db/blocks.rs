@@ -206,6 +206,7 @@ impl BlockEventDispatcher for DummyEventDispatcher {
         _rewards: Vec<(PoxAddress, u64)>,
         _burns: u64,
         _slot_holders: Vec<PoxAddress>,
+        _consensus_hash: &ConsensusHash,
     ) {
         assert!(
             false,
