@@ -10818,7 +10818,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
 
 #[test]
 #[ignore]
-/// Test that signers count any block in its database towards a miner's activity.
+/// Test that signers count any block for a given tenure in its database towards a miner tenure activity.
 ///
 /// Test Setup:
 /// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
@@ -10861,7 +10861,6 @@ fn rejected_blocks_count_towards_miner_validity() {
         num_signers,
         vec![(sender_addr, (send_amt + send_fee) * nmb_txs)],
         |config| {
-            // make the duration long enough that the miner will be marked as malicious
             config.block_proposal_timeout = block_proposal_timeout;
         },
         |_| {},
