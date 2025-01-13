@@ -19,10 +19,11 @@
 use std::any::type_name;
 use std::cell::LazyCell;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use std::{env, fs, io, process, thread};
 
 use clarity::types::chainstate::SortitionId;
+use clarity::vm::costs::ExecutionCost;
 use db::blocks::DummyEventDispatcher;
 use db::ChainstateTx;
 use regex::Regex;
@@ -484,10 +485,8 @@ pub fn command_try_mine(mut argv: Vec<String>, opts: &StacksInspectOpts) {
 
     let min_fee = try_mine_opts.min_fee.unwrap_or(0);
     let max_time = try_mine_opts.max_time.unwrap_or(u64::MAX);
-    let _max_blocks = try_mine_opts.max_blocks.unwrap_or(1);
+    let max_blocks = try_mine_opts.max_blocks.unwrap_or(1);
     let reset_tenure = try_mine_opts.reset_tenure.unwrap_or(false);
-
-    let start = Instant::now();
 
     let conf = opts.config.as_ref().unwrap_or(&DEFAULT_MAINNET_CONFIG);
 
@@ -539,129 +538,182 @@ pub fn command_try_mine(mut argv: Vec<String>, opts: &StacksInspectOpts) {
     let miner_pubkey_hash = Hash160::from_node_public_key(&miner_pubkey);
     let miner_nonce = 0;
 
-    let result = match &parent_stacks_header.anchored_header {
-        StacksBlockHeaderTypes::Epoch2(..) => {
-            let mut tx_auth = TransactionAuth::from_p2pkh(&miner_privk).unwrap();
-            tx_auth.set_origin_nonce(miner_nonce);
+    // Keep important stats for each block
+    struct BlockStats {
+        block_hash: BlockHeaderHash,
+        time_elapsed: Duration,
+        num_txs: usize,
+        fees: u64,
+        cost: ExecutionCost,
+        size: u64,
+    }
+    let mut block_stats = vec![];
 
-            let mut coinbase_tx = StacksTransaction::new(
-                TransactionVersion::Mainnet,
-                tx_auth,
-                TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
-            );
+    for _ in 0..max_blocks {
+        // Timer for THIS block
+        let start = Instant::now();
 
-            coinbase_tx.chain_id = conf.burnchain.chain_id;
-            coinbase_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
-            let mut tx_signer = StacksTransactionSigner::new(&coinbase_tx);
-            tx_signer.sign_origin(&miner_privk).unwrap();
-            let coinbase_tx = tx_signer.get_tx().unwrap();
-
-            StacksBlockBuilder::build_anchored_block(
-                &chainstate,
-                &burn_dbconn,
-                &mut mempool_db,
-                &parent_stacks_header,
-                chain_tip.total_burn,
-                VRFProof::empty(),
-                Hash160([0; 20]),
-                &coinbase_tx,
-                settings,
-                None,
-                &Burnchain::new(
-                    &burnchain_path,
-                    &burnchain.chain_name,
-                    &burnchain.network_name,
-                )
-                .unwrap_or_else(|e| panic!("Failed to instantiate burnchain: {e}")),
-            )
-            .map(|(block, cost, size)| (block.block_hash(), block.txs, cost, size))
-        }
-        StacksBlockHeaderTypes::Nakamoto(..) => {
-            let tenure_info = if reset_tenure {
-                let num_blocks_so_far = NakamotoChainState::get_nakamoto_tenure_length(
-                    chainstate.db(),
-                    &parent_block_id,
-                )
-                .unwrap_or_else(|e| panic!("Error getting tenure length: {e}"));
-                let payload = TenureChangePayload {
-                    tenure_consensus_hash: parent_consensus_hash,
-                    prev_tenure_consensus_hash: parent_consensus_hash,
-                    burn_view_consensus_hash: parent_consensus_hash,
-                    previous_tenure_end: parent_block_id,
-                    previous_tenure_blocks: num_blocks_so_far,
-                    cause: TenureChangeCause::Extended,
-                    pubkey_hash: miner_pubkey_hash,
-                };
-                let tenure_change_tx_payload = TransactionPayload::TenureChange(payload);
-
+        let result = match &parent_stacks_header.anchored_header {
+            StacksBlockHeaderTypes::Epoch2(..) => {
                 let mut tx_auth = TransactionAuth::from_p2pkh(&miner_privk).unwrap();
                 tx_auth.set_origin_nonce(miner_nonce);
 
-                let version = if conf.is_mainnet() {
-                    TransactionVersion::Mainnet
+                let mut coinbase_tx = StacksTransaction::new(
+                    TransactionVersion::Mainnet,
+                    tx_auth,
+                    TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
+                );
+
+                coinbase_tx.chain_id = conf.burnchain.chain_id;
+                coinbase_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+                let mut tx_signer = StacksTransactionSigner::new(&coinbase_tx);
+                tx_signer.sign_origin(&miner_privk).unwrap();
+                let coinbase_tx = tx_signer.get_tx().unwrap();
+
+                StacksBlockBuilder::build_anchored_block(
+                    &chainstate,
+                    &burn_dbconn,
+                    &mut mempool_db,
+                    &parent_stacks_header,
+                    chain_tip.total_burn,
+                    VRFProof::empty(),
+                    Hash160([0; 20]),
+                    &coinbase_tx,
+                    settings.clone(),
+                    None,
+                    &Burnchain::new(
+                        &burnchain_path,
+                        &burnchain.chain_name,
+                        &burnchain.network_name,
+                    )
+                    .unwrap_or_else(|e| panic!("Failed to instantiate burnchain: {e}")),
+                )
+                .map(|(block, cost, size)| (block.block_hash(), block.txs, cost, size))
+            }
+            StacksBlockHeaderTypes::Nakamoto(..) => {
+                let tenure_info = if reset_tenure {
+                    let num_blocks_so_far = NakamotoChainState::get_nakamoto_tenure_length(
+                        chainstate.db(),
+                        &parent_block_id,
+                    )
+                    .unwrap_or_else(|e| panic!("Error getting tenure length: {e}"));
+                    let payload = TenureChangePayload {
+                        tenure_consensus_hash: parent_consensus_hash,
+                        prev_tenure_consensus_hash: parent_consensus_hash,
+                        burn_view_consensus_hash: parent_consensus_hash,
+                        previous_tenure_end: parent_block_id,
+                        previous_tenure_blocks: num_blocks_so_far,
+                        cause: TenureChangeCause::Extended,
+                        pubkey_hash: miner_pubkey_hash,
+                    };
+                    let tenure_change_tx_payload = TransactionPayload::TenureChange(payload);
+
+                    let mut tx_auth = TransactionAuth::from_p2pkh(&miner_privk).unwrap();
+                    tx_auth.set_origin_nonce(miner_nonce);
+
+                    let version = if conf.is_mainnet() {
+                        TransactionVersion::Mainnet
+                    } else {
+                        TransactionVersion::Testnet
+                    };
+
+                    let mut tx = StacksTransaction::new(version, tx_auth, tenure_change_tx_payload);
+
+                    tx.chain_id = conf.burnchain.chain_id;
+                    tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+                    let mut tx_signer = StacksTransactionSigner::new(&tx);
+                    tx_signer
+                        .sign_origin(&miner_privk)
+                        .unwrap_or_else(|e| panic!("Failed to sign transaction: {e}"));
+
+                    let tenure_change_tx = Some(tx_signer.get_tx().expect("Failed to get tx"));
+                    NakamotoTenureInfo {
+                        coinbase_tx: None,
+                        tenure_change_tx,
+                    }
                 } else {
-                    TransactionVersion::Testnet
+                    NakamotoTenureInfo::default()
                 };
+                NakamotoBlockBuilder::build_nakamoto_block(
+                    &chainstate,
+                    &burn_dbconn,
+                    &mut mempool_db,
+                    &parent_stacks_header,
+                    // tenure ID consensus hash of this block
+                    &parent_stacks_header.consensus_hash,
+                    // the burn so far on the burnchain (i.e. from the last burnchain block)
+                    chain_tip.total_burn,
+                    tenure_info,
+                    settings.clone(),
+                    None,
+                    0,
+                )
+                .map(|(block, cost, size, _)| (block.header.block_hash(), block.txs, cost, size))
+            }
+        };
 
-                let mut tx = StacksTransaction::new(version, tx_auth, tenure_change_tx_payload);
+        let time_elapsed = start.elapsed();
+        let summary = format!(
+            "block @ height = {h} off of {parent_block_id} ({parent_consensus_hash}/{pbh}) in {t}ms. Min-fee: {min_fee}, Max-time: {max_time}",
+            h=parent_stacks_header.stacks_block_height + 1,
+            pbh=&parent_stacks_header.anchored_header.block_hash(),
+            t=time_elapsed.as_millis(),
+        );
 
-                tx.chain_id = conf.burnchain.chain_id;
-                tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
-                let mut tx_signer = StacksTransactionSigner::new(&tx);
-                tx_signer
-                    .sign_origin(&miner_privk)
-                    .unwrap_or_else(|e| panic!("Failed to sign transaction: {e}"));
+        match result {
+            Ok((block_hash, txs, cost, size)) => {
+                let num_txs: usize = txs.len();
+                let fees: u64 = txs.into_iter().map(|tx| tx.get_tx_fee()).sum();
 
-                let tenure_change_tx = Some(tx_signer.get_tx().expect("Failed to get tx"));
-                NakamotoTenureInfo {
-                    coinbase_tx: None,
-                    tenure_change_tx,
-                }
-            } else {
-                NakamotoTenureInfo::default()
-            };
-            NakamotoBlockBuilder::build_nakamoto_block(
-                &chainstate,
-                &burn_dbconn,
-                &mut mempool_db,
-                &parent_stacks_header,
-                // tenure ID consensus hash of this block
-                &parent_stacks_header.consensus_hash,
-                // the burn so far on the burnchain (i.e. from the last burnchain block)
-                chain_tip.total_burn,
-                tenure_info,
-                settings,
-                None,
-                0,
+                println!("Successfully mined {summary}");
+                println!(
+                    "Block {block_hash}: {num_txs} txs, {fees} uSTX, {size} bytes, cost {cost:?}"
+                );
+                block_stats.push(BlockStats {
+                    block_hash,
+                    time_elapsed,
+                    num_txs,
+                    fees,
+                    cost,
+                    size,
+                })
+            }
+            Err(e) => {
+                println!("Failed to mine {summary}");
+                println!("Error: {e}");
+                process::exit(1);
+            }
+        };
+    }
+
+    // Add stats from all blocks to compute totals
+    let blocks_mined = block_stats.len();
+    let (time_elapsed, num_txs, fees, cost, size) = block_stats.into_iter().fold(
+        (Duration::ZERO, 0usize, 0u64, ExecutionCost::ZERO, 0u64),
+        |acc, bs| {
+            let (time_elapsed, num_txs, total_fees, mut cost, size) = acc;
+            cost.add(&bs.cost).expect("Cost overflow");
+            (
+                time_elapsed.saturating_add(bs.time_elapsed),
+                num_txs.saturating_add(bs.num_txs),
+                total_fees.saturating_add(bs.fees),
+                cost,
+                size.saturating_add(bs.size),
             )
-            .map(|(block, cost, size, _)| (block.header.block_hash(), block.txs, cost, size))
-        }
-    };
-
-    let elapsed = start.elapsed();
-    let summary = format!(
-        "block @ height = {h} off of {parent_block_id} ({parent_consensus_hash}/{pbh}) in {t}ms. Min-fee: {min_fee}, Max-time: {max_time}",
-        h=parent_stacks_header.stacks_block_height + 1,
-        pbh=&parent_stacks_header.anchored_header.block_hash(),
-        t=elapsed.as_millis(),
+        },
     );
 
-    let code = match result {
-        Ok((block_hash, txs, cost, size)) => {
-            let total_fees: u64 = txs.iter().map(|tx| tx.get_tx_fee()).sum();
+    println!("----------------------------------------");
+    println!("");
+    println!("Successfully mined {blocks_mined} block(s) from mempool");
+    println!("Totals:");
+    println!("  Time Elapsed: {} ms", time_elapsed.as_millis());
+    println!("  Transactions: {num_txs}");
+    println!("  Fees: {fees}");
+    println!("  Size: {size}");
+    println!("  Cost: {cost:?}");
 
-            println!("Successfully mined {summary}");
-            println!("Block {block_hash}: {total_fees} uSTX, {size} bytes, cost {cost:?}");
-            0
-        }
-        Err(e) => {
-            println!("Failed to mine {summary}");
-            println!("Error: {e}");
-            1
-        }
-    };
-
-    process::exit(code);
+    process::exit(0);
 }
 
 /// Fetch and process a `StagingBlock` from database and call `replay_block()` to validate
