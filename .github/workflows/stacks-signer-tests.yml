@@ -28,9 +28,3 @@ jobs:
       - name: Run Unit Tests
         run: cargo test -p stacks-signer -- --nocapture --test-threads 1
         continue-on-error: true
-
-      # Upload code coverage results
-      - name: Code Coverage
-        uses: stacks-network/actions/codecov@main
-        with:
-          test-name: stacks-signer-tests
