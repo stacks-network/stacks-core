@@ -464,7 +464,7 @@ impl NakamotoBlockBuilder {
     /// Returns the unsigned Nakamoto block
     fn finalize_block(&mut self, clarity_tx: &mut ClarityTx) -> NakamotoBlock {
         // done!  Calculate state root and tx merkle root
-        let txid_vecs = self
+        let txid_vecs: Vec<_> = self
             .txs
             .iter()
             .map(|tx| tx.txid().as_bytes().to_vec())
@@ -596,7 +596,7 @@ impl NakamotoBlockBuilder {
             tenure_info.coinbase_tx.clone(),
         ]
         .into_iter()
-        .filter_map(|x| x)
+        .flatten()
         .collect();
 
         // TODO: update this mempool check to prioritize signer vote transactions over other transactions
