@@ -411,7 +411,7 @@ pub fn make_reward_cycle_with_vote(
             new_commits.push(commits.clone());
             commits
                 .into_iter()
-                .filter_map(|cmt| cmt)
+                .flatten()
                 .map(|cmt| BlockstackOperationType::LeaderBlockCommit(cmt))
                 .collect()
         };

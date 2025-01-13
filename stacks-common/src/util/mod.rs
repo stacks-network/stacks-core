@@ -36,7 +36,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use std::{error, fmt, thread, time};
 
 /// Given a relative path inside the Cargo workspace, return the absolute path
-#[cfg(any(test, feature = "testing"))]
 pub fn cargo_workspace<P>(relative_path: P) -> PathBuf
 where
     P: AsRef<Path>,

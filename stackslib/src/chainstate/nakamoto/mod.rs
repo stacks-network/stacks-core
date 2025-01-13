@@ -347,8 +347,7 @@ pub trait StacksDBIndexed {
                 tip,
                 &nakamoto_keys::ongoing_tenure_coinbase_height(coinbase_height),
             )?
-            .map(|id_str| nakamoto_keys::parse_block_id(&id_str))
-            .flatten())
+            .and_then(|id_str| nakamoto_keys::parse_block_id(&id_str)))
     }
 
     /// Get the first block in the tenure for a given tenure ID consensus hash in the fork
@@ -363,8 +362,7 @@ pub trait StacksDBIndexed {
                 tip,
                 &nakamoto_keys::tenure_start_block_id(tenure_id_consensus_hash),
             )?
-            .map(|id_str| nakamoto_keys::parse_block_id(&id_str))
-            .flatten())
+            .and_then(|id_str| nakamoto_keys::parse_block_id(&id_str)))
     }
 
     /// Get the coinbase height of a tenure (identified by its consensus hash) in a fork identified
@@ -379,8 +377,7 @@ pub trait StacksDBIndexed {
                 tip,
                 &nakamoto_keys::coinbase_height(tenure_id_consensus_hash),
             )?
-            .map(|height_str| nakamoto_keys::parse_u64(&height_str))
-            .flatten())
+            .and_then(|height_str| nakamoto_keys::parse_u64(&height_str)))
     }
 
     /// Get the ongoing tenure ID in the fork identified by `tip`
@@ -390,8 +387,7 @@ pub trait StacksDBIndexed {
     ) -> Result<Option<NakamotoTenureEventId>, DBError> {
         Ok(self
             .get(tip, nakamoto_keys::ongoing_tenure_id())?
-            .map(|id_str| nakamoto_keys::parse_tenure_id_value(&id_str))
-            .flatten())
+            .and_then(|id_str| nakamoto_keys::parse_tenure_id_value(&id_str)))
     }
 
     /// Get the highest block ID in a tenure identified by its consensus hash in the Stacks fork
@@ -406,8 +402,7 @@ pub trait StacksDBIndexed {
                 tip,
                 &nakamoto_keys::highest_block_in_tenure(tenure_id_consensus_hash),
             )?
-            .map(|id_str| nakamoto_keys::parse_block_id(&id_str))
-            .flatten())
+            .and_then(|id_str| nakamoto_keys::parse_block_id(&id_str)))
     }
 
     /// Get the block-found tenure ID for a given tenure's consensus hash (if defined) in a given
@@ -422,8 +417,7 @@ pub trait StacksDBIndexed {
                 tip,
                 &nakamoto_keys::block_found_tenure_id(tenure_id_consensus_hash),
             )?
-            .map(|id_str| nakamoto_keys::parse_tenure_id_value(&id_str))
-            .flatten())
+            .and_then(|id_str| nakamoto_keys::parse_tenure_id_value(&id_str)))
     }
 
     /// Determine if a tenure, identified by its consensus hash, has finished in a fork identified
@@ -475,8 +469,7 @@ pub trait StacksDBIndexed {
                 tip,
                 &nakamoto_keys::parent_tenure_consensus_hash(tenure_id_consensus_hash),
             )?
-            .map(|ch_str| nakamoto_keys::parse_consensus_hash(&ch_str))
-            .flatten())
+            .and_then(|ch_str| nakamoto_keys::parse_consensus_hash(&ch_str)))
     }
 }
 
@@ -1082,16 +1075,14 @@ impl NakamotoBlock {
     /// Get the VRF proof from this block.
     /// It's Some(..) only if there's a coinbase
     pub fn get_vrf_proof(&self) -> Option<&VRFProof> {
-        self.get_coinbase_tx()
-            .map(|coinbase_tx| {
-                if let TransactionPayload::Coinbase(_, _, vrf_proof) = &coinbase_tx.payload {
-                    vrf_proof.as_ref()
-                } else {
-                    // actually unreachable
-                    None
-                }
-            })
-            .flatten()
+        self.get_coinbase_tx().and_then(|coinbase_tx| {
+            if let TransactionPayload::Coinbase(_, _, vrf_proof) = &coinbase_tx.payload {
+                vrf_proof.as_ref()
+            } else {
+                // actually unreachable
+                None
+            }
+        })
     }
 
     /// Try to get the first transaction in the block as a tenure-change
@@ -3952,7 +3943,11 @@ impl NakamotoChainState {
 
         // is this stacks block the first of a new epoch?
         let (applied_epoch_transition, mut tx_receipts) =
-            StacksChainState::process_epoch_transition(&mut clarity_tx, burn_header_height)?;
+            StacksChainState::process_epoch_transition(
+                &mut clarity_tx,
+                sortition_dbconn.as_burn_state_db(),
+                burn_header_height,
+            )?;
 
         debug!(
             "Setup block: Processed epoch transition";

@@ -2408,11 +2408,11 @@ impl<
             // burnchain has not yet advanced to epoch 3.0
             return self
                 .handle_new_epoch2_burnchain_block(&mut HashSet::new())
-                .and_then(|block_hash_opt| {
+                .map(|block_hash_opt| {
                     if let Some(block_hash) = block_hash_opt {
-                        Ok(NewBurnchainBlockStatus::WaitForPox2x(block_hash))
+                        NewBurnchainBlockStatus::WaitForPox2x(block_hash)
                     } else {
-                        Ok(NewBurnchainBlockStatus::Ready)
+                        NewBurnchainBlockStatus::Ready
                     }
                 });
         }
@@ -2441,12 +2441,12 @@ impl<
 
         // proceed to process sortitions in epoch 3.0
         self.handle_new_nakamoto_burnchain_block()
-            .and_then(|can_proceed| {
+            .map(|can_proceed| {
                 if can_proceed {
-                    Ok(NewBurnchainBlockStatus::Ready)
+                    NewBurnchainBlockStatus::Ready
                 } else {
                     // missing PoX anchor block, but unlike in 2.x, we don't know what it is!
-                    Ok(NewBurnchainBlockStatus::WaitForPoxNakamoto)
+                    NewBurnchainBlockStatus::WaitForPoxNakamoto
                 }
             })
     }
