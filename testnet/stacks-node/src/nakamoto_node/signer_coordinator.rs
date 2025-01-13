@@ -136,18 +136,26 @@ impl SignerCoordinator {
         is_mainnet: bool,
         miners_session: &mut StackerDBSession,
         election_sortition: &ConsensusHash,
-    ) -> Result<(), String> {
+    ) -> Result<(), NakamotoNodeError> {
         let Some(slot_range) = NakamotoChainState::get_miner_slot(sortdb, tip, election_sortition)
-            .map_err(|e| format!("Failed to read miner slot information: {e:?}"))?
+            .map_err(|e| {
+                NakamotoNodeError::SigningCoordinatorFailure(format!(
+                    "Failed to read miner slot information: {e:?}"
+                ))
+            })?
         else {
-            return Err("No slot for miner".into());
+            return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                "No slot for miner".into(),
+            ));
         };
 
         let slot_id = slot_range
             .start
             .saturating_add(miner_slot_id.to_u8().into());
         if !slot_range.contains(&slot_id) {
-            return Err("Not enough slots for miner messages".into());
+            return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                "Not enough slots for miner messages".into(),
+            ));
         }
         // Get the LAST slot version number written to the DB. If not found, use 0.
         // Add 1 to get the NEXT version number
@@ -155,13 +163,19 @@ impl SignerCoordinator {
         let miners_contract_id = boot_code_id(MINERS_NAME, is_mainnet);
         let slot_version = stackerdbs
             .get_slot_version(&miners_contract_id, slot_id)
-            .map_err(|e| format!("Failed to read slot version: {e:?}"))?
+            .map_err(|e| {
+                NakamotoNodeError::SigningCoordinatorFailure(format!(
+                    "Failed to read slot version: {e:?}"
+                ))
+            })?
             .unwrap_or(0)
             .saturating_add(1);
         let mut chunk = StackerDBChunkData::new(slot_id, slot_version, message.serialize_to_vec());
-        chunk
-            .sign(miner_sk)
-            .map_err(|_| "Failed to sign StackerDB chunk")?;
+        chunk.sign(miner_sk).map_err(|e| {
+            NakamotoNodeError::SigningCoordinatorFailure(format!(
+                "Failed to sign StackerDB chunk: {e:?}"
+            ))
+        })?;
 
         match miners_session.put_chunk(&chunk) {
             Ok(ack) => {
@@ -169,10 +183,12 @@ impl SignerCoordinator {
                     debug!("Wrote message to stackerdb: {ack:?}");
                     Ok(())
                 } else {
-                    Err(format!("{ack:?}"))
+                    Err(NakamotoNodeError::StackerDBUploadError(ack))
                 }
             }
-            Err(e) => Err(format!("{e:?}")),
+            Err(e) => Err(NakamotoNodeError::SigningCoordinatorFailure(format!(
+                "{e:?}"
+            ))),
         }
     }
 
@@ -227,8 +243,7 @@ impl SignerCoordinator {
             self.is_mainnet,
             &mut self.miners_session,
             election_sortition,
-        )
-        .map_err(NakamotoNodeError::SigningCoordinatorFailure)?;
+        )?;
         counters.bump_naka_proposed_blocks();
 
         #[cfg(test)]

@@ -711,9 +711,8 @@ pub fn next_block_and_mine_commit(
     )
 }
 
-/// Mine a bitcoin block, and wait until:
-///  (1) 2 block commits have been issued ** or ** more than 10 seconds have
-///      passed since (1) occurred
+/// Mine a bitcoin block, and wait until a block-commit has been issued, **or** a timeout occurs
+/// (timeout_secs)
 pub fn next_block_and_commits_only(
     btc_controller: &mut BitcoinRegtestController,
     timeout_secs: u64,
@@ -10548,7 +10547,9 @@ fn clarity_cost_spend_down() {
 /// Miner wins sortition at Bitcoin height N
 /// Relayer processes sortition N
 /// Miner wins sortition at Bitcoin height N+1
+/// Transactions that depend on the burn view get submitted to the mempool
 /// A flash block at height N+2 happens before the miner can publish its block-found for N+1
+/// The miner mines these transactions with a burn view for height N+2
 /// Result: the miner issues a tenure-extend from N+1 with burn view for N+2
 #[test]
 #[ignore]
@@ -10622,6 +10623,7 @@ fn test_tenure_extend_from_flashblocks() {
       (if (is-eq u0 (mod burn-block-height u2))
         (var-set my-counter (+ u1 (var-get my-counter)))
         (var-set my-counter (+ u2 (var-get my-counter))))
+      (print burn-block-height)
       (ok 1)
    )
 )
@@ -10836,6 +10838,14 @@ fn test_tenure_extend_from_flashblocks() {
         Ok(true)
     })
     .unwrap();
+
+    // transactions are all mined, and all reflect the flash block's burn view
+    let mut blocks = test_observer::get_blocks();
+    blocks.sort_by_key(|block| block["block_height"].as_u64().unwrap());
+
+    for block in blocks.iter() {
+        eprintln!("block: {:#?}", &block);
+    }
 
     // boot a follower. it should reach the chain tip
     info!("----- BEGIN FOLLOWR BOOTUP ------");

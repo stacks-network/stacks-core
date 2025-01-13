@@ -202,6 +202,7 @@ impl SortitionsView {
             info!(
                 "Current miner timed out, marking as invalid.";
                 "block_height" => block.header.chain_length,
+                "block_proposal_timeout" => ?self.config.block_proposal_timeout,
                 "current_sortition_consensus_hash" => ?self.cur_sortition.consensus_hash,
             );
             self.cur_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;

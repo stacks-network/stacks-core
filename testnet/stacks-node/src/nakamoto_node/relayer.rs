@@ -19,10 +19,11 @@ use std::fs;
 use std::io::Read;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 #[cfg(test)]
-use std::sync::LazyLock;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use lazy_static::lazy_static;
+use rand::{thread_rng, Rng};
 use stacks::burnchains::{Burnchain, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::leader_block_commit::{
@@ -70,14 +71,14 @@ use crate::run_loop::nakamoto::{Globals, RunLoop};
 use crate::run_loop::RegisteredKey;
 use crate::BitcoinRegtestController;
 
-/// Mutex to stall the relayer thread right before it creates a miner thread.
 #[cfg(test)]
-pub static TEST_MINER_THREAD_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+lazy_static! {
+    /// Mutex to stall the relayer thread right before it creates a miner thread.
+    pub static ref TEST_MINER_THREAD_STALL: TestFlag<bool> = TestFlag::default();
 
-/// Mutex to stall the miner thread right after it starts up (does not block the relayer thread)
-#[cfg(test)]
-pub static TEST_MINER_THREAD_START_STALL: LazyLock<TestFlag<bool>> =
-    LazyLock::new(TestFlag::default);
+    /// Mutex to stall the miner thread right after it starts up (does not block the relayer thread)
+    pub static ref TEST_MINER_THREAD_START_STALL: TestFlag<bool> = TestFlag::default();
+}
 
 /// Command types for the Nakamoto relayer thread, issued to it by other threads
 #[allow(clippy::large_enum_variant)]
@@ -630,8 +631,8 @@ impl RelayerThread {
             .expect("FATAL: unknown consensus hash");
 
         // always clear this even if this isn't the latest sortition
-        self.last_commits.remove(&sn.winning_block_txid);
-        let won_sortition = sn.sortition; // && cleared;
+        let cleared = self.last_commits.remove(&sn.winning_block_txid);
+        let won_sortition = sn.sortition && cleared;
         if won_sortition {
             increment_stx_blocks_mined_counter();
         }
@@ -1052,8 +1053,10 @@ impl RelayerThread {
 
         debug!("Relayer: starting new tenure thread");
 
+        let rand_id = thread_rng().gen::<u32>();
+
         let new_miner_handle = std::thread::Builder::new()
-            .name(format!("miner.{parent_tenure_start}",))
+            .name(format!("miner.{parent_tenure_start}.{rand_id}",))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || {
                 Self::fault_injection_stall_miner_thread_startup();

@@ -40,6 +40,7 @@ use stacks::chainstate::stacks::{
     TenureChangeCause, TenureChangePayload, TransactionAnchorMode, TransactionPayload,
     TransactionVersion,
 };
+use stacks::net::api::poststackerdbchunk::StackerDBErrorCodes;
 use stacks::net::p2p::NetworkHandle;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::net::{NakamotoBlocksData, StacksMessageType};
@@ -367,6 +368,29 @@ impl BlockMinerThread {
         }
     }
 
+    /// Pause the miner thread and retry to mine
+    fn pause_and_retry(
+        &self,
+        new_block: &NakamotoBlock,
+        last_block_rejected: &mut bool,
+        e: NakamotoNodeError,
+    ) {
+        // Sleep for a bit to allow signers to catch up
+        let pause_ms = if *last_block_rejected {
+            self.config.miner.subsequent_rejection_pause_ms
+        } else {
+            self.config.miner.first_rejection_pause_ms
+        };
+
+        error!("Error while gathering signatures: {e:?}. Will try mining again in {pause_ms}.";
+            "signer_sighash" => %new_block.header.signer_signature_hash(),
+            "block_height" => new_block.header.chain_length,
+            "consensus_hash" => %new_block.header.consensus_hash,
+        );
+        thread::sleep(Duration::from_millis(pause_ms));
+        *last_block_rejected = true;
+    }
+
     /// The main loop for the miner thread. This is where the miner will mine
     /// blocks and then attempt to sign and broadcast them.
     fn miner_main_loop(
@@ -469,21 +493,20 @@ impl BlockMinerThread {
                         );
                         return Err(e);
                     }
+                    NakamotoNodeError::StackerDBUploadError(ref ack) => {
+                        if ack.code == Some(StackerDBErrorCodes::BadSigner.code()) {
+                            error!("Error while gathering signatures: failed to upload miner StackerDB data: {ack:?}. Giving up.";
+                                "signer_sighash" => %new_block.header.signer_signature_hash(),
+                                "block_height" => new_block.header.chain_length,
+                                "consensus_hash" => %new_block.header.consensus_hash,
+                            );
+                            return Err(e);
+                        }
+                        self.pause_and_retry(&new_block, last_block_rejected, e);
+                        return Ok(());
+                    }
                     _ => {
-                        // Sleep for a bit to allow signers to catch up
-                        let pause_ms = if *last_block_rejected {
-                            self.config.miner.subsequent_rejection_pause_ms
-                        } else {
-                            self.config.miner.first_rejection_pause_ms
-                        };
-
-                        error!("Error while gathering signatures: {e:?}. Will try mining again in {pause_ms}.";
-                            "signer_sighash" => %new_block.header.signer_signature_hash(),
-                            "block_height" => new_block.header.chain_length,
-                            "consensus_hash" => %new_block.header.consensus_hash,
-                        );
-                        thread::sleep(Duration::from_millis(pause_ms));
-                        *last_block_rejected = true;
+                        self.pause_and_retry(&new_block, last_block_rejected, e);
                         return Ok(());
                     }
                 },
@@ -507,8 +530,7 @@ impl BlockMinerThread {
 
             // update mined-block counters and mined-tenure counters
             self.globals.counters.bump_naka_mined_blocks();
-            if self.last_block_mined.is_some() {
-                // TODO: reviewers: should this be .is_none()?
+            if self.last_block_mined.is_none() {
                 // this is the first block of the tenure, bump tenure counter
                 self.globals.counters.bump_naka_mined_tenures();
             }
@@ -778,7 +800,6 @@ impl BlockMinerThread {
             &mut miners_session,
             &self.burn_election_block.consensus_hash,
         )
-        .map_err(NakamotoNodeError::SigningCoordinatorFailure)
     }
 
     /// Get the coinbase recipient address, if set in the config and if allowed in this epoch

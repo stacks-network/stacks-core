@@ -8080,7 +8080,8 @@ fn tenure_extend_after_failed_miner() {
 
     info!("------------------------- Miner 1 Extends Tenure A -------------------------");
 
-    // Re-enable block mining
+    // Re-enable block mining, for both miners.
+    // Since miner B has been offline, it won't be able to mine.
     TEST_MINE_STALL.set(false);
 
     // wait for a tenure extend block from miner 1 to be processed
@@ -8135,38 +8136,6 @@ fn tenure_extend_after_failed_miner() {
         )
     })
     .expect("Timed out waiting for block to be mined and processed");
-
-    // Re-enable block commits for miner 2
-    let rl2_commits_before = rl2_commits.load(Ordering::SeqCst);
-    rl2_skip_commit_op.set(true);
-
-    // Wait for block commit from miner 2
-    wait_for(30, || {
-        Ok(rl2_commits.load(Ordering::SeqCst) > rl2_commits_before)
-    })
-    .expect("Timed out waiting for block commit from miner 2");
-
-    info!("------------------------- Miner 2 Mines the Next Tenure -------------------------");
-
-    let stacks_height_before = signer_test
-        .stacks_client
-        .get_peer_info()
-        .expect("Failed to get peer info")
-        .stacks_tip_height;
-
-    next_block_and(
-        &mut signer_test.running_nodes.btc_regtest_controller,
-        60,
-        || {
-            let stacks_height = signer_test
-                .stacks_client
-                .get_peer_info()
-                .expect("Failed to get peer info")
-                .stacks_tip_height;
-            Ok(stacks_height > stacks_height_before)
-        },
-    )
-    .expect("Timed out waiting for final block to be mined and processed");
 
     info!("------------------------- Shutdown -------------------------");
     rl2_coord_channels
@@ -8365,6 +8334,7 @@ fn tenure_extend_after_bad_commit() {
     };
 
     info!("------------------------- Pause Miner 1's Block Commit -------------------------");
+
     // Make sure miner 1 doesn't submit any further block commits for the next tenure BEFORE mining the bitcoin block
     rl1_skip_commit_op.set(true);
 
