@@ -944,7 +944,7 @@ pub fn special_get_burn_block_info(
                 Some((addrs, payout)) => Ok(Value::some(Value::Tuple(
                     TupleData::from_data(vec![
                         (
-                            "addrs".into(),
+                            "addrs".try_into().unwrap(),
                             Value::cons_list(
                                 addrs.into_iter().map(Value::Tuple).collect(),
                                 env.epoch(),
@@ -955,7 +955,7 @@ pub fn special_get_burn_block_info(
                                 )
                             })?,
                         ),
-                        ("payout".into(), Value::UInt(payout)),
+                        ("payout".try_into().unwrap(), Value::UInt(payout)),
                     ])
                     .map_err(|_| {
                         InterpreterError::Expect(

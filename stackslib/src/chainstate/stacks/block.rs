@@ -2022,7 +2022,7 @@ mod test {
             origin_auth.clone(),
             TransactionPayload::SmartContract(
                 TransactionSmartContract {
-                    name: ContractName::try_from("hello-world").unwrap(),
+                    name: ContractName::from("hello-world"),
                     code_body: StacksString::from_str("(print \"hello world\")").unwrap(),
                 },
                 Some(ClarityVersion::Clarity1),

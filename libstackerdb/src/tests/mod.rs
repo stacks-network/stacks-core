@@ -83,7 +83,7 @@ fn test_stackerdb_paths() {
     )
     .unwrap();
 
-    let contract_id = QualifiedContractIdentifier::new(addr.into(), "hello-world".into());
+    let contract_id = QualifiedContractIdentifier::new(addr.into(), "hello-world".try_into().unwrap());
 
     assert_eq!(
         stackerdb_get_metadata_path(contract_id.clone()),

@@ -202,6 +202,14 @@ macro_rules! guarded_string {
             }
         }
 
+        #[cfg(not(any(test, feature = "testing")))]
+        impl TryFrom<&'_ str> for $Name {
+            type Error = $ErrorType;
+            fn try_from(value: &str) -> Result<Self, Self::Error> {
+                Self::try_from(value.to_string())
+            }
+        }
+
         impl $Name {
             pub fn as_str(&self) -> &str {
                 &self.0
@@ -235,9 +243,10 @@ macro_rules! guarded_string {
             }
         }
 
+        #[cfg(any(test, feature = "testing"))]
         impl From<&'_ str> for $Name {
             fn from(value: &str) -> Self {
-                Self::try_from(value.to_string()).unwrap()
+                Self::try_from(value).unwrap()
             }
         }
 

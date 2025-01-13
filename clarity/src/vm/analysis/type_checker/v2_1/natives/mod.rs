@@ -674,7 +674,7 @@ fn check_principal_construct(
             TupleTypeSignature::try_from(vec![
                 ("error_code".into(), TypeSignature::UIntType),
                 (
-                    "value".into(),
+                    "value".try_into().unwrap(),
                     TypeSignature::new_option(TypeSignature::PrincipalType).map_err(|_| CheckErrors::Expects("FATAL: failed to create (optional principal) type signature".into()))?,
                 ),
             ])
@@ -1018,10 +1018,10 @@ impl TypedNativeFunction {
                     /// and error types are the same.
                     fn parse_principal_basic_type() -> Result<TupleTypeSignature, CheckErrors> {
                         TupleTypeSignature::try_from(vec![
-                            ("version".into(), BUFF_1.clone()),
-                            ("hash-bytes".into(), BUFF_20.clone()),
+                            ("version".try_into().unwrap(), BUFF_1.clone()),
+                            ("hash-bytes".try_into().unwrap(), BUFF_20.clone()),
                             (
-                                "name".into(),
+                                "name".try_into().unwrap(),
                                 TypeSignature::new_option(
                                     TypeSignature::contract_name_string_ascii_type()?,
                                 )
@@ -1051,9 +1051,9 @@ impl TypedNativeFunction {
                     })?,
                 )],
                 returns: TupleTypeSignature::try_from(vec![
-                    ("unlocked".into(), TypeSignature::UIntType),
-                    ("locked".into(), TypeSignature::UIntType),
-                    ("unlock-height".into(), TypeSignature::UIntType),
+                    ("unlocked".try_into().unwrap(), TypeSignature::UIntType),
+                    ("locked".try_into().unwrap(), TypeSignature::UIntType),
+                    ("unlock-height".try_into().unwrap(), TypeSignature::UIntType),
                 ])
                 .map_err(|_| {
                     CheckErrors::Expects(

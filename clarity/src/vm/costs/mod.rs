@@ -55,11 +55,11 @@ lazy_static! {
         #[allow(clippy::expect_used)]
         TypeSignature::TupleType(
             TupleTypeSignature::try_from(vec![
-                ("runtime".into(), TypeSignature::UIntType),
-                ("write_length".into(), TypeSignature::UIntType),
-                ("write_count".into(), TypeSignature::UIntType),
-                ("read_count".into(), TypeSignature::UIntType),
-                ("read_length".into(), TypeSignature::UIntType),
+                ("runtime".try_into().unwrap(), TypeSignature::UIntType),
+                ("write_length".try_into().unwrap(), TypeSignature::UIntType),
+                ("write_count".try_into().unwrap(), TypeSignature::UIntType),
+                ("read_count".try_into().unwrap(), TypeSignature::UIntType),
+                ("read_length".try_into().unwrap(), TypeSignature::UIntType),
             ])
             .expect("BUG: failed to construct type signature for cost tuple"),
         )
@@ -465,7 +465,7 @@ fn load_cost_functions(
                 "confirmed-proposals",
                 &Value::from(
                     TupleData::from_data(vec![(
-                        "confirmed-id".into(),
+                        "confirmed-id".try_into().unwrap(),
                         Value::UInt(confirmed_proposal),
                     )])
                     .map_err(|_| {
@@ -983,7 +983,7 @@ fn compute_cost(
         )))?;
 
     let mut program = vec![SymbolicExpression::atom(
-        cost_function_reference.function_name[..].into(),
+        cost_function_reference.function_name[..].try_into().unwrap(),
     )];
 
     for input_size in input_sizes.iter() {

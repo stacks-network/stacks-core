@@ -87,19 +87,19 @@ fn create_principal_destruct_tuple(
     Ok(Value::Tuple(
         TupleData::from_data(vec![
             (
-                "version".into(),
+                "version".try_into().unwrap(),
                 Value::Sequence(SequenceData::Buffer(BuffData {
                     data: vec![version],
                 })),
             ),
             (
-                "hash-bytes".into(),
+                "hash-bytes".try_into().unwrap(),
                 Value::Sequence(SequenceData::Buffer(BuffData {
                     data: hash_bytes.to_vec(),
                 })),
             ),
             (
-                "name".into(),
+                "name".try_into().unwrap(),
                 Value::Optional(OptionalData {
                     data: name_opt.map(|name| Box::new(Value::from(ASCIIData::from(name)))),
                 }),
@@ -116,8 +116,8 @@ fn create_principal_destruct_tuple(
 fn create_principal_true_error_response(error_int: PrincipalConstructErrorCode) -> Result<Value> {
     Value::error(Value::Tuple(
         TupleData::from_data(vec![
-            ("error_code".into(), Value::UInt(error_int as u128)),
-            ("value".into(), Value::none()),
+            ("error_code".try_into().unwrap(), Value::UInt(error_int as u128)),
+            ("value".try_into().unwrap(), Value::none()),
         ])
         .map_err(|_| InterpreterError::Expect("FAIL: Failed to initialize tuple.".into()))?,
     ))
@@ -137,9 +137,9 @@ fn create_principal_value_error_response(
 ) -> Result<Value> {
     Value::error(Value::Tuple(
         TupleData::from_data(vec![
-            ("error_code".into(), Value::UInt(error_int as u128)),
+            ("error_code".try_into().unwrap(), Value::UInt(error_int as u128)),
             (
-                "value".into(),
+                "value".try_into().unwrap(),
                 Value::some(value).map_err(|_| {
                     InterpreterError::Expect("Unexpected problem creating Value.".into())
                 })?,

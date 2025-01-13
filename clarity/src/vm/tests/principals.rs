@@ -298,6 +298,7 @@ fn test_simple_is_standard_undefined_cases() {
     );
 }
 
+#[cfg(test)]
 /// Creates a Tuple which is the result of parsing a Principal tuple into a Tuple of its `version`
 /// and `hash-bytes` and `name`
 fn create_principal_destruct_tuple_from_strings(
@@ -308,7 +309,7 @@ fn create_principal_destruct_tuple_from_strings(
     Value::Tuple(
         TupleData::from_data(vec![
             (
-                "version".into(),
+                "version".try_into().expect("FATAL: invalid clarity name"),
                 Value::Sequence(SequenceData::Buffer(BuffData {
                     data: hex_bytes(version).unwrap(),
                 })),
@@ -839,6 +840,7 @@ fn test_principal_construct_good() {
     );
 }
 
+#[cfg(test)]
 /// Creates a `Principal`-type `Value` from string-based byte representations.
 fn create_principal_from_strings(
     version_string: &str,

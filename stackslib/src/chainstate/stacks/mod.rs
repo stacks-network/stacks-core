@@ -1130,9 +1130,9 @@ pub mod test {
             version: 1,
             bytes: Hash160([0xff; 20]),
         };
-        let asset_name = ClarityName::try_from("hello-asset").unwrap();
+        let asset_name = ClarityName::from("hello-asset");
         let asset_value = Value::buff_from(vec![0, 1, 2, 3]).unwrap();
-        let contract_name = ContractName::try_from("hello-world").unwrap();
+        let contract_name = ContractName::from("hello-world");
         let hello_contract_call = "hello contract call";
         let hello_contract_name = "hello-contract-name";
         let hello_contract_body = "hello contract code body";
@@ -1285,7 +1285,7 @@ pub mod test {
                     version: 2,
                     bytes: Hash160([2u8; 20]),
                 },
-                ContractName::try_from("hello-world").unwrap(),
+                ContractName::from("hello-world"),
             ),
         ];
 
@@ -1428,27 +1428,27 @@ pub mod test {
                     version: 4,
                     bytes: Hash160([0xfc; 20]),
                 },
-                contract_name: ContractName::try_from("hello-contract-name").unwrap(),
-                function_name: ClarityName::try_from("hello-contract-call").unwrap(),
+                contract_name: ContractName::from("hello-contract-name"),
+                function_name: ClarityName::from("hello-contract-call"),
                 function_args: vec![Value::Int(0)],
             }),
             TransactionPayload::SmartContract(
                 TransactionSmartContract {
-                    name: ContractName::try_from(hello_contract_name).unwrap(),
+                    name: ContractName::from(hello_contract_name),
                     code_body: StacksString::from_str(hello_contract_body).unwrap(),
                 },
                 None,
             ),
             TransactionPayload::SmartContract(
                 TransactionSmartContract {
-                    name: ContractName::try_from(hello_contract_name).unwrap(),
+                    name: ContractName::from(hello_contract_name),
                     code_body: StacksString::from_str(hello_contract_body).unwrap(),
                 },
                 Some(ClarityVersion::Clarity1),
             ),
             TransactionPayload::SmartContract(
                 TransactionSmartContract {
-                    name: ContractName::try_from(hello_contract_name).unwrap(),
+                    name: ContractName::from(hello_contract_name),
                     code_body: StacksString::from_str(hello_contract_body).unwrap(),
                 },
                 Some(ClarityVersion::Clarity2),

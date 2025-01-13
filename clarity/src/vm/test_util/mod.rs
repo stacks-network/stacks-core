@@ -325,8 +325,8 @@ impl BurnStateDB for UnitTestBurnStateDB {
     ) -> Option<(Vec<TupleData>, u128)> {
         Some((
             vec![TupleData::from_data(vec![
-                ("version".into(), Value::buff_from(vec![0u8]).unwrap()),
-                ("hashbytes".into(), Value::buff_from(vec![0u8; 20]).unwrap()),
+                ("version".try_into().unwrap(), Value::buff_from(vec![0u8]).unwrap()),
+                ("hashbytes".try_into().unwrap(), Value::buff_from(vec![0u8; 20]).unwrap()),
             ])
             .unwrap()],
             123,

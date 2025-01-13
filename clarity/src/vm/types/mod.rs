@@ -798,12 +798,12 @@ impl BurnBlockInfoProperty {
             HeaderHash => BUFF_32.clone(),
             PoxAddrs => TupleTypeSignature::try_from(vec![
                 (
-                    "addrs".into(),
+                    "addrs".try_into().expect("FATAL: invalid clarity name"),
                     TypeSignature::list_of(
                         TypeSignature::TupleType(
                             TupleTypeSignature::try_from(vec![
-                                ("version".into(), BUFF_1.clone()),
-                                ("hashbytes".into(), BUFF_32.clone()),
+                                ("version".try_into().expect("FATAL: invalid clarity name"), BUFF_1.clone()),
+                                ("hashbytes".try_into().expect("FATAL: invalid clarity name"), BUFF_32.clone()),
                             ])
                             .map_err(|_| {
                                 CheckErrors::Expects(
@@ -815,7 +815,7 @@ impl BurnBlockInfoProperty {
                     )
                     .map_err(|_| CheckErrors::Expects("FATAL: bad list type signature".into()))?,
                 ),
-                ("payout".into(), TypeSignature::UIntType),
+                ("payout".try_into().expect("FATAL: invalid clarity name"), TypeSignature::UIntType),
             ])
             .map_err(|_| CheckErrors::Expects("FATAL: bad type signature for pox addr".into()))?
             .into(),

@@ -2966,15 +2966,13 @@ pub fn mine_smart_contract_block_contract_call_microblock(
         for i in (0..burnchain_height).rev() {
             let prev_contract_id = QualifiedContractIdentifier::new(
                 StandardPrincipalData::from(miner.origin_address().unwrap()),
-                ContractName::try_from(
+                ContractName::from(
                     format!(
-                        "hello-world-{}-{}",
-                        i,
+                        "hello-world-{i}-{}",
                         builder.chain_tip.anchored_header.height()
                     )
                     .as_str(),
                 )
-                .unwrap(),
             );
             let contract = StacksChainState::get_contract(clarity_tx, &prev_contract_id).unwrap();
             if contract.is_none() {
@@ -3052,15 +3050,13 @@ pub fn mine_smart_contract_block_contract_call_microblock_exception(
         for i in (0..burnchain_height).rev() {
             let prev_contract_id = QualifiedContractIdentifier::new(
                 StandardPrincipalData::from(miner.origin_address().unwrap()),
-                ContractName::try_from(
+                ContractName::from(
                     format!(
-                        "hello-world-{}-{}",
-                        i,
+                        "hello-world-{i}-{}",
                         builder.chain_tip.anchored_header.height(),
                     )
                     .as_str(),
                 )
-                .unwrap(),
             );
             let contract = StacksChainState::get_contract(clarity_tx, &prev_contract_id).unwrap();
             if contract.is_none() {

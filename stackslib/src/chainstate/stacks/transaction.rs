@@ -357,30 +357,17 @@ where
 impl TransactionPayload {
     pub fn new_contract_call(
         contract_address: StacksAddress,
-        contract_name: &str,
-        function_name: &str,
+        contract_name_str: &str,
+        function_name_str: &str,
         args: Vec<Value>,
     ) -> Option<TransactionPayload> {
-        let contract_name_str = match ContractName::try_from(contract_name.to_string()) {
-            Ok(s) => s,
-            Err(_) => {
-                test_debug!("Not a clarity name: '{}'", contract_name);
-                return None;
-            }
-        };
-
-        let function_name_str = match ClarityName::try_from(function_name.to_string()) {
-            Ok(s) => s,
-            Err(_) => {
-                test_debug!("Not a clarity name: '{}'", contract_name);
-                return None;
-            }
-        };
+        let contract_name = ContractName::try_from(contract_name_str).inspect_err(|_| {test_debug!("Not a contract name: '{contract_name_str}'")}).ok()?;
+        let function_name = ClarityName::try_from(function_name_str).inspect_err(|_| {test_debug!("Not a clarity name: '{function_name_str}'")}).ok()?;
 
         Some(TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_address,
-            contract_name: contract_name_str,
-            function_name: function_name_str,
+            contract_name,
+            function_name,
             function_args: args,
         }))
     }
@@ -1855,8 +1842,8 @@ mod test {
                         version: 1,
                         bytes: Hash160([0xff; 20]),
                     },
-                    contract_name: ContractName::try_from("hello-world").unwrap(),
-                    function_name: ClarityName::try_from("hello-function").unwrap(),
+                    contract_name: ContractName::from("hello-world"),
+                    function_name: ClarityName::from("hello-function"),
                     function_args: vec![Value::Int(0)],
                 })
             }
@@ -2012,13 +1999,13 @@ mod test {
                 version: 1,
                 bytes: Hash160([0xff; 20]),
             },
-            contract_name: ContractName::try_from(hello_contract_name).unwrap(),
-            function_name: ClarityName::try_from(hello_function_name).unwrap(),
+            contract_name: ContractName::from(hello_contract_name),
+            function_name: ClarityName::from(hello_function_name),
             function_args: vec![Value::Int(0)],
         };
 
         let smart_contract = TransactionSmartContract {
-            name: ContractName::try_from(hello_contract_name).unwrap(),
+            name: ContractName::from(hello_contract_name),
             code_body: StacksString::from_str(hello_contract_body).unwrap(),
         };
 
@@ -3372,8 +3359,8 @@ mod test {
                 version: 1,
                 bytes: Hash160([0xff; 20]),
             },
-            contract_name: ContractName::try_from(hello_contract_name).unwrap(),
-            function_name: ClarityName::try_from(hello_function_name).unwrap(),
+            contract_name: ContractName::from(hello_contract_name),
+            function_name: ClarityName::from(hello_function_name),
             function_args: vec![Value::Int(0)],
         };
 
@@ -3415,7 +3402,7 @@ mod test {
             bytes: Hash160([0xff; 20]),
         };
         let contract_name = "hello\x00contract-name";
-        let function_name = ClarityName::try_from("hello-function-name").unwrap();
+        let function_name = ClarityName::from("hello-function-name");
         let function_args = vec![Value::Int(0)];
 
         let mut contract_name_bytes = vec![contract_name.len() as u8];
@@ -3453,7 +3440,7 @@ mod test {
             version: 1,
             bytes: Hash160([0xff; 20]),
         };
-        let contract_name = ContractName::try_from("hello-contract-name").unwrap();
+        let contract_name = ContractName::from("hello-contract-name");
         let hello_function_name = "hello\x00function-name";
         let mut hello_function_name_bytes = vec![hello_function_name.len() as u8];
         hello_function_name_bytes.extend_from_slice(hello_function_name.as_bytes());
@@ -3497,14 +3484,14 @@ mod test {
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
         ];
 
-        let asset_name = ClarityName::try_from("hello-asset").unwrap();
+        let asset_name = ClarityName::from("hello-asset");
         let mut asset_name_bytes = vec![
             // length
             asset_name.len(),
         ];
         asset_name_bytes.extend_from_slice(&asset_name.to_string().as_str().as_bytes());
 
-        let contract_name = ContractName::try_from("hello-world").unwrap();
+        let contract_name = ContractName::from("hello-world");
         let mut contract_name_bytes = vec![
             // length
             contract_name.len(),
@@ -3547,7 +3534,7 @@ mod test {
                     version: 2,
                     bytes: Hash160([2u8; 20]),
                 },
-                ContractName::try_from("hello-world").unwrap(),
+                ContractName::from("hello-world"),
             ),
         ];
 
@@ -3556,8 +3543,8 @@ mod test {
                 version: 1,
                 bytes: Hash160([0xff; 20]),
             };
-            let asset_name = ClarityName::try_from("hello-asset").unwrap();
-            let contract_name = ContractName::try_from("contract-name").unwrap();
+            let asset_name = ClarityName::from("hello-asset");
+            let contract_name = ContractName::from("contract-name");
 
             let stx_pc =
                 TransactionPostCondition::STX(tx_pcp.clone(), FungibleConditionCode::SentGt, 12345);
@@ -3665,8 +3652,8 @@ mod test {
             version: 1,
             bytes: Hash160([0xff; 20]),
         };
-        let asset_name = ClarityName::try_from("hello-asset").unwrap();
-        let contract_name = ContractName::try_from("hello-world").unwrap();
+        let asset_name = ClarityName::from("hello-asset");
+        let contract_name = ContractName::from("hello-world");
 
         // can't parse a postcondition with an invalid condition code
 
@@ -3888,8 +3875,8 @@ mod test {
         let hello_asset_name = "hello-asset";
         let hello_token_name = "hello-token";
 
-        let contract_name = ContractName::try_from(hello_contract_name).unwrap();
-        let asset_name = ClarityName::try_from(hello_asset_name).unwrap();
+        let contract_name = ContractName::from(hello_contract_name);
+        let asset_name = ClarityName::from(hello_asset_name);
         let token_name = StacksString::from_str(hello_token_name).unwrap();
 
         let asset_value = StacksString::from_str("asset-value").unwrap();
