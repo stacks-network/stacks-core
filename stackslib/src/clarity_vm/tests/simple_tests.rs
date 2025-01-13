@@ -30,7 +30,7 @@ where
     {
         let mut store = marf_kv.begin(
             &StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
-            &StacksBlockId([1 as u8; 32]),
+            &StacksBlockId([1; 32]),
         );
 
         let mut owned_env = OwnedEnvironment::new(
@@ -65,7 +65,7 @@ fn test_at_unknown_block() {
             Error::Runtime(x, _) => assert_eq!(
                 x,
                 RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash::from(
-                    vec![2 as u8; 32].as_slice()
+                    vec![2; 32].as_slice()
                 ))
             ),
             _ => panic!("Unexpected error"),

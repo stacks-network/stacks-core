@@ -80,12 +80,12 @@ pub enum TipRequest {
 
 impl TipRequest {}
 
-impl ToString for TipRequest {
-    fn to_string(&self) -> String {
+impl fmt::Display for TipRequest {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::UseLatestAnchoredTip => "".to_string(),
-            Self::UseLatestUnconfirmedTip => "latest".to_string(),
-            Self::SpecificTip(ref tip) => format!("{}", tip),
+            Self::UseLatestAnchoredTip => write!(f, ""),
+            Self::UseLatestUnconfirmedTip => write!(f, "latest"),
+            Self::SpecificTip(ref tip) => write!(f, "{tip}"),
         }
     }
 }
@@ -316,7 +316,7 @@ impl HttpRequestContentsExtensions for HttpRequestContents {
     /// Use a particular tip request
     fn for_tip(mut self, tip_req: TipRequest) -> Self {
         if tip_req != TipRequest::UseLatestAnchoredTip {
-            self.query_arg("tip".to_string(), format!("{}", &tip_req.to_string()))
+            self.query_arg("tip".to_string(), tip_req.to_string())
         } else {
             let _ = self.take_query_arg(&"tip".to_string());
             self
@@ -475,11 +475,11 @@ impl StacksHttpRequest {
         }
         let (decoded_path, _) = decode_request_path(&preamble.path_and_query_str)?;
         let full_query_string = contents.get_full_query_string();
-        if full_query_string.len() > 0 {
-            preamble.path_and_query_str = format!("{}?{}", &decoded_path, &full_query_string);
+        preamble.path_and_query_str = if full_query_string.is_empty() {
+            decoded_path
         } else {
-            preamble.path_and_query_str = decoded_path;
-        }
+            format!("{decoded_path}?{full_query_string}")
+        };
 
         Ok(Self {
             preamble,
@@ -1039,7 +1039,7 @@ impl StacksHttp {
         let payload = match handler.try_parse_request(
             preamble,
             &captures,
-            if query.len() > 0 { Some(&query) } else { None },
+            if query.is_empty() { None } else { Some(&query) },
             body,
         ) {
             Ok(p) => p,
@@ -1078,7 +1078,7 @@ impl StacksHttp {
             let payload = match request.try_parse_request(
                 preamble,
                 &captures,
-                if query.len() > 0 { Some(&query) } else { None },
+                if query.is_empty() { None } else { Some(&query) },
                 body,
             ) {
                 Ok(p) => p,

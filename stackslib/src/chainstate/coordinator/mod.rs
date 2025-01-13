@@ -910,7 +910,7 @@ pub fn calculate_paid_rewards(ops: &[BlockstackOperationType]) -> PaidRewards {
     let mut burn_amt = 0;
     for op in ops.iter() {
         if let BlockstackOperationType::LeaderBlockCommit(commit) = op {
-            if commit.commit_outs.len() == 0 {
+            if commit.commit_outs.is_empty() {
                 continue;
             }
             let amt_per_address = commit.burn_fee / (commit.commit_outs.len() as u64);
@@ -2411,11 +2411,11 @@ impl<
             // burnchain has not yet advanced to epoch 3.0
             return self
                 .handle_new_epoch2_burnchain_block(&mut HashSet::new())
-                .and_then(|block_hash_opt| {
+                .map(|block_hash_opt| {
                     if let Some(block_hash) = block_hash_opt {
-                        Ok(NewBurnchainBlockStatus::WaitForPox2x(block_hash))
+                        NewBurnchainBlockStatus::WaitForPox2x(block_hash)
                     } else {
-                        Ok(NewBurnchainBlockStatus::Ready)
+                        NewBurnchainBlockStatus::Ready
                     }
                 });
         }
@@ -2444,12 +2444,12 @@ impl<
 
         // proceed to process sortitions in epoch 3.0
         self.handle_new_nakamoto_burnchain_block()
-            .and_then(|can_proceed| {
+            .map(|can_proceed| {
                 if can_proceed {
-                    Ok(NewBurnchainBlockStatus::Ready)
+                    NewBurnchainBlockStatus::Ready
                 } else {
                     // missing PoX anchor block, but unlike in 2.x, we don't know what it is!
-                    Ok(NewBurnchainBlockStatus::WaitForPoxNakamoto)
+                    NewBurnchainBlockStatus::WaitForPoxNakamoto
                 }
             })
     }
@@ -2772,7 +2772,7 @@ impl<
             }
             sortition_db_handle.commit()?;
 
-            if unorphan_blocks.len() > 0 {
+            if !unorphan_blocks.is_empty() {
                 revalidated_stacks_block = true;
                 let ic = self.sortition_db.index_conn();
                 let mut chainstate_db_tx = self.chain_state_db.db_tx_begin()?;
@@ -3103,7 +3103,7 @@ impl<
             }
         }
 
-        if !found && staging_block_chs.len() > 0 {
+        if !found && !staging_block_chs.is_empty() {
             // we have seen this block before, but in a different consensus fork.
             // queue it for re-processing -- it might still be valid if it's in a reward
             // cycle that exists on the new PoX fork.

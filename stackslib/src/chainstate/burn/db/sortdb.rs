@@ -88,7 +88,7 @@ use crate::util_lib::db::{
     u64_to_sql, DBConn, DBTx, Error as db_error, FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
 
-const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;
+const BLOCK_HEIGHT_MAX: u64 = (1 << 63) - 1;
 
 pub const REWARD_WINDOW_START: u64 = 144 * 15;
 pub const REWARD_WINDOW_END: u64 = 144 * 90 + REWARD_WINDOW_START;
@@ -1604,7 +1604,7 @@ impl SortitionHandleTx<'_> {
                     anchor_block,
                     reward_set.rewarded_addresses.len()
                 );
-                if reward_set.rewarded_addresses.len() == 0 {
+                if reward_set.rewarded_addresses.is_empty() {
                     return Ok(None);
                 }
 
@@ -3587,7 +3587,7 @@ impl SortitionDB {
             NO_PARAMS,
         )?;
 
-        assert!(ast_rule_sets.len() > 0);
+        assert!(!ast_rule_sets.is_empty());
         let mut last_height = ast_rule_sets[0].1;
         let mut last_rules = ast_rule_sets[0].0;
         for (ast_rules, ast_rule_height) in ast_rule_sets.into_iter() {
@@ -3936,7 +3936,7 @@ impl SortitionDBConn<'_> {
             tip,
             reward_cycle_id,
         )
-        .and_then(|(reward_cycle_info, _anchor_sortition_id)| Ok(reward_cycle_info))
+        .map(|(reward_cycle_info, _anchor_sortition_id)| reward_cycle_info)
     }
 
     /// Get the prepare phase start sortition ID of a reward cycle.  This is the first prepare
@@ -4048,25 +4048,23 @@ impl SortitionDB {
     }
 
     fn parse_last_anchor_block_hash(s: Option<String>) -> Option<BlockHeaderHash> {
-        s.map(|s| {
-            if s == "" {
+        s.and_then(|s| {
+            if s.is_empty() {
                 None
             } else {
                 Some(BlockHeaderHash::from_hex(&s).expect("BUG: Bad BlockHeaderHash stored in DB"))
             }
         })
-        .flatten()
     }
 
     fn parse_last_anchor_block_txid(s: Option<String>) -> Option<Txid> {
-        s.map(|s| {
-            if s == "" {
+        s.and_then(|s| {
+            if s.is_empty() {
                 None
             } else {
                 Some(Txid::from_hex(&s).expect("BUG: Bad Txid stored in DB"))
             }
         })
-        .flatten()
     }
 
     /// Mark a Stacks block snapshot as valid again, but update its memoized canonical Stacks tip
@@ -4593,10 +4591,10 @@ impl SortitionDB {
 
         // remove the first entry -- it's always `n` based on the way we construct it, while the
         // heaviest affirmation map just has nothing.
-        if am.len() > 0 {
-            Ok(AffirmationMap::new(am.as_slice()[1..].to_vec()))
-        } else {
+        if am.is_empty() {
             Ok(AffirmationMap::empty())
+        } else {
+            Ok(AffirmationMap::new(am.as_slice()[1..].to_vec()))
         }
     }
 
@@ -5239,7 +5237,7 @@ impl SortitionDB {
         cache: &mut BlockHeaderCache,
         header_data: &Vec<(ConsensusHash, Option<BlockHeaderHash>)>,
     ) {
-        if header_data.len() > 0 {
+        if !header_data.is_empty() {
             let mut i = header_data.len() - 1;
             while i > 0 {
                 let cur_consensus_hash = &header_data[i].0;
@@ -5881,7 +5879,7 @@ impl SortitionHandleTx<'_> {
                 "SELECT 1 FROM snapshots WHERE burn_header_hash = ?1 AND pox_valid = 1 LIMIT 1",
                 &[&snapshot.burn_header_hash],
             )?;
-            if all_valid_sortitions.len() > 0 {
+            if !all_valid_sortitions.is_empty() {
                 error!("FATAL: Tried to insert snapshot {:?}, but already have pox-valid sortition for {:?}", &snapshot, &snapshot.burn_header_hash);
                 panic!();
             }
@@ -6118,7 +6116,10 @@ impl SortitionHandleTx<'_> {
                 if let Some(mut reward_set) = reward_info.known_selected_anchor_block_owned() {
                     // record payouts separately from the remaining addresses, since some of them
                     // could have just been consumed.
-                    if reward_set.rewarded_addresses.len() > 0 {
+                    if reward_set.rewarded_addresses.is_empty() {
+                        // no payouts
+                        pox_payout_addrs = vec![];
+                    } else {
                         // if we have a reward set, then we must also have produced a recipient
                         //   info for this block
                         let mut recipients_to_remove: Vec<_> = recipient_info
@@ -6136,9 +6137,6 @@ impl SortitionHandleTx<'_> {
                                        "BUG: Attempted to remove used address from reward set, but failed to do so safely");
                         }
                         pox_payout_addrs = addrs;
-                    } else {
-                        // no payouts
-                        pox_payout_addrs = vec![];
                     }
 
                     keys.push(db_keys::pox_reward_set_size().to_string());
@@ -6321,7 +6319,7 @@ impl SortitionHandleTx<'_> {
             }
         }
 
-        if tied.len() == 0 {
+        if tied.is_empty() {
             return None;
         }
         if tied.len() == 1 {
@@ -7422,7 +7420,7 @@ pub mod tests {
             for i in 0..255 {
                 let sortition_id = SortitionId([
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, i as u8,
+                    0, 0, 0, 0, 0, i,
                 ]);
                 let parent_sortition_id = if i == 0 {
                     last_snapshot.sortition_id.clone()
@@ -7459,7 +7457,7 @@ pub mod tests {
                         0,
                         0,
                         0,
-                        i - 1 as u8,
+                        i - 1,
                     ])
                 };
 
@@ -7471,7 +7469,7 @@ pub mod tests {
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[
                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, i as u8,
+                        0, 0, 0, 0, 0, 0, i,
                     ])
                     .unwrap(),
                     sortition_id,
@@ -7508,7 +7506,7 @@ pub mod tests {
                         0,
                         0,
                         0,
-                        (if i == 0 { 0xff } else { i - 1 }) as u8,
+                        (if i == 0 { 0xff } else { i - 1 }),
                     ])
                     .unwrap(),
                     consensus_hash: ConsensusHash::from_bytes(&[
@@ -7531,12 +7529,12 @@ pub mod tests {
                         0,
                         0,
                         0,
-                        (i + 1) as u8,
+                        i + 1,
                     ])
                     .unwrap(),
                     ops_hash: OpsHash::from_bytes(&[
                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, i as u8,
+                        0, 0, 0, 0, 0, 0, i,
                     ])
                     .unwrap(),
                     total_burn: i as u64,
@@ -7717,7 +7715,7 @@ pub mod tests {
                 let snapshot_row = BlockSnapshot {
                     accumulated_coinbase_ustx: 0,
                     pox_valid: true,
-                    block_height: i as u64 + 1,
+                    block_height: i + 1,
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[
                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -7789,7 +7787,7 @@ pub mod tests {
                         0, 0, 0, 0, 0, 0, i as u8,
                     ])
                     .unwrap(),
-                    total_burn: i as u64,
+                    total_burn: i,
                     sortition: true,
                     sortition_hash: SortitionHash::initial(),
                     winning_block_txid: Txid::from_hex(
@@ -7801,7 +7799,7 @@ pub mod tests {
                     )
                     .unwrap(),
                     index_root: TrieHash::from_empty_data(),
-                    num_sortitions: i as u64 + 1,
+                    num_sortitions: i + 1,
                     stacks_block_accepted: false,
                     stacks_block_height: 0,
                     arrival_index: 0,
@@ -7824,7 +7822,7 @@ pub mod tests {
                 last_snapshot = snapshot_row;
                 last_snapshot.index_root = index_root;
                 // should succeed within the tx
-                let ch = tx.get_consensus_at(i as u64 + 1).unwrap().unwrap();
+                let ch = tx.get_consensus_at(i + 1).unwrap().unwrap();
                 assert_eq!(ch, last_snapshot.consensus_hash);
 
                 tx.commit().unwrap();
@@ -10635,10 +10633,10 @@ pub mod tests {
                         .map(|op| BlockstackOperationType::LeaderBlockCommit(op.clone()))
                 })
                 .collect();
-            let winner = if commit_set.len() > 0 {
-                commit_set[0].clone()
-            } else {
+            let winner = if commit_set.is_empty() {
                 None
+            } else {
+                commit_set[0].clone()
             };
             let burn_header_hash = headers[i + 1].block_hash.clone();
             let burn_block_height = headers[i + 1].block_height;

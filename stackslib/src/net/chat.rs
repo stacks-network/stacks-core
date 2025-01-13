@@ -1181,7 +1181,8 @@ impl ConversationP2P {
         &mut self,
         stacker_db_data: &StackerDBHandshakeData,
     ) {
-        self.db_smart_contracts = stacker_db_data.smart_contracts.clone();
+        self.db_smart_contracts
+            .clone_from(&stacker_db_data.smart_contracts);
     }
 
     /// Forget about this peer's stacker DB replication state
@@ -1442,7 +1443,7 @@ impl ConversationP2P {
             peer_dbconn,
             self.network_id,
             epoch.network_epoch,
-            (get_epoch_time_secs() as u64).saturating_sub(self.connection.options.max_neighbor_age),
+            get_epoch_time_secs().saturating_sub(self.connection.options.max_neighbor_age),
             MAX_NEIGHBORS_DATA_LEN,
             chain_view.burn_block_height,
             false,
@@ -2138,7 +2139,7 @@ impl ConversationP2P {
             );
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
-                .and_then(|handle| Ok(Some(handle)));
+                .map(|handle| Some(handle));
         }
         Ok(None)
     }
@@ -2176,7 +2177,7 @@ impl ConversationP2P {
             debug!("{:?}: Neighbor {:?} exceeded max microblocks-push bandwidth of {} bytes/sec (currently at {})", self, &self.to_neighbor_key(), self.connection.options.max_microblocks_push_bandwidth, self.stats.get_microblocks_push_bandwidth());
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
-                .and_then(|handle| Ok(Some(handle)));
+                .map(|handle| Some(handle));
         }
         Ok(None)
     }
@@ -2213,7 +2214,7 @@ impl ConversationP2P {
             debug!("{:?}: Neighbor {:?} exceeded max transaction-push bandwidth of {} bytes/sec (currently at {})", self, &self.to_neighbor_key(), self.connection.options.max_transaction_push_bandwidth, self.stats.get_transaction_push_bandwidth());
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
-                .and_then(|handle| Ok(Some(handle)));
+                .map(|handle| Some(handle));
         }
         Ok(None)
     }
@@ -2251,7 +2252,7 @@ impl ConversationP2P {
             debug!("{:?}: Neighbor {:?} exceeded max stackerdb-push bandwidth of {} bytes/sec (currently at {})", self, &self.to_neighbor_key(), self.connection.options.max_stackerdb_push_bandwidth, self.stats.get_stackerdb_push_bandwidth());
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
-                .and_then(|handle| Ok(Some(handle)));
+                .map(|handle| Some(handle));
         }
 
         Ok(None)
@@ -2290,7 +2291,7 @@ impl ConversationP2P {
             debug!("{:?}: Neighbor {:?} exceeded max Nakamoto block push bandwidth of {} bytes/sec (currently at {})", self, &self.to_neighbor_key(), self.connection.options.max_nakamoto_block_push_bandwidth, self.stats.get_nakamoto_block_push_bandwidth());
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
-                .and_then(|handle| Ok(Some(handle)));
+                .map(|handle| Some(handle));
         }
 
         Ok(None)
@@ -2568,7 +2569,7 @@ impl ConversationP2P {
             StacksMessageType::HandshakeAccept(ref data) => {
                 debug!("{:?}: Got HandshakeAccept", &self);
                 self.handle_handshake_accept(network.get_chain_view(), &msg.preamble, data, None)
-                    .and_then(|_| Ok(None))
+                    .map(|_| None)
             }
             StacksMessageType::StackerDBHandshakeAccept(ref data, ref db_data) => {
                 debug!("{:?}: Got StackerDBHandshakeAccept", &self);
@@ -2578,7 +2579,7 @@ impl ConversationP2P {
                     data,
                     Some(db_data),
                 )
-                .and_then(|_| Ok(None))
+                .map(|_| None)
             }
             StacksMessageType::Ping(_) => {
                 debug!("{:?}: Got Ping", &self);
@@ -2652,7 +2653,7 @@ impl ConversationP2P {
                         data,
                         None,
                     )
-                    .and_then(|_| Ok(None))
+                    .map(|_| None)
                 } else {
                     debug!("{:?}: Unsolicited unauthenticated HandshakeAccept", &self);
 
@@ -2670,7 +2671,7 @@ impl ConversationP2P {
                         data,
                         Some(db_data),
                     )
-                    .and_then(|_| Ok(None))
+                    .map(|_| None)
                 } else {
                     debug!(
                         "{:?}: Unsolicited unauthenticated StackerDBHandshakeAccept",
@@ -2851,8 +2852,8 @@ impl ConversationP2P {
             match dns_client.poll_lookup(&dns_request.host, dns_request.port) {
                 Ok(query_result_opt) => {
                     // just take one of the addresses, if there are any
-                    self.data_ip = query_result_opt
-                        .map(|query_result| match query_result.result {
+                    self.data_ip =
+                        query_result_opt.and_then(|query_result| match query_result.result {
                             Ok(mut ips) => ips.pop(),
                             Err(e) => {
                                 warn!(
@@ -2864,8 +2865,7 @@ impl ConversationP2P {
                                 self.dns_deadline = u128::MAX;
                                 None
                             }
-                        })
-                        .flatten();
+                        });
                     if let Some(ip) = self.data_ip.as_ref() {
                         debug!("{}: Resolved data URL {} to {}", &self, &self.data_url, &ip);
                     } else {
@@ -3252,7 +3252,7 @@ mod test {
         for i in prev_snapshot.block_height..chain_view.burn_block_height + 1 {
             let mut next_snapshot = prev_snapshot.clone();
 
-            let big_i = Uint256::from_u64(i as u64);
+            let big_i = Uint256::from_u64(i);
             let mut big_i_bytes_32 = [0u8; 32];
             let mut big_i_bytes_20 = [0u8; 20];
             big_i_bytes_32.copy_from_slice(&big_i.to_u8_slice());
@@ -5575,7 +5575,7 @@ mod test {
 
             let getblocksdata_1 = GetBlocksInv {
                 consensus_hash: convo_1_ancestor.consensus_hash,
-                num_blocks: 10 as u16,
+                num_blocks: 10,
             };
             let getblocksdata_1_msg = convo_1
                 .sign_message(

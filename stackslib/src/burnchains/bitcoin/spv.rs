@@ -274,7 +274,7 @@ impl SpvClient {
         tx.execute("UPDATE db_config SET version = ?1", &[version])
             .map_err(db_error::SqliteError)
             .map_err(|e| e.into())
-            .and_then(|_| Ok(()))
+            .map(|_| ())
     }
 
     #[cfg(test)]
@@ -354,7 +354,7 @@ impl SpvClient {
     pub fn is_initialized(&self) -> Result<(), btc_error> {
         fs::metadata(&self.headers_path)
             .map_err(btc_error::FilesystemError)
-            .and_then(|_m| Ok(()))
+            .map(|_m| ())
     }
 
     /// Get the block range to scan
@@ -529,7 +529,7 @@ impl SpvClient {
         headers: &Vec<LoneBlockHeader>,
         check_txcount: bool,
     ) -> Result<(), btc_error> {
-        if headers.len() == 0 {
+        if headers.is_empty() {
             return Ok(());
         }
 
@@ -762,7 +762,7 @@ impl SpvClient {
 
         tx.execute(sql, args)
             .map_err(|e| btc_error::DBError(db_error::SqliteError(e)))
-            .and_then(|_x| Ok(()))
+            .map(|_x| ())
     }
 
     /// Initialize the block headers file with the genesis block hash.
@@ -945,7 +945,7 @@ impl SpvClient {
     ) -> Result<(), btc_error> {
         assert!(self.readwrite, "SPV header DB is open read-only");
 
-        if block_headers.len() == 0 {
+        if block_headers.is_empty() {
             // no-op
             return Ok(());
         }
@@ -996,7 +996,7 @@ impl SpvClient {
         block_headers: Vec<LoneBlockHeader>,
     ) -> Result<(), btc_error> {
         assert!(self.readwrite, "SPV header DB is open read-only");
-        if block_headers.len() == 0 {
+        if block_headers.is_empty() {
             // no-op
             return Ok(());
         }
@@ -1137,7 +1137,7 @@ impl SpvClient {
         ]);
         let max_target_bits = BlockHeader::compact_target_from_u256(&max_target);
 
-        let parent_header = if headers_in_range.len() > 0 {
+        let parent_header = if !headers_in_range.is_empty() {
             headers_in_range[0]
         } else {
             match self.read_block_header(current_header_height - 1)? {
@@ -1231,7 +1231,7 @@ impl BitcoinMessageHandler for SpvClient {
 
         indexer.runtime.last_getheaders_send_time = get_epoch_time_secs();
         self.send_next_getheaders(indexer, start_height)
-            .and_then(|_r| Ok(true))
+            .map(|_r| true)
     }
 
     /// Trait message handler
@@ -1298,7 +1298,7 @@ impl BitcoinMessageHandler for SpvClient {
                     );
                 }
                 self.send_next_getheaders(indexer, block_height)
-                    .and_then(|_| Ok(true))
+                    .map(|_| true)
             }
             x => Err(btc_error::UnhandledMessage(x)),
         }
