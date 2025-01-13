@@ -10875,6 +10875,30 @@ fn test_tenure_extend_from_flashblocks() {
         }
     }
 
+    // mine one additional tenure, to verify that we're on track
+    let commits_before = commits_submitted.load(Ordering::SeqCst);
+    let node_info_before = get_chain_info_opt(&naka_conf).unwrap();
+
+    btc_regtest_controller.bootstrap_chain(1);
+
+    wait_for(20, || {
+        Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
+    })
+    .unwrap();
+
+    // there was a sortition winner
+    let sort_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+    assert!(sort_tip.sortition);
+
+    wait_for(20, || {
+        let node_info = get_chain_info_opt(&naka_conf).unwrap();
+        Ok(
+            node_info.burn_block_height > node_info_before.burn_block_height
+                && node_info.stacks_tip_height > node_info_before.stacks_tip_height,
+        )
+    })
+    .unwrap();
+
     // boot a follower. it should reach the chain tip
     info!("----- BEGIN FOLLOWR BOOTUP ------");
 

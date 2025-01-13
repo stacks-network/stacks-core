@@ -18,10 +18,10 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::Read;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
-#[cfg(test)]
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+#[cfg(test)]
 use lazy_static::lazy_static;
 use rand::{thread_rng, Rng};
 use stacks::burnchains::{Burnchain, Txid};
@@ -1163,9 +1163,13 @@ impl RelayerThread {
         let won_ongoing_tenure_sortition =
             canonical_stacks_snapshot.miner_pk_hash == Some(mining_pkh);
 
+        let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+        let won_current_tip = sort_tip.miner_pk_hash == Some(mining_pkh);
+
         info!(
             "Relayer: Checking for tenure continuation.";
             "won_ongoing_tenure_sortition" => won_ongoing_tenure_sortition,
+            "won_current_tip" => won_current_tip,
             "current_mining_pkh" => %mining_pkh,
             "canonical_stacks_tip_id" => %canonical_stacks_tip,
             "canonical_stacks_tip_ch" => %canonical_stacks_tip_ch,
@@ -1175,6 +1179,11 @@ impl RelayerThread {
 
         if !won_ongoing_tenure_sortition {
             info!("Relayer: Did not win the last sortition that commits to our Stacks fork. Cannot continue tenure.");
+            return Ok(None);
+        }
+
+        if won_current_tip {
+            info!("Relayer: Won current sortition, so no need to continue tenure. Just start a new one.");
             return Ok(None);
         }
 
