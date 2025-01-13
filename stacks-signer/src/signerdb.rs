@@ -345,7 +345,7 @@ CREATE INDEX IF NOT EXISTS blocks_signed_group ON blocks (signed_group);
 "#;
 
 static CREATE_INDEXES_6: &str = r#"
-CREATE INDEX IF NOT EXISTS block_validations_pending_on_added_time ON block_validations_pending(added_time);
+CREATE INDEX IF NOT EXISTS block_validations_pending_on_added_time ON block_validations_pending(added_time ASC);
 "#;
 
 static CREATE_SIGNER_STATE_TABLE: &str = "
