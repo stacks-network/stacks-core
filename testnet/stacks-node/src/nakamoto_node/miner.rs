@@ -1013,10 +1013,8 @@ impl BlockMinerThread {
                 self.burn_election_block.sortition_hash.as_bytes(),
             )
         } else {
-            // TODO: shouldn't this be self.burn_block.sortition_hash?
             self.keychain.generate_proof(
                 self.registered_key.target_block_height,
-                // self.burn_election_block.sortition_hash.as_bytes(),
                 self.burn_block.sortition_hash.as_bytes(),
             )
         };
