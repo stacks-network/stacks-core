@@ -10854,12 +10854,11 @@ fn rejected_blocks_count_towards_miner_validity() {
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
-    let nmb_txs = 2;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let block_proposal_timeout = Duration::from_secs(20);
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, (send_amt + send_fee) * nmb_txs)],
+        vec![(sender_addr, send_amt + send_fee)],
         |config| {
             config.block_proposal_timeout = block_proposal_timeout;
         },
@@ -10955,30 +10954,31 @@ fn rejected_blocks_count_towards_miner_validity() {
     info!("------------------------- Wait for Block N' Rejection -------------------------");
     // TODO: need 429 handling enabled for this to pass here
     wait_for(30, || {
-        let chunks = test_observer::get_stackerdb_chunks();
-        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
-            if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
-                reason: _reason,
-                reason_code,
-                signer_signature_hash,
-                ..
-            })) = message
-            {
-                if signer_signature_hash
-                    == block_proposal_n_prime.block.header.signer_signature_hash()
-                {
-                    assert_eq!(reason_code, RejectCode::SortitionViewMismatch);
-                    return Ok(true);
+        let stackerdb_events = test_observer::get_stackerdb_chunks();
+        let block_rejections = stackerdb_events
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+            .filter_map(|chunk| {
+                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                    .expect("Failed to deserialize SignerMessage");
+                match message {
+                    SignerMessage::BlockResponse(BlockResponse::Rejected(rejection)) => {
+                        if rejection.signer_signature_hash
+                            == block_proposal_n_prime.block.header.signer_signature_hash()
+                        {
+                            assert_eq!(rejection.reason_code, RejectCode::SortitionViewMismatch);
+                            Some(rejection)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
                 }
-            }
-        }
-        Ok(false)
+            })
+            .collect::<Vec<_>>();
+        Ok(block_rejections.len() >= num_signers * 7 / 10)
     })
-    .expect("Timed out waiting for N' block rejection");
+    .expect("FAIL: Timed out waiting for block proposal rejections of N'");
 
     info!("------------------------- Test Mine Block N+1 -------------------------");
     // The signer should automatically attempt to mine a new block once the signers eventually tell it to abandon the previous block
@@ -11000,5 +11000,132 @@ fn rejected_blocks_count_towards_miner_validity() {
         block_n_1.stacks_height,
         block_proposal_n_prime.block.header.chain_length + 1
     );
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// Test that signers mark a miner malicious if it doesn't propose any blocks before the block proposal timeout
+///
+/// Test Setup:
+/// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
+/// The stacks node is then advanced to Epoch 3.0 boundary to allow block signing. The block proposal timeout is set to 20 seconds.
+///
+/// Test Execution:
+/// Block proposals are paused for the miner.
+/// Tenure A starts.
+/// The test waits for the block proposal timeout + 1 second.
+/// Block proposals are unpaused for the miner.
+/// Miner propose a block N.
+/// Signers reject the block and mark the miner as malicious.
+///
+//
+/// Test Assertion:
+/// Stacks tip does not advance to block N.
+fn block_proposal_timeout() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let block_proposal_timeout = Duration::from_secs(20);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![],
+        |config| {
+            config.block_proposal_timeout = block_proposal_timeout;
+        },
+        |_| {},
+        None,
+        None,
+    );
+
+    signer_test.boot_to_epoch_3();
+
+    // Pause the miner's block proposals
+    TEST_BROADCAST_STALL.set(true);
+
+    let wait_for_block_proposal = || {
+        let mut block_proposal = None;
+        let _ = wait_for(30, || {
+            block_proposal = test_observer::get_stackerdb_chunks()
+                .into_iter()
+                .flat_map(|chunk| chunk.modified_slots)
+                .find_map(|chunk| {
+                    let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                        .expect("Failed to deserialize SignerMessage");
+                    if let SignerMessage::BlockProposal(proposal) = message {
+                        return Some(proposal);
+                    }
+                    None
+                });
+            Ok(block_proposal.is_some())
+        });
+        block_proposal
+    };
+
+    info!("------------------------- Start Tenure A -------------------------");
+    let commits_before = signer_test
+        .running_nodes
+        .commits_submitted
+        .load(Ordering::SeqCst);
+
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let commits_count = signer_test
+                .running_nodes
+                .commits_submitted
+                .load(Ordering::SeqCst);
+            Ok(commits_count > commits_before)
+        },
+    )
+    .unwrap();
+
+    let chain_before = get_chain_info(&signer_test.running_nodes.conf);
+    std::thread::sleep(block_proposal_timeout.add(Duration::from_secs(1)));
+    test_observer::clear();
+
+    info!("------------------------- Attempt Mine Block N  -------------------------");
+    TEST_BROADCAST_STALL.set(false);
+
+    let block_proposal_n = wait_for_block_proposal().expect("Failed to get block proposal N");
+
+    wait_for(30, || {
+        let stackerdb_events = test_observer::get_stackerdb_chunks();
+        let block_rejections = stackerdb_events
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+            .filter_map(|chunk| {
+                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                    .expect("Failed to deserialize SignerMessage");
+                match message {
+                    SignerMessage::BlockResponse(BlockResponse::Rejected(rejection)) => {
+                        if rejection.signer_signature_hash
+                            == block_proposal_n.block.header.signer_signature_hash()
+                        {
+                            assert_eq!(rejection.reason_code, RejectCode::SortitionViewMismatch);
+                            Some(rejection)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }
+            })
+            .collect::<Vec<_>>();
+        Ok(block_rejections.len() >= num_signers * 7 / 10)
+    })
+    .expect("FAIL: Timed out waiting for block proposal rejections");
+
+    let chain_after = get_chain_info(&signer_test.running_nodes.conf);
+    assert_eq!(chain_after, chain_before);
     signer_test.shutdown();
 }
