@@ -7733,9 +7733,13 @@ fn block_validation_response_timeout() {
     );
 }
 
-/// Test that, when a signer submit a block validation request and
-/// gets a 429 the signer stores the pending request and submits
-/// it again after the current block validation request finishes.
+/// Test scenario:
+///
+/// - when a signer submits a block validation request and
+///   gets a 429,
+/// - the signer stores the pending request
+/// - and submits it again after the current block validation
+///   request finishes.
 #[test]
 #[ignore]
 fn block_validation_pending_table() {

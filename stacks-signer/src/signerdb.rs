@@ -1057,27 +1057,6 @@ impl SignerDb {
         Ok(())
     }
 
-    /// For tests, fetch all pending block validations
-    #[cfg(any(test, feature = "testing"))]
-    pub fn get_all_pending_block_validations(
-        &self,
-    ) -> Result<Vec<PendingBlockValidation>, DBError> {
-        let qry = "SELECT signer_signature_hash, added_time FROM block_validations_pending ORDER BY added_time ASC";
-        query_rows(&self.db, qry, params![])
-    }
-
-    /// For tests, check if a pending block validation exists
-    #[cfg(any(test, feature = "testing"))]
-    pub fn has_pending_block_validation(
-        &self,
-        sighash: &Sha512Trunc256Sum,
-    ) -> Result<bool, DBError> {
-        let qry = "SELECT signer_signature_hash FROM block_validations_pending WHERE signer_signature_hash = ?1";
-        let args = params![sighash.to_string()];
-        let sighash_opt: Option<String> = query_row(&self.db, qry, args)?;
-        Ok(sighash_opt.is_some())
-    }
-
     /// Return the start time (epoch time in seconds) and the processing time in milliseconds of the tenure (idenfitied by consensus_hash).
     fn get_tenure_times(&self, tenure: &ConsensusHash) -> Result<(u64, u64), DBError> {
         let query = "SELECT tenure_change, proposed_time, validation_time_ms FROM blocks WHERE consensus_hash = ?1 AND state = ?2 ORDER BY stacks_height DESC";
@@ -1191,6 +1170,29 @@ impl FromRow<PendingBlockValidation> for PendingBlockValidation {
     }
 }
 
+#[cfg(any(test, feature = "testing"))]
+impl SignerDb {
+    /// For tests, fetch all pending block validations
+    pub fn get_all_pending_block_validations(
+        &self,
+    ) -> Result<Vec<PendingBlockValidation>, DBError> {
+        let qry = "SELECT signer_signature_hash, added_time FROM block_validations_pending ORDER BY added_time ASC";
+        query_rows(&self.db, qry, params![])
+    }
+
+    /// For tests, check if a pending block validation exists
+    pub fn has_pending_block_validation(
+        &self,
+        sighash: &Sha512Trunc256Sum,
+    ) -> Result<bool, DBError> {
+        let qry = "SELECT signer_signature_hash FROM block_validations_pending WHERE signer_signature_hash = ?1";
+        let args = params![sighash.to_string()];
+        let sighash_opt: Option<String> = query_row(&self.db, qry, args)?;
+        Ok(sighash_opt.is_some())
+    }
+}
+
+/// Tests for SignerDb
 #[cfg(test)]
 mod tests {
     use std::fs;
