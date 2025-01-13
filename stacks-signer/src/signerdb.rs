@@ -1120,7 +1120,8 @@ impl SignerDb {
         tenure_extend_timestamp
     }
 
-    /// Mark a block as globally accepted
+    /// Mark a block as globally accepted. This removes the block from the pending
+    /// validations table. This does **not** update the block's state in SignerDb.
     pub fn mark_block_globally_accepted(&self, block_info: &mut BlockInfo) -> Result<(), DBError> {
         block_info
             .mark_globally_accepted()
@@ -1129,7 +1130,8 @@ impl SignerDb {
         Ok(())
     }
 
-    /// Mark a block as globally rejected
+    /// Mark a block as globally rejected. This removes the block from the pending
+    /// validations table. This does **not** update the block's state in SignerDb.
     pub fn mark_block_globally_rejected(&self, block_info: &mut BlockInfo) -> Result<(), DBError> {
         block_info
             .mark_globally_rejected()
