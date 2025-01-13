@@ -42,6 +42,7 @@ use libsigner::v0::messages::{
 use libsigner::{SignerEntries, SignerEventTrait};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
+use stacks::chainstate::nakamoto::NakamotoBlock;
 use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
@@ -49,7 +50,8 @@ use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
 use stacks::types::chainstate::{StacksAddress, StacksPublicKey};
-use stacks::types::PublicKey;
+use stacks::types::{PrivateKey, PublicKey};
+use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::MerkleHashFunc;
 use stacks::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::codec::StacksMessageCodec;
@@ -262,6 +264,33 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             info!("Finished signers: {:?}", finished_signers.iter().collect::<Vec<_>>());
             Ok(finished_signers.len() == self.spawned_signers.len())
         }).expect("Timed out while waiting for the signers to be registered");
+    }
+
+    /// Send a status request to the signers to ensure they are registered for both reward cycles.
+    pub fn wait_for_registered_both_reward_cycles(&mut self, timeout_secs: u64) {
+        let mut finished_signers = HashSet::new();
+        wait_for(timeout_secs, || {
+            self.send_status_request(&finished_signers);
+            thread::sleep(Duration::from_secs(1));
+            let latest_states = self.get_states(&finished_signers);
+            for (ix, state) in latest_states.iter().enumerate() {
+                let Some(state) = state else {
+                    continue;
+                };
+                debug!("Signer #{ix} state info: {state:?}");
+                if state.runloop_state == State::RegisteredSigners && state.running_signers.len() == 2 {
+                    finished_signers.insert(ix);
+                } else {
+                    warn!(
+                        "Signer #{ix} returned state = {:?}, running signers = {:?}. Will try again",
+                        state.runloop_state, state.running_signers
+                    );
+                }
+            }
+            debug!("Number of finished signers: {:?}", finished_signers.len());
+            Ok(finished_signers.len() == self.spawned_signers.len())
+        })
+        .expect("Timed out while waiting for the signers to be registered for both reward cycles");
     }
 
     pub fn wait_for_cycle(&mut self, timeout_secs: u64, reward_cycle: u64) {
@@ -520,6 +549,27 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             .get_stackerdb_signer_slots(&signer_stackerdb_contract_id, valid_signer_set)
     }
 
+    fn get_signer_slot_id(
+        &self,
+        reward_cycle: u64,
+        signer_address: &StacksAddress,
+    ) -> Result<Option<SignerSlotID>, ClientError> {
+        let valid_signer_set =
+            u32::try_from(reward_cycle % 2).expect("FATAL: reward_cycle % 2 exceeds u32::MAX");
+        let signer_stackerdb_contract_id = boot_code_id(SIGNERS_NAME, false);
+
+        let slots = self
+            .stacks_client
+            .get_stackerdb_signer_slots(&signer_stackerdb_contract_id, valid_signer_set)?;
+
+        Ok(slots
+            .iter()
+            .position(|(address, _)| address == signer_address)
+            .map(|pos| {
+                SignerSlotID(u32::try_from(pos).expect("FATAL: number of signers exceeds u32::MAX"))
+            }))
+    }
+
     fn get_signer_indices(&self, reward_cycle: u64) -> Vec<SignerSlotID> {
         self.get_signer_slots(reward_cycle)
             .expect("FATAL: failed to get signer slots from stackerdb")
@@ -683,6 +733,61 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         self.stacks_client
             .get_peer_info()
             .expect("Failed to get peer info")
+    }
+
+    pub fn verify_no_block_response_found(
+        &self,
+        stackerdb: &mut StackerDB<MessageSlotID>,
+        reward_cycle: u64,
+        hash: Sha512Trunc256Sum,
+    ) {
+        let slot_ids: Vec<_> = self
+            .get_signer_indices(reward_cycle)
+            .iter()
+            .map(|id| id.0)
+            .collect();
+
+        let latest_msgs = StackerDB::get_messages::<SignerMessage>(
+            stackerdb
+                .get_session_mut(&MessageSlotID::BlockResponse)
+                .expect("Failed to get BlockResponse stackerdb session"),
+            &slot_ids,
+        )
+        .expect("Failed to get messages from stackerdb");
+        for msg in latest_msgs.iter() {
+            if let SignerMessage::BlockResponse(response) = msg {
+                assert_ne!(response.get_signer_signature_hash(), hash);
+            }
+        }
+    }
+
+    pub fn inject_accept_signature(
+        &self,
+        block: &NakamotoBlock,
+        private_key: &StacksPrivateKey,
+        reward_cycle: u64,
+    ) {
+        let mut stackerdb = StackerDB::new(
+            &self.running_nodes.conf.node.rpc_bind,
+            private_key.clone(),
+            false,
+            reward_cycle,
+            self.get_signer_slot_id(reward_cycle, &to_addr(private_key))
+                .expect("Failed to get signer slot id")
+                .expect("Signer does not have a slot id"),
+        );
+
+        let signature = private_key
+            .sign(block.header.signer_signature_hash().bits())
+            .expect("Failed to sign block");
+        let accepted = BlockResponse::accepted(
+            block.header.signer_signature_hash(),
+            signature,
+            get_epoch_time_secs().wrapping_add(u64::MAX),
+        );
+        stackerdb
+            .send_message_with_retry::<SignerMessage>(accepted.into())
+            .expect("Failed to send accept signature");
     }
 }
 

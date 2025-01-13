@@ -540,7 +540,7 @@ impl SortitionsView {
     ///
     /// The rationale here is that the signer DB can be out-of-sync with the node.  For example,
     /// the signer may have been added to an already-running node.
-    fn check_tenure_change_confirms_parent(
+    pub fn check_tenure_change_confirms_parent(
         tenure_change: &TenureChangePayload,
         block: &NakamotoBlock,
         signer_db: &mut SignerDb,
