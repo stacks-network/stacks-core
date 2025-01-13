@@ -630,8 +630,8 @@ impl RelayerThread {
             .expect("FATAL: unknown consensus hash");
 
         // always clear this even if this isn't the latest sortition
-        self.last_commits.remove(&sn.winning_block_txid);
-        let won_sortition = sn.sortition; // && cleared;
+        let cleared = self.last_commits.remove(&sn.winning_block_txid);
+        let won_sortition = sn.sortition && cleared;
         if won_sortition {
             increment_stx_blocks_mined_counter();
         }
