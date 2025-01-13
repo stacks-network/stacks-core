@@ -10801,7 +10801,7 @@ fn test_tenure_extend_from_flashblocks() {
             &[],
         );
         let txid = submit_tx(&http_origin, &contract_tx);
-        sent_txids.push(txid);
+        sent_txids.push(format!("0x{}", &txid.to_string()));
         accounts_before.push(account);
     }
 
@@ -10839,12 +10839,40 @@ fn test_tenure_extend_from_flashblocks() {
     })
     .unwrap();
 
-    // transactions are all mined, and all reflect the flash block's burn view
+    // transactions are all mined, and all reflect the flash block's burn view.
+    // we had a tenure-extend as well.
     let mut blocks = test_observer::get_blocks();
     blocks.sort_by_key(|block| block["block_height"].as_u64().unwrap());
 
+    let mut included_txids = HashSet::new();
+    let mut has_extend = false;
     for block in blocks.iter() {
-        eprintln!("block: {:#?}", &block);
+        for tx in block.get("transactions").unwrap().as_array().unwrap() {
+            let txid_str = tx.get("txid").unwrap().as_str().unwrap().to_string();
+            included_txids.insert(txid_str);
+
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+
+            if let TransactionPayload::TenureChange(payload) = &parsed.payload {
+                if payload.cause == TenureChangeCause::Extended {
+                    has_extend = true;
+                }
+            }
+        }
+    }
+
+    assert!(has_extend);
+
+    let expected_txids: HashSet<_> = sent_txids.clone().into_iter().collect();
+    for expected_txid in expected_txids.iter() {
+        if !included_txids.contains(expected_txid) {
+            panic!("Missing {}", expected_txid);
+        }
     }
 
     // boot a follower. it should reach the chain tip
