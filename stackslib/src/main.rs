@@ -1613,10 +1613,33 @@ check if the associated microblocks can be downloaded
         process::exit(0);
     }
 
+    if argv[1] == "dump-consts" {
+        dump_consts();
+    }
+
     if argv.len() < 4 {
         eprintln!("Usage: {} blockchain network working_dir", argv[0]);
         process::exit(1);
     }
+}
+
+#[cfg_attr(test, mutants::skip)]
+pub fn dump_consts() {
+    use stacks_common::consts;
+    let json_out = json!({
+        "miner_reward_maturity": consts::MINER_REWARD_MATURITY,
+        "chain_id_mainnet": consts::CHAIN_ID_MAINNET,
+        "chain_id_testnet": consts::CHAIN_ID_TESTNET,
+        "signer_slots_per_user": consts::SIGNER_SLOTS_PER_USER,
+        "network_id_mainnet": consts::NETWORK_ID_MAINNET,
+        "network_id_testnet": consts::NETWORK_ID_TESTNET,
+        "microstacks_per_stacks": consts::MICROSTACKS_PER_STACKS,
+        "stacks_epoch_max": consts::STACKS_EPOCH_MAX,
+        "peer_version_mainnet_major": consts::PEER_VERSION_MAINNET_MAJOR,
+        "peer_version_testnet_major": consts::PEER_VERSION_TESTNET_MAJOR,
+    });
+    println!("{}", serde_json::to_string_pretty(&json_out).unwrap());
+    process::exit(0);
 }
 
 #[cfg_attr(test, mutants::skip)]
