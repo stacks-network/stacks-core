@@ -10846,9 +10846,10 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let sender_sk = Secp256k1PrivateKey::new();
     let sender_addr = tests::to_addr(&sender_sk);
+    let mut sender_nonce = 0;
     let send_amt = 100;
     let send_fee = 180;
-    let num_txs = 1;
+    let num_txs = 3;
 
     let btc_miner_1_seed = vec![1, 1, 1, 1];
     let btc_miner_2_seed = vec![2, 2, 2, 2];
@@ -11127,6 +11128,73 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     assert!(tip.sortition);
     assert_eq!(tip.miner_pk_hash.unwrap(), mining_pkh_2);
 
+    info!("------------------------- Miner 2 Mines N+2 and N+3 -------------------------");
+    let blocks_processed_before_2 = blocks_mined2.load(Ordering::SeqCst);
+    let stacks_height_before = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info")
+        .stacks_tip_height;
+    let info_before = get_chain_info(&conf);
+
+    // submit a tx so that the miner will ATTEMPT to mine a stacks block N+2
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
+    let tx = submit_tx(&http_origin, &transfer_tx);
+    info!("Submitted tx {tx} in attempt to mine block N+2");
+    sender_nonce += 1;
+
+    wait_for(30, || {
+        Ok(signer_test
+            .stacks_client
+            .get_peer_info()
+            .expect("Failed to get peer info")
+            .stacks_tip_height
+            > stacks_height_before
+            && blocks_mined2.load(Ordering::SeqCst) > blocks_processed_before_2
+            && get_chain_info(&conf).stacks_tip_height > info_before.stacks_tip_height)
+    })
+    .expect("Timed out waiting for Miner 2 to Mine Block N+2");
+
+    let blocks_processed_before_2 = blocks_mined2.load(Ordering::SeqCst);
+    let stacks_height_before = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info")
+        .stacks_tip_height;
+    let info_before = get_chain_info(&conf);
+
+    // submit a tx so that the miner will ATTEMPT to mine a stacks block N+3
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
+    let tx = submit_tx(&http_origin, &transfer_tx);
+    info!("Submitted tx {tx} in attempt to mine block N+2");
+    sender_nonce += 1;
+
+    wait_for(30, || {
+        Ok(signer_test
+            .stacks_client
+            .get_peer_info()
+            .expect("Failed to get peer info")
+            .stacks_tip_height
+            > stacks_height_before
+            && blocks_mined2.load(Ordering::SeqCst) > blocks_processed_before_2
+            && get_chain_info(&conf).stacks_tip_height > info_before.stacks_tip_height)
+    })
+    .expect("Timed out waiting for Miner 2 to Mine Block N+3");
+
     info!("------------------------- Miner 1 Wins the Next Tenure -------------------------");
 
     let blocks_processed_before_1 = blocks_mined1.load(Ordering::SeqCst);
@@ -11147,18 +11215,12 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     info!("------------------------- Miner 1 Mines N+2 -------------------------");
 
     let blocks_processed_before_1 = blocks_mined1.load(Ordering::SeqCst);
-    let stacks_height_before = signer_test
-        .stacks_client
-        .get_peer_info()
-        .expect("Failed to get peer info")
-        .stacks_tip_height;
-    let info_before = get_chain_info(&conf);
     let mined_before = test_observer::get_mined_nakamoto_blocks().len();
 
-    // submit a tx so that the miner will ATTEMPT to mine a stacks block N
+    // submit a tx so that the miner will ATTEMPT to mine a stacks block N+2
     let transfer_tx = make_stacks_transfer(
         &sender_sk,
-        0,
+        sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
         &recipient,
@@ -11168,15 +11230,10 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     info!("Submitted tx {tx} in attempt to mine block N+2");
 
     wait_for(30, || {
-        Ok(signer_test
-            .stacks_client
-            .get_peer_info()
-            .expect("Failed to get peer info")
-            .stacks_tip_height
-            > stacks_height_before
-            && blocks_mined1.load(Ordering::SeqCst) > blocks_processed_before_1
-            && get_chain_info(&conf).stacks_tip_height > info_before.stacks_tip_height
-            && test_observer::get_mined_nakamoto_blocks().len() > mined_before)
+        Ok(
+            blocks_mined1.load(Ordering::SeqCst) > blocks_processed_before_1
+                && test_observer::get_mined_nakamoto_blocks().len() > mined_before,
+        )
     })
     .expect("Timed out waiting for Miner 1 to Mine Block N+2");
 
