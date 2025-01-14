@@ -3488,7 +3488,7 @@ mod test {
             version: 1,
             bytes: Hash160([0xff; 20]),
         };
-        let addr_bytes = vec![
+        let addr_bytes = [
             // version
             0x01, // bytes
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -3650,7 +3650,7 @@ mod test {
             ]);
 
             let pcs = vec![stx_pc, fungible_pc, nonfungible_pc];
-            let pc_bytes = vec![stx_pc_bytes, fungible_pc_bytes, nonfungible_pc_bytes];
+            let pc_bytes = [stx_pc_bytes, fungible_pc_bytes, nonfungible_pc_bytes];
             for i in 0..3 {
                 check_codec_and_corruption::<TransactionPostCondition>(&pcs[i], &pc_bytes[i]);
             }
@@ -3736,7 +3736,7 @@ mod test {
             FungibleConditionCode::SentGt as u8,
         ]);
 
-        let bad_pc_bytes = vec![
+        let bad_pc_bytes = [
             stx_pc_bytes_bad_condition,
             fungible_pc_bytes_bad_condition,
             nonfungible_pc_bytes_bad_condition,
@@ -3816,7 +3816,7 @@ mod test {
             FungibleConditionCode::SentGt as u8,
         ]);
 
-        let bad_pc_bytes = vec![
+        let bad_pc_bytes = [
             stx_pc_bytes_bad_principal,
             fungible_pc_bytes_bad_principal,
             nonfungible_pc_bytes_bad_principal,

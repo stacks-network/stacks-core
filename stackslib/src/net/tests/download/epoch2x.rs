@@ -1457,7 +1457,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_multiple_microblock_desc
                         let (_, burn_header_hash, consensus_hash) =
                             peers[1].next_burnchain_block(burn_ops.clone());
 
-                        peers[1].process_stacks_epoch(&stacks_block, &consensus_hash, &vec![]);
+                        peers[1].process_stacks_epoch(&stacks_block, &consensus_hash, &[]);
 
                         TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
