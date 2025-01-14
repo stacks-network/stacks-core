@@ -584,7 +584,7 @@ impl PartialEq for TrieLeaf {
 }
 
 impl TrieLeaf {
-    pub fn new(path: &[u8], data: &Vec<u8>) -> TrieLeaf {
+    pub fn new(path: &[u8], data: &[u8]) -> TrieLeaf {
         assert!(data.len() <= 40);
         let mut bytes = [0u8; 40];
         bytes.copy_from_slice(&data[..]);
@@ -1144,7 +1144,7 @@ impl TrieNode for TrieLeaf {
     }
 
     fn empty() -> TrieLeaf {
-        TrieLeaf::new(&[], &[0u8; 40].to_vec())
+        TrieLeaf::new(&[], &[0u8; 40])
     }
 
     fn walk(&self, _chr: u8) -> Option<TriePtr> {

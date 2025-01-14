@@ -397,7 +397,7 @@ impl Trie {
 
         let node4_hash = get_node_hash(
             &node4_data,
-            &vec![
+            &[
                 cur_leaf_hash,
                 new_leaf_hash,
                 TrieHash::from_data(&[]),
@@ -649,7 +649,7 @@ impl Trie {
 
         let new_node_hash = get_node_hash(
             &new_node4,
-            &vec![
+            &[
                 leaf_hash,
                 new_cur_node_hash,
                 TrieHash::from_data(&[]),

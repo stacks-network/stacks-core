@@ -183,7 +183,7 @@ impl StackStxOp {
 
     // TODO: add tests from mutation testing results #4850
     #[cfg_attr(test, mutants::skip)]
-    fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
+    fn parse_data(data: &[u8]) -> Option<ParsedData> {
         /*
             Wire format:
             0      2  3                             19           20                  53                 69                        73

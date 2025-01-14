@@ -114,8 +114,8 @@ impl BurnSamplePoint {
 
     fn sanity_check_window(
         miner_commitment_window: u8,
-        block_commits: &Vec<Vec<LeaderBlockCommitOp>>,
-        missed_commits: &Vec<Vec<MissedBlockCommit>>,
+        block_commits: &[Vec<LeaderBlockCommitOp>],
+        missed_commits: &[Vec<MissedBlockCommit>],
     ) {
         assert!(
             block_commits.len() <= usize::try_from(miner_commitment_window).expect("infallible")

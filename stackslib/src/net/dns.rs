@@ -396,7 +396,7 @@ mod test {
     #[test]
     fn dns_resolve_10_names() {
         let (mut client, thread_handle) = dns_thread_start(100);
-        let names = vec![
+        let names = [
             "www.google.com",
             "www.facebook.com",
             "www.twitter.com",

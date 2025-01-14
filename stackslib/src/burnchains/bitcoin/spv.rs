@@ -526,7 +526,7 @@ impl SpvClient {
     /// * headers must be contiguous
     fn validate_header_integrity(
         start_height: u64,
-        headers: &Vec<LoneBlockHeader>,
+        headers: &[LoneBlockHeader],
         check_txcount: bool,
     ) -> Result<(), btc_error> {
         if headers.is_empty() {

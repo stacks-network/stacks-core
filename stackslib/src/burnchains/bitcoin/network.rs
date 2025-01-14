@@ -354,7 +354,7 @@ impl BitcoinIndexer {
     }
 
     /// Send a GetData message
-    pub fn send_getdata(&mut self, block_hashes: &Vec<Sha256dHash>) -> Result<(), btc_error> {
+    pub fn send_getdata(&mut self, block_hashes: &[Sha256dHash]) -> Result<(), btc_error> {
         assert!(!block_hashes.is_empty());
         let getdata_invs = block_hashes
             .iter()

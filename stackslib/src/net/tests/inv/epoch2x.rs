@@ -34,11 +34,11 @@ use crate::util_lib::test::*;
 #[test]
 fn peerblocksinv_has_ith_block() {
     let peer_inv = PeerBlocksInv::new(vec![0x55, 0x77], vec![0x11, 0x22], vec![0x01], 16, 1, 12345);
-    let has_blocks = vec![
+    let has_blocks = [
         true, false, true, false, true, false, true, false, true, true, true, false, true, true,
         true, false,
     ];
-    let has_microblocks = vec![
+    let has_microblocks = [
         true, false, false, false, true, false, false, false, false, true, false, false, false,
         true, false, false,
     ];

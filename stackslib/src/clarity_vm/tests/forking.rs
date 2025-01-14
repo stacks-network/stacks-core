@@ -95,7 +95,7 @@ fn test_at_block_mutations(#[case] version: ClarityVersion, #[case] epoch: Stack
         }
 
         owned_env
-            .execute_transaction(p1, None, c, to_exec, &vec![])
+            .execute_transaction(p1, None, c, to_exec, &[])
             .map(|(x, _, _)| x)
     }
 
@@ -174,7 +174,7 @@ fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
         }
 
         owned_env
-            .execute_transaction(p1, None, c, to_exec, &vec![])
+            .execute_transaction(p1, None, c, to_exec, &[])
             .map(|(x, _, _)| x)
     }
 
