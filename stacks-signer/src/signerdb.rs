@@ -995,22 +995,6 @@ impl SignerDb {
         Ok(Some(broadcasted))
     }
 
-    /// Get the current state of a given block in the database
-    pub fn get_block_state(
-        &self,
-        block_sighash: &Sha512Trunc256Sum,
-    ) -> Result<Option<BlockState>, DBError> {
-        let qry = "SELECT state FROM blocks WHERE signer_signature_hash = ?1 LIMIT 1";
-        let args = params![block_sighash];
-        let state_opt: Option<String> = query_row(&self.db, qry, args)?;
-        let Some(state) = state_opt else {
-            return Ok(None);
-        };
-        Ok(Some(
-            BlockState::try_from(state.as_str()).map_err(|_| DBError::Corruption)?,
-        ))
-    }
-
     /// Get a pending block validation, sorted by the time at which it was added to the pending table.
     /// If found, remove it from the pending table.
     pub fn get_and_remove_pending_block_validation(
