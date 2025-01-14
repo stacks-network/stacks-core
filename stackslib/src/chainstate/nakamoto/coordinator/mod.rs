@@ -758,7 +758,7 @@ impl<
             signal_mining_ready(miner_status.clone());
         }
         if (bits & (CoordinatorEvents::STOP as u8)) != 0 {
-            signal_mining_blocked(miner_status.clone());
+            signal_mining_blocked(miner_status);
             debug!("Received stop notice");
             return false;
         }

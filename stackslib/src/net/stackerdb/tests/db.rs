@@ -593,9 +593,9 @@ fn test_reconfigure_stackerdb() {
     db_config.max_writes = 3;
     db_config.write_freq = 120;
 
-    let tx = db.tx_begin(db_config.clone()).unwrap();
+    let tx = db.tx_begin(db_config).unwrap();
 
-    let pks: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let pks = vec![StacksPrivateKey::new(); 10];
     let addrs: Vec<_> = pks
         .iter()
         .map(|pk| {
@@ -611,11 +611,7 @@ fn test_reconfigure_stackerdb() {
 
     tx.create_stackerdb(
         &sc,
-        &addrs
-            .clone()
-            .into_iter()
-            .map(|addr| (addr, 1))
-            .collect::<Vec<_>>(),
+        &addrs.into_iter().map(|addr| (addr, 1)).collect::<Vec<_>>(),
     )
     .unwrap();
 
@@ -687,7 +683,6 @@ fn test_reconfigure_stackerdb() {
     tx.reconfigure_stackerdb(
         &sc,
         &reconfigured_addrs
-            .clone()
             .into_iter()
             .map(|addr| (addr, 1))
             .collect::<Vec<_>>(),
@@ -771,7 +766,6 @@ fn test_reconfigure_stackerdb() {
     tx.reconfigure_stackerdb(
         &sc,
         &reconfigured_addrs
-            .clone()
             .into_iter()
             .map(|addr| (addr, 1))
             .collect::<Vec<_>>(),

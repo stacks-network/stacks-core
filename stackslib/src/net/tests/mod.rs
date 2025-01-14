@@ -740,7 +740,7 @@ impl NakamotoBootPlan {
                                             blocks_since_last_tenure
                                         );
                                         let tenure_extension_tx =
-                                            miner.make_nakamoto_tenure_change(tenure_extension.clone());
+                                            miner.make_nakamoto_tenure_change(tenure_extension);
 
                                         txs.push(tenure_extension_tx);
                                         txs.extend_from_slice(&transactions[..]);
@@ -841,7 +841,7 @@ impl NakamotoBootPlan {
                                             blocks_since_last_tenure // blocks_so_far.len() as u32,
                                         );
                                         let tenure_extension_tx =
-                                            miner.make_nakamoto_tenure_change(tenure_extension.clone());
+                                            miner.make_nakamoto_tenure_change(tenure_extension);
 
                                         txs.push(tenure_extension_tx);
                                         txs.extend_from_slice(&transactions[..]);
@@ -1343,29 +1343,29 @@ fn test_network_result_update() {
     };
 
     let nblk1 = NakamotoBlock {
-        header: naka_header_1.clone(),
+        header: naka_header_1,
         txs: vec![],
     };
     let nblk2 = NakamotoBlock {
-        header: naka_header_2.clone(),
+        header: naka_header_2,
         txs: vec![],
     };
 
     let pushed_nblk1 = NakamotoBlock {
-        header: naka_pushed_header_1.clone(),
+        header: naka_pushed_header_1,
         txs: vec![],
     };
     let pushed_nblk2 = NakamotoBlock {
-        header: naka_pushed_header_2.clone(),
+        header: naka_pushed_header_2,
         txs: vec![],
     };
 
     let uploaded_nblk1 = NakamotoBlock {
-        header: naka_uploaded_header_1.clone(),
+        header: naka_uploaded_header_1,
         txs: vec![],
     };
     let uploaded_nblk2 = NakamotoBlock {
-        header: naka_uploaded_header_2.clone(),
+        header: naka_uploaded_header_2,
         txs: vec![],
     };
 
@@ -1415,25 +1415,23 @@ fn test_network_result_update() {
 
     network_result_1
         .unhandled_messages
-        .insert(nk1.clone(), vec![msg1.clone()]);
+        .insert(nk1.clone(), vec![msg1]);
     network_result_1
         .blocks
-        .push((ConsensusHash([0x11; 20]), blk1.clone(), 1));
-    network_result_1.confirmed_microblocks.push((
-        ConsensusHash([0x11; 20]),
-        vec![mblk1.clone()],
-        1,
-    ));
+        .push((ConsensusHash([0x11; 20]), blk1, 1));
+    network_result_1
+        .confirmed_microblocks
+        .push((ConsensusHash([0x11; 20]), vec![mblk1], 1));
     network_result_1
         .nakamoto_blocks
         .insert(nblk1.block_id(), nblk1.clone());
     network_result_1
         .pushed_transactions
-        .insert(nk1.clone(), vec![(vec![], pushed_tx1.clone())]);
+        .insert(nk1.clone(), vec![(vec![], pushed_tx1)]);
     network_result_1.pushed_blocks.insert(
         nk1.clone(),
         vec![BlocksData {
-            blocks: vec![BlocksDatum(ConsensusHash([0x11; 20]), pushed_blk1.clone())],
+            blocks: vec![BlocksDatum(ConsensusHash([0x11; 20]), pushed_blk1)],
         }],
     );
     network_result_1.pushed_microblocks.insert(
@@ -1442,7 +1440,7 @@ fn test_network_result_update() {
             vec![],
             MicroblocksData {
                 index_anchor_block: StacksBlockId([0x11; 32]),
-                microblocks: vec![pushed_mblk1.clone()],
+                microblocks: vec![pushed_mblk1],
             },
         )],
     );
@@ -1455,28 +1453,23 @@ fn test_network_result_update() {
             },
         )],
     );
-    network_result_1
-        .uploaded_transactions
-        .push(uploaded_tx1.clone());
+    network_result_1.uploaded_transactions.push(uploaded_tx1);
     network_result_1.uploaded_blocks.push(BlocksData {
-        blocks: vec![BlocksDatum(
-            ConsensusHash([0x11; 20]),
-            uploaded_blk1.clone(),
-        )],
+        blocks: vec![BlocksDatum(ConsensusHash([0x11; 20]), uploaded_blk1)],
     });
     network_result_1.uploaded_microblocks.push(MicroblocksData {
         index_anchor_block: StacksBlockId([0x11; 32]),
-        microblocks: vec![uploaded_mblk1.clone()],
+        microblocks: vec![uploaded_mblk1],
     });
     network_result_1
         .uploaded_nakamoto_blocks
-        .push(uploaded_nblk1.clone());
+        .push(uploaded_nblk1);
     network_result_1
         .pushed_stackerdb_chunks
-        .push(pushed_stackerdb_chunk_1.clone());
+        .push(pushed_stackerdb_chunk_1);
     network_result_1
         .uploaded_stackerdb_chunks
-        .push(uploaded_stackerdb_chunk_1.clone());
+        .push(uploaded_stackerdb_chunk_1);
     network_result_1.synced_transactions.push(synced_tx1);
 
     network_result_2
@@ -1484,22 +1477,20 @@ fn test_network_result_update() {
         .insert(nk2.clone(), vec![msg2.clone()]);
     network_result_2
         .blocks
-        .push((ConsensusHash([0x22; 20]), blk2.clone(), 2));
-    network_result_2.confirmed_microblocks.push((
-        ConsensusHash([0x22; 20]),
-        vec![mblk2.clone()],
-        2,
-    ));
+        .push((ConsensusHash([0x22; 20]), blk2, 2));
+    network_result_2
+        .confirmed_microblocks
+        .push((ConsensusHash([0x22; 20]), vec![mblk2], 2));
     network_result_2
         .nakamoto_blocks
-        .insert(nblk2.block_id(), nblk2.clone());
+        .insert(nblk2.block_id(), nblk2);
     network_result_2
         .pushed_transactions
-        .insert(nk2.clone(), vec![(vec![], pushed_tx2.clone())]);
+        .insert(nk2.clone(), vec![(vec![], pushed_tx2)]);
     network_result_2.pushed_blocks.insert(
         nk2.clone(),
         vec![BlocksData {
-            blocks: vec![BlocksDatum(ConsensusHash([0x22; 20]), pushed_blk2.clone())],
+            blocks: vec![BlocksDatum(ConsensusHash([0x22; 20]), pushed_blk2)],
         }],
     );
     network_result_2.pushed_microblocks.insert(
@@ -1508,7 +1499,7 @@ fn test_network_result_update() {
             vec![],
             MicroblocksData {
                 index_anchor_block: StacksBlockId([0x22; 32]),
-                microblocks: vec![pushed_mblk2.clone()],
+                microblocks: vec![pushed_mblk2],
             },
         )],
     );
@@ -1521,28 +1512,23 @@ fn test_network_result_update() {
             },
         )],
     );
-    network_result_2
-        .uploaded_transactions
-        .push(uploaded_tx2.clone());
+    network_result_2.uploaded_transactions.push(uploaded_tx2);
     network_result_2.uploaded_blocks.push(BlocksData {
-        blocks: vec![BlocksDatum(
-            ConsensusHash([0x22; 20]),
-            uploaded_blk2.clone(),
-        )],
+        blocks: vec![BlocksDatum(ConsensusHash([0x22; 20]), uploaded_blk2)],
     });
     network_result_2.uploaded_microblocks.push(MicroblocksData {
         index_anchor_block: StacksBlockId([0x22; 32]),
-        microblocks: vec![uploaded_mblk2.clone()],
+        microblocks: vec![uploaded_mblk2],
     });
     network_result_2
         .uploaded_nakamoto_blocks
-        .push(uploaded_nblk2.clone());
+        .push(uploaded_nblk2);
     network_result_2
         .pushed_stackerdb_chunks
-        .push(pushed_stackerdb_chunk_2.clone());
+        .push(pushed_stackerdb_chunk_2);
     network_result_2
         .uploaded_stackerdb_chunks
-        .push(uploaded_stackerdb_chunk_2.clone());
+        .push(uploaded_stackerdb_chunk_2);
     network_result_2.synced_transactions.push(synced_tx2);
 
     let mut network_result_union = network_result_2.clone();
@@ -1658,7 +1644,7 @@ fn test_network_result_update() {
         },
     };
 
-    old.uploaded_stackerdb_chunks.push(old_chunk_1.clone());
+    old.uploaded_stackerdb_chunks.push(old_chunk_1);
     // replaced
     new.uploaded_stackerdb_chunks.push(new_chunk_1.clone());
     // included
@@ -1666,7 +1652,7 @@ fn test_network_result_update() {
 
     assert_eq!(
         old.update(new).uploaded_stackerdb_chunks,
-        vec![new_chunk_1.clone(), new_chunk_2.clone()]
+        vec![new_chunk_1, new_chunk_2]
     );
 
     // stackerdb pushed chunks get consolidated correctly
@@ -1717,7 +1703,7 @@ fn test_network_result_update() {
         },
     };
 
-    old.pushed_stackerdb_chunks.push(old_chunk_1.clone());
+    old.pushed_stackerdb_chunks.push(old_chunk_1);
     // replaced
     new.pushed_stackerdb_chunks.push(new_chunk_1.clone());
     // included
@@ -1725,7 +1711,7 @@ fn test_network_result_update() {
 
     assert_eq!(
         old.update(new).pushed_stackerdb_chunks,
-        vec![new_chunk_1.clone(), new_chunk_2.clone()]
+        vec![new_chunk_1, new_chunk_2]
     );
 
     // nakamoto blocks obtained via download, upload, or pushed get consoldated
@@ -1743,7 +1729,7 @@ fn test_network_result_update() {
     );
     old.nakamoto_blocks.insert(nblk1.block_id(), nblk1.clone());
     old.pushed_nakamoto_blocks.insert(
-        nk1.clone(),
+        nk1,
         vec![(
             vec![],
             NakamotoBlocksData {
@@ -1768,7 +1754,7 @@ fn test_network_result_update() {
 
     let mut new_pushed = new.clone();
     let mut new_uploaded = new.clone();
-    let mut new_downloaded = new.clone();
+    let mut new_downloaded = new;
 
     new_downloaded
         .nakamoto_blocks

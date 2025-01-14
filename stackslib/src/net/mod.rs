@@ -3003,7 +3003,7 @@ pub mod test {
 
                         let boot_code_smart_contract = StacksTransaction::new(
                             TransactionVersion::Testnet,
-                            boot_code_auth.clone(),
+                            boot_code_auth,
                             smart_contract,
                         );
                         StacksChainState::process_transaction_payload(
@@ -3152,7 +3152,7 @@ pub mod test {
                 burnchain_view,
                 config.connection_opts.clone(),
                 stacker_db_syncs,
-                epochs.clone(),
+                epochs,
             );
             peer_network.set_stacker_db_configs(config.get_stacker_db_configs());
 

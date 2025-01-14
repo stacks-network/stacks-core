@@ -1087,7 +1087,7 @@ pub fn make_smart_contract_with_version(
         miner.as_transaction_auth().unwrap(),
         TransactionPayload::new_smart_contract(
             &format!("hello-world-{burnchain_height}-{stacks_block_height}"),
-            &contract.to_string(),
+            contract,
             version,
         )
         .unwrap(),

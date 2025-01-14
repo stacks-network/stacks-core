@@ -793,7 +793,7 @@ fn test_nakamoto_tenure_inv() {
 
     // has_ith_tenure() works (non-triial case)
     let partial_tenure = NakamotoInvData::try_from(&partial_tenure_bools).unwrap();
-    let learned = nakamoto_inv.merge_tenure_inv(partial_tenure.clone().tenures, 2);
+    let learned = nakamoto_inv.merge_tenure_inv(partial_tenure.tenures, 2);
     assert!(learned);
 
     for i in 300..400 {
@@ -836,7 +836,7 @@ fn test_nakamoto_tenure_inv() {
 
     // partial data
     let partial_tenure = NakamotoInvData::try_from(&[true; 50]).unwrap();
-    let learned = nakamoto_inv.merge_tenure_inv(full_tenure.clone().tenures, 5);
+    let learned = nakamoto_inv.merge_tenure_inv(full_tenure.tenures, 5);
     assert!(learned);
     assert_eq!(nakamoto_inv.highest_reward_cycle(), 5);
 
@@ -1011,7 +1011,7 @@ fn test_nakamoto_inv_sync_across_epoch_change() {
     // boot two peers, and cannibalize the second one for its network and sortdb so we can use them
     // to directly drive a state machine.
     let (mut peer, mut other_peers) =
-        make_nakamoto_peers_from_invs(function_name!(), &observer, 10, 3, bitvecs.clone(), 1);
+        make_nakamoto_peers_from_invs(function_name!(), &observer, 10, 3, bitvecs, 1);
     let mut other_peer = other_peers.pop().unwrap();
 
     let nakamoto_start =
@@ -1153,7 +1153,7 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
         &observer,
         10,
         3,
-        bitvecs.clone(),
+        bitvecs,
         0,
         initial_balances,
     );
@@ -1370,7 +1370,7 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
     // ---------------------- the inv generator can track multiple forks at once ----------------------
     //
 
-    peer.mine_nakamoto_on(vec![naka_tenure_start_block.clone()]);
+    peer.mine_nakamoto_on(vec![naka_tenure_start_block]);
     let (fork_naka_block, ..) = peer.single_block_tenure(&sender_key, |_| {}, |_| {}, |_| true);
     debug!(
         "test: produced fork {}: {:?}",
@@ -1611,7 +1611,7 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
 
     // advance the canonical chain by 3 more blocks, so the delta between `first_naka_tip` and
     // `naka_tip` is now 6 blocks
-    peer.mine_nakamoto_on(vec![naka_tip_block.clone()]);
+    peer.mine_nakamoto_on(vec![naka_tip_block]);
     for i in 0..3 {
         let (naka_block, ..) = peer.single_block_tenure(&sender_key, |_| {}, |_| {}, |_| true);
         debug!(
@@ -1784,7 +1784,7 @@ fn test_nakamoto_make_tenure_inv_in_many_reward_cycles() {
         &observer,
         10,
         3,
-        bitvecs.clone(),
+        bitvecs,
         0,
         initial_balances,
     );
@@ -2292,7 +2292,7 @@ fn test_nakamoto_make_tenure_inv_from_old_tips() {
         &observer,
         10,
         3,
-        bitvecs.clone(),
+        bitvecs,
         0,
         initial_balances,
     );

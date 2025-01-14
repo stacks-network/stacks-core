@@ -53,7 +53,7 @@ fn parse_request() {
         )
         .unwrap();
 
-    assert_eq!(handler.block, Some(block.clone()));
+    assert_eq!(handler.block, Some(block));
 
     // parsed request consumes headers that would not be in a constructed reqeuest
     parsed_request.clear_headers();

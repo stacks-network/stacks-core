@@ -1711,7 +1711,7 @@ mod test {
 
         // corrupt a signature
         let mut corrupt_tx_signature = signed_tx.clone();
-        let corrupt_auth_signature = corrupt_tx_signature.auth.clone();
+        let corrupt_auth_signature = corrupt_tx_signature.auth;
         corrupt_tx_signature.auth =
             corrupt_auth_field_signature(&corrupt_auth_signature, corrupt_origin, corrupt_sponsor);
 
@@ -1894,7 +1894,7 @@ mod test {
         let mut corrupt_transactions = vec![
             corrupt_tx_hash_mode,
             corrupt_tx_nonce,
-            corrupt_tx_signature.clone(), // needed below
+            corrupt_tx_signature,
             corrupt_tx_public_key,
             corrupt_tx_version,
             corrupt_tx_chain_id,
@@ -1905,7 +1905,7 @@ mod test {
             corrupt_tx_payload,
         ];
         if is_multisig_origin || is_multisig_sponsor {
-            corrupt_transactions.push(corrupt_tx_signatures_required.clone());
+            corrupt_transactions.push(corrupt_tx_signatures_required);
         }
 
         // make sure all corrupted transactions fail
@@ -3513,8 +3513,8 @@ mod test {
 
         let asset_info = AssetInfo {
             contract_address: addr.clone(),
-            contract_name: contract_name.clone(),
-            asset_name: asset_name.clone(),
+            contract_name,
+            asset_name,
         };
 
         let mut asset_info_bytes = vec![];
@@ -3804,8 +3804,8 @@ mod test {
         nonfungible_pc_bytes_bad_principal.append(&mut vec![0xff]);
         AssetInfo {
             contract_address: addr.clone(),
-            contract_name: contract_name.clone(),
-            asset_name: asset_name.clone(),
+            contract_name,
+            asset_name,
         }
         .consensus_serialize(&mut nonfungible_pc_bytes_bad_principal)
         .unwrap();
@@ -3901,8 +3901,8 @@ mod test {
 
         let asset_info = AssetInfo {
             contract_address: contract_addr.clone(),
-            contract_name: contract_name.clone(),
-            asset_name: asset_name.clone(),
+            contract_name,
+            asset_name,
         };
 
         let stx_address = StacksAddress {
@@ -3925,12 +3925,8 @@ mod test {
         let tx_smart_contract = StacksTransaction::new(
             TransactionVersion::Mainnet,
             auth.clone(),
-            TransactionPayload::new_smart_contract(
-                &"name-contract".to_string(),
-                &"hello smart contract".to_string(),
-                None,
-            )
-            .unwrap(),
+            TransactionPayload::new_smart_contract("name-contract", "hello smart contract", None)
+                .unwrap(),
         );
 
         let tx_coinbase = StacksTransaction::new(

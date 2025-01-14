@@ -399,7 +399,7 @@ impl StacksChainState {
                 // chain id doesn't matter since it won't be used
                 CHAIN_ID_MAINNET,
                 ClarityVersion::Clarity2,
-                sender_addr.clone(),
+                sender_addr,
                 None,
                 LimitedCostTracker::new_free(),
                 |vm_env| {
@@ -1678,7 +1678,6 @@ pub mod test {
         let addrs: Vec<StacksAddress> = keys.iter().map(|pk| key_to_stacks_addr(pk)).collect();
 
         let balances: Vec<(PrincipalData, u64)> = addrs
-            .clone()
             .into_iter()
             .map(|addr| (addr.into(), (1024 * POX_THRESHOLD_STEPS_USTX) as u64))
             .collect();
@@ -2228,7 +2227,7 @@ pub mod test {
             "delegate-stx",
             vec![
                 Value::UInt(amount),
-                Value::Principal(delegate_to.clone()),
+                Value::Principal(delegate_to),
                 match until_burn_ht {
                     Some(burn_ht) => Value::some(Value::UInt(burn_ht)).unwrap(),
                     None => Value::none(),
@@ -2260,7 +2259,7 @@ pub mod test {
             POX_4_NAME,
             "delegate-stack-stx",
             vec![
-                Value::Principal(stacker.clone()),
+                Value::Principal(stacker),
                 Value::UInt(amount),
                 Value::Tuple(pox_addr.as_clarity_tuple().unwrap()),
                 Value::UInt(start_burn_height),
@@ -2284,7 +2283,7 @@ pub mod test {
             POX_4_NAME,
             "delegate-stack-extend",
             vec![
-                Value::Principal(stacker.clone()),
+                Value::Principal(stacker),
                 Value::Tuple(pox_addr.as_clarity_tuple().unwrap()),
                 Value::UInt(extend_count),
             ],
@@ -3082,8 +3081,8 @@ pub mod test {
                     let tx = make_tx(&alice, 5, 0, cc_payload.clone());
                     block_txs.push(tx);
 
-                    let alice_allowance = make_pox_contract_call(&alice, 6, "allow-contract-caller", vec![alice_contract.clone(), Value::none()]);
-                    let tx = make_tx(&alice, 7, 0, cc_payload.clone()); // should be allowed!
+                    let alice_allowance = make_pox_contract_call(&alice, 6, "allow-contract-caller", vec![alice_contract, Value::none()]);
+                    let tx = make_tx(&alice, 7, 0, cc_payload); // should be allowed!
                     block_txs.push(alice_allowance);
                     block_txs.push(tx);
                 }

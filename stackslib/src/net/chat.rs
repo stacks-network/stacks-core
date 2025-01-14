@@ -515,7 +515,7 @@ impl Neighbor {
             // setting BLOCKSTACK_NEIGHBOR_TEST_${PORTNUMBER} will let us select an organization
             // for this peer
             use std::env;
-            match env::var(format!("BLOCKSTACK_NEIGHBOR_TEST_{}", addr.port).to_string()) {
+            match env::var(format!("BLOCKSTACK_NEIGHBOR_TEST_{}", addr.port)) {
                 Ok(asn_str) => {
                     neighbor.asn = asn_str.parse().unwrap();
                     neighbor.org = neighbor.asn;
@@ -3136,7 +3136,7 @@ mod test {
             key_expires,
             PeerAddress::from_ipv4(127, 0, 0, 1),
             NETWORK_P2P_PORT,
-            data_url.clone(),
+            data_url,
             &asn4_entries,
             Some(&initial_neighbors),
             &[QualifiedContractIdentifier::parse("SP000000000000000000002Q6VF78.sbtc").unwrap()],
@@ -3985,7 +3985,7 @@ mod test {
             .sign_message(
                 &chain_view,
                 &local_peer_1.private_key,
-                StacksMessageType::Handshake(handshake_data_1.clone()),
+                StacksMessageType::Handshake(handshake_data_1),
             )
             .unwrap();
 
@@ -4129,7 +4129,7 @@ mod test {
             .sign_message(
                 &chain_view,
                 &local_peer_1.private_key,
-                StacksMessageType::Handshake(handshake_data_1.clone()),
+                StacksMessageType::Handshake(handshake_data_1),
             )
             .unwrap();
         match handshake_1.payload {
@@ -4294,7 +4294,7 @@ mod test {
             .sign_message(
                 &chain_view,
                 &local_peer_1.private_key,
-                StacksMessageType::Handshake(handshake_data_1.clone()),
+                StacksMessageType::Handshake(handshake_data_1),
             )
             .unwrap();
 
@@ -4430,7 +4430,7 @@ mod test {
             .sign_message(
                 &chain_view,
                 &local_peer_1.private_key,
-                StacksMessageType::Handshake(handshake_data_1.clone()),
+                StacksMessageType::Handshake(handshake_data_1),
             )
             .unwrap();
 
@@ -4484,7 +4484,7 @@ mod test {
             .sign_message(
                 &chain_view,
                 &old_peer_1_privkey,
-                StacksMessageType::Handshake(handshake_data_1.clone()),
+                StacksMessageType::Handshake(handshake_data_1),
             )
             .unwrap();
 
@@ -4629,7 +4629,7 @@ mod test {
             .sign_message(
                 &chain_view,
                 &local_peer_1.private_key,
-                StacksMessageType::Handshake(handshake_data_1.clone()),
+                StacksMessageType::Handshake(handshake_data_1),
             )
             .unwrap();
         let mut rh_1 = convo_1.send_signed_request(handshake_1, 1000000).unwrap();
@@ -5176,7 +5176,7 @@ mod test {
             .sign_message(
                 &chain_view,
                 &local_peer_1.private_key,
-                StacksMessageType::Ping(ping_data_1.clone()),
+                StacksMessageType::Ping(ping_data_1),
             )
             .unwrap();
         let mut rh_ping_1 = convo_1.send_signed_request(ping_1, 1000000).unwrap();
@@ -5332,7 +5332,7 @@ mod test {
                 .unwrap();
 
             let stackerdb_accept_data_1 = StacksMessageType::StackerDBHandshakeAccept(
-                accept_data_1.clone(),
+                accept_data_1,
                 StackerDBHandshakeData {
                     rc_consensus_hash: chain_view.rc_consensus_hash.clone(),
                     // placeholder sbtc address for now
@@ -5579,7 +5579,7 @@ mod test {
                 .sign_message(
                     &chain_view,
                     &local_peer_1.private_key,
-                    StacksMessageType::GetBlocksInv(getblocksdata_1.clone()),
+                    StacksMessageType::GetBlocksInv(getblocksdata_1),
                 )
                 .unwrap();
             let mut rh_1 = convo_1
@@ -5632,7 +5632,7 @@ mod test {
                 .sign_message(
                     &chain_view,
                     &local_peer_1.private_key,
-                    StacksMessageType::GetBlocksInv(getblocksdata_diverged_1.clone()),
+                    StacksMessageType::GetBlocksInv(getblocksdata_diverged_1),
                 )
                 .unwrap();
             let mut rh_1 = convo_1
@@ -5857,7 +5857,7 @@ mod test {
                 .sign_message(
                     &chain_view,
                     &local_peer_1.private_key,
-                    StacksMessageType::GetNakamotoInv(getnakamotodata_1.clone()),
+                    StacksMessageType::GetNakamotoInv(getnakamotodata_1),
                 )
                 .unwrap();
             let mut rh_1 = convo_1
@@ -5909,7 +5909,7 @@ mod test {
                 .sign_message(
                     &chain_view,
                     &local_peer_1.private_key,
-                    StacksMessageType::GetNakamotoInv(getnakamotodata_diverged_1.clone()),
+                    StacksMessageType::GetNakamotoInv(getnakamotodata_diverged_1),
                 )
                 .unwrap();
             let mut rh_1 = convo_1
@@ -6158,7 +6158,7 @@ mod test {
                 .sign_message(
                     &chain_view,
                     &local_peer_1.private_key,
-                    StacksMessageType::Ping(ping_data.clone()),
+                    StacksMessageType::Ping(ping_data),
                 )
                 .unwrap();
             convo_bad.network_id -= 1;
@@ -6191,7 +6191,7 @@ mod test {
                 .sign_message(
                     &chain_view_bad,
                     &local_peer_1.private_key,
-                    StacksMessageType::Ping(ping_data.clone()),
+                    StacksMessageType::Ping(ping_data),
                 )
                 .unwrap();
 
@@ -6228,7 +6228,7 @@ mod test {
                 .sign_message(
                     &chain_view_bad,
                     &local_peer_1.private_key,
-                    StacksMessageType::Ping(ping_data.clone()),
+                    StacksMessageType::Ping(ping_data),
                 )
                 .unwrap();
 
@@ -6266,7 +6266,7 @@ mod test {
                 .sign_message(
                     &chain_view_bad,
                     &local_peer_1.private_key,
-                    StacksMessageType::Ping(ping_data.clone()),
+                    StacksMessageType::Ping(ping_data),
                 )
                 .unwrap();
 
@@ -6354,7 +6354,7 @@ mod test {
                 .sign_message(
                     &chain_view,
                     &local_peer_1.private_key,
-                    StacksMessageType::Ping(ping_data.clone()),
+                    StacksMessageType::Ping(ping_data),
                 )
                 .unwrap();
             convo_bad.version = 0x18000005;
@@ -6836,7 +6836,7 @@ mod test {
             )
             .unwrap();
 
-        let mut expected_relayers = relayers.clone();
+        let mut expected_relayers = relayers;
         expected_relayers.push(RelayData {
             peer: local_peer_1.to_neighbor_addr(),
             seq: 0,
@@ -6940,7 +6940,7 @@ mod test {
 
         // should succeed
         convo_1
-            .sign_and_forward(&local_peer_1, &chain_view, vec![], payload.clone())
+            .sign_and_forward(&local_peer_1, &chain_view, vec![], payload)
             .unwrap();
     }
 
@@ -7027,12 +7027,7 @@ mod test {
         ];
 
         let mut bad_msg = convo_1
-            .sign_relay_message(
-                &local_peer_1,
-                &chain_view,
-                bad_relayers.clone(),
-                payload.clone(),
-            )
+            .sign_relay_message(&local_peer_1, &chain_view, bad_relayers, payload)
             .unwrap();
 
         bad_msg.preamble.payload_len = 10;
@@ -7056,7 +7051,7 @@ mod test {
         // NOTE: payload can be anything since we only look at premable length here
         let payload = StacksMessageType::Nack(NackData { error_code: 123 });
         let mut msg = convo_1
-            .sign_relay_message(&local_peer_2, &chain_view, vec![], payload.clone())
+            .sign_relay_message(&local_peer_2, &chain_view, vec![], payload)
             .unwrap();
 
         let err_before = convo_1.stats.msgs_err;
@@ -7161,12 +7156,7 @@ mod test {
         ];
 
         let mut bad_msg = convo_1
-            .sign_relay_message(
-                &local_peer_1,
-                &chain_view,
-                bad_relayers.clone(),
-                payload.clone(),
-            )
+            .sign_relay_message(&local_peer_1, &chain_view, bad_relayers, payload)
             .unwrap();
 
         bad_msg.preamble.payload_len = 10;
@@ -7190,7 +7180,7 @@ mod test {
         // NOTE: payload can be anything since we only look at premable length here
         let payload = StacksMessageType::Nack(NackData { error_code: 123 });
         let mut msg = convo_1
-            .sign_relay_message(&local_peer_2, &chain_view, vec![], payload.clone())
+            .sign_relay_message(&local_peer_2, &chain_view, vec![], payload)
             .unwrap();
 
         let err_before = convo_1.stats.msgs_err;
@@ -7295,12 +7285,7 @@ mod test {
         ];
 
         let mut bad_msg = convo_1
-            .sign_relay_message(
-                &local_peer_1,
-                &chain_view,
-                bad_relayers.clone(),
-                payload.clone(),
-            )
+            .sign_relay_message(&local_peer_1, &chain_view, bad_relayers, payload)
             .unwrap();
 
         bad_msg.preamble.payload_len = 10;
@@ -7324,7 +7309,7 @@ mod test {
         // NOTE: payload can be anything since we only look at premable length here
         let payload = StacksMessageType::Nack(NackData { error_code: 123 });
         let mut msg = convo_1
-            .sign_relay_message(&local_peer_2, &chain_view, vec![], payload.clone())
+            .sign_relay_message(&local_peer_2, &chain_view, vec![], payload)
             .unwrap();
 
         let err_before = convo_1.stats.msgs_err;
@@ -7429,12 +7414,7 @@ mod test {
         ];
 
         let mut bad_msg = convo_1
-            .sign_relay_message(
-                &local_peer_1,
-                &chain_view,
-                bad_relayers.clone(),
-                payload.clone(),
-            )
+            .sign_relay_message(&local_peer_1, &chain_view, bad_relayers, payload)
             .unwrap();
 
         bad_msg.preamble.payload_len = 10;
@@ -7458,7 +7438,7 @@ mod test {
         // NOTE: payload can be anything since we only look at premable length here
         let payload = StacksMessageType::Nack(NackData { error_code: 123 });
         let mut msg = convo_1
-            .sign_relay_message(&local_peer_2, &chain_view, vec![], payload.clone())
+            .sign_relay_message(&local_peer_2, &chain_view, vec![], payload)
             .unwrap();
 
         let err_before = convo_1.stats.msgs_err;

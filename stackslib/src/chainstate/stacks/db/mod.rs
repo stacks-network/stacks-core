@@ -1795,7 +1795,7 @@ impl StacksChainState {
         let blocks_path = StacksChainState::blocks_path(path.clone());
         StacksChainState::mkdirs(&blocks_path)?;
 
-        let vm_state_path = StacksChainState::vm_state_path(path.clone());
+        let vm_state_path = StacksChainState::vm_state_path(path);
         StacksChainState::mkdirs(&vm_state_path)?;
         Ok(())
     }
@@ -1836,7 +1836,7 @@ impl StacksChainState {
             .to_string();
 
         let nakamoto_staging_blocks_path =
-            StacksChainState::static_get_nakamoto_staging_blocks_path(path.clone())?;
+            StacksChainState::static_get_nakamoto_staging_blocks_path(path)?;
         let nakamoto_staging_blocks_conn =
             StacksChainState::open_nakamoto_staging_blocks(&nakamoto_staging_blocks_path, true)?;
 

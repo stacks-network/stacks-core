@@ -846,7 +846,7 @@ fn pox_2_contract_caller_units() {
                 &symbols_from_values(vec![
                     Value::UInt(USTX_PER_HOLDER),
                     POX_ADDRS[0].clone(),
-                    burn_height.clone(),
+                    burn_height,
                     Value::UInt(3),
                 ])
             )
@@ -876,7 +876,7 @@ fn pox_2_contract_caller_units() {
                 &symbols_from_values(vec![
                     Value::UInt(USTX_PER_HOLDER),
                     POX_ADDRS[2].clone(),
-                    burn_height.clone(),
+                    burn_height,
                     Value::UInt(3),
                 ])
             )
@@ -1020,7 +1020,7 @@ fn pox_2_lock_extend_units() {
                 &symbols_from_values(vec![
                     Value::UInt(USTX_PER_HOLDER),
                     POX_ADDRS[1].clone(),
-                    burn_height.clone(),
+                    burn_height,
                     Value::UInt(3),
                 ])
             )
@@ -1276,7 +1276,7 @@ fn pox_2_delegate_extend_units() {
                     (&USER_KEYS[1]).into(),
                     Value::UInt(1),
                     POX_ADDRS[1].clone(),
-                    burn_height.clone(),
+                    burn_height,
                     Value::UInt(2)
                 ])
             )
@@ -2458,7 +2458,7 @@ fn delegation_tests() {
                     (&USER_KEYS[4]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
                     POX_ADDRS[0].clone(),
-                    burn_height.clone(),
+                    burn_height,
                     Value::UInt(2)
                 ])
             )

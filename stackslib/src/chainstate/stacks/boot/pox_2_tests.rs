@@ -721,7 +721,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         "test_simple_pox_lockup_transition_pox_2",
-        Some(epochs.clone()),
+        Some(epochs),
         Some(&observer),
     );
 
@@ -1181,8 +1181,8 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
-        &format!("test_simple_pox_2_auto_unlock_{}", alice_first),
-        Some(epochs.clone()),
+        &format!("test_simple_pox_2_auto_unlock_{alice_first}"),
+        Some(epochs),
         Some(&observer),
     );
 
@@ -1475,7 +1475,7 @@ fn delegate_stack_increase() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         &format!("pox_2_delegate_stack_increase"),
-        Some(epochs.clone()),
+        Some(epochs),
         Some(&observer),
     );
 
@@ -1831,7 +1831,7 @@ fn stack_increase() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         &format!("test_simple_pox_2_increase"),
-        Some(epochs.clone()),
+        Some(epochs),
         Some(&observer),
     );
 
@@ -2076,7 +2076,7 @@ fn test_lock_period_invariant_extend_transition() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         "test_lp_invariant_extend_trans",
-        Some(epochs.clone()),
+        Some(epochs),
         Some(&observer),
     );
 
@@ -2238,7 +2238,7 @@ fn test_pox_extend_transition_pox_2() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         "test_pox_extend_transition_pox_2",
-        Some(epochs.clone()),
+        Some(epochs),
         Some(&observer),
     );
 
@@ -2681,7 +2681,7 @@ fn test_delegate_extend_transition_pox_2() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         "test_delegate_extend_transition_pox_2",
-        Some(epochs.clone()),
+        Some(epochs),
         Some(&observer),
     );
 
@@ -3429,12 +3429,8 @@ fn test_pox_2_getters() {
 
     let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
 
-    let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
-        &burnchain,
-        "test-pox-2-getters",
-        Some(epochs.clone()),
-        None,
-    );
+    let (mut peer, mut keys) =
+        instantiate_pox_peer_with_epoch(&burnchain, "test-pox-2-getters", Some(epochs), None);
 
     peer.config.check_pox_invariants =
         Some((EXPECTED_FIRST_V2_CYCLE, EXPECTED_FIRST_V2_CYCLE + 10));
@@ -3721,12 +3717,8 @@ fn test_get_pox_addrs() {
 
     let epochs = StacksEpoch::all(1, 2, 3);
 
-    let (mut peer, keys) = instantiate_pox_peer_with_epoch(
-        &burnchain,
-        "test-get-pox-addrs",
-        Some(epochs.clone()),
-        None,
-    );
+    let (mut peer, keys) =
+        instantiate_pox_peer_with_epoch(&burnchain, "test-get-pox-addrs", Some(epochs), None);
     let num_blocks = 20;
 
     let mut lockup_reward_cycle = 0;
@@ -3993,12 +3985,8 @@ fn test_stack_with_segwit() {
 
     let epochs = StacksEpoch::all(1, 2, 3);
 
-    let (mut peer, all_keys) = instantiate_pox_peer_with_epoch(
-        &burnchain,
-        "test-stack-with-segwit",
-        Some(epochs.clone()),
-        None,
-    );
+    let (mut peer, all_keys) =
+        instantiate_pox_peer_with_epoch(&burnchain, "test-stack-with-segwit", Some(epochs), None);
     let num_blocks = 20;
 
     let segwit_keys: Vec<_> = all_keys.into_iter().take(4).collect();
@@ -4324,7 +4312,7 @@ fn test_pox_2_delegate_stx_addr_validation() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         "test-pox-2-delegate-stx-addr",
-        Some(epochs.clone()),
+        Some(epochs),
         None,
     );
 
@@ -4510,7 +4498,7 @@ fn stack_aggregation_increase() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         &format!("pox_2_stack_aggregation_increase"),
-        Some(epochs.clone()),
+        Some(epochs),
         Some(&observer),
     );
 
@@ -4738,7 +4726,7 @@ fn stack_aggregation_increase() {
         charlie_nonce,
         "stack-aggregation-increase",
         vec![
-            charlie_pox_addr.clone(),
+            charlie_pox_addr,
             Value::UInt(cur_reward_cycle as u128),
             Value::UInt(0),
         ],
@@ -4960,7 +4948,7 @@ fn stack_in_both_pox1_and_pox2() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         &format!("stack_in_both_pox1_and_pox2"),
-        Some(epochs.clone()),
+        Some(epochs),
         Some(&observer),
     );
 

@@ -1472,7 +1472,7 @@ mod test {
         };
         let mut tx_invalid_anchor = StacksTransaction::new(
             TransactionVersion::Testnet,
-            origin_auth.clone(),
+            origin_auth,
             TransactionPayload::TokenTransfer(
                 stx_address.into(),
                 123,
@@ -1485,11 +1485,11 @@ mod test {
         let mut tx_dup = tx_invalid_anchor.clone();
         tx_dup.anchor_mode = TransactionAnchorMode::OnChainOnly;
 
-        let txs_bad_coinbase = vec![tx_invalid_coinbase.clone()];
+        let txs_bad_coinbase = vec![tx_invalid_coinbase];
         let txs_no_coinbase = vec![tx_dup.clone()];
-        let txs_multiple_coinbases = vec![tx_coinbase.clone(), tx_coinbase_2.clone()];
-        let txs_bad_anchor = vec![tx_coinbase.clone(), tx_invalid_anchor.clone()];
-        let txs_dup = vec![tx_coinbase.clone(), tx_dup.clone(), tx_dup.clone()];
+        let txs_multiple_coinbases = vec![tx_coinbase.clone(), tx_coinbase_2];
+        let txs_bad_anchor = vec![tx_coinbase.clone(), tx_invalid_anchor];
+        let txs_dup = vec![tx_coinbase, tx_dup.clone(), tx_dup];
 
         let get_tx_root = |txs: &[StacksTransaction]| {
             let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
@@ -1514,7 +1514,7 @@ mod test {
         let mut block_header_dup_tx = header.clone();
         block_header_dup_tx.tx_merkle_root = get_tx_root(&txs_dup);
 
-        let mut block_header_empty = header.clone();
+        let mut block_header_empty = header;
         block_header_empty.tx_merkle_root = get_tx_root(&[]);
 
         let invalid_blocks = vec![
@@ -1600,7 +1600,7 @@ mod test {
         };
         let mut tx_invalid_anchor = StacksTransaction::new(
             TransactionVersion::Testnet,
-            origin_auth.clone(),
+            origin_auth,
             TransactionPayload::TokenTransfer(
                 stx_address.into(),
                 123,
@@ -1613,10 +1613,10 @@ mod test {
         let mut tx_dup = tx_invalid_anchor.clone();
         tx_dup.anchor_mode = TransactionAnchorMode::OffChainOnly;
 
-        let txs_coinbase = vec![tx_coinbase.clone()];
-        let txs_offchain_coinbase = vec![tx_coinbase_offchain.clone()];
-        let txs_bad_anchor = vec![tx_invalid_anchor.clone()];
-        let txs_dup = vec![tx_dup.clone(), tx_dup.clone()];
+        let txs_coinbase = vec![tx_coinbase];
+        let txs_offchain_coinbase = vec![tx_coinbase_offchain];
+        let txs_bad_anchor = vec![tx_invalid_anchor];
+        let txs_dup = vec![tx_dup.clone(), tx_dup];
 
         let get_tx_root = |txs: &[StacksTransaction]| {
             let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
@@ -1638,7 +1638,7 @@ mod test {
         let mut block_header_dup_tx = header.clone();
         block_header_dup_tx.tx_merkle_root = get_tx_root(&txs_dup);
 
-        let mut block_header_empty = header.clone();
+        let mut block_header_empty = header;
         block_header_empty.tx_merkle_root = get_tx_root(&[]);
 
         let invalid_blocks = vec![
@@ -1719,7 +1719,7 @@ mod test {
         block_header_dup_tx.tx_merkle_root = get_tx_root(&txs.to_vec());
 
         let block = StacksBlock {
-            header: block_header_dup_tx.clone(),
+            header: block_header_dup_tx,
             txs: txs.to_vec(),
         };
 
@@ -1732,7 +1732,7 @@ mod test {
                 get_tx_root(&txs_with_coinbase.to_vec());
 
             StacksBlock {
-                header: block_header_dup_tx_with_coinbase.clone(),
+                header: block_header_dup_tx_with_coinbase,
                 txs: txs_with_coinbase,
             }
         });
@@ -1746,7 +1746,7 @@ mod test {
                 get_tx_root(&txs_with_coinbase_nakamoto.to_vec());
 
             StacksBlock {
-                header: block_header_dup_tx_with_coinbase_nakamoto.clone(),
+                header: block_header_dup_tx_with_coinbase_nakamoto,
                 txs: txs_with_coinbase_nakamoto,
             }
         });
@@ -1866,14 +1866,14 @@ mod test {
             order_independent_multisig_condition_p2wsh.clone(),
         );
         let order_independent_origin_auth_p2sh =
-            TransactionAuth::Standard(order_independent_multisig_condition_p2sh.clone());
+            TransactionAuth::Standard(order_independent_multisig_condition_p2sh);
 
         let order_independent_origin_auth_p2wsh =
-            TransactionAuth::Standard(order_independent_multisig_condition_p2wsh.clone());
+            TransactionAuth::Standard(order_independent_multisig_condition_p2wsh);
 
         let order_independent_multisig_tx_transfer_mainnet_p2sh = StacksTransaction::new(
             TransactionVersion::Mainnet,
-            order_independent_origin_auth_p2sh.clone(),
+            order_independent_origin_auth_p2sh,
             TransactionPayload::TokenTransfer(
                 stx_address.into(),
                 123,
@@ -1883,7 +1883,7 @@ mod test {
 
         let order_independent_multisig_tx_transfer_mainnet_p2wsh = StacksTransaction::new(
             TransactionVersion::Mainnet,
-            order_independent_origin_auth_p2wsh.clone(),
+            order_independent_origin_auth_p2wsh,
             TransactionPayload::TokenTransfer(
                 stx_address.into(),
                 123,
@@ -1893,7 +1893,7 @@ mod test {
 
         let order_independent_sponsored_multisig_tx_transfer_mainnet_p2sh = StacksTransaction::new(
             TransactionVersion::Mainnet,
-            order_independent_sponsored_auth_p2sh.clone(),
+            order_independent_sponsored_auth_p2sh,
             TransactionPayload::TokenTransfer(
                 stx_address.into(),
                 123,
@@ -1903,7 +1903,7 @@ mod test {
 
         let order_independent_sponsored_multisig_tx_transfer_mainnet_p2wsh = StacksTransaction::new(
             TransactionVersion::Mainnet,
-            order_independent_sponsored_auth_p2wsh.clone(),
+            order_independent_sponsored_auth_p2wsh,
             TransactionPayload::TokenTransfer(
                 stx_address.into(),
                 123,
@@ -2040,7 +2040,7 @@ mod test {
         };
         let tx_tenure_change = StacksTransaction::new(
             TransactionVersion::Testnet,
-            origin_auth.clone(),
+            origin_auth,
             TransactionPayload::TenureChange(tenure_change_payload),
         );
 
@@ -2049,20 +2049,20 @@ mod test {
             tx_transfer.clone(),
             tx_transfer.clone(),
         ];
-        let mainnet_txs = vec![tx_coinbase.clone(), tx_transfer_mainnet.clone()];
-        let alt_chain_id_txs = vec![tx_coinbase.clone(), tx_transfer_alt_chain.clone()];
-        let offchain_txs = vec![tx_coinbase.clone(), tx_transfer_bad_anchor.clone()];
-        let no_coinbase = vec![tx_transfer.clone()];
-        let coinbase_contract = vec![tx_coinbase_contract.clone()];
-        let versioned_contract = vec![tx_versioned_smart_contract.clone()];
+        let mainnet_txs = vec![tx_coinbase.clone(), tx_transfer_mainnet];
+        let alt_chain_id_txs = vec![tx_coinbase.clone(), tx_transfer_alt_chain];
+        let offchain_txs = vec![tx_coinbase.clone(), tx_transfer_bad_anchor];
+        let no_coinbase = vec![tx_transfer];
+        let coinbase_contract = vec![tx_coinbase_contract];
+        let versioned_contract = vec![tx_versioned_smart_contract];
         let nakamoto_coinbase = vec![tx_coinbase_proof.clone()];
         let tenure_change_tx = vec![tx_tenure_change.clone()];
-        let nakamoto_txs = vec![tx_coinbase_proof.clone(), tx_tenure_change.clone()];
+        let nakamoto_txs = vec![tx_coinbase_proof.clone(), tx_tenure_change];
         let order_independent_multisig_txs = vec![
-            order_independent_multisig_tx_transfer_mainnet_p2sh_signed.clone(),
-            order_independent_sponsored_multisig_tx_transfer_mainnet_p2sh_signed.clone(),
-            order_independent_multisig_tx_transfer_mainnet_p2wsh_signed.clone(),
-            order_independent_sponsored_multisig_tx_transfer_mainnet_p2wsh_signed.clone(),
+            order_independent_multisig_tx_transfer_mainnet_p2sh_signed,
+            order_independent_sponsored_multisig_tx_transfer_mainnet_p2sh_signed,
+            order_independent_multisig_tx_transfer_mainnet_p2wsh_signed,
+            order_independent_sponsored_multisig_tx_transfer_mainnet_p2wsh_signed,
         ];
 
         assert!(!StacksBlock::validate_transactions_unique(&dup_txs));
@@ -2119,10 +2119,10 @@ mod test {
         );
         verify_block_epoch_validation(
             &tenure_change_tx,
-            Some(tx_coinbase.clone()),
-            Some(tx_coinbase_proof.clone()),
+            Some(tx_coinbase),
+            Some(tx_coinbase_proof),
             StacksEpochId::Epoch30,
-            header.clone(),
+            header,
             None,
         );
     }

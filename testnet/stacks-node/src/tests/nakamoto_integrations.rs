@@ -1436,7 +1436,7 @@ fn simple_neon_integration() {
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let prom_bind = "127.0.0.1:6000".to_string();
-    naka_conf.node.prometheus_bind = Some(prom_bind.clone());
+    naka_conf.node.prometheus_bind = Some(prom_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(5);
     let sender_sk = Secp256k1PrivateKey::new();
     // setup sender + recipient for a test stx transfer
@@ -1563,7 +1563,7 @@ fn simple_neon_integration() {
             &sortdb,
             &tip.consensus_hash,
             &tip.anchored_header.block_hash(),
-            transfer_tx.clone(),
+            transfer_tx,
             &ExecutionCost::max_value(),
             &StacksEpochId::Epoch30,
         )
@@ -1676,7 +1676,7 @@ fn flash_blocks_on_epoch_3() {
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let prom_bind = "127.0.0.1:6000".to_string();
-    naka_conf.node.prometheus_bind = Some(prom_bind.clone());
+    naka_conf.node.prometheus_bind = Some(prom_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let sender_sk = Secp256k1PrivateKey::new();
     // setup sender + recipient for a test stx transfer
@@ -1820,7 +1820,7 @@ fn flash_blocks_on_epoch_3() {
             &sortdb,
             &tip.consensus_hash,
             &tip.anchored_header.block_hash(),
-            transfer_tx.clone(),
+            transfer_tx,
             &ExecutionCost::max_value(),
             &StacksEpochId::Epoch30,
         )
@@ -2441,7 +2441,7 @@ fn correct_burn_outs() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
-    let stacker_accounts_copy = stacker_accounts.clone();
+    let stacker_accounts_copy = stacker_accounts;
     let _stacker_thread = thread::Builder::new()
         .name("stacker".into())
         .spawn(move || loop {
@@ -4487,7 +4487,7 @@ fn burn_ops_integration_test() {
         "pox-4",
         "set-signer-key-authorization",
         &[
-            clarity::vm::Value::Tuple(pox_addr.clone().as_clarity_tuple().unwrap()),
+            clarity::vm::Value::Tuple(pox_addr.as_clarity_tuple().unwrap()),
             clarity::vm::Value::UInt(lock_period.into()),
             clarity::vm::Value::UInt(reward_cycle.into()),
             clarity::vm::Value::string_ascii_from_bytes(topic.get_name_str().into()).unwrap(),
@@ -5669,7 +5669,7 @@ fn nakamoto_attempt_time() {
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let password = "12345".to_string();
-    naka_conf.connection_options.auth_token = Some(password.clone());
+    naka_conf.connection_options.auth_token = Some(password);
     // Use fixed timing params for this test
     let nakamoto_attempt_time_ms = 20_000;
     naka_conf.miner.nakamoto_attempt_time_ms = nakamoto_attempt_time_ms;
@@ -6262,7 +6262,7 @@ fn signer_chainstate() {
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let prom_bind = "127.0.0.1:6000".to_string();
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
-    naka_conf.node.prometheus_bind = Some(prom_bind.clone());
+    naka_conf.node.prometheus_bind = Some(prom_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let sender_sk = Secp256k1PrivateKey::new();
     // setup sender + recipient for a test stx transfer
@@ -6852,7 +6852,7 @@ fn continue_tenure_extend() {
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let prom_bind = "127.0.0.1:6000".to_string();
-    naka_conf.node.prometheus_bind = Some(prom_bind.clone());
+    naka_conf.node.prometheus_bind = Some(prom_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     naka_conf.connection_options.block_proposal_max_age_secs = u64::MAX;
     let http_origin = naka_conf.node.data_url.clone();
@@ -7013,7 +7013,7 @@ fn continue_tenure_extend() {
             &sortdb,
             &tip.consensus_hash,
             &tip.anchored_header.block_hash(),
-            transfer_tx.clone(),
+            transfer_tx,
             &ExecutionCost::max_value(),
             &StacksEpochId::Epoch30,
         )
@@ -9009,7 +9009,7 @@ fn utxo_check_on_startup_panic() {
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     println!("Nakamoto node started with config: {naka_conf:?}");
     let prom_bind = "127.0.0.1:6000".to_string();
-    naka_conf.node.prometheus_bind = Some(prom_bind.clone());
+    naka_conf.node.prometheus_bind = Some(prom_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
 
     test_observer::spawn();
@@ -9085,7 +9085,7 @@ fn utxo_check_on_startup_recover() {
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     println!("Nakamoto node started with config: {naka_conf:?}");
     let prom_bind = "127.0.0.1:6000".to_string();
-    naka_conf.node.prometheus_bind = Some(prom_bind.clone());
+    naka_conf.node.prometheus_bind = Some(prom_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
 
     test_observer::spawn();
@@ -9145,7 +9145,7 @@ fn v3_signer_api_endpoint() {
 
     let (mut conf, _miner_account) = naka_neon_integration_conf(None);
     let password = "12345".to_string();
-    conf.connection_options.auth_token = Some(password.clone());
+    conf.connection_options.auth_token = Some(password);
     conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let stacker_sk = setup_stacker(&mut conf);
     let signer_sk = Secp256k1PrivateKey::new();
@@ -9319,7 +9319,7 @@ fn v3_blockbyheight_api_endpoint() {
 
     let (mut conf, _miner_account) = naka_neon_integration_conf(None);
     let password = "12345".to_string();
-    conf.connection_options.auth_token = Some(password.clone());
+    conf.connection_options.auth_token = Some(password);
     conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let stacker_sk = setup_stacker(&mut conf);
     let signer_sk = Secp256k1PrivateKey::new();
@@ -9444,7 +9444,7 @@ fn nakamoto_lockup_events() {
 
     let (mut conf, _miner_account) = naka_neon_integration_conf(None);
     let password = "12345".to_string();
-    conf.connection_options.auth_token = Some(password.clone());
+    conf.connection_options.auth_token = Some(password);
     conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let stacker_sk = setup_stacker(&mut conf);
     let signer_sk = Secp256k1PrivateKey::new();
@@ -9620,7 +9620,7 @@ fn skip_mining_long_tx() {
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let prom_bind = "127.0.0.1:6000".to_string();
-    naka_conf.node.prometheus_bind = Some(prom_bind.clone());
+    naka_conf.node.prometheus_bind = Some(prom_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     naka_conf.miner.nakamoto_attempt_time_ms = 5_000;
     naka_conf.miner.tenure_cost_limit_per_block_percentage = None;
@@ -10003,7 +10003,7 @@ fn sip029_coinbase_change() {
         },
     ];
 
-    set_test_coinbase_schedule(Some(new_sched.clone()));
+    set_test_coinbase_schedule(Some(new_sched));
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);

@@ -1011,7 +1011,7 @@ fn delegate_stack_increase() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let first_v2_cycle = burnchain
         .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
@@ -1632,7 +1632,7 @@ fn stack_increase() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let first_v2_cycle = burnchain
         .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
@@ -2061,7 +2061,7 @@ fn pox_extend_transition() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let first_v2_cycle = burnchain
         .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
@@ -2581,7 +2581,7 @@ fn delegate_extend_pox_3() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let first_v3_cycle = burnchain
         .block_height_to_reward_cycle(burnchain.pox_constants.pox_3_activation_height as u64)
@@ -3047,7 +3047,7 @@ fn delegate_extend_pox_3() {
     ]);
     let common_data = PoxPrintFields {
         op_name: "stack-aggregation-commit".to_string(),
-        stacker: Value::Principal(charlie_principal.clone()),
+        stacker: Value::Principal(charlie_principal),
         balance: Value::UInt(LOCKUP_AMT),
         locked: Value::UInt(0),
         burnchain_unlock_height: Value::UInt(0),
@@ -3067,7 +3067,7 @@ fn pox_3_getters() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let first_v3_cycle = burnchain
         .block_height_to_reward_cycle(burnchain.pox_constants.pox_3_activation_height as u64)
@@ -3422,7 +3422,7 @@ fn get_pox_addrs() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let first_v2_cycle = burnchain
         .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
@@ -3631,7 +3631,7 @@ fn stack_with_segwit() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let first_v2_cycle = burnchain
         .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
@@ -3846,7 +3846,7 @@ fn stack_aggregation_increase() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let first_v3_cycle = burnchain
         .block_height_to_reward_cycle(burnchain.pox_constants.pox_3_activation_height as u64)
@@ -4087,7 +4087,7 @@ fn stack_aggregation_increase() {
         charlie_nonce,
         "stack-aggregation-increase",
         vec![
-            charlie_pox_addr.clone(),
+            charlie_pox_addr,
             Value::UInt(cur_reward_cycle as u128),
             Value::UInt(0),
         ],
@@ -4286,7 +4286,7 @@ fn pox_3_delegate_stx_addr_validation() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let first_v3_cycle = burnchain
         .block_height_to_reward_cycle(burnchain.pox_constants.pox_3_activation_height as u64)

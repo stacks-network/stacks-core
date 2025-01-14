@@ -409,7 +409,7 @@ mod tests {
         let op = DelegateStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
-            &BurnchainTransaction::Bitcoin(tx.clone()),
+            &BurnchainTransaction::Bitcoin(tx),
             &sender,
         )
         .unwrap();
@@ -456,7 +456,7 @@ mod tests {
         let err = DelegateStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
-            &BurnchainTransaction::Bitcoin(tx.clone()),
+            &BurnchainTransaction::Bitcoin(tx),
             &sender,
         )
         .unwrap_err();
@@ -498,7 +498,7 @@ mod tests {
         let err = DelegateStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
-            &BurnchainTransaction::Bitcoin(tx.clone()),
+            &BurnchainTransaction::Bitcoin(tx),
             &sender,
         )
         .unwrap_err();
@@ -544,7 +544,7 @@ mod tests {
         let err = DelegateStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
-            &BurnchainTransaction::Bitcoin(tx.clone()),
+            &BurnchainTransaction::Bitcoin(tx),
             &sender,
         )
         .unwrap_err();
@@ -583,7 +583,7 @@ mod tests {
         let err = DelegateStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
-            &BurnchainTransaction::Bitcoin(tx.clone()),
+            &BurnchainTransaction::Bitcoin(tx),
             &sender,
         )
         .unwrap_err();

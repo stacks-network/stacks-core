@@ -415,9 +415,7 @@ fn test_simple_nakamoto_coordinator_bootup() {
 
     tenure_change.tenure_consensus_hash = consensus_hash.clone();
     tenure_change.burn_view_consensus_hash = consensus_hash.clone();
-    let tenure_change_tx = peer
-        .miner
-        .make_nakamoto_tenure_change(tenure_change.clone());
+    let tenure_change_tx = peer.miner.make_nakamoto_tenure_change(tenure_change);
     let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
 
     let blocks_and_sizes = peer.make_nakamoto_tenure(
@@ -480,9 +478,7 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
     tenure_change.tenure_consensus_hash = consensus_hash.clone();
     tenure_change.burn_view_consensus_hash = consensus_hash.clone();
 
-    let tenure_change_tx = peer
-        .miner
-        .make_nakamoto_tenure_change(tenure_change.clone());
+    let tenure_change_tx = peer.miner.make_nakamoto_tenure_change(tenure_change);
     let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
 
     // do a stx transfer in each block to a given recipient
@@ -659,7 +655,7 @@ impl TestPeer<'_> {
     {
         let (burn_ops, mut tenure_change, miner_key) =
             self.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
-        let (burn_height, _, consensus_hash) = self.next_burnchain_block(burn_ops.clone());
+        let (burn_height, _, consensus_hash) = self.next_burnchain_block(burn_ops);
         let pox_constants = self.sortdb().pox_constants.clone();
         let first_burn_height = self.sortdb().first_block_height;
         let mut test_signers = self.config.test_signers.clone().unwrap();
@@ -693,7 +689,7 @@ impl TestPeer<'_> {
 
         let tenure_change_tx = self
             .miner
-            .make_nakamoto_tenure_change_with_nonce(tenure_change.clone(), miner_acct.nonce);
+            .make_nakamoto_tenure_change_with_nonce(tenure_change, miner_acct.nonce);
 
         let coinbase_tx =
             self.miner
@@ -783,7 +779,7 @@ impl TestPeer<'_> {
 
         let tenure_change_tx = self
             .miner
-            .make_nakamoto_tenure_change_with_nonce(tenure_change.clone(), miner_acct.nonce);
+            .make_nakamoto_tenure_change_with_nonce(tenure_change, miner_acct.nonce);
 
         let coinbase_tx =
             self.miner
@@ -839,8 +835,8 @@ fn block_descendant() {
     pox_constants.pox_4_activation_height = 28;
 
     let mut boot_plan = NakamotoBootPlan::new(function_name!())
-        .with_test_stackers(test_stackers.clone())
-        .with_test_signers(test_signers.clone())
+        .with_test_stackers(test_stackers)
+        .with_test_signers(test_signers)
         .with_private_key(private_key);
     boot_plan.pox_constants = pox_constants;
 
@@ -935,8 +931,8 @@ fn block_info_tests(use_primary_testnet: bool) {
     };
     let mut boot_plan =
         NakamotoBootPlan::new(&format!("{}.{use_primary_testnet}", function_name!()))
-            .with_test_stackers(test_stackers.clone())
-            .with_test_signers(test_signers.clone())
+            .with_test_stackers(test_stackers)
+            .with_test_signers(test_signers)
             .with_private_key(private_key)
             .with_network_id(chain_id);
     boot_plan.pox_constants = pox_constants;
@@ -1358,7 +1354,7 @@ fn pox_treatment() {
 
     let mut boot_plan = NakamotoBootPlan::new(function_name!())
         .with_test_stackers(test_stackers.clone())
-        .with_test_signers(test_signers.clone())
+        .with_test_signers(test_signers)
         .with_private_key(private_key);
     boot_plan.pox_constants = pox_constants;
 
@@ -1631,15 +1627,13 @@ fn test_nakamoto_chainstate_getters() {
 
     let (burn_ops, mut tenure_change, miner_key) =
         peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
-    let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+    let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops);
     let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
     tenure_change.tenure_consensus_hash = consensus_hash.clone();
     tenure_change.burn_view_consensus_hash = consensus_hash.clone();
-    let tenure_change_tx = peer
-        .miner
-        .make_nakamoto_tenure_change(tenure_change.clone());
-    let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof.clone());
+    let tenure_change_tx = peer.miner.make_nakamoto_tenure_change(tenure_change);
+    let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
 
     // do a stx transfer in each block to a given recipient
     let recipient_addr =
@@ -1878,23 +1872,19 @@ fn test_nakamoto_chainstate_getters() {
     }
     let txid = txid.unwrap();
 
-    let (_, _, next_consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+    let (_, _, next_consensus_hash) = peer.next_burnchain_block(burn_ops);
     let next_vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
     next_tenure_change.tenure_consensus_hash = next_consensus_hash.clone();
     next_tenure_change.burn_view_consensus_hash = next_consensus_hash.clone();
 
-    let next_tenure_change_tx = peer
-        .miner
-        .make_nakamoto_tenure_change(next_tenure_change.clone());
-    let next_coinbase_tx = peer
-        .miner
-        .make_nakamoto_coinbase(None, next_vrf_proof.clone());
+    let next_tenure_change_tx = peer.miner.make_nakamoto_tenure_change(next_tenure_change);
+    let next_coinbase_tx = peer.miner.make_nakamoto_coinbase(None, next_vrf_proof);
 
     // make the second tenure's blocks
     let blocks_and_sizes = peer.make_nakamoto_tenure(
-        next_tenure_change_tx.clone(),
-        next_coinbase_tx.clone(),
+        next_tenure_change_tx,
+        next_coinbase_tx,
         &mut test_signers,
         |miner, chainstate, sortdb, blocks_so_far| {
             if blocks_so_far.len() < 10 {
@@ -2557,9 +2547,7 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
         blocks.last().cloned().unwrap().header.block_id(),
         blocks.len() as u32,
     );
-    let tenure_change_tx = peer
-        .miner
-        .make_nakamoto_tenure_change(tenure_change_extend.clone());
+    let tenure_change_tx = peer.miner.make_nakamoto_tenure_change(tenure_change_extend);
 
     let blocks_and_sizes = peer.make_nakamoto_tenure_extension(
         tenure_change_tx,
@@ -2650,9 +2638,7 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
     tenure_change.tenure_consensus_hash = consensus_hash.clone();
     tenure_change.burn_view_consensus_hash = consensus_hash.clone();
 
-    let tenure_change_tx = peer
-        .miner
-        .make_nakamoto_tenure_change(tenure_change.clone());
+    let tenure_change_tx = peer.miner.make_nakamoto_tenure_change(tenure_change);
     let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
 
     rc_burn_ops.push(burn_ops);
@@ -2864,7 +2850,7 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
                             blocks_so_far.len() as u32,
                         );
                         let tenure_extension_tx =
-                            miner.make_nakamoto_tenure_change(tenure_extension.clone());
+                            miner.make_nakamoto_tenure_change(tenure_extension);
                         final_txs.push(tenure_extension_tx);
                     }
                     final_txs.append(&mut txs);
@@ -3108,8 +3094,8 @@ fn process_next_nakamoto_block_deadlock() {
     pox_constants.pox_4_activation_height = 28;
 
     let mut boot_plan = NakamotoBootPlan::new(function_name!())
-        .with_test_stackers(test_stackers.clone())
-        .with_test_signers(test_signers.clone())
+        .with_test_stackers(test_stackers)
+        .with_test_signers(test_signers)
         .with_private_key(private_key);
     boot_plan.pox_constants = pox_constants;
 
@@ -3384,7 +3370,7 @@ fn test_stacks_on_burnchain_ops() {
                             blocks_so_far.len() as u32,
                         );
                         let tenure_extension_tx =
-                            miner.make_nakamoto_tenure_change(tenure_extension.clone());
+                            miner.make_nakamoto_tenure_change(tenure_extension);
                         final_txs.push(tenure_extension_tx);
                     }
                     final_txs.append(&mut txs);

@@ -3302,7 +3302,7 @@ mod tests {
             let config_file = make_burnchain_config_file(false, None);
 
             let config = config_file
-                .into_config_default(default_burnchain_config.clone())
+                .into_config_default(default_burnchain_config)
                 .expect("Should not panic");
             assert_eq!(config.chain_id, CHAIN_ID_TESTNET);
         }

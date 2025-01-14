@@ -831,7 +831,7 @@ fn integration_test_get_info() {
 
                 let res = client.post(&path)
                     .header("Content-Type", "application/octet-stream")
-                    .body(tx_xfer_invalid.clone())
+                    .body(tx_xfer_invalid)
                     .send()
                     .unwrap().json::<serde_json::Value>().unwrap();
 
@@ -852,7 +852,7 @@ fn integration_test_get_info() {
 
                 let res = client.post(&path)
                     .header("Content-Type", "application/octet-stream")
-                    .body(tx_xfer_invalid.clone())
+                    .body(tx_xfer_invalid)
                     .send()
                     .unwrap()
                     .json::<serde_json::Value>()
@@ -928,7 +928,7 @@ fn integration_test_get_info() {
 
                 eprintln!("Test: POST {path}");
 
-                let body = json!({ "transaction_payload": payload_hex.clone() });
+                let body = json!({ "transaction_payload": payload_hex });
 
                 let res = client.post(&path)
                     .json(&body)
@@ -979,7 +979,7 @@ fn integration_test_get_info() {
 
                 eprintln!("Test: POST {path}");
 
-                let body = json!({ "transaction_payload": payload_hex.clone() });
+                let body = json!({ "transaction_payload": payload_hex });
 
                 let res = client.post(&path)
                     .json(&body)
@@ -1029,7 +1029,7 @@ fn integration_test_get_info() {
                 let payload_hex = to_hex(&payload_data);
 
                 let estimated_len = 1550;
-                let body = json!({ "transaction_payload": payload_hex.clone(), "estimated_len": estimated_len });
+                let body = json!({ "transaction_payload": payload_hex, "estimated_len": estimated_len });
                 info!("POST body\n {body}");
 
                 let res = client.post(&path)
@@ -1255,7 +1255,7 @@ fn contract_stx_transfer() {
                     3,
                     190,
                     CHAIN_ID_TESTNET,
-                    &contract_identifier.clone().into(),
+                    &contract_identifier.into(),
                     1000,
                 );
                 let xfer_to_contract =
@@ -2263,7 +2263,7 @@ fn mempool_errors() {
                 let res = client
                     .post(&path)
                     .header("Content-Type", "application/octet-stream")
-                    .body(tx_xfer_invalid.clone())
+                    .body(tx_xfer_invalid)
                     .send()
                     .unwrap()
                     .json::<serde_json::Value>()
@@ -2305,7 +2305,7 @@ fn mempool_errors() {
                 let res = client
                     .post(&path)
                     .header("Content-Type", "application/octet-stream")
-                    .body(tx_xfer_invalid.clone())
+                    .body(tx_xfer_invalid)
                     .send()
                     .unwrap()
                     .json::<serde_json::Value>()
@@ -2339,7 +2339,7 @@ fn mempool_errors() {
                 let res = client
                     .post(&path)
                     .header("Content-Type", "application/octet-stream")
-                    .body(tx_xfer_invalid.clone())
+                    .body(tx_xfer_invalid)
                     .send()
                     .unwrap()
                     .json::<serde_json::Value>()
@@ -2384,7 +2384,7 @@ fn mempool_errors() {
                 let res = client
                     .post(&path)
                     .header("Content-Type", "application/octet-stream")
-                    .body(tx_xfer_invalid.clone())
+                    .body(tx_xfer_invalid)
                     .send()
                     .unwrap()
                     .json::<serde_json::Value>()
