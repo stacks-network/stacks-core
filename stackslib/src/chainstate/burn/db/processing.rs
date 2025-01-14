@@ -116,8 +116,8 @@ impl SortitionHandleTx<'_> {
         burnchain: &Burnchain,
         parent_snapshot: &BlockSnapshot,
         block_header: &BurnchainBlockHeader,
-        this_block_ops: &Vec<BlockstackOperationType>,
-        missed_commits: &Vec<MissedBlockCommit>,
+        this_block_ops: &[BlockstackOperationType],
+        missed_commits: &[MissedBlockCommit],
         next_pox_info: Option<RewardCycleInfo>,
         parent_pox: PoxId,
         reward_info: Option<&RewardSetInfo>,
@@ -428,7 +428,7 @@ mod tests {
         let snapshot = test_append_snapshot(
             &mut db,
             BurnchainHeaderHash([0x01; 32]),
-            &vec![BlockstackOperationType::LeaderKeyRegister(leader_key)],
+            &[BlockstackOperationType::LeaderKeyRegister(leader_key)],
         );
 
         let next_block_header = BurnchainBlockHeader {

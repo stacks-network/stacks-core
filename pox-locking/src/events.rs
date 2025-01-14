@@ -20,10 +20,10 @@ use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::errors::Error as ClarityError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, ResponseData, TupleData};
 use clarity::vm::Value;
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 use slog::slog_debug;
 use slog::slog_error;
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 use stacks_common::debug;
 use stacks_common::types::StacksEpochId;
 use stacks_common::{error, test_debug};
