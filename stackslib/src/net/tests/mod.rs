@@ -474,11 +474,11 @@ impl NakamotoBootPlan {
         // advance to just past pox-4 instantiation
         let mut blocks_produced = false;
         while sortition_height <= epoch_25_height {
-            peer.tenure_with_txs(&vec![], &mut peer_nonce);
+            peer.tenure_with_txs(&[], &mut peer_nonce);
             for (other_peer, other_peer_nonce) in
                 other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
             {
-                other_peer.tenure_with_txs(&vec![], other_peer_nonce);
+                other_peer.tenure_with_txs(&[], other_peer_nonce);
             }
 
             sortition_height = peer.get_burn_block_height();
@@ -490,11 +490,11 @@ impl NakamotoBootPlan {
         //  that if its the first block produced, this will be 0 which will
         //  prevent the lockups from being valid.
         if !blocks_produced {
-            peer.tenure_with_txs(&vec![], &mut peer_nonce);
+            peer.tenure_with_txs(&[], &mut peer_nonce);
             for (other_peer, other_peer_nonce) in
                 other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
             {
-                other_peer.tenure_with_txs(&vec![], other_peer_nonce);
+                other_peer.tenure_with_txs(&[], other_peer_nonce);
             }
 
             sortition_height = peer.get_burn_block_height();
@@ -626,7 +626,7 @@ impl NakamotoBootPlan {
         // advance to the start of epoch 3.0
         while sortition_height < epoch_30_height - 1 {
             let mut old_tip = peer.network.stacks_tip.clone();
-            peer.tenure_with_txs(&vec![], &mut peer_nonce);
+            peer.tenure_with_txs(&[], &mut peer_nonce);
 
             let (stacks_tip_ch, stacks_tip_bh) =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
@@ -641,7 +641,7 @@ impl NakamotoBootPlan {
                 other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
             {
                 let mut old_tip = peer.network.stacks_tip.clone();
-                other_peer.tenure_with_txs(&vec![], other_peer_nonce);
+                other_peer.tenure_with_txs(&[], other_peer_nonce);
 
                 let (stacks_tip_ch, stacks_tip_bh) =
                     SortitionDB::get_canonical_stacks_chain_tip_hash(other_peer.sortdb().conn())
