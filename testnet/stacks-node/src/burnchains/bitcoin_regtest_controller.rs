@@ -2316,7 +2316,7 @@ impl SerializedTx {
 
     pub fn to_hex(&self) -> String {
         let formatted_bytes: Vec<String> = self.bytes.iter().map(|b| format!("{b:02x}")).collect();
-        formatted_bytes.join("").to_string()
+        formatted_bytes.join("")
     }
 }
 
