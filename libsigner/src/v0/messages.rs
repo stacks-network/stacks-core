@@ -283,6 +283,7 @@ pub struct PeerInfo {
 }
 
 impl StacksMessageCodec for PeerInfo {
+    #[allow(clippy::needless_as_bytes)] // as_bytes isn't necessary, but verbosity is preferable in the codec impls
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.burn_block_height)?;
         write_next(fd, self.stacks_tip_consensus_hash.as_bytes())?;
