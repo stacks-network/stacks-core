@@ -18,11 +18,11 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::Read;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
+#[cfg(test)]
+use std::sync::LazyLock;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-#[cfg(test)]
-use lazy_static::lazy_static;
 use rand::{thread_rng, Rng};
 use stacks::burnchains::{Burnchain, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -72,13 +72,13 @@ use crate::run_loop::RegisteredKey;
 use crate::BitcoinRegtestController;
 
 #[cfg(test)]
-lazy_static! {
-    /// Mutex to stall the relayer thread right before it creates a miner thread.
-    pub static ref TEST_MINER_THREAD_STALL: TestFlag<bool> = TestFlag::default();
+/// Mutex to stall the relayer thread right before it creates a miner thread.
+pub static TEST_MINER_THREAD_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
-    /// Mutex to stall the miner thread right after it starts up (does not block the relayer thread)
-    pub static ref TEST_MINER_THREAD_START_STALL: TestFlag<bool> = TestFlag::default();
-}
+#[cfg(test)]
+/// Mutex to stall the miner thread right after it starts up (does not block the relayer thread)
+pub static TEST_MINER_THREAD_START_STALL: LazyLock<TestFlag<bool>> =
+    LazyLock::new(TestFlag::default);
 
 /// Command types for the Nakamoto relayer thread, issued to it by other threads
 #[allow(clippy::large_enum_variant)]
