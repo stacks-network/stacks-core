@@ -623,7 +623,8 @@ impl<'a> OwnedEnvironment<'a> {
                 QualifiedContractIdentifier::transient(),
                 ClarityVersion::Clarity1,
             ));
-            let mut exec_env = self.get_exec_environment(Some(sender), sponsor, &mut initial_context);
+            let mut exec_env =
+                self.get_exec_environment(Some(sender), sponsor, &mut initial_context);
             f(&mut exec_env)
         };
 
