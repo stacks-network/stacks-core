@@ -733,18 +733,6 @@ impl SignerDb {
         try_deserialize(result)
     }
 
-    /// Return the last accepted block the signer (highest stacks height). It will tie break a match based on which was more recently signed.
-    pub fn get_signer_last_accepted_block(&self) -> Result<Option<BlockInfo>, DBError> {
-        let query = "SELECT block_info FROM blocks WHERE state IN (?1, ?2) ORDER BY stacks_height DESC, signed_group DESC, signed_self DESC LIMIT 1";
-        let args = params![
-            &BlockState::GloballyAccepted.to_string(),
-            &BlockState::LocallyAccepted.to_string()
-        ];
-        let result: Option<String> = query_row(&self.db, query, args)?;
-
-        try_deserialize(result)
-    }
-
     /// Return the last accepted block in a tenure (identified by its consensus hash).
     pub fn get_last_accepted_block(
         &self,
@@ -972,22 +960,6 @@ impl SignerDb {
         Ok(Some(broadcasted))
     }
 
-    /// Get the current state of a given block in the database
-    pub fn get_block_state(
-        &self,
-        block_sighash: &Sha512Trunc256Sum,
-    ) -> Result<Option<BlockState>, DBError> {
-        let qry = "SELECT state FROM blocks WHERE signer_signature_hash = ?1 LIMIT 1";
-        let args = params![block_sighash];
-        let state_opt: Option<String> = query_row(&self.db, qry, args)?;
-        let Some(state) = state_opt else {
-            return Ok(None);
-        };
-        Ok(Some(
-            BlockState::try_from(state.as_str()).map_err(|_| DBError::Corruption)?,
-        ))
-    }
-
     /// Return the start time (epoch time in seconds) and the processing time in milliseconds of the tenure (idenfitied by consensus_hash).
     fn get_tenure_times(&self, tenure: &ConsensusHash) -> Result<(u64, u64), DBError> {
         let query = "SELECT tenure_change, proposed_time, validation_time_ms FROM blocks WHERE consensus_hash = ?1 AND state = ?2 ORDER BY stacks_height DESC";
@@ -1145,13 +1117,6 @@ mod tests {
             .expect("Unable to get block from db");
 
         assert_eq!(BlockInfo::from(block_proposal_2.clone()), block_info);
-        // test getting the block state
-        let block_state = db
-            .get_block_state(&block_proposal_1.block.header.signer_signature_hash())
-            .unwrap()
-            .expect("Unable to get block state from db");
-
-        assert_eq!(block_state, BlockInfo::from(block_proposal_1.clone()).state);
     }
 
     #[test]
@@ -1767,71 +1732,6 @@ mod tests {
         assert!(
             timestamp_hash_3.saturating_add(tenure_idle_timeout.as_secs())
                 < block_infos[0].proposed_time
-        );
-    }
-
-    #[test]
-    fn signer_last_accepted_block() {
-        let db_path = tmp_db_path();
-        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
-
-        let (mut block_info_1, _block_proposal_1) = create_block_override(|b| {
-            b.block.header.miner_signature = MessageSignature([0x01; 65]);
-            b.block.header.chain_length = 1;
-            b.burn_height = 1;
-        });
-
-        let (mut block_info_2, _block_proposal_2) = create_block_override(|b| {
-            b.block.header.miner_signature = MessageSignature([0x02; 65]);
-            b.block.header.chain_length = 2;
-            b.burn_height = 1;
-        });
-
-        let (mut block_info_3, _block_proposal_3) = create_block_override(|b| {
-            b.block.header.miner_signature = MessageSignature([0x02; 65]);
-            b.block.header.chain_length = 2;
-            b.burn_height = 4;
-        });
-        block_info_3
-            .mark_locally_accepted(false)
-            .expect("Failed to mark block as locally accepted");
-
-        db.insert_block(&block_info_1)
-            .expect("Unable to insert block into db");
-        db.insert_block(&block_info_2)
-            .expect("Unable to insert block into db");
-
-        assert!(db.get_signer_last_accepted_block().unwrap().is_none());
-
-        block_info_1
-            .mark_globally_accepted()
-            .expect("Failed to mark block as globally accepted");
-        db.insert_block(&block_info_1)
-            .expect("Unable to insert block into db");
-
-        assert_eq!(
-            db.get_signer_last_accepted_block().unwrap().unwrap(),
-            block_info_1
-        );
-
-        block_info_2
-            .mark_globally_accepted()
-            .expect("Failed to mark block as globally accepted");
-        block_info_2.signed_self = Some(get_epoch_time_secs());
-        db.insert_block(&block_info_2)
-            .expect("Unable to insert block into db");
-
-        assert_eq!(
-            db.get_signer_last_accepted_block().unwrap().unwrap(),
-            block_info_2
-        );
-
-        db.insert_block(&block_info_3)
-            .expect("Unable to insert block into db");
-
-        assert_eq!(
-            db.get_signer_last_accepted_block().unwrap().unwrap(),
-            block_info_3
         );
     }
 }

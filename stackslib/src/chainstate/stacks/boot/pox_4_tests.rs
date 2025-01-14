@@ -2962,7 +2962,7 @@ fn pox_4_revoke_delegate_stx_events() {
 }
 
 fn verify_signer_key_sig(
-    signature: &Vec<u8>,
+    signature: &[u8],
     signing_key: &Secp256k1PublicKey,
     pox_addr: &PoxAddress,
     peer: &mut TestPeer,

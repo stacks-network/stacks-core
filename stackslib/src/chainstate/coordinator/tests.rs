@@ -1186,7 +1186,7 @@ fn missed_block_commits_2_05() {
                 &mut burnchain,
                 &burnchain_tip.block_hash,
                 vec![],
-                vec![].iter_mut(),
+                [].iter_mut(),
             );
         } else {
             // produce a block with one good op,
@@ -1203,7 +1203,7 @@ fn missed_block_commits_2_05() {
                 &mut burnchain,
                 &burnchain_tip.block_hash,
                 ops,
-                vec![].iter_mut(),
+                [].iter_mut(),
             );
         }
         // handle the sortition
@@ -1515,7 +1515,7 @@ fn missed_block_commits_2_1() {
                 &mut burnchain,
                 &burnchain_tip.block_hash,
                 vec![],
-                vec![].iter_mut(),
+                [].iter_mut(),
             );
         } else {
             // produce a block with one good op,
@@ -1532,7 +1532,7 @@ fn missed_block_commits_2_1() {
                 &mut burnchain,
                 &burnchain_tip.block_hash,
                 ops,
-                vec![].iter_mut(),
+                [].iter_mut(),
             );
         }
         // handle the sortition
@@ -1858,7 +1858,7 @@ fn late_block_commits_2_1() {
                 &mut burnchain,
                 &burnchain_tip.block_hash,
                 vec![],
-                vec![].iter_mut(),
+                [].iter_mut(),
             );
         } else {
             // produce a block with one good op,
@@ -1875,7 +1875,7 @@ fn late_block_commits_2_1() {
                 &mut burnchain,
                 &burnchain_tip.block_hash,
                 ops,
-                vec![].iter_mut(),
+                [].iter_mut(),
             );
         }
         // handle the sortition
@@ -2435,7 +2435,7 @@ fn test_sortition_with_reward_set() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -2681,7 +2681,7 @@ fn test_sortition_with_burner_reward_set() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -2964,7 +2964,7 @@ fn test_pox_btc_ops() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -3311,7 +3311,7 @@ fn test_stx_transfer_btc_ops() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -3667,7 +3667,7 @@ fn test_delegate_stx_btc_ops() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -3844,7 +3844,7 @@ fn test_initial_coinbase_reward_distributions() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             vec![],
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -3884,7 +3884,7 @@ fn test_initial_coinbase_reward_distributions() {
                 &mut burnchain,
                 &burnchain_tip.block_hash,
                 vec![],
-                vec![].iter_mut(),
+                [].iter_mut(),
             );
             coord.handle_new_burnchain_block().unwrap();
         } else {
@@ -3935,7 +3935,7 @@ fn test_initial_coinbase_reward_distributions() {
                 &mut burnchain,
                 &burnchain_tip.block_hash,
                 ops,
-                vec![].iter_mut(),
+                [].iter_mut(),
             );
             // handle the sortition
             coord.handle_new_burnchain_block().unwrap();
@@ -4132,7 +4132,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -4335,7 +4335,7 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -4541,7 +4541,7 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -4836,7 +4836,7 @@ fn atlas_stop_start() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -5159,7 +5159,7 @@ fn test_epoch_verify_active_pox_contract() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -5479,7 +5479,7 @@ fn test_sortition_with_sunset() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -5820,7 +5820,7 @@ fn test_sortition_with_sunset_and_epoch_switch() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
