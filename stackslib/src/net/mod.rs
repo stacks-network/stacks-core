@@ -3838,7 +3838,7 @@ pub mod test {
         /// Validate them and store them to staging.
         pub fn preprocess_stacks_microblocks(
             &mut self,
-            microblocks: &Vec<StacksMicroblock>,
+            microblocks: &[StacksMicroblock],
         ) -> Result<bool, String> {
             assert!(!microblocks.is_empty());
             let sortdb = self.sortdb.take().unwrap();
@@ -3891,7 +3891,7 @@ pub mod test {
         pub fn process_stacks_epoch_at_tip(
             &mut self,
             block: &StacksBlock,
-            microblocks: &Vec<StacksMicroblock>,
+            microblocks: &[StacksMicroblock],
         ) {
             let sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
@@ -3928,7 +3928,7 @@ pub mod test {
             sortdb: &SortitionDB,
             node: &mut TestStacksNode,
             block: &StacksBlock,
-            microblocks: &Vec<StacksMicroblock>,
+            microblocks: &[StacksMicroblock],
         ) -> Result<(), coordinator_error> {
             {
                 let ic = sortdb.index_conn();
@@ -3958,7 +3958,7 @@ pub mod test {
         pub fn process_stacks_epoch_at_tip_checked(
             &mut self,
             block: &StacksBlock,
-            microblocks: &Vec<StacksMicroblock>,
+            microblocks: &[StacksMicroblock],
         ) -> Result<(), coordinator_error> {
             let sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
@@ -3975,7 +3975,7 @@ pub mod test {
             &mut self,
             block: &StacksBlock,
             consensus_hash: &ConsensusHash,
-            microblocks: &Vec<StacksMicroblock>,
+            microblocks: &[StacksMicroblock],
         ) {
             let sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
@@ -4311,7 +4311,7 @@ pub mod test {
                 &mut burn_block,
                 &mut self.miner,
                 &stacks_block,
-                &microblocks,
+                microblocks.clone(),
                 1000,
                 &last_key,
                 parent_sortition_opt.as_ref(),
