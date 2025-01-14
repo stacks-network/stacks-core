@@ -3304,7 +3304,7 @@ fn empty_sortition() {
 
     info!("------------------------- Test Delayed Block is Rejected  -------------------------");
     let reward_cycle = signer_test.get_current_reward_cycle();
-    let mut stackerdb = StackerDB::new(
+    let mut stackerdb = StackerDB::new_normal(
         &signer_test.running_nodes.conf.node.rpc_bind,
         StacksPrivateKey::new(), // We are just reading so don't care what the key is
         false,
@@ -10157,7 +10157,7 @@ fn incoming_signers_ignore_block_proposals() {
     .expect("Timed out waiting for a block to be mined");
 
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
-    let mut stackerdb = StackerDB::new(
+    let mut stackerdb = StackerDB::new_normal(
         &signer_test.running_nodes.conf.node.rpc_bind,
         StacksPrivateKey::new(), // We are just reading so don't care what the key is
         false,
@@ -10332,7 +10332,7 @@ fn outgoing_signers_ignore_block_proposals() {
         .unwrap()
         .signer_signature_hash;
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
-    let mut stackerdb = StackerDB::new(
+    let mut stackerdb = StackerDB::new_normal(
         &signer_test.running_nodes.conf.node.rpc_bind,
         StacksPrivateKey::new(), // We are just reading so don't care what the key is
         false,
@@ -10733,7 +10733,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
 
     // The first 50% of the signers are the ones that are ignoring block proposals and thus haven't sent a signature yet
     let forced_signer = &signer_test.signer_stacks_private_keys[ignoring_signers.len()];
-    let mut stackerdb = StackerDB::new(
+    let mut stackerdb = StackerDB::new_normal(
         &signer_test.running_nodes.conf.node.rpc_bind,
         forced_signer.clone(),
         false,

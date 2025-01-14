@@ -82,7 +82,25 @@ impl<M: MessageSlotID + 'static> From<&SignerConfig> for StackerDB<M> {
 }
 
 impl<M: MessageSlotID + 'static> StackerDB<M> {
-    /// Create a new StackerDB client running in normal operation
+    #[cfg(any(test, feature = "testing"))]
+    /// Create a StackerDB client in normal operation (i.e., not a dry-run signer)
+    pub fn new_normal(
+        host: &str,
+        stacks_private_key: StacksPrivateKey,
+        is_mainnet: bool,
+        reward_cycle: u64,
+        signer_slot_id: SignerSlotID,
+    ) -> Self {
+        Self::new(
+            host,
+            stacks_private_key,
+            is_mainnet,
+            reward_cycle,
+            StackerDBMode::Normal { signer_slot_id },
+        )
+    }
+
+    /// Create a new StackerDB client
     fn new(
         host: &str,
         stacks_private_key: StacksPrivateKey,
