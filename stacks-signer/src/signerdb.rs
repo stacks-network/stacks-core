@@ -1007,15 +1007,6 @@ impl SignerDb {
         Ok(sighash.and_then(|sighash| Sha512Trunc256Sum::from_hex(&sighash).ok()))
     }
 
-    /// Get a pending block validation, sorted by the time at which it was added to the pending table.
-    pub fn get_pending_block_validation(&self) -> Result<Option<Sha512Trunc256Sum>, DBError> {
-        let qry =
-            "SELECT signer_signature_hash FROM block_validations_pending ORDER BY added_time ASC";
-        let args = params![];
-        let sighash: Option<String> = query_row(&self.db, qry, args)?;
-        Ok(sighash.and_then(|sighash| Sha512Trunc256Sum::from_hex(&sighash).ok()))
-    }
-
     /// Remove a pending block validation
     pub fn remove_pending_block_validation(
         &self,
