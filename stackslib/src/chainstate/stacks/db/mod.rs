@@ -1697,8 +1697,7 @@ impl StacksChainState {
                 &first_index_hash
             );
 
-            let first_root_hash =
-                tx.put_indexed_all(&parent_hash, &first_index_hash, &vec![], &vec![])?;
+            let first_root_hash = tx.put_indexed_all(&parent_hash, &first_index_hash, &[], &[])?;
 
             test_debug!(
                 "Boot code headers index_commit {}-{}",
@@ -2635,8 +2634,8 @@ impl StacksChainState {
         let root_hash = headers_tx.put_indexed_all(
             &parent_hash,
             &new_tip.index_block_hash(new_consensus_hash),
-            &vec![],
-            &vec![],
+            &[],
+            &[],
         )?;
         let index_block_hash = new_tip.index_block_hash(&new_consensus_hash);
         test_debug!(

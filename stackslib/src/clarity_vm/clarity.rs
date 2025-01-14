@@ -2609,7 +2609,7 @@ mod tests {
             key_encoding: TransactionPublicKeyEncoding::Compressed,
             nonce: 0,
             tx_fee: 1,
-            signature: MessageSignature::from_raw(&vec![0xfe; 65]),
+            signature: MessageSignature::from_raw(&[0xfe; 65]),
         });
 
         let contract = "(define-public (foo) (ok 1))";
