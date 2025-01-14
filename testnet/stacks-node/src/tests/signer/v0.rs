@@ -11009,7 +11009,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
         .nakamoto_test_skip_commit_op
         .set(true);
 
-    info!("------------------------- Miner 1 Mines a Nakamoto Block N (Globally Accepted) -------------------------");
+    info!("------------------------- Miner 1 Mines a Nakamoto Block N -------------------------");
     let blocks_processed_before_1 = blocks_mined1.load(Ordering::SeqCst);
     let stacks_height_before = signer_test
         .stacks_client
@@ -11039,6 +11039,8 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
 
     let blocks = test_observer::get_mined_nakamoto_blocks();
     let block_n = blocks.last().unwrap().clone();
+    let block_n_height = block_n.stacks_height;
+    info!("Block N: {block_n_height}");
     let block_n_signature_hash = block_n.signer_signature_hash;
 
     let info_after = get_chain_info(&conf);
@@ -11128,6 +11130,8 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     assert!(tip.sortition);
     assert_eq!(tip.miner_pk_hash.unwrap(), mining_pkh_2);
 
+    assert_eq!(get_chain_info(&conf).stacks_tip_height, block_n_height + 1);
+
     info!("------------------------- Miner 2 Mines N+2 and N+3 -------------------------");
     let blocks_processed_before_2 = blocks_mined2.load(Ordering::SeqCst);
     let stacks_height_before = signer_test
@@ -11195,6 +11199,8 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     })
     .expect("Timed out waiting for Miner 2 to Mine Block N+3");
 
+    assert_eq!(get_chain_info(&conf).stacks_tip_height, block_n_height + 3);
+
     info!("------------------------- Miner 1 Wins the Next Tenure -------------------------");
 
     let blocks_processed_before_1 = blocks_mined1.load(Ordering::SeqCst);
@@ -11211,6 +11217,10 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
         },
     )
     .expect("Timed out waiting for Miner 1 to Mine Block N+1'");
+
+    let blocks = test_observer::get_mined_nakamoto_blocks();
+    let last_block = blocks.last().expect("No blocks mined");
+    assert_eq!(last_block.stacks_height, block_n_height + 1);
 
     info!("------------------------- Miner 1 Mines N+2 -------------------------");
 
@@ -11236,6 +11246,10 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
         )
     })
     .expect("Timed out waiting for Miner 1 to Mine Block N+2");
+
+    let blocks = test_observer::get_mined_nakamoto_blocks();
+    let last_block = blocks.last().expect("No blocks mined");
+    assert_eq!(last_block.stacks_height, block_n_height + 2);
 
     info!("------------------------- Shutdown -------------------------");
     rl2_coord_channels
