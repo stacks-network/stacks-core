@@ -150,7 +150,7 @@ impl BitcoinMessageHandler for BitcoinBlockDownloader {
             None => panic!("No block header set"),
             Some(ref ipc_header) => {
                 let block_hash = ipc_header.block_header.header.bitcoin_hash().clone();
-                indexer.send_getdata(&vec![block_hash]).map(|_r| true)
+                indexer.send_getdata(&[block_hash]).map(|_r| true)
             }
         }
     }
@@ -191,7 +191,7 @@ impl BitcoinMessageHandler for BitcoinBlockDownloader {
                     );
 
                     // try again
-                    indexer.send_getdata(&vec![ipc_header.block_header.header.bitcoin_hash()])?;
+                    indexer.send_getdata(&[ipc_header.block_header.header.bitcoin_hash()])?;
                     return Ok(true);
                 }
 
@@ -599,14 +599,14 @@ mod tests {
         })
     }
 
-    fn to_txid(inp: &Vec<u8>) -> Txid {
+    fn to_txid(inp: &[u8]) -> Txid {
         let mut ret = [0; 32];
         let bytes = &inp[..inp.len()];
         ret.copy_from_slice(bytes);
         Txid(ret)
     }
 
-    fn to_block_hash(inp: &Vec<u8>) -> BurnchainHeaderHash {
+    fn to_block_hash(inp: &[u8]) -> BurnchainHeaderHash {
         let mut ret = [0; 32];
         let bytes = &inp[..inp.len()];
         ret.copy_from_slice(bytes);
