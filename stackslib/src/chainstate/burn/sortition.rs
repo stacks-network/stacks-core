@@ -1132,7 +1132,7 @@ mod test {
             test_append_snapshot_with_winner(
                 &mut db,
                 header.block_hash.clone(),
-                &vec![BlockstackOperationType::LeaderBlockCommit(
+                &[BlockstackOperationType::LeaderBlockCommit(
                     commit_winner.clone(),
                 )],
                 Some(tip),

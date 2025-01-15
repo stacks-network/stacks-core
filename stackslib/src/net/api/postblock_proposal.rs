@@ -74,8 +74,8 @@ use crate::util_lib::db::Error as DBError;
 pub static TEST_VALIDATE_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 #[cfg(any(test, feature = "testing"))]
 /// Artificial delay to add to block validation.
-pub static TEST_VALIDATE_DELAY_DURATION_SECS: std::sync::Mutex<Option<u64>> =
-    std::sync::Mutex::new(None);
+pub static TEST_VALIDATE_DELAY_DURATION_SECS: LazyLock<TestFlag<u64>> =
+    LazyLock::new(TestFlag::default);
 
 // This enum is used to supply a `reason_code` for validation
 //  rejection responses. This is serialized as an enum with string
@@ -89,6 +89,8 @@ define_u8_enum![ValidateRejectCode {
     NonCanonicalTenure = 5,
     NoSuchTenure = 6
 }];
+
+pub static TOO_MANY_REQUESTS_STATUS: u16 = 429;
 
 impl TryFrom<u8> for ValidateRejectCode {
     type Error = CodecError;
@@ -175,6 +177,23 @@ impl From<Result<BlockValidateOk, BlockValidateReject>> for BlockValidateRespons
             Err(e) => BlockValidateResponse::Reject(e),
         }
     }
+}
+
+impl BlockValidateResponse {
+    /// Get the signer signature hash from the response
+    pub fn signer_signature_hash(&self) -> Sha512Trunc256Sum {
+        match self {
+            BlockValidateResponse::Ok(o) => o.signer_signature_hash,
+            BlockValidateResponse::Reject(r) => r.signer_signature_hash,
+        }
+    }
+}
+
+#[cfg(any(test, feature = "testing"))]
+fn inject_validation_delay() {
+    let delay = TEST_VALIDATE_DELAY_DURATION_SECS.get();
+    warn!("Sleeping for {} seconds to simulate slow processing", delay);
+    thread::sleep(Duration::from_secs(delay));
 }
 
 /// Represents a block proposed to the `v3/block_proposal` endpoint for validation
@@ -371,12 +390,7 @@ impl NakamotoBlockProposal {
         let start = Instant::now();
 
         #[cfg(any(test, feature = "testing"))]
-        {
-            if let Some(delay) = *TEST_VALIDATE_DELAY_DURATION_SECS.lock().unwrap() {
-                warn!("Sleeping for {} seconds to simulate slow processing", delay);
-                thread::sleep(Duration::from_secs(delay));
-            }
-        }
+        inject_validation_delay();
 
         let mainnet = self.chain_id == CHAIN_ID_MAINNET;
         if self.chain_id != chainstate.chain_id || mainnet != chainstate.mainnet {
@@ -747,7 +761,7 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
         let res = node.with_node_state(|network, sortdb, chainstate, _mempool, rpc_args| {
             if network.is_proposal_thread_running() {
                 return Err((
-                    429,
+                    TOO_MANY_REQUESTS_STATUS,
                     NetError::SendError("Proposal currently being evaluated".into()),
                 ));
             }
@@ -782,7 +796,7 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
                 .spawn_validation_thread(sortdb, chainstate, receiver)
                 .map_err(|_e| {
                     (
-                        429,
+                        TOO_MANY_REQUESTS_STATUS,
                         NetError::SendError(
                             "IO error while spawning proposal callback thread".into(),
                         ),
