@@ -2554,6 +2554,7 @@ pub mod test {
             _rewards: Vec<(PoxAddress, u64)>,
             _burns: u64,
             _reward_recipients: Vec<PoxAddress>,
+            _consensus_hash: &ConsensusHash,
         ) {
             // pass
         }
