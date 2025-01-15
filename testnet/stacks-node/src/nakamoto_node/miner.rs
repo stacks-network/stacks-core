@@ -80,7 +80,7 @@ pub enum MinerDirective {
     BeginTenure {
         /// This is the block ID of the first block in the parent tenure
         parent_tenure_start: StacksBlockId,
-        /// This is the snapshot that this miner won, and will produce a tenure for 
+        /// This is the snapshot that this miner won, and will produce a tenure for
         burnchain_tip: BlockSnapshot,
         /// This is `true` if the snapshot above is known not to be the the latest burnchain tip,
         /// but an ancestor of it (for example, the burnchain tip could be an empty flash block, but the
@@ -125,7 +125,7 @@ pub enum MinerReason {
         /// tip).  This indication is important because the miner would issue a BlockFound
         /// tenure-change, and then issue an Extended tenure-change right afterwards in order to
         /// update the burnchain view exposed to Clarity for the highest sortition.
-        late: bool
+        late: bool,
     },
     /// The miner thread was spawned to extend an existing tenure
     Extended {
