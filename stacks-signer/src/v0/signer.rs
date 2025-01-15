@@ -487,6 +487,7 @@ impl Signer {
             "block_id" => %block_proposal.block.block_id(),
             "block_height" => block_proposal.block.header.chain_length,
             "burn_height" => block_proposal.burn_height,
+            "consensus_hash" => %block_proposal.block.header.consensus_hash,
         );
         crate::monitoring::increment_block_proposals_received();
         #[cfg(any(test, feature = "testing"))]
