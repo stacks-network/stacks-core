@@ -591,8 +591,8 @@ impl SortitionsView {
                 signer_db.block_lookup(&nakamoto_tip.signer_signature_hash())
             {
                 if block_info.state != BlockState::GloballyAccepted {
-                    if let Err(e) = block_info.mark_globally_accepted() {
-                        warn!("Failed to update block info in db: {e}");
+                    if let Err(e) = signer_db.mark_block_globally_accepted(&mut block_info) {
+                        warn!("Failed to mark block as globally accepted: {e}");
                     } else if let Err(e) = signer_db.insert_block(&block_info) {
                         warn!("Failed to update block info in db: {e}");
                     }
