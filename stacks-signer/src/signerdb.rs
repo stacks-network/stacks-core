@@ -1910,7 +1910,7 @@ mod tests {
         let consensus_hash_2 = ConsensusHash([0x02; 20]);
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
         let (mut block_info, _) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_1.clone();
+            b.block.header.consensus_hash = consensus_hash_1;
             b.block.header.chain_length = 1;
         });
 
