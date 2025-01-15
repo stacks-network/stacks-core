@@ -550,7 +550,7 @@ fn inner_sql_pragma(
 pub fn sql_vacuum(conn: &Connection) -> Result<(), Error> {
     conn.execute("VACUUM", NO_PARAMS)
         .map_err(Error::SqliteError)
-        .and_then(|_| Ok(()))
+        .map(|_| ())
 }
 
 /// Returns true if the database table `table_name` exists in the active
@@ -900,8 +900,8 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
         &mut self,
         parent_header_hash: &T,
         header_hash: &T,
-        keys: &Vec<String>,
-        values: &Vec<String>,
+        keys: &[String],
+        values: &[String],
     ) -> Result<TrieHash, Error> {
         assert_eq!(keys.len(), values.len());
         match self.block_linkage {

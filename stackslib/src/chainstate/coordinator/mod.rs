@@ -194,6 +194,7 @@ pub trait BlockEventDispatcher {
         rewards: Vec<(PoxAddress, u64)>,
         burns: u64,
         reward_recipients: Vec<PoxAddress>,
+        consensus_hash: &ConsensusHash,
     );
 }
 
@@ -938,6 +939,7 @@ pub fn dispatcher_announce_burn_ops<T: BlockEventDispatcher>(
     burn_header: &BurnchainBlockHeader,
     paid_rewards: PaidRewards,
     reward_recipient_info: Option<RewardSetInfo>,
+    consensus_hash: &ConsensusHash,
 ) {
     let recipients = if let Some(recip_info) = reward_recipient_info {
         recip_info
@@ -955,6 +957,7 @@ pub fn dispatcher_announce_burn_ops<T: BlockEventDispatcher>(
         paid_rewards.pox,
         paid_rewards.burns,
         recipients,
+        consensus_hash,
     );
 }
 
@@ -2411,11 +2414,11 @@ impl<
             // burnchain has not yet advanced to epoch 3.0
             return self
                 .handle_new_epoch2_burnchain_block(&mut HashSet::new())
-                .and_then(|block_hash_opt| {
+                .map(|block_hash_opt| {
                     if let Some(block_hash) = block_hash_opt {
-                        Ok(NewBurnchainBlockStatus::WaitForPox2x(block_hash))
+                        NewBurnchainBlockStatus::WaitForPox2x(block_hash)
                     } else {
-                        Ok(NewBurnchainBlockStatus::Ready)
+                        NewBurnchainBlockStatus::Ready
                     }
                 });
         }
@@ -2444,12 +2447,12 @@ impl<
 
         // proceed to process sortitions in epoch 3.0
         self.handle_new_nakamoto_burnchain_block()
-            .and_then(|can_proceed| {
+            .map(|can_proceed| {
                 if can_proceed {
-                    Ok(NewBurnchainBlockStatus::Ready)
+                    NewBurnchainBlockStatus::Ready
                 } else {
                     // missing PoX anchor block, but unlike in 2.x, we don't know what it is!
-                    Ok(NewBurnchainBlockStatus::WaitForPoxNakamoto)
+                    NewBurnchainBlockStatus::WaitForPoxNakamoto
                 }
             })
     }
@@ -2705,13 +2708,14 @@ impl<
                             &self.burnchain,
                             &last_processed_ancestor,
                             reward_cycle_info,
-                            |reward_set_info| {
+                            |reward_set_info, consensus_hash| {
                                 if let Some(dispatcher) = dispatcher_ref {
                                     dispatcher_announce_burn_ops(
                                         *dispatcher,
                                         &header,
                                         paid_rewards,
                                         reward_set_info,
+                                        &consensus_hash,
                                     );
                                 }
                             },

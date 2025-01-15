@@ -1233,7 +1233,7 @@ impl<'a> SortitionHandleTx<'a> {
     pub fn get_consumed_leader_keys(
         &mut self,
         parent_tip: &BlockSnapshot,
-        block_candidates: &Vec<LeaderBlockCommitOp>,
+        block_candidates: &[LeaderBlockCommitOp],
     ) -> Result<Vec<LeaderKeyRegisterOp>, db_error> {
         // get the set of VRF keys consumed by these commits
         let mut leader_keys = vec![];
@@ -3936,7 +3936,7 @@ impl SortitionDBConn<'_> {
             tip,
             reward_cycle_id,
         )
-        .and_then(|(reward_cycle_info, _anchor_sortition_id)| Ok(reward_cycle_info))
+        .map(|(reward_cycle_info, _anchor_sortition_id)| reward_cycle_info)
     }
 
     /// Get the prepare phase start sortition ID of a reward cycle.  This is the first prepare
@@ -4048,25 +4048,23 @@ impl SortitionDB {
     }
 
     fn parse_last_anchor_block_hash(s: Option<String>) -> Option<BlockHeaderHash> {
-        s.map(|s| {
+        s.and_then(|s| {
             if s.is_empty() {
                 None
             } else {
                 Some(BlockHeaderHash::from_hex(&s).expect("BUG: Bad BlockHeaderHash stored in DB"))
             }
         })
-        .flatten()
     }
 
     fn parse_last_anchor_block_txid(s: Option<String>) -> Option<Txid> {
-        s.map(|s| {
+        s.and_then(|s| {
             if s.is_empty() {
                 None
             } else {
                 Some(Txid::from_hex(&s).expect("BUG: Bad Txid stored in DB"))
             }
         })
-        .flatten()
     }
 
     /// Mark a Stacks block snapshot as valid again, but update its memoized canonical Stacks tip
@@ -4120,7 +4118,7 @@ impl SortitionDB {
         mut after: G,
     ) -> Result<(), BurnchainError>
     where
-        F: FnMut(&mut SortitionDBTx, &BurnchainHeaderHash, &Vec<BurnchainHeaderHash>),
+        F: FnMut(&mut SortitionDBTx, &BurnchainHeaderHash, &[BurnchainHeaderHash]),
         G: FnMut(&mut SortitionDBTx),
     {
         let mut db_tx = self.tx_begin()?;
@@ -4287,7 +4285,7 @@ impl SortitionDB {
     /// * `next_pox_info` - iff this sortition is the first block in a reward cycle, this should be Some
     /// * `announce_to` - a function that will be invoked with the calculated reward set before this method
     ///                   commits its results. This is used to post the calculated reward set to an event observer.
-    pub fn evaluate_sortition<F: FnOnce(Option<RewardSetInfo>)>(
+    pub fn evaluate_sortition<F: FnOnce(Option<RewardSetInfo>, ConsensusHash)>(
         &mut self,
         mainnet: bool,
         burn_header: &BurnchainBlockHeader,
@@ -4383,7 +4381,7 @@ impl SortitionDB {
                 .store_transition_ops(&new_snapshot.0.sortition_id, &new_snapshot.1)?;
         }
 
-        announce_to(reward_set_info);
+        announce_to(reward_set_info, new_snapshot.0.consensus_hash);
 
         if !dryrun {
             // commit everything!
@@ -5237,7 +5235,7 @@ impl SortitionDB {
     /// Merge the result of get_stacks_header_hashes() into a BlockHeaderCache
     pub fn merge_block_header_cache(
         cache: &mut BlockHeaderCache,
-        header_data: &Vec<(ConsensusHash, Option<BlockHeaderHash>)>,
+        header_data: &[(ConsensusHash, Option<BlockHeaderHash>)],
     ) {
         if !header_data.is_empty() {
             let mut i = header_data.len() - 1;
@@ -5403,8 +5401,8 @@ impl SortitionHandleTx<'_> {
         &mut self,
         parent_snapshot: &BlockSnapshot,
         snapshot: &BlockSnapshot,
-        block_ops: &Vec<BlockstackOperationType>,
-        missed_commits: &Vec<MissedBlockCommit>,
+        block_ops: &[BlockstackOperationType],
+        missed_commits: &[MissedBlockCommit],
         next_pox_info: Option<RewardCycleInfo>,
         reward_info: Option<&RewardSetInfo>,
         initialize_bonus: Option<InitialMiningBonus>,
@@ -6773,14 +6771,8 @@ pub mod tests {
 
             let mut first_sn = first_snapshot.clone();
             first_sn.sortition_id = SortitionId::sentinel();
-            let (index_root, pox_payout) = db_tx.index_add_fork_info(
-                &mut first_sn,
-                &first_snapshot,
-                &vec![],
-                None,
-                None,
-                None,
-            )?;
+            let (index_root, pox_payout) =
+                db_tx.index_add_fork_info(&mut first_sn, &first_snapshot, &[], None, None, None)?;
             first_snapshot.index_root = index_root;
 
             // manually insert the first block snapshot in instantiate_v1 testing code, because
@@ -7003,7 +6995,7 @@ pub mod tests {
     pub fn test_append_snapshot_with_winner(
         db: &mut SortitionDB,
         next_hash: BurnchainHeaderHash,
-        block_ops: &Vec<BlockstackOperationType>,
+        block_ops: &[BlockstackOperationType],
         parent_sn: Option<BlockSnapshot>,
         winning_block_commit: Option<LeaderBlockCommitOp>,
     ) -> BlockSnapshot {
@@ -7030,7 +7022,7 @@ pub mod tests {
         }
 
         let index_root = tx
-            .append_chain_tip_snapshot(&sn_parent, &sn, block_ops, &vec![], None, None, None)
+            .append_chain_tip_snapshot(&sn_parent, &sn, block_ops, &[], None, None, None)
             .unwrap();
         sn.index_root = index_root;
 
@@ -7042,7 +7034,7 @@ pub mod tests {
     pub fn test_append_snapshot(
         db: &mut SortitionDB,
         next_hash: BurnchainHeaderHash,
-        block_ops: &Vec<BlockstackOperationType>,
+        block_ops: &[BlockstackOperationType],
     ) -> BlockSnapshot {
         test_append_snapshot_with_winner(db, next_hash, block_ops, None, None)
     }
@@ -7083,7 +7075,7 @@ pub mod tests {
         let snapshot = test_append_snapshot(
             &mut db,
             BurnchainHeaderHash([0x01; 32]),
-            &vec![BlockstackOperationType::LeaderKeyRegister(
+            &[BlockstackOperationType::LeaderKeyRegister(
                 leader_key.clone(),
             )],
         );
@@ -7101,7 +7093,7 @@ pub mod tests {
             assert_eq!(leader_key_opt.unwrap(), leader_key);
         }
 
-        let new_snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x02; 32]), &vec![]);
+        let new_snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x02; 32]), &[]);
 
         {
             let ic = db.index_conn();
@@ -7204,7 +7196,7 @@ pub mod tests {
         let snapshot = test_append_snapshot(
             &mut db,
             BurnchainHeaderHash([0x01; 32]),
-            &vec![BlockstackOperationType::LeaderKeyRegister(
+            &[BlockstackOperationType::LeaderKeyRegister(
                 leader_key.clone(),
             )],
         );
@@ -7221,7 +7213,7 @@ pub mod tests {
         let snapshot_consumed = test_append_snapshot(
             &mut db,
             BurnchainHeaderHash([0x03; 32]),
-            &vec![BlockstackOperationType::LeaderBlockCommit(
+            &[BlockstackOperationType::LeaderBlockCommit(
                 block_commit.clone(),
             )],
         );
@@ -7235,8 +7227,7 @@ pub mod tests {
         }
 
         // advance and get parent
-        let empty_snapshot =
-            test_append_snapshot(&mut db, BurnchainHeaderHash([0x05; 32]), &vec![]);
+        let empty_snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x05; 32]), &[]);
 
         // test get_block_commit_parent()
         {
@@ -7331,7 +7322,7 @@ pub mod tests {
             sn.consensus_hash = ConsensusHash([0x23; 20]);
 
             let index_root = tx
-                .append_chain_tip_snapshot(&sn_parent, &sn, &vec![], &vec![], None, None, None)
+                .append_chain_tip_snapshot(&sn_parent, &sn, &[], &[], None, None, None)
                 .unwrap();
             sn.index_root = index_root;
 
@@ -7383,8 +7374,7 @@ pub mod tests {
 
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
 
-        let no_key_snapshot =
-            test_append_snapshot(&mut db, BurnchainHeaderHash([0x01; 32]), &vec![]);
+        let no_key_snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x01; 32]), &[]);
 
         let has_key_before = {
             let mut ic = SortitionHandleTx::begin(&mut db, &no_key_snapshot.sortition_id).unwrap();
@@ -7396,7 +7386,7 @@ pub mod tests {
         let key_snapshot = test_append_snapshot(
             &mut db,
             BurnchainHeaderHash([0x03; 32]),
-            &vec![BlockstackOperationType::LeaderKeyRegister(
+            &[BlockstackOperationType::LeaderKeyRegister(
                 leader_key.clone(),
             )],
         );
@@ -7564,8 +7554,8 @@ pub mod tests {
                     .append_chain_tip_snapshot(
                         &last_snapshot,
                         &snapshot_row,
-                        &vec![],
-                        &vec![],
+                        &[],
+                        &[],
                         None,
                         None,
                         None,
@@ -7814,8 +7804,8 @@ pub mod tests {
                     .append_chain_tip_snapshot(
                         &last_snapshot,
                         &snapshot_row,
-                        &vec![],
-                        &vec![],
+                        &[],
+                        &[],
                         None,
                         None,
                         None,
@@ -7923,7 +7913,7 @@ pub mod tests {
         let key_snapshot = test_append_snapshot(
             &mut db,
             BurnchainHeaderHash([0x01; 32]),
-            &vec![BlockstackOperationType::LeaderKeyRegister(
+            &[BlockstackOperationType::LeaderKeyRegister(
                 leader_key.clone(),
             )],
         );
@@ -7931,7 +7921,7 @@ pub mod tests {
         let commit_snapshot = test_append_snapshot(
             &mut db,
             BurnchainHeaderHash([0x03; 32]),
-            &vec![BlockstackOperationType::LeaderBlockCommit(
+            &[BlockstackOperationType::LeaderBlockCommit(
                 block_commit.clone(),
             )],
         );
@@ -8121,8 +8111,8 @@ pub mod tests {
             tx.append_chain_tip_snapshot(
                 &chain_tip,
                 &snapshot_without_sortition,
-                &vec![],
-                &vec![],
+                &[],
+                &[],
                 None,
                 None,
                 None,
@@ -8150,8 +8140,8 @@ pub mod tests {
             tx.append_chain_tip_snapshot(
                 &chain_tip,
                 &snapshot_with_sortition,
-                &vec![],
-                &vec![],
+                &[],
+                &[],
                 None,
                 None,
                 None,
@@ -8346,8 +8336,8 @@ pub mod tests {
             tx.append_chain_tip_snapshot(
                 &last_snapshot,
                 &next_snapshot,
-                &vec![],
-                &vec![],
+                &[],
+                &[],
                 None,
                 None,
                 None,
@@ -8491,8 +8481,8 @@ pub mod tests {
                     .append_chain_tip_snapshot(
                         &last_snapshot,
                         &next_snapshot,
-                        &vec![],
-                        &vec![],
+                        &[],
+                        &[],
                         None,
                         None,
                         None,
@@ -8578,8 +8568,8 @@ pub mod tests {
                         .append_chain_tip_snapshot(
                             &last_snapshot,
                             &next_snapshot,
-                            &vec![],
-                            &vec![],
+                            &[],
+                            &[],
                             None,
                             None,
                             None,
@@ -8619,8 +8609,8 @@ pub mod tests {
                     .append_chain_tip_snapshot(
                         &last_snapshot,
                         &next_snapshot,
-                        &vec![],
-                        &vec![],
+                        &[],
+                        &[],
                         None,
                         None,
                         None,
@@ -8822,8 +8812,8 @@ pub mod tests {
                     .append_chain_tip_snapshot(
                         &last_snapshot,
                         &snapshot_row,
-                        &vec![],
-                        &vec![],
+                        &[],
+                        &[],
                         None,
                         None,
                         None,
@@ -9073,8 +9063,8 @@ pub mod tests {
                     .append_chain_tip_snapshot(
                         &last_snapshot,
                         &snapshot,
-                        &vec![],
-                        &vec![],
+                        &[],
+                        &[],
                         None,
                         None,
                         None,
@@ -9711,7 +9701,7 @@ pub mod tests {
             3,
             &BurnchainHeaderHash([0u8; 32]),
             0,
-            &vec![
+            &[
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch10,
                     start_height: 0,
@@ -9757,7 +9747,7 @@ pub mod tests {
             }
 
             cur_snapshot =
-                test_append_snapshot(&mut db, BurnchainHeaderHash([((i + 1) as u8); 32]), &vec![]);
+                test_append_snapshot(&mut db, BurnchainHeaderHash([((i + 1) as u8); 32]), &[]);
         }
     }
 
@@ -9773,7 +9763,7 @@ pub mod tests {
             3,
             &BurnchainHeaderHash([0u8; 32]),
             0,
-            &vec![
+            &[
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch10,
                     start_height: 0,
@@ -9827,7 +9817,7 @@ pub mod tests {
             }
 
             cur_snapshot =
-                test_append_snapshot(&mut db, BurnchainHeaderHash([((i + 1) as u8); 32]), &vec![]);
+                test_append_snapshot(&mut db, BurnchainHeaderHash([((i + 1) as u8); 32]), &[]);
         }
     }
 
@@ -9847,7 +9837,7 @@ pub mod tests {
             3,
             &BurnchainHeaderHash([0u8; 32]),
             0,
-            &vec![
+            &[
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch10,
                     start_height: 0,
@@ -9893,7 +9883,7 @@ pub mod tests {
             3,
             &BurnchainHeaderHash([0u8; 32]),
             0,
-            &vec![
+            &[
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch10,
                     start_height: 0,
@@ -9939,7 +9929,7 @@ pub mod tests {
             3,
             &BurnchainHeaderHash([0u8; 32]),
             0,
-            &vec![
+            &[
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch10,
                     start_height: 1,
@@ -9985,7 +9975,7 @@ pub mod tests {
             3,
             &BurnchainHeaderHash([0u8; 32]),
             0,
-            &vec![
+            &[
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch10,
                     start_height: 0,
@@ -10031,7 +10021,7 @@ pub mod tests {
             3,
             &BurnchainHeaderHash([0u8; 32]),
             0,
-            &vec![
+            &[
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch10,
                     start_height: 0,
@@ -10269,7 +10259,7 @@ pub mod tests {
         let key_snapshot = test_append_snapshot(
             &mut db,
             BurnchainHeaderHash([0x01; 32]),
-            &vec![BlockstackOperationType::LeaderKeyRegister(
+            &[BlockstackOperationType::LeaderKeyRegister(
                 leader_key.clone(),
             )],
         );
@@ -10277,7 +10267,7 @@ pub mod tests {
         let genesis_commit_snapshot = test_append_snapshot_with_winner(
             &mut db,
             BurnchainHeaderHash([0x03; 32]),
-            &vec![BlockstackOperationType::LeaderBlockCommit(
+            &[BlockstackOperationType::LeaderBlockCommit(
                 genesis_block_commit.clone(),
             )],
             None,
@@ -10287,7 +10277,7 @@ pub mod tests {
         let first_block_commit_snapshot = test_append_snapshot_with_winner(
             &mut db,
             BurnchainHeaderHash([0x04; 32]),
-            &vec![BlockstackOperationType::LeaderBlockCommit(
+            &[BlockstackOperationType::LeaderBlockCommit(
                 block_commit_1.clone(),
             )],
             None,
@@ -10297,7 +10287,7 @@ pub mod tests {
         let second_block_commit_snapshot = test_append_snapshot_with_winner(
             &mut db,
             BurnchainHeaderHash([0x05; 32]),
-            &vec![BlockstackOperationType::LeaderBlockCommit(
+            &[BlockstackOperationType::LeaderBlockCommit(
                 block_commit_1_1.clone(),
             )],
             None,
@@ -10307,7 +10297,7 @@ pub mod tests {
         let third_block_commit_snapshot = test_append_snapshot_with_winner(
             &mut db,
             BurnchainHeaderHash([0x06; 32]),
-            &vec![BlockstackOperationType::LeaderBlockCommit(
+            &[BlockstackOperationType::LeaderBlockCommit(
                 block_commit_2.clone(),
             )],
             None,
@@ -10458,7 +10448,7 @@ pub mod tests {
         let first_burn_hash = BurnchainHeaderHash([0x00; 32]);
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
         for i in 1..11 {
-            test_append_snapshot(&mut db, BurnchainHeaderHash([i as u8; 32]), &vec![]);
+            test_append_snapshot(&mut db, BurnchainHeaderHash([i as u8; 32]), &[]);
         }
 
         // typical

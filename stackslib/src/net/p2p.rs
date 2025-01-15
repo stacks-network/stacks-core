@@ -1286,7 +1286,7 @@ impl PeerNetwork {
     /// connection to the same neighbor, only one connection will be used.
     fn sample_broadcast_peers<R: RelayPayload>(
         &self,
-        relay_hints: &Vec<RelayData>,
+        relay_hints: &[RelayData],
         payload: &R,
     ) -> Result<Vec<NeighborKey>, net_error> {
         // coalesce
@@ -1400,9 +1400,9 @@ impl PeerNetwork {
                 }
                 Ok(())
             }
-            NetworkRequest::Relay(neighbor_key, msg) => self
-                .relay_signed_message(&neighbor_key, msg)
-                .and_then(|_| Ok(())),
+            NetworkRequest::Relay(neighbor_key, msg) => {
+                self.relay_signed_message(&neighbor_key, msg).map(|_| ())
+            }
             NetworkRequest::Broadcast(relay_hints, msg) => {
                 // pick some neighbors. Note that only some messages can be broadcasted.
                 let neighbor_keys = match msg {
@@ -5383,7 +5383,7 @@ mod test {
         neighbor
     }
 
-    fn make_test_p2p_network(initial_neighbors: &Vec<Neighbor>) -> PeerNetwork {
+    fn make_test_p2p_network(initial_neighbors: &[Neighbor]) -> PeerNetwork {
         let mut conn_opts = ConnectionOptions::default();
         conn_opts.inbox_maxlen = 5;
         conn_opts.outbox_maxlen = 5;
@@ -5423,7 +5423,7 @@ mod test {
             0,
             23456,
             "http://test-p2p.com".into(),
-            &vec![],
+            &[],
             initial_neighbors,
         )
         .unwrap();
@@ -5453,7 +5453,7 @@ mod test {
     fn test_event_id_no_connecting_leaks() {
         with_timeout(100, || {
             let neighbor = make_test_neighbor(2300);
-            let mut p2p = make_test_p2p_network(&vec![]);
+            let mut p2p = make_test_p2p_network(&[]);
 
             use std::net::TcpListener;
             let listener = TcpListener::bind("127.0.0.1:2300").unwrap();
@@ -5614,7 +5614,7 @@ mod test {
         with_timeout(100, || {
             let neighbor = make_test_neighbor(2200);
 
-            let mut p2p = make_test_p2p_network(&vec![]);
+            let mut p2p = make_test_p2p_network(&[]);
 
             let mut h = p2p.new_handle(1);
 

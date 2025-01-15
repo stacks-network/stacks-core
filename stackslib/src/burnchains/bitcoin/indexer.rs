@@ -458,7 +458,7 @@ impl BitcoinIndexer {
         }
         spv_client
             .run(self)
-            .and_then(|_r| Ok(spv_client.end_block_height.unwrap()))
+            .map(|_r| spv_client.end_block_height.unwrap())
     }
 
     #[cfg(test)]
@@ -3151,7 +3151,7 @@ mod test {
         assert_eq!(total_work_before, total_work_before_idempotent);
 
         // fake block headers for mainnet 40319-40320, which is on a difficulty adjustment boundary
-        let bad_headers = vec![
+        let bad_headers = [
             LoneBlockHeader {
                 header: BlockHeader {
                     version: 1,

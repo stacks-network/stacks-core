@@ -539,7 +539,7 @@ impl SortitionsView {
     ///
     /// The rationale here is that the signer DB can be out-of-sync with the node.  For example,
     /// the signer may have been added to an already-running node.
-    fn check_tenure_change_confirms_parent(
+    pub fn check_tenure_change_confirms_parent(
         tenure_change: &TenureChangePayload,
         block: &NakamotoBlock,
         signer_db: &mut SignerDb,
@@ -589,8 +589,8 @@ impl SortitionsView {
                 signer_db.block_lookup(&nakamoto_tip.signer_signature_hash())
             {
                 if block_info.state != BlockState::GloballyAccepted {
-                    if let Err(e) = block_info.mark_globally_accepted() {
-                        warn!("Failed to update block info in db: {e}");
+                    if let Err(e) = signer_db.mark_block_globally_accepted(&mut block_info) {
+                        warn!("Failed to mark block as globally accepted: {e}");
                     } else if let Err(e) = signer_db.insert_block(&block_info) {
                         warn!("Failed to update block info in db: {e}");
                     }

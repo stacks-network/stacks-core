@@ -70,8 +70,7 @@ impl GetTenureStartId for StacksDBConn<'_> {
                 tip,
                 &nakamoto_keys::tenure_start_block_id(tenure_id_consensus_hash),
             )?
-            .map(|id_str| nakamoto_keys::parse_block_id(&id_str))
-            .flatten()
+            .and_then(|id_str| nakamoto_keys::parse_block_id(&id_str))
             .map(|block_id| TenureBlockId::from(block_id)))
     }
 
@@ -85,8 +84,7 @@ impl GetTenureStartId for StacksDBConn<'_> {
                 tip,
                 &nakamoto_keys::ongoing_tenure_coinbase_height(coinbase_height),
             )?
-            .map(|hex_inp| nakamoto_keys::parse_block_id(&hex_inp))
-            .flatten();
+            .and_then(|hex_inp| nakamoto_keys::parse_block_id(&hex_inp));
         Ok(opt_out)
     }
 
@@ -106,8 +104,7 @@ impl GetTenureStartId for StacksDBTx<'_> {
                 tip,
                 &nakamoto_keys::tenure_start_block_id(tenure_id_consensus_hash),
             )?
-            .map(|id_str| nakamoto_keys::parse_block_id(&id_str))
-            .flatten()
+            .and_then(|id_str| nakamoto_keys::parse_block_id(&id_str))
             .map(|block_id| TenureBlockId::from(block_id)))
     }
 
@@ -121,8 +118,7 @@ impl GetTenureStartId for StacksDBTx<'_> {
                 tip,
                 &nakamoto_keys::ongoing_tenure_coinbase_height(coinbase_height),
             )?
-            .map(|hex_inp| nakamoto_keys::parse_block_id(&hex_inp))
-            .flatten();
+            .and_then(|hex_inp| nakamoto_keys::parse_block_id(&hex_inp));
         Ok(opt_out)
     }
 
