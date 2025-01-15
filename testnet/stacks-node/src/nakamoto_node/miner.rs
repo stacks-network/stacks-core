@@ -78,8 +78,14 @@ const ABORT_TRY_AGAIN_MS: u64 = 200;
 pub enum MinerDirective {
     /// The miner won sortition so they should begin a new tenure
     BeginTenure {
+        /// This is the block ID of the first block in the parent tenure
         parent_tenure_start: StacksBlockId,
+        /// This is the snapshot that this miner won, and will produce a tenure for 
         burnchain_tip: BlockSnapshot,
+        /// This is `true` if the snapshot above is known not to be the the latest burnchain tip,
+        /// but an ancestor of it (for example, the burnchain tip could be an empty flash block, but the
+        /// miner may nevertheless need to produce a Stacks block with a BlockFound tenure-change
+        /// transaction for the tenure began by winning `burnchain_tip`'s sortition).
         late: bool,
     },
     /// The miner should try to continue their tenure if they are the active miner
@@ -110,7 +116,17 @@ struct ParentStacksBlockInfo {
 #[derive(PartialEq, Clone, Debug)]
 pub enum MinerReason {
     /// The miner thread was spawned to begin a new tenure
-    BlockFound { late: bool },
+    BlockFound {
+        /// `late` indicates whether or not the tenure that is about to be started corresponds to
+        /// an ancestor of the canonical tip.  This can happen if this miner won the highest
+        /// sortition, but that sortition's snapshot is not the canonical tip (e.g. the canonical
+        /// tip may have no sortition, but its parent (or Nth ancestor) would have had a sortition
+        /// that this miner won, and it would be the latest non-empty sortition ancestor of the
+        /// tip).  This indication is important because the miner would issue a BlockFound
+        /// tenure-change, and then issue an Extended tenure-change right afterwards in order to
+        /// update the burnchain view exposed to Clarity for the highest sortition.
+        late: bool
+    },
     /// The miner thread was spawned to extend an existing tenure
     Extended {
         /// Current consensus hash on the underlying burnchain.  Corresponds to the last-seen
@@ -1015,7 +1031,7 @@ impl BlockMinerThread {
         } else {
             self.keychain.generate_proof(
                 self.registered_key.target_block_height,
-                self.burn_block.sortition_hash.as_bytes(),
+                self.burn_election_block.sortition_hash.as_bytes(),
             )
         };
 
@@ -1372,7 +1388,7 @@ impl BlockMinerThread {
                 // ongoing tenure is not an ancestor of the given burn view, so it must have
                 // advanced (or forked) relative to the given burn view.  Either way, this burn
                 // view has changed.
-                info!("Nakamoto chainstate burn view has changed from miner burn view";
+                info!("Nakamoto chainstate burn view has advanced from miner burn view";
                     "nakamoto_burn_view" => %ongoing_tenure_id.burn_view_consensus_hash,
                     "miner_burn_view" => %burn_view.consensus_hash);
 
@@ -1390,8 +1406,6 @@ impl BlockMinerThread {
         sortdb: &SortitionDB,
         chain_state: &mut StacksChainState,
     ) -> Result<(), NakamotoNodeError> {
-        Self::check_burn_view_changed(sortdb, chain_state, &self.burn_block)?;
-
         if let MinerReason::BlockFound { late } = &self.reason {
             if *late && self.last_block_mined.is_none() {
                 // this is a late BlockFound tenure change that ought to be appended to the Stacks
