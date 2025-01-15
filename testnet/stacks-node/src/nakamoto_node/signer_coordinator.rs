@@ -37,7 +37,7 @@ use stacks::util_lib::boot::boot_code_id;
 use super::stackerdb_listener::StackerDBListenerComms;
 use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::StackerDBChannel;
-use crate::nakamoto_node::miner::BlockMinerThread;
+// use crate::nakamoto_node::miner::BlockMinerThread;
 use crate::nakamoto_node::stackerdb_listener::{StackerDBListener, EVENT_RECEIVER_POLL};
 use crate::neon::Counters;
 use crate::Config;
@@ -368,7 +368,7 @@ impl SignerCoordinator {
     /// Check if the tenure needs to change
     fn check_burn_tip_changed(
         sortdb: &SortitionDB,
-        chain_state: &mut StacksChainState,
+        _chain_state: &mut StacksChainState,
         burn_block: &BlockSnapshot,
     ) -> bool {
         /*

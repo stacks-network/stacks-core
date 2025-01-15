@@ -1404,7 +1404,7 @@ impl BlockMinerThread {
     fn check_burn_tip_changed(
         &self,
         sortdb: &SortitionDB,
-        chain_state: &mut StacksChainState,
+        _chain_state: &mut StacksChainState,
     ) -> Result<(), NakamotoNodeError> {
         // BlockMinerThread::check_burn_view_changed(sortdb, chain_state, &self.burn_block)?;
 
