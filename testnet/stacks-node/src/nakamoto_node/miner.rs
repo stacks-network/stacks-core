@@ -1406,6 +1406,8 @@ impl BlockMinerThread {
         sortdb: &SortitionDB,
         chain_state: &mut StacksChainState,
     ) -> Result<(), NakamotoNodeError> {
+        // BlockMinerThread::check_burn_view_changed(sortdb, chain_state, &self.burn_block)?;
+
         if let MinerReason::BlockFound { late } = &self.reason {
             if *late && self.last_block_mined.is_none() {
                 // this is a late BlockFound tenure change that ought to be appended to the Stacks

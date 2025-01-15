@@ -371,10 +371,12 @@ impl SignerCoordinator {
         chain_state: &mut StacksChainState,
         burn_block: &BlockSnapshot,
     ) -> bool {
+        /*
         if BlockMinerThread::check_burn_view_changed(sortdb, chain_state, burn_block).is_err() {
             // can't continue mining -- burn view changed, or a DB error occurred
             return true;
         }
+        */
 
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
