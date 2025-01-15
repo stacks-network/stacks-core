@@ -10823,18 +10823,13 @@ fn injected_signatures_are_ignored_across_boundaries() {
 /// Signers accept and the stacks tip advances to N
 /// Miner 1's block commits are paused so it cannot confirm the next tenure.
 /// Sortition occurs. Miner 2 wins.
-/// Miner 2 proposes block N+1
-/// Signers accept and the stacks tip advances to N+1
+/// Miner 2 successfully mines blocks N+1, N+2, and N+3
 /// Sortition occurs quickly, within first_proposal_burn_block_timing_secs. Miner 1 wins.
 /// Miner 1 proposes block N+1'
 /// Signers approve N+1', saying "Miner is not building off of most recent tenure. A tenure they
 ///   reorg has already mined blocks, but the block was poorly timed, allowing the reorg."
-/// Miner 1 proposes N+2 and it is accepted.
-/// Asserts:
-/// - N+1 is signed and broadcasted
-/// - N+1' is signed and broadcasted
-/// - The tip advances to N+1 (Signed by Miner 1)
-/// - The tip advances to N+2 (Signed by Miner 1)
+/// Miner 1 proposes N+2' and it is accepted.
+/// Miner 1 wins the next tenure and mines N+4, off of miner 2's tip.
 #[test]
 #[ignore]
 fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
@@ -11184,7 +11179,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
         send_amt,
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
-    info!("Submitted tx {tx} in attempt to mine block N+2");
+    info!("Submitted tx {tx} in attempt to mine block N+3");
     sender_nonce += 1;
 
     wait_for(30, || {
@@ -11201,7 +11196,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
 
     assert_eq!(get_chain_info(&conf).stacks_tip_height, block_n_height + 3);
 
-    info!("------------------------- Miner 1 Wins the Next Tenure -------------------------");
+    info!("------------------------- Miner 1 Wins the Next Tenure, Mines N+1' -------------------------");
 
     let blocks_processed_before_1 = blocks_mined1.load(Ordering::SeqCst);
     let mined_before = test_observer::get_mined_nakamoto_blocks().len();
@@ -11222,7 +11217,25 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     let last_block = blocks.last().expect("No blocks mined");
     assert_eq!(last_block.stacks_height, block_n_height + 1);
 
-    info!("------------------------- Miner 1 Mines N+2 -------------------------");
+    info!("------------------------- Miner 1 Submits a Block Commit -------------------------");
+
+    let rl1_commits_before = rl1_commits.load(Ordering::SeqCst);
+    signer_test
+        .running_nodes
+        .nakamoto_test_skip_commit_op
+        .set(false);
+
+    wait_for(30, || {
+        Ok(rl1_commits.load(Ordering::SeqCst) > rl1_commits_before)
+    })
+    .expect("Timed out waiting for Miner 1 to submit its block commit");
+
+    signer_test
+        .running_nodes
+        .nakamoto_test_skip_commit_op
+        .set(true);
+
+    info!("------------------------- Miner 1 Mines N+2' -------------------------");
 
     let blocks_processed_before_1 = blocks_mined1.load(Ordering::SeqCst);
     let mined_before = test_observer::get_mined_nakamoto_blocks().len();
@@ -11237,7 +11250,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
         send_amt,
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
-    info!("Submitted tx {tx} in attempt to mine block N+2");
+    info!("Submitted tx {tx} in attempt to mine block N+2'");
 
     wait_for(30, || {
         Ok(
@@ -11245,11 +11258,24 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
                 && test_observer::get_mined_nakamoto_blocks().len() > mined_before,
         )
     })
-    .expect("Timed out waiting for Miner 1 to Mine Block N+2");
+    .expect("Timed out waiting for Miner 1 to Mine Block N+2'");
 
     let blocks = test_observer::get_mined_nakamoto_blocks();
     let last_block = blocks.last().expect("No blocks mined");
     assert_eq!(last_block.stacks_height, block_n_height + 2);
+
+    info!("------------------------- Miner 1 Mines N+4 in Next Tenure -------------------------");
+
+    next_block_and_process_new_stacks_block(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        30,
+        &signer_test.running_nodes.coord_channel,
+    )
+    .expect("Timed out waiting for Miner 1 to Mine Block N+4");
+
+    let blocks = test_observer::get_mined_nakamoto_blocks();
+    let last_block = blocks.last().expect("No blocks mined");
+    assert_eq!(last_block.stacks_height, block_n_height + 4);
 
     info!("------------------------- Shutdown -------------------------");
     rl2_coord_channels
