@@ -9,6 +9,12 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## Added
 
+## Changed
+
+## [3.1.0.0.3.0]
+
+## Added
+
 - Introduced the `block_proposal_max_age_secs` configuration option for signers, enabling them to automatically ignore block proposals that exceed the specified age in seconds.
 
 ## Changed
