@@ -11283,7 +11283,6 @@ fn rejected_blocks_count_towards_miner_validity() {
     );
 
     info!("------------------------- Wait for Block N' Rejection -------------------------");
-    // TODO: need 429 handling enabled for this to pass here
     wait_for(30, || {
         let stackerdb_events = test_observer::get_stackerdb_chunks();
         let block_rejections = stackerdb_events
