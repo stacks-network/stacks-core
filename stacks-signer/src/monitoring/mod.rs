@@ -128,8 +128,9 @@ pub fn new_rpc_call_timer(_full_path: &str, _origin: &str) -> NoOpTimer {
 /// a given block. The block's timestamp is used to calculate the latency.
 ///
 /// Call this right after broadcasting a BlockResponse
-#[allow(unused_variables)]
 pub fn record_block_response_latency(block: &NakamotoBlock) {
+    #[cfg(not(feature = "monitoring_prom"))]
+    let _ = block;
     #[cfg(feature = "monitoring_prom")]
     {
         use clarity::util::get_epoch_time_ms;
@@ -143,8 +144,9 @@ pub fn record_block_response_latency(block: &NakamotoBlock) {
 }
 
 /// Record the time taken to validate a block, as reported by the Stacks node.
-#[allow(unused_variables)]
 pub fn record_block_validation_latency(latency_ms: u64) {
+    #[cfg(not(feature = "monitoring_prom"))]
+    let _ = latency_ms;
     #[cfg(feature = "monitoring_prom")]
     prometheus::SIGNER_BLOCK_VALIDATION_LATENCIES_HISTOGRAM
         .with_label_values(&[])
@@ -153,14 +155,13 @@ pub fn record_block_validation_latency(latency_ms: u64) {
 
 /// Start serving monitoring metrics.
 /// This will only serve the metrics if the `monitoring_prom` feature is enabled.
-#[allow(unused_variables)]
 pub fn start_serving_monitoring_metrics(config: GlobalConfig) -> Result<(), String> {
     #[cfg(feature = "monitoring_prom")]
     {
         if config.metrics_endpoint.is_none() {
             return Ok(());
         }
-        let thread = std::thread::Builder::new()
+        let _ = std::thread::Builder::new()
             .name("signer_metrics".to_string())
             .spawn(move || {
                 if let Err(monitoring_err) = server::MonitoringServer::start(&config) {
