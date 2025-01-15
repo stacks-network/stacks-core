@@ -457,7 +457,9 @@ pub fn get_latest_block_proposal(
         info!("Consider block"; "signer_sighash" => %b.header.signer_signature_hash(), "is_latest_sortition" => is_latest, "chain_height" => b.header.chain_length);
     }
 
-    let (proposed_block, miner_addr, _) = proposed_blocks.pop().unwrap();
+    let Some((proposed_block, miner_addr, _)) = proposed_blocks.pop() else {
+        return Err("No block proposals found".into());
+    };
 
     let pubkey = StacksPublicKey::recover_to_pubkey(
         proposed_block.header.miner_signature_hash().as_bytes(),
@@ -10481,6 +10483,104 @@ fn clarity_cost_spend_down() {
                     }
                 }
             }
+        }
+    }
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+fn consensus_hash_event_dispatcher() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut conf, _miner_account) = naka_neon_integration_conf(None);
+    let password = "12345".to_string();
+    conf.connection_options.auth_token = Some(password.clone());
+    conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    let stacker_sk = setup_stacker(&mut conf);
+    let signer_sk = Secp256k1PrivateKey::new();
+    let signer_addr = tests::to_addr(&signer_sk);
+    let sender_sk = Secp256k1PrivateKey::new();
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    conf.add_initial_balance(
+        PrincipalData::from(sender_addr).to_string(),
+        send_amt + send_fee,
+    );
+    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+
+    // only subscribe to the block proposal events
+    test_observer::spawn();
+    test_observer::register(&mut conf, &[EventKeyType::AnyEvent]);
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks: proposals_submitted,
+        ..
+    } = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+    let mut signers = TestSigners::new(vec![signer_sk]);
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &conf,
+        &blocks_processed,
+        &[stacker_sk],
+        &[signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("------------------------- Reached Epoch 3.0 -------------------------");
+
+    blind_signer(&conf, &signers, proposals_submitted);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    let burnchain = conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    let expected_consensus_hash = format!("0x{}", tip.consensus_hash);
+
+    let burn_blocks = test_observer::get_burn_blocks();
+    let burn_block = burn_blocks.last().unwrap();
+    assert_eq!(
+        burn_block.get("consensus_hash").unwrap().as_str().unwrap(),
+        expected_consensus_hash
+    );
+
+    let stacks_blocks = test_observer::get_blocks();
+    for block in stacks_blocks.iter() {
+        if block.get("block_height").unwrap().as_u64().unwrap() == tip.stacks_block_height {
+            assert_eq!(
+                block.get("consensus_hash").unwrap().as_str().unwrap(),
+                expected_consensus_hash
+            );
         }
     }
 

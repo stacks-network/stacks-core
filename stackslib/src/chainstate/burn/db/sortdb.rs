@@ -4285,7 +4285,7 @@ impl SortitionDB {
     /// * `next_pox_info` - iff this sortition is the first block in a reward cycle, this should be Some
     /// * `announce_to` - a function that will be invoked with the calculated reward set before this method
     ///                   commits its results. This is used to post the calculated reward set to an event observer.
-    pub fn evaluate_sortition<F: FnOnce(Option<RewardSetInfo>)>(
+    pub fn evaluate_sortition<F: FnOnce(Option<RewardSetInfo>, ConsensusHash)>(
         &mut self,
         mainnet: bool,
         burn_header: &BurnchainBlockHeader,
@@ -4381,7 +4381,7 @@ impl SortitionDB {
                 .store_transition_ops(&new_snapshot.0.sortition_id, &new_snapshot.1)?;
         }
 
-        announce_to(reward_set_info);
+        announce_to(reward_set_info, new_snapshot.0.consensus_hash);
 
         if !dryrun {
             // commit everything!
