@@ -107,7 +107,7 @@ impl SignerCoordinator {
 
         // Spawn the signer DB listener thread
         let listener_thread = std::thread::Builder::new()
-            .name("stackerdb_listener".to_string())
+            .name(format!("stackerdb_listener_{}", burn_tip.block_height))
             .spawn(move || {
                 if let Err(e) = listener.run() {
                     error!("StackerDBListener: exited with error: {e:?}");
