@@ -10633,6 +10633,11 @@ fn consensus_hash_event_dispatcher() {
         }
     }
 
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+
     run_loop_stopper.store(false, Ordering::SeqCst);
 
     run_loop_thread.join().unwrap();
@@ -10670,9 +10675,7 @@ fn test_tenure_extend_from_flashblocks() {
         1,
         initial_balances,
         |_| {},
-        |config| {
-            config.miner.tenure_extend_wait_secs = Duration::from_secs(15);
-        },
+        |_config| {},
         None,
         None,
     );
@@ -10697,6 +10700,14 @@ fn test_tenure_extend_from_flashblocks() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
+    let (mut chainstate, _) = StacksChainState::open(
+        naka_conf.is_mainnet(),
+        naka_conf.burnchain.chain_id,
+        &naka_conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
     for _ in 0..3 {
         next_block_and_mine_commit(
             btc_regtest_controller,
@@ -10851,6 +10862,7 @@ fn test_tenure_extend_from_flashblocks() {
     // we can, however, continue the tenure
     let canonical_stacks_tip = RelayerThread::can_continue_tenure(
         &sortdb,
+        &mut chainstate,
         sort_tip.consensus_hash.clone(),
         Some(mining_key_pkh.clone()),
     )
@@ -10862,6 +10874,7 @@ fn test_tenure_extend_from_flashblocks() {
     // different -- then we can't continue the tenure.
     assert!(RelayerThread::can_continue_tenure(
         &sortdb,
+        &mut chainstate,
         sort_tip.consensus_hash.clone(),
         Some(Hash160([0x11; 20]))
     )

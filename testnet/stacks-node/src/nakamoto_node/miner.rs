@@ -25,7 +25,7 @@ use libsigner::v0::messages::{MinerSlotID, SignerMessage};
 use libsigner::StackerDBSession;
 use rand::{thread_rng, Rng};
 use stacks::burnchains::Burnchain;
-use stacks::chainstate::burn::db::sortdb::{get_ancestor_sort_id, SortitionDB};
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::coordinator::OnChainRewardSetProvider;
 use stacks::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
@@ -1356,48 +1356,6 @@ impl BlockMinerThread {
         Ok(ongoing_tenure_id)
     }
 
-    /// Check to see if the given burn view is at or ahead of the stacks blockchain's burn view.
-    /// If so, then return Ok(())
-    /// If not, then return Err(NakamotoNodeError::BurnchainTipChanged)
-    pub fn check_burn_view_changed(
-        sortdb: &SortitionDB,
-        chain_state: &mut StacksChainState,
-        burn_view: &BlockSnapshot,
-    ) -> Result<(), NakamotoNodeError> {
-        // if the local burn view has advanced, then this miner thread is defunct.  Someone else
-        // extended their tenure in a sortition at or after our burn view, and the node accepted
-        // it, so we should stop.
-        let ongoing_tenure_id = Self::get_ongoing_tenure_id(sortdb, chain_state)?;
-        if ongoing_tenure_id.burn_view_consensus_hash != burn_view.consensus_hash {
-            let ongoing_tenure_sortition = SortitionDB::get_block_snapshot_consensus(
-                sortdb.conn(),
-                &ongoing_tenure_id.burn_view_consensus_hash,
-            )?
-            .ok_or_else(|| NakamotoNodeError::UnexpectedChainState)?;
-
-            // it's possible that our burn view is higher than the ongoing tenure's burn view, but
-            // if this *isn't* the case, then the Stacks burn view has necessarily advanced
-            let burn_view_tenure_handle = sortdb.index_handle_at_ch(&burn_view.consensus_hash)?;
-            if get_ancestor_sort_id(
-                &burn_view_tenure_handle,
-                ongoing_tenure_sortition.block_height,
-                &burn_view_tenure_handle.context.chain_tip,
-            )?
-            .is_none()
-            {
-                // ongoing tenure is not an ancestor of the given burn view, so it must have
-                // advanced (or forked) relative to the given burn view.  Either way, this burn
-                // view has changed.
-                info!("Nakamoto chainstate burn view has advanced from miner burn view";
-                    "nakamoto_burn_view" => %ongoing_tenure_id.burn_view_consensus_hash,
-                    "miner_burn_view" => %burn_view.consensus_hash);
-
-                return Err(NakamotoNodeError::BurnchainTipChanged);
-            }
-        }
-        Ok(())
-    }
-
     /// Check if the tenure needs to change -- if so, return a BurnchainTipChanged error
     /// The tenure should change if there is a new burnchain tip with a valid sortition,
     /// or if the stacks chain state's burn view has advanced beyond our burn view.
@@ -1406,8 +1364,6 @@ impl BlockMinerThread {
         sortdb: &SortitionDB,
         _chain_state: &mut StacksChainState,
     ) -> Result<(), NakamotoNodeError> {
-        // BlockMinerThread::check_burn_view_changed(sortdb, chain_state, &self.burn_block)?;
-
         if let MinerReason::BlockFound { late } = &self.reason {
             if *late && self.last_block_mined.is_none() {
                 // this is a late BlockFound tenure change that ought to be appended to the Stacks
@@ -1550,6 +1506,8 @@ impl ParentStacksBlockInfo {
             "stacks_tip_burn_hash" => %parent_snapshot.burn_header_hash,
             "stacks_tip_burn_height" => parent_snapshot.block_height,
             "parent_tenure_info" => ?parent_tenure_info,
+            "stacks_tip_header.consensus_hash" => %stacks_tip_header.consensus_hash,
+            "parent_tenure_header.consensus_hash" => %parent_tenure_header.consensus_hash,
             "reason" => %reason
         );
 

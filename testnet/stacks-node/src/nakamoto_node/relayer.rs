@@ -456,11 +456,14 @@ impl RelayerThread {
                 });
             }
 
+            let mining_pkh_opt = self.get_mining_key_pkh();
+
             // a sortition happened, but we didn't win.
             match Self::can_continue_tenure(
                 &self.sortdb,
+                &mut self.chainstate,
                 sn.consensus_hash,
-                self.get_mining_key_pkh(),
+                mining_pkh_opt,
             ) {
                 Ok(Some(_)) => {
                     // we can continue our ongoing tenure, but we should give the new winning miner
@@ -1124,21 +1127,147 @@ impl RelayerThread {
         Ok(ih.get_last_snapshot_with_sortition(sort_tip.block_height)?)
     }
 
+    /// Is the given sortition a valid sortition?
+    /// I.e. whose winning commit's parent tenure ID is on the canonical Stacks history,
+    /// and whose consensus hash corresponds to the ongoing tenure or a confirmed tenure?
+    fn is_valid_sortition(
+        chain_state: &mut StacksChainState,
+        stacks_tip_id: &StacksBlockId,
+        stacks_tip_sn: &BlockSnapshot,
+        burn_tip_ch: &ConsensusHash,
+        sn: &BlockSnapshot,
+    ) -> Result<bool, NakamotoNodeError> {
+        if !sn.sortition {
+            // definitely not a valid sortition
+            debug!("Relayer: Sortition {} is empty", &sn.consensus_hash);
+            return Ok(false);
+        }
+
+        // check that this commit's parent tenure ID is on the history tipped at
+        // `stacks_tip_id`
+        let mut ic = chain_state.index_conn();
+        let parent_tenure_id = StacksBlockId(sn.winning_stacks_block_hash.clone().0);
+        let height_opt = ic.get_ancestor_block_height(&parent_tenure_id, stacks_tip_id)?;
+        if height_opt.is_none() {
+            // parent_tenure_id is not an ancestor of stacks_tip_id
+            debug!(
+                "Relayer: Sortition {} has winning commit hash {}, which is not canonical",
+                &sn.consensus_hash, &parent_tenure_id
+            );
+            return Ok(false);
+        }
+
+        if sn.consensus_hash == *burn_tip_ch {
+            // sn is the sortition tip, so this sortition must commit to the tenure start block of
+            // the ongoing Stacks tenure.
+            let highest_tenure_start_block_header = NakamotoChainState::get_tenure_start_block_header(
+                &mut ic,
+                stacks_tip_id,
+                &stacks_tip_sn.consensus_hash
+            )?
+            .ok_or_else(|| {
+                error!(
+                    "Relayer: Failed to find tenure-start block header for stacks tip {stacks_tip_id}"
+                );
+                NakamotoNodeError::ParentNotFound
+            })?;
+
+            let highest_tenure_start_block_id =
+                highest_tenure_start_block_header.index_block_hash();
+            if highest_tenure_start_block_id != parent_tenure_id {
+                debug!("Relayer: Sortition {} is at the tip, but does not commit to {} so cannot be valid", &sn.consensus_hash, &parent_tenure_id;
+                    "highest_tenure_start_block_header.block_id()" => %highest_tenure_start_block_id);
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
+    }
+
+    /// Determine the highest valid sortition higher than `elected_tenure_id`, but no higher than
+    /// `sort_tip`.
+    ///
+    /// This is the highest non-empty sortition (up to and including `sort_tip`)
+    /// whose winning commit's parent tenure ID matches the
+    /// Stacks tip, and whose consensus hash matches the Stacks tip's tenure ID.
+    ///
+    /// Returns Ok(Some(..)) if such a sortition is found, and is higher than that of
+    /// `elected_tenure_id`.
+    /// Returns Ok(None) if no such sortition is found.
+    /// Returns Err(..) on DB errors.
+    fn find_highest_valid_sortition(
+        sortdb: &SortitionDB,
+        chain_state: &mut StacksChainState,
+        sort_tip: &BlockSnapshot,
+        elected_tenure_id: &ConsensusHash,
+    ) -> Result<Option<BlockSnapshot>, NakamotoNodeError> {
+        // sanity check -- if sort_tip is the elected_tenure_id sortition, then there are no higher
+        // valid sortitions.
+        if sort_tip.consensus_hash == *elected_tenure_id {
+            return Ok(None);
+        }
+
+        let mut cursor = sort_tip.clone();
+        let (canonical_stacks_tip_ch, canonical_stacks_tip_bh) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
+        let canonical_stacks_tip =
+            StacksBlockId::new(&canonical_stacks_tip_ch, &canonical_stacks_tip_bh);
+
+        let Ok(Some(canonical_stacks_tip_sn)) =
+            SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &canonical_stacks_tip_ch)
+        else {
+            return Err(NakamotoNodeError::ParentNotFound);
+        };
+
+        loop {
+            debug!(
+                "Relayer: check sortition {} to see if it is valid",
+                &cursor.consensus_hash
+            );
+
+            // is this a valid sortiton?
+            if Self::is_valid_sortition(
+                chain_state,
+                &canonical_stacks_tip,
+                &canonical_stacks_tip_sn,
+                &sort_tip.consensus_hash,
+                &cursor,
+            )? {
+                return Ok(Some(cursor));
+            }
+
+            // nope. continue the search
+            let Some(cursor_parent) =
+                SortitionDB::get_block_snapshot(sortdb.conn(), &cursor.parent_sortition_id)?
+            else {
+                return Ok(None);
+            };
+
+            if cursor_parent.consensus_hash == *elected_tenure_id {
+                return Ok(None);
+            }
+
+            cursor = cursor_parent;
+        }
+    }
+
     /// Determine if the miner can contine an existing tenure with the new sortition (identified
     /// by `new_burn_view`)
     ///
     /// Assumes that the caller has already checked that the given miner has _not_ won the new
     /// sortition.
     ///
-    /// Will return Ok(Some(..)) even if `new_burn_view`'s sortition had a winner that was not this
-    /// miner.  It's on signers to either accept the resulting tenure-extend from this miner, or a
-    /// block-found from the other winning miner.
+    /// Returns Ok(Some(stacks-tip-election-snapshot)) if the last-winning miner needs to extend.
+    /// For now, this only happens if the miner's election snapshot was the last-known valid and
+    /// non-empty snapshot.  In the future, this function may return Ok(Some(..)) if the node
+    /// determines that a subsequent miner won sortition, but never came online.
     ///
-    /// Returns Ok(Some(stacks-tip-election-snapshot)) if so
-    /// Returns OK(None) if not.
+    /// Returns OK(None) if the last-winning miner should not extend its tenure.
+    ///
     /// Returns Err(..) on DB error
     pub(crate) fn can_continue_tenure(
         sortdb: &SortitionDB,
+        chain_state: &mut StacksChainState,
         new_burn_view: ConsensusHash,
         mining_key_opt: Option<Hash160>,
     ) -> Result<Option<BlockSnapshot>, NakamotoNodeError> {
@@ -1187,6 +1316,22 @@ impl RelayerThread {
             return Ok(None);
         }
 
+        // For now, only allow the miner to extend its tenure if won the highest valid sortition.
+        // There cannot be any higher sortitions that are valid (as defined above).
+        //
+        // In the future, the miner will be able to extend its tenure even if there are higher
+        // valid sortitions, but only if it determines that the miners of those sortitions are
+        // offline.
+        if let Some(highest_valid_sortition) = Self::find_highest_valid_sortition(
+            sortdb,
+            chain_state,
+            &sort_tip,
+            &canonical_stacks_snapshot.consensus_hash,
+        )? {
+            info!("Relayer: will not extend tenure -- we won sortition {}, but the highest valid sortition is {}", &canonical_stacks_snapshot.consensus_hash, &highest_valid_sortition.consensus_hash);
+            return Ok(None);
+        }
+
         Ok(Some(canonical_stacks_snapshot))
     }
 
@@ -1203,10 +1348,12 @@ impl RelayerThread {
         }
         debug!("Relayer: successfully stopped tenure; will try to continue.");
 
+        let mining_pkh_opt = self.get_mining_key_pkh();
         let Some(canonical_stacks_tip_election_snapshot) = Self::can_continue_tenure(
             &self.sortdb,
+            &mut self.chainstate,
             new_burn_view.clone(),
-            self.get_mining_key_pkh(),
+            mining_pkh_opt,
         )?
         else {
             return Ok(());
@@ -1514,24 +1661,26 @@ impl RelayerThread {
         ))
     }
 
-    /// Try to start up a tenure-extend, after a delay has passed.
-    /// We would do this if we were the miner of the ongoing tenure, but did not win the last
-    /// sortition, and the winning miner never produced a block.
+    /// Try to start up a tenure-extend.
+    /// Only do this if the miner won the last-ever sortition but the burn view has changed.
+    /// In the future, the miner will also try to extend its tenure if a subsequent miner appears
+    /// to be offline.
     fn try_continue_tenure(&mut self) {
         if self.tenure_extend_timeout.is_none() {
             return;
         }
 
+        // time to poll to see if we should begin a tenure-extend?
         let deadline_passed = self
             .tenure_extend_timeout
             .map(|tenure_extend_timeout| {
                 let deadline_passed =
-                    tenure_extend_timeout.elapsed() > self.config.miner.tenure_extend_wait_secs;
+                    tenure_extend_timeout.elapsed() > self.config.miner.tenure_extend_poll_secs;
                 if !deadline_passed {
                     test_debug!(
                         "Relayer: will not try to tenure-extend yet ({} <= {})",
                         tenure_extend_timeout.elapsed().as_secs(),
-                        self.config.miner.tenure_extend_wait_secs.as_secs()
+                        self.config.miner.tenure_extend_poll_secs.as_secs()
                     );
                 }
                 deadline_passed
