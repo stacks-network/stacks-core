@@ -1136,7 +1136,7 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
         let event_ids = peer_1.network.iter_peer_event_ids();
         let other_event_ids = peer_2.network.iter_peer_event_ids();
 
-        if !event_ids.count() == 0 && !other_event_ids.count() == 0 {
+        if !(event_ids.count() == 0) && !(other_event_ids.count() == 0) {
             break;
         }
     }
