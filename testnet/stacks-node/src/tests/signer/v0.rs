@@ -11175,3 +11175,79 @@ fn injected_signatures_are_ignored_across_boundaries() {
 
     assert!(new_spawned_signer.stop().is_none());
 }
+
+#[test]
+#[ignore]
+fn fast_sortition() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let mut sender_nonce = 0;
+    let send_amt = 100;
+    let send_fee = 400;
+    let num_transfers = 3;
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
+        num_signers,
+        vec![(sender_addr, num_transfers * (send_amt + send_fee))],
+    );
+
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+
+    signer_test.boot_to_epoch_3();
+
+    info!("------------------------- Mine a Block -------------------------");
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
+    submit_tx(&http_origin, &transfer_tx);
+    sender_nonce += 1;
+
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &sender_addr).nonce == sender_nonce)
+    })
+    .expect("Timed out waiting for call tx to be mined");
+
+    info!("------------------------- Cause a missed sortition -------------------------");
+
+    signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .build_next_block(1);
+    next_block_and_process_new_stacks_block(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        &signer_test.running_nodes.coord_channel,
+    )
+    .expect("Failed to mine a block");
+
+    info!("------------------------- Mine a Block -------------------------");
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
+    submit_tx(&http_origin, &transfer_tx);
+    sender_nonce += 1;
+
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &sender_addr).nonce == sender_nonce)
+    })
+    .expect("Timed out waiting for call tx to be mined");
+
+    info!("------------------------- Shutdown -------------------------");
+    signer_test.shutdown();
+}
