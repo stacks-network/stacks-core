@@ -84,8 +84,7 @@ use crate::tests::nakamoto_integrations::{
     POX_4_DEFAULT_STACKER_BALANCE, POX_4_DEFAULT_STACKER_STX_AMT,
 };
 use crate::tests::neon_integrations::{
-    get_account, get_chain_info, get_chain_info_opt, next_block_and_wait,
-    run_until_burnchain_height, submit_tx, submit_tx_fallible, test_observer,
+    get_account, get_chain_info, get_chain_info_opt, get_sortition_info, get_sortition_info_ch, next_block_and_wait, run_until_burnchain_height, submit_tx, submit_tx_fallible, test_observer
 };
 use crate::tests::{
     self, gen_random_port, make_contract_call, make_contract_publish, make_stacks_transfer,
@@ -11250,4 +11249,284 @@ fn fast_sortition() {
 
     info!("------------------------- Shutdown -------------------------");
     signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// This test spins up two nakamoto nodes, both configured to mine.
+/// After Nakamoto blocks are mined, it waits for a normal tenure, then issues
+///  two bitcoin blocks in quick succession -- the first will contain block commits,
+///  and the second "flash block" will contain no block commits.
+/// The test checks if the winner of the first block is different than the previous tenure.
+/// If so, it performs the actual test: asserting that the miner wakes up and produces valid blocks.
+/// This test uses the burn-block-height to ensure consistent calculation of the burn view between
+///   the miner thread and the block processor
+
+fn multiple_miners_empty_sortition() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_fee = 180;
+
+    let btc_miner_1_seed = vec![1, 1, 1, 1];
+    let btc_miner_2_seed = vec![2, 2, 2, 2];
+    let btc_miner_1_pk = Keychain::default(btc_miner_1_seed.clone()).get_pub_key();
+    let btc_miner_2_pk = Keychain::default(btc_miner_2_seed.clone()).get_pub_key();
+
+    let node_1_rpc = gen_random_port();
+    let node_1_p2p = gen_random_port();
+    let node_2_rpc = gen_random_port();
+    let node_2_p2p = gen_random_port();
+
+    let localhost = "127.0.0.1";
+    let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
+    let node_2_rpc_bind = format!("{localhost}:{node_2_rpc}");
+    let mut node_2_listeners = Vec::new();
+
+    let max_nakamoto_tenures = 30;
+    // partition the signer set so that ~half are listening and using node 1 for RPC and events,
+    //  and the rest are using node 2
+
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr, send_fee * 2 * 60 + 1000)],
+        |signer_config| {
+            let node_host = if signer_config.endpoint.port() % 2 == 0 {
+                &node_1_rpc_bind
+            } else {
+                &node_2_rpc_bind
+            };
+            signer_config.node_host = node_host.to_string();
+        },
+        |config| {
+            config.node.rpc_bind = format!("{localhost}:{node_1_rpc}");
+            config.node.p2p_bind = format!("{localhost}:{node_1_p2p}");
+            config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
+            config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
+            config.miner.wait_on_interim_blocks = Duration::from_secs(5);
+            config.node.pox_sync_sample_secs = 30;
+            config.burnchain.pox_reward_length = Some(max_nakamoto_tenures);
+
+            config.node.seed = btc_miner_1_seed.clone();
+            config.node.local_peer_seed = btc_miner_1_seed.clone();
+            config.burnchain.local_mining_public_key = Some(btc_miner_1_pk.to_hex());
+            config.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[1]));
+
+            config.events_observers.retain(|listener| {
+                let Ok(addr) = std::net::SocketAddr::from_str(&listener.endpoint) else {
+                    warn!(
+                        "Cannot parse {} to a socket, assuming it isn't a signer-listener binding",
+                        listener.endpoint
+                    );
+                    return true;
+                };
+                if addr.port() % 2 == 0 || addr.port() == test_observer::EVENT_OBSERVER_PORT {
+                    return true;
+                }
+                node_2_listeners.push(listener.clone());
+                false
+            })
+        },
+        Some(vec![btc_miner_1_pk, btc_miner_2_pk]),
+        None,
+    );
+    let conf = signer_test.running_nodes.conf.clone();
+    let mut conf_node_2 = conf.clone();
+    conf_node_2.node.rpc_bind = format!("{localhost}:{node_2_rpc}");
+    conf_node_2.node.p2p_bind = format!("{localhost}:{node_2_p2p}");
+    conf_node_2.node.data_url = format!("http://{localhost}:{node_2_rpc}");
+    conf_node_2.node.p2p_address = format!("{localhost}:{node_2_p2p}");
+    conf_node_2.node.seed = btc_miner_2_seed.clone();
+    conf_node_2.burnchain.local_mining_public_key = Some(btc_miner_2_pk.to_hex());
+    conf_node_2.node.local_peer_seed = btc_miner_2_seed.clone();
+    conf_node_2.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[2]));
+    conf_node_2.node.miner = true;
+    conf_node_2.events_observers.clear();
+    conf_node_2.events_observers.extend(node_2_listeners);
+    assert!(!conf_node_2.events_observers.is_empty());
+
+    let node_1_sk = Secp256k1PrivateKey::from_seed(&conf.node.local_peer_seed);
+    let node_1_pk = StacksPublicKey::from_private(&node_1_sk);
+
+    conf_node_2.node.working_dir = format!("{}-1", conf_node_2.node.working_dir);
+
+    conf_node_2.node.set_bootstrap_nodes(
+        format!("{}@{}", &node_1_pk.to_hex(), conf.node.p2p_bind),
+        conf.burnchain.chain_id,
+        conf.burnchain.peer_version,
+    );
+
+    let mut run_loop_2 = boot_nakamoto::BootRunLoop::new(conf_node_2.clone()).unwrap();
+    let run_loop_stopper_2 = run_loop_2.get_termination_switch();
+    let rl2_coord_channels = run_loop_2.coordinator_channels();
+    let Counters {
+        naka_submitted_commits: rl2_commits,
+        ..
+    } = run_loop_2.counters();
+    let run_loop_2_thread = thread::Builder::new()
+        .name("run_loop_2".into())
+        .spawn(move || run_loop_2.start(None, 0))
+        .unwrap();
+
+    signer_test.boot_to_epoch_3();
+
+    wait_for(120, || {
+        let Some(node_1_info) = get_chain_info_opt(&conf) else {
+            return Ok(false);
+        };
+        let Some(node_2_info) = get_chain_info_opt(&conf_node_2) else {
+            return Ok(false);
+        };
+        Ok(node_1_info.stacks_tip_height == node_2_info.stacks_tip_height)
+    })
+    .expect("Timed out waiting for boostrapped node to catch up to the miner");
+
+    let pre_nakamoto_peer_1_height = get_chain_info(&conf).stacks_tip_height;
+
+    info!("------------------------- Reached Epoch 3.0 -------------------------");
+
+    let burn_height_contract = "
+       (define-data-var local-burn-block-ht uint u0)
+       (define-public (run-update)
+          (ok (var-set local-burn-block-ht burn-block-height)))
+    ";
+
+    let contract_tx = make_contract_publish(
+        &sender_sk,
+        0,
+        1000,
+        conf.burnchain.chain_id,
+        "burn-height-local",
+        burn_height_contract,
+    );
+    submit_tx(&conf.node.data_url, &contract_tx);
+
+    let rl1_coord_channels = signer_test.running_nodes.coord_channel.clone();
+    let rl1_commits = signer_test.running_nodes.commits_submitted.clone();
+
+    let last_sender_nonce = loop {
+        // Mine 1 nakamoto tenures
+        info!("Mining tenure...");
+        let rl2_commits_before = rl2_commits.load(Ordering::SeqCst);
+        let rl1_commits_before = rl1_commits.load(Ordering::SeqCst);
+
+        signer_test.mine_block_wait_on_processing(
+            &[&rl1_coord_channels, &rl2_coord_channels],
+            &[&rl1_commits, &rl2_commits],
+            Duration::from_secs(30),
+        );
+
+        // mine the interim blocks
+        for _ in 0..2 {
+            let sender_nonce = get_account(&conf.node.data_url, &sender_addr).nonce;
+            // check if the burn contract is already produced, if not wait for it to be included in
+            //  an interim block
+            if sender_nonce >= 1 {
+                let contract_call_tx = make_contract_call(
+                    &sender_sk,
+                    sender_nonce,
+                    send_fee,
+                    conf.burnchain.chain_id,
+                    &sender_addr,
+                    "burn-height-local",
+                    "run-update",
+                    &[],
+                );
+                submit_tx(&conf.node.data_url, &contract_call_tx);
+            }
+
+            // make sure the sender's tx gets included (whether it was the contract publish or call)
+            wait_for(60, || {
+                let next_sender_nonce = get_account(&conf.node.data_url, &sender_addr).nonce;
+                Ok(next_sender_nonce > sender_nonce)
+            })
+            .unwrap();
+        }
+
+
+        let last_active_sortition = get_sortition_info(&conf);
+        assert!(last_active_sortition.was_sortition);
+
+        // lets mine a btc flash block
+        let rl2_commits_before = rl2_commits.load(Ordering::SeqCst);
+        let rl1_commits_before = rl1_commits.load(Ordering::SeqCst);
+        signer_test.running_nodes.btc_regtest_controller.build_next_block(2);
+
+        wait_for(60, || {
+            Ok(rl2_commits.load(Ordering::SeqCst) > rl2_commits_before &&
+               rl1_commits.load(Ordering::SeqCst) > rl1_commits_before)
+        })
+        .unwrap();
+
+        let cur_empty_sortition = get_sortition_info(&conf);
+        assert!(!cur_empty_sortition.was_sortition);
+        let inactive_sortition = get_sortition_info_ch(
+            &conf,
+            cur_empty_sortition.last_sortition_ch.as_ref().unwrap(),
+        );
+        assert!(inactive_sortition.was_sortition);
+        assert_eq!(
+            inactive_sortition.burn_block_height,
+            last_active_sortition.burn_block_height + 1
+        );
+
+        info!("==================== Mined a flash block ====================");
+        info!("Flash block sortition info";
+              "last_active_winner" => ?last_active_sortition.miner_pk_hash160,
+              "last_winner" => ?inactive_sortition.miner_pk_hash160,
+              "last_active_ch" => %last_active_sortition.consensus_hash,
+              "last_winner_ch" => %inactive_sortition.consensus_hash,
+              "cur_empty_sortition" => %cur_empty_sortition.consensus_hash,
+        );
+
+        if last_active_sortition.miner_pk_hash160 != inactive_sortition.miner_pk_hash160 {
+            info!(
+                "==================== Mined a flash block with changed miners ===================="
+            );
+            break get_account(&conf.node.data_url, &sender_addr).nonce;
+        }
+    };
+
+    // after the flash block, make sure we get block processing without a new bitcoin block
+    //   being mined.
+
+    for _ in 0..2 {
+        let sender_nonce = get_account(&conf.node.data_url, &sender_addr).nonce;
+        let contract_call_tx = make_contract_call(
+            &sender_sk,
+            sender_nonce,
+            send_fee,
+            conf.burnchain.chain_id,
+            &sender_addr,
+            "burn-height-local",
+            "run-update",
+            &[],
+        );
+        submit_tx(&conf.node.data_url, &contract_call_tx);
+
+        wait_for(60, || {
+            let next_sender_nonce = get_account(&conf.node.data_url, &sender_addr).nonce;
+            Ok(next_sender_nonce > sender_nonce)
+        })
+        .unwrap();
+    }
+
+    assert_eq!(
+        get_account(&conf.node.data_url, &sender_addr).nonce,
+        last_sender_nonce + 2,
+        "The last two transactions after the flash block must be included in a block"
+    );
+
+
+    rl2_coord_channels
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper_2.store(false, Ordering::SeqCst);
+    run_loop_2_thread.join().unwrap();
+    signer_test.shutdown();
+
 }
