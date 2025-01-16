@@ -138,6 +138,15 @@ pub enum MinerReason {
     },
 }
 
+impl MinerReason {
+    pub fn is_late_block(&self) -> bool {
+        match self {
+            Self::BlockFound { ref late } => *late,
+            Self::Extended { .. } => false,
+        }
+    }
+}
+
 impl std::fmt::Display for MinerReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -434,6 +443,11 @@ impl BlockMinerThread {
                     "Failed to open chainstate DB. Cannot mine! {e:?}"
                 ))
             })?;
+        if self.last_block_mined.is_some() && self.reason.is_late_block() {
+            info!("Miner: finished mining a late tenure");
+            return Err(NakamotoNodeError::StacksTipChanged);
+        }
+
         let new_block = loop {
             // If we're mock mining, we may not have processed the block that the
             // actual tenure winner committed to yet. So, before attempting to
