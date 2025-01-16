@@ -30,8 +30,8 @@ use crate::net::db::PeerDB;
 use crate::net::neighbors::comms::PeerNetworkComms;
 use crate::net::p2p::PeerNetwork;
 use crate::net::{
-    Error as NetError, GetNakamotoInvData, NackErrorCodes, NakamotoInvData, NeighborAddress,
-    NeighborComms, NeighborKey, StacksMessage, StacksMessageType,
+    DropReason, Error as NetError, GetNakamotoInvData, NackErrorCodes, NakamotoInvData,
+    NeighborAddress, NeighborComms, NeighborKey, StacksMessage, StacksMessageType,
 };
 use crate::util_lib::db::Error as DBError;
 
@@ -1128,12 +1128,12 @@ impl PeerNetwork {
 
         // disconnect and ban broken peers
         for broken in broken_neighbors.into_iter() {
-            self.deregister_and_ban_neighbor(&broken);
+            self.deregister_and_ban_neighbor(&broken, DropReason::BrokenConnection(None));
         }
 
         // disconnect from dead connections
         for dead in dead_neighbors.into_iter() {
-            self.deregister_neighbor(&dead);
+            self.deregister_neighbor(&dead, DropReason::DeadConnection);
         }
 
         learned

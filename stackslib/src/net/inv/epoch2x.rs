@@ -39,7 +39,7 @@ use crate::net::codec::*;
 use crate::net::connection::{ConnectionOptions, ConnectionP2P, ReplyHandleP2P};
 use crate::net::db::{PeerDB, *};
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-use crate::net::p2p::{PeerNetwork, PeerNetworkWorkState};
+use crate::net::p2p::{DropReason, PeerNetwork, PeerNetworkWorkState};
 use crate::net::{
     Error as net_error, GetBlocksInv, Neighbor, NeighborKey, PeerAddress, StacksMessage, StacksP2P,
     *,
@@ -2678,12 +2678,12 @@ impl PeerNetwork {
 
         // disconnect and ban broken peers
         for broken in broken_neighbors.into_iter() {
-            self.deregister_and_ban_neighbor(&broken);
+            self.deregister_and_ban_neighbor(&broken, DropReason::BannedConnection);
         }
 
         // disconnect from dead connections
         for dead in dead_neighbors.into_iter() {
-            self.deregister_neighbor(&dead);
+            self.deregister_neighbor(&dead, DropReason::DeadConnection);
         }
 
         (done, throttled)
