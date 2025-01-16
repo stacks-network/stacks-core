@@ -13,10 +13,11 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 #[cfg(test)]
 use std::sync::LazyLock;
 use std::thread;
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use clarity::boot_util::boot_code_id;
@@ -52,7 +53,7 @@ use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::tests::TestFlag;
 use stacks_common::util::vrf::VRFProof;
 
-use super::relayer::RelayerThread;
+use super::relayer::{MinerStopHandle, RelayerThread};
 use super::{Config, Error as NakamotoNodeError, EventDispatcher, Keychain};
 use crate::nakamoto_node::signer_coordinator::SignerCoordinator;
 use crate::nakamoto_node::VRF_MOCK_MINER_KEY;
@@ -185,6 +186,8 @@ pub struct BlockMinerThread {
     signer_set_cache: Option<RewardSet>,
     /// The time at which tenure change/extend was attempted
     tenure_change_time: Instant,
+    /// flag to indicate an abort driven from the relayer
+    abort_flag: Arc<AtomicBool>,
 }
 
 impl BlockMinerThread {
@@ -213,7 +216,12 @@ impl BlockMinerThread {
             p2p_handle: rt.get_p2p_handle(),
             signer_set_cache: None,
             tenure_change_time: Instant::now(),
+            abort_flag: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    pub fn get_abort_flag(&self) -> Arc<AtomicBool> {
+        self.abort_flag.clone()
     }
 
     #[cfg(test)]
@@ -278,29 +286,6 @@ impl BlockMinerThread {
     }
 
     /// Stop a miner tenure by blocking the miner and then joining the tenure thread
-    pub fn stop_miner(
-        globals: &Globals,
-        prior_miner: JoinHandle<Result<(), NakamotoNodeError>>,
-    ) -> Result<(), NakamotoNodeError> {
-        debug!(
-            "Stopping prior miner thread ID {:?}",
-            prior_miner.thread().id()
-        );
-        globals.block_miner();
-        let prior_miner_result = prior_miner
-            .join()
-            .map_err(|_| ChainstateError::MinerAborted)?;
-        if let Err(e) = prior_miner_result {
-            // it's okay if the prior miner thread exited with an error.
-            // in many cases this is expected (i.e., a burnchain block occurred)
-            // if some error condition should be handled though, this is the place
-            //  to do that handling.
-            debug!("Prior mining thread exited with: {e:?}");
-        }
-        globals.unblock_miner();
-        Ok(())
-    }
-
     #[cfg(test)]
     fn fault_injection_stall_miner() {
         if TEST_MINE_STALL.get() {
@@ -318,7 +303,7 @@ impl BlockMinerThread {
 
     pub fn run_miner(
         mut self,
-        prior_miner: Option<JoinHandle<Result<(), NakamotoNodeError>>>,
+        prior_miner: Option<MinerStopHandle>,
     ) -> Result<(), NakamotoNodeError> {
         // when starting a new tenure, block the mining thread if its currently running.
         // the new mining thread will join it (so that the new mining thread stalls, not the relayer)
@@ -332,7 +317,12 @@ impl BlockMinerThread {
             "reason" => %self.reason,
         );
         if let Some(prior_miner) = prior_miner {
-            Self::stop_miner(&self.globals, prior_miner)?;
+            debug!(
+                "Miner thread {:?}: will try and stop prior miner {:?}",
+                thread::current().id(),
+                prior_miner.inner_thread().id()
+            );
+            prior_miner.stop(&self.globals)?;
         }
         let mut stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), true)?;
         let mut last_block_rejected = false;
@@ -461,6 +451,13 @@ impl BlockMinerThread {
                     break Some(x);
                 }
                 Err(NakamotoNodeError::MiningFailure(ChainstateError::MinerAborted)) => {
+                    if self.abort_flag.load(Ordering::SeqCst) {
+                        info!("Miner interrupted while mining in order to shut down");
+                        self.globals
+                            .raise_initiative(format!("MiningFailure: aborted by node"));
+                        return Err(ChainstateError::MinerAborted.into());
+                    }
+
                     info!("Miner interrupted while mining, will try again");
                     // sleep, and try again. if the miner was interrupted because the burnchain
                     // view changed, the next `mine_block()` invocation will error

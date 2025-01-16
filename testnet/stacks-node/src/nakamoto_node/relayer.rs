@@ -15,13 +15,15 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use core::fmt;
 use std::collections::HashSet;
-use std::fs;
 use std::io::Read;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::Arc;
 #[cfg(test)]
 use std::sync::LazyLock;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+use std::{fs, thread};
 
 use rand::{thread_rng, Rng};
 use stacks::burnchains::{Burnchain, Txid};
@@ -40,6 +42,7 @@ use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{
     get_mining_spend_amount, signal_mining_blocked, signal_mining_ready,
 };
+use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::core::mempool::MemPoolDB;
 use stacks::core::STACKS_EPOCH_3_1_MARKER;
 use stacks::monitoring::increment_stx_blocks_mined_counter;
@@ -186,6 +189,101 @@ impl LastCommit {
     }
 }
 
+pub type MinerThreadJoinHandle = JoinHandle<Result<(), NakamotoNodeError>>;
+
+/// Miner thread join handle.
+/// This can be a "bare" miner thread, or a "tenure-stop" miner thread which itself stops a "bare"
+/// miner thread.
+pub enum MinerStopHandle {
+    Miner(MinerThreadJoinHandle, Arc<AtomicBool>),
+    TenureStop(MinerThreadJoinHandle, Arc<AtomicBool>),
+}
+
+impl MinerStopHandle {
+    pub fn new_miner(jh: MinerThreadJoinHandle, abort_flag: Arc<AtomicBool>) -> Self {
+        Self::Miner(jh, abort_flag)
+    }
+
+    pub fn new_tenure_stop(jh: MinerThreadJoinHandle, abort_flag: Arc<AtomicBool>) -> Self {
+        Self::TenureStop(jh, abort_flag)
+    }
+
+    pub fn inner_thread(&self) -> &std::thread::Thread {
+        match self {
+            Self::Miner(jh, ..) => jh.thread(),
+            Self::TenureStop(jh, ..) => jh.thread(),
+        }
+    }
+
+    pub fn into_inner(self) -> MinerThreadJoinHandle {
+        match self {
+            Self::Miner(jh, ..) => jh,
+            Self::TenureStop(jh, ..) => jh,
+        }
+    }
+
+    pub fn is_tenure_stop(&self) -> bool {
+        match self {
+            Self::TenureStop(..) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_miner(&self) -> bool {
+        match self {
+            Self::Miner(..) => true,
+            _ => false,
+        }
+    }
+
+    pub fn set_abort_flag(&self) {
+        match self {
+            Self::Miner(_, abort_flag) => {
+                (*abort_flag).store(true, Ordering::SeqCst);
+            }
+            Self::TenureStop(_, abort_flag) => {
+                (*abort_flag).store(true, Ordering::SeqCst);
+            }
+        }
+    }
+
+    pub fn get_abort_flag(&self) -> Arc<AtomicBool> {
+        match self {
+            Self::Miner(_, abort_flag) => abort_flag.clone(),
+            Self::TenureStop(_, abort_flag) => abort_flag.clone(),
+        }
+    }
+
+    pub fn stop(self, globals: &Globals) -> Result<(), NakamotoNodeError> {
+        let my_id = thread::current().id();
+        let prior_thread_id = self.inner_thread().id();
+        debug!(
+            "[Thread {:?}]: Stopping prior miner thread ID {:?}",
+            &my_id, &prior_thread_id
+        );
+
+        self.set_abort_flag();
+        globals.block_miner();
+
+        let prior_miner = self.into_inner();
+        let prior_miner_result = prior_miner.join().map_err(|_| {
+            error!("Miner: failed to join prior miner");
+            ChainstateError::MinerAborted
+        })?;
+        debug!("Stopped prior miner thread ID {:?}", &prior_thread_id);
+        if let Err(e) = prior_miner_result {
+            // it's okay if the prior miner thread exited with an error.
+            // in many cases this is expected (i.e., a burnchain block occurred)
+            // if some error condition should be handled though, this is the place
+            //  to do that handling.
+            debug!("Prior mining thread exited with: {e:?}");
+        }
+
+        globals.unblock_miner();
+        Ok(())
+    }
+}
+
 /// Relayer thread
 /// * accepts network results and stores blocks and microblocks
 /// * forwards new blocks, microblocks, and transactions to the p2p thread
@@ -242,7 +340,7 @@ pub struct RelayerThread {
     relayer: Relayer,
 
     /// handle to the subordinate miner thread
-    miner_thread: Option<JoinHandle<Result<(), NakamotoNodeError>>>,
+    miner_thread: Option<MinerStopHandle>,
     /// miner thread's burn view
     miner_thread_burn_view: Option<BlockSnapshot>,
 
@@ -1053,6 +1151,7 @@ impl RelayerThread {
             parent_tenure_start,
             reason,
         )?;
+        let miner_abort_flag = new_miner_state.get_abort_flag();
 
         debug!("Relayer: starting new tenure thread");
 
@@ -1062,6 +1161,10 @@ impl RelayerThread {
             .name(format!("miner.{parent_tenure_start}.{rand_id}",))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || {
+                debug!(
+                    "New block miner thread ID is {:?}",
+                    std::thread::current().id()
+                );
                 Self::fault_injection_stall_miner_thread_startup();
                 if let Err(e) = new_miner_state.run_miner(prior_tenure_thread) {
                     info!("Miner thread failed: {e:?}");
@@ -1078,7 +1181,10 @@ impl RelayerThread {
             "Relayer: started tenure thread ID {:?}",
             new_miner_handle.thread().id()
         );
-        self.miner_thread.replace(new_miner_handle);
+        self.miner_thread.replace(MinerStopHandle::new_miner(
+            new_miner_handle,
+            miner_abort_flag,
+        ));
         self.miner_thread_burn_view.replace(burn_tip);
         Ok(())
     }
@@ -1092,18 +1198,23 @@ impl RelayerThread {
         };
         self.miner_thread_burn_view = None;
 
-        let id = prior_tenure_thread.thread().id();
+        let id = prior_tenure_thread.inner_thread().id();
+        let abort_flag = prior_tenure_thread.get_abort_flag();
         let globals = self.globals.clone();
 
         let stop_handle = std::thread::Builder::new()
-            .name(format!("tenure-stop-{}", self.local_peer.data_url))
-            .spawn(move || BlockMinerThread::stop_miner(&globals, prior_tenure_thread))
+            .name(format!(
+                "tenure-stop({:?})-{}",
+                id, self.local_peer.data_url
+            ))
+            .spawn(move || prior_tenure_thread.stop(&globals))
             .map_err(|e| {
                 error!("Relayer: Failed to spawn a stop-tenure thread: {e:?}");
                 NakamotoNodeError::SpawnError(e)
             })?;
 
-        self.miner_thread.replace(stop_handle);
+        self.miner_thread
+            .replace(MinerStopHandle::new_tenure_stop(stop_handle, abort_flag));
         debug!("Relayer: stopped tenure thread ID {id:?}");
         Ok(())
     }
