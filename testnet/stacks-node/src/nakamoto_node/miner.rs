@@ -360,8 +360,6 @@ impl BlockMinerThread {
             self.burnchain.pox_constants.clone(),
         )
         .expect("FATAL: could not open sortition DB");
-        let burn_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
-            .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
         // Start the signer coordinator
         let mut coordinator = SignerCoordinator::new(
