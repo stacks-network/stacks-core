@@ -443,6 +443,11 @@ impl BlockMinerThread {
                     "Failed to open chainstate DB. Cannot mine! {e:?}"
                 ))
             })?;
+        // Late block tenures are initiated only to issue the BlockFound
+        //  tenure change tx (because they can be immediately extended to
+        //  the next burn view). This checks whether or not we're in such a
+        //  tenure and have produced a block already. If so, it exits the
+        //  mining thread to allow the tenure extension thread to take over.
         if self.last_block_mined.is_some() && self.reason.is_late_block() {
             info!("Miner: finished mining a late tenure");
             return Err(NakamotoNodeError::StacksTipChanged);
