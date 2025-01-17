@@ -2009,8 +2009,8 @@ impl PeerNetwork {
             self.events.remove(&nk);
             info!("Dropping neighbor!";
                 "event id" => %event_id,
-                "public address" => %pubkh,
-                "public key" => %nk.addrbytes,
+                "public key" => %pubkh,
+                "public addr" => %nk.addrbytes.pretty_print(),
                 "reason" => %reason
             );
 
