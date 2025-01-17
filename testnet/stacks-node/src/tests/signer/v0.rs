@@ -11385,8 +11385,6 @@ fn multiple_miners_empty_sortition() {
     })
     .expect("Timed out waiting for boostrapped node to catch up to the miner");
 
-    let pre_nakamoto_peer_1_height = get_chain_info(&conf).stacks_tip_height;
-
     info!("------------------------- Reached Epoch 3.0 -------------------------");
 
     let burn_height_contract = "
@@ -11411,8 +11409,6 @@ fn multiple_miners_empty_sortition() {
     let last_sender_nonce = loop {
         // Mine 1 nakamoto tenures
         info!("Mining tenure...");
-        let rl2_commits_before = rl2_commits.load(Ordering::SeqCst);
-        let rl1_commits_before = rl1_commits.load(Ordering::SeqCst);
 
         signer_test.mine_block_wait_on_processing(
             &[&rl1_coord_channels, &rl2_coord_channels],
