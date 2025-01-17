@@ -942,7 +942,7 @@ impl db_keys {
     }
 
     pub fn pox_reward_set_payouts_key() -> String {
-        format!("sortition_db::reward_set::payouts")
+        "sortition_db::reward_set::payouts".to_string()
     }
 
     pub fn pox_reward_set_payouts_value(addrs: Vec<PoxAddress>, payout_per_addr: u128) -> String {

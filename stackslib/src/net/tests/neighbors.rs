@@ -136,9 +136,7 @@ fn test_step_walk_1_neighbor_plain() {
                 .clone()
                 .unwrap(),
             (
-                PeerAddress::from_socketaddr(
-                    &format!("127.0.0.1:1").parse::<SocketAddr>().unwrap()
-                ),
+                PeerAddress::from_socketaddr(&"127.0.0.1:1".parse::<SocketAddr>().unwrap()),
                 peer_1.config.server_port,
             )
         );

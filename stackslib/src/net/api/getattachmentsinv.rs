@@ -165,13 +165,13 @@ impl RPCRequestHandler for RPCGetAttachmentsInvRequestHandler {
                 "Number of attachment inv pages is limited by {} per request",
                 MAX_ATTACHMENT_INV_PAGES_PER_REQUEST
             );
-            warn!("{}", msg);
+            warn!("{msg}");
             return StacksHttpResponse::new_error(&preamble, &HttpBadRequest::new(msg))
                 .try_into_contents()
                 .map_err(NetError::from);
         }
         if page_indexes.is_empty() {
-            let msg = format!("Page indexes missing");
+            let msg = "Page indexes missing".to_string();
             warn!("{}", msg);
             return StacksHttpResponse::new_error(&preamble, &HttpBadRequest::new(msg))
                 .try_into_contents()

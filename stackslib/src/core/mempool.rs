@@ -1432,7 +1432,7 @@ impl MemPoolDB {
         }
 
         let bloom_counter = BloomCounter::<BloomNodeHasher>::try_load(&conn, BLOOM_COUNTER_TABLE)?
-            .ok_or(db_error::Other(format!("Failed to load bloom counter")))?;
+            .ok_or(db_error::Other("Failed to load bloom counter".to_string()))?;
 
         Ok(MemPoolDB {
             db: conn,

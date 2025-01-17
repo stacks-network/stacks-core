@@ -3030,7 +3030,7 @@ fn idle_tenure_extend_active_mining() {
 (define-public (f) (begin {} (ok 1))) (begin (f))
         "#,
         (0..250)
-            .map(|_| format!("(var-get my-var)"))
+            .map(|_| "(var-get my-var)".to_string())
             .collect::<Vec<String>>()
             .join(" ")
     );
