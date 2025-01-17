@@ -33,7 +33,7 @@ const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
          (define-read-only (my-ft-get-balance (account principal))
             (ft-get-balance stackaroos account))
          (define-read-only (get-total-supply)
-            (ft-get-supply stackaroos)) 
+            (ft-get-supply stackaroos))
          (define-public (my-token-transfer (to principal) (amount uint))
             (ft-transfer? stackaroos amount tx-sender to))
          (define-public (faucet)
@@ -98,7 +98,7 @@ const ASSET_NAMES: &str =
                     (unwrap! token-to-contract-result token-to-contract-result)
                     (unwrap! contract-to-burn-result contract-to-burn-result)
                     (ok 0))))
-         (define-public (register 
+         (define-public (register
                         (recipient-principal principal)
                         (name int)
                         (salt int))

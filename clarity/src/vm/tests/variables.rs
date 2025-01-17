@@ -42,7 +42,7 @@ fn test_block_height(
     let mut owned_env = tl_env_factory.get_env(epoch);
     let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
 
-    let mut exprs = parse(&contract_identifier, &contract, version, epoch).unwrap();
+    let mut exprs = parse(&contract_identifier, contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
     let analysis = db.execute(|db| {
@@ -100,7 +100,7 @@ fn test_stacks_block_height(
     let mut owned_env = tl_env_factory.get_env(epoch);
     let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
 
-    let mut exprs = parse(&contract_identifier, &contract, version, epoch).unwrap();
+    let mut exprs = parse(&contract_identifier, contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
     let analysis = db.execute(|db| {
@@ -160,7 +160,7 @@ fn test_tenure_height(
     let mut owned_env = tl_env_factory.get_env(epoch);
     let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
 
-    let mut exprs = parse(&contract_identifier, &contract, version, epoch).unwrap();
+    let mut exprs = parse(&contract_identifier, contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
     let analysis = db.execute(|db| {
@@ -213,6 +213,7 @@ enum WhenError {
 }
 
 #[cfg(test)]
+#[allow(clippy::type_complexity)]
 fn expect_contract_error(
     version: ClarityVersion,
     epoch: StacksEpochId,
@@ -232,7 +233,7 @@ fn expect_contract_error(
     let mut owned_env = tl_env_factory.get_env(epoch);
     let contract_identifier = QualifiedContractIdentifier::local(name).unwrap();
 
-    let mut exprs = parse(&contract_identifier, &contract, version, epoch).unwrap();
+    let mut exprs = parse(&contract_identifier, contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
     let analysis = db.execute(|db| {
