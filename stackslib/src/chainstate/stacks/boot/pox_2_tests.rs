@@ -576,7 +576,7 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
     assert_eq!(
         u128::try_from(checked_total).unwrap(),
         expected_total,
-        "{}", format!("Invariant violated at cycle {}: total reward cycle amount does not equal sum of reward set", cycle_number)
+        "Invariant violated at cycle {cycle_number}: total reward cycle amount does not equal sum of reward set"
     );
 }
 
