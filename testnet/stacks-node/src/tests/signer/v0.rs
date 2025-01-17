@@ -11527,3 +11527,128 @@ fn multiple_miners_empty_sortition() {
     run_loop_2_thread.join().unwrap();
     signer_test.shutdown();
 }
+
+#[test]
+#[ignore]
+/// This test spins up a single nakamoto node configured to mine.
+/// After Nakamoto blocks are mined, it waits for a normal tenure, then issues
+///  two bitcoin blocks in quick succession -- the first will contain block commits,
+///  and the second "flash block" will contain no block commits.
+/// The test then tries to continue producing a normal tenure: issuing a bitcoin block
+///   with a sortition in it.
+/// The test does 3 rounds of this to make sure that the network continues producing blocks throughout.
+fn single_miner_empty_sortition() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_fee = 180;
+
+    // partition the signer set so that ~half are listening and using node 1 for RPC and events,
+    //  and the rest are using node 2
+
+    let mut signer_test: SignerTest<SpawnedSigner> =
+        SignerTest::new(num_signers, vec![(sender_addr, send_fee * 2 * 60 + 1000)]);
+    let conf = signer_test.running_nodes.conf.clone();
+
+    signer_test.boot_to_epoch_3();
+
+    info!("------------------------- Reached Epoch 3.0 -------------------------");
+
+    let burn_height_contract = "
+       (define-data-var local-burn-block-ht uint u0)
+       (define-public (run-update)
+          (ok (var-set local-burn-block-ht burn-block-height)))
+    ";
+
+    let contract_tx = make_contract_publish(
+        &sender_sk,
+        0,
+        1000,
+        conf.burnchain.chain_id,
+        "burn-height-local",
+        burn_height_contract,
+    );
+    submit_tx(&conf.node.data_url, &contract_tx);
+
+    let rl1_coord_channels = signer_test.running_nodes.coord_channel.clone();
+    let rl1_commits = signer_test.running_nodes.commits_submitted.clone();
+
+    for _i in 0..3 {
+        // Mine 1 nakamoto tenures
+        info!("Mining tenure...");
+
+        signer_test.mine_block_wait_on_processing(
+            &[&rl1_coord_channels],
+            &[&rl1_commits],
+            Duration::from_secs(30),
+        );
+
+        // mine the interim blocks
+        for _ in 0..2 {
+            let sender_nonce = get_account(&conf.node.data_url, &sender_addr).nonce;
+            // check if the burn contract is already produced, if not wait for it to be included in
+            //  an interim block
+            if sender_nonce >= 1 {
+                let contract_call_tx = make_contract_call(
+                    &sender_sk,
+                    sender_nonce,
+                    send_fee,
+                    conf.burnchain.chain_id,
+                    &sender_addr,
+                    "burn-height-local",
+                    "run-update",
+                    &[],
+                );
+                submit_tx(&conf.node.data_url, &contract_call_tx);
+            }
+
+            // make sure the sender's tx gets included (whether it was the contract publish or call)
+            wait_for(60, || {
+                let next_sender_nonce = get_account(&conf.node.data_url, &sender_addr).nonce;
+                Ok(next_sender_nonce > sender_nonce)
+            })
+            .unwrap();
+        }
+
+        let last_active_sortition = get_sortition_info(&conf);
+        assert!(last_active_sortition.was_sortition);
+
+        // lets mine a btc flash block
+        let rl1_commits_before = rl1_commits.load(Ordering::SeqCst);
+        signer_test
+            .running_nodes
+            .btc_regtest_controller
+            .build_next_block(2);
+
+        wait_for(60, || {
+            Ok(rl1_commits.load(Ordering::SeqCst) > rl1_commits_before)
+        })
+        .unwrap();
+
+        let cur_empty_sortition = get_sortition_info(&conf);
+        assert!(!cur_empty_sortition.was_sortition);
+        let inactive_sortition = get_sortition_info_ch(
+            &conf,
+            cur_empty_sortition.last_sortition_ch.as_ref().unwrap(),
+        );
+        assert!(inactive_sortition.was_sortition);
+        assert_eq!(
+            inactive_sortition.burn_block_height,
+            last_active_sortition.burn_block_height + 1
+        );
+
+        info!("==================== Mined a flash block ====================");
+        info!("Flash block sortition info";
+              "last_active_winner" => ?last_active_sortition.miner_pk_hash160,
+              "last_winner" => ?inactive_sortition.miner_pk_hash160,
+              "last_active_ch" => %last_active_sortition.consensus_hash,
+              "last_winner_ch" => %inactive_sortition.consensus_hash,
+              "cur_empty_sortition" => %cur_empty_sortition.consensus_hash,
+        );
+    }
+
+    signer_test.shutdown();
+}

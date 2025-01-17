@@ -143,6 +143,8 @@ jobs:
           - tests::signer::v0::outgoing_signers_ignore_block_proposals
           - tests::signer::v0::injected_signatures_are_ignored_across_boundaries
           - tests::signer::v0::fast_sortition
+          - tests::signer::v0::single_miner_empty_sortition
+          - tests::signer::v0::multiple_miners_empty_sortition
           - tests::nakamoto_integrations::burn_ops_integration_test
           - tests::nakamoto_integrations::check_block_heights
           - tests::nakamoto_integrations::clarity_burn_state

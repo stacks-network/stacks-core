@@ -61,6 +61,12 @@ pub struct SignerCoordinator {
     keep_running: Arc<AtomicBool>,
     /// Handle for the signer DB listener thread
     listener_thread: Option<JoinHandle<()>>,
+    /// The current tip when this miner thread was started.
+    /// This *should not* be passed into any block building code, as it
+    ///  is not necessarily the burn view for the block being constructed.
+    /// Rather, this burn block is used to determine whether or not a new
+    ///  burn block has arrived since this thread started.
+    burn_tip_at_start: ConsensusHash,
 }
 
 impl SignerCoordinator {
@@ -70,10 +76,11 @@ impl SignerCoordinator {
         stackerdb_channel: Arc<Mutex<StackerDBChannel>>,
         node_keep_running: Arc<AtomicBool>,
         reward_set: &RewardSet,
-        burn_tip: &BlockSnapshot,
+        election_block: &BlockSnapshot,
         burnchain: &Burnchain,
         message_key: StacksPrivateKey,
         config: &Config,
+        burn_tip_at_start: &ConsensusHash,
     ) -> Result<Self, ChainstateError> {
         info!("SignerCoordinator: starting up");
         let keep_running = Arc::new(AtomicBool::new(true));
@@ -84,7 +91,7 @@ impl SignerCoordinator {
             node_keep_running.clone(),
             keep_running.clone(),
             reward_set,
-            burn_tip,
+            election_block,
             burnchain,
         )?;
         let is_mainnet = config.is_mainnet();
@@ -104,11 +111,15 @@ impl SignerCoordinator {
             stackerdb_comms: listener.get_comms(),
             keep_running,
             listener_thread: None,
+            burn_tip_at_start: burn_tip_at_start.clone(),
         };
 
         // Spawn the signer DB listener thread
         let listener_thread = std::thread::Builder::new()
-            .name(format!("stackerdb_listener_{}", burn_tip.block_height))
+            .name(format!(
+                "stackerdb_listener_{}",
+                election_block.block_height
+            ))
             .spawn(move || {
                 if let Err(e) = listener.run() {
                     error!("StackerDBListener: exited with error: {e:?}");
@@ -208,24 +219,23 @@ impl SignerCoordinator {
     pub fn propose_block(
         &mut self,
         block: &NakamotoBlock,
-        burn_tip: &BlockSnapshot,
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         chain_state: &mut StacksChainState,
         stackerdbs: &StackerDBs,
         counters: &Counters,
-        election_sortition: &ConsensusHash,
+        election_sortition: &BlockSnapshot,
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
         // Add this block to the block status map.
         self.stackerdb_comms.insert_block(&block.header);
 
         let reward_cycle_id = burnchain
-            .block_height_to_reward_cycle(burn_tip.block_height)
+            .block_height_to_reward_cycle(election_sortition.block_height)
             .expect("FATAL: tried to initialize coordinator before first burn block height");
 
         let block_proposal = BlockProposal {
             block: block.clone(),
-            burn_height: burn_tip.block_height,
+            burn_height: election_sortition.block_height,
             reward_cycle: reward_cycle_id,
         };
 
@@ -236,13 +246,13 @@ impl SignerCoordinator {
         Self::send_miners_message::<SignerMessageV0>(
             &self.message_key,
             sortdb,
-            burn_tip,
+            election_sortition,
             stackerdbs,
             block_proposal_message,
             MinerSlotID::BlockProposal,
             self.is_mainnet,
             &mut self.miners_session,
-            election_sortition,
+            &election_sortition.consensus_hash,
         )?;
         counters.bump_naka_proposed_blocks();
 
@@ -267,7 +277,6 @@ impl SignerCoordinator {
             &block.block_id(),
             chain_state,
             sortdb,
-            burn_tip,
             counters,
         )
     }
@@ -283,7 +292,6 @@ impl SignerCoordinator {
         block_id: &StacksBlockId,
         chain_state: &mut StacksChainState,
         sortdb: &SortitionDB,
-        burn_tip: &BlockSnapshot,
         counters: &Counters,
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
         loop {
@@ -324,7 +332,7 @@ impl SignerCoordinator {
                         return Ok(stored_block.header.signer_signature);
                     }
 
-                    if Self::check_burn_tip_changed(sortdb, chain_state, burn_tip) {
+                    if self.check_burn_tip_changed(sortdb) {
                         debug!("SignCoordinator: Exiting due to new burnchain tip");
                         return Err(NakamotoNodeError::BurnchainTipChanged);
                     }
@@ -366,15 +374,11 @@ impl SignerCoordinator {
     }
 
     /// Check if the tenure needs to change
-    fn check_burn_tip_changed(
-        sortdb: &SortitionDB,
-        _chain_state: &mut StacksChainState,
-        burn_block: &BlockSnapshot,
-    ) -> bool {
+    fn check_burn_tip_changed(&self, sortdb: &SortitionDB) -> bool {
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
-        if cur_burn_chain_tip.consensus_hash != burn_block.consensus_hash {
+        if cur_burn_chain_tip.consensus_hash != self.burn_tip_at_start {
             info!("SignCoordinator: Cancel signature aggregation; burnchain tip has changed");
             true
         } else {
