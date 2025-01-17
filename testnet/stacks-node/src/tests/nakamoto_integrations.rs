@@ -10305,17 +10305,15 @@ fn clarity_cost_spend_down() {
     );
 
     // Create an expensive contract that will be republished multiple times
+    let contract_call = format!(
+        "(unwrap! (contract-call? '{} submit-proposal '{} \"cost-old\" '{} \"cost-new\") (err 1))",
+        boot_code_id("cost-voting", false),
+        boot_code_id("costs", false),
+        boot_code_id("costs", false)
+    );
     let large_contract = format!(
         "(define-public (f) (begin {} (ok 1))) (begin (f))",
-        (0..250)
-            .map(|_| format!(
-                "(unwrap! (contract-call? '{} submit-proposal '{} \"cost-old\" '{} \"cost-new\") (err 1))",
-                boot_code_id("cost-voting", false),
-                boot_code_id("costs", false),
-                boot_code_id("costs", false),
-            ))
-            .collect::<Vec<String>>()
-            .join(" ")
+        [contract_call.as_str(); 250].join(" ")
     );
 
     // First, lets deploy the contract
