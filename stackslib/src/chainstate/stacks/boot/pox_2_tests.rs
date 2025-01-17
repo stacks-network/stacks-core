@@ -283,8 +283,8 @@ pub fn check_pox_print_event(
                     if v != &inner_val {
                         wrong.push((
                             (&inner_key).to_string(),
-                            format!("{}", v),
-                            format!("{}", &inner_val),
+                            v.to_string(),
+                            (&inner_val).to_string(),
                         ));
                     }
                 }
