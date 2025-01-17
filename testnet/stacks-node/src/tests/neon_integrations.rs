@@ -1027,7 +1027,7 @@ fn bitcoind_integration_test() {
     let prom_port = gen_random_port();
     let localhost = "127.0.0.1";
     let prom_bind = format!("{localhost}:{prom_port}");
-    conf.node.prometheus_bind = Some(prom_bind);
+    conf.node.prometheus_bind = Some(prom_bind.clone());
 
     conf.burnchain.max_rbf = 1000000;
 
