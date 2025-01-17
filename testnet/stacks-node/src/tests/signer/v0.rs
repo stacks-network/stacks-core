@@ -11747,7 +11747,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     rl2_skip_commit_op.set(true);
 
     info!("------------------------- Pause Miner 2's Block Mining -------------------------");
-    TEST_MINE_STALL.lock().unwrap().replace(true);
+    TEST_MINE_STALL.set(true);
 
     let burn_height_before = get_chain_info(&signer_test.running_nodes.conf).burn_block_height;
 
@@ -11789,7 +11789,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     let info_before = get_chain_info(&conf);
     let mined_before = test_observer::get_blocks().len();
 
-    TEST_MINE_STALL.lock().unwrap().replace(false);
+    TEST_MINE_STALL.set(false);
 
     wait_for(30, || {
         Ok(signer_test
