@@ -1746,7 +1746,7 @@ pub mod test {
         let value = eval_at_tip(
             peer,
             "pox",
-            &format!("(stx-get-balance '{})", addr.to_string()),
+            &format!("(stx-get-balance '{})", addr),
         );
         if let Value::UInt(balance) = value {
             return balance;
@@ -1762,7 +1762,7 @@ pub mod test {
         let value_opt = eval_at_tip(
             peer,
             "pox-4",
-            &format!("(get-stacker-info '{})", addr.to_string()),
+            &format!("(get-stacker-info '{})", addr),
         );
         let data = if let Some(d) = value_opt.expect_optional().unwrap() {
             d
@@ -1815,7 +1815,7 @@ pub mod test {
         let value_opt = eval_at_tip(
             peer,
             "pox",
-            &format!("(get-stacker-info '{})", addr.to_string()),
+            &format!("(get-stacker-info '{})", addr),
         );
         let data = if let Some(d) = value_opt.expect_optional().unwrap() {
             d
@@ -4267,7 +4267,7 @@ pub mod test {
                               (var-set test-result
                                        (match result ok_value -1 err_value err_value))
                               (var-set test-run true))
-                        ", boot_code_test_addr().to_string()));
+                        ", boot_code_test_addr()));
 
                     block_txs.push(bob_test_tx);
 
@@ -4281,7 +4281,7 @@ pub mod test {
                               (var-set test-result
                                        (match result ok_value -1 err_value err_value))
                               (var-set test-run true))
-                        ", boot_code_test_addr().to_string()));
+                        ", boot_code_test_addr()));
 
                     block_txs.push(alice_test_tx);
 
@@ -4295,7 +4295,7 @@ pub mod test {
                               (var-set test-result
                                        (match result ok_value -1 err_value err_value))
                               (var-set test-run true))
-                        ", boot_code_test_addr().to_string()));
+                        ", boot_code_test_addr()));
 
                     block_txs.push(charlie_test_tx);
                 }
