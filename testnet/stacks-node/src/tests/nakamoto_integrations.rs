@@ -10301,10 +10301,7 @@ fn clarity_cost_spend_down() {
 (define-data-var my-var uint u0)
 (define-public (f) (begin {} (ok 1))) (begin (f))
         "#,
-        (0..250)
-            .map(|_| "(var-get my-var)".to_string())
-            .collect::<Vec<String>>()
-            .join(" ")
+        ["(var-get my-var)"; 250].join(" ")
     );
 
     // Create an expensive contract that will be republished multiple times
