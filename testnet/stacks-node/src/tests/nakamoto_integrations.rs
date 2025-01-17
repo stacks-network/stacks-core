@@ -7068,6 +7068,15 @@ fn continue_tenure_extend() {
         )
         .unwrap();
 
+    // wait for the extended miner to include the tx in a block
+    //  before we produce the next bitcoin block (this test will assert
+    //  that this is the case at the end of the test).
+    wait_for(60, || {
+        let nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
+        Ok(nonce > transfer_nonce)
+    })
+    .unwrap();
+
     let blocks_processed_before = coord_channel
         .lock()
         .expect("Mutex poisoned")
