@@ -5030,6 +5030,7 @@ fn forked_tenure_is_ignored() {
     // Stall the miner thread; only wait until the number of submitted commits increases.
     TEST_BROADCAST_STALL.set(true);
     TEST_BLOCK_ANNOUNCE_STALL.set(true);
+
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let commits_before = commits_submitted.load(Ordering::SeqCst);
 

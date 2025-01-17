@@ -59,10 +59,11 @@ use crate::nakamoto_node::VRF_MOCK_MINER_KEY;
 use crate::neon_node;
 use crate::run_loop::nakamoto::Globals;
 use crate::run_loop::RegisteredKey;
-
 #[cfg(test)]
+/// Test flag to stall the miner thread
 pub static TEST_MINE_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 #[cfg(test)]
+/// Test flag to stall block proposal broadcasting
 pub static TEST_BROADCAST_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 #[cfg(test)]
 pub static TEST_BLOCK_ANNOUNCE_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
@@ -237,6 +238,10 @@ impl BlockMinerThread {
             tenure_change_time: Instant::now(),
             abort_flag: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    pub fn get_abort_flag(&self) -> Arc<AtomicBool> {
+        self.abort_flag.clone()
     }
 
     #[cfg(test)]

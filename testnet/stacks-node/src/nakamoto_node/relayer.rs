@@ -1099,7 +1099,7 @@ impl RelayerThread {
             reason,
             burn_tip_at_start,
         )?;
-        let miner_abort_flag = new_miner_state.abort_flag.clone();
+        let miner_abort_flag = new_miner_state.get_abort_flag();
 
         debug!("Relayer: starting new tenure thread");
 
