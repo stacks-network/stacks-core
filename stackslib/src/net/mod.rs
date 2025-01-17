@@ -2554,6 +2554,7 @@ pub mod test {
             _rewards: Vec<(PoxAddress, u64)>,
             _burns: u64,
             _reward_recipients: Vec<PoxAddress>,
+            _consensus_hash: &ConsensusHash,
         ) {
             // pass
         }
@@ -3736,12 +3737,10 @@ pub mod test {
                     .handle_new_burnchain_block()
                     .unwrap()
                     .into_missing_block_hash()
+            } else if self.coord.handle_new_nakamoto_burnchain_block().unwrap() {
+                None
             } else {
-                if self.coord.handle_new_nakamoto_burnchain_block().unwrap() {
-                    None
-                } else {
-                    Some(BlockHeaderHash([0x00; 32]))
-                }
+                Some(BlockHeaderHash([0x00; 32]))
             };
 
             let pox_id = {

@@ -582,7 +582,7 @@ impl RelayerThread {
         tip_block_ch: &ConsensusHash,
         tip_block_bh: &BlockHeaderHash,
     ) -> Result<LastCommit, NakamotoNodeError> {
-        let tip_block_id = StacksBlockId::new(&tip_block_ch, &tip_block_bh);
+        let tip_block_id = StacksBlockId::new(tip_block_ch, tip_block_bh);
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn())
             .map_err(|_| NakamotoNodeError::SnapshotNotFoundForChainTip)?;
 
@@ -926,7 +926,7 @@ impl RelayerThread {
         let highest_tenure_start_block_header = NakamotoChainState::get_tenure_start_block_header(
             &mut self.chainstate.index_conn(),
             tip_block_id,
-            &ch,
+            ch,
         )?
         .ok_or_else(|| {
             error!(

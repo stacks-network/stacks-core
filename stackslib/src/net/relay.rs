@@ -3267,7 +3267,7 @@ impl PeerNetwork {
                                 network.advertize_to_peer(
                                     recipient,
                                     &[((*ch).clone(), (*bhh).clone())],
-                                    |payload| StacksMessageType::BlocksAvailable(payload),
+                                    StacksMessageType::BlocksAvailable,
                                 );
                             }
                         }
@@ -3309,7 +3309,7 @@ impl PeerNetwork {
                                 network.advertize_to_peer(
                                     recipient,
                                     &[((*ch).clone(), (*bhh).clone())],
-                                    |payload| StacksMessageType::MicroblocksAvailable(payload),
+                                    StacksMessageType::MicroblocksAvailable,
                                 );
                             }
                         }
