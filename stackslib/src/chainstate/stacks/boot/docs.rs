@@ -160,9 +160,7 @@ pub fn make_json_boot_contracts_reference() -> String {
         &contract_supporting_docs,
         ClarityVersion::Clarity1,
     );
-    serde_json::to_string(&api_out)
-        .expect("Failed to serialize documentation")
-        .to_string()
+    serde_json::to_string(&api_out).expect("Failed to serialize documentation")
 }
 
 #[cfg(test)]
