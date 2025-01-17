@@ -196,9 +196,7 @@ lazy_static! {
 pub static TEST_SIGNING: Mutex<Option<TestSigningChannel>> = Mutex::new(None);
 
 pub struct TestSigningChannel {
-    // pub recv: Option<Receiver<ThresholdSignature>>,
     pub recv: Option<Receiver<Vec<MessageSignature>>>,
-    // pub send: Sender<ThresholdSignature>,
     pub send: Sender<Vec<MessageSignature>>,
 }
 
@@ -208,8 +206,6 @@ impl TestSigningChannel {
     /// Returns None if the singleton isn't instantiated and the miner should coordinate
     ///  a real signer set signature.
     /// Panics if the blind-signer times out.
-    ///
-    /// TODO: update to use signatures vec
     pub fn get_signature() -> Option<Vec<MessageSignature>> {
         let mut signer = TEST_SIGNING.lock().unwrap();
         let sign_channels = signer.as_mut()?;
