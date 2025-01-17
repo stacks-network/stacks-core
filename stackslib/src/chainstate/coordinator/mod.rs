@@ -194,6 +194,7 @@ pub trait BlockEventDispatcher {
         rewards: Vec<(PoxAddress, u64)>,
         burns: u64,
         reward_recipients: Vec<PoxAddress>,
+        consensus_hash: &ConsensusHash,
     );
 }
 
@@ -373,11 +374,11 @@ impl<T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider<'_,
             cur_epoch,
         )?;
 
-        if is_nakamoto_reward_set {
-            if reward_set.signers.is_none() || reward_set.signers == Some(vec![]) {
-                error!("FATAL: Signer sets are empty in a reward set that will be used in nakamoto"; "reward_set" => ?reward_set);
-                return Err(Error::PoXAnchorBlockRequired);
-            }
+        if is_nakamoto_reward_set
+            && (reward_set.signers.is_none() || reward_set.signers == Some(vec![]))
+        {
+            error!("FATAL: Signer sets are empty in a reward set that will be used in nakamoto"; "reward_set" => ?reward_set);
+            return Err(Error::PoXAnchorBlockRequired);
         }
 
         Ok(reward_set)
@@ -742,7 +743,7 @@ pub fn get_next_recipients<U: RewardSetProvider>(
     )?;
     sort_db
         .get_next_block_recipients(burnchain, sortition_tip, reward_cycle_info.as_ref())
-        .map_err(|e| Error::from(e))
+        .map_err(Error::from)
 }
 
 /// returns None if this burnchain block is _not_ the start of a reward cycle
@@ -917,12 +918,10 @@ pub fn calculate_paid_rewards(ops: &[BlockstackOperationType]) -> PaidRewards {
             for addr in commit.commit_outs.iter() {
                 if addr.is_burn() {
                     burn_amt += amt_per_address;
+                } else if let Some(prior_amt) = reward_recipients.get_mut(addr) {
+                    *prior_amt += amt_per_address;
                 } else {
-                    if let Some(prior_amt) = reward_recipients.get_mut(addr) {
-                        *prior_amt += amt_per_address;
-                    } else {
-                        reward_recipients.insert(addr.clone(), amt_per_address);
-                    }
+                    reward_recipients.insert(addr.clone(), amt_per_address);
                 }
             }
         }
@@ -938,6 +937,7 @@ pub fn dispatcher_announce_burn_ops<T: BlockEventDispatcher>(
     burn_header: &BurnchainBlockHeader,
     paid_rewards: PaidRewards,
     reward_recipient_info: Option<RewardSetInfo>,
+    consensus_hash: &ConsensusHash,
 ) {
     let recipients = if let Some(recip_info) = reward_recipient_info {
         recip_info
@@ -955,6 +955,7 @@ pub fn dispatcher_announce_burn_ops<T: BlockEventDispatcher>(
         paid_rewards.pox,
         paid_rewards.burns,
         recipients,
+        consensus_hash,
     );
 }
 
@@ -1399,21 +1400,20 @@ impl<
             }
         };
 
-        if sortition_changed_reward_cycle_opt.is_none() {
-            if sortition_tip_affirmation_map.len() >= heaviest_am.len()
-                && sortition_tip_affirmation_map.len() <= canonical_affirmation_map.len()
+        if sortition_changed_reward_cycle_opt.is_none()
+            && sortition_tip_affirmation_map.len() >= heaviest_am.len()
+            && sortition_tip_affirmation_map.len() <= canonical_affirmation_map.len()
+        {
+            if let Some(divergence_rc) =
+                canonical_affirmation_map.find_divergence(&sortition_tip_affirmation_map)
             {
-                if let Some(divergence_rc) =
-                    canonical_affirmation_map.find_divergence(&sortition_tip_affirmation_map)
-                {
-                    if divergence_rc + 1 >= (heaviest_am.len() as u64) {
-                        // this can arise if there are unaffirmed PoX anchor blocks that are not
-                        // reflected in the sortiiton affirmation map
-                        debug!("Update sortition-changed reward cycle to {} from canonical affirmation map `{}` (sortition AM is `{}`)",
-                            divergence_rc, &canonical_affirmation_map, &sortition_tip_affirmation_map);
+                if divergence_rc + 1 >= (heaviest_am.len() as u64) {
+                    // this can arise if there are unaffirmed PoX anchor blocks that are not
+                    // reflected in the sortiiton affirmation map
+                    debug!("Update sortition-changed reward cycle to {} from canonical affirmation map `{}` (sortition AM is `{}`)",
+                        divergence_rc, &canonical_affirmation_map, &sortition_tip_affirmation_map);
 
-                        sortition_changed_reward_cycle_opt = Some(divergence_rc);
-                    }
+                    sortition_changed_reward_cycle_opt = Some(divergence_rc);
                 }
             }
         }
@@ -2097,9 +2097,7 @@ impl<
             // by holding this lock as long as we do, we ensure that the sortition DB's
             // view of the canonical stacks chain tip can't get changed (since no
             // Stacks blocks can be processed).
-            chainstate_db_tx
-                .commit()
-                .map_err(|e| DBError::SqliteError(e))?;
+            chainstate_db_tx.commit().map_err(DBError::SqliteError)?;
 
             let highest_valid_snapshot = SortitionDB::get_block_snapshot(
                 &self.sortition_db.conn(),
@@ -2705,13 +2703,14 @@ impl<
                             &self.burnchain,
                             &last_processed_ancestor,
                             reward_cycle_info,
-                            |reward_set_info| {
+                            |reward_set_info, consensus_hash| {
                                 if let Some(dispatcher) = dispatcher_ref {
                                     dispatcher_announce_burn_ops(
                                         *dispatcher,
                                         &header,
                                         paid_rewards,
                                         reward_set_info,
+                                        &consensus_hash,
                                     );
                                 }
                             },
@@ -2786,9 +2785,7 @@ impl<
                         invalidation_height,
                     )?;
                 }
-                chainstate_db_tx
-                    .commit()
-                    .map_err(|e| DBError::SqliteError(e))?;
+                chainstate_db_tx.commit().map_err(DBError::SqliteError)?;
             }
 
             let sortition_id = next_snapshot.sortition_id;
