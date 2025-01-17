@@ -1923,6 +1923,18 @@ fn miner_forking() {
             .unwrap()
             .block_height
     };
+
+    let wait_for_chains = || {
+        wait_for(30, || {
+            let Some(chain_info_1) = get_chain_info_opt(&conf) else {
+                return Ok(false);
+            };
+            let Some(chain_info_2) = get_chain_info_opt(&conf_node_2) else {
+                return Ok(false);
+            };
+            Ok(chain_info_1.burn_block_height == chain_info_2.burn_block_height)
+        })
+    };
     info!("------------------------- Reached Epoch 3.0 -------------------------");
 
     info!("Pausing both miners' block commit submissions");
@@ -1969,7 +1981,7 @@ fn miner_forking() {
     )
     .unwrap();
 
-    // fetch the current sortition info
+    wait_for_chains().expect("Timed out waiting for Rl1 and Rl2 chains to advance");
     let sortdb = conf.get_burnchain().open_sortition_db(true).unwrap();
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     // make sure the tenure was won by RL1
@@ -2047,6 +2059,7 @@ fn miner_forking() {
     .expect("RL1 did not produce a tenure extend block");
 
     // fetch the current sortition info
+    wait_for_chains().expect("Timed out waiting for Rl1 and Rl2 chains to advance");
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     // make sure the tenure was won by RL2
     assert!(tip.sortition, "No sortition was won");
@@ -2145,6 +2158,7 @@ fn miner_forking() {
     .unwrap();
 
     // fetch the current sortition info
+    wait_for_chains().expect("Timed out waiting for Rl1 and Rl2 chains to advance");
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     // make sure the tenure was won by RL1
     assert!(tip.sortition, "No sortition was won");
