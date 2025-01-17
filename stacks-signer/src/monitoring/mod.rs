@@ -50,13 +50,9 @@ pub mod actions {
     }
 
     /// Increment the block responses sent counter
-    #[allow(unused_variables)]
     pub fn increment_block_responses_sent(accepted: bool) {
-        #[cfg(feature = "monitoring_prom")]
-        {
-            let label_value = if accepted { "accepted" } else { "rejected" };
-            BLOCK_RESPONSES_SENT.with_label_values(&[label_value]).inc();
-        }
+        let label_value = if accepted { "accepted" } else { "rejected" };
+        BLOCK_RESPONSES_SENT.with_label_values(&[label_value]).inc();
     }
 
     /// Increment the number of block proposals received
