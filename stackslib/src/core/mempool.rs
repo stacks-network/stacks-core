@@ -492,35 +492,25 @@ impl FromStr for MemPoolWalkTxTypes {
     type Err = &'static str;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "TokenTransfer" => {
-                return Ok(Self::TokenTransfer);
-            }
-            "SmartContract" => {
-                return Ok(Self::SmartContract);
-            }
-            "ContractCall" => {
-                return Ok(Self::ContractCall);
-            }
-            _ => {
-                return Err("Unknown mempool tx walk type");
-            }
+            "TokenTransfer" => Ok(Self::TokenTransfer),
+            "SmartContract" => Ok(Self::SmartContract),
+            "ContractCall" => Ok(Self::ContractCall),
+            _ => Err("Unknown mempool tx walk type"),
         }
     }
 }
 
 impl MemPoolWalkTxTypes {
     pub fn all() -> HashSet<MemPoolWalkTxTypes> {
-        [
+        HashSet::from([
             MemPoolWalkTxTypes::TokenTransfer,
             MemPoolWalkTxTypes::SmartContract,
             MemPoolWalkTxTypes::ContractCall,
-        ]
-        .into_iter()
-        .collect()
+        ])
     }
 
     pub fn only(selected: &[MemPoolWalkTxTypes]) -> HashSet<MemPoolWalkTxTypes> {
-        selected.iter().map(|x| x.clone()).collect()
+        selected.iter().cloned().collect()
     }
 }
 
@@ -554,13 +544,7 @@ impl Default for MemPoolWalkSettings {
             consider_no_estimate_tx_prob: 5,
             nonce_cache_size: 1024 * 1024,
             candidate_retry_cache_size: 64 * 1024,
-            txs_to_consider: [
-                MemPoolWalkTxTypes::TokenTransfer,
-                MemPoolWalkTxTypes::SmartContract,
-                MemPoolWalkTxTypes::ContractCall,
-            ]
-            .into_iter()
-            .collect(),
+            txs_to_consider: MemPoolWalkTxTypes::all(),
             filter_origins: HashSet::new(),
             tenure_cost_limit_per_block_percentage: None,
         }
@@ -573,13 +557,7 @@ impl MemPoolWalkSettings {
             consider_no_estimate_tx_prob: 5,
             nonce_cache_size: 1024 * 1024,
             candidate_retry_cache_size: 64 * 1024,
-            txs_to_consider: [
-                MemPoolWalkTxTypes::TokenTransfer,
-                MemPoolWalkTxTypes::SmartContract,
-                MemPoolWalkTxTypes::ContractCall,
-            ]
-            .into_iter()
-            .collect(),
+            txs_to_consider: MemPoolWalkTxTypes::all(),
             filter_origins: HashSet::new(),
             tenure_cost_limit_per_block_percentage: None,
         }
