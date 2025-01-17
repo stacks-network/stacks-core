@@ -239,10 +239,6 @@ impl BlockMinerThread {
         }
     }
 
-    pub fn get_abort_flag(&self) -> Arc<AtomicBool> {
-        self.abort_flag.clone()
-    }
-
     #[cfg(test)]
     fn fault_injection_block_broadcast_stall(new_block: &NakamotoBlock) {
         if TEST_BROADCAST_STALL.get() {

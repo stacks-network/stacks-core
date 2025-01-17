@@ -218,16 +218,6 @@ impl MinerStopHandle {
         self.join_handle
     }
 
-    /// Set the miner-abort flag to true, which causes the miner thread to exit if it is blocked.
-    pub fn set_abort_flag(&self) {
-        self.abort_flag.store(true, Ordering::SeqCst);
-    }
-
-    /// Get an Arc to the abort flag, so another thread can set it.
-    pub fn get_abort_flag(&self) -> Arc<AtomicBool> {
-        self.abort_flag.clone()
-    }
-
     /// Stop the inner miner thread.
     /// Blocks the miner, and sets the abort flag so that a blocked miner will error out.
     pub fn stop(self, globals: &Globals) -> Result<(), NakamotoNodeError> {
@@ -238,7 +228,7 @@ impl MinerStopHandle {
             &my_id, &prior_thread_id
         );
 
-        self.set_abort_flag();
+        self.abort_flag.store(true, Ordering::SeqCst);
         globals.block_miner();
 
         let prior_miner = self.into_inner();
@@ -1109,7 +1099,7 @@ impl RelayerThread {
             reason,
             burn_tip_at_start,
         )?;
-        let miner_abort_flag = new_miner_state.get_abort_flag();
+        let miner_abort_flag = new_miner_state.abort_flag.clone();
 
         debug!("Relayer: starting new tenure thread");
 
@@ -1155,7 +1145,7 @@ impl RelayerThread {
         self.miner_thread_burn_view = None;
 
         let id = prior_tenure_thread.inner_thread().id();
-        let abort_flag = prior_tenure_thread.get_abort_flag();
+        let abort_flag = prior_tenure_thread.abort_flag.clone();
         let globals = self.globals.clone();
 
         let stop_handle = std::thread::Builder::new()
