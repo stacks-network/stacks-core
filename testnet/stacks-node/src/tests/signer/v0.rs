@@ -27,6 +27,7 @@ use libsigner::v0::messages::{
     SignerMessage,
 };
 use libsigner::{BlockProposal, SignerSession, StackerDBSession, VERSION_STRING};
+use serde::Deserialize;
 use stacks::address::AddressHashMode;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -10816,6 +10817,31 @@ fn injected_signatures_are_ignored_across_boundaries() {
     assert!(new_spawned_signer.stop().is_none());
 }
 
+#[derive(Deserialize, Debug)]
+struct ObserverBlock {
+    block_height: u64,
+    #[serde(deserialize_with = "strip_0x")]
+    block_hash: String,
+    #[serde(deserialize_with = "strip_0x")]
+    parent_block_hash: String,
+}
+
+fn strip_0x<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s: String = Deserialize::deserialize(deserializer)?;
+    Ok(s.strip_prefix("0x").unwrap_or(&s).to_string())
+}
+
+fn get_last_observed_block() -> ObserverBlock {
+    let blocks = test_observer::get_blocks();
+    let last_block_value = blocks.last().expect("No blocks mined");
+    let last_block: ObserverBlock =
+        serde_json::from_value(last_block_value.clone()).expect("Failed to parse block");
+    last_block
+}
+
 /// Test a scenario where:
 /// Two miners boot to Nakamoto.
 /// Sortition occurs. Miner 1 wins.
@@ -11033,25 +11059,23 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     .expect("Timed out waiting for Miner 1 to Mine Block N");
 
     let blocks = test_observer::get_mined_nakamoto_blocks();
-    let block_n = blocks.last().unwrap().clone();
+    let block_n = blocks.last().expect("No blocks mined");
     let block_n_height = block_n.stacks_height;
+    let block_n_hash = block_n.block_hash.clone();
     info!("Block N: {block_n_height}");
-    let block_n_signature_hash = block_n.signer_signature_hash;
 
     let info_after = get_chain_info(&conf);
     assert_eq!(info_after.stacks_tip.to_string(), block_n.block_hash);
-    assert_eq!(block_n.signer_signature_hash, block_n_signature_hash);
     assert_eq!(
         info_after.stacks_tip_height,
         info_before.stacks_tip_height + 1
     );
+    assert_eq!(info_after.stacks_tip_height, block_n_height);
 
     // assure we have a successful sortition that miner 1 won
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     assert!(tip.sortition);
     assert_eq!(tip.miner_pk_hash.unwrap(), mining_pkh_1);
-
-    debug!("Miner 1 mined block N: {block_n_signature_hash}");
 
     info!("------------------------- Miner 2 Submits a Block Commit -------------------------");
     let rl2_commits_before = rl2_commits.load(Ordering::SeqCst);
@@ -11097,7 +11121,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
         .nakamoto_test_skip_commit_op
         .set(true);
 
-    info!("------------------------- Miner 2 Mines Block N + 1 -------------------------");
+    info!("------------------------- Miner 2 Mines Block N+1 -------------------------");
     let blocks_processed_before_2 = blocks_mined2.load(Ordering::SeqCst);
     let stacks_height_before = signer_test
         .stacks_client
@@ -11105,6 +11129,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
         .expect("Failed to get peer info")
         .stacks_tip_height;
     let info_before = get_chain_info(&conf);
+    let mined_before = test_observer::get_blocks().len();
 
     TEST_MINE_STALL.lock().unwrap().replace(false);
 
@@ -11116,9 +11141,10 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
             .stacks_tip_height
             > stacks_height_before
             && blocks_mined2.load(Ordering::SeqCst) > blocks_processed_before_2
-            && get_chain_info(&conf).stacks_tip_height > info_before.stacks_tip_height)
+            && get_chain_info(&conf).stacks_tip_height > info_before.stacks_tip_height
+            && test_observer::get_blocks().len() > mined_before)
     })
-    .expect("Timed out waiting for Miner 2 to Mine Block N + 1");
+    .expect("Timed out waiting for Miner 2 to Mine Block N+1");
 
     // assure we have a successful sortition that miner 2 won
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
@@ -11126,6 +11152,9 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     assert_eq!(tip.miner_pk_hash.unwrap(), mining_pkh_2);
 
     assert_eq!(get_chain_info(&conf).stacks_tip_height, block_n_height + 1);
+
+    let last_block = get_last_observed_block();
+    assert_eq!(last_block.block_height, block_n_height + 1);
 
     info!("------------------------- Miner 2 Mines N+2 and N+3 -------------------------");
     let blocks_processed_before_2 = blocks_mined2.load(Ordering::SeqCst);
@@ -11135,6 +11164,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
         .expect("Failed to get peer info")
         .stacks_tip_height;
     let info_before = get_chain_info(&conf);
+    let mined_before = test_observer::get_blocks().len();
 
     // submit a tx so that the miner will ATTEMPT to mine a stacks block N+2
     let transfer_tx = make_stacks_transfer(
@@ -11157,9 +11187,13 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
             .stacks_tip_height
             > stacks_height_before
             && blocks_mined2.load(Ordering::SeqCst) > blocks_processed_before_2
-            && get_chain_info(&conf).stacks_tip_height > info_before.stacks_tip_height)
+            && get_chain_info(&conf).stacks_tip_height > info_before.stacks_tip_height
+            && test_observer::get_blocks().len() > mined_before)
     })
     .expect("Timed out waiting for Miner 2 to Mine Block N+2");
+
+    let last_block = get_last_observed_block();
+    assert_eq!(last_block.block_height, block_n_height + 2);
 
     let blocks_processed_before_2 = blocks_mined2.load(Ordering::SeqCst);
     let stacks_height_before = signer_test
@@ -11168,6 +11202,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
         .expect("Failed to get peer info")
         .stacks_tip_height;
     let info_before = get_chain_info(&conf);
+    let mined_before = test_observer::get_blocks().len();
 
     // submit a tx so that the miner will ATTEMPT to mine a stacks block N+3
     let transfer_tx = make_stacks_transfer(
@@ -11190,16 +11225,21 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
             .stacks_tip_height
             > stacks_height_before
             && blocks_mined2.load(Ordering::SeqCst) > blocks_processed_before_2
-            && get_chain_info(&conf).stacks_tip_height > info_before.stacks_tip_height)
+            && get_chain_info(&conf).stacks_tip_height > info_before.stacks_tip_height
+            && test_observer::get_blocks().len() > mined_before)
     })
     .expect("Timed out waiting for Miner 2 to Mine Block N+3");
 
     assert_eq!(get_chain_info(&conf).stacks_tip_height, block_n_height + 3);
 
+    let last_block = get_last_observed_block();
+    let block_n3_hash = last_block.block_hash.clone();
+    assert_eq!(last_block.block_height, block_n_height + 3);
+
     info!("------------------------- Miner 1 Wins the Next Tenure, Mines N+1' -------------------------");
 
     let blocks_processed_before_1 = blocks_mined1.load(Ordering::SeqCst);
-    let mined_before = test_observer::get_mined_nakamoto_blocks().len();
+    let mined_before = test_observer::get_blocks().len();
 
     next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
@@ -11207,15 +11247,16 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
         || {
             Ok(
                 blocks_mined1.load(Ordering::SeqCst) > blocks_processed_before_1
-                    && test_observer::get_mined_nakamoto_blocks().len() > mined_before,
+                    && test_observer::get_blocks().len() > mined_before,
             )
         },
     )
     .expect("Timed out waiting for Miner 1 to Mine Block N+1'");
 
-    let blocks = test_observer::get_mined_nakamoto_blocks();
-    let last_block = blocks.last().expect("No blocks mined");
-    assert_eq!(last_block.stacks_height, block_n_height + 1);
+    let last_block = get_last_observed_block();
+    let block_n1_prime_hash = last_block.block_hash.clone();
+    assert_eq!(last_block.block_height, block_n_height + 1);
+    assert_eq!(last_block.parent_block_hash, block_n_hash);
 
     info!("------------------------- Miner 1 Submits a Block Commit -------------------------");
 
@@ -11238,7 +11279,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     info!("------------------------- Miner 1 Mines N+2' -------------------------");
 
     let blocks_processed_before_1 = blocks_mined1.load(Ordering::SeqCst);
-    let mined_before = test_observer::get_mined_nakamoto_blocks().len();
+    let mined_before = test_observer::get_blocks().len();
 
     // submit a tx so that the miner will ATTEMPT to mine a stacks block N+2
     let transfer_tx = make_stacks_transfer(
@@ -11255,27 +11296,46 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     wait_for(30, || {
         Ok(
             blocks_mined1.load(Ordering::SeqCst) > blocks_processed_before_1
-                && test_observer::get_mined_nakamoto_blocks().len() > mined_before,
+                && test_observer::get_blocks().len() > mined_before,
         )
     })
     .expect("Timed out waiting for Miner 1 to Mine Block N+2'");
 
-    let blocks = test_observer::get_mined_nakamoto_blocks();
-    let last_block = blocks.last().expect("No blocks mined");
-    assert_eq!(last_block.stacks_height, block_n_height + 2);
+    let last_block = get_last_observed_block();
+    assert_eq!(last_block.block_height, block_n_height + 2);
+    assert_eq!(last_block.parent_block_hash, block_n1_prime_hash);
 
     info!("------------------------- Miner 1 Mines N+4 in Next Tenure -------------------------");
 
-    next_block_and_process_new_stacks_block(
+    let blocks_processed_before_1 = blocks_mined1.load(Ordering::SeqCst);
+    let stacks_height_before = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info")
+        .stacks_tip_height;
+    let info_before = get_chain_info(&conf);
+    let mined_before = test_observer::get_blocks().len();
+
+    next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
         30,
-        &signer_test.running_nodes.coord_channel,
+        || {
+            Ok(signer_test
+                .stacks_client
+                .get_peer_info()
+                .expect("Failed to get peer info")
+                .stacks_tip_height
+                > stacks_height_before
+                && blocks_mined1.load(Ordering::SeqCst) > blocks_processed_before_1
+                && get_chain_info(&conf).stacks_tip_height > info_before.stacks_tip_height
+                && test_observer::get_blocks().len() > mined_before)
+        },
     )
     .expect("Timed out waiting for Miner 1 to Mine Block N+4");
 
-    let blocks = test_observer::get_mined_nakamoto_blocks();
-    let last_block = blocks.last().expect("No blocks mined");
-    assert_eq!(last_block.stacks_height, block_n_height + 4);
+    let last_block = get_last_observed_block();
+    assert_eq!(last_block.block_height, block_n_height + 4);
+    assert_eq!(last_block.parent_block_hash, block_n3_hash);
 
     info!("------------------------- Shutdown -------------------------");
     rl2_coord_channels
