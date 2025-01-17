@@ -10,6 +10,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ## Added
 
 - Introduced the `block_proposal_max_age_secs` configuration option for signers, enabling them to automatically ignore block proposals that exceed the specified age in seconds.
+- When a new block proposal is received while the signer is waiting for an existing proposal to be validated, the signer will wait until the existing block is done validating before submitting the new one for validating. ([#5453](https://github.com/stacks-network/stacks-core/pull/5453))
 
 ## Changed
 - Improvements to the stale signer cleanup logic: deletes the prior signer if it has no remaining unprocessed blocks in its database

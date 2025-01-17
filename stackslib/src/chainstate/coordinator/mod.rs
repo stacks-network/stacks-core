@@ -194,6 +194,7 @@ pub trait BlockEventDispatcher {
         rewards: Vec<(PoxAddress, u64)>,
         burns: u64,
         reward_recipients: Vec<PoxAddress>,
+        consensus_hash: &ConsensusHash,
     );
 }
 
@@ -936,6 +937,7 @@ pub fn dispatcher_announce_burn_ops<T: BlockEventDispatcher>(
     burn_header: &BurnchainBlockHeader,
     paid_rewards: PaidRewards,
     reward_recipient_info: Option<RewardSetInfo>,
+    consensus_hash: &ConsensusHash,
 ) {
     let recipients = if let Some(recip_info) = reward_recipient_info {
         recip_info
@@ -953,6 +955,7 @@ pub fn dispatcher_announce_burn_ops<T: BlockEventDispatcher>(
         paid_rewards.pox,
         paid_rewards.burns,
         recipients,
+        consensus_hash,
     );
 }
 
@@ -2702,13 +2705,14 @@ impl<
                             &self.burnchain,
                             &last_processed_ancestor,
                             reward_cycle_info,
-                            |reward_set_info| {
+                            |reward_set_info, consensus_hash| {
                                 if let Some(dispatcher) = dispatcher_ref {
                                     dispatcher_announce_burn_ops(
                                         *dispatcher,
                                         &header,
                                         paid_rewards,
                                         reward_set_info,
+                                        &consensus_hash,
                                     );
                                 }
                             },
