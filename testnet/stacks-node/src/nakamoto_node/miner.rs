@@ -32,8 +32,7 @@ use stacks::chainstate::coordinator::OnChainRewardSetProvider;
 use stacks::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
 use stacks::chainstate::nakamoto::staging_blocks::NakamotoBlockObtainMethod;
-use stacks::chainstate::nakamoto::tenure::NakamotoTenureEventId;
-use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, StacksDBIndexed};
+use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stacks::chainstate::stacks::boot::{RewardSet, MINERS_NAME};
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::{
@@ -1324,33 +1323,6 @@ impl BlockMinerThread {
             coinbase_tx,
             tenure_change_tx,
         })
-    }
-
-    /// Get the ongoing burn view in the chain state
-    pub fn get_ongoing_tenure_id(
-        sortdb: &SortitionDB,
-        chain_state: &mut StacksChainState,
-    ) -> Result<NakamotoTenureEventId, NakamotoNodeError> {
-        let cur_stacks_tip_header =
-            NakamotoChainState::get_canonical_block_header(chain_state.db(), sortdb)?
-                .ok_or_else(|| NakamotoNodeError::UnexpectedChainState)?;
-
-        let cur_stacks_tip_id = cur_stacks_tip_header.index_block_hash();
-        let ongoing_tenure_id = if let Some(tenure_id) = chain_state
-            .index_conn()
-            .get_ongoing_tenure_id(&cur_stacks_tip_id)?
-        {
-            // ongoing tenure is a Nakamoto tenure
-            tenure_id
-        } else {
-            // ongoing tenure is an epoch 2.x tenure, so it's the same as the canonical stacks 2.x
-            // tip
-            NakamotoTenureEventId {
-                burn_view_consensus_hash: cur_stacks_tip_header.consensus_hash,
-                block_id: cur_stacks_tip_id,
-            }
-        };
-        Ok(ongoing_tenure_id)
     }
 
     /// Check if the tenure needs to change -- if so, return a BurnchainTipChanged error

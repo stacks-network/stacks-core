@@ -530,30 +530,12 @@ impl RelayerThread {
                 });
             }
 
-            let mining_pkh_opt = self.get_mining_key_pkh();
-
             // a sortition happened, but we didn't win.
-            match Self::can_continue_tenure(
-                &self.sortdb,
-                &mut self.chainstate,
-                sn.consensus_hash,
-                mining_pkh_opt,
-            ) {
-                Ok(Some(_)) => {
-                    // we can continue our ongoing tenure, but we should give the new winning miner
-                    // a chance to send their BlockFound first.
-                    debug!("Relayer: Did not win sortition, but am mining the ongoing tenure. Allowing the new miner some time to come online before trying to continue.");
-                    self.tenure_extend_timeout = Some(Instant::now());
-                    return Some(MinerDirective::StopTenure);
-                }
-                Ok(None) => {
-                    return Some(MinerDirective::StopTenure);
-                }
-                Err(e) => {
-                    warn!("Relayer: failed to check to see if we can continue tenure: {e:?}");
-                    return Some(MinerDirective::StopTenure);
-                }
-            }
+            debug!(
+                "Relayer: did not win sortition {}, so stopping tenure",
+                &sn.sortition
+            );
+            return Some(MinerDirective::StopTenure);
         }
 
         // no sortition happened.
