@@ -191,69 +191,45 @@ impl LastCommit {
 
 pub type MinerThreadJoinHandle = JoinHandle<Result<(), NakamotoNodeError>>;
 
-/// Miner thread join handle.
-/// This can be a "bare" miner thread, or a "tenure-stop" miner thread which itself stops a "bare"
-/// miner thread.
-pub enum MinerStopHandle {
-    Miner(MinerThreadJoinHandle, Arc<AtomicBool>),
-    TenureStop(MinerThreadJoinHandle, Arc<AtomicBool>),
+/// Miner thread join handle, as well as an "abort" flag to force the miner thread to exit when it
+/// is blocked.
+pub struct MinerStopHandle {
+    /// The join handle itself
+    join_handle: MinerThreadJoinHandle,
+    /// The relayer-set abort flag
+    abort_flag: Arc<AtomicBool>,
 }
 
 impl MinerStopHandle {
-    pub fn new_miner(jh: MinerThreadJoinHandle, abort_flag: Arc<AtomicBool>) -> Self {
-        Self::Miner(jh, abort_flag)
+    pub fn new(join_handle: MinerThreadJoinHandle, abort_flag: Arc<AtomicBool>) -> Self {
+        Self {
+            join_handle,
+            abort_flag,
+        }
     }
 
-    pub fn new_tenure_stop(jh: MinerThreadJoinHandle, abort_flag: Arc<AtomicBool>) -> Self {
-        Self::TenureStop(jh, abort_flag)
-    }
-
+    /// Get a ref to the inner thread object
     pub fn inner_thread(&self) -> &std::thread::Thread {
-        match self {
-            Self::Miner(jh, ..) => jh.thread(),
-            Self::TenureStop(jh, ..) => jh.thread(),
-        }
+        self.join_handle.thread()
     }
 
+    /// Destroy this stop handle to get the thread join handle
     pub fn into_inner(self) -> MinerThreadJoinHandle {
-        match self {
-            Self::Miner(jh, ..) => jh,
-            Self::TenureStop(jh, ..) => jh,
-        }
+        self.join_handle
     }
 
-    pub fn is_tenure_stop(&self) -> bool {
-        match self {
-            Self::TenureStop(..) => true,
-            _ => false,
-        }
-    }
-
-    pub fn is_miner(&self) -> bool {
-        match self {
-            Self::Miner(..) => true,
-            _ => false,
-        }
-    }
-
+    /// Set the miner-abort flag to true, which causes the miner thread to exit if it is blocked.
     pub fn set_abort_flag(&self) {
-        match self {
-            Self::Miner(_, abort_flag) => {
-                (*abort_flag).store(true, Ordering::SeqCst);
-            }
-            Self::TenureStop(_, abort_flag) => {
-                (*abort_flag).store(true, Ordering::SeqCst);
-            }
-        }
+        self.abort_flag.store(true, Ordering::SeqCst);
     }
 
+    /// Get an Arc to the abort flag, so another thread can set it.
     pub fn get_abort_flag(&self) -> Arc<AtomicBool> {
-        match self {
-            Self::Miner(_, abort_flag) => abort_flag.clone(),
-            Self::TenureStop(_, abort_flag) => abort_flag.clone(),
-        }
+        self.abort_flag.clone()
     }
 
+    /// Stop the inner miner thread.
+    /// Blocks the miner, and sets the abort flag so that a blocked miner will error out.
     pub fn stop(self, globals: &Globals) -> Result<(), NakamotoNodeError> {
         let my_id = thread::current().id();
         let prior_thread_id = self.inner_thread().id();
@@ -1181,10 +1157,8 @@ impl RelayerThread {
             "Relayer: started tenure thread ID {:?}",
             new_miner_handle.thread().id()
         );
-        self.miner_thread.replace(MinerStopHandle::new_miner(
-            new_miner_handle,
-            miner_abort_flag,
-        ));
+        self.miner_thread
+            .replace(MinerStopHandle::new(new_miner_handle, miner_abort_flag));
         self.miner_thread_burn_view.replace(burn_tip);
         Ok(())
     }
@@ -1214,7 +1188,7 @@ impl RelayerThread {
             })?;
 
         self.miner_thread
-            .replace(MinerStopHandle::new_tenure_stop(stop_handle, abort_flag));
+            .replace(MinerStopHandle::new(stop_handle, abort_flag));
         debug!("Relayer: stopped tenure thread ID {id:?}");
         Ok(())
     }
