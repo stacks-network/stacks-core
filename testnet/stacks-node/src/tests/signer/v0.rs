@@ -84,7 +84,8 @@ use crate::tests::nakamoto_integrations::{
     POX_4_DEFAULT_STACKER_BALANCE, POX_4_DEFAULT_STACKER_STX_AMT,
 };
 use crate::tests::neon_integrations::{
-    get_account, get_chain_info, get_chain_info_opt, get_sortition_info, get_sortition_info_ch, next_block_and_wait, run_until_burnchain_height, submit_tx, submit_tx_fallible, test_observer
+    get_account, get_chain_info, get_chain_info_opt, get_sortition_info, get_sortition_info_ch,
+    next_block_and_wait, run_until_burnchain_height, submit_tx, submit_tx_fallible, test_observer,
 };
 use crate::tests::{
     self, gen_random_port, make_contract_call, make_contract_publish, make_stacks_transfer,
@@ -11446,18 +11447,20 @@ fn multiple_miners_empty_sortition() {
             .unwrap();
         }
 
-
         let last_active_sortition = get_sortition_info(&conf);
         assert!(last_active_sortition.was_sortition);
 
         // lets mine a btc flash block
         let rl2_commits_before = rl2_commits.load(Ordering::SeqCst);
         let rl1_commits_before = rl1_commits.load(Ordering::SeqCst);
-        signer_test.running_nodes.btc_regtest_controller.build_next_block(2);
+        signer_test
+            .running_nodes
+            .btc_regtest_controller
+            .build_next_block(2);
 
         wait_for(60, || {
-            Ok(rl2_commits.load(Ordering::SeqCst) > rl2_commits_before &&
-               rl1_commits.load(Ordering::SeqCst) > rl1_commits_before)
+            Ok(rl2_commits.load(Ordering::SeqCst) > rl2_commits_before
+                && rl1_commits.load(Ordering::SeqCst) > rl1_commits_before)
         })
         .unwrap();
 
@@ -11520,7 +11523,6 @@ fn multiple_miners_empty_sortition() {
         "The last two transactions after the flash block must be included in a block"
     );
 
-
     rl2_coord_channels
         .lock()
         .expect("Mutex poisoned")
@@ -11528,5 +11530,4 @@ fn multiple_miners_empty_sortition() {
     run_loop_stopper_2.store(false, Ordering::SeqCst);
     run_loop_2_thread.join().unwrap();
     signer_test.shutdown();
-
 }
