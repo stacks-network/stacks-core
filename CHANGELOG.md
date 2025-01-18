@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [Unreleased]
+
+## Added
+
+## Changed
+
+- When a miner reorgs the previous tenure due to a poorly timed block, it can now continue to build blocks on this new chain tip (#5691)
+
 ## [3.1.0.0.3]
 
 ### Added
