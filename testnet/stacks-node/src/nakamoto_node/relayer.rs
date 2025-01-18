@@ -521,7 +521,6 @@ impl RelayerThread {
                 });
             }
 
-            let mining_pkh_opt = self.get_mining_key_pkh();
             // a sortition happened, but we didn't win.
             debug!(
                 "Relayer: did not win sortition {}, so stopping tenure",
