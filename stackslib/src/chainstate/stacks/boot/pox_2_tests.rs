@@ -281,26 +281,22 @@ pub fn check_pox_print_event(
             match inner_tuple.data_map.get(inner_key) {
                 Some(v) => {
                     if v != &inner_val {
-                        wrong.push((
-                            (&inner_key).to_string(),
-                            v.to_string(),
-                            (&inner_val).to_string(),
-                        ));
+                        wrong.push((inner_key.to_string(), v.to_string(), inner_val.to_string()));
                     }
                 }
                 None => {
-                    missing.push((&inner_key).to_string());
+                    missing.push(inner_key.to_string());
                 }
             }
             // assert_eq!(inner_tuple.data_map.get(inner_key), Some(&inner_val));
         }
         if !missing.is_empty() || !wrong.is_empty() {
-            eprintln!("missing:\n{:#?}", &missing);
-            eprintln!("wrong:\n{:#?}", &wrong);
+            eprintln!("missing:\n{missing:#?}");
+            eprintln!("wrong:\n{wrong:#?}");
             assert!(false);
         }
     } else {
-        error!("unexpected event type: {:?}", event);
+        error!("unexpected event type: {event:?}");
         panic!("Unexpected transaction event type.")
     }
 }
