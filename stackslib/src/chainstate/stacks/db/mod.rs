@@ -1712,7 +1712,7 @@ impl StacksChainState {
             );
 
             StacksChainState::insert_stacks_block_header(
-                &mut tx,
+                &tx,
                 &parent_hash,
                 &first_tip_info,
                 &ExecutionCost::ZERO,
