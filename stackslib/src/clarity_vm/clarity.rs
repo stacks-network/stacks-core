@@ -2609,7 +2609,7 @@ mod tests {
             key_encoding: TransactionPublicKeyEncoding::Compressed,
             nonce: 0,
             tx_fee: 1,
-            signature: MessageSignature::from_raw(&vec![0xfe; 65]),
+            signature: MessageSignature::from_raw(&[0xfe; 65]),
         });
 
         let contract = "(define-public (foo) (ok 1))";
@@ -2623,8 +2623,7 @@ mod tests {
                     code_body: StacksString::from_str(contract).unwrap(),
                 },
                 None,
-            )
-            .into(),
+            ),
         );
 
         let tx2 = StacksTransaction::new(
@@ -2636,8 +2635,7 @@ mod tests {
                     code_body: StacksString::from_str(contract).unwrap(),
                 },
                 None,
-            )
-            .into(),
+            ),
         );
 
         tx1.post_conditions.push(TransactionPostCondition::STX(
