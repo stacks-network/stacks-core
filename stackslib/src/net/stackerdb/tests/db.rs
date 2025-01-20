@@ -595,7 +595,7 @@ fn test_reconfigure_stackerdb() {
 
     let tx = db.tx_begin(db_config).unwrap();
 
-    let pks = vec![StacksPrivateKey::new(); 10];
+    let pks: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
     let addrs: Vec<_> = pks
         .iter()
         .map(|pk| {
