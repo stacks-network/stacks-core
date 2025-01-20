@@ -968,7 +968,7 @@ fn pox_lock_unlock() {
                 &signer_key,
                 reward_cycle,
                 &Pox4SignatureTopic::StackStx,
-                lock_period.into(),
+                lock_period,
                 u128::MAX,
                 1,
             );
@@ -2881,7 +2881,7 @@ fn pox_4_revoke_delegate_stx_events() {
     peer.tenure_with_txs(&[alice_delegate_2], &mut coinbase_nonce);
 
     // produce blocks until delegation expired
-    while get_tip(peer.sortdb.as_ref()).block_height <= u64::from(target_height) {
+    while get_tip(peer.sortdb.as_ref()).block_height <= target_height {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -5173,8 +5173,8 @@ fn balances_from_keys(
     keys: &[Secp256k1PrivateKey],
 ) -> Vec<STXBalance> {
     keys.iter()
-        .map(|key| key_to_stacks_addr(key))
-        .map(|addr| PrincipalData::from(addr))
+        .map(key_to_stacks_addr)
+        .map(PrincipalData::from)
         .map(|principal| get_stx_account_at(peer, tip, &principal))
         .collect()
 }
@@ -5759,7 +5759,7 @@ fn test_set_signer_key_auth(use_nakamoto: bool) {
         &pox_addr,
         current_reward_cycle.clone() as u64,
         &Pox4SignatureTopic::StackStx,
-        lock_period.try_into().unwrap(),
+        lock_period,
         &signer_public_key,
         u128::MAX,
         1,
@@ -5796,7 +5796,7 @@ fn test_set_signer_key_auth(use_nakamoto: bool) {
         &pox_addr,
         current_reward_cycle.clone() as u64,
         &Pox4SignatureTopic::StackStx,
-        lock_period.try_into().unwrap(),
+        lock_period,
         &signer_public_key,
         u128::MAX,
         1,
@@ -5833,7 +5833,7 @@ fn test_set_signer_key_auth(use_nakamoto: bool) {
         &pox_addr,
         current_reward_cycle.clone() as u64,
         &Pox4SignatureTopic::StackStx,
-        lock_period.try_into().unwrap(),
+        lock_period,
         &signer_public_key,
         u128::MAX,
         1,
@@ -6150,7 +6150,7 @@ fn delegate_stack_stx_extend_signer_key(use_nakamoto: bool) {
         alice_stacker_key,
         alice_nonce,
         min_ustx + 1,
-        bob_delegate_principal.into(),
+        bob_delegate_principal,
         None,
         Some(pox_addr.clone()),
     );
@@ -6606,10 +6606,7 @@ fn delegate_stack_increase(use_nakamoto: bool) {
 
     let expected_result = Value::okay(Value::Tuple(
         TupleData::from_data(vec![
-            (
-                "stacker".into(),
-                Value::Principal(PrincipalData::from(alice_address)),
-            ),
+            ("stacker".into(), Value::Principal(alice_address)),
             ("total-locked".into(), Value::UInt(min_ustx * 2)),
         ])
         .unwrap(),
@@ -6754,7 +6751,7 @@ pub fn pox_4_scenario_test_setup_nakamoto<'a>(
 
     let private_key = StacksPrivateKey::from_seed(&[2]);
     let test_signers = TestSigners::new(test_keys.clone());
-    let addrs: Vec<StacksAddress> = test_keys.iter().map(|pk| key_to_stacks_addr(pk)).collect();
+    let addrs: Vec<StacksAddress> = test_keys.iter().map(key_to_stacks_addr).collect();
     let initial_stacker_balance = initial_balances
         .get(0)
         .expect("Expected at least 1 initial balance")
@@ -8617,7 +8614,7 @@ pub fn make_signer_key_authorization_lookup_key(
             "topic".into(),
             Value::string_ascii_from_bytes(topic.get_name_str().into()).unwrap(),
         ),
-        ("period".into(), Value::UInt(period.into())),
+        ("period".into(), Value::UInt(period)),
         (
             "signer-key".into(),
             Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
@@ -8823,7 +8820,7 @@ pub fn prepare_pox4_test<'a>(
             .with_test_signers(test_signers.clone())
             .with_private_key(private_key);
         boot_plan.add_default_balance = false;
-        let addrs: Vec<StacksAddress> = keys.iter().map(|pk| key_to_stacks_addr(pk)).collect();
+        let addrs: Vec<StacksAddress> = keys.iter().map(key_to_stacks_addr).collect();
 
         let balances: Vec<(PrincipalData, u64)> = addrs
             .into_iter()

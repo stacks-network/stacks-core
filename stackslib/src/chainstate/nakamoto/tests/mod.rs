@@ -2164,7 +2164,7 @@ fn test_make_miners_stackerdb_config() {
             miners
                 .clone()
                 .into_iter()
-                .map(|miner| BlockstackOperationType::LeaderKeyRegister(miner))
+                .map(BlockstackOperationType::LeaderKeyRegister)
                 .collect()
         } else {
             // subsequent ones include block-commits
