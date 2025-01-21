@@ -37,7 +37,7 @@ use std::time::{Duration, Instant};
 use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;
 use libsigner::v0::messages::{
-    BlockAccepted, BlockResponse, MessageSlotID, PeerInfo, SignerMessage,
+    BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, PeerInfo, SignerMessage,
 };
 use libsigner::{BlockProposal, SignerEntries, SignerEventTrait};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
@@ -692,6 +692,33 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                 .collect::<HashSet<_>>();
             Ok(block_rejections.len() == expected_signers.len())
         })
+    }
+
+    /// Get all block rejections for a given block
+    pub fn get_block_rejections(
+        &self,
+        signer_signature_hash: &Sha512Trunc256Sum,
+    ) -> Vec<BlockRejection> {
+        let stackerdb_events = test_observer::get_stackerdb_chunks();
+        let block_rejections = stackerdb_events
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+            .filter_map(|chunk| {
+                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                    .expect("Failed to deserialize SignerMessage");
+                match message {
+                    SignerMessage::BlockResponse(BlockResponse::Rejected(rejection)) => {
+                        if rejection.signer_signature_hash == *signer_signature_hash {
+                            Some(rejection)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }
+            })
+            .collect::<Vec<_>>();
+        block_rejections
     }
 
     /// Get the latest block response from the given slot

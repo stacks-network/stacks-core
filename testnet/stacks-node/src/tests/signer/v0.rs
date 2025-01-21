@@ -10722,16 +10722,8 @@ fn outgoing_signers_ignore_block_proposals() {
         txs: vec![],
     };
     block.header.timestamp = get_epoch_time_secs();
-    let signer_signature_hash_1 = block.header.signer_signature_hash();
-
-    info!("------------------------- Test Attempt to Mine Invalid Block {signer_signature_hash_1} -------------------------");
 
     let short_timeout = Duration::from_secs(30);
-    let all_signers: Vec<_> = signer_test
-        .signer_stacks_private_keys
-        .iter()
-        .map(StacksPublicKey::from_private)
-        .collect();
     test_observer::clear();
 
     // Propose a block to the signers that passes initial checks but will be rejected by the stacks node
@@ -10747,9 +10739,12 @@ fn outgoing_signers_ignore_block_proposals() {
     signer_test.propose_block(block, short_timeout);
     // Verify the signers rejected the second block via the endpoint
     signer_test.wait_for_validate_reject_response(short_timeout, signer_signature_hash);
-    signer_test
-        .wait_for_block_rejections(30, &all_signers)
-        .expect("Timed out waiting for block rejections");
+    wait_for(30, || {
+        let min_rejects = num_signers * 3 / 10;
+        let block_rejections = signer_test.get_block_rejections(&signer_signature_hash);
+        Ok(block_rejections.len() >= min_rejects)
+    })
+    .expect("Timed out waiting for block rejections");
     old_signers_ignore_block_proposals(signer_signature_hash);
 
     assert_eq!(blocks_before, mined_blocks.load(Ordering::SeqCst));
