@@ -472,7 +472,10 @@ impl Signer {
                 .send_message_with_retry::<SignerMessage>(block_response.into())
             {
                 Ok(_) => {
-                    crate::monitoring::increment_block_responses_sent(accepted);
+                    crate::monitoring::actions::increment_block_responses_sent(accepted);
+                    crate::monitoring::actions::record_block_response_latency(
+                        &block_proposal.block,
+                    );
                 }
                 Err(e) => {
                     warn!("{self}: Failed to send block response to stacker-db: {e:?}",);
@@ -489,7 +492,7 @@ impl Signer {
             "burn_height" => block_proposal.burn_height,
             "consensus_hash" => %block_proposal.block.header.consensus_hash,
         );
-        crate::monitoring::increment_block_proposals_received();
+        crate::monitoring::actions::increment_block_proposals_received();
         #[cfg(any(test, feature = "testing"))]
         let mut block_info = BlockInfo::from(block_proposal.clone());
         #[cfg(not(any(test, feature = "testing")))]
@@ -672,7 +675,7 @@ impl Signer {
         stacks_client: &StacksClient,
         block_validate_ok: &BlockValidateOk,
     ) -> Option<BlockResponse> {
-        crate::monitoring::increment_block_validation_responses(true);
+        crate::monitoring::actions::increment_block_validation_responses(true);
         let signer_signature_hash = block_validate_ok.signer_signature_hash;
         if self
             .submitted_block_proposal
@@ -705,6 +708,8 @@ impl Signer {
             let res = self
                 .stackerdb
                 .send_message_with_retry::<SignerMessage>(block_response.into());
+
+            crate::monitoring::actions::record_block_response_latency(&block_info.block);
 
             match res {
                 Err(e) => warn!("{self}: Failed to send block rejection to stacker-db: {e:?}"),
@@ -748,7 +753,7 @@ impl Signer {
         &mut self,
         block_validate_reject: &BlockValidateReject,
     ) -> Option<BlockResponse> {
-        crate::monitoring::increment_block_validation_responses(false);
+        crate::monitoring::actions::increment_block_validation_responses(false);
         let signer_signature_hash = block_validate_reject.signer_signature_hash;
         if self
             .submitted_block_proposal
@@ -798,6 +803,9 @@ impl Signer {
         info!("{self}: Received a block validate response: {block_validate_response:?}");
         let block_response = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
+                crate::monitoring::actions::record_block_validation_latency(
+                    block_validate_ok.validation_time_ms,
+                );
                 self.handle_block_validate_ok(stacks_client, block_validate_ok)
             }
             BlockValidateResponse::Reject(block_validate_reject) => {
@@ -823,7 +831,13 @@ impl Signer {
             .send_message_with_retry::<SignerMessage>(response.into())
         {
             Ok(_) => {
-                crate::monitoring::increment_block_responses_sent(accepted);
+                crate::monitoring::actions::increment_block_responses_sent(accepted);
+                if let Ok(Some(block_info)) = self
+                    .signer_db
+                    .block_lookup(&block_validate_response.signer_signature_hash())
+                {
+                    crate::monitoring::actions::record_block_response_latency(&block_info.block);
+                }
             }
             Err(e) => {
                 warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
@@ -905,6 +919,8 @@ impl Signer {
         let res = self
             .stackerdb
             .send_message_with_retry::<SignerMessage>(rejection.into());
+
+        crate::monitoring::actions::record_block_response_latency(&block_info.block);
 
         match res {
             Err(e) => warn!("{self}: Failed to send block rejection to stacker-db: {e:?}"),
