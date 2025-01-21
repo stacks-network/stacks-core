@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [Unreleased]
+
+### Added
+- Add `dry_run` configuration option to `stacks-signer` config toml. Dry run mode will 
+  run the signer binary as if it were a registered signer. Instead of broadcasting 
+  `StackerDB` messages, it logs `INFO` messages. Other interactions with the `stacks-node`
+  behave normally (e.g., submitting validation requests, submitting finished blocks). A
+  dry run signer will error out if the supplied key is actually a registered signer.
+
 ## [3.1.0.0.3]
 
 ### Added
@@ -15,7 +24,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Changed
 
 - The RPC endpoint `/v3/block_proposal` no longer will evaluate block proposals more than `block_proposal_max_age_secs` old
-- When a transaction is dropped due to replace-by-fee, the `/drop_mempool_tx` event observer payload now includes `new_txid`, which is the transaction that replaced this dropped transaction. When a transaction is dropped for other reasons, `new_txid` is `null`. [#5381](https://github.com/stacks-network/stacks-core/pull/5381)
+- When a transaction is dropped due to replauce-by-fee, the `/drop_mempool_tx` event observer payload now includes `new_txid`, which is the transaction that replaced this dropped transaction. When a transaction is dropped for other reasons, `new_txid` is `null`. [#5381](https://github.com/stacks-network/stacks-core/pull/5381)
 - Nodes will assume that all PoX anchor blocks exist by default, and stall initial block download indefinitely to await their arrival (#5502)
 
 ### Fixed
