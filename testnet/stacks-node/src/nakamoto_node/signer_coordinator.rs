@@ -37,7 +37,6 @@ use stacks::util_lib::boot::boot_code_id;
 use super::stackerdb_listener::StackerDBListenerComms;
 use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::StackerDBChannel;
-// use crate::nakamoto_node::miner::BlockMinerThread;
 use crate::nakamoto_node::stackerdb_listener::{StackerDBListener, EVENT_RECEIVER_POLL};
 use crate::neon::Counters;
 use crate::Config;
