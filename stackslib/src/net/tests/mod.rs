@@ -474,11 +474,11 @@ impl NakamotoBootPlan {
         // advance to just past pox-4 instantiation
         let mut blocks_produced = false;
         while sortition_height <= epoch_25_height {
-            peer.tenure_with_txs(&vec![], &mut peer_nonce);
+            peer.tenure_with_txs(&[], &mut peer_nonce);
             for (other_peer, other_peer_nonce) in
                 other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
             {
-                other_peer.tenure_with_txs(&vec![], other_peer_nonce);
+                other_peer.tenure_with_txs(&[], other_peer_nonce);
             }
 
             sortition_height = peer.get_burn_block_height();
@@ -490,11 +490,11 @@ impl NakamotoBootPlan {
         //  that if its the first block produced, this will be 0 which will
         //  prevent the lockups from being valid.
         if !blocks_produced {
-            peer.tenure_with_txs(&vec![], &mut peer_nonce);
+            peer.tenure_with_txs(&[], &mut peer_nonce);
             for (other_peer, other_peer_nonce) in
                 other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
             {
-                other_peer.tenure_with_txs(&vec![], other_peer_nonce);
+                other_peer.tenure_with_txs(&[], other_peer_nonce);
             }
 
             sortition_height = peer.get_burn_block_height();
@@ -507,7 +507,7 @@ impl NakamotoBootPlan {
         let reward_cycle = peer
             .config
             .burnchain
-            .block_height_to_reward_cycle(sortition_height.into())
+            .block_height_to_reward_cycle(sortition_height)
             .unwrap();
 
         // Make all the test Stackers stack
@@ -583,11 +583,7 @@ impl NakamotoBootPlan {
         debug!("\n\n======================");
         debug!("Advance to the Prepare Phase");
         debug!("========================\n\n");
-        while !peer
-            .config
-            .burnchain
-            .is_in_prepare_phase(sortition_height.into())
-        {
+        while !peer.config.burnchain.is_in_prepare_phase(sortition_height) {
             let mut old_tip = peer.network.stacks_tip.clone();
             stacks_block = peer.tenure_with_txs(&[], &mut peer_nonce);
 
@@ -626,7 +622,7 @@ impl NakamotoBootPlan {
         // advance to the start of epoch 3.0
         while sortition_height < epoch_30_height - 1 {
             let mut old_tip = peer.network.stacks_tip.clone();
-            peer.tenure_with_txs(&vec![], &mut peer_nonce);
+            peer.tenure_with_txs(&[], &mut peer_nonce);
 
             let (stacks_tip_ch, stacks_tip_bh) =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
@@ -641,7 +637,7 @@ impl NakamotoBootPlan {
                 other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
             {
                 let mut old_tip = peer.network.stacks_tip.clone();
-                other_peer.tenure_with_txs(&vec![], other_peer_nonce);
+                other_peer.tenure_with_txs(&[], other_peer_nonce);
 
                 let (stacks_tip_ch, stacks_tip_bh) =
                     SortitionDB::get_canonical_stacks_chain_tip_hash(other_peer.sortdb().conn())
@@ -1549,26 +1545,24 @@ fn test_network_result_update() {
     let mut n1 = network_result_1.clone();
     network_result_union
         .unhandled_messages
-        .extend(n1.unhandled_messages.into_iter());
+        .extend(n1.unhandled_messages);
     network_result_union.blocks.append(&mut n1.blocks);
     network_result_union
         .confirmed_microblocks
         .append(&mut n1.confirmed_microblocks);
     network_result_union
         .nakamoto_blocks
-        .extend(n1.nakamoto_blocks.into_iter());
+        .extend(n1.nakamoto_blocks);
     network_result_union
         .pushed_transactions
-        .extend(n1.pushed_transactions.into_iter());
-    network_result_union
-        .pushed_blocks
-        .extend(n1.pushed_blocks.into_iter());
+        .extend(n1.pushed_transactions);
+    network_result_union.pushed_blocks.extend(n1.pushed_blocks);
     network_result_union
         .pushed_microblocks
-        .extend(n1.pushed_microblocks.into_iter());
+        .extend(n1.pushed_microblocks);
     network_result_union
         .pushed_nakamoto_blocks
-        .extend(n1.pushed_nakamoto_blocks.into_iter());
+        .extend(n1.pushed_nakamoto_blocks);
     network_result_union
         .uploaded_transactions
         .append(&mut n1.uploaded_transactions);

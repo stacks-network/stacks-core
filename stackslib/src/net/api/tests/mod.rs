@@ -487,8 +487,8 @@ impl<'a> TestRPC<'a> {
         let (_, _, consensus_hash) = peer_1.next_burnchain_block(burn_ops.clone());
         peer_2.next_burnchain_block(burn_ops.clone());
 
-        peer_1.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
-        peer_2.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
+        peer_1.process_stacks_epoch_at_tip(&stacks_block, &[]);
+        peer_2.process_stacks_epoch_at_tip(&stacks_block, &[]);
 
         // build 1-block microblock stream with the contract-call and the unconfirmed contract
         let microblock = {
@@ -1152,7 +1152,7 @@ fn prefixed_opt_hex_serialization() {
     ];
 
     for test in tests_32b.iter() {
-        let inp = test.clone().map(|bytes| BurnchainHeaderHash(bytes));
+        let inp = test.clone().map(BurnchainHeaderHash);
         let mut out_buff = Vec::new();
         let mut serializer = serde_json::Serializer::new(&mut out_buff);
         prefix_opt_hex::serialize(&inp, &mut serializer).unwrap();

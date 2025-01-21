@@ -369,7 +369,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
 
     fn make_proof_hashes(
         node: &TrieNodeType,
-        all_hashes: &Vec<TrieHash>,
+        all_hashes: &[TrieHash],
         chr: u8,
     ) -> Result<Vec<TrieHash>, Error> {
         let mut hashes = vec![];
@@ -834,7 +834,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
     /// Given a list of non-backptr ptrs and a root block header hash, calculate a Merkle proof.
     fn make_segment_proof(
         storage: &mut TrieStorageConnection<T>,
-        ptrs: &Vec<TriePtr>,
+        ptrs: &[TriePtr],
         starting_chr: u8,
     ) -> Result<Vec<TrieMerkleProofType<T>>, Error> {
         trace!("make_segment_proof: ptrs = {:?}", &ptrs);
@@ -896,14 +896,12 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         for child_ptr in node.ptrs() {
             if child_ptr.id != TrieNodeID::Empty as u8 && child_ptr.chr == chr {
                 all_hashes.push(hash.clone());
+            } else if ih >= hashes.len() {
+                trace!("verify_get_hash: {} >= {}", ih, hashes.len());
+                return None;
             } else {
-                if ih >= hashes.len() {
-                    trace!("verify_get_hash: {} >= {}", ih, hashes.len());
-                    return None;
-                } else {
-                    all_hashes.push(hashes[ih].clone());
-                    ih += 1;
-                }
+                all_hashes.push(hashes[ih].clone());
+                ih += 1;
             }
         }
         if all_hashes.len() != count {
@@ -1003,7 +1001,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
     /// * segment proof i+1 must be a prefix of segment proof i
     /// * segment proof 0 must end in a leaf
     /// * all segment proofs must end in a Node256 (a root)
-    fn is_proof_well_formed(proof: &Vec<TrieMerkleProofType<T>>, expected_path: &TrieHash) -> bool {
+    fn is_proof_well_formed(proof: &[TrieMerkleProofType<T>], expected_path: &TrieHash) -> bool {
         if proof.is_empty() {
             trace!("Proof is empty");
             return false;
@@ -1119,7 +1117,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
     /// headers.
     /// NOTE: Trie root hashes are globally unique by design, even if they represent the same contents, so the root_to_block map is bijective with high probability.
     pub fn verify_proof(
-        proof: &Vec<TrieMerkleProofType<T>>,
+        proof: &[TrieMerkleProofType<T>],
         path: &TrieHash,
         value: &MARFValue,
         root_hash: &TrieHash,
