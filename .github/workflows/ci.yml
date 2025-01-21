@@ -58,13 +58,16 @@ jobs:
       - rustfmt
     runs-on: ubuntu-latest
     outputs:
-      tag: ${{ steps.check_release.outputs.tag }}
-      docker_tag: ${{ steps.check_release.outputs.docker_tag }}
-      is_release: ${{ steps.check_release.outputs.is_release }}
+      node_tag: ${{ steps.check_release.outputs.node_tag }}
+      node_docker_tag: ${{ steps.check_release.outputs.node_docker_tag }}
+      signer_tag: ${{ steps.check_release.outputs.signer_tag }}
+      signer_docker_tag: ${{ steps.check_release.outputs.signer_docker_tag }}
+      is_node_release: ${{ steps.check_release.outputs.is_node_release }}
+      is_signer_release: ${{ steps.check_release.outputs.is_signer_release }}
     steps:
       - name: Check Release
         id: check_release
-        uses: stacks-network/actions/stacks-core/check-release@main
+        uses: stacks-network/actions/stacks-core/release/check-release@feat/release-signer-alongside-node
         with:
           tag: ${{ github.ref_name }}
 
@@ -75,15 +78,20 @@ jobs:
   ##  - it is a release run
   create-release:
     if: |
-      needs.check-release.outputs.is_release == 'true'
-    name: Create Release
+      needs.check-release.outputs.is_node_release == 'true' ||
+      needs.check-release.outputs.is_signer_release == 'true'
+    name: Create Release(s)
     needs:
       - rustfmt
       - check-release
     uses: ./.github/workflows/github-release.yml
     with:
-      tag: ${{ needs.check-release.outputs.tag }}
-      docker_tag: ${{ needs.check-release.outputs.docker_tag }}
+      node_tag: ${{ needs.check-release.outputs.node_tag }}
+      node_docker_tag: ${{ needs.check-release.outputs.node_docker_tag }}
+      signer_tag: ${{ needs.check-release.outputs.signer_tag }}
+      signer_docker_tag: ${{ needs.check-release.outputs.signer_docker_tag }}
+      is_node_release: ${{ needs.check-release.outputs.is_node_release }}
+      is_signer_release: ${{ needs.check-release.outputs.is_signer_release }}
     secrets: inherit
 
   ## Build and push Debian image built from source
@@ -92,7 +100,7 @@ jobs:
   ##  - it is not a release run
   docker-image:
     if: |
-      needs.check-release.outputs.is_release != 'true'
+      needs.check-release.outputs.is_signer_release != 'true'
     name: Docker Image (Source)
     uses: ./.github/workflows/image-build-source.yml
     needs:
@@ -109,10 +117,10 @@ jobs:
   ##       and any of:
   ##         - this workflow is called manually
   ##         - PR is opened
-  ##         - commit to either (development, master) branch
+  ##         - PR added to merge queue
   create-cache:
     if: |
-      needs.check-release.outputs.is_release == 'true' ||
+      needs.check-release.outputs.is_node_release == 'true' ||
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request' ||
       github.event_name == 'merge_group'
@@ -132,9 +140,9 @@ jobs:
   ##         - this workflow is called manually
   ##         - PR is opened
   ##         - PR added to merge queue
-  ##         - commit to either (development, next, master) branch
   stacks-core-tests:
     if: |
+      needs.check-release.outputs.is_signer_release == 'true' ||
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request' ||
       github.event_name == 'merge_group'
@@ -155,9 +163,9 @@ jobs:
   ##         - this workflow is called manually
   ##         - PR is opened
   ##         - PR added to merge queue
-  ##         - commit to either (development, next, master) branch
   stacks-core-build-tests:
     if: |
+      needs.check-release.outputs.is_signer_release == 'true' ||
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request' ||
       github.event_name == 'merge_group'
@@ -169,6 +177,7 @@ jobs:
 
   bitcoin-tests:
     if: |
+      needs.check-release.outputs.is_node_release == 'true' ||
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request' ||
       github.event_name == 'merge_group'
@@ -181,6 +190,7 @@ jobs:
 
   p2p-tests:
     if: |
+      needs.check-release.outputs.is_node_release == 'true' ||
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request' ||
       github.event_name == 'merge_group'
@@ -196,7 +206,7 @@ jobs:
   ## Runs when:
   ##   - it is a release run
   atlas-tests:
-    if: needs.check-release.outputs.is_release == 'true'
+    if: needs.check-release.outputs.is_node_release == 'true'
     name: Atlas Tests
     needs:
       - rustfmt
@@ -205,7 +215,7 @@ jobs:
     uses: ./.github/workflows/atlas-tests.yml
 
   epoch-tests:
-    if: needs.check-release.outputs.is_release == 'true'
+    if: needs.check-release.outputs.is_node_release == 'true'
     name: Epoch Tests
     needs:
       - rustfmt
@@ -214,7 +224,7 @@ jobs:
     uses: ./.github/workflows/epoch-tests.yml
 
   slow-tests:
-    if: needs.check-release.outputs.is_release == 'true'
+    if: needs.check-release.outputs.is_node_release == 'true'
     name: Slow Tests
     needs:
       - rustfmt
