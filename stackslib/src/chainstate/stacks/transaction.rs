@@ -979,19 +979,19 @@ impl StacksTransaction {
     /// Get the origin account's address
     pub fn origin_address(&self) -> StacksAddress {
         match (&self.version, &self.auth) {
-            (&TransactionVersion::Mainnet, &TransactionAuth::Standard(ref origin_condition)) => {
+            (TransactionVersion::Mainnet, TransactionAuth::Standard(origin_condition)) => {
                 origin_condition.address_mainnet()
             }
-            (&TransactionVersion::Testnet, &TransactionAuth::Standard(ref origin_condition)) => {
+            (TransactionVersion::Testnet, TransactionAuth::Standard(origin_condition)) => {
                 origin_condition.address_testnet()
             }
             (
-                &TransactionVersion::Mainnet,
-                &TransactionAuth::Sponsored(ref origin_condition, ref _unused),
+                TransactionVersion::Mainnet,
+                TransactionAuth::Sponsored(origin_condition, _unused),
             ) => origin_condition.address_mainnet(),
             (
-                &TransactionVersion::Testnet,
-                &TransactionAuth::Sponsored(ref origin_condition, ref _unused),
+                TransactionVersion::Testnet,
+                TransactionAuth::Sponsored(origin_condition, _unused),
             ) => origin_condition.address_testnet(),
         }
     }
@@ -999,15 +999,15 @@ impl StacksTransaction {
     /// Get the sponsor account's address, if this transaction is sponsored
     pub fn sponsor_address(&self) -> Option<StacksAddress> {
         match (&self.version, &self.auth) {
-            (&TransactionVersion::Mainnet, &TransactionAuth::Standard(ref _unused)) => None,
-            (&TransactionVersion::Testnet, &TransactionAuth::Standard(ref _unused)) => None,
+            (TransactionVersion::Mainnet, TransactionAuth::Standard(_unused)) => None,
+            (TransactionVersion::Testnet, TransactionAuth::Standard(_unused)) => None,
             (
-                &TransactionVersion::Mainnet,
-                &TransactionAuth::Sponsored(ref _unused, ref sponsor_condition),
+                TransactionVersion::Mainnet,
+                TransactionAuth::Sponsored(_unused, sponsor_condition),
             ) => Some(sponsor_condition.address_mainnet()),
             (
-                &TransactionVersion::Testnet,
-                &TransactionAuth::Sponsored(ref _unused, ref sponsor_condition),
+                TransactionVersion::Testnet,
+                TransactionAuth::Sponsored(_unused, sponsor_condition),
             ) => Some(sponsor_condition.address_testnet()),
         }
     }
@@ -4599,7 +4599,7 @@ mod test {
             tx_signer.append_origin(&pubk_3).unwrap();
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
-            check_oversign_origin_multisig(&mut signed_tx);
+            check_oversign_origin_multisig(&signed_tx);
             check_sign_no_sponsor(&mut signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 2);
@@ -4730,7 +4730,7 @@ mod test {
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
             check_oversign_origin_singlesig(&mut signed_tx);
-            check_oversign_sponsor_multisig(&mut signed_tx);
+            check_oversign_sponsor_multisig(&signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 1);
             assert_eq!(signed_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -4836,7 +4836,7 @@ mod test {
 
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
-            check_oversign_origin_multisig(&mut signed_tx);
+            check_oversign_origin_multisig(&signed_tx);
             check_sign_no_sponsor(&mut signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 2);
@@ -4969,7 +4969,7 @@ mod test {
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
             check_oversign_origin_singlesig(&mut signed_tx);
-            check_oversign_sponsor_multisig(&mut signed_tx);
+            check_oversign_sponsor_multisig(&signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 1);
             assert_eq!(signed_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -5071,7 +5071,7 @@ mod test {
             tx_signer.sign_origin(&privk_3).unwrap();
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
-            check_oversign_origin_multisig(&mut signed_tx);
+            check_oversign_origin_multisig(&signed_tx);
             check_sign_no_sponsor(&mut signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 2);
@@ -5203,7 +5203,7 @@ mod test {
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
             check_oversign_origin_singlesig(&mut signed_tx);
-            check_oversign_sponsor_multisig(&mut signed_tx);
+            check_oversign_sponsor_multisig(&signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 1);
             assert_eq!(signed_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -5482,8 +5482,8 @@ mod test {
             tx_signer.append_origin(&pubk_3).unwrap();
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
-            check_oversign_origin_multisig(&mut signed_tx);
-            check_oversign_origin_multisig_uncompressed(&mut signed_tx);
+            check_oversign_origin_multisig(&signed_tx);
+            check_oversign_origin_multisig_uncompressed(&signed_tx);
             check_sign_no_sponsor(&mut signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 2);
@@ -5615,8 +5615,8 @@ mod test {
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
             check_oversign_origin_singlesig(&mut signed_tx);
-            check_oversign_sponsor_multisig(&mut signed_tx);
-            check_oversign_sponsor_multisig_uncompressed(&mut signed_tx);
+            check_oversign_sponsor_multisig(&signed_tx);
+            check_oversign_sponsor_multisig_uncompressed(&signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 1);
             assert_eq!(signed_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -5725,7 +5725,7 @@ mod test {
             let _ = tx.append_origin_signature(sig2, TransactionPublicKeyEncoding::Compressed);
             let _ = tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
 
-            check_oversign_origin_multisig(&mut tx);
+            check_oversign_origin_multisig(&tx);
             check_sign_no_sponsor(&mut tx);
 
             assert_eq!(tx.auth().origin().num_signatures(), 2);
@@ -5815,7 +5815,7 @@ mod test {
             let _ = tx.append_origin_signature(sig2, TransactionPublicKeyEncoding::Compressed);
             let _ = tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
 
-            //check_oversign_origin_multisig(&mut tx);
+            //check_oversign_origin_multisig(&tx);
             check_sign_no_sponsor(&mut tx);
 
             assert_eq!(tx.auth().origin().num_signatures(), 3);
@@ -5949,7 +5949,7 @@ mod test {
             tx.set_sponsor_nonce(789).unwrap();
 
             check_oversign_origin_singlesig(&mut origin_tx);
-            check_oversign_sponsor_multisig(&mut origin_tx);
+            check_oversign_sponsor_multisig(&origin_tx);
 
             assert_eq!(origin_tx.auth().origin().num_signatures(), 1);
             assert_eq!(origin_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -6060,7 +6060,7 @@ mod test {
             let _ = tx.append_origin_signature(sig2, TransactionPublicKeyEncoding::Uncompressed);
             let _ = tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Uncompressed);
 
-            check_oversign_origin_multisig(&mut tx);
+            check_oversign_origin_multisig(&tx);
             check_sign_no_sponsor(&mut tx);
 
             assert_eq!(tx.auth().origin().num_signatures(), 2);
@@ -6191,7 +6191,7 @@ mod test {
             tx.set_sponsor_nonce(789).unwrap();
 
             check_oversign_origin_singlesig(&mut origin_tx);
-            check_oversign_sponsor_multisig(&mut origin_tx);
+            check_oversign_sponsor_multisig(&origin_tx);
 
             assert_eq!(origin_tx.auth().origin().num_signatures(), 1);
             assert_eq!(origin_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -6302,7 +6302,7 @@ mod test {
             let _ = tx.append_next_origin(&pubk_2);
             let _ = tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
 
-            check_oversign_origin_multisig(&mut tx);
+            check_oversign_origin_multisig(&tx);
             check_sign_no_sponsor(&mut tx);
 
             assert_eq!(tx.auth().origin().num_signatures(), 2);
@@ -6440,7 +6440,7 @@ mod test {
             let _ = tx.append_next_origin(&pubk_8);
             let _ = tx.append_origin_signature(sig9, TransactionPublicKeyEncoding::Compressed);
 
-            check_oversign_origin_multisig(&mut tx);
+            check_oversign_origin_multisig(&tx);
             check_sign_no_sponsor(&mut tx);
 
             assert_eq!(tx.auth().origin().num_signatures(), 3);
@@ -6586,7 +6586,7 @@ mod test {
             tx.set_sponsor_nonce(789).unwrap();
 
             check_oversign_origin_singlesig(&mut origin_tx);
-            check_oversign_sponsor_multisig(&mut origin_tx);
+            check_oversign_sponsor_multisig(&origin_tx);
 
             assert_eq!(origin_tx.auth().origin().num_signatures(), 1);
             assert_eq!(origin_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -6769,7 +6769,7 @@ mod test {
             tx.set_sponsor_nonce(789).unwrap();
 
             check_oversign_origin_singlesig(&mut origin_tx);
-            check_oversign_sponsor_multisig(&mut origin_tx);
+            check_oversign_sponsor_multisig(&origin_tx);
 
             assert_eq!(origin_tx.auth().origin().num_signatures(), 1);
             assert_eq!(origin_tx.auth().sponsor().unwrap().num_signatures(), 5);
@@ -6893,8 +6893,8 @@ mod test {
             let _ = tx.append_next_origin(&pubk_2);
             let _ = tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
 
-            check_oversign_origin_multisig(&mut tx);
-            check_oversign_origin_multisig_uncompressed(&mut tx);
+            check_oversign_origin_multisig(&tx);
+            check_oversign_origin_multisig_uncompressed(&tx);
             check_sign_no_sponsor(&mut tx);
 
             assert_eq!(tx.auth().origin().num_signatures(), 2);
@@ -7014,8 +7014,8 @@ mod test {
             let _ = tx.append_origin_signature(sig5, TransactionPublicKeyEncoding::Compressed);
             let _ = tx.append_origin_signature(sig6, TransactionPublicKeyEncoding::Compressed);
 
-            check_oversign_origin_multisig(&mut tx);
-            check_oversign_origin_multisig_uncompressed(&mut tx);
+            check_oversign_origin_multisig(&tx);
+            check_oversign_origin_multisig_uncompressed(&tx);
             check_sign_no_sponsor(&mut tx);
 
             assert_eq!(tx.auth().origin().num_signatures(), 4);
@@ -7158,8 +7158,8 @@ mod test {
             tx.set_sponsor_nonce(789).unwrap();
 
             check_oversign_origin_singlesig(&mut origin_tx);
-            check_oversign_sponsor_multisig(&mut origin_tx);
-            check_oversign_sponsor_multisig_uncompressed(&mut origin_tx);
+            check_oversign_sponsor_multisig(&origin_tx);
+            check_oversign_sponsor_multisig_uncompressed(&origin_tx);
 
             assert_eq!(origin_tx.auth().origin().num_signatures(), 1);
             assert_eq!(origin_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -7344,8 +7344,8 @@ mod test {
             tx.set_sponsor_nonce(789).unwrap();
 
             check_oversign_origin_singlesig(&mut origin_tx);
-            check_oversign_sponsor_multisig(&mut origin_tx);
-            check_oversign_sponsor_multisig_uncompressed(&mut origin_tx);
+            check_oversign_sponsor_multisig(&origin_tx);
+            check_oversign_sponsor_multisig_uncompressed(&origin_tx);
 
             assert_eq!(origin_tx.auth().origin().num_signatures(), 1);
             assert_eq!(origin_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -7472,7 +7472,7 @@ mod test {
             let mut signed_tx = tx_signer.get_tx().unwrap();
             assert_eq!(signed_tx.auth().origin().num_signatures(), 2);
 
-            check_oversign_origin_multisig(&mut signed_tx);
+            check_oversign_origin_multisig(&signed_tx);
             check_sign_no_sponsor(&mut signed_tx);
 
             // tx and signed_tx are otherwise equal
@@ -7527,7 +7527,7 @@ mod test {
             let _ = order_independent_tx
                 .append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
 
-            check_oversign_origin_multisig(&mut order_independent_tx);
+            check_oversign_origin_multisig(&order_independent_tx);
             check_sign_no_sponsor(&mut order_independent_tx);
 
             assert_eq!(order_independent_tx.auth().origin().num_signatures(), 2);
@@ -7623,7 +7623,7 @@ mod test {
 
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
-            check_oversign_origin_multisig(&mut signed_tx);
+            check_oversign_origin_multisig(&signed_tx);
             check_sign_no_sponsor(&mut signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 2);
@@ -7683,7 +7683,7 @@ mod test {
             let _ = tx.append_origin_signature(sig2, TransactionPublicKeyEncoding::Uncompressed);
             let _ = tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Uncompressed);
 
-            check_oversign_origin_multisig(&mut tx);
+            check_oversign_origin_multisig(&tx);
             check_sign_no_sponsor(&mut tx);
 
             assert_eq!(tx.auth().origin().num_signatures(), 2);
@@ -7777,8 +7777,8 @@ mod test {
             tx_signer.append_origin(&pubk_3).unwrap();
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
-            check_oversign_origin_multisig(&mut signed_tx);
-            check_oversign_origin_multisig_uncompressed(&mut signed_tx);
+            check_oversign_origin_multisig(&signed_tx);
+            check_oversign_origin_multisig_uncompressed(&signed_tx);
             check_sign_no_sponsor(&mut signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 2);
@@ -7837,8 +7837,8 @@ mod test {
             let _ = tx.append_next_origin(&pubk_2);
             let _ = tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
 
-            check_oversign_origin_multisig(&mut tx);
-            check_oversign_origin_multisig_uncompressed(&mut tx);
+            check_oversign_origin_multisig(&tx);
+            check_oversign_origin_multisig_uncompressed(&tx);
             check_sign_no_sponsor(&mut tx);
 
             assert_eq!(tx.auth().origin().num_signatures(), 2);
@@ -7971,7 +7971,7 @@ mod test {
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
             check_oversign_origin_singlesig(&mut signed_tx);
-            check_oversign_sponsor_multisig(&mut signed_tx);
+            check_oversign_sponsor_multisig(&signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 1);
             assert_eq!(signed_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -8063,7 +8063,7 @@ mod test {
             tx.set_sponsor_nonce(789).unwrap();
 
             check_oversign_origin_singlesig(&mut origin_tx);
-            check_oversign_sponsor_multisig(&mut origin_tx);
+            check_oversign_sponsor_multisig(&origin_tx);
 
             assert_eq!(origin_tx.auth().origin().num_signatures(), 1);
             assert_eq!(origin_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -8227,7 +8227,7 @@ mod test {
             tx.set_sponsor_nonce(789).unwrap();
 
             check_oversign_origin_singlesig(&mut origin_tx);
-            check_oversign_sponsor_multisig(&mut origin_tx);
+            check_oversign_sponsor_multisig(&origin_tx);
 
             assert_eq!(origin_tx.auth().origin().num_signatures(), 1);
             assert_eq!(origin_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -8319,7 +8319,7 @@ mod test {
             tx.set_sponsor_nonce(789).unwrap();
 
             check_oversign_origin_singlesig(&mut origin_tx);
-            check_oversign_sponsor_multisig(&mut origin_tx);
+            check_oversign_sponsor_multisig(&origin_tx);
 
             assert_eq!(origin_tx.auth().origin().num_signatures(), 1);
             assert_eq!(origin_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -8475,8 +8475,8 @@ mod test {
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
             check_oversign_origin_singlesig(&mut signed_tx);
-            check_oversign_sponsor_multisig(&mut signed_tx);
-            check_oversign_sponsor_multisig_uncompressed(&mut signed_tx);
+            check_oversign_sponsor_multisig(&signed_tx);
+            check_oversign_sponsor_multisig_uncompressed(&signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 1);
             assert_eq!(signed_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -8568,8 +8568,8 @@ mod test {
             tx.set_sponsor_nonce(789).unwrap();
 
             check_oversign_origin_singlesig(&mut origin_tx);
-            check_oversign_sponsor_multisig(&mut origin_tx);
-            check_oversign_sponsor_multisig_uncompressed(&mut origin_tx);
+            check_oversign_sponsor_multisig(&origin_tx);
+            check_oversign_sponsor_multisig_uncompressed(&origin_tx);
 
             assert_eq!(origin_tx.auth().origin().num_signatures(), 1);
             assert_eq!(origin_tx.auth().sponsor().unwrap().num_signatures(), 2);

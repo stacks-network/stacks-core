@@ -7,7 +7,12 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
-## Added
+### Added
+
+- The stacks-node miner now performs accurate tenure-extensions in certain bitcoin block production
+  cases: when a bitcoin block is produced before the previous bitcoin block's Stacks tenure started.
+  Previously, the miner had difficulty restarting their missed tenure and extending into the new
+  bitcoin block, leading to 1-2 bitcoin blocks of missed Stacks block production.
 
 ## Changed
 
