@@ -227,7 +227,7 @@ fn get_blocks_inventory(peer: &mut TestPeer, start_height: u64, end_height: u64)
         ic.get_stacks_header_hashes(
             num_headers + 1,
             &ancestor.consensus_hash,
-            &mut BlockHeaderCache::new(),
+            &BlockHeaderCache::new(),
         )
         .unwrap()
     };
@@ -612,7 +612,7 @@ fn make_contract_call_transaction(
     let tx_cc = {
         let mut tx_cc = StacksTransaction::new(
             TransactionVersion::Testnet,
-            spending_account.as_transaction_auth().unwrap().into(),
+            spending_account.as_transaction_auth().unwrap(),
             TransactionPayload::new_contract_call(
                 contract_address,
                 contract_name,

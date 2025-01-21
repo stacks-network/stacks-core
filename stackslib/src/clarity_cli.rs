@@ -1263,11 +1263,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 marf.as_clarity_db(),
                 DEFAULT_CLI_EPOCH,
             );
-            let mut placeholder_context = ContractContext::new(
+            let placeholder_context = ContractContext::new(
                 QualifiedContractIdentifier::transient(),
                 ClarityVersion::Clarity2,
             );
-            let mut exec_env = vm_env.get_exec_environment(None, None, &mut placeholder_context);
+            let mut exec_env = vm_env.get_exec_environment(None, None, &placeholder_context);
             let mut analysis_marf = MemoryBackingStore::new();
 
             let contract_id = QualifiedContractIdentifier::transient();
@@ -1340,7 +1340,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             );
 
             let contract_id = QualifiedContractIdentifier::transient();
-            let mut placeholder_context = ContractContext::new(
+            let placeholder_context = ContractContext::new(
                 QualifiedContractIdentifier::transient(),
                 ClarityVersion::Clarity2,
             );
@@ -1352,7 +1352,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             match run_analysis_free(&contract_id, &mut ast, &mut analysis_marf, true) {
                 Ok(_) => {
                     let result = vm_env
-                        .get_exec_environment(None, None, &mut placeholder_context)
+                        .get_exec_environment(None, None, &placeholder_context)
                         .eval_raw_with_rules(&content, ASTRules::PrecheckSize);
                     match result {
                         Ok(x) => (
@@ -1399,7 +1399,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 "Failed to open VM database.",
             );
             let mainnet = header_db.is_mainnet();
-            let mut placeholder_context = ContractContext::new(
+            let placeholder_context = ContractContext::new(
                 QualifiedContractIdentifier::transient(),
                 ClarityVersion::Clarity2,
             );
@@ -1408,7 +1408,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 let result_and_cost =
                     with_env_costs(mainnet, &header_db, &mut marf, None, |vm_env| {
                         vm_env
-                            .get_exec_environment(None, None, &mut placeholder_context)
+                            .get_exec_environment(None, None, &placeholder_context)
                             .eval_read_only_with_rules(
                                 &evalInput.contract_identifier,
                                 &evalInput.content,
@@ -1468,7 +1468,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             );
 
             let mainnet = header_db.is_mainnet();
-            let mut placeholder_context = ContractContext::new(
+            let placeholder_context = ContractContext::new(
                 QualifiedContractIdentifier::transient(),
                 ClarityVersion::Clarity2,
             );
@@ -1485,7 +1485,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     coverage.as_mut(),
                     |vm_env| {
                         vm_env
-                            .get_exec_environment(None, None, &mut placeholder_context)
+                            .get_exec_environment(None, None, &placeholder_context)
                             .eval_read_only_with_rules(
                                 &evalInput.contract_identifier,
                                 &evalInput.content,
@@ -1564,7 +1564,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 "Failed to open VM database.",
             );
             let mainnet = header_db.is_mainnet();
-            let mut placeholder_context = ContractContext::new(
+            let placeholder_context = ContractContext::new(
                 QualifiedContractIdentifier::transient(),
                 ClarityVersion::Clarity2,
             );
@@ -1572,7 +1572,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 let result_and_cost =
                     with_env_costs(mainnet, &header_db, &mut marf, None, |vm_env| {
                         vm_env
-                            .get_exec_environment(None, None, &mut placeholder_context)
+                            .get_exec_environment(None, None, &placeholder_context)
                             .eval_read_only_with_rules(
                                 &contract_identifier,
                                 &content,

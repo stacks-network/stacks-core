@@ -4511,7 +4511,7 @@ impl NakamotoChainState {
             Ok((block_fees, _block_burns, txs_receipts)) => (block_fees, txs_receipts),
         };
 
-        tx_receipts.extend(txs_receipts.into_iter());
+        tx_receipts.extend(txs_receipts);
 
         let total_tenure_cost = clarity_tx.cost_so_far();
         let mut block_execution_cost = total_tenure_cost.clone();
@@ -4655,10 +4655,8 @@ impl NakamotoChainState {
         let new_block_id = new_tip.index_block_hash();
         chainstate_tx.log_transactions_processed(&new_block_id, &tx_receipts);
 
-        let reward_cycle = pox_constants.block_height_to_reward_cycle(
-            first_block_height.into(),
-            chain_tip_burn_header_height.into(),
-        );
+        let reward_cycle = pox_constants
+            .block_height_to_reward_cycle(first_block_height, chain_tip_burn_header_height.into());
 
         // store the reward set calculated during this block if it happened
         // NOTE: miner and proposal evaluation should not invoke this because
@@ -4669,14 +4667,14 @@ impl NakamotoChainState {
             Self::write_reward_set(chainstate_tx, &new_block_id, &signer_calculation.reward_set)?;
 
             let cycle_number = if let Some(cycle) = pox_constants.reward_cycle_of_prepare_phase(
-                first_block_height.into(),
+                first_block_height,
                 chain_tip_burn_header_height.into(),
             ) {
                 Some(cycle)
             } else {
                 pox_constants
                     .block_height_to_reward_cycle(
-                        first_block_height.into(),
+                        first_block_height,
                         chain_tip_burn_header_height.into(),
                     )
                     .map(|cycle| cycle + 1)

@@ -1005,7 +1005,7 @@ impl TestStacksNode {
         }
         Ok(blocks
             .into_iter()
-            .zip(all_malleablized_blocks.into_iter())
+            .zip(all_malleablized_blocks)
             .map(|((blk, sz, cost), mals)| (blk, sz, cost, mals))
             .collect())
     }

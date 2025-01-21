@@ -607,7 +607,9 @@ pub mod test_observer {
             .collect()
     }
 
-    pub fn contains_burn_block_range(range: impl RangeBounds<u64>) -> Result<(), String> {
+    /// Get missing burn blocks for a given height range
+    /// Returns Ok(..) if lookup is sucessful, whether there are missing blocks or not
+    pub fn get_missing_burn_blocks(range: impl RangeBounds<u64>) -> Result<Vec<u64>, String> {
         // Get set of all burn block heights
         let burn_block_heights = get_blocks()
             .into_iter()
@@ -629,12 +631,23 @@ pub mod test_observer {
         // Find indexes in range for which we don't have burn block in set
         let missing = (start..=end)
             .filter(|i| !burn_block_heights.contains(i))
-            .collect::<Vec<_>>();
+            .collect();
+
+        Ok(missing)
+    }
+
+    /// Similar to `missing_burn_blocks()` but returns `Err(..)` if blocks are missing
+    pub fn contains_burn_block_range(range: impl RangeBounds<u64> + Clone) -> Result<(), String> {
+        let missing = self::get_missing_burn_blocks(range.clone())?;
 
         if missing.is_empty() {
             Ok(())
         } else {
-            Err(format!("Missing the following burn blocks: {missing:?}"))
+            Err(format!(
+                "Missing the following burn blocks from {:?} to {:?}: {missing:?}",
+                range.start_bound(),
+                range.end_bound()
+            ))
         }
     }
 
