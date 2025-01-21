@@ -1408,13 +1408,11 @@ impl ParentStacksBlockInfo {
         let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
-        let allow_late = if let MinerReason::BlockFound { late } = reason {
-            *late
-        } else {
-            false
-        };
-
-        if !allow_late && burn_chain_tip.consensus_hash != check_burn_block.consensus_hash {
+        // if we're mining a tenure that we were late to initialize, allow the burn tipped
+        //  to be slightly stale
+        if !reason.is_late_block()
+            && burn_chain_tip.consensus_hash != check_burn_block.consensus_hash
+        {
             info!(
                 "New canonical burn chain tip detected. Will not try to mine.";
                 "new_consensus_hash" => %burn_chain_tip.consensus_hash,
