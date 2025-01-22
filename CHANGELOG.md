@@ -14,6 +14,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   Previously, the miner had difficulty restarting their missed tenure and extending into the new
   bitcoin block, leading to 1-2 bitcoin blocks of missed Stacks block production.
 
+## Changed
+
+- When a miner reorgs the previous tenure due to a poorly timed block, it can now continue to build blocks on this new chain tip (#5691)
+
 ## [3.1.0.0.3]
 
 ### Added
