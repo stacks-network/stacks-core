@@ -55,7 +55,6 @@ use std::sync::LazyLock;
 
 #[cfg(test)]
 /// Test-only value for storing the current rejection based timeout
-/// Used to test that the signers will broadcast a block if it gets enough signatures
 pub static BLOCK_REJECTIONS_CURRENT_TIMEOUT: LazyLock<TestFlag<Duration>> =
     LazyLock::new(TestFlag::default);
 
