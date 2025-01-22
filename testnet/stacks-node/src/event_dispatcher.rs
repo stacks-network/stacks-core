@@ -73,6 +73,9 @@ use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use url::Url;
 
+#[cfg(test)]
+use std::sync::LazyLock;
+
 #[cfg(any(test, feature = "testing"))]
 lazy_static! {
     /// Do not announce a signed/mined block to the network when set to true.
@@ -330,7 +333,7 @@ impl RewardSetEventPayload {
 }
 
 #[cfg(test)]
-static TEST_EVENT_OBSERVER_SKIP_RETRY: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+static TEST_EVENT_OBSERVER_SKIP_RETRY: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
 impl EventObserver {
     fn init_db(db_path: &str) -> Result<Connection, db_error> {
@@ -440,11 +443,7 @@ impl EventObserver {
             Self::send_payload_directly(&payload, &url, timeout);
 
             #[cfg(test)]
-            if TEST_EVENT_OBSERVER_SKIP_RETRY
-                .lock()
-                .unwrap()
-                .unwrap_or(false)
-            {
+            if TEST_EVENT_OBSERVER_SKIP_RETRY.get() {
                 warn!("Fault injection: delete_payload");
                 return;
             }
@@ -509,11 +508,7 @@ impl EventObserver {
             }
 
             #[cfg(test)]
-            if TEST_EVENT_OBSERVER_SKIP_RETRY
-                .lock()
-                .unwrap()
-                .unwrap_or(false)
-            {
+            if TEST_EVENT_OBSERVER_SKIP_RETRY.get() {
                 warn!("Fault injection: skipping retry of payload");
                 return;
             }
@@ -2058,11 +2053,7 @@ mod test {
 
         let url = &format!("{}/api", &server.url());
 
-        // Ensure retrying is enabled on the test (as other tests will run in parallel)
-        TEST_EVENT_OBSERVER_SKIP_RETRY
-            .lock()
-            .unwrap()
-            .replace(false);
+        TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
         // Insert payload
         EventObserver::insert_payload(&conn, url, &payload, timeout)
@@ -2135,11 +2126,7 @@ mod test {
 
         let observer = EventObserver::new(Some(working_dir.clone()), endpoint, timeout);
 
-        // Ensure retrying is enabled on the test (as other tests will run in parallel)
-        TEST_EVENT_OBSERVER_SKIP_RETRY
-            .lock()
-            .unwrap()
-            .replace(false);
+        TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
         // Call send_payload
         observer.send_payload(&payload, "/test");
@@ -2400,7 +2387,7 @@ mod test {
 
         // Disable retrying so that it sends the payload only once
         // and that payload will be ignored by the test server.
-        TEST_EVENT_OBSERVER_SKIP_RETRY.lock().unwrap().replace(true);
+        TEST_EVENT_OBSERVER_SKIP_RETRY.set(true);
 
         info!("Sending payload 1");
 
@@ -2408,10 +2395,7 @@ mod test {
         observer.send_payload(&payload, "/test");
 
         // Re-enable retrying
-        TEST_EVENT_OBSERVER_SKIP_RETRY
-            .lock()
-            .unwrap()
-            .replace(false);
+        TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
         info!("Sending payload 2");
 
