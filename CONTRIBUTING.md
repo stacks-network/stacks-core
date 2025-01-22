@@ -81,7 +81,7 @@ fix: incorporate unlocks in mempool admitter, #3623
 
 ### Recommended githooks
 
-It is helpful to set up the pre-commit git hook set up, so that Rust formatting issues are caught before
+It is helpful to set up the pre-commit git hook set up, so that Rust formatting issues and clippy warnings are caught before
 you push your code. Follow these instruction to set it up:
 
 1. Rename `.git/hooks/pre-commit.sample` to `.git/hooks/pre-commit`
@@ -89,10 +89,16 @@ you push your code. Follow these instruction to set it up:
 
 ```sh
 #!/bin/sh
+# Format staged Rust files
 git diff --name-only --staged | grep '\.rs$' | xargs -P 8 -I {} rustfmt {} --edition 2021 --check --config group_imports=StdExternalCrate,imports_granularity=Module || (
   echo 'rustfmt failed: run "cargo fmt-stacks"';
   exit 1
 )
+# Run cargo clippy-stacks and fail the commit if there are any warnings
+if ! cargo clippy-stacks; then
+  echo 'cargo clippy-stacks failed: fix the warnings and try again.';
+  exit 1
+fi
 ```
 
 3. Make it executable by running `chmod +x .git/hooks/pre-commit`
@@ -385,6 +391,18 @@ You can automatically reformat your commit via:
 
 ```bash
 cargo fmt-stacks
+```
+
+## Clippy Warnings
+
+PRs will be checked against `clippy` and will _fail_ if any clippy warnings are generated.
+Unfortunately, not all existing clippy warnings have been addressed throughout stacks-core, so arguments must be passed via the command line. 
+Therefore, we handle `clippy` configurations using a Cargo alias: `cargo clippy-stacks`
+
+You can check what warnings need to be addressed locally via: 
+
+```bash
+cargo clippy-stacks
 ```
 
 ## Comments
