@@ -442,9 +442,8 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
             .parse::<u64>()
             .map_err(|_| db_error::ParseError)?;
 
-        let header_type: HeaderTypeNames = row
-            .get("header_type")
-            .unwrap_or_else(|_e| HeaderTypeNames::Epoch2);
+        let header_type: HeaderTypeNames =
+            row.get("header_type").unwrap_or(HeaderTypeNames::Epoch2);
         let stacks_header: StacksBlockHeaderTypes = {
             match header_type {
                 HeaderTypeNames::Epoch2 => StacksBlockHeader::from_row(row)?.into(),
@@ -1713,7 +1712,7 @@ impl StacksChainState {
             );
 
             StacksChainState::insert_stacks_block_header(
-                &mut tx,
+                &tx,
                 &parent_hash,
                 &first_tip_info,
                 &ExecutionCost::ZERO,

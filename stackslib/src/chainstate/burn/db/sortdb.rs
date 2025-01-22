@@ -8869,7 +8869,7 @@ pub mod tests {
                 .get_stacks_header_hashes(
                     256,
                     &canonical_tip.consensus_hash,
-                    &mut BlockHeaderCache::new(),
+                    &BlockHeaderCache::new(),
                 )
                 .unwrap();
             SortitionDB::merge_block_header_cache(&mut cache, &hashes);
@@ -8911,7 +8911,7 @@ pub mod tests {
                 .get_stacks_header_hashes(
                     192,
                     &canonical_tip.consensus_hash,
-                    &mut BlockHeaderCache::new(),
+                    &BlockHeaderCache::new(),
                 )
                 .unwrap();
             SortitionDB::merge_block_header_cache(&mut cache, &hashes);
@@ -8951,7 +8951,7 @@ pub mod tests {
                 .get_stacks_header_hashes(
                     257,
                     &canonical_tip.consensus_hash,
-                    &mut BlockHeaderCache::new(),
+                    &BlockHeaderCache::new(),
                 )
                 .unwrap();
             SortitionDB::merge_block_header_cache(&mut cache, &hashes);
