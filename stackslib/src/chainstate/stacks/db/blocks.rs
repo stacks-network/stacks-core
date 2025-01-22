@@ -9440,32 +9440,31 @@ pub mod test {
         assert_block_stored_not_staging(&mut chainstate, &consensus_hashes[0], blocks[0]);
 
         // process and store blocks 1 and N, as well as microblocks in-between
-        let len = blocks.len();
-        for i in 1..len {
+        for (i, block) in blocks.iter().enumerate().skip(1) {
             // this is what happens at the end of append_block()
             // store block to staging and process it
             assert!(StacksChainState::load_staging_block_data(
                 chainstate.db(),
                 &chainstate.blocks_path,
                 &consensus_hashes[i],
-                &blocks[i].block_hash()
+                &block.block_hash()
             )
             .unwrap()
             .is_none());
             store_staging_block(
                 &mut chainstate,
                 &consensus_hashes[i],
-                blocks[i],
+                block,
                 &consensus_hashes[0],
                 1,
                 2,
             );
-            assert_block_staging_not_processed(&mut chainstate, &consensus_hashes[i], blocks[i]);
+            assert_block_staging_not_processed(&mut chainstate, &consensus_hashes[i], block);
 
             set_block_processed(
                 &mut chainstate,
                 &consensus_hashes[i],
-                &blocks[i].block_hash(),
+                &block.block_hash(),
                 true,
             );
 
@@ -9473,17 +9472,17 @@ pub mod test {
             set_microblocks_processed(
                 &mut chainstate,
                 &consensus_hashes[i],
-                &blocks[i].block_hash(),
-                &blocks[i].header.parent_microblock,
+                &block.block_hash(),
+                &block.header.parent_microblock,
             );
 
-            assert_block_stored_not_staging(&mut chainstate, &consensus_hashes[i], blocks[i]);
+            assert_block_stored_not_staging(&mut chainstate, &consensus_hashes[i], block);
 
             let mblocks_confirmed = StacksChainState::load_processed_microblock_stream_fork(
                 chainstate.db(),
                 &consensus_hashes[0],
                 &blocks[0].block_hash(),
-                &blocks[i].header.parent_microblock,
+                &block.header.parent_microblock,
             )
             .unwrap()
             .unwrap();
@@ -9559,24 +9558,24 @@ pub mod test {
         }
 
         // store blocks to staging
-        for i in 0..blocks.len() {
+        for (i, block) in blocks.iter().enumerate() {
             assert!(StacksChainState::load_staging_block_data(
                 chainstate.db(),
                 &chainstate.blocks_path,
                 &consensus_hashes[i],
-                &blocks[i].block_hash()
+                &block.block_hash()
             )
             .unwrap()
             .is_none());
             store_staging_block(
                 &mut chainstate,
                 &consensus_hashes[i],
-                &blocks[i],
+                &block,
                 &parent_consensus_hashes[i],
                 1,
                 2,
             );
-            assert_block_staging_not_processed(&mut chainstate, &consensus_hashes[i], &blocks[i]);
+            assert_block_staging_not_processed(&mut chainstate, &consensus_hashes[i], &block);
         }
 
         // reject block 1
@@ -9588,16 +9587,16 @@ pub mod test {
         );
 
         // destroy all descendants
-        for i in 0..blocks.len() {
+        for (i, block) in blocks.iter().enumerate() {
             // confirm that block i is deleted, as are its microblocks
-            assert_block_stored_rejected(&mut chainstate, &consensus_hashes[i], &blocks[i]);
+            assert_block_stored_rejected(&mut chainstate, &consensus_hashes[i], block);
 
             // block i's microblocks should all be marked as processed, orphaned, and deleted
-            for mblock in microblocks[i].iter() {
+            for mblock in &microblocks[i] {
                 assert!(StacksChainState::load_staging_microblock(
                     chainstate.db(),
                     &consensus_hashes[i],
-                    &blocks[i].block_hash(),
+                    &block.block_hash(),
                     &mblock.block_hash()
                 )
                 .unwrap()
@@ -9611,30 +9610,31 @@ pub mod test {
                 .is_none());
             }
 
-            if i + 1 < blocks.len() {
+            // Check block i+1 if it exists
+            if let Some(next_block) = blocks.get(i + 1) {
                 // block i+1 should be marked as an orphan, but its data should still be there
                 assert!(StacksChainState::load_staging_block(
                     chainstate.db(),
                     &chainstate.blocks_path,
                     &consensus_hashes[i + 1],
-                    &blocks[i + 1].block_hash()
+                    &next_block.block_hash()
                 )
                 .unwrap()
                 .is_none());
                 assert!(!StacksChainState::load_block_bytes(
                     &chainstate.blocks_path,
                     &consensus_hashes[i + 1],
-                    &blocks[i + 1].block_hash()
+                    &next_block.block_hash()
                 )
                 .unwrap()
                 .unwrap()
                 .is_empty());
 
-                for mblock in microblocks[i + 1].iter() {
+                for mblock in &microblocks[i + 1] {
                     let staging_mblock = StacksChainState::load_staging_microblock(
                         chainstate.db(),
                         &consensus_hashes[i + 1],
-                        &blocks[i + 1].block_hash(),
+                        &next_block.block_hash(),
                         &mblock.block_hash(),
                     )
                     .unwrap()
