@@ -14,8 +14,12 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::sync::atomic::AtomicBool;
+#[cfg(test)]
+use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
+#[cfg(test)]
+use std::time::Duration;
 use std::time::Instant;
 
 use libsigner::v0::messages::{MinerSlotID, SignerMessage as SignerMessageV0};
@@ -34,6 +38,8 @@ use stacks::types::chainstate::{StacksBlockId, StacksPrivateKey};
 use stacks::util::hash::Sha512Trunc256Sum;
 use stacks::util::secp256k1::MessageSignature;
 use stacks::util_lib::boot::boot_code_id;
+#[cfg(test)]
+use stacks_common::util::tests::TestFlag;
 
 use super::stackerdb_listener::StackerDBListenerComms;
 use super::Error as NakamotoNodeError;
@@ -43,15 +49,6 @@ use crate::nakamoto_node::stackerdb_listener::{
 };
 use crate::neon::Counters;
 use crate::Config;
-
-#[cfg(test)]
-use std::time::Duration;
-
-#[cfg(test)]
-use stacks_common::util::tests::TestFlag;
-
-#[cfg(test)]
-use std::sync::LazyLock;
 
 #[cfg(test)]
 /// Test-only value for storing the current rejection based timeout
@@ -318,9 +315,9 @@ impl SignerCoordinator {
         let mut rejections_timeout = core::time::Duration::from_secs(BLOCK_REJECTIONS_TIMEOUT_BASE);
         let mut block_status_tracker = BlockStatus::default();
         loop {
-            ///
-            /// TODO: describe the logic
-            ///
+            // At every iteration wait for the block_status.
+            // Exit when the amount of confirmations/rejections reach the threshold (or until timeout)
+            // Based on the amount of rejections, eventually modify the timeout.
             let block_status = match self.stackerdb_comms.wait_for_block_status(
                 block_signer_sighash,
                 &mut block_status_tracker,
