@@ -16,6 +16,7 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
+use std::time::Instant;
 
 use libsigner::v0::messages::{MinerSlotID, SignerMessage as SignerMessageV0};
 use libsigner::{BlockProposal, SignerSession, StackerDBSession};
@@ -37,7 +38,9 @@ use stacks::util_lib::boot::boot_code_id;
 use super::stackerdb_listener::StackerDBListenerComms;
 use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::StackerDBChannel;
-use crate::nakamoto_node::stackerdb_listener::{StackerDBListener, EVENT_RECEIVER_POLL};
+use crate::nakamoto_node::stackerdb_listener::{
+    BlockStatus, StackerDBListener, EVENT_RECEIVER_POLL,
+};
 use crate::neon::Counters;
 use crate::Config;
 
@@ -270,17 +273,19 @@ impl SignerCoordinator {
         burn_tip: &BlockSnapshot,
         counters: &Counters,
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
+        let mut rejections_timer = Instant::now();
+        let mut rejections: u32 = 0;
+        let mut rejections_timeout = core::time::Duration::from_secs(600);
+        let mut block_status_tracker = BlockStatus::default();
         loop {
+            ///
+            /// TODO: describe the logic
             let block_status = match self.stackerdb_comms.wait_for_block_status(
                 block_signer_sighash,
+                &mut block_status_tracker,
+                rejections_timer,
+                rejections_timeout,
                 EVENT_RECEIVER_POLL,
-                |status| {
-                    status.total_weight_signed < self.weight_threshold
-                        && status
-                            .total_reject_weight
-                            .saturating_add(self.weight_threshold)
-                            <= self.total_weight
-                },
             )? {
                 Some(status) => status,
                 None => {
@@ -313,9 +318,25 @@ impl SignerCoordinator {
                         return Err(NakamotoNodeError::BurnchainTipChanged);
                     }
 
+                    if rejections_timer.elapsed() > rejections_timeout {
+                        return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                            "Gave up while tried reaching the threshold".into(),
+                        ));
+                    }
+
                     continue;
                 }
             };
+
+            if rejections != block_status.total_reject_weight {
+                rejections_timer = Instant::now();
+                rejections = block_status.total_reject_weight;
+                rejections_timeout = core::time::Duration::from_secs_f32(
+                    600 as f32
+                        - (600 as f32
+                            * ((rejections as f32 / self.weight_threshold as f32).powf(2.0))),
+                );
+            }
 
             if block_status
                 .total_reject_weight
@@ -334,10 +355,12 @@ impl SignerCoordinator {
                     "block_signer_sighash" => %block_signer_sighash,
                 );
                 return Ok(block_status.gathered_signatures.values().cloned().collect());
-            } else {
+            } else if rejections_timer.elapsed() > rejections_timeout {
                 return Err(NakamotoNodeError::SigningCoordinatorFailure(
-                    "Unblocked without reaching the threshold".into(),
+                    "Gave up while tried reaching the threshold".into(),
                 ));
+            } else {
+                continue;
             }
         }
     }

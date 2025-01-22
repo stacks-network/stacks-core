@@ -50,7 +50,7 @@ pub static TEST_IGNORE_SIGNERS: LazyLock<TestFlag<bool>> = LazyLock::new(TestFla
 /// waking up to check timeouts?
 pub static EVENT_RECEIVER_POLL: Duration = Duration::from_millis(500);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct BlockStatus {
     pub responded_signers: HashSet<StacksPublicKey>,
     pub gathered_signatures: BTreeMap<u32, MessageSignature>,
@@ -337,10 +337,8 @@ impl StackerDBListener {
                         block.gathered_signatures.insert(slot_id, signature);
                         block.responded_signers.insert(signer_pubkey);
 
-                        if block.total_weight_signed >= self.weight_threshold {
-                            // Signal to anyone waiting on this block that we have enough signatures
-                            cvar.notify_all();
-                        }
+                        // Signal to anyone waiting on this block that we have a new status
+                        cvar.notify_all();
 
                         // Update the idle timestamp for this signer
                         self.update_idle_timestamp(
@@ -378,6 +376,7 @@ impl StackerDBListener {
                             }
                         };
                         block.responded_signers.insert(rejected_pubkey);
+
                         block.total_reject_weight = block
                             .total_reject_weight
                             .checked_add(signer_entry.weight)
@@ -396,14 +395,8 @@ impl StackerDBListener {
                             "server_version" => rejected_data.metadata.server_version,
                         );
 
-                        if block
-                            .total_reject_weight
-                            .saturating_add(self.weight_threshold)
-                            > self.total_weight
-                        {
-                            // Signal to anyone waiting on this block that we have enough rejections
-                            cvar.notify_all();
-                        }
+                        // Signal to anyone waiting on this block that we have a new status
+                        cvar.notify_all();
 
                         // Update the idle timestamp for this signer
                         self.update_idle_timestamp(
@@ -487,30 +480,32 @@ impl StackerDBListenerComms {
 
     /// Get the status for `block` from the Stacker DB listener.
     /// If the block is not found in the map, return an error.
-    /// If the block is found, call `condition` to check if the block status
-    /// satisfies the condition.
-    /// If the condition is satisfied, return the block status as
-    ///   `Ok(Some(status))`.
-    /// If the condition is not satisfied, wait for it to be satisfied.
+    /// If the block is found, return it.
     /// If the timeout is reached, return `Ok(None)`.
-    pub fn wait_for_block_status<F>(
+    pub fn wait_for_block_status(
         &self,
         block_signer_sighash: &Sha512Trunc256Sum,
+        block_status_tracker: &mut BlockStatus,
+        rejections_timer: std::time::Instant,
+        rejections_timeout: Duration,
         timeout: Duration,
-        condition: F,
-    ) -> Result<Option<BlockStatus>, NakamotoNodeError>
-    where
-        F: Fn(&BlockStatus) -> bool,
-    {
+    ) -> Result<Option<BlockStatus>, NakamotoNodeError> {
         let (lock, cvar) = &*self.blocks;
         let blocks = lock.lock().expect("FATAL: failed to lock block status");
 
         let (guard, timeout_result) = cvar
             .wait_timeout_while(blocks, timeout, |map| {
+                if rejections_timer.elapsed() > rejections_timeout {
+                    return true;
+                }
                 let Some(status) = map.get(block_signer_sighash) else {
                     return true;
                 };
-                condition(status)
+                if status != block_status_tracker {
+                    *block_status_tracker = status.clone();
+                    return false;
+                }
+                return true;
             })
             .expect("FATAL: failed to wait on block status cond var");
 
