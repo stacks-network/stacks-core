@@ -9570,12 +9570,12 @@ pub mod test {
             store_staging_block(
                 &mut chainstate,
                 &consensus_hashes[i],
-                &block,
+                block,
                 &parent_consensus_hashes[i],
                 1,
                 2,
             );
-            assert_block_staging_not_processed(&mut chainstate, &consensus_hashes[i], &block);
+            assert_block_staging_not_processed(&mut chainstate, &consensus_hashes[i], block);
         }
 
         // reject block 1
