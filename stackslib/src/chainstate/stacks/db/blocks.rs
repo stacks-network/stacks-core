@@ -475,7 +475,7 @@ impl StacksChainState {
 
         let _ = StacksChainState::mkdirs(&block_path)?;
 
-        block_path.push(format!("{}", to_hex(block_hash_bytes)));
+        block_path.push(to_hex(block_hash_bytes).to_string());
         let blocks_path_str = block_path
             .to_str()
             .ok_or_else(|| Error::DBError(db_error::ParseError))?

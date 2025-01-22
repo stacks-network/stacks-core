@@ -3045,10 +3045,7 @@ fn idle_tenure_extend_active_mining() {
 (define-data-var my-var uint u0)
 (define-public (f) (begin {} (ok 1))) (begin (f))
         "#,
-        (0..250)
-            .map(|_| format!("(var-get my-var)"))
-            .collect::<Vec<String>>()
-            .join(" ")
+        ["(var-get my-var)"; 250].join(" ")
     );
 
     // First, lets deploy the contract
@@ -9832,14 +9829,19 @@ fn global_acceptance_depends_on_block_announcement() {
                 .stacks_client
                 .get_peer_info()
                 .expect("Failed to get peer info");
-            Ok(info.stacks_tip_height > info_before.stacks_tip_height)
+            Ok(info.stacks_tip_height > info_before.stacks_tip_height
+                && info_before.stacks_tip_consensus_hash != info.stacks_tip_consensus_hash)
         },
     )
-    .unwrap();
+    .expect("Stacks miner failed to produce new blocks during the newest burn block's tenure");
     let info_after = signer_test
         .stacks_client
         .get_peer_info()
         .expect("Failed to get peer info");
+    let info_after_stacks_block_id = StacksBlockId::new(
+        &info_after.stacks_tip_consensus_hash,
+        &info_after.stacks_tip,
+    );
     let mut sister_block = None;
     let start_time = Instant::now();
     while sister_block.is_none() && start_time.elapsed() < Duration::from_secs(45) {
@@ -9849,17 +9851,14 @@ fn global_acceptance_depends_on_block_announcement() {
             .find_map(|chunk| {
                 let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
                     .expect("Failed to deserialize SignerMessage");
-                match message {
-                    SignerMessage::BlockProposal(proposal) => {
-                        if proposal.block.header.consensus_hash
-                            == info_after.stacks_tip_consensus_hash
-                        {
-                            Some(proposal.block)
-                        } else {
-                            None
-                        }
+                if let SignerMessage::BlockProposal(proposal) = message {
+                    if proposal.block.block_id() == info_after_stacks_block_id {
+                        Some(proposal.block)
+                    } else {
+                        None
                     }
-                    _ => None,
+                } else {
+                    None
                 }
             });
     }
