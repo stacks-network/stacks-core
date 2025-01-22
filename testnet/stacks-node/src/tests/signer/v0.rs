@@ -75,6 +75,7 @@ use crate::event_dispatcher::{MinedNakamotoBlockEvent, TEST_SKIP_BLOCK_ANNOUNCEM
 use crate::nakamoto_node::miner::{
     TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL,
 };
+use crate::nakamoto_node::signer_coordinator::BLOCK_REJECTIONS_CURRENT_TIMEOUT;
 use crate::nakamoto_node::stackerdb_listener::TEST_IGNORE_SIGNERS;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
@@ -7842,8 +7843,13 @@ fn block_validation_check_rejection_timeout_heuristic() {
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![all_signers[3], all_signers[4]]);
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(vec![all_signers[0], all_signers[1], all_signers[2]]);
 
-    info!("------------------------- Test Mine and Verify Confirmed Nakamoto Block -------------------------");
-    signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers, true);
+    info!("------------------------- Test Mine and Verify Rejected Nakamoto Block -------------------------");
+    signer_test.mine_nakamoto_block(timeout, true);
+    signer_test
+        .wait_for_block_rejections(timeout.as_secs(), &[all_signers[3], all_signers[4]])
+        .unwrap();
+
+    assert_eq!(BLOCK_REJECTIONS_CURRENT_TIMEOUT.get().as_secs(), 400);
 }
 
 /// Test scenario:
