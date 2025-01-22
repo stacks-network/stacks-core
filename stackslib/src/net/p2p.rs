@@ -3606,12 +3606,7 @@ impl PeerNetwork {
 
             // in Nakamoto epoch, but we might still be doing epoch 2.x things since Nakamoto does
             // not begin on a reward cycle boundary.
-            if cur_epoch.epoch_id == StacksEpochId::Epoch30
-                && (self.burnchain_tip.block_height
-                    <= cur_epoch.start_height
-                        + u64::from(self.burnchain.pox_constants.reward_cycle_length)
-                    || self.connection_opts.force_nakamoto_epoch_transition)
-            {
+            if cur_epoch.epoch_id >= StacksEpochId::Epoch30 && !self.stacks_tip.is_nakamoto {
                 debug!(
                     "{:?}: run Epoch 2.x work loop in Nakamoto epoch",
                     self.get_local_peer()
