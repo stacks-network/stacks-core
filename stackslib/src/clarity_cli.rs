@@ -512,7 +512,7 @@ impl CLIHeadersDB {
                 "CREATE TABLE IF NOT EXISTS cli_chain_tips(id INTEGER PRIMARY KEY AUTOINCREMENT, block_hash TEXT UNIQUE NOT NULL);",
                 NO_PARAMS
             ),
-            &format!("FATAL: failed to create 'cli_chain_tips' table"),
+            "FATAL: failed to create 'cli_chain_tips' table",
         );
 
         friendly_expect(
@@ -520,13 +520,13 @@ impl CLIHeadersDB {
                 "CREATE TABLE IF NOT EXISTS cli_config(testnet BOOLEAN NOT NULL);",
                 NO_PARAMS,
             ),
-            &format!("FATAL: failed to create 'cli_config' table"),
+            "FATAL: failed to create 'cli_config' table",
         );
 
         if !mainnet {
             friendly_expect(
                 tx.execute("INSERT INTO cli_config (testnet) VALUES (?1)", &[&true]),
-                &format!("FATAL: failed to set testnet flag"),
+                "FATAL: failed to set testnet flag",
             );
         }
 
