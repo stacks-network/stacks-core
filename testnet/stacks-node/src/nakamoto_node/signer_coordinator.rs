@@ -310,13 +310,17 @@ impl SignerCoordinator {
         sortdb: &SortitionDB,
         counters: &Counters,
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
+        // this is used to track the start of the waiting cycle
         let mut rejections_timer = Instant::now();
+        // the amount of current rejections to eventually modify the timeout
         let mut rejections: u32 = 0;
+        // default timeout
         let mut rejections_timeout = core::time::Duration::from_secs(BLOCK_REJECTIONS_TIMEOUT_BASE);
+        // this is used for comparing block_status to identify if it has been changed from the previous event
         let mut block_status_tracker = BlockStatus::default();
         loop {
             // At every iteration wait for the block_status.
-            // Exit when the amount of confirmations/rejections reach the threshold (or until timeout)
+            // Exit when the amount of confirmations/rejections reaches the threshold (or until timeout)
             // Based on the amount of rejections, eventually modify the timeout.
             let block_status = match self.stackerdb_comms.wait_for_block_status(
                 block_signer_sighash,
