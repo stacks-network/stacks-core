@@ -782,7 +782,7 @@ impl PeerDB {
         asn4_entries: &[ASEntry4],
         initial_neighbors: &[Neighbor],
     ) -> Result<PeerDB, db_error> {
-        let conn = Connection::open_in_memory().map_err(|e| db_error::SqliteError(e))?;
+        let conn = Connection::open_in_memory().map_err(db_error::SqliteError)?;
 
         let mut db = PeerDB {
             conn,
@@ -1981,15 +1981,9 @@ mod test {
             out_degree: 1,
         };
 
-        let mut db = PeerDB::connect_memory(
-            0x9abcdef0,
-            12345,
-            0,
-            "http://foo.com".into(),
-            &vec![],
-            &vec![],
-        )
-        .unwrap();
+        let mut db =
+            PeerDB::connect_memory(0x9abcdef0, 12345, 0, "http://foo.com".into(), &[], &[])
+                .unwrap();
 
         let neighbor_before_opt = PeerDB::get_peer(
             db.conn(),
@@ -2041,15 +2035,9 @@ mod test {
     /// IDs. New peers' contract IDs get added, and dropped peers' contract IDs get removed.
     #[test]
     fn test_insert_or_replace_stacker_dbs() {
-        let mut db = PeerDB::connect_memory(
-            0x9abcdef0,
-            12345,
-            0,
-            "http://foo.com".into(),
-            &vec![],
-            &vec![],
-        )
-        .unwrap();
+        let mut db =
+            PeerDB::connect_memory(0x9abcdef0, 12345, 0, "http://foo.com".into(), &[], &[])
+                .unwrap();
 
         // the neighbors to whom this DB corresponds
         let neighbor_1 = Neighbor {
@@ -2209,15 +2197,9 @@ mod test {
             out_degree: 1,
         };
 
-        let mut db = PeerDB::connect_memory(
-            0x9abcdef0,
-            12345,
-            0,
-            "http://foo.com".into(),
-            &vec![],
-            &vec![],
-        )
-        .unwrap();
+        let mut db =
+            PeerDB::connect_memory(0x9abcdef0, 12345, 0, "http://foo.com".into(), &[], &[])
+                .unwrap();
 
         {
             let tx = db.tx_begin().unwrap();
@@ -2341,7 +2323,7 @@ mod test {
             PeerAddress::from_ipv4(127, 0, 0, 1),
             12345,
             UrlString::try_from("http://foo.com").unwrap(),
-            &vec![],
+            &[],
             None,
             &[],
         )
@@ -2542,7 +2524,7 @@ mod test {
             PeerAddress::from_ipv4(127, 0, 0, 1),
             12345,
             UrlString::try_from("http://foo.com").unwrap(),
-            &vec![],
+            &[],
             None,
             &[],
         )
@@ -2850,7 +2832,7 @@ mod test {
             });
         }
 
-        fn are_present(ne: &Vec<Neighbor>, nei: &Vec<Neighbor>) -> bool {
+        fn are_present(ne: &[Neighbor], nei: &[Neighbor]) -> bool {
             for n in ne {
                 let mut found = false;
                 for ni in nei {
@@ -2871,7 +2853,7 @@ mod test {
             12345,
             0,
             "http://foo.com".into(),
-            &vec![],
+            &[],
             &initial_neighbors,
         )
         .unwrap();
@@ -2955,7 +2937,7 @@ mod test {
             });
         }
 
-        fn are_present(ne: &Vec<Neighbor>, nei: &Vec<Neighbor>) -> bool {
+        fn are_present(ne: &[Neighbor], nei: &[Neighbor]) -> bool {
             for n in ne {
                 let mut found = false;
                 for ni in nei {
@@ -2977,7 +2959,7 @@ mod test {
             12345,
             0,
             "http://foo.com".into(),
-            &vec![],
+            &[],
             &initial_neighbors,
         )
         .unwrap();
@@ -3065,7 +3047,7 @@ mod test {
             0,
             "http://foo.com".into(),
             &asn4_table,
-            &vec![],
+            &[],
         )
         .unwrap();
 
@@ -3124,15 +3106,9 @@ mod test {
     /// `denied` and `allowed` columns appropriately.
     #[test]
     fn test_peer_preemptive_deny_allow() {
-        let mut db = PeerDB::connect_memory(
-            0x9abcdef0,
-            12345,
-            0,
-            "http://foo.com".into(),
-            &vec![],
-            &vec![],
-        )
-        .unwrap();
+        let mut db =
+            PeerDB::connect_memory(0x9abcdef0, 12345, 0, "http://foo.com".into(), &[], &[])
+                .unwrap();
         {
             let tx = db.tx_begin().unwrap();
             PeerDB::set_deny_peer(&tx, 0x9abcdef0, &PeerAddress([0x1; 16]), 12345, 10000000)
@@ -3157,15 +3133,9 @@ mod test {
     /// PeerDB::get_allowed_cidrs() correctly store and load CIDR prefixes
     #[test]
     fn test_peer_cidr_lists() {
-        let mut db = PeerDB::connect_memory(
-            0x9abcdef0,
-            12345,
-            0,
-            "http://foo.com".into(),
-            &vec![],
-            &vec![],
-        )
-        .unwrap();
+        let mut db =
+            PeerDB::connect_memory(0x9abcdef0, 12345, 0, "http://foo.com".into(), &[], &[])
+                .unwrap();
         {
             let tx = db.tx_begin().unwrap();
             PeerDB::add_cidr_prefix(&tx, "denied_prefixes", &PeerAddress([0x1; 16]), 64).unwrap();
@@ -3184,15 +3154,9 @@ mod test {
     /// Tests PeerDB::is_address_denied()
     #[test]
     fn test_peer_is_denied() {
-        let mut db = PeerDB::connect_memory(
-            0x9abcdef0,
-            12345,
-            0,
-            "http://foo.com".into(),
-            &vec![],
-            &vec![],
-        )
-        .unwrap();
+        let mut db =
+            PeerDB::connect_memory(0x9abcdef0, 12345, 0, "http://foo.com".into(), &[], &[])
+                .unwrap();
         {
             let tx = db.tx_begin().unwrap();
             PeerDB::add_deny_cidr(
@@ -3324,8 +3288,8 @@ mod test {
             12345,
             0,
             "http://foo.com".into(),
-            &vec![],
-            &vec![neighbor_1.clone(), neighbor_2.clone()],
+            &[],
+            &[neighbor_1.clone(), neighbor_2.clone()],
         )
         .unwrap();
 
@@ -3473,8 +3437,8 @@ mod test {
             12345,
             0,
             "http://foo.com".into(),
-            &vec![],
-            &vec![neighbor_1.clone(), neighbor_2.clone()],
+            &[],
+            &[neighbor_1.clone(), neighbor_2.clone()],
         )
         .unwrap();
         {
@@ -3560,7 +3524,7 @@ mod test {
             PeerAddress::from_ipv4(127, 0, 0, 1),
             12345,
             UrlString::try_from("http://foo.com").unwrap(),
-            &vec![],
+            &[],
             None,
             &[],
         )
@@ -3580,7 +3544,7 @@ mod test {
             PeerAddress::from_ipv4(127, 0, 0, 1),
             12345,
             UrlString::try_from("http://foo.com").unwrap(),
-            &vec![],
+            &[],
             None,
             &[],
         )
@@ -3598,7 +3562,7 @@ mod test {
             PeerAddress::from_ipv4(127, 0, 0, 1),
             12345,
             UrlString::try_from("http://foo.com").unwrap(),
-            &vec![],
+            &[],
             None,
             &[],
         )
@@ -3627,7 +3591,7 @@ mod test {
             PeerAddress::from_ipv4(127, 0, 0, 1),
             12345,
             UrlString::try_from("http://foo.com").unwrap(),
-            &vec![],
+            &[],
             None,
             &[],
         )
@@ -3653,13 +3617,13 @@ mod test {
             PeerAddress::from_ipv4(127, 0, 0, 1),
             12345,
             UrlString::try_from("http://foo.com").unwrap(),
-            &vec![],
+            &[],
             None,
             &[],
         )
         .unwrap();
 
-        let private_addrbytes = vec![
+        let private_addrbytes = [
             PeerAddress::from_ipv4(127, 0, 0, 1),
             PeerAddress::from_ipv4(192, 168, 0, 1),
             PeerAddress::from_ipv4(172, 16, 0, 1),
@@ -3674,7 +3638,7 @@ mod test {
             ]),
         ];
 
-        let public_addrbytes = vec![
+        let public_addrbytes = [
             PeerAddress::from_ipv4(1, 2, 3, 4),
             PeerAddress([
                 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee,
@@ -3800,7 +3764,7 @@ mod test {
             PeerAddress::from_ipv4(127, 0, 0, 1),
             12345,
             UrlString::try_from("http://foo.com").unwrap(),
-            &vec![],
+            &[],
             None,
             &[],
         )

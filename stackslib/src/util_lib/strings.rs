@@ -367,10 +367,10 @@ mod test {
 
     #[test]
     fn test_contract_name_invalid() {
-        let s = vec![0u8];
+        let s = [0u8];
         assert!(ContractName::consensus_deserialize(&mut &s[..]).is_err());
 
-        let s = vec![5u8, 0x66, 0x6f, 0x6f, 0x6f, 0x6f]; // "foooo"
+        let s = [5u8, 0x66, 0x6f, 0x6f, 0x6f, 0x6f]; // "foooo"
         assert!(ContractName::consensus_deserialize(&mut &s[..]).is_ok());
 
         let s_body = [0x6fu8; CONTRACT_MAX_NAME_LENGTH + 1];

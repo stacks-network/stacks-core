@@ -328,13 +328,11 @@ impl SpvClient {
             } else {
                 return Err(btc_error::DBError(db_error::NoDBError));
             }
-        } else {
+        } else if readwrite {
             // can just open
-            if readwrite {
-                OpenFlags::SQLITE_OPEN_READ_WRITE
-            } else {
-                OpenFlags::SQLITE_OPEN_READ_ONLY
-            }
+            OpenFlags::SQLITE_OPEN_READ_WRITE
+        } else {
+            OpenFlags::SQLITE_OPEN_READ_ONLY
         };
 
         let mut conn = sqlite_open(headers_path, open_flags, false)
@@ -526,7 +524,7 @@ impl SpvClient {
     /// * headers must be contiguous
     fn validate_header_integrity(
         start_height: u64,
-        headers: &Vec<LoneBlockHeader>,
+        headers: &[LoneBlockHeader],
         check_txcount: bool,
     ) -> Result<(), btc_error> {
         if headers.is_empty() {
