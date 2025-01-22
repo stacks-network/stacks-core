@@ -44,6 +44,24 @@ use crate::nakamoto_node::stackerdb_listener::{
 use crate::neon::Counters;
 use crate::Config;
 
+#[cfg(test)]
+use std::time::Duration;
+
+#[cfg(test)]
+use stacks_common::util::tests::TestFlag;
+
+#[cfg(test)]
+use std::sync::LazyLock;
+
+#[cfg(test)]
+/// Test-only value for storing the current rejection based timeout
+/// Used to test that the signers will broadcast a block if it gets enough signatures
+pub static BLOCK_REJECTIONS_CURRENT_TIMEOUT: LazyLock<TestFlag<Duration>> =
+    LazyLock::new(TestFlag::default);
+
+/// Base timeout for rejections heuristic
+pub static BLOCK_REJECTIONS_TIMEOUT_BASE: u64 = 600;
+
 /// The state of the signer database listener, used by the miner thread to
 /// interact with the signer listener.
 pub struct SignerCoordinator {
@@ -298,11 +316,12 @@ impl SignerCoordinator {
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
         let mut rejections_timer = Instant::now();
         let mut rejections: u32 = 0;
-        let mut rejections_timeout = core::time::Duration::from_secs(600);
+        let mut rejections_timeout = core::time::Duration::from_secs(BLOCK_REJECTIONS_TIMEOUT_BASE);
         let mut block_status_tracker = BlockStatus::default();
         loop {
             ///
             /// TODO: describe the logic
+            ///
             let block_status = match self.stackerdb_comms.wait_for_block_status(
                 block_signer_sighash,
                 &mut block_status_tracker,
@@ -355,10 +374,13 @@ impl SignerCoordinator {
                 rejections_timer = Instant::now();
                 rejections = block_status.total_reject_weight;
                 rejections_timeout = core::time::Duration::from_secs_f32(
-                    600 as f32
-                        - (600 as f32
+                    BLOCK_REJECTIONS_TIMEOUT_BASE as f32
+                        - (BLOCK_REJECTIONS_TIMEOUT_BASE as f32
                             * ((rejections as f32 / self.weight_threshold as f32).powf(2.0))),
                 );
+
+                #[cfg(test)]
+                BLOCK_REJECTIONS_CURRENT_TIMEOUT.set(rejections_timeout);
             }
 
             if block_status
