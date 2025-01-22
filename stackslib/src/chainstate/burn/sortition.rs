@@ -731,8 +731,7 @@ impl BlockSnapshot {
                 winning_block.key_vtxindex.into(),
                 &parent_snapshot.sortition_id,
             )?
-            .map(|key_op| key_op.interpret_nakamoto_signing_key())
-            .flatten();
+            .and_then(|key_op| key_op.interpret_nakamoto_signing_key());
 
         Ok(BlockSnapshot {
             block_height,
@@ -1133,7 +1132,7 @@ mod test {
             test_append_snapshot_with_winner(
                 &mut db,
                 header.block_hash.clone(),
-                &vec![BlockstackOperationType::LeaderBlockCommit(
+                &[BlockstackOperationType::LeaderBlockCommit(
                     commit_winner.clone(),
                 )],
                 Some(tip),

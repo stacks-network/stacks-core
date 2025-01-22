@@ -1135,6 +1135,18 @@ impl TransactionSpendingCondition {
             }
         }
     }
+
+    /// Checks if this TransactionSpendingCondition is supported in the passed epoch
+    /// OrderIndependent multisig is not supported before epoch 3.0
+    pub fn is_supported_in_epoch(&self, epoch_id: StacksEpochId) -> bool {
+        match self {
+            TransactionSpendingCondition::Singlesig(..)
+            | TransactionSpendingCondition::Multisig(..) => true,
+            TransactionSpendingCondition::OrderIndependentMultisig(..) => {
+                epoch_id >= StacksEpochId::Epoch30
+            }
+        }
+    }
 }
 
 impl StacksMessageCodec for TransactionAuth {
@@ -1371,7 +1383,7 @@ impl TransactionAuth {
             TransactionAuth::Standard(_) => Ok(()),
             TransactionAuth::Sponsored(_, ref sponsor_condition) => sponsor_condition
                 .verify(&origin_sighash, &TransactionAuthFlags::AuthSponsored)
-                .and_then(|_sigh| Ok(())),
+                .map(|_sigh| ()),
         }
     }
 
@@ -1391,28 +1403,11 @@ impl TransactionAuth {
     /// Checks if this TransactionAuth is supported in the passed epoch
     /// OrderIndependent multisig is not supported before epoch 3.0
     pub fn is_supported_in_epoch(&self, epoch_id: StacksEpochId) -> bool {
-        match &self {
-            TransactionAuth::Sponsored(ref origin, ref sponsor) => {
-                let origin_supported = match origin {
-                    TransactionSpendingCondition::OrderIndependentMultisig(..) => {
-                        epoch_id >= StacksEpochId::Epoch30
-                    }
-                    _ => true,
-                };
-                let sponsor_supported = match sponsor {
-                    TransactionSpendingCondition::OrderIndependentMultisig(..) => {
-                        epoch_id >= StacksEpochId::Epoch30
-                    }
-                    _ => true,
-                };
-                origin_supported && sponsor_supported
+        match self {
+            TransactionAuth::Standard(origin) => origin.is_supported_in_epoch(epoch_id),
+            TransactionAuth::Sponsored(origin, sponsor) => {
+                origin.is_supported_in_epoch(epoch_id) && sponsor.is_supported_in_epoch(epoch_id)
             }
-            TransactionAuth::Standard(ref origin) => match origin {
-                TransactionSpendingCondition::OrderIndependentMultisig(..) => {
-                    epoch_id >= StacksEpochId::Epoch30
-                }
-                _ => true,
-            },
         }
     }
 }
@@ -1436,7 +1431,7 @@ mod test {
             key_encoding: TransactionPublicKeyEncoding::Uncompressed,
             nonce: 123,
             tx_fee: 456,
-            signature: MessageSignature::from_raw(&vec![0xff; 65]),
+            signature: MessageSignature::from_raw(&[0xff; 65]),
         };
 
         let spending_condition_p2pkh_uncompressed_bytes = vec![
@@ -1460,7 +1455,7 @@ mod test {
             key_encoding: TransactionPublicKeyEncoding::Compressed,
             nonce: 345,
             tx_fee: 456,
-            signature: MessageSignature::from_raw(&vec![0xfe; 65]),
+            signature: MessageSignature::from_raw(&[0xfe; 65]),
         };
 
         let spending_condition_p2pkh_compressed_bytes = vec![
@@ -1478,11 +1473,11 @@ mod test {
             0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe,
         ];
 
-        let spending_conditions = vec![
+        let spending_conditions = [
             spending_condition_p2pkh_compressed,
             spending_condition_p2pkh_uncompressed,
         ];
-        let spending_conditions_bytes = vec![
+        let spending_conditions_bytes = [
             spending_condition_p2pkh_compressed_bytes,
             spending_condition_p2pkh_uncompressed_bytes,
         ];
@@ -1504,8 +1499,8 @@ mod test {
             nonce: 123,
             tx_fee: 456,
             fields: vec![
-                TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&[0xff; 65])),
+                TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&[0xfe; 65])),
                 TransactionAuthField::PublicKey(PubKey::from_hex("04ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c771f112f919b00a6c6c5f51f7c63e1762fe9fac9b66ec75a053db7f51f4a52712b").unwrap()),
             ],
             signatures_required: 2
@@ -1546,11 +1541,11 @@ mod test {
             fields: vec![
                 TransactionAuthField::Signature(
                     TransactionPublicKeyEncoding::Compressed,
-                    MessageSignature::from_raw(&vec![0xff; 65]),
+                    MessageSignature::from_raw(&[0xff; 65]),
                 ),
                 TransactionAuthField::Signature(
                     TransactionPublicKeyEncoding::Compressed,
-                    MessageSignature::from_raw(&vec![0xfe; 65]),
+                    MessageSignature::from_raw(&[0xfe; 65]),
                 ),
                 TransactionAuthField::PublicKey(
                     PubKey::from_hex(
@@ -1589,11 +1584,11 @@ mod test {
             0x00, 0x02,
         ];
 
-        let spending_conditions = vec![
+        let spending_conditions = [
             spending_condition_p2sh_compressed,
             spending_condition_p2sh_uncompressed,
         ];
-        let spending_conditions_bytes = vec![
+        let spending_conditions_bytes = [
             spending_condition_p2sh_compressed_bytes,
             spending_condition_p2sh_uncompressed_bytes,
         ];
@@ -1615,8 +1610,8 @@ mod test {
             nonce: 123,
             tx_fee: 456,
             fields: vec![
-                TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&[0xff; 65])),
+                TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&[0xfe; 65])),
                 TransactionAuthField::PublicKey(PubKey::from_hex("04ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c771f112f919b00a6c6c5f51f7c63e1762fe9fac9b66ec75a053db7f51f4a52712b").unwrap()),
             ],
             signatures_required: 2
@@ -1657,11 +1652,11 @@ mod test {
             fields: vec![
                 TransactionAuthField::Signature(
                     TransactionPublicKeyEncoding::Compressed,
-                    MessageSignature::from_raw(&vec![0xff; 65]),
+                    MessageSignature::from_raw(&[0xff; 65]),
                 ),
                 TransactionAuthField::Signature(
                     TransactionPublicKeyEncoding::Compressed,
-                    MessageSignature::from_raw(&vec![0xfe; 65]),
+                    MessageSignature::from_raw(&[0xfe; 65]),
                 ),
                 TransactionAuthField::PublicKey(
                     PubKey::from_hex(
@@ -1700,11 +1695,11 @@ mod test {
             0x00, 0x02,
         ];
 
-        let spending_conditions = vec![
+        let spending_conditions = [
             spending_condition_order_independent_p2sh_compressed,
             spending_condition_order_independent_p2sh_uncompressed,
         ];
-        let spending_conditions_bytes = vec![
+        let spending_conditions_bytes = [
             spending_condition_order_independent_p2sh_compressed_bytes,
             spending_condition_order_independent_p2sh_uncompressed_bytes,
         ];
@@ -1725,7 +1720,7 @@ mod test {
             key_encoding: TransactionPublicKeyEncoding::Compressed,
             nonce: 345,
             tx_fee: 567,
-            signature: MessageSignature::from_raw(&vec![0xfe; 65]),
+            signature: MessageSignature::from_raw(&[0xfe; 65]),
         };
 
         let spending_condition_p2wpkh_compressed_bytes = vec![
@@ -1743,15 +1738,10 @@ mod test {
             0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe,
         ];
 
-        let spending_conditions = vec![spending_condition_p2wpkh_compressed];
-        let spending_conditions_bytes = vec![spending_condition_p2wpkh_compressed_bytes];
-
-        for i in 0..spending_conditions.len() {
-            check_codec_and_corruption::<SinglesigSpendingCondition>(
-                &spending_conditions[i],
-                &spending_conditions_bytes[i],
-            );
-        }
+        check_codec_and_corruption::<SinglesigSpendingCondition>(
+            &spending_condition_p2wpkh_compressed,
+            &spending_condition_p2wpkh_compressed_bytes,
+        );
     }
 
     #[test]
@@ -1764,11 +1754,11 @@ mod test {
             fields: vec![
                 TransactionAuthField::Signature(
                     TransactionPublicKeyEncoding::Compressed,
-                    MessageSignature::from_raw(&vec![0xff; 65]),
+                    MessageSignature::from_raw(&[0xff; 65]),
                 ),
                 TransactionAuthField::Signature(
                     TransactionPublicKeyEncoding::Compressed,
-                    MessageSignature::from_raw(&vec![0xfe; 65]),
+                    MessageSignature::from_raw(&[0xfe; 65]),
                 ),
                 TransactionAuthField::PublicKey(
                     PubKey::from_hex(
@@ -1807,15 +1797,10 @@ mod test {
             0x00, 0x02,
         ];
 
-        let spending_conditions = vec![spending_condition_p2wsh];
-        let spending_conditions_bytes = vec![spending_condition_p2wsh_bytes];
-
-        for i in 0..spending_conditions.len() {
-            check_codec_and_corruption::<MultisigSpendingCondition>(
-                &spending_conditions[i],
-                &spending_conditions_bytes[i],
-            );
-        }
+        check_codec_and_corruption::<MultisigSpendingCondition>(
+            &spending_condition_p2wsh,
+            &spending_condition_p2wsh_bytes,
+        );
     }
 
     #[test]
@@ -1828,7 +1813,7 @@ mod test {
                 key_encoding: TransactionPublicKeyEncoding::Uncompressed,
                 nonce: 123,
                 tx_fee: 567,
-                signature: MessageSignature::from_raw(&vec![0xff; 65])
+                signature: MessageSignature::from_raw(&[0xff; 65])
             }),
             TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
                 signer: Hash160([0x11; 20]),
@@ -1836,7 +1821,7 @@ mod test {
                 key_encoding: TransactionPublicKeyEncoding::Compressed,
                 nonce: 345,
                 tx_fee: 567,
-                signature: MessageSignature::from_raw(&vec![0xff; 65])
+                signature: MessageSignature::from_raw(&[0xff; 65])
             }),
             TransactionSpendingCondition::Multisig(MultisigSpendingCondition {
                 signer: Hash160([0x11; 20]),
@@ -1844,8 +1829,8 @@ mod test {
                 nonce: 123,
                 tx_fee: 567,
                 fields: vec![
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&[0xff; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&[0xfe; 65])),
                     TransactionAuthField::PublicKey(PubKey::from_hex("04ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c771f112f919b00a6c6c5f51f7c63e1762fe9fac9b66ec75a053db7f51f4a52712b").unwrap()),
                 ],
                 signatures_required: 2
@@ -1856,8 +1841,8 @@ mod test {
                 nonce: 456,
                 tx_fee: 567,
                 fields: vec![
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&[0xff; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&[0xfe; 65])),
                     TransactionAuthField::PublicKey(PubKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap())
                 ],
                 signatures_required: 2
@@ -1868,8 +1853,8 @@ mod test {
                 nonce: 123,
                 tx_fee: 567,
                 fields: vec![
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&[0xff; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&[0xfe; 65])),
                     TransactionAuthField::PublicKey(PubKey::from_hex("04ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c771f112f919b00a6c6c5f51f7c63e1762fe9fac9b66ec75a053db7f51f4a52712b").unwrap()),
                 ],
                 signatures_required: 2
@@ -1880,8 +1865,8 @@ mod test {
                 nonce: 456,
                 tx_fee: 567,
                 fields: vec![
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&[0xff; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&[0xfe; 65])),
                     TransactionAuthField::PublicKey(PubKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap())
                 ],
                 signatures_required: 2
@@ -1892,9 +1877,9 @@ mod test {
                 nonce: 123,
                 tx_fee: 567,
                 fields: vec![
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xfe; 65])),
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xfd; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&[0xff; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&[0xfe; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&[0xfd; 65])),
                 ],
                 signatures_required: 1
             }),
@@ -1904,9 +1889,9 @@ mod test {
                 nonce: 456,
                 tx_fee: 567,
                 fields: vec![
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xfe; 65])),
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xfd; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&[0xff; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&[0xfe; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&[0xfd; 65])),
                 ],
                 signatures_required: 1
             }),
@@ -1916,7 +1901,7 @@ mod test {
                 key_encoding: TransactionPublicKeyEncoding::Compressed,
                 nonce: 345,
                 tx_fee: 567,
-                signature: MessageSignature::from_raw(&vec![0xfe; 65]),
+                signature: MessageSignature::from_raw(&[0xfe; 65]),
             }),
             TransactionSpendingCondition::Multisig(MultisigSpendingCondition {
                 signer: Hash160([0x11; 20]),
@@ -1924,8 +1909,8 @@ mod test {
                 nonce: 456,
                 tx_fee: 567,
                 fields: vec![
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&[0xff; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&[0xfe; 65])),
                     TransactionAuthField::PublicKey(PubKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap())
                 ],
                 signatures_required: 2
@@ -1936,8 +1921,8 @@ mod test {
                 nonce: 456,
                 tx_fee: 567,
                 fields: vec![
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&[0xff; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&[0xfe; 65])),
                     TransactionAuthField::PublicKey(PubKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap())
                 ],
                 signatures_required: 2
@@ -1948,9 +1933,9 @@ mod test {
                 nonce: 456,
                 tx_fee: 567,
                 fields: vec![
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xfe; 65])),
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xfd; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&[0xff; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&[0xfe; 65])),
+                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&[0xfd; 65])),
                 ],
                 signatures_required: 1
             })
@@ -1986,7 +1971,7 @@ mod test {
 
     #[test]
     fn tx_stacks_invalid_spending_conditions() {
-        let bad_hash_mode_bytes = vec![
+        let bad_hash_mode_bytes = [
             // singlesig
             // hash mode
             0xff,
@@ -2002,7 +1987,7 @@ mod test {
             0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd,
         ];
 
-        let bad_hash_mode_multisig_bytes = vec![
+        let bad_hash_mode_multisig_bytes = [
             // hash mode
             MultisigHashMode::P2SH as u8,
             // signer
@@ -2017,7 +2002,7 @@ mod test {
             0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd, 0xfd,
         ];
 
-        let bad_hash_mode_order_independent_multisig_bytes = vec![
+        let bad_hash_mode_order_independent_multisig_bytes = [
             // hash mode
             OrderIndependentMultisigHashMode::P2SH as u8,
             // signer
@@ -2035,7 +2020,7 @@ mod test {
         // this will parse into a singlesig spending condition, but data will still remain.
         // the reason it parses is because the public keys length field encodes a valid 2-byte
         // prefix of a public key, and the parser will lump it into a public key
-        let bad_hash_mode_singlesig_bytes_parseable = vec![
+        let bad_hash_mode_singlesig_bytes_parseable = [
             // hash mode
             SinglesigHashMode::P2PKH as u8,
             // signer
@@ -2146,7 +2131,7 @@ mod test {
                 nonce: 123,
                 tx_fee: 567,
                 key_encoding: TransactionPublicKeyEncoding::Uncompressed,
-                signature: MessageSignature::from_raw(&vec![0xff; 65]),
+                signature: MessageSignature::from_raw(&[0xff; 65]),
             });
 
         let bad_p2wpkh_uncompressed_bytes = vec![
@@ -2171,8 +2156,8 @@ mod test {
             nonce: 456,
             tx_fee: 567,
             fields: vec![
-                TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&[0xff; 65])),
+                TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&[0xfe; 65])),
                 TransactionAuthField::PublicKey(PubKey::from_hex("04b7e10dd2c02dec648880ea346ece86a7820c4fa5114fb500b2645f6c972092dbe2334a653db0ab8d8ccffa6c35d3919e4cf8da3aeedafc7b9eb8235d0f2e7fdc").unwrap()),
             ],
             signatures_required: 2
@@ -2209,8 +2194,8 @@ mod test {
             nonce: 456,
             tx_fee: 567,
             fields: vec![
-                TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&[0xff; 65])),
+                TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&[0xfe; 65])),
                 TransactionAuthField::PublicKey(PubKey::from_hex("04b7e10dd2c02dec648880ea346ece86a7820c4fa5114fb500b2645f6c972092dbe2334a653db0ab8d8ccffa6c35d3919e4cf8da3aeedafc7b9eb8235d0f2e7fdc").unwrap()),
             ],
             signatures_required: 2
@@ -2317,28 +2302,28 @@ mod test {
         )
         .unwrap();
 
-        let keys = vec![
+        let keys = [
             privk.clone(),
             privk.clone(),
             privk_uncompressed.clone(),
             privk_uncompressed.clone(),
         ];
 
-        let key_modes = vec![
+        let key_modes = [
             TransactionPublicKeyEncoding::Compressed,
             TransactionPublicKeyEncoding::Compressed,
             TransactionPublicKeyEncoding::Uncompressed,
             TransactionPublicKeyEncoding::Uncompressed,
         ];
 
-        let auth_flags = vec![
+        let auth_flags = [
             TransactionAuthFlags::AuthStandard,
             TransactionAuthFlags::AuthSponsored,
             TransactionAuthFlags::AuthStandard,
             TransactionAuthFlags::AuthSponsored,
         ];
 
-        let tx_fees = vec![123, 456, 123, 456];
+        let tx_fees = [123, 456, 123, 456];
 
         let nonces: Vec<u64> = vec![1, 2, 3, 4];
 

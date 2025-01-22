@@ -406,7 +406,7 @@ impl RelayerStats {
         // look up ASNs
         let mut asns = HashMap::new();
         for nk in neighbors.iter() {
-            if asns.get(nk).is_none() {
+            if !asns.contains_key(nk) {
                 match PeerDB::asn_lookup(conn, &nk.addrbytes)? {
                     Some(asn) => asns.insert((*nk).clone(), asn),
                     None => asns.insert((*nk).clone(), 0),
@@ -450,7 +450,7 @@ impl RelayerStats {
         warmup_threshold: usize,
     ) -> HashMap<NeighborKey, usize> {
         let mut dup_counts = self.count_relay_dups(msg);
-        let mut dup_total = dup_counts.values().fold(0, |t, s| t + s);
+        let mut dup_total = dup_counts.values().sum::<usize>();
 
         if dup_total < warmup_threshold {
             // don't make inferences on small samples for total duplicates.
@@ -484,7 +484,7 @@ impl RelayerStats {
         neighbors: &[NeighborKey],
     ) -> Result<HashMap<NeighborKey, usize>, net_error> {
         let asn_counts = RelayerStats::count_ASNs(peerdb.conn(), neighbors)?;
-        let asn_total = asn_counts.values().fold(0, |t, s| t + s);
+        let asn_total = asn_counts.values().sum::<usize>();
 
         let mut ret = HashMap::new();
 
@@ -510,7 +510,7 @@ impl RelayerStats {
         let mut ret = HashSet::new();
         let mut rng = thread_rng();
 
-        let mut norm = rankings.values().fold(0, |t, s| t + s);
+        let mut norm = rankings.values().sum::<usize>();
         let mut rankings_vec: Vec<(NeighborKey, usize)> = rankings.into_iter().collect();
         let mut sampled = 0;
 
@@ -1150,7 +1150,7 @@ impl Relayer {
 
         for (anchored_block_hash, (relayers, mblocks_map)) in new_microblocks.into_iter() {
             for (_, mblock) in mblocks_map.into_iter() {
-                if mblocks_data.get(&anchored_block_hash).is_none() {
+                if !mblocks_data.contains_key(&anchored_block_hash) {
                     mblocks_data.insert(anchored_block_hash.clone(), vec![]);
                 }
 
@@ -3270,7 +3270,7 @@ impl PeerNetwork {
                                 network.advertize_to_peer(
                                     recipient,
                                     &[((*ch).clone(), (*bhh).clone())],
-                                    |payload| StacksMessageType::BlocksAvailable(payload),
+                                    StacksMessageType::BlocksAvailable,
                                 );
                             }
                         }
@@ -3312,7 +3312,7 @@ impl PeerNetwork {
                                 network.advertize_to_peer(
                                     recipient,
                                     &[((*ch).clone(), (*bhh).clone())],
-                                    |payload| StacksMessageType::MicroblocksAvailable(payload),
+                                    StacksMessageType::MicroblocksAvailable,
                                 );
                             }
                         }

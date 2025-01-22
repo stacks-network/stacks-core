@@ -444,14 +444,14 @@ impl StacksBlock {
         let mut txids = HashMap::new();
         for (i, tx) in txs.iter().enumerate() {
             let txid = tx.txid();
-            if txids.get(&txid).is_some() {
+            if txids.contains_key(&txid) {
                 warn!(
                     "Duplicate tx {}: at index {} and {}",
                     txid,
                     txids.get(&txid).unwrap(),
                     i
                 );
-                test_debug!("{:?}", &tx);
+                test_debug!("{tx:?}");
                 return false;
             }
             txids.insert(txid, i);
@@ -460,7 +460,7 @@ impl StacksBlock {
     }
 
     /// verify all txs are same mainnet/testnet
-    pub fn validate_transactions_network(txs: &Vec<StacksTransaction>, mainnet: bool) -> bool {
+    pub fn validate_transactions_network(txs: &[StacksTransaction], mainnet: bool) -> bool {
         for tx in txs {
             if mainnet && !tx.is_mainnet() {
                 warn!("Tx {} is not mainnet", tx.txid());
@@ -474,7 +474,7 @@ impl StacksBlock {
     }
 
     /// verify all txs are same chain ID
-    pub fn validate_transactions_chain_id(txs: &Vec<StacksTransaction>, chain_id: u32) -> bool {
+    pub fn validate_transactions_chain_id(txs: &[StacksTransaction], chain_id: u32) -> bool {
         for tx in txs {
             if tx.chain_id != chain_id {
                 warn!(
@@ -490,7 +490,7 @@ impl StacksBlock {
     }
 
     /// verify anchor modes
-    pub fn validate_anchor_mode(txs: &Vec<StacksTransaction>, anchored: bool) -> bool {
+    pub fn validate_anchor_mode(txs: &[StacksTransaction], anchored: bool) -> bool {
         for tx in txs {
             match (anchored, tx.anchor_mode) {
                 (true, TransactionAnchorMode::OffChainOnly) => {
@@ -1478,7 +1478,7 @@ mod test {
         let txs_bad_anchor = vec![tx_coinbase.clone(), tx_invalid_anchor.clone()];
         let txs_dup = vec![tx_coinbase.clone(), tx_dup.clone(), tx_dup.clone()];
 
-        let get_tx_root = |txs: &Vec<StacksTransaction>| {
+        let get_tx_root = |txs: &[StacksTransaction]| {
             let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
 
             let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
@@ -1502,7 +1502,7 @@ mod test {
         block_header_dup_tx.tx_merkle_root = get_tx_root(&txs_dup);
 
         let mut block_header_empty = header.clone();
-        block_header_empty.tx_merkle_root = get_tx_root(&vec![]);
+        block_header_empty.tx_merkle_root = get_tx_root(&[]);
 
         let invalid_blocks = vec![
             (
@@ -1605,7 +1605,7 @@ mod test {
         let txs_bad_anchor = vec![tx_invalid_anchor.clone()];
         let txs_dup = vec![tx_dup.clone(), tx_dup.clone()];
 
-        let get_tx_root = |txs: &Vec<StacksTransaction>| {
+        let get_tx_root = |txs: &[StacksTransaction]| {
             let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
 
             let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
@@ -1626,7 +1626,7 @@ mod test {
         block_header_dup_tx.tx_merkle_root = get_tx_root(&txs_dup);
 
         let mut block_header_empty = header.clone();
-        block_header_empty.tx_merkle_root = get_tx_root(&vec![]);
+        block_header_empty.tx_merkle_root = get_tx_root(&[]);
 
         let invalid_blocks = vec![
             (
@@ -1695,7 +1695,7 @@ mod test {
             StacksEpochId::Epoch25,
             StacksEpochId::Epoch30,
         ];
-        let get_tx_root = |txs: &Vec<StacksTransaction>| {
+        let get_tx_root = |txs: &[StacksTransaction]| {
             let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
 
             let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);

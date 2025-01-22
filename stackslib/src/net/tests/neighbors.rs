@@ -277,8 +277,8 @@ fn test_step_walk_1_neighbor_denied() {
         // peer 1 crawls peer 2, but peer 1 has denied peer 2
         peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
         {
-            let mut tx = peer_1.network.peerdb.tx_begin().unwrap();
-            PeerDB::add_deny_cidr(&mut tx, &PeerAddress::from_ipv4(127, 0, 0, 1), 128).unwrap();
+            let tx = peer_1.network.peerdb.tx_begin().unwrap();
+            PeerDB::add_deny_cidr(&tx, &PeerAddress::from_ipv4(127, 0, 0, 1), 128).unwrap();
             tx.commit().unwrap();
         }
 
@@ -581,7 +581,7 @@ fn test_step_walk_1_neighbor_bootstrapping() {
                     assert_eq!(w.result.replaced_neighbors.len(), 0);
 
                     // peer 2 never gets added to peer 1's frontier
-                    assert!(w.frontier.get(&neighbor_2.addr).is_none());
+                    assert!(!w.frontier.contains_key(&neighbor_2.addr));
                 }
                 None => {}
             };
@@ -597,7 +597,7 @@ fn test_step_walk_1_neighbor_bootstrapping() {
             i += 1;
         }
 
-        debug!("Completed walk round {} step(s)", i);
+        debug!("Completed walk round {i} step(s)");
 
         // peer 1 contacted peer 2
         let stats_1 = peer_1
@@ -673,7 +673,7 @@ fn test_step_walk_1_neighbor_behind() {
                     assert_eq!(w.result.replaced_neighbors.len(), 0);
 
                     // peer 1 never gets added to peer 2's frontier
-                    assert!(w.frontier.get(&neighbor_1.addr).is_none());
+                    assert!(!w.frontier.contains_key(&neighbor_1.addr));
                 }
                 None => {}
             };

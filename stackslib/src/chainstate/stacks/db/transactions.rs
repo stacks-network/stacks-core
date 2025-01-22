@@ -575,7 +575,7 @@ impl StacksChainState {
     /// Return true if they all pass.
     /// Return false if at least one fails.
     fn check_transaction_postconditions(
-        post_conditions: &Vec<TransactionPostCondition>,
+        post_conditions: &[TransactionPostCondition],
         post_condition_mode: &TransactionPostConditionMode,
         origin_account: &StacksAccount,
         asset_map: &AssetMap,
@@ -2235,15 +2235,15 @@ pub mod test {
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
             );
 
-            let contracts = vec![
+            let contracts = [
                 contract_correct,
                 contract_correct,
                 contract_syntax_error, // should still be mined, even though analysis fails
             ];
 
-            let expected_behavior = vec![true, false, true];
+            let expected_behavior = [true, false, true];
 
-            let contract_names = vec!["hello-world-0", "hello-world-0", "hello-world-1"];
+            let contract_names = ["hello-world-0", "hello-world-0", "hello-world-1"];
 
             let mut next_nonce = 0;
             for i in 0..contracts.len() {
@@ -2434,13 +2434,13 @@ pub mod test {
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
             );
 
-            let contracts = vec![
+            let contracts = [
                 contract_correct,
                 contract_runtime_error_definition,
                 contract_runtime_error_bare_code,
             ];
 
-            let contract_names = vec!["hello-world-0", "hello-world-1", "hello-world-2"];
+            let contract_names = ["hello-world-0", "hello-world-1", "hello-world-2"];
 
             for i in 0..contracts.len() {
                 let contract_name = contract_names[i].to_string();
