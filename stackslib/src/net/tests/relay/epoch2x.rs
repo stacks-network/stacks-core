@@ -370,7 +370,7 @@ fn test_relay_inbound_peer_rankings() {
 
     // total dups == 7
     let dist = relay_stats.get_inbound_relay_rankings(
-        &vec![nk_1.clone(), nk_2.clone(), nk_3.clone()],
+        &[nk_1.clone(), nk_2.clone(), nk_3.clone()],
         &all_transactions[0],
         0,
     );
@@ -380,7 +380,7 @@ fn test_relay_inbound_peer_rankings() {
 
     // high warmup period
     let dist = relay_stats.get_inbound_relay_rankings(
-        &vec![nk_1.clone(), nk_2.clone(), nk_3.clone()],
+        &[nk_1.clone(), nk_2.clone(), nk_3.clone()],
         &all_transactions[0],
         100,
     );
@@ -487,23 +487,21 @@ fn test_relay_outbound_peer_rankings() {
         0,
         4032,
         UrlString::try_from("http://foo.com").unwrap(),
-        &vec![asn1, asn2],
-        &vec![n1.clone(), n2.clone(), n3.clone()],
+        &[asn1, asn2],
+        &[n1.clone(), n2.clone(), n3.clone()],
     )
     .unwrap();
 
-    let asn_count = RelayerStats::count_ASNs(
-        peerdb.conn(),
-        &vec![nk_1.clone(), nk_2.clone(), nk_3.clone()],
-    )
-    .unwrap();
+    let asn_count =
+        RelayerStats::count_ASNs(peerdb.conn(), &[nk_1.clone(), nk_2.clone(), nk_3.clone()])
+            .unwrap();
     assert_eq!(asn_count.len(), 3);
     assert_eq!(*asn_count.get(&nk_1).unwrap(), 1);
     assert_eq!(*asn_count.get(&nk_2).unwrap(), 2);
     assert_eq!(*asn_count.get(&nk_3).unwrap(), 2);
 
     let ranking = relay_stats
-        .get_outbound_relay_rankings(&peerdb, &vec![nk_1.clone(), nk_2.clone(), nk_3.clone()])
+        .get_outbound_relay_rankings(&peerdb, &[nk_1.clone(), nk_2.clone(), nk_3.clone()])
         .unwrap();
     assert_eq!(ranking.len(), 3);
     assert_eq!(*ranking.get(&nk_1).unwrap(), 5 - 1 + 1);
@@ -511,7 +509,7 @@ fn test_relay_outbound_peer_rankings() {
     assert_eq!(*ranking.get(&nk_3).unwrap(), 5 - 2 + 1);
 
     let ranking = relay_stats
-        .get_outbound_relay_rankings(&peerdb, &vec![nk_2.clone(), nk_3.clone()])
+        .get_outbound_relay_rankings(&peerdb, &[nk_2.clone(), nk_3.clone()])
         .unwrap();
     assert_eq!(ranking.len(), 2);
     assert_eq!(*ranking.get(&nk_2).unwrap(), 4 - 2 + 1);
@@ -1514,7 +1512,7 @@ fn make_test_smart_contract_transaction(
             |ref mut sortdb, ref mut miner, ref mut spending_account, ref mut stacks_node| {
                 let mut tx_contract = StacksTransaction::new(
                     TransactionVersion::Testnet,
-                    spending_account.as_transaction_auth().unwrap().into(),
+                    spending_account.as_transaction_auth().unwrap(),
                     TransactionPayload::new_smart_contract(
                         &name.to_string(),
                         &contract.to_string(),
@@ -1675,7 +1673,7 @@ fn test_get_blocks_and_microblocks_2_peers_push_transactions() {
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
                         if b == 0 {
                             // prime with first block
-                            peers[i].process_stacks_epoch_at_tip(&stacks_block, &vec![]);
+                            peers[i].process_stacks_epoch_at_tip(&stacks_block, &[]);
                         }
                     }
 
@@ -2882,7 +2880,7 @@ fn process_new_blocks_rejects_problematic_asts() {
     );
 
     let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
-    peer.process_stacks_epoch(&block, &consensus_hash, &vec![]);
+    peer.process_stacks_epoch(&block, &consensus_hash, &[]);
 
     let tip =
         SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
@@ -3040,7 +3038,7 @@ fn process_new_blocks_rejects_problematic_asts() {
 
     let bad_mblock = microblocks.pop().unwrap();
     let (_, _, new_consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
-    peer.process_stacks_epoch(&bad_block, &new_consensus_hash, &vec![]);
+    peer.process_stacks_epoch(&bad_block, &new_consensus_hash, &[]);
 
     // stuff them all into each possible field of NetworkResult
     // p2p messages

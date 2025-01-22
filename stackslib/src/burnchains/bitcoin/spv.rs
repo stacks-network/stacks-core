@@ -274,7 +274,7 @@ impl SpvClient {
         tx.execute("UPDATE db_config SET version = ?1", &[version])
             .map_err(db_error::SqliteError)
             .map_err(|e| e.into())
-            .and_then(|_| Ok(()))
+            .map(|_| ())
     }
 
     #[cfg(test)]
@@ -328,13 +328,11 @@ impl SpvClient {
             } else {
                 return Err(btc_error::DBError(db_error::NoDBError));
             }
-        } else {
+        } else if readwrite {
             // can just open
-            if readwrite {
-                OpenFlags::SQLITE_OPEN_READ_WRITE
-            } else {
-                OpenFlags::SQLITE_OPEN_READ_ONLY
-            }
+            OpenFlags::SQLITE_OPEN_READ_WRITE
+        } else {
+            OpenFlags::SQLITE_OPEN_READ_ONLY
         };
 
         let mut conn = sqlite_open(headers_path, open_flags, false)
@@ -354,7 +352,7 @@ impl SpvClient {
     pub fn is_initialized(&self) -> Result<(), btc_error> {
         fs::metadata(&self.headers_path)
             .map_err(btc_error::FilesystemError)
-            .and_then(|_m| Ok(()))
+            .map(|_m| ())
     }
 
     /// Get the block range to scan
@@ -526,7 +524,7 @@ impl SpvClient {
     /// * headers must be contiguous
     fn validate_header_integrity(
         start_height: u64,
-        headers: &Vec<LoneBlockHeader>,
+        headers: &[LoneBlockHeader],
         check_txcount: bool,
     ) -> Result<(), btc_error> {
         if headers.is_empty() {
@@ -762,7 +760,7 @@ impl SpvClient {
 
         tx.execute(sql, args)
             .map_err(|e| btc_error::DBError(db_error::SqliteError(e)))
-            .and_then(|_x| Ok(()))
+            .map(|_x| ())
     }
 
     /// Initialize the block headers file with the genesis block hash.
@@ -1231,7 +1229,7 @@ impl BitcoinMessageHandler for SpvClient {
 
         indexer.runtime.last_getheaders_send_time = get_epoch_time_secs();
         self.send_next_getheaders(indexer, start_height)
-            .and_then(|_r| Ok(true))
+            .map(|_r| true)
     }
 
     /// Trait message handler
@@ -1298,7 +1296,7 @@ impl BitcoinMessageHandler for SpvClient {
                     );
                 }
                 self.send_next_getheaders(indexer, block_height)
-                    .and_then(|_| Ok(true))
+                    .map(|_| true)
             }
             x => Err(btc_error::UnhandledMessage(x)),
         }

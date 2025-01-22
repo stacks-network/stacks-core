@@ -555,13 +555,13 @@ impl TestStacksNode {
         burn_block: &mut TestBurnchainBlock,
         miner: &mut TestMiner,
         stacks_block: &StacksBlock,
-        microblocks: &Vec<StacksMicroblock>,
+        microblocks: Vec<StacksMicroblock>,
         burn_amount: u64,
         miner_key: &LeaderKeyRegisterOp,
         parent_block_snapshot_opt: Option<&BlockSnapshot>,
     ) -> LeaderBlockCommitOp {
         self.anchored_blocks.push(stacks_block.clone());
-        self.microblocks.push(microblocks.clone());
+        self.microblocks.push(microblocks);
 
         test_debug!(
             "Miner {}: Commit to stacks block {} (work {},{})",
@@ -704,7 +704,7 @@ impl TestStacksNode {
             burn_block,
             miner,
             &stacks_block,
-            &microblocks,
+            microblocks.clone(),
             burn_amount,
             miner_key,
             parent_block_snapshot_opt.as_ref(),
@@ -721,7 +721,7 @@ pub fn preprocess_stacks_block_data(
     burn_node: &mut TestBurnchainNode,
     fork_snapshot: &BlockSnapshot,
     stacks_block: &StacksBlock,
-    stacks_microblocks: &Vec<StacksMicroblock>,
+    stacks_microblocks: &[StacksMicroblock],
     block_commit_op: &LeaderBlockCommitOp,
 ) -> Option<bool> {
     let block_hash = stacks_block.block_hash();
@@ -837,7 +837,7 @@ pub fn check_mining_reward(
     clarity_tx: &mut ClarityTx,
     miner: &mut TestMiner,
     block_height: u64,
-    prev_block_rewards: &Vec<Vec<MinerPaymentSchedule>>,
+    prev_block_rewards: &[Vec<MinerPaymentSchedule>],
 ) -> bool {
     let mut block_rewards = HashMap::new();
     let mut stream_rewards = HashMap::new();
@@ -1356,12 +1356,12 @@ pub fn make_user_stacks_transfer(
 ) -> StacksTransaction {
     let payload =
         TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
-    sign_standard_singlesig_tx(payload.into(), sender, nonce, tx_fee)
+    sign_standard_singlesig_tx(payload, sender, nonce, tx_fee)
 }
 
 pub fn make_user_coinbase(sender: &StacksPrivateKey, nonce: u64, tx_fee: u64) -> StacksTransaction {
     let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None, None);
-    sign_standard_singlesig_tx(payload.into(), sender, nonce, tx_fee)
+    sign_standard_singlesig_tx(payload, sender, nonce, tx_fee)
 }
 
 pub fn make_user_poison_microblock(
@@ -1370,7 +1370,7 @@ pub fn make_user_poison_microblock(
     tx_fee: u64,
     payload: TransactionPayload,
 ) -> StacksTransaction {
-    sign_standard_singlesig_tx(payload.into(), sender, nonce, tx_fee)
+    sign_standard_singlesig_tx(payload, sender, nonce, tx_fee)
 }
 
 pub fn sign_standard_singlesig_tx(

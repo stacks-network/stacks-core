@@ -53,7 +53,7 @@ impl VoteForAggregateKeyOp {
         )
     }
 
-    fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
+    fn parse_data(data: &[u8]) -> Option<ParsedData> {
         /*
            Wire format:
 
@@ -202,13 +202,13 @@ impl StacksMessageCodec for VoteForAggregateKeyOp {
 
         write_next(fd, &(Opcodes::VoteForAggregateKey as u8))?;
         fd.write_all(&self.signer_index.to_be_bytes())
-            .map_err(|e| codec_error::WriteError(e))?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all(self.aggregate_key.as_bytes())
-            .map_err(|e| codec_error::WriteError(e))?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all(&self.round.to_be_bytes())
-            .map_err(|e| codec_error::WriteError(e))?;
+            .map_err(codec_error::WriteError)?;
         fd.write_all(&self.reward_cycle.to_be_bytes())
-            .map_err(|e| codec_error::WriteError(e))?;
+            .map_err(codec_error::WriteError)?;
 
         Ok(())
     }

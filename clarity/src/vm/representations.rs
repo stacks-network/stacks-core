@@ -81,6 +81,7 @@ guarded_string!(
 );
 
 impl StacksMessageCodec for ClarityName {
+    #[allow(clippy::needless_as_bytes)] // as_bytes isn't necessary, but verbosity is preferable in the codec impls
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         // ClarityName can't be longer than vm::representations::MAX_STRING_LEN, which itself is
         // a u8, so we should be good here.
@@ -121,6 +122,7 @@ impl StacksMessageCodec for ClarityName {
 }
 
 impl StacksMessageCodec for ContractName {
+    #[allow(clippy::needless_as_bytes)] // as_bytes isn't necessary, but verbosity is preferable in the codec impls
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         if self.as_bytes().len() < CONTRACT_MIN_NAME_LENGTH
             || self.as_bytes().len() > CONTRACT_MAX_NAME_LENGTH

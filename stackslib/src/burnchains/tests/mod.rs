@@ -135,14 +135,14 @@ pub struct TestMinerFactory {
 impl TestMiner {
     pub fn new(
         burnchain: &Burnchain,
-        privks: &Vec<StacksPrivateKey>,
+        privks: Vec<StacksPrivateKey>,
         num_sigs: u16,
         hash_mode: &AddressHashMode,
         chain_id: u32,
     ) -> TestMiner {
         TestMiner {
             burnchain: burnchain.clone(),
-            privks: privks.clone(),
+            privks,
             num_sigs,
             hash_mode: hash_mode.clone(),
             microblock_privks: vec![],
@@ -342,7 +342,7 @@ impl TestMinerFactory {
         }
 
         test_debug!("New miner: {:?} {}:{:?}", &hash_mode, num_sigs, &keys);
-        let mut m = TestMiner::new(burnchain, &keys, num_sigs, &hash_mode, self.chain_id);
+        let mut m = TestMiner::new(burnchain, keys, num_sigs, &hash_mode, self.chain_id);
         m.id = self.next_miner_id;
         self.next_miner_id += 1;
         m
@@ -838,9 +838,9 @@ impl TestBurnchainNode {
 fn process_next_sortition(
     node: &mut TestBurnchainNode,
     fork: &mut TestBurnchainFork,
-    miners: &mut Vec<TestMiner>,
-    prev_keys: &Vec<LeaderKeyRegisterOp>,
-    block_hashes: &Vec<BlockHeaderHash>,
+    miners: &mut [TestMiner],
+    prev_keys: &[LeaderKeyRegisterOp],
+    block_hashes: &[BlockHeaderHash],
 ) -> (
     BlockSnapshot,
     Vec<LeaderKeyRegisterOp>,
@@ -892,7 +892,7 @@ fn process_next_sortition(
     (tip_snapshot, next_prev_keys, next_commits)
 }
 
-fn verify_keys_accepted(node: &mut TestBurnchainNode, prev_keys: &Vec<LeaderKeyRegisterOp>) {
+fn verify_keys_accepted(node: &mut TestBurnchainNode, prev_keys: &[LeaderKeyRegisterOp]) {
     // all keys accepted
     for key in prev_keys.iter() {
         let tx_opt = SortitionDB::get_burnchain_transaction(node.sortdb.conn(), &key.txid).unwrap();
@@ -910,10 +910,7 @@ fn verify_keys_accepted(node: &mut TestBurnchainNode, prev_keys: &Vec<LeaderKeyR
     }
 }
 
-fn verify_commits_accepted(
-    node: &TestBurnchainNode,
-    next_block_commits: &Vec<LeaderBlockCommitOp>,
-) {
+fn verify_commits_accepted(node: &TestBurnchainNode, next_block_commits: &[LeaderBlockCommitOp]) {
     // all commits accepted
     for commit in next_block_commits.iter() {
         let tx_opt =
@@ -972,7 +969,7 @@ fn mine_10_stacks_blocks_1_fork() {
         );
 
         verify_keys_accepted(&mut node, &prev_keys);
-        verify_commits_accepted(&mut node, &next_block_commits);
+        verify_commits_accepted(&node, &next_block_commits);
 
         prev_keys.clear();
         prev_keys.append(&mut next_prev_keys);
@@ -1020,7 +1017,7 @@ fn mine_10_stacks_blocks_2_forks_disjoint() {
         );
 
         verify_keys_accepted(&mut node, &prev_keys_1);
-        verify_commits_accepted(&mut node, &next_block_commits);
+        verify_commits_accepted(&node, &next_block_commits);
 
         prev_keys_1.clear();
         prev_keys_1.append(&mut next_prev_keys);
@@ -1081,10 +1078,10 @@ fn mine_10_stacks_blocks_2_forks_disjoint() {
         assert!(next_snapshot_1.burn_header_hash != next_snapshot_2.burn_header_hash);
 
         verify_keys_accepted(&mut node, &prev_keys_1);
-        verify_commits_accepted(&mut node, &next_block_commits_1);
+        verify_commits_accepted(&node, &next_block_commits_1);
 
         verify_keys_accepted(&mut node, &prev_keys_2);
-        verify_commits_accepted(&mut node, &next_block_commits_2);
+        verify_commits_accepted(&node, &next_block_commits_2);
 
         prev_keys_1.clear();
         prev_keys_1.append(&mut next_prev_keys_1);
@@ -1135,7 +1132,7 @@ fn mine_10_stacks_blocks_2_forks_disjoint_same_blocks() {
         );
 
         verify_keys_accepted(&mut node, &prev_keys_1);
-        verify_commits_accepted(&mut node, &next_block_commits);
+        verify_commits_accepted(&node, &next_block_commits);
 
         prev_keys_1.clear();
         prev_keys_1.append(&mut next_prev_keys);
@@ -1208,10 +1205,10 @@ fn mine_10_stacks_blocks_2_forks_disjoint_same_blocks() {
         }
 
         verify_keys_accepted(&mut node, &prev_keys_1);
-        verify_commits_accepted(&mut node, &next_block_commits_1);
+        verify_commits_accepted(&node, &next_block_commits_1);
 
         verify_keys_accepted(&mut node, &prev_keys_2);
-        verify_commits_accepted(&mut node, &next_block_commits_2);
+        verify_commits_accepted(&node, &next_block_commits_2);
 
         prev_keys_1.clear();
         prev_keys_1.append(&mut next_prev_keys_1);
