@@ -1620,7 +1620,7 @@ impl BurnchainDB {
             conn,
             "SELECT affirmation_map FROM overrides WHERE reward_cycle = ?1",
             params![u64_to_sql(reward_cycle)?],
-            || format!("BUG: more than one override affirmation map for the same reward cycle"),
+            || "BUG: more than one override affirmation map for the same reward cycle".to_string(),
         )?;
         if let Some(am) = &am_opt {
             assert_eq!((am.len() + 1) as u64, reward_cycle);
