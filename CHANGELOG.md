@@ -13,6 +13,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   cases: when a bitcoin block is produced before the previous bitcoin block's Stacks tenure started.
   Previously, the miner had difficulty restarting their missed tenure and extending into the new
   bitcoin block, leading to 1-2 bitcoin blocks of missed Stacks block production.
+- The event dispatcher now includes `consensus_hash` in the `/new_block` and `/new_burn_block` payloads. ([#5677](https://github.com/stacks-network/stacks-core/pull/5677))
 
 ## [3.1.0.0.3]
 
