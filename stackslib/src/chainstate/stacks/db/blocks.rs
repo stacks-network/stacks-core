@@ -757,8 +757,8 @@ impl StacksChainState {
 
     /// Get all stacks block headers.  Great for testing!
     pub fn get_all_staging_block_headers(blocks_conn: &DBConn) -> Result<Vec<StagingBlock>, Error> {
-        let sql = "SELECT * FROM staging_blocks ORDER BY height".to_string();
-        query_rows::<StagingBlock, _>(blocks_conn, &sql, NO_PARAMS).map_err(Error::DBError)
+        let sql = "SELECT * FROM staging_blocks ORDER BY height";
+        query_rows::<StagingBlock, _>(blocks_conn, sql, NO_PARAMS).map_err(Error::DBError)
     }
 
     /// Get a list of all microblocks' hashes, and their anchored blocks' hashes
@@ -929,7 +929,7 @@ impl StacksChainState {
         table: &str,
         block_hash: &BlockHeaderHash,
     ) -> Result<Option<Vec<u8>>, Error> {
-        let sql = format!("SELECT block_data FROM {} WHERE block_hash = ?1", table);
+        let sql = format!("SELECT block_data FROM {table} WHERE block_hash = ?1");
         let args = [&block_hash];
         let mut blobs = StacksChainState::load_block_data_blobs(block_conn, &sql, &args)?;
         let len = blobs.len();
@@ -982,10 +982,10 @@ impl StacksChainState {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
     ) -> Result<Option<StagingBlock>, Error> {
-        let sql = "SELECT * FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 AND orphaned = 0 AND processed = 0".to_string();
+        let sql = "SELECT * FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 AND orphaned = 0 AND processed = 0";
         let args = params![block_hash, consensus_hash];
         let mut rows =
-            query_rows::<StagingBlock, _>(block_conn, &sql, args).map_err(Error::DBError)?;
+            query_rows::<StagingBlock, _>(block_conn, sql, args).map_err(Error::DBError)?;
         let len = rows.len();
         match len {
             0 => Ok(None),
@@ -1330,22 +1330,18 @@ impl StacksChainState {
 
         let sql = if start_seq == last_seq {
             // takes the same arguments as the range case below, but will
-            "SELECT * FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence == ?2 AND sequence == ?3 AND orphaned = 0 ORDER BY sequence ASC".to_string()
+            "SELECT * FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence == ?2 AND sequence == ?3 AND orphaned = 0 ORDER BY sequence ASC"
         } else {
-            "SELECT * FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence >= ?2 AND sequence < ?3 AND orphaned = 0 ORDER BY sequence ASC".to_string()
+            "SELECT * FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence >= ?2 AND sequence < ?3 AND orphaned = 0 ORDER BY sequence ASC"
         };
 
         let args = params![parent_index_block_hash, start_seq, last_seq];
         let staging_microblocks =
-            query_rows::<StagingMicroblock, _>(blocks_conn, &sql, args).map_err(Error::DBError)?;
+            query_rows::<StagingMicroblock, _>(blocks_conn, sql, args).map_err(Error::DBError)?;
 
         if staging_microblocks.is_empty() {
             // haven't seen any microblocks that descend from this block yet
-            test_debug!(
-                "No microblocks built on {} up to {}",
-                &parent_index_block_hash,
-                last_seq
-            );
+            test_debug!("No microblocks built on {parent_index_block_hash} up to {last_seq}");
             return Ok(None);
         }
 
@@ -9444,31 +9440,32 @@ pub mod test {
         assert_block_stored_not_staging(&mut chainstate, &consensus_hashes[0], blocks[0]);
 
         // process and store blocks 1 and N, as well as microblocks in-between
-        for (i, block) in blocks.iter().skip(1).enumerate() {
+        let len = blocks.len();
+        for i in 1..len {
             // this is what happens at the end of append_block()
             // store block to staging and process it
             assert!(StacksChainState::load_staging_block_data(
                 chainstate.db(),
                 &chainstate.blocks_path,
                 &consensus_hashes[i],
-                &block.block_hash()
+                &blocks[i].block_hash()
             )
             .unwrap()
             .is_none());
             store_staging_block(
                 &mut chainstate,
                 &consensus_hashes[i],
-                block,
+                blocks[i],
                 &consensus_hashes[0],
                 1,
                 2,
             );
-            assert_block_staging_not_processed(&mut chainstate, &consensus_hashes[i], block);
+            assert_block_staging_not_processed(&mut chainstate, &consensus_hashes[i], blocks[i]);
 
             set_block_processed(
                 &mut chainstate,
                 &consensus_hashes[i],
-                &block.block_hash(),
+                &blocks[i].block_hash(),
                 true,
             );
 
@@ -9476,17 +9473,17 @@ pub mod test {
             set_microblocks_processed(
                 &mut chainstate,
                 &consensus_hashes[i],
-                &block.block_hash(),
-                &block.header.parent_microblock,
+                &blocks[i].block_hash(),
+                &blocks[i].header.parent_microblock,
             );
 
-            assert_block_stored_not_staging(&mut chainstate, &consensus_hashes[i], block);
+            assert_block_stored_not_staging(&mut chainstate, &consensus_hashes[i], blocks[i]);
 
             let mblocks_confirmed = StacksChainState::load_processed_microblock_stream_fork(
                 chainstate.db(),
                 &consensus_hashes[0],
                 &blocks[0].block_hash(),
-                &block.header.parent_microblock,
+                &blocks[i].header.parent_microblock,
             )
             .unwrap()
             .unwrap();
@@ -9562,24 +9559,24 @@ pub mod test {
         }
 
         // store blocks to staging
-        for (i, block) in blocks.iter().enumerate() {
+        for i in 0..blocks.len() {
             assert!(StacksChainState::load_staging_block_data(
                 chainstate.db(),
                 &chainstate.blocks_path,
                 &consensus_hashes[i],
-                &block.block_hash()
+                &blocks[i].block_hash()
             )
             .unwrap()
             .is_none());
             store_staging_block(
                 &mut chainstate,
                 &consensus_hashes[i],
-                block,
+                &blocks[i],
                 &parent_consensus_hashes[i],
                 1,
                 2,
             );
-            assert_block_staging_not_processed(&mut chainstate, &consensus_hashes[i], block);
+            assert_block_staging_not_processed(&mut chainstate, &consensus_hashes[i], &blocks[i]);
         }
 
         // reject block 1
