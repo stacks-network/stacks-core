@@ -7803,10 +7803,8 @@ fn block_validation_response_timeout() {
     );
 }
 
-// Ensures that a signer that successfully submits a block to the node for validation
-// will issue ConnectivityIssues rejections if a block submission times out.
-// Also ensures that no other proposal gets submitted for validation if we
-// are already waiting for a block submission response.
+// Verify that the miner timeout while waiting for signers will change accordingly
+// to rejections.
 #[test]
 #[ignore]
 fn block_validation_check_rejection_timeout_heuristic() {
