@@ -70,9 +70,8 @@ impl GetTenureStartId for StacksDBConn<'_> {
                 tip,
                 &nakamoto_keys::tenure_start_block_id(tenure_id_consensus_hash),
             )?
-            .map(|id_str| nakamoto_keys::parse_block_id(&id_str))
-            .flatten()
-            .map(|block_id| TenureBlockId::from(block_id)))
+            .and_then(|id_str| nakamoto_keys::parse_block_id(&id_str))
+            .map(TenureBlockId::from))
     }
 
     fn get_tenure_block_id_at_cb_height(
@@ -85,8 +84,7 @@ impl GetTenureStartId for StacksDBConn<'_> {
                 tip,
                 &nakamoto_keys::ongoing_tenure_coinbase_height(coinbase_height),
             )?
-            .map(|hex_inp| nakamoto_keys::parse_block_id(&hex_inp))
-            .flatten();
+            .and_then(|hex_inp| nakamoto_keys::parse_block_id(&hex_inp));
         Ok(opt_out)
     }
 
@@ -106,9 +104,8 @@ impl GetTenureStartId for StacksDBTx<'_> {
                 tip,
                 &nakamoto_keys::tenure_start_block_id(tenure_id_consensus_hash),
             )?
-            .map(|id_str| nakamoto_keys::parse_block_id(&id_str))
-            .flatten()
-            .map(|block_id| TenureBlockId::from(block_id)))
+            .and_then(|id_str| nakamoto_keys::parse_block_id(&id_str))
+            .map(TenureBlockId::from))
     }
 
     fn get_tenure_block_id_at_cb_height(
@@ -121,8 +118,7 @@ impl GetTenureStartId for StacksDBTx<'_> {
                 tip,
                 &nakamoto_keys::ongoing_tenure_coinbase_height(coinbase_height),
             )?
-            .map(|hex_inp| nakamoto_keys::parse_block_id(&hex_inp))
-            .flatten();
+            .and_then(|hex_inp| nakamoto_keys::parse_block_id(&hex_inp));
         Ok(opt_out)
     }
 
@@ -324,7 +320,7 @@ impl HeadersDB for HeadersDBConn<'_> {
         epoch: &StacksEpochId,
     ) -> Option<u128> {
         let tenure_id_bhh = get_first_block_in_tenure(&self.0, id_bhh, Some(epoch));
-        get_matured_reward(&self.0, &tenure_id_bhh, epoch).map(|x| x.total().into())
+        get_matured_reward(&self.0, &tenure_id_bhh, epoch).map(|x| x.total())
     }
 }
 
@@ -479,7 +475,7 @@ impl HeadersDB for ChainstateTx<'_> {
         epoch: &StacksEpochId,
     ) -> Option<u128> {
         let tenure_id_bhh = get_first_block_in_tenure(self.deref(), id_bhh, Some(epoch));
-        get_matured_reward(self.deref(), &tenure_id_bhh, epoch).map(|x| x.total().into())
+        get_matured_reward(self.deref(), &tenure_id_bhh, epoch).map(|x| x.total())
     }
 
     fn get_stacks_height_for_tenure_height(
@@ -653,7 +649,7 @@ impl HeadersDB for MARF<StacksBlockId> {
         epoch: &StacksEpochId,
     ) -> Option<u128> {
         let tenure_id_bhh = get_first_block_in_tenure(self, id_bhh, Some(epoch));
-        get_matured_reward(self, &tenure_id_bhh, epoch).map(|x| x.total().into())
+        get_matured_reward(self, &tenure_id_bhh, epoch).map(|x| x.total())
     }
 
     fn get_stacks_height_for_tenure_height(

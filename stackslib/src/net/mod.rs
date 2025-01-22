@@ -1581,37 +1581,32 @@ impl NetworkResult {
         let pushed_blocks: HashSet<_> = self
             .pushed_blocks
             .iter()
-            .map(|(_, block_list)| {
-                block_list
-                    .iter()
-                    .map(|block_data| {
-                        block_data
-                            .blocks
-                            .iter()
-                            .map(|block_datum| {
-                                StacksBlockId::new(&block_datum.0, &block_datum.1.block_hash())
-                            })
-                            .collect::<HashSet<_>>()
-                    })
-                    .flatten()
+            .flat_map(|(_, block_list)| {
+                block_list.iter().flat_map(|block_data| {
+                    block_data
+                        .blocks
+                        .iter()
+                        .map(|block_datum| {
+                            StacksBlockId::new(&block_datum.0, &block_datum.1.block_hash())
+                        })
+                        .collect::<HashSet<_>>()
+                })
             })
-            .flatten()
             .collect();
 
         let uploaded_blocks: HashSet<_> = self
             .uploaded_blocks
             .iter()
-            .map(|blk_data| {
+            .flat_map(|blk_data| {
                 blk_data
                     .blocks
                     .iter()
                     .map(|blk| StacksBlockId::new(&blk.0, &blk.1.block_hash()))
             })
-            .flatten()
             .collect();
 
-        blocks.extend(pushed_blocks.into_iter());
-        blocks.extend(uploaded_blocks.into_iter());
+        blocks.extend(pushed_blocks);
+        blocks.extend(uploaded_blocks);
         blocks
     }
 
@@ -1620,36 +1615,30 @@ impl NetworkResult {
         let mut mblocks: HashSet<_> = self
             .confirmed_microblocks
             .iter()
-            .map(|(_, mblocks, _)| mblocks.iter().map(|mblk| mblk.block_hash()))
-            .flatten()
+            .flat_map(|(_, mblocks, _)| mblocks.iter().map(|mblk| mblk.block_hash()))
             .collect();
 
         let pushed_microblocks: HashSet<_> = self
             .pushed_microblocks
             .iter()
-            .map(|(_, mblock_list)| {
-                mblock_list
-                    .iter()
-                    .map(|(_, mblock_data)| {
-                        mblock_data
-                            .microblocks
-                            .iter()
-                            .map(|mblock| mblock.block_hash())
-                    })
-                    .flatten()
+            .flat_map(|(_, mblock_list)| {
+                mblock_list.iter().flat_map(|(_, mblock_data)| {
+                    mblock_data
+                        .microblocks
+                        .iter()
+                        .map(|mblock| mblock.block_hash())
+                })
             })
-            .flatten()
             .collect();
 
         let uploaded_microblocks: HashSet<_> = self
             .uploaded_microblocks
             .iter()
-            .map(|mblk_data| mblk_data.microblocks.iter().map(|mblk| mblk.block_hash()))
-            .flatten()
+            .flat_map(|mblk_data| mblk_data.microblocks.iter().map(|mblk| mblk.block_hash()))
             .collect();
 
-        mblocks.extend(pushed_microblocks.into_iter());
-        mblocks.extend(uploaded_microblocks.into_iter());
+        mblocks.extend(pushed_microblocks);
+        mblocks.extend(uploaded_microblocks);
         mblocks
     }
 
@@ -1679,9 +1668,8 @@ impl NetworkResult {
             .collect::<Vec<Vec<HashSet<_>>>>()
             .into_iter()
             .flatten()
-            .into_iter()
             .fold(HashSet::new(), |mut acc, next| {
-                acc.extend(next.into_iter());
+                acc.extend(next);
                 acc
             });
 
@@ -1691,8 +1679,8 @@ impl NetworkResult {
             .map(|nblk| nblk.block_id())
             .collect();
 
-        naka_block_ids.extend(pushed_nakamoto_blocks.into_iter());
-        naka_block_ids.extend(uploaded_nakamoto_blocks.into_iter());
+        naka_block_ids.extend(pushed_nakamoto_blocks);
+        naka_block_ids.extend(uploaded_nakamoto_blocks);
         naka_block_ids
     }
 
@@ -1715,7 +1703,7 @@ impl NetworkResult {
             .collect::<Vec<HashSet<_>>>()
             .into_iter()
             .fold(HashSet::new(), |mut acc, next| {
-                acc.extend(next.into_iter());
+                acc.extend(next);
                 acc
             });
 
@@ -1725,8 +1713,8 @@ impl NetworkResult {
             .map(|tx| tx.txid())
             .collect();
 
-        txids.extend(pushed_txids.into_iter());
-        txids.extend(synced_txids.into_iter());
+        txids.extend(pushed_txids);
+        txids.extend(synced_txids);
         txids
     }
 
@@ -1740,9 +1728,8 @@ impl NetworkResult {
                     .map(|msg| msg.preamble.signature.clone())
                     .collect::<HashSet<_>>()
             })
-            .into_iter()
             .fold(HashSet::new(), |mut acc, next| {
-                acc.extend(next.into_iter());
+                acc.extend(next);
                 acc
             })
     }
@@ -2565,6 +2552,7 @@ pub mod test {
             _rewards: Vec<(PoxAddress, u64)>,
             _burns: u64,
             _reward_recipients: Vec<PoxAddress>,
+            _consensus_hash: &ConsensusHash,
         ) {
             // pass
         }
@@ -2941,10 +2929,10 @@ pub mod test {
             .unwrap();
             {
                 // bootstrap nodes *always* allowed
-                let mut tx = peerdb.tx_begin().unwrap();
+                let tx = peerdb.tx_begin().unwrap();
                 for initial_neighbor in config.initial_neighbors.iter() {
                     PeerDB::set_allow_peer(
-                        &mut tx,
+                        &tx,
                         initial_neighbor.addr.network_id,
                         &initial_neighbor.addr.addrbytes,
                         initial_neighbor.addr.port,
@@ -2952,7 +2940,7 @@ pub mod test {
                     )
                     .unwrap();
                 }
-                PeerDB::set_local_services(&mut tx, config.services).unwrap();
+                PeerDB::set_local_services(&tx, config.services).unwrap();
                 tx.commit().unwrap();
             }
 
@@ -3039,7 +3027,7 @@ pub mod test {
             if !config.initial_lockups.is_empty() {
                 let lockups = config.initial_lockups.clone();
                 boot_data.get_bulk_initial_lockups =
-                    Some(Box::new(move || Box::new(lockups.into_iter().map(|e| e))));
+                    Some(Box::new(move || Box::new(lockups.into_iter())));
             }
 
             let (chainstate, _) = StacksChainState::open_and_exec(
@@ -3093,9 +3081,9 @@ pub mod test {
                 SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), config.http_port);
 
             {
-                let mut tx = peerdb.tx_begin().unwrap();
+                let tx = peerdb.tx_begin().unwrap();
                 PeerDB::set_local_ipaddr(
-                    &mut tx,
+                    &tx,
                     &PeerAddress::from_socketaddr(&SocketAddr::new(
                         IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
                         config.server_port,
@@ -3103,12 +3091,8 @@ pub mod test {
                     config.server_port,
                 )
                 .unwrap();
-                PeerDB::set_local_private_key(
-                    &mut tx,
-                    &config.private_key,
-                    config.private_key_expire,
-                )
-                .unwrap();
+                PeerDB::set_local_private_key(&tx, &config.private_key, config.private_key_expire)
+                    .unwrap();
 
                 tx.commit().unwrap();
             }
@@ -3239,7 +3223,7 @@ pub mod test {
             self.network.chain_view = chain_view;
 
             for n in self.config.initial_neighbors.iter() {
-                self.network.connect_peer(&n.addr).and_then(|e| Ok(()))?;
+                self.network.connect_peer(&n.addr).map(|_| ())?;
             }
             Ok(())
         }
@@ -3254,8 +3238,8 @@ pub mod test {
             stacker_dbs: Option<&[QualifiedContractIdentifier]>,
             bootstrap: bool,
         ) {
-            let mut tx = self.network.peerdb.tx_begin().unwrap();
-            n.save(&mut tx, stacker_dbs).unwrap();
+            let tx = self.network.peerdb.tx_begin().unwrap();
+            n.save(&tx, stacker_dbs).unwrap();
             if bootstrap {
                 PeerDB::set_initial_peer(
                     &tx,
@@ -3323,7 +3307,7 @@ pub mod test {
             ibd: bool,
             dns_client: Option<&mut DNSClient>,
         ) -> Result<NetworkResult, net_error> {
-            let mut sortdb = self.sortdb.take().unwrap();
+            let sortdb = self.sortdb.take().unwrap();
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
             let indexer = self.indexer.take().unwrap();
@@ -3332,7 +3316,7 @@ pub mod test {
 
             let ret = self.network.run(
                 &indexer,
-                &mut sortdb,
+                &sortdb,
                 &mut stacks_node.chainstate,
                 &mut mempool,
                 dns_client,
@@ -3382,11 +3366,11 @@ pub mod test {
             self.coord.handle_new_stacks_block().unwrap();
             self.coord.handle_new_nakamoto_stacks_block().unwrap();
 
-            receipts_res.and_then(|receipts| Ok((net_result, receipts)))
+            receipts_res.map(|receipts| (net_result, receipts))
         }
 
         pub fn step_dns(&mut self, dns_client: &mut DNSClient) -> Result<NetworkResult, net_error> {
-            let mut sortdb = self.sortdb.take().unwrap();
+            let sortdb = self.sortdb.take().unwrap();
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
             let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
@@ -3412,7 +3396,7 @@ pub mod test {
 
             let ret = self.network.run(
                 &indexer,
-                &mut sortdb,
+                &sortdb,
                 &mut stacks_node.chainstate,
                 &mut mempool,
                 Some(dns_client),
@@ -3747,12 +3731,10 @@ pub mod test {
                     .handle_new_burnchain_block()
                     .unwrap()
                     .into_missing_block_hash()
+            } else if self.coord.handle_new_nakamoto_burnchain_block().unwrap() {
+                None
             } else {
-                if self.coord.handle_new_nakamoto_burnchain_block().unwrap() {
-                    None
-                } else {
-                    Some(BlockHeaderHash([0x00; 32]))
-                }
+                Some(BlockHeaderHash([0x00; 32]))
             };
 
             let pox_id = {
@@ -3849,7 +3831,7 @@ pub mod test {
         /// Validate them and store them to staging.
         pub fn preprocess_stacks_microblocks(
             &mut self,
-            microblocks: &Vec<StacksMicroblock>,
+            microblocks: &[StacksMicroblock],
         ) -> Result<bool, String> {
             assert!(!microblocks.is_empty());
             let sortdb = self.sortdb.take().unwrap();
@@ -3902,7 +3884,7 @@ pub mod test {
         pub fn process_stacks_epoch_at_tip(
             &mut self,
             block: &StacksBlock,
-            microblocks: &Vec<StacksMicroblock>,
+            microblocks: &[StacksMicroblock],
         ) {
             let sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
@@ -3939,7 +3921,7 @@ pub mod test {
             sortdb: &SortitionDB,
             node: &mut TestStacksNode,
             block: &StacksBlock,
-            microblocks: &Vec<StacksMicroblock>,
+            microblocks: &[StacksMicroblock],
         ) -> Result<(), coordinator_error> {
             {
                 let ic = sortdb.index_conn();
@@ -3969,7 +3951,7 @@ pub mod test {
         pub fn process_stacks_epoch_at_tip_checked(
             &mut self,
             block: &StacksBlock,
-            microblocks: &Vec<StacksMicroblock>,
+            microblocks: &[StacksMicroblock],
         ) -> Result<(), coordinator_error> {
             let sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
@@ -3986,7 +3968,7 @@ pub mod test {
             &mut self,
             block: &StacksBlock,
             consensus_hash: &ConsensusHash,
-            microblocks: &Vec<StacksMicroblock>,
+            microblocks: &[StacksMicroblock],
         ) {
             let sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
@@ -4318,11 +4300,11 @@ pub mod test {
             );
 
             let mut block_commit_op = stacks_node.make_tenure_commitment(
-                &mut sortdb,
+                &sortdb,
                 &mut burn_block,
                 &mut self.miner,
                 &stacks_block,
-                &microblocks,
+                microblocks.clone(),
                 1000,
                 &last_key,
                 parent_sortition_opt.as_ref(),
@@ -4405,7 +4387,7 @@ pub mod test {
             StacksBlock,
             Vec<StacksMicroblock>,
         ) {
-            let mut sortdb = self.sortdb.take().unwrap();
+            let sortdb = self.sortdb.take().unwrap();
             let mut burn_block = {
                 let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
                 TestBurnchainBlock::new(&sn, 0)
@@ -4423,7 +4405,7 @@ pub mod test {
             let burn_block_height = burn_block.block_height;
 
             let (stacks_block, microblocks, block_commit_op) = stacks_node.mine_stacks_block(
-                &mut sortdb,
+                &sortdb,
                 &mut self.miner,
                 &mut burn_block,
                 &last_key,

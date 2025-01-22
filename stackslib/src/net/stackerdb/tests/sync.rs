@@ -887,8 +887,8 @@ fn test_stackerdb_push_relayer_late_chunks() {
         let mut peer_1_nonce = 0;
         let mut peer_2_nonce = 0;
         let mut peer_3_nonce = 0;
-        peer_1.tenure_with_txs(&vec![], &mut peer_1_nonce);
-        peer_2.tenure_with_txs(&vec![], &mut peer_2_nonce);
+        peer_1.tenure_with_txs(&[], &mut peer_1_nonce);
+        peer_2.tenure_with_txs(&[], &mut peer_2_nonce);
 
         // sanity check -- peer 1 and 2 are at the same tip, but not 3
         let sn1 = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb().conn()).unwrap();
@@ -1043,7 +1043,7 @@ fn test_stackerdb_push_relayer_late_chunks() {
 
             if num_pending >= 10 && !advanced_tenure {
                 debug!("======= Advancing peer 3 tenure ========");
-                peer_3.tenure_with_txs(&vec![], &mut peer_3_nonce);
+                peer_3.tenure_with_txs(&[], &mut peer_3_nonce);
                 advanced_tenure = true;
             }
         }

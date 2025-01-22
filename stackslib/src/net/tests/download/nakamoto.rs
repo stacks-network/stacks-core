@@ -1448,7 +1448,7 @@ fn test_make_tenure_downloaders() {
     {
         let sortdb = peer.sortdb();
         let wanted_tenures =
-            NakamotoDownloadStateMachine::load_wanted_tenures_at_tip(None, &tip, sortdb, &vec![])
+            NakamotoDownloadStateMachine::load_wanted_tenures_at_tip(None, &tip, sortdb, &[])
                 .unwrap();
         assert_eq!(wanted_tenures.len(), 2);
         for i in (tip.block_height - 1)..=(tip.block_height) {
@@ -1470,7 +1470,7 @@ fn test_make_tenure_downloaders() {
             None,
             &tip,
             sortdb,
-            &vec![all_wanted_tenures[0].clone()],
+            &[all_wanted_tenures[0].clone()],
         )
         .unwrap();
         assert_eq!(wanted_tenures.len(), 1);
@@ -1552,7 +1552,7 @@ fn test_make_tenure_downloaders() {
         };
 
         // full invs
-        let mut full_invs = NakamotoTenureInv::new(0, u64::from(rc_len), 0, naddr.clone());
+        let mut full_invs = NakamotoTenureInv::new(0, rc_len, 0, naddr.clone());
         full_invs.merge_tenure_inv(
             BitVec::<2100>::try_from(
                 vec![
@@ -1581,7 +1581,7 @@ fn test_make_tenure_downloaders() {
         }
 
         // sparse invs
-        let mut sparse_invs = NakamotoTenureInv::new(0, u64::from(rc_len), 0, naddr.clone());
+        let mut sparse_invs = NakamotoTenureInv::new(0, rc_len, 0, naddr.clone());
         sparse_invs.merge_tenure_inv(
             BitVec::<2100>::try_from(
                 vec![
@@ -1710,7 +1710,7 @@ fn test_make_tenure_downloaders() {
             public_key_hash: Hash160([0xff; 20]),
         };
 
-        let mut full_invs = NakamotoTenureInv::new(0, u64::from(rc_len), 0, naddr.clone());
+        let mut full_invs = NakamotoTenureInv::new(0, rc_len, 0, naddr.clone());
 
         full_invs.merge_tenure_inv(
             BitVec::<2100>::try_from(
@@ -1941,7 +1941,7 @@ fn test_make_tenure_downloaders() {
             public_key_hash: Hash160([0xff; 20]),
         };
 
-        let mut full_invs = NakamotoTenureInv::new(0, u64::from(rc_len), 0, naddr.clone());
+        let mut full_invs = NakamotoTenureInv::new(0, rc_len, 0, naddr.clone());
 
         full_invs.merge_tenure_inv(
             BitVec::<2100>::try_from(
