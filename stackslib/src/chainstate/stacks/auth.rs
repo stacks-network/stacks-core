@@ -383,9 +383,7 @@ impl StacksMessageCodec for OrderIndependentMultisigSpendingCondition {
 
         // must all be compressed if we're using P2WSH
         if have_uncompressed && hash_mode == OrderIndependentMultisigHashMode::P2WSH {
-            let msg = format!(
-                "Failed to deserialize order independent multisig spending condition: expected compressed keys only"
-            );
+            let msg = "Failed to deserialize order independent multisig spending condition: expected compressed keys only".to_string();
             test_debug!("{msg}");
             return Err(codec_error::DeserializeError(msg));
         }

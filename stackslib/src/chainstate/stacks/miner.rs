@@ -2585,8 +2585,7 @@ impl StacksBlockBuilder {
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         burnchain: &Burnchain,
     ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
-        if let TransactionPayload::Coinbase(..) = coinbase_tx.payload {
-        } else {
+        if !matches!(coinbase_tx.payload, TransactionPayload::Coinbase(..)) {
             return Err(Error::MemPoolError(
                 "Not a coinbase transaction".to_string(),
             ));
