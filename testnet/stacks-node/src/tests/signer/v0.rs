@@ -7840,16 +7840,56 @@ fn block_validation_check_rejection_timeout_heuristic() {
 
     signer_test.boot_to_epoch_3();
 
+    // note we just use mined nakamoto_blocks as the second block is not going to be confirmed
+
+    info!("------------------------- Check Rejections-based timeout with 1 rejection -------------------------");
+
+    let blocks_before = test_observer::get_mined_nakamoto_blocks().len();
+
+    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![all_signers[4]]);
+    TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(vec![
+        all_signers[0],
+        all_signers[1],
+        all_signers[2],
+        all_signers[3],
+    ]);
+
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        30,
+        || Ok(test_observer::get_mined_nakamoto_blocks().len() > blocks_before),
+    )
+    .unwrap();
+
+    signer_test
+        .wait_for_block_rejections(timeout.as_secs(), &[all_signers[4]])
+        .unwrap();
+
+    assert_eq!(BLOCK_REJECTIONS_CURRENT_TIMEOUT.get().as_secs(), 551);
+
+    info!("------------------------- Check Rejections-based timeout with 2 rejections -------------------------");
+
+    let blocks_before = test_observer::get_mined_nakamoto_blocks().len();
+
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![all_signers[3], all_signers[4]]);
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(vec![all_signers[0], all_signers[1], all_signers[2]]);
 
-    info!("------------------------- Test Mine and Verify Rejected Nakamoto Block -------------------------");
-    signer_test.mine_nakamoto_block(timeout, true);
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        30,
+        || Ok(test_observer::get_mined_nakamoto_blocks().len() > blocks_before),
+    )
+    .unwrap();
+
     signer_test
         .wait_for_block_rejections(timeout.as_secs(), &[all_signers[3], all_signers[4]])
         .unwrap();
 
-    assert_eq!(BLOCK_REJECTIONS_CURRENT_TIMEOUT.get().as_secs(), 400);
+    assert_eq!(BLOCK_REJECTIONS_CURRENT_TIMEOUT.get().as_secs(), 404);
+
+    // reset reject/ignore
+    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![]);
+    TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(vec![]);
 }
 
 /// Test scenario:
