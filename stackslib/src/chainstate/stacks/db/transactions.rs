@@ -1300,7 +1300,6 @@ impl StacksChainState {
                             info!("Smart-contract processed with {}", err_type;
                                       "txid" => %tx.txid(),
                                       "contract" => %contract_id,
-                                      "code" => %contract_code_str,
                                       "error" => ?error);
                             // When top-level code in a contract publish causes a runtime error,
                             // the transaction is accepted, but the contract is not created.
@@ -1345,7 +1344,6 @@ impl StacksChainState {
                                 info!("Smart-contract encountered an analysis error at runtime";
                                       "txid" => %tx.txid(),
                                       "contract" => %contract_id,
-                                      "code" => %contract_code_str,
                                       "error" => %check_error);
 
                                 let receipt =
@@ -1361,7 +1359,6 @@ impl StacksChainState {
                                 warn!("Unexpected analysis error invalidating transaction: if included, this will invalidate a block";
                                       "txid" => %tx.txid(),
                                       "contract" => %contract_id,
-                                      "code" => %contract_code_str,
                                       "error" => %check_error);
                                 return Err(Error::ClarityError(clarity_error::Interpreter(
                                     InterpreterError::Unchecked(check_error),
@@ -1372,7 +1369,6 @@ impl StacksChainState {
                             error!("Unexpected error invalidating transaction: if included, this will invalidate a block";
                                        "txid" => %tx.txid(),
                                        "contract_name" => %contract_id,
-                                       "code" => %contract_code_str,
                                        "error" => ?e);
                             return Err(Error::ClarityError(e));
                         }
