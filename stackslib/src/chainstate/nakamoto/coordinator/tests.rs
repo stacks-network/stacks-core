@@ -112,9 +112,6 @@ fn advance_to_nakamoto(
     let default_pox_addr =
         PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes.clone());
 
-    // Stores the result of a function with side effects, so have Clippy ignore it
-    #[allow(clippy::collection_is_never_read)]
-    let mut tip = None;
     for sortition_height in 0..11 {
         // stack to pox-3 in cycle 7
         let txs = if sortition_height == 6 {
@@ -158,7 +155,7 @@ fn advance_to_nakamoto(
             vec![]
         };
 
-        tip = Some(peer.tenure_with_txs(&txs, &mut peer_nonce));
+        peer.tenure_with_txs(&txs, &mut peer_nonce);
     }
     // peer is at the start of cycle 8
 }

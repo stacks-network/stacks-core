@@ -3025,8 +3025,6 @@ fn block_proposal_api_endpoint() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let path = format!("{http_origin}/v3/block_proposal");
 
-    // Clippy thinks this is unused, but it seems to be holding a lock
-    #[allow(clippy::collection_is_never_read)]
     let mut hold_proposal_mutex = Some(test_observer::PROPOSAL_RESPONSES.lock().unwrap());
     for (ix, (test_description, block_proposal, expected_http_code, _)) in
         test_cases.iter().enumerate()
@@ -3084,7 +3082,7 @@ fn block_proposal_api_endpoint() {
 
         if ix == 1 {
             // release the test observer mutex so that the handler from 0 can finish!
-            hold_proposal_mutex.take();
+            _ = hold_proposal_mutex.take();
         }
     }
 
