@@ -19,9 +19,8 @@ pub mod signatures;
 
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
-use std::{char, cmp, fmt, str};
+use std::{char, fmt, str};
 
-use hashbrown::hash_map::OccupiedEntry;
 use regex::Regex;
 use stacks_common::address::c32;
 use stacks_common::types::chainstate::StacksAddress;
@@ -29,11 +28,9 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash;
 
 use crate::vm::errors::{
-    CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
+    CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
-use crate::vm::representations::{
-    ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType,
-};
+use crate::vm::representations::{ClarityName, ContractName, SymbolicExpression};
 pub use crate::vm::types::signatures::{
     parse_name_type_pairs, AssetIdentifier, BufferLength, FixedFunction, FunctionArg,
     FunctionSignature, FunctionType, ListTypeData, SequenceSubtype, StringSubtype,
@@ -69,15 +66,72 @@ pub struct ListData {
     pub type_signature: ListTypeData,
 }
 
-#[derive(Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
-pub struct StandardPrincipalData(pub u8, pub [u8; 20]);
+pub use self::std_principals::StandardPrincipalData;
 
-impl StandardPrincipalData {
-    pub fn transient() -> StandardPrincipalData {
-        Self(
-            1,
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-        )
+mod std_principals {
+    use std::fmt;
+
+    use stacks_common::address::c32;
+
+    use crate::vm::errors::InterpreterError;
+
+    #[derive(Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+    pub struct StandardPrincipalData(u8, pub [u8; 20]);
+
+    impl StandardPrincipalData {
+        pub fn transient() -> StandardPrincipalData {
+            Self(
+                1,
+                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            )
+        }
+    }
+
+    impl StandardPrincipalData {
+        pub fn new(version: u8, bytes: [u8; 20]) -> Result<Self, InterpreterError> {
+            if version >= 32 {
+                return Err(InterpreterError::Expect("Unexpected principal data".into()));
+            }
+            Ok(Self(version, bytes))
+        }
+
+        /// NEVER, EVER use this in ANY production code.
+        /// `version` must NEVER be greater than 31.
+        #[cfg(any(test, feature = "testing"))]
+        pub fn new_unsafe(version: u8, bytes: [u8; 20]) -> Self {
+            Self(version, bytes)
+        }
+
+        pub fn null_principal() -> Self {
+            Self::new(0, [0; 20]).unwrap()
+        }
+
+        pub fn version(&self) -> u8 {
+            self.0
+        }
+
+        pub fn to_address(&self) -> String {
+            c32::c32_address(self.0, &self.1[..]).unwrap_or_else(|_| "INVALID_C32_ADD".to_string())
+        }
+
+        pub fn destruct(self) -> (u8, [u8; 20]) {
+            let Self(version, bytes) = self;
+            (version, bytes)
+        }
+    }
+
+    impl fmt::Display for StandardPrincipalData {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            let c32_str = self.to_address();
+            write!(f, "{}", c32_str)
+        }
+    }
+
+    impl fmt::Debug for StandardPrincipalData {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            let c32_str = self.to_address();
+            write!(f, "StandardPrincipalData({})", c32_str)
+        }
     }
 }
 
@@ -172,7 +226,9 @@ pub trait StacksAddressExtensions {
 
 impl StacksAddressExtensions for StacksAddress {
     fn to_account_principal(&self) -> PrincipalData {
-        PrincipalData::Standard(StandardPrincipalData(self.version, *self.bytes.as_bytes()))
+        PrincipalData::Standard(
+            StandardPrincipalData::new(self.version(), *self.bytes().as_bytes()).unwrap(),
+        )
     }
 }
 
@@ -1375,9 +1431,18 @@ impl fmt::Display for Value {
 impl PrincipalData {
     pub fn version(&self) -> u8 {
         match self {
-            PrincipalData::Standard(StandardPrincipalData(version, _)) => *version,
-            PrincipalData::Contract(QualifiedContractIdentifier { issuer, name: _ }) => issuer.0,
+            PrincipalData::Standard(ref p) => p.version(),
+            PrincipalData::Contract(QualifiedContractIdentifier { issuer, name: _ }) => {
+                issuer.version()
+            }
         }
+    }
+
+    /// A version is only valid if it fits into 5 bits.
+    /// This is enforced by the constructor, but it was historically possible to assemble invalid
+    /// addresses.  This function is used to validate historic addresses.
+    pub fn has_valid_version(&self) -> bool {
+        self.version() < 32
     }
 
     pub fn parse(literal: &str) -> Result<PrincipalData> {
@@ -1408,27 +1473,7 @@ impl PrincipalData {
         }
         let mut fixed_data = [0; 20];
         fixed_data.copy_from_slice(&data[..20]);
-        Ok(StandardPrincipalData(version, fixed_data))
-    }
-}
-
-impl StandardPrincipalData {
-    pub fn to_address(&self) -> String {
-        c32::c32_address(self.0, &self.1[..]).unwrap_or_else(|_| "INVALID_C32_ADD".to_string())
-    }
-}
-
-impl fmt::Display for StandardPrincipalData {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let c32_str = self.to_address();
-        write!(f, "{}", c32_str)
-    }
-}
-
-impl fmt::Debug for StandardPrincipalData {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let c32_str = self.to_address();
-        write!(f, "StandardPrincipalData({})", c32_str)
+        Ok(StandardPrincipalData::new(version, fixed_data)?)
     }
 }
 
@@ -1466,23 +1511,29 @@ impl fmt::Display for TraitIdentifier {
 }
 
 impl From<StacksAddress> for StandardPrincipalData {
-    fn from(addr: StacksAddress) -> StandardPrincipalData {
-        StandardPrincipalData(addr.version, addr.bytes.0)
+    fn from(addr: StacksAddress) -> Self {
+        let (version, bytes) = addr.destruct();
+
+        // should be infallible because it's impossible to construct a StacksAddress with an
+        // unsupported version byte
+        Self::new(version, bytes.0)
+            .expect("FATAL: could not convert StacksAddress to StandardPrincipalData")
     }
 }
 
 impl From<StacksAddress> for PrincipalData {
-    fn from(addr: StacksAddress) -> PrincipalData {
+    fn from(addr: StacksAddress) -> Self {
         PrincipalData::from(StandardPrincipalData::from(addr))
     }
 }
 
 impl From<StandardPrincipalData> for StacksAddress {
     fn from(o: StandardPrincipalData) -> StacksAddress {
-        StacksAddress {
-            version: o.0,
-            bytes: hash::Hash160(o.1),
-        }
+        // should be infallible because it's impossible to construct a StandardPrincipalData with
+        // an unsupported version byte
+        StacksAddress::new(o.version(), hash::Hash160(o.1)).unwrap_or_else(|_| {
+            panic!("FATAL: could not convert a StandardPrincipalData to StacksAddress")
+        })
     }
 }
 

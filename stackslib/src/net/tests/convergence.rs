@@ -39,7 +39,7 @@ fn setup_rlimit_nofiles() {
 
 fn stacker_db_id(i: usize) -> QualifiedContractIdentifier {
     QualifiedContractIdentifier::new(
-        StandardPrincipalData(0x01, [i as u8; 20]),
+        StandardPrincipalData::new(0x01, [i as u8; 20]).unwrap(),
         format!("db-{}", i).as_str().into(),
     )
 }

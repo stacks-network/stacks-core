@@ -81,7 +81,7 @@ fn make_dummy_coinbase_tx() -> StacksTransactionReceipt {
 
 fn make_dummy_transfer_payload() -> TransactionPayload {
     TransactionPayload::TokenTransfer(
-        PrincipalData::Standard(StandardPrincipalData(0, [0; 20])),
+        PrincipalData::Standard(StandardPrincipalData::new(0, [0; 20]).unwrap()),
         1,
         TokenTransferMemo([0; 34]),
     )
@@ -92,7 +92,7 @@ fn make_dummy_transfer_tx() -> StacksTransactionReceipt {
         TransactionVersion::Mainnet,
         TransactionAuth::Standard(TransactionSpendingCondition::new_initial_sighash()),
         TransactionPayload::TokenTransfer(
-            PrincipalData::Standard(StandardPrincipalData(0, [0; 20])),
+            PrincipalData::Standard(StandardPrincipalData::new(0, [0; 20]).unwrap()),
             1,
             TokenTransferMemo([0; 34]),
         ),
@@ -128,7 +128,7 @@ fn make_dummy_cc_tx(
 
 fn make_dummy_cc_payload(contract_name: &str, function_name: &str) -> TransactionPayload {
     TransactionPayload::ContractCall(TransactionContractCall {
-        address: StacksAddress::new(0, Hash160([0; 20])),
+        address: StacksAddress::new(0, Hash160([0; 20])).unwrap(),
         contract_name: contract_name.into(),
         function_name: function_name.into(),
         function_args: vec![],
@@ -254,13 +254,13 @@ fn test_pessimistic_cost_estimator_declining_average() {
 fn pessimistic_estimator_contract_owner_separation() {
     let mut estimator = instantiate_test_db();
     let cc_payload_0 = TransactionPayload::ContractCall(TransactionContractCall {
-        address: StacksAddress::new(0, Hash160([0; 20])),
+        address: StacksAddress::new(0, Hash160([0; 20])).unwrap(),
         contract_name: "contract-1".into(),
         function_name: "func1".into(),
         function_args: vec![],
     });
     let cc_payload_1 = TransactionPayload::ContractCall(TransactionContractCall {
-        address: StacksAddress::new(0, Hash160([1; 20])),
+        address: StacksAddress::new(0, Hash160([1; 20])).unwrap(),
         contract_name: "contract-1".into(),
         function_name: "func1".into(),
         function_args: vec![],

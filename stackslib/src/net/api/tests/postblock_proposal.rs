@@ -260,10 +260,7 @@ fn test_try_make_response() {
         )
         .unwrap();
 
-        let stx_address = StacksAddress {
-            version: 1,
-            bytes: Hash160([0xff; 20]),
-        };
+        let stx_address = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
         let payload = TransactionPayload::TokenTransfer(
             stx_address.into(),
             123,

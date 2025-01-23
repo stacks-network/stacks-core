@@ -1208,17 +1208,17 @@ mod tests {
     }
 
     fn stacks_address_to_bitcoin_tx_out(addr: &StacksAddress, value: u64) -> TxOut {
-        let btc_version = to_b58_version_byte(addr.version)
+        let btc_version = to_b58_version_byte(addr.version())
             .expect("BUG: failed to decode Stacks version byte to Bitcoin version byte");
         let btc_addr_type = legacy_version_byte_to_address_type(btc_version)
             .expect("BUG: failed to decode Bitcoin version byte")
             .0;
         match btc_addr_type {
             LegacyBitcoinAddressType::PublicKeyHash => {
-                LegacyBitcoinAddress::to_p2pkh_tx_out(&addr.bytes, value)
+                LegacyBitcoinAddress::to_p2pkh_tx_out(addr.bytes(), value)
             }
             LegacyBitcoinAddressType::ScriptHash => {
-                LegacyBitcoinAddress::to_p2sh_tx_out(&addr.bytes, value)
+                LegacyBitcoinAddress::to_p2sh_tx_out(addr.bytes(), value)
             }
         }
     }
@@ -1764,8 +1764,8 @@ mod tests {
                     memo: vec![0x1f],
 
                     commit_outs: vec![
-                        PoxAddress::Standard( StacksAddress { version: 26, bytes: Hash160::empty() }, None ),
-                        PoxAddress::Standard( StacksAddress { version: 26, bytes: Hash160::empty() }, None ),
+                        PoxAddress::Standard( StacksAddress::new(26, Hash160::empty()).unwrap(), None ),
+                        PoxAddress::Standard( StacksAddress::new(26, Hash160::empty()).unwrap(), None ),
                     ],
 
                     burn_fee: 24690,
@@ -3260,7 +3260,7 @@ mod tests {
         let anchor_block_hash = BlockHeaderHash([0xaa; 32]);
 
         fn reward_addrs(i: usize) -> PoxAddress {
-            let addr = StacksAddress::new(1, Hash160::from_data(&i.to_be_bytes()));
+            let addr = StacksAddress::new(1, Hash160::from_data(&i.to_be_bytes())).unwrap();
             PoxAddress::Standard(addr, None)
         }
         let burn_addr_0 = PoxAddress::Standard(StacksAddress::burn_address(false), None);

@@ -165,10 +165,11 @@ impl TestSigners {
                 weight: 1,
             };
             let pox_addr = PoxAddress::Standard(
-                StacksAddress {
-                    version: AddressHashMode::SerializeP2PKH.to_version_testnet(),
-                    bytes: Hash160::from_data(&nakamoto_signer_entry.signing_key),
-                },
+                StacksAddress::new(
+                    AddressHashMode::SerializeP2PKH.to_version_testnet(),
+                    Hash160::from_data(&nakamoto_signer_entry.signing_key),
+                )
+                .expect("FATAL: constant testnet address version is not supported"),
                 Some(AddressHashMode::SerializeP2PKH),
             );
             signer_entries.push(nakamoto_signer_entry);
