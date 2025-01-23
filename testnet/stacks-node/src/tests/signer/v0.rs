@@ -2798,9 +2798,8 @@ fn tenure_extend_succeeds_after_rejected_attempt() {
                     }
                 }
                 None
-            })
-            .collect::<Vec<_>>();
-        Ok(signatures.len() >= num_signers * 7 / 10)
+            });
+        Ok(signatures.count() >= num_signers * 7 / 10)
     })
     .expect("Test timed out while waiting for a rejected tenure extend");
 
@@ -2867,12 +2866,8 @@ fn stx_transfers_dont_effect_idle_timeout() {
 
     let reward_cycle = signer_test.get_current_reward_cycle();
 
-    let signer_slot_ids: Vec<_> = signer_test
-        .get_signer_indices(reward_cycle)
-        .iter()
-        .map(|id| id.0)
-        .collect();
-    assert_eq!(signer_slot_ids.len(), num_signers);
+    let signer_slot_ids = signer_test.get_signer_indices(reward_cycle).into_iter();
+    assert_eq!(signer_slot_ids.count(), num_signers);
 
     let get_last_block_hash = || {
         let blocks = test_observer::get_blocks();
@@ -3050,10 +3045,7 @@ fn idle_tenure_extend_active_mining() {
 (define-data-var my-var uint u0)
 (define-public (f) (begin {} (ok 1))) (begin (f))
         "#,
-        (0..250)
-            .map(|_| format!("(var-get my-var)"))
-            .collect::<Vec<String>>()
-            .join(" ")
+        ["(var-get my-var)"; 250].join(" ")
     );
 
     // First, lets deploy the contract
@@ -3748,13 +3740,9 @@ fn mock_sign_epoch_25() {
 
     // Mine until epoch 3.0 and ensure that no more mock signatures are received
     let reward_cycle = signer_test.get_current_reward_cycle();
-    let signer_slot_ids: Vec<_> = signer_test
-        .get_signer_indices(reward_cycle)
-        .iter()
-        .map(|id| id.0)
-        .collect();
+    let signer_slot_ids = signer_test.get_signer_indices(reward_cycle).into_iter();
     let signer_public_keys = signer_test.get_signer_public_keys(reward_cycle);
-    assert_eq!(signer_slot_ids.len(), num_signers);
+    assert_eq!(signer_slot_ids.count(), num_signers);
 
     let miners_stackerdb_contract = boot_code_id(MINERS_NAME, false);
 
@@ -3956,13 +3944,9 @@ fn multiple_miners_mock_sign_epoch_25() {
 
     // Mine until epoch 3.0 and ensure that no more mock signatures are received
     let reward_cycle = signer_test.get_current_reward_cycle();
-    let signer_slot_ids: Vec<_> = signer_test
-        .get_signer_indices(reward_cycle)
-        .iter()
-        .map(|id| id.0)
-        .collect();
+    let signer_slot_ids = signer_test.get_signer_indices(reward_cycle).into_iter();
     let signer_public_keys = signer_test.get_signer_public_keys(reward_cycle);
-    assert_eq!(signer_slot_ids.len(), num_signers);
+    assert_eq!(signer_slot_ids.count(), num_signers);
 
     let miners_stackerdb_contract = boot_code_id(MINERS_NAME, false);
 
@@ -5827,9 +5811,8 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
                     });
                 }
                 None
-            })
-            .collect::<Vec<_>>();
-        Ok(accepted_signers.len() + ignoring_signers.len() == num_signers)
+            });
+        Ok(accepted_signers.count() + ignoring_signers.len() == num_signers)
     })
     .expect("FAIL: Timed out waiting for block proposal acceptance");
 
@@ -6045,9 +6028,8 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
                     });
                 }
                 None
-            })
-            .collect::<Vec<_>>();
-        Ok(accepted_signers.len() + ignoring_signers.len() == num_signers)
+            });
+        Ok(accepted_signers.count() + ignoring_signers.len() == num_signers)
     })
     .expect("FAIL: Timed out waiting for block proposal acceptance");
 
@@ -6095,9 +6077,8 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
                         }),
                         _ => None,
                     }
-                })
-                .collect::<Vec<_>>();
-            Ok(rejected_signers.len() + ignoring_signers.len() == num_signers)
+                });
+            Ok(rejected_signers.count() + ignoring_signers.len() == num_signers)
         },
     )
     .expect("FAIL: Timed out waiting for block proposal rejections");
@@ -6291,9 +6272,8 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
                     }
                 }
                 None
-            })
-            .collect::<Vec<_>>();
-        Ok(signatures.len() >= num_signers * 7 / 10)
+            });
+        Ok(signatures.count() >= num_signers * 7 / 10)
     })
     .expect("Test timed out while waiting for signers signatures for first block proposal");
     let block = block.unwrap();
@@ -6381,9 +6361,8 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
                     }
                     _ => None,
                 }
-            })
-            .collect::<Vec<_>>();
-        Ok(block_rejections.len() >= num_signers * 7 / 10)
+            });
+        Ok(block_rejections.count() >= num_signers * 7 / 10)
     })
     .expect("FAIL: Timed out waiting for block proposal rejections");
 
@@ -6752,7 +6731,7 @@ fn continue_after_fast_block_no_sortition() {
     wait_for(30, || {
         std::thread::sleep(Duration::from_secs(1));
         let chunks = test_observer::get_stackerdb_chunks();
-        let rejections: Vec<_> = chunks
+        let rejections = chunks
             .into_iter()
             .flat_map(|chunk| chunk.modified_slots)
             .filter(|chunk| {
@@ -6764,9 +6743,8 @@ fn continue_after_fast_block_no_sortition() {
                     message,
                     SignerMessage::BlockResponse(BlockResponse::Rejected(_))
                 )
-            })
-            .collect();
-        Ok(rejections.len() >= min_rejections)
+            });
+        Ok(rejections.count() >= min_rejections)
     })
     .expect("Timed out waiting for block rejections");
 
@@ -9607,7 +9585,7 @@ fn block_proposal_max_age_rejections() {
     info!("------------------------- Test Block Proposal Rejected -------------------------");
     // Verify the signers rejected only the SECOND block proposal. The first was not even processed.
     wait_for(30, || {
-        let rejections: Vec<_> = test_observer::get_stackerdb_chunks()
+        let rejections = test_observer::get_stackerdb_chunks()
             .into_iter()
             .flat_map(|chunk| chunk.modified_slots)
             .map(|chunk| {
@@ -9639,9 +9617,8 @@ fn block_proposal_max_age_rejections() {
                     }
                     _ => None,
                 }
-            })
-            .collect();
-        Ok(rejections.len() > num_signers * 7 / 10)
+            });
+        Ok(rejections.count() > num_signers * 7 / 10)
     })
     .expect("Timed out waiting for block rejections");
 
@@ -9852,14 +9829,19 @@ fn global_acceptance_depends_on_block_announcement() {
                 .stacks_client
                 .get_peer_info()
                 .expect("Failed to get peer info");
-            Ok(info.stacks_tip_height > info_before.stacks_tip_height)
+            Ok(info.stacks_tip_height > info_before.stacks_tip_height
+                && info_before.stacks_tip_consensus_hash != info.stacks_tip_consensus_hash)
         },
     )
-    .unwrap();
+    .expect("Stacks miner failed to produce new blocks during the newest burn block's tenure");
     let info_after = signer_test
         .stacks_client
         .get_peer_info()
         .expect("Failed to get peer info");
+    let info_after_stacks_block_id = StacksBlockId::new(
+        &info_after.stacks_tip_consensus_hash,
+        &info_after.stacks_tip,
+    );
     let mut sister_block = None;
     let start_time = Instant::now();
     while sister_block.is_none() && start_time.elapsed() < Duration::from_secs(45) {
@@ -9869,17 +9851,14 @@ fn global_acceptance_depends_on_block_announcement() {
             .find_map(|chunk| {
                 let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
                     .expect("Failed to deserialize SignerMessage");
-                match message {
-                    SignerMessage::BlockProposal(proposal) => {
-                        if proposal.block.header.consensus_hash
-                            == info_after.stacks_tip_consensus_hash
-                        {
-                            Some(proposal.block)
-                        } else {
-                            None
-                        }
+                if let SignerMessage::BlockProposal(proposal) = message {
+                    if proposal.block.block_id() == info_after_stacks_block_id {
+                        Some(proposal.block)
+                    } else {
+                        None
                     }
-                    _ => None,
+                } else {
+                    None
                 }
             });
     }
@@ -11095,9 +11074,8 @@ fn injected_signatures_are_ignored_across_boundaries() {
                     });
                 }
                 None
-            })
-            .collect::<Vec<_>>();
-        Ok(accepted_signers.len() + ignoring_signers.len() == new_num_signers)
+            });
+        Ok(accepted_signers.count() + ignoring_signers.len() == new_num_signers)
     })
     .expect("FAIL: Timed out waiting for block proposal acceptance");
     let new_signature_hash = new_signature_hash.expect("Failed to get new signature hash");

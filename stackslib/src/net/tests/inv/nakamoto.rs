@@ -901,11 +901,10 @@ fn test_nakamoto_inv_sync_state_machine() {
         let _ = peer.step_with_ibd(false);
         let _ = other_peer.step_with_ibd(false);
 
-        let event_ids: Vec<usize> = peer.network.iter_peer_event_ids().copied().collect();
-        let other_event_ids: Vec<usize> =
-            other_peer.network.iter_peer_event_ids().copied().collect();
+        let event_ids = peer.network.iter_peer_event_ids();
+        let other_event_ids = other_peer.network.iter_peer_event_ids();
 
-        if !event_ids.is_empty() && !other_event_ids.is_empty() {
+        if event_ids.count() > 0 && other_event_ids.count() > 0 {
             break;
         }
     }
@@ -930,8 +929,8 @@ fn test_nakamoto_inv_sync_state_machine() {
             let mut last_learned_rc = 0;
             loop {
                 let _ = other_peer.step_with_ibd(false);
-                let ev_ids: Vec<_> = other_peer.network.iter_peer_event_ids().collect();
-                if ev_ids.is_empty() {
+                let ev_ids = other_peer.network.iter_peer_event_ids();
+                if ev_ids.count() == 0 {
                     // disconnected
                     panic!("Disconnected");
                 }
@@ -1025,11 +1024,10 @@ fn test_nakamoto_inv_sync_across_epoch_change() {
         let _ = peer.step_with_ibd(false);
         let _ = other_peer.step_with_ibd(false);
 
-        let event_ids: Vec<usize> = peer.network.iter_peer_event_ids().copied().collect();
-        let other_event_ids: Vec<usize> =
-            other_peer.network.iter_peer_event_ids().copied().collect();
+        let event_ids = peer.network.iter_peer_event_ids();
+        let other_event_ids = other_peer.network.iter_peer_event_ids();
 
-        if !event_ids.is_empty() && !other_event_ids.is_empty() {
+        if event_ids.count() > 0 && other_event_ids.count() > 0 {
             break;
         }
     }
