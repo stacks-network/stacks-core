@@ -107,7 +107,7 @@ fn test_valid_and_invalid_stackerdb_configs() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         "test_valid_and_invalid_stackerdb_configs",
-        Some(epochs.clone()),
+        Some(epochs),
         Some(&observer),
     );
 
@@ -583,7 +583,7 @@ fn test_hint_replicas_override() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         "test_valid_and_invalid_stackerdb_configs",
-        Some(epochs.clone()),
+        Some(epochs),
         Some(&observer),
     );
 

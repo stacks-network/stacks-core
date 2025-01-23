@@ -2046,13 +2046,11 @@ mod tests {
             vec![],
             // 124
             vec![
-                BlockstackOperationType::LeaderKeyRegister(leader_key_1.clone()),
-                BlockstackOperationType::LeaderKeyRegister(leader_key_2.clone()),
+                BlockstackOperationType::LeaderKeyRegister(leader_key_1),
+                BlockstackOperationType::LeaderKeyRegister(leader_key_2),
             ],
             // 125
-            vec![BlockstackOperationType::LeaderBlockCommit(
-                block_commit_1.clone(),
-            )],
+            vec![BlockstackOperationType::LeaderBlockCommit(block_commit_1)],
             // 126
             vec![],
         ];
@@ -2581,13 +2579,11 @@ mod tests {
             vec![],
             // 124
             vec![
-                BlockstackOperationType::LeaderKeyRegister(leader_key_1.clone()),
-                BlockstackOperationType::LeaderKeyRegister(leader_key_2.clone()),
+                BlockstackOperationType::LeaderKeyRegister(leader_key_1),
+                BlockstackOperationType::LeaderKeyRegister(leader_key_2),
             ],
             // 125
-            vec![BlockstackOperationType::LeaderBlockCommit(
-                block_commit_1.clone(),
-            )],
+            vec![BlockstackOperationType::LeaderBlockCommit(block_commit_1)],
             // 126
             vec![],
         ];
@@ -3399,7 +3395,7 @@ mod tests {
             ),
             (
                 LeaderBlockCommitOp {
-                    commit_outs: vec![burn_addr_0.clone(), burn_addr_1.clone()],
+                    commit_outs: vec![burn_addr_0.clone(), burn_addr_1],
                     ..default_block_commit.clone()
                 },
                 Some(no_punish(&rs_pox_addrs_0b)),
@@ -3431,8 +3427,8 @@ mod tests {
             ),
             (
                 LeaderBlockCommitOp {
-                    commit_outs: vec![burn_addr_0.clone(), reward_addrs(3)],
-                    ..default_block_commit.clone()
+                    commit_outs: vec![burn_addr_0, reward_addrs(3)],
+                    ..default_block_commit
                 },
                 Some(rs_pox_addrs.clone()),
                 Err(op_error::BlockCommitBadOutputs),

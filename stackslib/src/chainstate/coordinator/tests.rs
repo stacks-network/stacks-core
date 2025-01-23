@@ -571,22 +571,12 @@ pub fn get_burnchain(path: &str, pox_consts: Option<PoxConstants>) -> Burnchain 
 
 pub fn get_sortition_db(path: &str, pox_consts: Option<PoxConstants>) -> SortitionDB {
     let burnchain = get_burnchain(path, pox_consts);
-    SortitionDB::open(
-        &burnchain.get_db_path(),
-        false,
-        burnchain.pox_constants.clone(),
-    )
-    .unwrap()
+    SortitionDB::open(&burnchain.get_db_path(), false, burnchain.pox_constants).unwrap()
 }
 
 pub fn get_rw_sortdb(path: &str, pox_consts: Option<PoxConstants>) -> SortitionDB {
     let burnchain = get_burnchain(path, pox_consts);
-    SortitionDB::open(
-        &burnchain.get_db_path(),
-        true,
-        burnchain.pox_constants.clone(),
-    )
-    .unwrap()
+    SortitionDB::open(&burnchain.get_db_path(), true, burnchain.pox_constants).unwrap()
 }
 
 pub fn get_burnchain_db(path: &str, pox_consts: Option<PoxConstants>) -> BurnchainDB {
@@ -595,7 +585,7 @@ pub fn get_burnchain_db(path: &str, pox_consts: Option<PoxConstants>) -> Burncha
 }
 
 pub fn get_chainstate_path_str(path: &str) -> String {
-    format!("{}/chainstate/", path)
+    format!("{path}/chainstate/")
 }
 
 pub fn get_chainstate(path: &str) -> StacksChainState {
@@ -3505,7 +3495,7 @@ fn test_delegate_stx_btc_ops() {
         StacksEpochId::Epoch21,
     );
 
-    let mut coord = make_coordinator(path, Some(burnchain_conf.clone()));
+    let mut coord = make_coordinator(path, Some(burnchain_conf));
 
     coord.handle_new_burnchain_block().unwrap();
 
@@ -4673,7 +4663,7 @@ fn atlas_stop_start() {
     let atlas_qci = QualifiedContractIdentifier::new(signer_pk.clone().into(), atlas_name.clone());
     // include our simple contract in the atlas config
     let mut atlas_config = AtlasConfig::new(false);
-    atlas_config.contracts.insert(atlas_qci.clone());
+    atlas_config.contracts.insert(atlas_qci);
 
     setup_states(
         &[path],
@@ -6898,13 +6888,8 @@ fn test_check_chainstate_db_versions() {
     );
 
     // should work just fine in epoch 2
-    assert!(
-        check_chainstate_db_versions(&[epoch_2.clone()], &sortdb_path, &chainstate_path).unwrap()
-    );
+    assert!(check_chainstate_db_versions(&[epoch_2], &sortdb_path, &chainstate_path).unwrap());
 
     // should fail in epoch 2.05
-    assert!(
-        !check_chainstate_db_versions(&[epoch_2_05.clone()], &sortdb_path, &chainstate_path)
-            .unwrap()
-    );
+    assert!(!check_chainstate_db_versions(&[epoch_2_05], &sortdb_path, &chainstate_path).unwrap());
 }

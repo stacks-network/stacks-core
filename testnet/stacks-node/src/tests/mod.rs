@@ -1331,7 +1331,7 @@ fn test_inner_pick_best_tip() {
         },
     ];
 
-    let sorted_candidates = BlockMinerThread::sort_and_populate_candidates(candidates.clone());
+    let sorted_candidates = BlockMinerThread::sort_and_populate_candidates(candidates);
     assert_eq!(
         None,
         BlockMinerThread::inner_pick_best_tip(vec![], HashMap::new())

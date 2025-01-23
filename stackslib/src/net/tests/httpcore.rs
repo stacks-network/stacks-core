@@ -155,7 +155,7 @@ fn make_test_transaction() -> StacksTransaction {
 
     let mut tx_stx_transfer = StacksTransaction::new(
         TransactionVersion::Testnet,
-        auth.clone(),
+        auth,
         TransactionPayload::TokenTransfer(
             recv_addr.clone().into(),
             123,

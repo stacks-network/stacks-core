@@ -1849,7 +1849,7 @@ mod test {
             txs: vec![],
         };
         let mut metadata = StacksHeaderInfo::regtest_genesis();
-        metadata.anchored_header = StacksBlockHeaderTypes::Nakamoto(block_header.clone());
+        metadata.anchored_header = StacksBlockHeaderTypes::Nakamoto(block_header);
         let receipts = vec![];
         let parent_index_hash = StacksBlockId([0; 32]);
         let winner_txid = Txid([0; 32]);
@@ -1879,7 +1879,7 @@ mod test {
             &mblock_confirmed_consumed,
             &pox_constants,
             &None,
-            &Some(signer_bitvec.clone()),
+            &Some(signer_bitvec),
             block_timestamp,
             coinbase_height,
         );
@@ -2134,7 +2134,7 @@ mod test {
         let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
         let timeout = Duration::from_secs(5);
 
-        let observer = EventObserver::new(Some(working_dir.clone()), endpoint, timeout);
+        let observer = EventObserver::new(Some(working_dir), endpoint, timeout);
 
         // Call send_payload
         observer.send_payload(&payload, "/test");
@@ -2384,11 +2384,7 @@ mod test {
             }
         });
 
-        let observer = EventObserver::new(
-            Some(working_dir.clone()),
-            format!("127.0.0.1:{port}"),
-            timeout,
-        );
+        let observer = EventObserver::new(Some(working_dir), format!("127.0.0.1:{port}"), timeout);
 
         let payload = json!({"key": "value"});
         let payload2 = json!({"key": "value2"});

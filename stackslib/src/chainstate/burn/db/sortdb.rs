@@ -7330,9 +7330,9 @@ pub mod tests {
         {
             let mut ic = SortitionHandleTx::begin(&mut db, &snapshot.sortition_id).unwrap();
             let keys = ic
-                .get_consumed_leader_keys(&fork_snapshot, &vec![block_commit.clone()])
+                .get_consumed_leader_keys(&fork_snapshot, &vec![block_commit])
                 .unwrap();
-            assert_eq!(keys, vec![leader_key.clone()]);
+            assert_eq!(keys, vec![leader_key]);
         }
     }
 
@@ -7381,9 +7381,7 @@ pub mod tests {
         let key_snapshot = test_append_snapshot(
             &mut db,
             BurnchainHeaderHash([0x03; 32]),
-            &[BlockstackOperationType::LeaderKeyRegister(
-                leader_key.clone(),
-            )],
+            &[BlockstackOperationType::LeaderKeyRegister(leader_key)],
         );
 
         let has_key_after = {
@@ -7908,9 +7906,7 @@ pub mod tests {
         let key_snapshot = test_append_snapshot(
             &mut db,
             BurnchainHeaderHash([0x01; 32]),
-            &[BlockstackOperationType::LeaderKeyRegister(
-                leader_key.clone(),
-            )],
+            &[BlockstackOperationType::LeaderKeyRegister(leader_key)],
         );
 
         let commit_snapshot = test_append_snapshot(
@@ -10254,9 +10250,7 @@ pub mod tests {
         let key_snapshot = test_append_snapshot(
             &mut db,
             BurnchainHeaderHash([0x01; 32]),
-            &[BlockstackOperationType::LeaderKeyRegister(
-                leader_key.clone(),
-            )],
+            &[BlockstackOperationType::LeaderKeyRegister(leader_key)],
         );
 
         let genesis_commit_snapshot = test_append_snapshot_with_winner(

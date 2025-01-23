@@ -2732,9 +2732,7 @@ fn make_all_api_reference() -> ReferenceAPIs {
 #[allow(clippy::expect_used)]
 pub fn make_json_api_reference() -> String {
     let api_out = make_all_api_reference();
-    serde_json::to_string(&api_out)
-        .expect("Failed to serialize documentation")
-        .to_string()
+    serde_json::to_string(&api_out).expect("Failed to serialize documentation")
 }
 
 #[cfg(test)]

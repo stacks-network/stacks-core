@@ -7028,7 +7028,7 @@ pub mod test {
         let mut block = StacksBlock::from_parent(
             &parent_header,
             &parent_microblock_header,
-            txs.clone(),
+            txs,
             &work_score,
             &proof,
             &TrieHash([2u8; 32]),
@@ -7072,10 +7072,10 @@ pub mod test {
 
         let mut tx_big_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth.clone(),
+            auth,
             TransactionPayload::new_smart_contract(
                 &format!("hello-world-{}", &thread_rng().gen::<u32>()),
-                &contract_16k.to_string(),
+                &contract_16k,
                 None,
             )
             .unwrap(),
@@ -7122,7 +7122,7 @@ pub mod test {
         let mut block = StacksBlock::from_parent(
             &parent_header,
             &parent_microblock_header,
-            txs.clone(),
+            txs,
             &work_score,
             &proof,
             &TrieHash([2u8; 32]),
@@ -7162,7 +7162,7 @@ pub mod test {
                 auth.clone(),
                 TransactionPayload::new_smart_contract(
                     &format!("hello-world-{}", &thread_rng().gen::<u32>()),
-                    &contract_16k.to_string(),
+                    &contract_16k,
                     None,
                 )
                 .unwrap(),
@@ -8601,7 +8601,7 @@ pub mod test {
                 burn: 234,
                 work: 567,
             },
-            proof: proof.clone(),
+            proof,
             parent_block: block.block_hash(),
             parent_microblock: microblocks[num_mblocks - 1].block_hash(),
             parent_microblock_sequence: microblocks[num_mblocks - 1].header.sequence,
@@ -8849,8 +8849,8 @@ pub mod test {
                             TransactionVersion::Testnet,
                             auth.clone(),
                             TransactionPayload::new_smart_contract(
-                                &"name-contract".to_string(),
-                                &format!("conflicting smart contract {}", i),
+                                "name-contract",
+                                &format!("conflicting smart contract {i}"),
                                 None,
                             )
                             .unwrap(),

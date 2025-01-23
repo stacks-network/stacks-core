@@ -1695,7 +1695,7 @@ pub mod test {
             &mut tx_conn,
             &tx,
             &StacksAccount {
-                principal: sender.clone(),
+                principal: sender,
                 nonce: 0,
                 stx_balance: STXBalance::Unlocked { amount: 100 },
             },
@@ -1721,7 +1721,7 @@ pub mod test {
 
         let mut tx_stx_transfer = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth.clone(),
+            auth,
             TransactionPayload::TokenTransfer(
                 recv_addr.clone().into(),
                 123,
@@ -1909,7 +1909,7 @@ pub mod test {
             0,
         ));
 
-        let mut wrong_nonce_auth = auth.clone();
+        let mut wrong_nonce_auth = auth;
         wrong_nonce_auth.set_origin_nonce(1);
         let mut tx_stx_transfer_wrong_nonce = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -1921,7 +1921,7 @@ pub mod test {
             ),
         );
 
-        let mut wrong_nonce_auth_sponsored = auth_sponsored.clone();
+        let mut wrong_nonce_auth_sponsored = auth_sponsored;
         wrong_nonce_auth_sponsored.set_sponsor_nonce(1).unwrap();
         let mut tx_stx_transfer_wrong_nonce_sponsored = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -2057,7 +2057,7 @@ pub mod test {
 
         let mut tx_stx_transfer = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth.clone(),
+            auth,
             TransactionPayload::TokenTransfer(
                 recv_addr.clone().into(),
                 123,
@@ -2149,13 +2149,8 @@ pub mod test {
 
         let mut tx_contract_call = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth.clone(),
-            TransactionPayload::new_smart_contract(
-                &"hello-world".to_string(),
-                &contract.to_string(),
-                None,
-            )
-            .unwrap(),
+            auth,
+            TransactionPayload::new_smart_contract("hello-world", contract, None).unwrap(),
         );
 
         tx_contract_call.chain_id = 0x80000000;
@@ -2529,13 +2524,8 @@ pub mod test {
 
         let mut tx_contract_call = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth.clone(),
-            TransactionPayload::new_smart_contract(
-                &"hello-world".to_string(),
-                &contract.to_string(),
-                None,
-            )
-            .unwrap(),
+            auth,
+            TransactionPayload::new_smart_contract("hello-world", contract, None).unwrap(),
         );
 
         tx_contract_call.chain_id = 0x80000000;
@@ -2616,12 +2606,7 @@ pub mod test {
         let mut tx_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
-            TransactionPayload::new_smart_contract(
-                &"hello-world".to_string(),
-                &contract.to_string(),
-                None,
-            )
-            .unwrap(),
+            TransactionPayload::new_smart_contract("hello-world", contract, None).unwrap(),
         );
 
         tx_contract.chain_id = 0x80000000;
@@ -2642,7 +2627,7 @@ pub mod test {
 
         let mut tx_contract_call = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth_2.clone(),
+            auth_2,
             TransactionPayload::new_contract_call(
                 addr.clone(),
                 "hello-world",
@@ -2750,12 +2735,7 @@ pub mod test {
         let mut tx_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
-            TransactionPayload::new_smart_contract(
-                &"hello-world".to_string(),
-                &contract.to_string(),
-                None,
-            )
-            .unwrap(),
+            TransactionPayload::new_smart_contract("hello-world", contract, None).unwrap(),
         );
 
         tx_contract.chain_id = 0x80000000;
@@ -2781,7 +2761,7 @@ pub mod test {
             )));
         let mut tx_contract_call = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth_2.clone(),
+            auth_2,
             TransactionPayload::new_contract_call(
                 addr.clone(),
                 "hello-world",
@@ -2893,13 +2873,8 @@ pub mod test {
 
         let mut tx_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth.clone(),
-            TransactionPayload::new_smart_contract(
-                &"hello-world".to_string(),
-                &contract.to_string(),
-                None,
-            )
-            .unwrap(),
+            auth,
+            TransactionPayload::new_smart_contract("hello-world", contract, None).unwrap(),
         );
 
         tx_contract.chain_id = 0x80000000;
@@ -3018,13 +2993,8 @@ pub mod test {
 
         let mut tx_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth.clone(),
-            TransactionPayload::new_smart_contract(
-                &"hello-world".to_string(),
-                &contract.to_string(),
-                None,
-            )
-            .unwrap(),
+            auth,
+            TransactionPayload::new_smart_contract("hello-world", contract, None).unwrap(),
         );
 
         tx_contract.chain_id = 0x80000000;
@@ -3087,13 +3057,8 @@ pub mod test {
 
         let mut tx_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth.clone(),
-            TransactionPayload::new_smart_contract(
-                &"hello-world".to_string(),
-                &contract.to_string(),
-                None,
-            )
-            .unwrap(),
+            auth,
+            TransactionPayload::new_smart_contract("hello-world", contract, None).unwrap(),
         );
 
         tx_contract.chain_id = 0x80000000;
@@ -3302,13 +3267,8 @@ pub mod test {
 
         let mut tx_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth.clone(),
-            TransactionPayload::new_smart_contract(
-                &"hello-world".to_string(),
-                &contract.to_string(),
-                None,
-            )
-            .unwrap(),
+            auth,
+            TransactionPayload::new_smart_contract("hello-world", contract, None).unwrap(),
         );
 
         tx_contract.chain_id = 0x80000000;
@@ -3339,7 +3299,7 @@ pub mod test {
 
         let mut tx_contract_call = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth_contract_call.clone(),
+            auth_contract_call,
             TransactionPayload::new_contract_call(
                 addr_publisher.clone(),
                 "hello-world",
@@ -3536,12 +3496,7 @@ pub mod test {
         let mut tx_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth_origin.clone(),
-            TransactionPayload::new_smart_contract(
-                &"hello-world".to_string(),
-                &contract.to_string(),
-                None,
-            )
-            .unwrap(),
+            TransactionPayload::new_smart_contract("hello-world", contract, None).unwrap(),
         );
 
         tx_contract.chain_id = 0x80000000;
@@ -3665,7 +3620,7 @@ pub mod test {
 
         let mut tx_contract_call_user_stackaroos = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth_recv.clone(),
+            auth_recv,
             TransactionPayload::new_contract_call(
                 addr_publisher.clone(),
                 "hello-world",
@@ -4280,12 +4235,7 @@ pub mod test {
         let mut tx_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth_origin.clone(),
-            TransactionPayload::new_smart_contract(
-                &"hello-world".to_string(),
-                &contract.to_string(),
-                None,
-            )
-            .unwrap(),
+            TransactionPayload::new_smart_contract("hello-world", contract, None).unwrap(),
         );
 
         tx_contract.chain_id = 0x80000000;
@@ -4368,7 +4318,7 @@ pub mod test {
                     addr_publisher.clone(),
                     "hello-world",
                     "send-stackaroos-and-name",
-                    vec![name.clone(), Value::Principal(recv_principal.clone())],
+                    vec![name, Value::Principal(recv_principal.clone())],
                 )
                 .unwrap(),
             );
@@ -4947,19 +4897,18 @@ pub mod test {
             StandardPrincipalData::from(addr_publisher.clone()),
             contract_name.clone(),
         );
-        let _contract_principal = PrincipalData::Contract(contract_id.clone());
+        let _contract_principal = PrincipalData::Contract(contract_id);
 
         let asset_info = AssetInfo {
             contract_address: addr_publisher.clone(),
-            contract_name: contract_name.clone(),
+            contract_name,
             asset_name: ClarityName::try_from("connect-token").unwrap(),
         };
 
         let mut tx_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth_origin.clone(),
-            TransactionPayload::new_smart_contract(&"hello-world".to_string(), &contract, None)
-                .unwrap(),
+            TransactionPayload::new_smart_contract("hello-world", &contract, None).unwrap(),
         );
 
         tx_contract.chain_id = 0x80000000;
@@ -4972,12 +4921,12 @@ pub mod test {
 
         let mut tx_contract_call = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth_origin.clone(),
+            auth_origin,
             TransactionPayload::new_contract_call(
                 addr_publisher.clone(),
                 "hello-world",
                 "transfer",
-                vec![Value::Principal(recv_principal.clone()), Value::UInt(10)],
+                vec![Value::Principal(recv_principal), Value::UInt(10)],
             )
             .unwrap(),
         );
@@ -4989,7 +4938,7 @@ pub mod test {
         tx_contract_call.post_condition_mode = TransactionPostConditionMode::Deny;
         tx_contract_call.add_post_condition(TransactionPostCondition::Fungible(
             PostConditionPrincipal::Origin,
-            asset_info.clone(),
+            asset_info,
             FungibleConditionCode::SentEq,
             10,
         ));
@@ -5098,10 +5047,10 @@ pub mod test {
         // multi-ft
         let mut ft_transfer_2 = AssetMap::new();
         ft_transfer_2
-            .add_token_transfer(&origin, asset_id_1.clone(), 123)
+            .add_token_transfer(&origin, asset_id_1, 123)
             .unwrap();
         ft_transfer_2
-            .add_token_transfer(&origin, asset_id_2.clone(), 123)
+            .add_token_transfer(&origin, asset_id_2, 123)
             .unwrap();
 
         let tests = vec![
@@ -6841,19 +6790,19 @@ pub mod test {
                     ),
                     TransactionPostCondition::Fungible(
                         PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_3.clone(),
+                        asset_info_3,
                         FungibleConditionCode::SentEq,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
                         PostConditionPrincipal::Standard(recv_addr.clone()),
-                        asset_info_1.clone(),
+                        asset_info_1,
                         FungibleConditionCode::SentEq,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
                         PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info_2.clone(),
+                        asset_info_2,
                         FungibleConditionCode::SentGt,
                         122,
                     ),
@@ -6916,7 +6865,7 @@ pub mod test {
         // multi-nft transfer
         let mut nft_transfer_2 = AssetMap::new();
         nft_transfer_2.add_asset_transfer(&origin, asset_id.clone(), Value::Int(1));
-        nft_transfer_2.add_asset_transfer(&origin, asset_id.clone(), Value::Int(2));
+        nft_transfer_2.add_asset_transfer(&origin, asset_id, Value::Int(2));
 
         let tests = vec![
             // no post-conditions in allow mode
@@ -7201,7 +7150,7 @@ pub mod test {
                     ),
                     TransactionPostCondition::Nonfungible(
                         PostConditionPrincipal::Standard(addr.clone()),
-                        asset_info.clone(),
+                        asset_info,
                         Value::Int(3),
                         NonfungibleConditionCode::NotSent,
                     ),
@@ -8073,12 +8022,7 @@ pub mod test {
         let mut tx_contract_create = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
-            TransactionPayload::new_smart_contract(
-                &"hello-world".to_string(),
-                &contract.to_string(),
-                None,
-            )
-            .unwrap(),
+            TransactionPayload::new_smart_contract("hello-world", contract, None).unwrap(),
         );
 
         tx_contract_create.chain_id = 0x80000000;
@@ -8091,7 +8035,7 @@ pub mod test {
 
         let mut tx_contract_call = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth.clone(),
+            auth,
             TransactionPayload::new_contract_call(
                 addr.clone(),
                 "hello-world",
@@ -8208,10 +8152,10 @@ pub mod test {
 
         let mut tx_contract_create = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth.clone(),
+            auth,
             TransactionPayload::new_smart_contract(
                 &format!("hello-world-{}", &rng.gen::<u32>()),
-                &contract.to_string(),
+                contract,
                 None,
             )
             .unwrap(),
@@ -8774,7 +8718,7 @@ pub mod test {
         );
         let token_transfer = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth.clone(),
+            auth,
             TransactionPayload::TokenTransfer(
                 recv_addr.clone().into(),
                 123,
@@ -8985,7 +8929,7 @@ pub mod test {
         );
         let token_transfer = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth.clone(),
+            auth,
             TransactionPayload::TokenTransfer(
                 recv_addr.clone().into(),
                 123,
@@ -9079,13 +9023,8 @@ pub mod test {
 
         let mut tx_contract_create = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth.clone(),
-            TransactionPayload::new_smart_contract(
-                &"faucet".to_string(),
-                &contract.to_string(),
-                None,
-            )
-            .unwrap(),
+            auth,
+            TransactionPayload::new_smart_contract("faucet", contract, None).unwrap(),
         );
 
         tx_contract_create.post_condition_mode = TransactionPostConditionMode::Allow;
@@ -9100,7 +9039,7 @@ pub mod test {
         // recipient tries to get some STX, but with a tx fee.
         let mut tx_contract_call = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth_recv.clone(),
+            auth_recv,
             TransactionPayload::new_contract_call(
                 addr.clone(),
                 "faucet",
@@ -9253,13 +9192,8 @@ pub mod test {
 
         let mut tx_contract_create = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth.clone(),
-            TransactionPayload::new_smart_contract(
-                &"faucet".to_string(),
-                &contract.to_string(),
-                None,
-            )
-            .unwrap(),
+            auth,
+            TransactionPayload::new_smart_contract("faucet", contract, None).unwrap(),
         );
 
         tx_contract_create.post_condition_mode = TransactionPostConditionMode::Allow;
@@ -9274,7 +9208,7 @@ pub mod test {
         // recipient tries to get some STX, but with a tx fee.
         let mut tx_contract_call = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth_recv.clone(),
+            auth_recv,
             TransactionPayload::new_contract_call(
                 addr.clone(),
                 "faucet",
@@ -9479,12 +9413,7 @@ pub mod test {
         let mut tx_runtime_checkerror_trait_no_version = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
-            TransactionPayload::new_smart_contract(
-                &"foo".to_string(),
-                &runtime_checkerror_trait.to_string(),
-                None,
-            )
-            .unwrap(),
+            TransactionPayload::new_smart_contract("foo", &runtime_checkerror_trait, None).unwrap(),
         );
 
         tx_runtime_checkerror_trait_no_version.post_condition_mode =
@@ -9502,8 +9431,8 @@ pub mod test {
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_smart_contract(
-                &"foo".to_string(),
-                &runtime_checkerror_trait.to_string(),
+                "foo",
+                &runtime_checkerror_trait,
                 Some(ClarityVersion::Clarity1),
             )
             .unwrap(),
@@ -9523,8 +9452,8 @@ pub mod test {
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_smart_contract(
-                &"foo-impl".to_string(),
-                &runtime_checkerror_impl.to_string(),
+                "foo-impl",
+                &runtime_checkerror_impl,
                 Some(ClarityVersion::Clarity1),
             )
             .unwrap(),
@@ -9543,12 +9472,8 @@ pub mod test {
         let mut tx_runtime_checkerror_impl_no_version = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
-            TransactionPayload::new_smart_contract(
-                &"foo-impl".to_string(),
-                &runtime_checkerror_impl.to_string(),
-                None,
-            )
-            .unwrap(),
+            TransactionPayload::new_smart_contract("foo-impl", &runtime_checkerror_impl, None)
+                .unwrap(),
         );
 
         tx_runtime_checkerror_impl_no_version.post_condition_mode =
@@ -9566,8 +9491,8 @@ pub mod test {
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_smart_contract(
-                &"trait-checkerror".to_string(),
-                &runtime_checkerror.to_string(),
+                "trait-checkerror",
+                &runtime_checkerror,
                 Some(ClarityVersion::Clarity1),
             )
             .unwrap(),
@@ -9586,12 +9511,8 @@ pub mod test {
         let mut tx_runtime_checkerror_clar1_no_version = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
-            TransactionPayload::new_smart_contract(
-                &"trait-checkerror".to_string(),
-                &runtime_checkerror.to_string(),
-                None,
-            )
-            .unwrap(),
+            TransactionPayload::new_smart_contract("trait-checkerror", &runtime_checkerror, None)
+                .unwrap(),
         );
 
         tx_runtime_checkerror_clar1_no_version.post_condition_mode =
@@ -9609,8 +9530,8 @@ pub mod test {
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_smart_contract(
-                &"trait-checkerror".to_string(),
-                &runtime_checkerror.to_string(),
+                "trait-checkerror",
+                &runtime_checkerror,
                 Some(ClarityVersion::Clarity2),
             )
             .unwrap(),
@@ -9654,8 +9575,8 @@ pub mod test {
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_smart_contract(
-                &"trait-checkerror-cc".to_string(),
-                &runtime_checkerror_contract.to_string(),
+                "trait-checkerror-cc",
+                runtime_checkerror_contract,
                 Some(ClarityVersion::Clarity1),
             )
             .unwrap(),
@@ -9676,8 +9597,8 @@ pub mod test {
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_smart_contract(
-                &"trait-checkerror-cc".to_string(),
-                &runtime_checkerror_contract.to_string(),
+                "trait-checkerror-cc",
+                runtime_checkerror_contract,
                 None,
             )
             .unwrap(),
@@ -9697,10 +9618,10 @@ pub mod test {
 
         let mut tx_runtime_checkerror_cc_contract_clar2 = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth.clone(),
+            auth,
             TransactionPayload::new_smart_contract(
-                &"trait-checkerror-cc".to_string(),
-                &runtime_checkerror_contract.to_string(),
+                "trait-checkerror-cc",
+                runtime_checkerror_contract,
                 Some(ClarityVersion::Clarity2),
             )
             .unwrap(),
@@ -10164,8 +10085,8 @@ pub mod test {
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_smart_contract(
-                &"foo".to_string(),
-                &foo_trait.to_string(),
+                "foo",
+                &foo_trait,
                 Some(ClarityVersion::Clarity1),
             )
             .unwrap(),
@@ -10184,12 +10105,7 @@ pub mod test {
         let mut tx_foo_trait_no_version = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
-            TransactionPayload::new_smart_contract(
-                &"foo".to_string(),
-                &foo_trait.to_string(),
-                None,
-            )
-            .unwrap(),
+            TransactionPayload::new_smart_contract("foo", &foo_trait, None).unwrap(),
         );
 
         tx_foo_trait_no_version.post_condition_mode = TransactionPostConditionMode::Allow;
@@ -10206,8 +10122,8 @@ pub mod test {
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_smart_contract(
-                &"foo-impl".to_string(),
-                &foo_impl.to_string(),
+                "foo-impl",
+                &foo_impl,
                 Some(ClarityVersion::Clarity1),
             )
             .unwrap(),
@@ -10226,12 +10142,7 @@ pub mod test {
         let mut tx_foo_impl_no_version = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
-            TransactionPayload::new_smart_contract(
-                &"foo-impl".to_string(),
-                &foo_impl.to_string(),
-                None,
-            )
-            .unwrap(),
+            TransactionPayload::new_smart_contract("foo-impl", &foo_impl, None).unwrap(),
         );
 
         tx_foo_impl_no_version.post_condition_mode = TransactionPostConditionMode::Allow;
@@ -10248,8 +10159,8 @@ pub mod test {
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_smart_contract(
-                &"call-foo".to_string(),
-                &call_foo.to_string(),
+                "call-foo",
+                &call_foo,
                 Some(ClarityVersion::Clarity1),
             )
             .unwrap(),
@@ -10268,12 +10179,7 @@ pub mod test {
         let mut tx_call_foo_clar1_no_version = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
-            TransactionPayload::new_smart_contract(
-                &"call-foo".to_string(),
-                &call_foo.to_string(),
-                None,
-            )
-            .unwrap(),
+            TransactionPayload::new_smart_contract("call-foo", &call_foo, None).unwrap(),
         );
 
         tx_call_foo_clar1_no_version.post_condition_mode = TransactionPostConditionMode::Allow;
@@ -10290,8 +10196,8 @@ pub mod test {
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_smart_contract(
-                &"call-foo".to_string(),
-                &call_foo.to_string(),
+                "call-foo",
+                &call_foo,
                 Some(ClarityVersion::Clarity2),
             )
             .unwrap(),
@@ -10309,7 +10215,7 @@ pub mod test {
 
         let mut tx_test_call_foo = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth.clone(),
+            auth,
             TransactionPayload::new_contract_call(
                 addr.clone(),
                 "call-foo",
@@ -10677,8 +10583,8 @@ pub mod test {
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_smart_contract(
-                &"foo".to_string(),
-                &foo_trait.to_string(),
+                "foo",
+                &foo_trait,
                 Some(ClarityVersion::Clarity1),
             )
             .unwrap(),
@@ -10697,12 +10603,7 @@ pub mod test {
         let mut tx_foo_trait_no_version = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
-            TransactionPayload::new_smart_contract(
-                &"foo".to_string(),
-                &foo_trait.to_string(),
-                None,
-            )
-            .unwrap(),
+            TransactionPayload::new_smart_contract("foo", &foo_trait, None).unwrap(),
         );
 
         tx_foo_trait_no_version.post_condition_mode = TransactionPostConditionMode::Allow;
@@ -10719,8 +10620,8 @@ pub mod test {
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_smart_contract(
-                &"transitive".to_string(),
-                &transitive_trait.to_string(),
+                "transitive",
+                &transitive_trait,
                 Some(ClarityVersion::Clarity1),
             )
             .unwrap(),
@@ -10739,12 +10640,7 @@ pub mod test {
         let mut tx_transitive_trait_clar1_no_version = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
-            TransactionPayload::new_smart_contract(
-                &"transitive".to_string(),
-                &transitive_trait.to_string(),
-                None,
-            )
-            .unwrap(),
+            TransactionPayload::new_smart_contract("transitive", &transitive_trait, None).unwrap(),
         );
 
         tx_transitive_trait_clar1_no_version.post_condition_mode =
@@ -10762,8 +10658,8 @@ pub mod test {
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_smart_contract(
-                &"transitive".to_string(),
-                &transitive_trait.to_string(),
+                "transitive",
+                &transitive_trait,
                 Some(ClarityVersion::Clarity2),
             )
             .unwrap(),
@@ -10783,8 +10679,8 @@ pub mod test {
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_smart_contract(
-                &"foo-impl".to_string(),
-                &foo_impl.to_string(),
+                "foo-impl",
+                &foo_impl,
                 Some(ClarityVersion::Clarity1),
             )
             .unwrap(),
@@ -10803,12 +10699,7 @@ pub mod test {
         let mut tx_foo_impl_no_version = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
-            TransactionPayload::new_smart_contract(
-                &"foo-impl".to_string(),
-                &foo_impl.to_string(),
-                None,
-            )
-            .unwrap(),
+            TransactionPayload::new_smart_contract("foo-impl", &foo_impl, None).unwrap(),
         );
 
         tx_foo_impl_no_version.post_condition_mode = TransactionPostConditionMode::Allow;
@@ -10825,8 +10716,8 @@ pub mod test {
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_smart_contract(
-                &"call-foo".to_string(),
-                &call_foo.to_string(),
+                "call-foo",
+                &call_foo,
                 Some(ClarityVersion::Clarity1),
             )
             .unwrap(),
@@ -10845,12 +10736,7 @@ pub mod test {
         let mut tx_call_foo_clar1_no_version = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
-            TransactionPayload::new_smart_contract(
-                &"call-foo".to_string(),
-                &call_foo.to_string(),
-                None,
-            )
-            .unwrap(),
+            TransactionPayload::new_smart_contract("call-foo", &call_foo, None).unwrap(),
         );
 
         tx_call_foo_clar1_no_version.post_condition_mode = TransactionPostConditionMode::Allow;
@@ -10867,8 +10753,8 @@ pub mod test {
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_smart_contract(
-                &"call-foo".to_string(),
-                &call_foo.to_string(),
+                "call-foo",
+                &call_foo,
                 Some(ClarityVersion::Clarity2),
             )
             .unwrap(),
@@ -10886,7 +10772,7 @@ pub mod test {
 
         let mut tx_test_call_foo = StacksTransaction::new(
             TransactionVersion::Testnet,
-            auth.clone(),
+            auth,
             TransactionPayload::new_contract_call(
                 addr.clone(),
                 "call-foo",

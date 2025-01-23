@@ -1652,7 +1652,7 @@ fn mempool_db_test_rbf() {
     let mut tx = StacksTransaction {
         version: TransactionVersion::Testnet,
         chain_id: 0x80000000,
-        auth: TransactionAuth::Standard(spending_condition.clone()),
+        auth: TransactionAuth::Standard(spending_condition),
         anchor_mode: TransactionAnchorMode::Any,
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: Vec::new(),
