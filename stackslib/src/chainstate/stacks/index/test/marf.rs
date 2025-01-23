@@ -2190,7 +2190,7 @@ fn test_marf_begin_from_sentinel_twice() {
 #[test]
 fn test_marf_unconfirmed() {
     let marf_path = "/tmp/test_marf_unconfirmed";
-    if let Ok(_) = std::fs::metadata(marf_path) {
+    if std::fs::metadata(marf_path).is_ok() {
         std::fs::remove_file(marf_path).unwrap();
     }
     let marf_opts = MARFOpenOpts::default();

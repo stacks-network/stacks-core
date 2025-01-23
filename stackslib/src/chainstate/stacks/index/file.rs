@@ -213,7 +213,7 @@ impl TrieFile {
         let mut set_sqlite_tmpdir = false;
         let mut old_tmpdir_opt = None;
         if let Some(parent_path) = Path::new(db_path).parent() {
-            if let Err(_) = env::var("SQLITE_TMPDIR") {
+            if env::var("SQLITE_TMPDIR").is_err() {
                 debug!(
                     "Sqlite will store temporary migration state in '{}'",
                     parent_path.display()

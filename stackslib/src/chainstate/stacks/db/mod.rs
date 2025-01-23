@@ -1839,10 +1839,7 @@ impl StacksChainState {
         let nakamoto_staging_blocks_conn =
             StacksChainState::open_nakamoto_staging_blocks(&nakamoto_staging_blocks_path, true)?;
 
-        let init_required = match fs::metadata(&clarity_state_index_marf) {
-            Ok(_) => false,
-            Err(_) => true,
-        };
+        let init_required = fs::metadata(&clarity_state_index_marf).is_err();
 
         let state_index = StacksChainState::open_db(mainnet, chain_id, &header_index_root)?;
 

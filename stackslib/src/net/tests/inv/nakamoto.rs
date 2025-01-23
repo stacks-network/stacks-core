@@ -146,7 +146,7 @@ pub fn peer_get_nakamoto_invs<'a>(
 
     loop {
         peer.step_with_ibd(false).unwrap();
-        if let Ok(..) = shutdown_recv.try_recv() {
+        if shutdown_recv.try_recv().is_ok() {
             break;
         }
     }

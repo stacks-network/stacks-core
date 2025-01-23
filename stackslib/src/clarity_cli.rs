@@ -645,7 +645,7 @@ impl HeadersDB for CLIHeadersDB {
     ) -> Option<BurnchainHeaderHash> {
         // mock it
         let conn = self.conn();
-        if let Some(_) = get_cli_block_height(&conn, id_bhh) {
+        if get_cli_block_height(&conn, id_bhh).is_some() {
             let hash_bytes = Sha512Trunc256Sum::from_data(&id_bhh.0);
             Some(BurnchainHeaderHash(hash_bytes.0))
         } else {
@@ -660,7 +660,7 @@ impl HeadersDB for CLIHeadersDB {
     ) -> Option<ConsensusHash> {
         // mock it
         let conn = self.conn();
-        if let Some(_) = get_cli_block_height(&conn, id_bhh) {
+        if get_cli_block_height(&conn, id_bhh).is_some() {
             let hash_bytes = Hash160::from_data(&id_bhh.0);
             Some(ConsensusHash(hash_bytes.0))
         } else {
@@ -674,7 +674,7 @@ impl HeadersDB for CLIHeadersDB {
         _epoch: &StacksEpochId,
     ) -> Option<VRFSeed> {
         let conn = self.conn();
-        if let Some(_) = get_cli_block_height(&conn, id_bhh) {
+        if get_cli_block_height(&conn, id_bhh).is_some() {
             // mock it, but make it unique
             let hash_bytes = Sha512Trunc256Sum::from_data(&id_bhh.0);
             let hash_bytes_2 = Sha512Trunc256Sum::from_data(&hash_bytes.0);
@@ -690,7 +690,7 @@ impl HeadersDB for CLIHeadersDB {
         _epoch: &StacksEpochId,
     ) -> Option<BlockHeaderHash> {
         let conn = self.conn();
-        if let Some(_) = get_cli_block_height(&conn, id_bhh) {
+        if get_cli_block_height(&conn, id_bhh).is_some() {
             // mock it, but make it unique
             let hash_bytes = Sha512Trunc256Sum::from_data(&id_bhh.0);
             let hash_bytes_2 = Sha512Trunc256Sum::from_data(&hash_bytes.0);

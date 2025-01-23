@@ -5147,7 +5147,7 @@ impl StacksChainState {
         ) {
             Ok(miner_rewards_opt) => miner_rewards_opt,
             Err(e) => {
-                if let Some(_) = miner_id_opt {
+                if miner_id_opt.is_some() {
                     return Err(e);
                 } else {
                     let msg = format!("Failed to load miner rewards: {:?}", &e);

@@ -486,7 +486,7 @@ impl BurnStateDB for TestSimBurnStateDB {
         height: u32,
         sortition_id: &SortitionId,
     ) -> Option<(Vec<TupleData>, u128)> {
-        if let Some(_) = self.get_burn_header_hash(height, sortition_id) {
+        if self.get_burn_header_hash(height, sortition_id).is_some() {
             let first_block = self.get_burn_start_height();
             let prepare_len = self.get_pox_prepare_length();
             let rc_len = self.get_pox_reward_cycle_length();
