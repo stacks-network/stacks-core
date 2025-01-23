@@ -147,7 +147,7 @@ fn test_store_and_fetch() {
         &BurnchainHeaderHash::sentinel()
     );
 
-    let headers = vec![first_block_header.clone()];
+    let headers = vec![first_block_header];
     let canon_hash = BurnchainHeaderHash([1; 32]);
 
     let canonical_block =
@@ -1098,7 +1098,7 @@ fn test_classify_delegate_stx() {
 
     let canonical_block =
         BurnchainBlock::Bitcoin(BitcoinBlock::new(500, &canon_hash, &first_bhh, vec![], 485));
-    let mut headers = vec![first_block_header.clone(), canonical_block.header().clone()];
+    let mut headers = vec![first_block_header, canonical_block.header()];
 
     let ops = burnchain_db
         .store_new_burnchain_block(
@@ -1291,8 +1291,8 @@ fn test_classify_delegate_stx() {
         360,
     ));
 
-    headers.push(block_0.header().clone());
-    headers.push(block_1.header().clone());
+    headers.push(block_0.header());
+    headers.push(block_1.header());
 
     test_debug!("store ops ({}) for block 0", ops_0_length);
     let processed_ops_0 = burnchain_db

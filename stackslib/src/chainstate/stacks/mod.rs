@@ -1468,7 +1468,7 @@ pub mod test {
                     Some(PrincipalData::Standard(
                         StandardPrincipalData::new(0x01, [0x02; 20]).unwrap(),
                     )),
-                    Some(proof.clone()),
+                    Some(proof),
                 ),
             ])
         } else {
@@ -1550,7 +1550,7 @@ pub mod test {
         );
         let tx_coinbase_proof = StacksTransaction::new(
             TransactionVersion::Mainnet,
-            origin_auth.clone(),
+            origin_auth,
             TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, Some(proof.clone())),
         );
 
@@ -1606,7 +1606,7 @@ pub mod test {
                 burn: 234,
                 work: 567,
             },
-            proof: proof.clone(),
+            proof,
             parent_block: BlockHeaderHash([5u8; 32]),
             parent_microblock: BlockHeaderHash([6u8; 32]),
             parent_microblock_sequence: 4,

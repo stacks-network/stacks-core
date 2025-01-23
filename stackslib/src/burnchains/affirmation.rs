@@ -1182,7 +1182,7 @@ pub fn update_pox_affirmation_maps<B: BurnchainHeaderReader>(
     let (prepare_ops, pox_anchor_block_info_opt) =
         find_pox_anchor_block(&tx, reward_cycle, indexer, burnchain)?;
 
-    if let Some((anchor_block, descendancy)) = pox_anchor_block_info_opt.clone() {
+    if let Some((anchor_block, descendancy)) = pox_anchor_block_info_opt {
         debug!(
             "PoX anchor block elected in reward cycle {} for reward cycle {} is {}",
             reward_cycle,

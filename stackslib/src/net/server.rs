@@ -1150,13 +1150,9 @@ mod test {
                 let auth_origin = TransactionAuth::from_p2pkh(&privk_origin).unwrap();
                 let mut tx_contract = StacksTransaction::new(
                     TransactionVersion::Testnet,
-                    auth_origin.clone(),
-                    TransactionPayload::new_smart_contract(
-                        &"hello-world".to_string(),
-                        &big_contract.to_string(),
-                        None,
-                    )
-                    .unwrap(),
+                    auth_origin,
+                    TransactionPayload::new_smart_contract("hello-world", &big_contract, None)
+                        .unwrap(),
                 );
 
                 tx_contract.chain_id = chainstate.config().chain_id;

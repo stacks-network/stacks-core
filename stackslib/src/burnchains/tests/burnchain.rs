@@ -428,16 +428,12 @@ fn test_process_block_ops() {
         ],
         vec![
             BlockstackOperationType::LeaderBlockCommit(block_commit_1.clone()),
-            BlockstackOperationType::LeaderBlockCommit(block_commit_2.clone()),
+            BlockstackOperationType::LeaderBlockCommit(block_commit_2),
             BlockstackOperationType::LeaderBlockCommit(block_commit_3.clone()),
         ],
     ];
 
-    let block_124_winners = vec![
-        block_commit_1.clone(),
-        block_commit_3.clone(),
-        block_commit_1.clone(),
-    ];
+    let block_124_winners = vec![block_commit_1.clone(), block_commit_3, block_commit_1];
 
     let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
 

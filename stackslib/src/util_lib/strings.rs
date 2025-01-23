@@ -336,7 +336,7 @@ mod test {
 
         assert_eq!(stacks_str[..], s.as_bytes().to_vec()[..]);
         let s2 = stacks_str.to_string();
-        assert_eq!(s2.to_string(), s.to_string());
+        assert_eq!(s2, s.to_string());
 
         // stacks strings have a 4-byte length prefix
         let mut b = vec![];

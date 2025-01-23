@@ -468,7 +468,7 @@ pub mod test {
             total_read_time, &read_bench
         );
 
-        let mut bench = write_bench.clone();
+        let mut bench = write_bench;
         bench.add(&read_bench);
 
         eprintln!("MARF bench total: {:#?}", &bench);

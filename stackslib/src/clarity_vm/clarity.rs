@@ -856,7 +856,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
             let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
 
             let costs_2_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+                StacksTransaction::new(tx_version.clone(), boot_code_auth, payload);
 
             let initialization_receipt = self.as_transaction(|tx_conn| {
                 // bump the epoch in the Clarity DB
@@ -1041,7 +1041,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
             );
 
             let costs_3_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+                StacksTransaction::new(tx_version.clone(), boot_code_auth, payload);
 
             let costs_3_initialization_receipt = self.as_transaction(|tx_conn| {
                 // bump the epoch in the Clarity DB
@@ -1222,7 +1222,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
             );
 
             let pox_3_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+                StacksTransaction::new(tx_version.clone(), boot_code_auth, payload);
 
             let pox_3_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
@@ -1483,7 +1483,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
             );
 
             let signers_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+                StacksTransaction::new(tx_version.clone(), boot_code_auth, payload);
 
             let signers_voting_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
@@ -2646,7 +2646,7 @@ mod tests {
 
         let mut tx3 = StacksTransaction::new(
             TransactionVersion::Mainnet,
-            TransactionAuth::Standard(spending_cond.clone()),
+            TransactionAuth::Standard(spending_cond),
             TransactionPayload::ContractCall(TransactionContractCall {
                 address: sender,
                 contract_name: "hello-world".into(),

@@ -637,7 +637,7 @@ fn test_downloader_context_attachment_inventories_requests() {
     );
 
     let request = request_queue.pop().unwrap();
-    let request_type = request.make_request_type(localhost.clone());
+    let request_type = request.make_request_type(localhost);
     assert_eq!(&**request.get_url(), "http://localhost:40443");
     debug!("request path = {}", request_type.request_path());
     assert!(
@@ -693,7 +693,7 @@ fn test_downloader_context_attachment_requests() {
 
     let response_2 =
         new_attachments_inventory_response(vec![(0, vec![1, 1, 1]), (1, vec![0, 0, 0])]);
-    responses.insert(peer_url_2.clone(), Some(response_2.clone()));
+    responses.insert(peer_url_2, Some(response_2.clone()));
 
     let response_3 =
         new_attachments_inventory_response(vec![(0, vec![0, 1, 1]), (1, vec![1, 0, 0])]);
@@ -742,7 +742,7 @@ fn test_downloader_context_attachment_requests() {
     assert_eq!(request.get_url(), &peer_url_1);
 
     let request = attachments_requests.pop().unwrap();
-    let request_type = request.make_request_type(localhost.clone());
+    let request_type = request.make_request_type(localhost);
     assert_eq!(request.get_url(), &peer_url_1);
 }
 
