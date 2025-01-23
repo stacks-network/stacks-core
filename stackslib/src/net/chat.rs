@@ -3106,7 +3106,7 @@ mod test {
         services: u16,
     ) -> (PeerDB, SortitionDB, StackerDBs, PoxId, StacksChainState) {
         let test_path = format!("/tmp/stacks-test-databases-{}", testname);
-        if let Ok(_) = fs::metadata(&test_path) {
+        if fs::metadata(&test_path).is_ok() {
             fs::remove_dir_all(&test_path).unwrap();
         };
 

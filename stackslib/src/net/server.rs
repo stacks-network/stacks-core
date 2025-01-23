@@ -726,7 +726,7 @@ mod test {
                 peer.step().unwrap();
 
                 // asked to yield?
-                if let Ok(_) = http_rx.try_recv() {
+                if http_rx.try_recv().is_ok() {
                     break;
                 }
             }

@@ -338,7 +338,7 @@ impl TestStacksNode {
             panic!("Tried to fork an unforkable chainstate instance");
         }
 
-        if let Ok(_) = fs::metadata(&chainstate_path(new_test_name)) {
+        if fs::metadata(&chainstate_path(new_test_name)).is_ok() {
             fs::remove_dir_all(&chainstate_path(new_test_name)).unwrap();
         }
 
@@ -1418,7 +1418,7 @@ pub fn instantiate_and_exec(
     post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx)>>,
 ) -> StacksChainState {
     let path = chainstate_path(test_name);
-    if let Ok(_) = fs::metadata(&path) {
+    if fs::metadata(&path).is_ok() {
         fs::remove_dir_all(&path).unwrap();
     };
 

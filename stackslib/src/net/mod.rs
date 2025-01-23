@@ -2793,7 +2793,7 @@ pub mod test {
 
         pub fn make_test_path(config: &TestPeerConfig) -> String {
             let test_path = TestPeer::test_path(&config);
-            if let Ok(_) = fs::metadata(&test_path) {
+            if fs::metadata(&test_path).is_ok() {
                 fs::remove_dir_all(&test_path).unwrap();
             };
 

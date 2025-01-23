@@ -2746,7 +2746,7 @@ pub mod test {
         balances: Vec<(StacksAddress, u64)>,
     ) -> StacksChainState {
         let path = chainstate_path(test_name);
-        if let Ok(_) = fs::metadata(&path) {
+        if fs::metadata(&path).is_ok() {
             fs::remove_dir_all(&path).unwrap();
         };
 
@@ -2863,7 +2863,7 @@ pub mod test {
         };
 
         let path = chainstate_path(function_name!());
-        if let Ok(_) = fs::metadata(&path) {
+        if fs::metadata(&path).is_ok() {
             fs::remove_dir_all(&path).unwrap();
         };
 
@@ -2950,7 +2950,7 @@ pub mod test {
         };
 
         let path = chainstate_path(function_name!());
-        if let Ok(_) = fs::metadata(&path) {
+        if fs::metadata(&path).is_ok() {
             fs::remove_dir_all(&path).unwrap();
         };
 
