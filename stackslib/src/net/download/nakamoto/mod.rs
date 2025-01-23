@@ -236,11 +236,11 @@ impl PeerNetwork {
         };
 
         for broken in block_downloader.neighbor_rpc.take_broken() {
-            self.deregister_and_ban_neighbor(&broken, DropReason::BrokenConnection(None));
+            self.deregister_and_ban_neighbor(&broken.key, broken.reason, broken.source);
         }
 
         for dead in block_downloader.neighbor_rpc.take_dead() {
-            self.deregister_neighbor(&dead, DropReason::DeadConnection);
+            self.deregister_neighbor(&dead.key, dead.reason, dead.source);
         }
 
         self.block_downloader_nakamoto = Some(block_downloader);

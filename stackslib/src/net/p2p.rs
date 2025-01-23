@@ -275,7 +275,7 @@ impl StacksTipInfo {
 }
 
 /// The status of a peer
-#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
 pub enum PeerStatus {
     /// The peer is connecting
     Connecting,
@@ -298,6 +298,8 @@ impl std::fmt::Display for PeerStatus {
 /// The reason why a peer should be dropped
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
 pub enum DropReason {
+    /// Unknown
+    Unknown,
     /// The peer has been unresponsive for too long
     Unresponsive {
         /// The configured timeout in seconds
@@ -308,11 +310,11 @@ pub enum DropReason {
         status: PeerStatus,
     },
     /// The peer connection is dead
-    DeadConnection,
+    DeadConnection(String),
     /// The peer connection is banned
     BannedConnection,
     /// The peer connection is broken
-    BrokenConnection(Option<String>),
+    BrokenConnection(String),
     /// The connection was replaced
     ReplacedConnection,
     /// Too many inbound connections from the same IP
@@ -328,6 +330,7 @@ pub enum DropReason {
 impl std::fmt::Display for DropReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            DropReason::Unknown => write!(f, "Unknown"),
             DropReason::Unresponsive {
                 timeout,
                 last_seen,
@@ -335,15 +338,9 @@ impl std::fmt::Display for DropReason {
             } => {
                 write!(f, "{status} Peer was unresponsive for longer than {timeout} seconds: last seen at {last_seen}")
             }
-            DropReason::DeadConnection => write!(f, "The peer connection is dead"),
+            DropReason::DeadConnection(msg) => write!(f, "The peer connection is dead: {msg}"),
             DropReason::BannedConnection => write!(f, "The peer connection is banned"),
-            DropReason::BrokenConnection(msg) => {
-                if let Some(msg) = msg {
-                    write!(f, "The peer connection is broken: {msg}")
-                } else {
-                    write!(f, "The peer connection is broken")
-                }
-            }
+            DropReason::BrokenConnection(msg) => write!(f, "The peer connection is broken: {msg}"),
             DropReason::ReplacedConnection => write!(f, "The peer connection was replaced"),
             DropReason::TooManyConnections => {
                 write!(f, "Too many inbound connections from the same IP")
@@ -359,6 +356,93 @@ impl std::fmt::Display for DropReason {
     }
 }
 
+/// A peer subystem
+#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Debug)]
+pub enum DropSource {
+    /// Unknown source
+    Unknown,
+    /// From the peer network
+    PeerNetwork,
+    /// From processing a peer network inbound ready socket
+    PeerNetworkInboundReadySocket,
+    /// From processing a peer network outbound ready socket
+    PeerNetworkOutboundReadySocket,
+    /// From a peer network unresponsive update
+    PeerNetworkDisconnectUnresponsive,
+    /// From a peer network block download attempt
+    PeerNetworkBlockDownload,
+    /// From a poll from the neighbor comms
+    NeighborCommsPoll,
+    /// From a handshake from the neighbor comms
+    NeighborCommsHandshake,
+    /// From a handshake from the neighbor walk
+    NeighborWalkHandshake,
+    /// From a GetNeighbors request from the neighbor walk
+    NeighborWalkGetNeighbors,
+    /// From a Ping request from the neighbor walk
+    NeighborWalkPing,
+    /// From the peer DB Neighbor walk
+    NeighborWalkPeerDB,
+    /// From an Epoch 2x Inventory Sync
+    Epoch2xInventorySync,
+    /// From a Nakamoto inventory sync
+    NakamotoInventorySync,
+    /// From a attempt to get the Nakamoto inventory sync
+    NakamotoGetInventorySync,
+    /// From the Nakamoto download state machine
+    NakamotoDownloadStateMachine,
+    /// From the Nakamoto tenure downloader set
+    NakamotoTenureDownloader,
+    /// From the Nakamoto unconfirmed tenure downloader
+    NakamotoUnconfirmedTenureDownloader,
+    /// From the Nakamoto inventory state machine
+    NakamotoInvStateMachine,
+    /// From the neighbor RPC
+    NeighborRPC,
+    /// From a network block download
+    NetworkBlockDownload,
+    /// From a getblocks attempt in the block downloader
+    BlockDownloaderGetBlocks,
+    /// From a getmicroblocks attempt in the block downloader
+    BlockDownloaderGetMicroblocks,
+}
+
+impl std::fmt::Display for DropSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DropSource::Unknown => write!(f, "Unknown"),
+            DropSource::PeerNetwork => write!(f, "PeerNetwork"),
+            DropSource::PeerNetworkInboundReadySocket => write!(f, "PeerNetworkInboundReadySocket"),
+            DropSource::PeerNetworkOutboundReadySocket => {
+                write!(f, "PeerNetworkOutboundReadySocket")
+            }
+            DropSource::PeerNetworkDisconnectUnresponsive => {
+                write!(f, "PeerNetworkDisconnectUnresponsive")
+            }
+            DropSource::PeerNetworkBlockDownload => write!(f, "PeerNetworkBlockDownload"),
+            DropSource::NeighborCommsPoll => write!(f, "NeighborCommsPoll"),
+            DropSource::NeighborCommsHandshake => write!(f, "NeighborCommsHandshake"),
+            DropSource::NeighborWalkHandshake => write!(f, "NeighborWalkHandshake"),
+            DropSource::NeighborWalkGetNeighbors => write!(f, "NeighborWalkGetNeighbors"),
+            DropSource::NeighborWalkPing => write!(f, "NeighborWalkPing"),
+            DropSource::NeighborWalkPeerDB => write!(f, "NeighborWalkPeerDB"),
+            DropSource::Epoch2xInventorySync => write!(f, "Epoch2xInventorySync"),
+            DropSource::NakamotoInventorySync => write!(f, "NakamotoInventorySync"),
+            DropSource::NakamotoGetInventorySync => write!(f, "NakamotoGetInventorySync"),
+            DropSource::NakamotoDownloadStateMachine => write!(f, "NakamotoDownloadStateMachine"),
+            DropSource::NakamotoTenureDownloader => write!(f, "NakamotoTenureDownloader"),
+            DropSource::NakamotoUnconfirmedTenureDownloader => {
+                write!(f, "NakamotoUnconfirmedTenureDownloader")
+            }
+            DropSource::NakamotoInvStateMachine => write!(f, "NakamotoInvStateMachine"),
+            DropSource::NeighborRPC => write!(f, "NeighborRPC"),
+            DropSource::NetworkBlockDownload => write!(f, "NetworkBlockDownload"),
+            DropSource::BlockDownloaderGetBlocks => write!(f, "BlockDownloaderGetBlocks"),
+            DropSource::BlockDownloaderGetMicroblocks => write!(f, "BlockDownloaderGetMicroblocks"),
+        }
+    }
+}
+
 /// A helper struct for holding peer drop information
 #[derive(Debug, Clone)]
 pub struct DropPeer {
@@ -366,6 +450,18 @@ pub struct DropPeer {
     pub reason: DropReason,
     /// The address of the peer to drop
     pub address: PeerAddress,
+    /// The subsystem source that is dropping the peer
+    pub source: DropSource,
+}
+
+impl From<&DropNeighbor> for DropPeer {
+    fn from(drop_neighbor: &DropNeighbor) -> Self {
+        DropPeer {
+            reason: drop_neighbor.reason.clone(),
+            address: drop_neighbor.key.addrbytes,
+            source: drop_neighbor.source.clone(),
+        }
+    }
 }
 
 pub struct PeerNetwork {
@@ -1645,6 +1741,7 @@ impl PeerNetwork {
             disconnect.push(DropPeer {
                 address: neighbor_key.addrbytes,
                 reason: DropReason::BannedConnection,
+                source: DropSource::PeerNetwork,
             });
 
             let now = get_epoch_time_secs();
@@ -1912,7 +2009,7 @@ impl PeerNetwork {
             Ok(_) => {
                 info!("Neighbor accepted!";
                 "public key" => ?pubkey_opt,
-                "address" => %neighbor_key.addrbytes);
+                "address" => %neighbor_key.addrbytes.pretty_print());
             }
             Err(e) => {
                 debug!(
@@ -2059,7 +2156,12 @@ impl PeerNetwork {
     }
 
     /// Deregister by neighbor key
-    pub fn deregister_neighbor(&mut self, neighbor: &NeighborKey, reason: DropReason) {
+    pub fn deregister_neighbor(
+        &mut self,
+        neighbor: &NeighborKey,
+        reason: DropReason,
+        source: DropSource,
+    ) {
         debug!("Disconnect from {neighbor:?}");
         if !self.events.contains_key(neighbor) {
             return;
@@ -2067,11 +2169,17 @@ impl PeerNetwork {
         self.deregister_peer(DropPeer {
             reason,
             address: neighbor.addrbytes,
+            source,
         });
     }
 
     /// Deregister and ban a neighbor
-    pub fn deregister_and_ban_neighbor(&mut self, neighbor: &NeighborKey, reason: DropReason) {
+    pub fn deregister_and_ban_neighbor(
+        &mut self,
+        neighbor: &NeighborKey,
+        reason: DropReason,
+        source: DropSource,
+    ) {
         debug!("Disconnect from and ban {neighbor:?}");
         let event_id = self.events.get(neighbor).map(|event_id| {
             self.bans.insert(*event_id);
@@ -2082,6 +2190,7 @@ impl PeerNetwork {
             self.deregister_peer(DropPeer {
                 reason,
                 address: neighbor.addrbytes,
+                source,
             });
         }
     }
@@ -2361,7 +2470,12 @@ impl PeerNetwork {
                     if let Some(convo) = convo {
                         to_remove.push(DropPeer {
                             address: convo.peer_addrbytes,
-                            reason: DropReason::BrokenConnection(Some(e.to_string())),
+                            reason: DropReason::BrokenConnection(format!("Connection failed: {e}")),
+                            source: if ibd {
+                                DropSource::PeerNetworkInboundReadySocket
+                            } else {
+                                DropSource::PeerNetworkOutboundReadySocket
+                            },
                         });
                     }
                     continue;
@@ -2377,7 +2491,12 @@ impl PeerNetwork {
                 if let Some(convo) = convo {
                     to_remove.push(DropPeer {
                         address: convo.peer_addrbytes,
-                        reason: DropReason::DeadConnection,
+                        reason: DropReason::DeadConnection("Connection is no longer alive".into()),
+                        source: if ibd {
+                            DropSource::PeerNetworkInboundReadySocket
+                        } else {
+                            DropSource::PeerNetworkOutboundReadySocket
+                        },
                     });
                 }
             }
@@ -2410,15 +2529,15 @@ impl PeerNetwork {
     /// -- Prune our frontier if it gets too big.
     fn process_neighbor_walk(&mut self, walk_result: NeighborWalkResult) {
         for broken in walk_result.broken_connections.iter() {
-            self.deregister_and_ban_neighbor(broken, DropReason::BrokenConnection(None));
+            self.deregister_and_ban_neighbor(&broken.key, broken.reason.clone(), broken.source);
         }
 
         for dead in walk_result.dead_connections.iter() {
-            self.deregister_neighbor(dead, DropReason::DeadConnection);
+            self.deregister_neighbor(&dead.key, dead.reason.clone(), dead.source);
         }
 
         for replaced in walk_result.replaced_neighbors.iter() {
-            self.deregister_neighbor(replaced, DropReason::ReplacedConnection);
+            self.deregister_neighbor(&replaced.key, replaced.reason.clone(), replaced.source);
         }
 
         // store for later
@@ -2491,6 +2610,7 @@ impl PeerNetwork {
                         last_seen: peer.timestamp,
                         status: PeerStatus::Connecting,
                     },
+                    source: DropSource::PeerNetworkDisconnectUnresponsive,
                 });
             }
         }
@@ -2521,6 +2641,7 @@ impl PeerNetwork {
                             last_seen: convo.peer_heartbeat.into(),
                             status: PeerStatus::Authenticated,
                         },
+                        source: DropSource::PeerNetworkDisconnectUnresponsive,
                     });
                 }
             } else {
@@ -2542,6 +2663,7 @@ impl PeerNetwork {
                             last_seen: convo.instantiated,
                             status: PeerStatus::Unauthenticated,
                         },
+                        source: DropSource::PeerNetworkDisconnectUnresponsive,
                     });
                 }
             }
@@ -2731,9 +2853,10 @@ impl PeerNetwork {
                         if let Some(peer) = self.peers.get(event_id) {
                             broken.push(DropPeer {
                                 address: peer.peer_addrbytes,
-                                reason: DropReason::BrokenConnection(Some(format!(
+                                reason: DropReason::BrokenConnection(format!(
                                     "Relay handle broken: {e}"
-                                ))),
+                                )),
+                                source: DropSource::PeerNetwork,
                             });
                         }
                         break;
@@ -2873,7 +2996,7 @@ impl PeerNetwork {
     }
 
     /// Disconnect from all peers
-    fn disconnect_all(&mut self, reason: DropReason) {
+    fn disconnect_all(&mut self, reason: DropReason, source: DropSource) {
         let addresses: Vec<_> = self
             .peers
             .values()
@@ -2883,6 +3006,7 @@ impl PeerNetwork {
             self.deregister_peer(DropPeer {
                 address,
                 reason: reason.clone(),
+                source: source.clone(),
             });
         }
     }
@@ -3168,7 +3292,11 @@ impl PeerNetwork {
                 "{:?}: De-register dead/broken neighbor {:?}",
                 &self.local_peer, &broken_neighbor
             );
-            self.deregister_and_ban_neighbor(&broken_neighbor.key, broken_neighbor.reason);
+            self.deregister_and_ban_neighbor(
+                &broken_neighbor.key,
+                broken_neighbor.reason,
+                DropSource::PeerNetworkBlockDownload,
+            );
         }
 
         if done && at_chain_tip {
@@ -5078,7 +5206,7 @@ impl PeerNetwork {
                         "{:?}: Fault injection: forcing disconnect",
                         &self.local_peer
                     );
-                    self.disconnect_all(DropReason::FaultInjection);
+                    self.disconnect_all(DropReason::FaultInjection, DropSource::PeerNetwork);
                     self.fault_last_disconnect = get_epoch_time_secs();
                 }
             }

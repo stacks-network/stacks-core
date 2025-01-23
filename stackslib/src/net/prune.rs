@@ -31,7 +31,7 @@ use crate::net::p2p::*;
 use crate::net::poll::{NetworkPollState, NetworkState};
 /// This module contains the logic for pruning client and neighbor connections
 use crate::net::*;
-use crate::net::{DropNeighbor, DropReason, Error as net_error};
+use crate::net::{DropReason, Error as net_error};
 use crate::util_lib::db::{DBConn, Error as db_error};
 
 impl PeerNetwork {
@@ -174,7 +174,7 @@ impl PeerNetwork {
     fn prune_frontier_outbound_orgs(
         &mut self,
         preserve: &HashSet<usize>,
-    ) -> Result<Vec<DropNeighbor>, net_error> {
+    ) -> Result<Vec<(NeighborKey, DropReason)>, net_error> {
         let num_outbound = PeerNetwork::count_outbound_conversations(&self.peers);
         if num_outbound <= self.connection_opts.soft_num_neighbors {
             return Ok(vec![]);
@@ -230,10 +230,7 @@ impl PeerNetwork {
                                 &self.local_peer, &neighbor_key, org
                             );
 
-                            ret.push(DropNeighbor {
-                                key: neighbor_key,
-                                reason: DropReason::OrgDominatesPeerTable,
-                            });
+                            ret.push((neighbor_key, DropReason::OrgDominatesPeerTable));
 
                             // don't prune too many
                             if num_outbound - (ret.len() as u64)
@@ -294,10 +291,7 @@ impl PeerNetwork {
                     );
 
                     neighbor_info.remove(0);
-                    ret.push(DropNeighbor {
-                        key: neighbor_key,
-                        reason: DropReason::OrgTooManyMembers,
-                    });
+                    ret.push((neighbor_key, DropReason::OrgTooManyMembers));
                 }
             }
         }
@@ -313,7 +307,7 @@ impl PeerNetwork {
     /// Prune inbound peers by IP address -- can't have too many from the same IP.
     /// Returns the list of IPs to remove.
     /// Removes them in reverse order they are added
-    fn prune_frontier_inbound_ip(&mut self, preserve: &HashSet<usize>) -> Vec<DropNeighbor> {
+    fn prune_frontier_inbound_ip(&mut self, preserve: &HashSet<usize>) -> Vec<NeighborKey> {
         let num_inbound =
             (self.num_peers() as u64) - PeerNetwork::count_outbound_conversations(&self.peers);
         if num_inbound <= self.connection_opts.soft_num_clients {
@@ -362,10 +356,7 @@ impl PeerNetwork {
                 for i in
                     (self.connection_opts.soft_max_clients_per_host as usize)..neighbor_info.len()
                 {
-                    to_remove.push(DropNeighbor {
-                        key: neighbor_info[i].1.clone(),
-                        reason: DropReason::TooManyConnections,
-                    });
+                    to_remove.push(neighbor_info[i].1.clone());
                 }
             }
         }
@@ -417,19 +408,19 @@ impl PeerNetwork {
             pruned_by_ip.len()
         );
 
-        for prune in pruned_by_ip.iter() {
-            debug!("{:?}: prune by IP: {:?}", &self.local_peer, prune.key);
-            self.deregister_neighbor(&prune.key, prune.reason.clone());
+        for key in pruned_by_ip.iter() {
+            debug!(
+                "{:?}: prune by IP: {:?}",
+                &self.local_peer,
+                key.addrbytes.pretty_print()
+            );
+            self.deregister_neighbor(key, DropReason::TooManyConnections, DropSource::PeerNetwork);
 
-            if !self.prune_inbound_counts.contains_key(&prune.key) {
-                self.prune_inbound_counts.insert(prune.key.clone(), 1);
+            if !self.prune_inbound_counts.contains_key(key) {
+                self.prune_inbound_counts.insert(key.clone(), 1);
             } else {
-                let c = self
-                    .prune_inbound_counts
-                    .get(&prune.key)
-                    .unwrap()
-                    .to_owned();
-                self.prune_inbound_counts.insert(prune.key.clone(), c + 1);
+                let c = self.prune_inbound_counts.get(key).unwrap().to_owned();
+                self.prune_inbound_counts.insert(key.clone(), c + 1);
             }
         }
 
@@ -443,19 +434,19 @@ impl PeerNetwork {
             pruned_by_org.len()
         );
 
-        for prune in pruned_by_org.iter() {
-            debug!("{:?}: prune by Org: {:?}", &self.local_peer, &prune.key);
-            self.deregister_neighbor(&prune.key, prune.reason.clone());
+        for (key, reason) in pruned_by_org.iter() {
+            debug!(
+                "{:?}: prune by Org: {:?}",
+                &self.local_peer,
+                key.addrbytes.pretty_print()
+            );
+            self.deregister_neighbor(key, reason.clone(), DropSource::PeerNetwork);
 
-            if !self.prune_outbound_counts.contains_key(&prune.key) {
-                self.prune_outbound_counts.insert(prune.key.clone(), 1);
+            if !self.prune_outbound_counts.contains_key(key) {
+                self.prune_outbound_counts.insert(key.clone(), 1);
             } else {
-                let c = self
-                    .prune_outbound_counts
-                    .get(&prune.key)
-                    .unwrap()
-                    .to_owned();
-                self.prune_outbound_counts.insert(prune.key.clone(), c + 1);
+                let c = self.prune_outbound_counts.get(key).unwrap().to_owned();
+                self.prune_outbound_counts.insert(key.clone(), c + 1);
             }
         }
 

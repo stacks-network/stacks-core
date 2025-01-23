@@ -22,6 +22,7 @@ use std::sync::mpsc::{
     sync_channel, Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError,
 };
 
+use p2p::DropSource;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, RngCore};
 use stacks_common::types::chainstate::{BlockHeaderHash, PoxId, SortitionId, StacksBlockId};
@@ -502,9 +503,10 @@ impl BlockDownloader {
                                             self.broken_peers.push(event_id);
                                             self.broken_neighbors.push(DropNeighbor {
                                                 key: block_key.neighbor.clone(),
-                                                reason: DropReason::BrokenConnection(Some(
+                                                reason: DropReason::BrokenConnection(
                                                     "Remote neighbor sent an invalid block".into(),
-                                                )),
+                                                ),
+                                                source: DropSource::BlockDownloaderGetBlocks,
                                             });
                                         } else {
                                             // got the block
@@ -526,10 +528,11 @@ impl BlockDownloader {
                                         self.broken_peers.push(event_id);
                                         self.broken_neighbors.push(DropNeighbor {
                                             key: block_key.neighbor.clone(),
-                                            reason: DropReason::BrokenConnection(Some(
+                                            reason: DropReason::BrokenConnection(
                                                 "Remote neighbor was missing an expected block"
                                                     .into(),
-                                            )),
+                                            ),
+                                            source: DropSource::BlockDownloaderGetBlocks,
                                         });
                                     }
                                     Err(e) => {
@@ -539,7 +542,8 @@ impl BlockDownloader {
                                         self.broken_peers.push(event_id);
                                         self.broken_neighbors.push(DropNeighbor {
                                             key: block_key.neighbor.clone(),
-                                            reason: DropReason::BrokenConnection(Some(format!("Error occurred decoding block response from neighbor: {e}")))
+                                            reason: DropReason::BrokenConnection(format!("Error occurred decoding block response from neighbor: {e}")),
+                                            source: DropSource::BlockDownloaderGetBlocks
                                         });
                                     }
                                 }
@@ -648,7 +652,8 @@ impl BlockDownloader {
                                             self.broken_peers.push(event_id);
                                             self.broken_neighbors.push(DropNeighbor {
                                                 key: block_key.neighbor.clone(),
-                                                reason: DropReason::BrokenConnection(Some("Remote neighbor sent an unexpected zero-length microblock stream".into()))
+                                                reason: DropReason::BrokenConnection("Remote neighbor sent an unexpected zero-length microblock stream".into()),
+                                                source: DropSource::BlockDownloaderGetMicroblocks
                                             });
                                         } else {
                                             // have microblocks (but we don't know yet if they're well-formed)
@@ -683,7 +688,8 @@ impl BlockDownloader {
                                         self.broken_peers.push(event_id);
                                         self.broken_neighbors.push(DropNeighbor {
                                             key: block_key.neighbor.clone(),
-                                            reason: DropReason::BrokenConnection(Some(format!("Error occurred decoding microblock response from neighbor: {e}")))
+                                            reason: DropReason::BrokenConnection(format!("Error occurred decoding microblock response from neighbor: {e}")),
+                                            source: DropSource::BlockDownloaderGetMicroblocks
                                         });
                                     }
                                 }

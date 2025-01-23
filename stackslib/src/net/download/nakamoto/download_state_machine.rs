@@ -63,7 +63,7 @@ use crate::net::inv::epoch2x::InvState;
 use crate::net::inv::nakamoto::{NakamotoInvStateMachine, NakamotoTenureInv};
 use crate::net::neighbors::rpc::NeighborRPC;
 use crate::net::neighbors::NeighborComms;
-use crate::net::p2p::{CurrentRewardSet, PeerNetwork};
+use crate::net::p2p::{CurrentRewardSet, DropReason, DropSource, PeerNetwork};
 use crate::net::server::HttpPeer;
 use crate::net::{Error as NetError, Neighbor, NeighborAddress, NeighborKey};
 use crate::util_lib::db::{DBConn, Error as DBError};
@@ -1205,7 +1205,12 @@ impl NakamotoDownloadStateMachine {
                     "Downloader for {} failed; this peer is dead: {:?}",
                     &naddr, &e
                 );
-                neighbor_rpc.add_dead(network, naddr);
+                neighbor_rpc.add_dead(
+                    network,
+                    naddr,
+                    DropReason::DeadConnection(format!("Failed to send download request: {e}")),
+                    DropSource::NakamotoDownloadStateMachine,
+                );
                 continue;
             };
         }
@@ -1237,12 +1242,24 @@ impl NakamotoDownloadStateMachine {
             ) {
                 Ok(blocks_opt) => blocks_opt,
                 Err(NetError::StaleView) => {
-                    neighbor_rpc.add_dead(network, &naddr);
+                    neighbor_rpc.add_dead(
+                        network,
+                        &naddr,
+                        DropReason::DeadConnection("Stale view".into()),
+                        DropSource::NakamotoDownloadStateMachine,
+                    );
                     continue;
                 }
                 Err(e) => {
                     debug!("Failed to handle next download response from unconfirmed downloader for {:?} in state {:?}: {:?}", &naddr, &downloader.state, &e);
-                    neighbor_rpc.add_dead(network, &naddr);
+                    neighbor_rpc.add_dead(
+                        network,
+                        &naddr,
+                        DropReason::DeadConnection(format!(
+                            "Failed to handle next download response: {e}"
+                        )),
+                        DropSource::NakamotoDownloadStateMachine,
+                    );
                     continue;
                 }
             };

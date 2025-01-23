@@ -25,10 +25,10 @@ use stacks_common::util::{get_epoch_time_secs, log};
 use crate::burnchains::{Address, Burnchain, BurnchainView};
 use crate::net::db::PeerDB;
 use crate::net::neighbors::{NeighborWalkResult, NEIGHBOR_MINIMUM_CONTACT_INTERVAL, NUM_NEIGHBORS};
-use crate::net::p2p::PeerNetwork;
+use crate::net::p2p::{DropReason, DropSource, PeerNetwork};
 use crate::net::{
-    Error as net_error, HandshakeAcceptData, HandshakeData, Neighbor, NeighborAddress, NeighborKey,
-    Preamble, StackerDBHandshakeData, StacksMessage,
+    DropNeighbor, Error as net_error, HandshakeAcceptData, HandshakeData, Neighbor,
+    NeighborAddress, NeighborKey, Preamble, StackerDBHandshakeData, StacksMessage,
 };
 use crate::util_lib::db::{DBConn, DBTx};
 
@@ -505,7 +505,11 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
                 );
 
                 PeerDB::insert_or_replace_peer(&tx, &replacement, *slot)?;
-                result.add_replaced(replaced.addr.clone());
+                result.add_replaced(DropNeighbor {
+                    key: replaced.addr.clone(),
+                    reason: DropReason::ReplacedConnection,
+                    source: DropSource::NeighborWalkPeerDB,
+                });
             }
         }
         tx.commit()?;
