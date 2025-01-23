@@ -338,8 +338,7 @@ impl<'a> TestRPC<'a> {
         let mut tx_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&privk1).unwrap(),
-            TransactionPayload::new_smart_contract(&format!("hello-world"), contract, None)
-                .unwrap(),
+            TransactionPayload::new_smart_contract("hello-world", contract, None).unwrap(),
         );
 
         tx_contract.chain_id = 0x80000000;
@@ -377,7 +376,7 @@ impl<'a> TestRPC<'a> {
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&privk1).unwrap(),
             TransactionPayload::new_smart_contract(
-                &format!("hello-world-unconfirmed"),
+                "hello-world-unconfirmed",
                 unconfirmed_contract,
                 None,
             )
