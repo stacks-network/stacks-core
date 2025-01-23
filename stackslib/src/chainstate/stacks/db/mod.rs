@@ -1226,7 +1226,7 @@ impl StacksChainState {
 
     fn parse_genesis_address(addr: &str, mainnet: bool) -> PrincipalData {
         // Typical entries are BTC encoded addresses that need converted to STX
-        let mut stacks_address = match LegacyBitcoinAddress::from_b58(&addr) {
+        let stacks_address = match LegacyBitcoinAddress::from_b58(&addr) {
             Ok(addr) => StacksAddress::from_legacy_bitcoin_address(&addr),
             // A few addresses (from legacy placeholder accounts) are already STX addresses
             _ => match StacksAddress::from_string(addr) {
@@ -1236,20 +1236,25 @@ impl StacksChainState {
         };
         // Convert a given address to the currently running network mode (mainnet vs testnet).
         // All addresses from the Stacks 1.0 import data should be mainnet, but we'll handle either case.
-        stacks_address.version = if mainnet {
-            match stacks_address.version {
+        let converted_version = if mainnet {
+            match stacks_address.version() {
                 C32_ADDRESS_VERSION_TESTNET_SINGLESIG => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
                 C32_ADDRESS_VERSION_TESTNET_MULTISIG => C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                _ => stacks_address.version,
+                _ => stacks_address.version(),
             }
         } else {
-            match stacks_address.version {
+            match stacks_address.version() {
                 C32_ADDRESS_VERSION_MAINNET_SINGLESIG => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
                 C32_ADDRESS_VERSION_MAINNET_MULTISIG => C32_ADDRESS_VERSION_TESTNET_MULTISIG,
-                _ => stacks_address.version,
+                _ => stacks_address.version(),
             }
         };
-        let principal: PrincipalData = stacks_address.into();
+
+        let (_, bytes) = stacks_address.destruct();
+        let principal: PrincipalData = StandardPrincipalData::new(converted_version, bytes.0)
+            .expect("FATAL: infallible constant version byte is not valid")
+            .into();
+
         return principal;
     }
 

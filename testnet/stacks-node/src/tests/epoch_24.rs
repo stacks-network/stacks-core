@@ -540,22 +540,23 @@ fn fix_to_pox_contract() {
     let reward_cycle_max = *reward_cycle_pox_addrs.keys().max().unwrap();
 
     let pox_addr_1 = PoxAddress::Standard(
-        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_1).unwrap()),
+        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_1).unwrap()).unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
     let pox_addr_2 = PoxAddress::Standard(
-        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_2).unwrap()),
+        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_2).unwrap()).unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
     let pox_addr_3 = PoxAddress::Standard(
-        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_3).unwrap()),
+        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_3).unwrap()).unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
     let burn_pox_addr = PoxAddress::Standard(
         StacksAddress::new(
             26,
             Hash160::from_hex("0000000000000000000000000000000000000000").unwrap(),
-        ),
+        )
+        .unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
 
@@ -1088,7 +1089,7 @@ fn verify_auto_unlock_behavior() {
         info!("reward set entries: {reward_set_entries:?}");
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            pox_pubkey_2_stx_addr.bytes.0.to_vec()
+            pox_pubkey_2_stx_addr.bytes().0
         );
         assert_eq!(
             reward_set_entries[0].amount_stacked,
@@ -1096,7 +1097,7 @@ fn verify_auto_unlock_behavior() {
         );
         assert_eq!(
             reward_set_entries[1].reward_address.bytes(),
-            pox_pubkey_3_stx_addr.bytes.0.to_vec()
+            pox_pubkey_3_stx_addr.bytes().0
         );
         assert_eq!(reward_set_entries[1].amount_stacked, small_stacked as u128);
     }
@@ -1165,7 +1166,7 @@ fn verify_auto_unlock_behavior() {
         assert_eq!(reward_set_entries.len(), 1);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            pox_pubkey_2_stx_addr.bytes.0.to_vec()
+            pox_pubkey_2_stx_addr.bytes().0
         );
         assert_eq!(
             reward_set_entries[0].amount_stacked,
@@ -1244,22 +1245,23 @@ fn verify_auto_unlock_behavior() {
     let reward_cycle_max = *reward_cycle_pox_addrs.keys().max().unwrap();
 
     let pox_addr_1 = PoxAddress::Standard(
-        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_1).unwrap()),
+        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_1).unwrap()).unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
     let pox_addr_2 = PoxAddress::Standard(
-        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_2).unwrap()),
+        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_2).unwrap()).unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
     let pox_addr_3 = PoxAddress::Standard(
-        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_3).unwrap()),
+        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_3).unwrap()).unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
     let burn_pox_addr = PoxAddress::Standard(
         StacksAddress::new(
             26,
             Hash160::from_hex("0000000000000000000000000000000000000000").unwrap(),
-        ),
+        )
+        .unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
 

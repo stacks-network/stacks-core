@@ -1790,10 +1790,8 @@ fn test_deploy_smart_contract(
 fn max_stackerdb_list() {
     let signers_list: Vec<_> = (0..SIGNERS_MAX_LIST_SIZE)
         .map(|signer_ix| {
-            let signer_address = StacksAddress {
-                version: 0,
-                bytes: Hash160::from_data(&signer_ix.to_be_bytes()),
-            };
+            let signer_address =
+                StacksAddress::new(0, Hash160::from_data(&signer_ix.to_be_bytes())).unwrap();
             Value::Tuple(
                 TupleData::from_data(vec![
                     (

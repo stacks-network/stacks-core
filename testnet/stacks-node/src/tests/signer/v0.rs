@@ -128,7 +128,7 @@ impl SignerTest<SpawnedSigner> {
         for stacker_sk in self.signer_stacks_private_keys.iter() {
             let pox_addr = PoxAddress::from_legacy(
                 AddressHashMode::SerializeP2PKH,
-                tests::to_addr(stacker_sk).bytes,
+                tests::to_addr(stacker_sk).bytes().clone(),
             );
             let pox_addr_tuple: clarity::vm::Value =
                 pox_addr.clone().as_clarity_tuple().unwrap().into();
@@ -1889,6 +1889,7 @@ fn miner_forking() {
     let Counters {
         naka_skip_commit_op: skip_commit_op_rl2,
         naka_submitted_commits: commits_submitted_rl2,
+        naka_submitted_commit_last_burn_height: commits_submitted_rl2_last_burn_height,
         ..
     } = run_loop_2.counters();
     let _run_loop_2_thread = thread::Builder::new()
@@ -1910,6 +1911,8 @@ fn miner_forking() {
     .expect("Timed out waiting for boostrapped node to catch up to the miner");
 
     let commits_submitted_rl1 = signer_test.running_nodes.commits_submitted.clone();
+    let commits_submitted_rl1_last_burn_height =
+        signer_test.running_nodes.last_commit_burn_height.clone();
     let skip_commit_op_rl1 = signer_test
         .running_nodes
         .nakamoto_test_skip_commit_op
@@ -1966,13 +1969,18 @@ fn miner_forking() {
     info!("Pausing stacks block proposal to force an empty tenure commit from RL2");
     TEST_BROADCAST_STALL.set(true);
     let rl1_commits_before = commits_submitted_rl1.load(Ordering::SeqCst);
+    let burn_height_before = get_burn_height();
 
     info!("Unpausing commits from RL1");
     skip_commit_op_rl1.set(false);
 
     info!("Waiting for commits from RL1");
     wait_for(30, || {
-        Ok(commits_submitted_rl1.load(Ordering::SeqCst) > rl1_commits_before)
+        Ok(
+            commits_submitted_rl1.load(Ordering::SeqCst) > rl1_commits_before
+                && commits_submitted_rl1_last_burn_height.load(Ordering::SeqCst)
+                    >= burn_height_before,
+        )
     })
     .expect("Timed out waiting for miner 1 to submit a commit op");
 
@@ -2003,13 +2011,17 @@ fn miner_forking() {
         "------------------------- RL2 Wins Sortition With Outdated View -------------------------"
     );
     let rl2_commits_before = commits_submitted_rl2.load(Ordering::SeqCst);
+    let burn_height = get_burn_height();
 
     info!("Unpausing commits from RL2");
     skip_commit_op_rl2.set(false);
 
     info!("Waiting for commits from RL2");
     wait_for(30, || {
-        Ok(commits_submitted_rl2.load(Ordering::SeqCst) > rl2_commits_before)
+        Ok(
+            commits_submitted_rl2.load(Ordering::SeqCst) > rl2_commits_before
+                && commits_submitted_rl2_last_burn_height.load(Ordering::SeqCst) >= burn_height,
+        )
     })
     .expect("Timed out waiting for miner 1 to submit a commit op");
 
@@ -4193,7 +4205,7 @@ fn signer_set_rollover() {
     for stacker_sk in new_signer_private_keys.iter() {
         let pox_addr = PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            tests::to_addr(stacker_sk).bytes,
+            tests::to_addr(stacker_sk).bytes().clone(),
         );
         let pox_addr_tuple: clarity::vm::Value =
             pox_addr.clone().as_clarity_tuple().unwrap().into();
@@ -9829,14 +9841,19 @@ fn global_acceptance_depends_on_block_announcement() {
                 .stacks_client
                 .get_peer_info()
                 .expect("Failed to get peer info");
-            Ok(info.stacks_tip_height > info_before.stacks_tip_height)
+            Ok(info.stacks_tip_height > info_before.stacks_tip_height
+                && info_before.stacks_tip_consensus_hash != info.stacks_tip_consensus_hash)
         },
     )
-    .unwrap();
+    .expect("Stacks miner failed to produce new blocks during the newest burn block's tenure");
     let info_after = signer_test
         .stacks_client
         .get_peer_info()
         .expect("Failed to get peer info");
+    let info_after_stacks_block_id = StacksBlockId::new(
+        &info_after.stacks_tip_consensus_hash,
+        &info_after.stacks_tip,
+    );
     let mut sister_block = None;
     let start_time = Instant::now();
     while sister_block.is_none() && start_time.elapsed() < Duration::from_secs(45) {
@@ -9846,17 +9863,14 @@ fn global_acceptance_depends_on_block_announcement() {
             .find_map(|chunk| {
                 let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
                     .expect("Failed to deserialize SignerMessage");
-                match message {
-                    SignerMessage::BlockProposal(proposal) => {
-                        if proposal.block.header.consensus_hash
-                            == info_after.stacks_tip_consensus_hash
-                        {
-                            Some(proposal.block)
-                        } else {
-                            None
-                        }
+                if let SignerMessage::BlockProposal(proposal) = message {
+                    if proposal.block.block_id() == info_after_stacks_block_id {
+                        Some(proposal.block)
+                    } else {
+                        None
                     }
-                    _ => None,
+                } else {
+                    None
                 }
             });
     }
@@ -10921,7 +10935,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
     // Stack the new signer
     let pox_addr = PoxAddress::from_legacy(
         AddressHashMode::SerializeP2PKH,
-        tests::to_addr(&new_signer_private_key).bytes,
+        tests::to_addr(&new_signer_private_key).bytes().clone(),
     );
     let pox_addr_tuple: clarity::vm::Value = pox_addr.clone().as_clarity_tuple().unwrap().into();
     let signature = make_pox_4_signer_key_signature(

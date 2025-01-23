@@ -32,10 +32,7 @@ fn test_stackerdb_slot_metadata_sign_verify() {
         &vec![StacksPublicKey::from_private(&pk)],
     )
     .unwrap();
-    let bad_addr = StacksAddress {
-        version: 0x01,
-        bytes: Hash160([0x01; 20]),
-    };
+    let bad_addr = StacksAddress::new(0x01, Hash160([0x01; 20])).unwrap();
 
     let chunk_data = StackerDBChunkData {
         slot_id: 0,

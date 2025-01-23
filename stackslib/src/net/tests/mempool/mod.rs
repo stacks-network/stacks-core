@@ -86,10 +86,8 @@ fn test_mempool_sync_2_peers() {
         peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
     }
 
-    let addr = StacksAddress {
-        version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-        bytes: Hash160([0xff; 20]),
-    };
+    let addr =
+        StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0xff; 20])).unwrap();
 
     let stacks_tip_ch = peer_1.network.stacks_tip.consensus_hash.clone();
     let stacks_tip_bhh = peer_1.network.stacks_tip.block_hash.clone();
@@ -354,10 +352,8 @@ fn test_mempool_sync_2_peers_paginated() {
         peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
     }
 
-    let addr = StacksAddress {
-        version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-        bytes: Hash160([0xff; 20]),
-    };
+    let addr =
+        StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0xff; 20])).unwrap();
 
     let stacks_tip_ch = peer_1.network.stacks_tip.consensus_hash.clone();
     let stacks_tip_bhh = peer_1.network.stacks_tip.block_hash.clone();
@@ -545,10 +541,8 @@ fn test_mempool_sync_2_peers_blacklisted() {
         peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
     }
 
-    let addr = StacksAddress {
-        version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-        bytes: Hash160([0xff; 20]),
-    };
+    let addr =
+        StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0xff; 20])).unwrap();
 
     let stacks_tip_ch = peer_1.network.stacks_tip.consensus_hash.clone();
     let stacks_tip_bhh = peer_1.network.stacks_tip.block_hash.clone();
@@ -756,10 +750,8 @@ fn test_mempool_sync_2_peers_problematic() {
         peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
     }
 
-    let addr = StacksAddress {
-        version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-        bytes: Hash160([0xff; 20]),
-    };
+    let addr =
+        StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0xff; 20])).unwrap();
 
     let stacks_tip_ch = peer_1.network.stacks_tip.consensus_hash.clone();
     let stacks_tip_bhh = peer_1.network.stacks_tip.block_hash.clone();
@@ -1136,17 +1128,15 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
         let event_ids = peer_1.network.iter_peer_event_ids();
         let other_event_ids = peer_2.network.iter_peer_event_ids();
 
-        if !(event_ids.count() == 0) && !(other_event_ids.count() == 0) {
+        if event_ids.count() > 0 && other_event_ids.count() > 0 {
             break;
         }
     }
 
     debug!("Peers are connected");
 
-    let addr = StacksAddress {
-        version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-        bytes: Hash160([0xff; 20]),
-    };
+    let addr =
+        StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0xff; 20])).unwrap();
 
     let stacks_tip_ch = peer_1.network.stacks_tip.consensus_hash.clone();
     let stacks_tip_bhh = peer_1.network.stacks_tip.block_hash.clone();

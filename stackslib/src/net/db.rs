@@ -1447,8 +1447,7 @@ impl PeerDB {
         let cur_dbs_set: HashSet<_> = PeerDB::static_get_peer_stacker_dbs(tx, neighbor)?
             .into_iter()
             .collect();
-        let new_dbs_set: HashSet<QualifiedContractIdentifier> =
-            dbs.iter().map(|cid| cid.clone()).collect();
+        let new_dbs_set: HashSet<QualifiedContractIdentifier> = dbs.iter().cloned().collect();
         let to_insert: Vec<_> = new_dbs_set.difference(&cur_dbs_set).collect();
         let to_delete: Vec<_> = cur_dbs_set.difference(&new_dbs_set).collect();
 
@@ -1924,11 +1923,11 @@ mod test {
 
         let mut stackerdbs = vec![
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x01, [0x02; 20]),
+                StandardPrincipalData::new(0x01, [0x02; 20]).unwrap(),
                 "db-1".into(),
             ),
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x02, [0x03; 20]),
+                StandardPrincipalData::new(0x02, [0x03; 20]).unwrap(),
                 "db-2".into(),
             ),
         ];
@@ -2097,11 +2096,11 @@ mod test {
         // basic storage and retrieval
         let mut stackerdbs = vec![
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x01, [0x02; 20]),
+                StandardPrincipalData::new(0x01, [0x02; 20]).unwrap(),
                 "db-1".into(),
             ),
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x02, [0x03; 20]),
+                StandardPrincipalData::new(0x02, [0x03; 20]).unwrap(),
                 "db-2".into(),
             ),
         ];
@@ -2127,11 +2126,11 @@ mod test {
         // adding DBs to the same slot just grows the total list
         let mut new_stackerdbs = vec![
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x03, [0x04; 20]),
+                StandardPrincipalData::new(0x03, [0x04; 20]).unwrap(),
                 "db-3".into(),
             ),
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x04, [0x05; 20]),
+                StandardPrincipalData::new(0x04, [0x05; 20]).unwrap(),
                 "db-5".into(),
             ),
         ];
@@ -2332,11 +2331,11 @@ mod test {
 
         let mut stackerdbs = vec![
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x01, [0x02; 20]),
+                StandardPrincipalData::new(0x01, [0x02; 20]).unwrap(),
                 "db-1".into(),
             ),
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x02, [0x03; 20]),
+                StandardPrincipalData::new(0x02, [0x03; 20]).unwrap(),
                 "db-2".into(),
             ),
         ];
@@ -2369,11 +2368,11 @@ mod test {
         // insert new stacker DBs -- keep one the same, and add a different one
         let mut changed_stackerdbs = vec![
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x01, [0x02; 20]),
+                StandardPrincipalData::new(0x01, [0x02; 20]).unwrap(),
                 "db-1".into(),
             ),
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x03, [0x04; 20]),
+                StandardPrincipalData::new(0x03, [0x04; 20]).unwrap(),
                 "db-3".into(),
             ),
         ];
@@ -2409,11 +2408,11 @@ mod test {
         // add back stacker DBs
         let mut new_stackerdbs = vec![
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x04, [0x05; 20]),
+                StandardPrincipalData::new(0x04, [0x05; 20]).unwrap(),
                 "db-4".into(),
             ),
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x05, [0x06; 20]),
+                StandardPrincipalData::new(0x05, [0x06; 20]).unwrap(),
                 "db-5".into(),
             ),
         ];
@@ -2437,11 +2436,11 @@ mod test {
         for _ in 0..2 {
             let mut replace_stackerdbs = vec![
                 QualifiedContractIdentifier::new(
-                    StandardPrincipalData(0x06, [0x07; 20]),
+                    StandardPrincipalData::new(0x06, [0x07; 20]).unwrap(),
                     "db-6".into(),
                 ),
                 QualifiedContractIdentifier::new(
-                    StandardPrincipalData(0x07, [0x08; 20]),
+                    StandardPrincipalData::new(0x07, [0x08; 20]).unwrap(),
                     "db-7".into(),
                 ),
             ];
@@ -2533,11 +2532,11 @@ mod test {
 
         let mut stackerdbs = vec![
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x01, [0x02; 20]),
+                StandardPrincipalData::new(0x01, [0x02; 20]).unwrap(),
                 "db-1".into(),
             ),
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x02, [0x03; 20]),
+                StandardPrincipalData::new(0x02, [0x03; 20]).unwrap(),
                 "db-2".into(),
             ),
         ];
@@ -2572,11 +2571,11 @@ mod test {
         // insert new stacker DBs -- keep one the same, and add a different one
         let mut changed_stackerdbs = vec![
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x01, [0x02; 20]),
+                StandardPrincipalData::new(0x01, [0x02; 20]).unwrap(),
                 "db-1".into(),
             ),
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x03, [0x04; 20]),
+                StandardPrincipalData::new(0x03, [0x04; 20]).unwrap(),
                 "db-3".into(),
             ),
         ];
@@ -2666,11 +2665,11 @@ mod test {
 
         let mut replace_stackerdbs = vec![
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x06, [0x07; 20]),
+                StandardPrincipalData::new(0x06, [0x07; 20]).unwrap(),
                 "db-6".into(),
             ),
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x07, [0x08; 20]),
+                StandardPrincipalData::new(0x07, [0x08; 20]).unwrap(),
                 "db-7".into(),
             ),
         ];

@@ -4807,10 +4807,10 @@ impl NakamotoChainState {
             .map(|hash160|
                 // each miner gets two slots
                 (
-                    StacksAddress {
-                        version: 1, // NOTE: the version is ignored in stackerdb; we only care about the hashbytes
-                        bytes: hash160
-                    },
+                    StacksAddress::new(
+                        1, // NOTE: the version is ignored in stackerdb; we only care about the hashbytes
+                        hash160
+                    ).expect("FATAL: infallible: 1 is not a valid address version byte"),
                     MINER_SLOT_COUNT,
                 ))
             .collect();
