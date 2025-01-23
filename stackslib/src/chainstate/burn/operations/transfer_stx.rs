@@ -304,10 +304,7 @@ mod tests {
             ],
         };
 
-        let sender = StacksAddress {
-            version: 0,
-            bytes: Hash160([0; 20]),
-        };
+        let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let op = TransferStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),

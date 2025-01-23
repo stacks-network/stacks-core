@@ -546,7 +546,7 @@ fn transition_fixes_bitcoin_rigidity() {
     let _spender_btc_addr = BitcoinAddress::from_bytes_legacy(
         BitcoinNetworkType::Regtest,
         LegacyBitcoinAddressType::PublicKeyHash,
-        &spender_stx_addr.bytes.0,
+        &spender_stx_addr.bytes().0,
     )
     .unwrap();
 

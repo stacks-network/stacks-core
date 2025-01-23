@@ -444,22 +444,23 @@ fn disable_pox() {
     let reward_cycle_max = *reward_cycle_pox_addrs.keys().max().unwrap();
 
     let pox_addr_1 = PoxAddress::Standard(
-        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_1).unwrap()),
+        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_1).unwrap()).unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
     let pox_addr_2 = PoxAddress::Standard(
-        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_2).unwrap()),
+        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_2).unwrap()).unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
     let pox_addr_3 = PoxAddress::Standard(
-        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_3).unwrap()),
+        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_3).unwrap()).unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
     let burn_pox_addr = PoxAddress::Standard(
         StacksAddress::new(
             26,
             Hash160::from_hex("0000000000000000000000000000000000000000").unwrap(),
-        ),
+        )
+        .unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
 
@@ -1110,22 +1111,23 @@ fn pox_2_unlock_all() {
     let reward_cycle_max = *reward_cycle_pox_addrs.keys().max().unwrap();
 
     let pox_addr_1 = PoxAddress::Standard(
-        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_1).unwrap()),
+        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_1).unwrap()).unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
     let pox_addr_2 = PoxAddress::Standard(
-        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_2).unwrap()),
+        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_2).unwrap()).unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
     let pox_addr_3 = PoxAddress::Standard(
-        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_3).unwrap()),
+        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_3).unwrap()).unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
     let burn_pox_addr = PoxAddress::Standard(
         StacksAddress::new(
             26,
             Hash160::from_hex("0000000000000000000000000000000000000000").unwrap(),
-        ),
+        )
+        .unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
 

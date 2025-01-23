@@ -904,7 +904,7 @@ fn test_nakamoto_inv_sync_state_machine() {
         let event_ids = peer.network.iter_peer_event_ids();
         let other_event_ids = other_peer.network.iter_peer_event_ids();
 
-        if !(event_ids.count() == 0) && !(other_event_ids.count() == 0) {
+        if event_ids.count() > 0 && other_event_ids.count() > 0 {
             break;
         }
     }
@@ -1027,7 +1027,7 @@ fn test_nakamoto_inv_sync_across_epoch_change() {
         let event_ids = peer.network.iter_peer_event_ids();
         let other_event_ids = other_peer.network.iter_peer_event_ids();
 
-        if !(event_ids.count() == 0) && !(other_event_ids.count() == 0) {
+        if event_ids.count() > 0 && other_event_ids.count() > 0 {
             break;
         }
     }

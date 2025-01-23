@@ -6455,7 +6455,7 @@ mod test {
         }];
 
         // allowed
-        let mut relayers = vec![
+        let relayers = vec![
             RelayData {
                 peer: NeighborAddress {
                     addrbytes: PeerAddress([0u8; 16]),
@@ -6484,7 +6484,7 @@ mod test {
         let relayer_map = convo.stats.take_relayers();
         assert_eq!(convo.stats.relayed_messages.len(), 0);
 
-        for r in relayers.drain(..) {
+        for r in relayers.into_iter() {
             assert!(relayer_map.contains_key(&r.peer));
 
             let stats = relayer_map.get(&r.peer).unwrap();

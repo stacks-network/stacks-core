@@ -6860,7 +6860,7 @@ impl StacksChainState {
                 // version byte matches?
                 if !StacksChainState::is_valid_address_version(
                     chainstate_config.mainnet,
-                    address.version,
+                    address.version(),
                 ) {
                     return Err(MemPoolRejection::BadAddressVersionByte);
                 }

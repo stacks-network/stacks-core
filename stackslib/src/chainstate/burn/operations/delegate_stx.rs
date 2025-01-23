@@ -331,10 +331,7 @@ mod tests {
             ],
         };
 
-        let sender = StacksAddress {
-            version: 0,
-            bytes: Hash160([0; 20]),
-        };
+        let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let op = DelegateStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
@@ -357,7 +354,10 @@ mod tests {
             ))
         );
         assert_eq!(op.delegated_ustx, u128::from_be_bytes([1; 16]));
-        assert_eq!(op.delegate_to, StacksAddress::new(22, Hash160([2u8; 20])));
+        assert_eq!(
+            op.delegate_to,
+            StacksAddress::new(22, Hash160([2u8; 20])).unwrap()
+        );
         assert_eq!(op.until_burn_height, None);
     }
 
@@ -402,10 +402,7 @@ mod tests {
             ],
         };
 
-        let sender = StacksAddress {
-            version: 0,
-            bytes: Hash160([0; 20]),
-        };
+        let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let op = DelegateStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
@@ -417,7 +414,10 @@ mod tests {
         assert_eq!(&op.sender, &sender);
         assert_eq!(&op.reward_addr, &None);
         assert_eq!(op.delegated_ustx, u128::from_be_bytes([1; 16]));
-        assert_eq!(op.delegate_to, StacksAddress::new(22, Hash160([2u8; 20])));
+        assert_eq!(
+            op.delegate_to,
+            StacksAddress::new(22, Hash160([2u8; 20])).unwrap()
+        );
         assert_eq!(op.until_burn_height, Some(u64::from_be_bytes([1; 8])));
     }
 
@@ -449,10 +449,7 @@ mod tests {
             }],
         };
 
-        let sender = StacksAddress {
-            version: 0,
-            bytes: Hash160([0; 20]),
-        };
+        let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let err = DelegateStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
@@ -491,10 +488,7 @@ mod tests {
             }],
         };
 
-        let sender = StacksAddress {
-            version: 0,
-            bytes: Hash160([0; 20]),
-        };
+        let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let err = DelegateStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
@@ -537,10 +531,7 @@ mod tests {
             }],
         };
 
-        let sender = StacksAddress {
-            version: 0,
-            bytes: Hash160([0; 20]),
-        };
+        let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let err = DelegateStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
@@ -576,10 +567,7 @@ mod tests {
             outputs: vec![],
         };
 
-        let sender = StacksAddress {
-            version: 0,
-            bytes: Hash160([0; 20]),
-        };
+        let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let err = DelegateStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
@@ -648,10 +636,7 @@ mod tests {
             ],
         };
 
-        let sender = StacksAddress {
-            version: 0,
-            bytes: Hash160([0; 20]),
-        };
+        let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let op = DelegateStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
@@ -674,7 +659,10 @@ mod tests {
             ))
         );
         assert_eq!(op.delegated_ustx, u128::from_be_bytes([1; 16]));
-        assert_eq!(op.delegate_to, StacksAddress::new(22, Hash160([2u8; 20])));
+        assert_eq!(
+            op.delegate_to,
+            StacksAddress::new(22, Hash160([2u8; 20])).unwrap()
+        );
         assert_eq!(op.until_burn_height, Some(u64::from_be_bytes([1; 8])));
     }
 }

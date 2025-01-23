@@ -1902,7 +1902,7 @@ fn stx_transfer_btc_integration_test() {
     let _spender_btc_addr = BitcoinAddress::from_bytes_legacy(
         BitcoinNetworkType::Regtest,
         LegacyBitcoinAddressType::PublicKeyHash,
-        &spender_stx_addr.bytes.0,
+        &spender_stx_addr.bytes().0,
     )
     .unwrap();
 

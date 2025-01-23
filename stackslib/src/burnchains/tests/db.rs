@@ -1353,7 +1353,10 @@ fn test_classify_delegate_stx() {
     if let BlockstackOperationType::DelegateStx(op) = &processed_ops_1[0] {
         assert_eq!(&op.sender, &expected_pre_delegate_addr);
         assert_eq!(op.delegated_ustx, u128::from_be_bytes([1; 16]));
-        assert_eq!(op.delegate_to, StacksAddress::new(22, Hash160([2u8; 20])));
+        assert_eq!(
+            op.delegate_to,
+            StacksAddress::new(22, Hash160([2u8; 20])).unwrap()
+        );
         assert_eq!(&op.reward_addr, &expected_reward_addr);
         assert_eq!(op.until_burn_height, Some(u64::from_be_bytes([1; 8])));
     } else {

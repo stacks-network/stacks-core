@@ -62,67 +62,37 @@ fn test_stackerdb_create_list_delete() {
     let mut db = StackerDBs::connect(path, true).unwrap();
     let tx = db.tx_begin(StackerDBConfig::noop()).unwrap();
 
-    let slots = [(
-        StacksAddress {
-            version: 0x02,
-            bytes: Hash160([0x02; 20]),
-        },
-        1,
-    )];
+    let slots = [(StacksAddress::new(0x02, Hash160([0x02; 20])).unwrap(), 1)];
 
     // databases with one chunk
     tx.create_stackerdb(
         &QualifiedContractIdentifier::new(
-            StacksAddress {
-                version: 0x01,
-                bytes: Hash160([0x01; 20]),
-            }
-            .into(),
+            StacksAddress::new(0x01, Hash160([0x01; 20]))
+                .unwrap()
+                .into(),
             ContractName::try_from("db1").unwrap(),
         ),
-        &[(
-            StacksAddress {
-                version: 0x01,
-                bytes: Hash160([0x01; 20]),
-            },
-            1,
-        )],
+        &[(StacksAddress::new(0x01, Hash160([0x01; 20])).unwrap(), 1)],
     )
     .unwrap();
     tx.create_stackerdb(
         &QualifiedContractIdentifier::new(
-            StacksAddress {
-                version: 0x02,
-                bytes: Hash160([0x02; 20]),
-            }
-            .into(),
+            StacksAddress::new(0x02, Hash160([0x02; 20]))
+                .unwrap()
+                .into(),
             ContractName::try_from("db2").unwrap(),
         ),
-        &[(
-            StacksAddress {
-                version: 0x02,
-                bytes: Hash160([0x02; 20]),
-            },
-            1,
-        )],
+        &[(StacksAddress::new(0x02, Hash160([0x02; 20])).unwrap(), 1)],
     )
     .unwrap();
     tx.create_stackerdb(
         &QualifiedContractIdentifier::new(
-            StacksAddress {
-                version: 0x03,
-                bytes: Hash160([0x03; 20]),
-            }
-            .into(),
+            StacksAddress::new(0x03, Hash160([0x03; 20]))
+                .unwrap()
+                .into(),
             ContractName::try_from("db3").unwrap(),
         ),
-        &[(
-            StacksAddress {
-                version: 0x03,
-                bytes: Hash160([0x03; 20]),
-            },
-            1,
-        )],
+        &[(StacksAddress::new(0x03, Hash160([0x03; 20])).unwrap(), 1)],
     )
     .unwrap();
 
@@ -135,27 +105,21 @@ fn test_stackerdb_create_list_delete() {
         dbs,
         vec![
             QualifiedContractIdentifier::new(
-                StacksAddress {
-                    version: 0x01,
-                    bytes: Hash160([0x01; 20])
-                }
-                .into(),
+                StacksAddress::new(0x01, Hash160([0x01; 20]))
+                    .unwrap()
+                    .into(),
                 ContractName::try_from("db1").unwrap()
             ),
             QualifiedContractIdentifier::new(
-                StacksAddress {
-                    version: 0x02,
-                    bytes: Hash160([0x02; 20])
-                }
-                .into(),
+                StacksAddress::new(0x02, Hash160([0x02; 20]))
+                    .unwrap()
+                    .into(),
                 ContractName::try_from("db2").unwrap()
             ),
             QualifiedContractIdentifier::new(
-                StacksAddress {
-                    version: 0x03,
-                    bytes: Hash160([0x03; 20])
-                }
-                .into(),
+                StacksAddress::new(0x03, Hash160([0x03; 20]))
+                    .unwrap()
+                    .into(),
                 ContractName::try_from("db3").unwrap()
             ),
         ]
@@ -166,11 +130,9 @@ fn test_stackerdb_create_list_delete() {
     if let net_error::StackerDBExists(..) = tx
         .create_stackerdb(
             &QualifiedContractIdentifier::new(
-                StacksAddress {
-                    version: 0x01,
-                    bytes: Hash160([0x01; 20]),
-                }
-                .into(),
+                StacksAddress::new(0x01, Hash160([0x01; 20]))
+                    .unwrap()
+                    .into(),
                 ContractName::try_from("db1").unwrap(),
             ),
             &[],
@@ -189,27 +151,21 @@ fn test_stackerdb_create_list_delete() {
         dbs,
         vec![
             QualifiedContractIdentifier::new(
-                StacksAddress {
-                    version: 0x01,
-                    bytes: Hash160([0x01; 20])
-                }
-                .into(),
+                StacksAddress::new(0x01, Hash160([0x01; 20]))
+                    .unwrap()
+                    .into(),
                 ContractName::try_from("db1").unwrap()
             ),
             QualifiedContractIdentifier::new(
-                StacksAddress {
-                    version: 0x02,
-                    bytes: Hash160([0x02; 20])
-                }
-                .into(),
+                StacksAddress::new(0x02, Hash160([0x02; 20]))
+                    .unwrap()
+                    .into(),
                 ContractName::try_from("db2").unwrap()
             ),
             QualifiedContractIdentifier::new(
-                StacksAddress {
-                    version: 0x03,
-                    bytes: Hash160([0x03; 20])
-                }
-                .into(),
+                StacksAddress::new(0x03, Hash160([0x03; 20]))
+                    .unwrap()
+                    .into(),
                 ContractName::try_from("db3").unwrap()
             ),
         ]
@@ -223,11 +179,9 @@ fn test_stackerdb_create_list_delete() {
     // remove a db
     let tx = db.tx_begin(StackerDBConfig::noop()).unwrap();
     tx.delete_stackerdb(&QualifiedContractIdentifier::new(
-        StacksAddress {
-            version: 0x01,
-            bytes: Hash160([0x01; 20]),
-        }
-        .into(),
+        StacksAddress::new(0x01, Hash160([0x01; 20]))
+            .unwrap()
+            .into(),
         ContractName::try_from("db1").unwrap(),
     ))
     .unwrap();
@@ -240,19 +194,15 @@ fn test_stackerdb_create_list_delete() {
         dbs,
         vec![
             QualifiedContractIdentifier::new(
-                StacksAddress {
-                    version: 0x02,
-                    bytes: Hash160([0x02; 20])
-                }
-                .into(),
+                StacksAddress::new(0x02, Hash160([0x02; 20]))
+                    .unwrap()
+                    .into(),
                 ContractName::try_from("db2").unwrap()
             ),
             QualifiedContractIdentifier::new(
-                StacksAddress {
-                    version: 0x03,
-                    bytes: Hash160([0x03; 20])
-                }
-                .into(),
+                StacksAddress::new(0x03, Hash160([0x03; 20]))
+                    .unwrap()
+                    .into(),
                 ContractName::try_from("db3").unwrap()
             ),
         ]
@@ -266,11 +216,9 @@ fn test_stackerdb_create_list_delete() {
     // deletion is idempotent
     let tx = db.tx_begin(StackerDBConfig::noop()).unwrap();
     tx.delete_stackerdb(&QualifiedContractIdentifier::new(
-        StacksAddress {
-            version: 0x01,
-            bytes: Hash160([0x01; 20]),
-        }
-        .into(),
+        StacksAddress::new(0x01, Hash160([0x01; 20]))
+            .unwrap()
+            .into(),
         ContractName::try_from("db1").unwrap(),
     ))
     .unwrap();
@@ -283,19 +231,15 @@ fn test_stackerdb_create_list_delete() {
         dbs,
         vec![
             QualifiedContractIdentifier::new(
-                StacksAddress {
-                    version: 0x02,
-                    bytes: Hash160([0x02; 20])
-                }
-                .into(),
+                StacksAddress::new(0x02, Hash160([0x02; 20]))
+                    .unwrap()
+                    .into(),
                 ContractName::try_from("db2").unwrap()
             ),
             QualifiedContractIdentifier::new(
-                StacksAddress {
-                    version: 0x03,
-                    bytes: Hash160([0x03; 20])
-                }
-                .into(),
+                StacksAddress::new(0x03, Hash160([0x03; 20]))
+                    .unwrap()
+                    .into(),
                 ContractName::try_from("db3").unwrap()
             ),
         ]
@@ -313,11 +257,9 @@ fn test_stackerdb_prepare_clear_slots() {
     setup_test_path(path);
 
     let sc = QualifiedContractIdentifier::new(
-        StacksAddress {
-            version: 0x01,
-            bytes: Hash160([0x01; 20]),
-        }
-        .into(),
+        StacksAddress::new(0x01, Hash160([0x01; 20]))
+            .unwrap()
+            .into(),
         ContractName::try_from("db1").unwrap(),
     );
 
@@ -327,27 +269,9 @@ fn test_stackerdb_prepare_clear_slots() {
     tx.create_stackerdb(
         &sc,
         &[
-            (
-                StacksAddress {
-                    version: 0x02,
-                    bytes: Hash160([0x02; 20]),
-                },
-                2,
-            ),
-            (
-                StacksAddress {
-                    version: 0x03,
-                    bytes: Hash160([0x03; 20]),
-                },
-                3,
-            ),
-            (
-                StacksAddress {
-                    version: 0x04,
-                    bytes: Hash160([0x04; 20]),
-                },
-                4,
-            ),
+            (StacksAddress::new(0x02, Hash160([0x02; 20])).unwrap(), 2),
+            (StacksAddress::new(0x03, Hash160([0x03; 20])).unwrap(), 3),
+            (StacksAddress::new(0x04, Hash160([0x04; 20])).unwrap(), 4),
         ],
     )
     .unwrap();
@@ -363,28 +287,19 @@ fn test_stackerdb_prepare_clear_slots() {
             // belongs to 0x02
             assert_eq!(
                 slot_validation.signer,
-                StacksAddress {
-                    version: 0x02,
-                    bytes: Hash160([0x02; 20])
-                }
+                StacksAddress::new(0x02, Hash160([0x02; 20])).unwrap()
             );
         } else if slot_id >= 2 && slot_id < 2 + 3 {
             // belongs to 0x03
             assert_eq!(
                 slot_validation.signer,
-                StacksAddress {
-                    version: 0x03,
-                    bytes: Hash160([0x03; 20])
-                }
+                StacksAddress::new(0x03, Hash160([0x03; 20])).unwrap()
             );
         } else if slot_id >= 2 + 3 && slot_id < 2 + 3 + 4 {
             // belongs to 0x03
             assert_eq!(
                 slot_validation.signer,
-                StacksAddress {
-                    version: 0x04,
-                    bytes: Hash160([0x04; 20])
-                }
+                StacksAddress::new(0x04, Hash160([0x04; 20])).unwrap()
             );
         } else {
             unreachable!()
@@ -424,11 +339,9 @@ fn test_stackerdb_insert_query_chunks() {
     setup_test_path(path);
 
     let sc = QualifiedContractIdentifier::new(
-        StacksAddress {
-            version: 0x01,
-            bytes: Hash160([0x01; 20]),
-        }
-        .into(),
+        StacksAddress::new(0x01, Hash160([0x01; 20]))
+            .unwrap()
+            .into(),
         ContractName::try_from("db1").unwrap(),
     );
 
@@ -579,11 +492,9 @@ fn test_reconfigure_stackerdb() {
     setup_test_path(path);
 
     let sc = QualifiedContractIdentifier::new(
-        StacksAddress {
-            version: 0x01,
-            bytes: Hash160([0x01; 20]),
-        }
-        .into(),
+        StacksAddress::new(0x01, Hash160([0x01; 20]))
+            .unwrap()
+            .into(),
         ContractName::try_from("db1").unwrap(),
     );
 

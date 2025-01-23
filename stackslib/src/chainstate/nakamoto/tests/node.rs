@@ -149,7 +149,7 @@ impl TestStacker {
                 let pox_key = StacksPrivateKey::from_seed(&[*key_seed, *key_seed]);
                 let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&pox_key));
                 let pox_addr =
-                    PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes.clone());
+                    PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes().clone());
 
                 TestStacker {
                     signer_private_key: signing_key.clone(),

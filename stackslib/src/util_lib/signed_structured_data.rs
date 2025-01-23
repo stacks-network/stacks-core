@@ -300,7 +300,9 @@ pub mod pox4 {
             // Test 2: invalid pox address
             let other_pox_address = PoxAddress::from_legacy(
                 AddressHashMode::SerializeP2PKH,
-                StacksAddress::p2pkh(false, &Secp256k1PublicKey::new()).bytes,
+                StacksAddress::p2pkh(false, &Secp256k1PublicKey::new())
+                    .destruct()
+                    .1,
             );
             let result = call_get_signer_message_hash(
                 &mut sim,

@@ -142,11 +142,11 @@ fn test_valid_and_invalid_stackerdb_configs() {
             Some(StackerDBConfig {
                 chunk_size: 123,
                 signers: vec![(
-                    StacksAddress {
-                        version: 26,
-                        bytes: Hash160::from_hex("b4fdae98b64b9cd6c9436f3b965558966afe890b")
-                            .unwrap(),
-                    },
+                    StacksAddress::new(
+                        26,
+                        Hash160::from_hex("b4fdae98b64b9cd6c9436f3b965558966afe890b").unwrap(),
+                    )
+                    .unwrap(),
                     3,
                 )],
                 write_freq: 4,
@@ -183,11 +183,11 @@ fn test_valid_and_invalid_stackerdb_configs() {
             Some(StackerDBConfig {
                 chunk_size: 123,
                 signers: vec![(
-                    StacksAddress {
-                        version: 26,
-                        bytes: Hash160::from_hex("b4fdae98b64b9cd6c9436f3b965558966afe890b")
-                            .unwrap(),
-                    },
+                    StacksAddress::new(
+                        26,
+                        Hash160::from_hex("b4fdae98b64b9cd6c9436f3b965558966afe890b").unwrap(),
+                    )
+                    .unwrap(),
                     3,
                 )],
                 write_freq: 4,
@@ -485,11 +485,11 @@ fn test_valid_and_invalid_stackerdb_configs() {
             Some(StackerDBConfig {
                 chunk_size: 123,
                 signers: vec![(
-                    StacksAddress {
-                        version: 26,
-                        bytes: Hash160::from_hex("b4fdae98b64b9cd6c9436f3b965558966afe890b")
-                            .unwrap(),
-                    },
+                    StacksAddress::new(
+                        26,
+                        Hash160::from_hex("b4fdae98b64b9cd6c9436f3b965558966afe890b").unwrap(),
+                    )
+                    .unwrap(),
                     3,
                 )],
                 write_freq: 4,
@@ -634,10 +634,11 @@ fn test_hint_replicas_override() {
     let expected_config = StackerDBConfig {
         chunk_size: 123,
         signers: vec![(
-            StacksAddress {
-                version: 26,
-                bytes: Hash160::from_hex("b4fdae98b64b9cd6c9436f3b965558966afe890b").unwrap(),
-            },
+            StacksAddress::new(
+                26,
+                Hash160::from_hex("b4fdae98b64b9cd6c9436f3b965558966afe890b").unwrap(),
+            )
+            .unwrap(),
             3,
         )],
         write_freq: 4,

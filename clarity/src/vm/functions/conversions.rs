@@ -20,6 +20,7 @@ use crate::vm::errors::{
     check_argument_count, CheckErrors, InterpreterError, InterpreterResult as Result,
 };
 use crate::vm::representations::SymbolicExpression;
+use crate::vm::types::serialization::SerializationError;
 use crate::vm::types::SequenceSubtype::BufferType;
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
@@ -276,6 +277,9 @@ pub fn from_consensus_buff(
         env.epoch().value_sanitizing(),
     ) {
         Ok(value) => value,
+        Err(SerializationError::UnexpectedSerialization) => {
+            return Err(CheckErrors::Expects("UnexpectedSerialization".into()).into())
+        }
         Err(_) => return Ok(Value::none()),
     };
     if !type_arg.admits(env.epoch(), &result)? {

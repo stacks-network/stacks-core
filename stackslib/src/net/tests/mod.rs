@@ -443,7 +443,7 @@ impl NakamotoBootPlan {
         let mut other_peer_nonces = vec![0; other_peers.len()];
         let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&self.private_key));
         let default_pox_addr =
-            PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes.clone());
+            PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes().clone());
 
         let mut sortition_height = peer.get_burn_block_height();
         debug!("\n\n======================");
