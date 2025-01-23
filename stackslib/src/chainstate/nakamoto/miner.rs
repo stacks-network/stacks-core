@@ -591,7 +591,7 @@ impl NakamotoBlockBuilder {
 
         let initial_txs: Vec<_> = [
             tenure_info.tenure_change_tx.clone(),
-            tenure_info.coinbase_tx.clone(),
+            tenure_info.coinbase_tx,
         ]
         .into_iter()
         .flatten()

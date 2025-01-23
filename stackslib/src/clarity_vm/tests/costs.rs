@@ -853,12 +853,11 @@ fn setup_cost_tracked_test(
 
     let other_contract_id =
         QualifiedContractIdentifier::new(p1_principal.clone(), "contract-other".into());
-    let trait_contract_id =
-        QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
+    let trait_contract_id = QualifiedContractIdentifier::new(p1_principal, "contract-trait".into());
 
     owned_env
         .initialize_versioned_contract(
-            trait_contract_id.clone(),
+            trait_contract_id,
             version,
             contract_trait,
             None,
@@ -867,7 +866,7 @@ fn setup_cost_tracked_test(
         .unwrap();
     owned_env
         .initialize_versioned_contract(
-            other_contract_id.clone(),
+            other_contract_id,
             version,
             contract_other,
             None,
@@ -912,8 +911,7 @@ fn test_program_cost(
         p1_principal.clone(),
         ContractName::try_from(format!("self-{}", prog_id)).unwrap(),
     );
-    let other_contract_id =
-        QualifiedContractIdentifier::new(p1_principal.clone(), "contract-other".into());
+    let other_contract_id = QualifiedContractIdentifier::new(p1_principal, "contract-other".into());
 
     owned_env
         .initialize_versioned_contract(
@@ -927,11 +925,11 @@ fn test_program_cost(
 
     let start = owned_env.get_cost_total();
 
-    let target_contract = Value::from(PrincipalData::Contract(other_contract_id.clone()));
+    let target_contract = Value::from(PrincipalData::Contract(other_contract_id));
     eprintln!("{}", &contract_self);
     execute_transaction(
         owned_env,
-        p2_principal.clone(),
+        p2_principal,
         &self_contract_id,
         "execute",
         &symbols_from_values(vec![target_contract]),
@@ -1046,7 +1044,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
     let cost_definer =
         QualifiedContractIdentifier::new(p1_principal.clone(), "cost-definer".into());
     let intercepted = QualifiedContractIdentifier::new(p1_principal.clone(), "intercepted".into());
-    let caller = QualifiedContractIdentifier::new(p1_principal.clone(), "caller".into());
+    let caller = QualifiedContractIdentifier::new(p1_principal, "caller".into());
 
     let mut marf_kv = {
         let mut clarity_inst = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
@@ -1227,7 +1225,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
 
         execute_transaction(
             &mut owned_env,
-            p2_principal.clone(),
+            p2_principal,
             &caller,
             "execute",
             &symbols_from_values(vec![Value::UInt(10)]),
@@ -1414,7 +1412,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
         (
             intercepted.clone().into(),
             "intercepted-function",
-            p1_principal.clone().into(),
+            p1_principal.into(),
             "cost-definition",
         ),
         // replacement function doesn't exist
@@ -1458,14 +1456,14 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
         (
             intercepted.clone().into(),
             "intercepted-function",
-            bad_cost_definer.clone().into(),
+            bad_cost_definer.into(),
             "cost-definition",
         ),
         // cost defining contract has incorrect number of arguments
         (
             intercepted.clone().into(),
             "intercepted-function",
-            bad_cost_args_definer.clone().into(),
+            bad_cost_args_definer.into(),
             "cost-definition",
         ),
     ];
@@ -1627,7 +1625,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
 
         execute_transaction(
             &mut owned_env,
-            p2_principal.clone(),
+            p2_principal,
             &caller,
             "execute-2",
             &symbols_from_values(vec![Value::UInt(5)]),
@@ -1643,7 +1641,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
         assert_eq!(circuits.len(), 2);
 
         let circuit1 = circuits.get(&(intercepted.clone(), "intercepted-function".into()));
-        let circuit2 = circuits.get(&(intercepted.clone(), "intercepted-function2".into()));
+        let circuit2 = circuits.get(&(intercepted, "intercepted-function2".into()));
 
         assert!(circuit1.is_some());
         assert!(circuit2.is_some());

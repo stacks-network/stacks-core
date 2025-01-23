@@ -261,7 +261,7 @@ fn pox_extend_transition() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let first_v2_cycle = burnchain
         .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
@@ -687,10 +687,10 @@ fn pox_extend_transition() {
     let alice_lockup = make_pox_4_extend(
         &alice,
         3,
-        alice_pox_addr.clone(),
+        alice_pox_addr,
         6,
         alice_signer_key.clone(),
-        Some(alice_signature.clone()),
+        Some(alice_signature),
         u128::MAX,
         3,
     );
@@ -921,7 +921,7 @@ fn pox_lock_unlock() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let (mut peer, keys) =
         instantiate_pox_peer_with_epoch(&burnchain, function_name!(), Some(epochs.clone()), None);
@@ -1096,7 +1096,7 @@ fn pox_3_defunct() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let observer = TestEventObserver::new();
 
@@ -1232,7 +1232,7 @@ fn pox_3_unlocks() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let (mut peer, keys) =
         instantiate_pox_peer_with_epoch(&burnchain, function_name!(), Some(epochs.clone()), None);
@@ -1391,7 +1391,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        Some(epochs.clone()),
+        Some(epochs),
         Some(&observer),
     );
 
@@ -1463,7 +1463,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
         &steph_key,
         steph_stack_stx_nonce,
         min_ustx,
-        &steph_pox_addr.clone(),
+        &steph_pox_addr,
         lock_period,
         &steph_signing_key,
         block_height,
@@ -1677,7 +1677,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
     ]);
     let common_data = PoxPrintFields {
         op_name: "stack-extend".to_string(),
-        stacker: steph_principal.clone().into(),
+        stacker: steph_principal.into(),
         balance: Value::UInt(10234866374900),
         locked: Value::UInt(5133625100),
         burnchain_unlock_height: Value::UInt(120),
@@ -1725,7 +1725,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
     ]);
     let common_data = PoxPrintFields {
         op_name: "delegate-stack-stx".to_string(),
-        stacker: alice_principal.clone().into(),
+        stacker: alice_principal.into(),
         balance: Value::UInt(10240000000000),
         locked: Value::UInt(0),
         burnchain_unlock_height: Value::UInt(0),
@@ -1749,7 +1749,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
     ]);
     let common_data = PoxPrintFields {
         op_name: "stack-aggregation-commit-indexed".to_string(),
-        stacker: bob_principal.clone().into(),
+        stacker: bob_principal.into(),
         balance: Value::UInt(10240000000000),
         locked: Value::UInt(0),
         burnchain_unlock_height: Value::UInt(0),
@@ -1782,7 +1782,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        Some(epochs.clone()),
+        Some(epochs),
         Some(&observer),
     );
 
@@ -2125,7 +2125,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     ]);
     let common_data = PoxPrintFields {
         op_name: "delegate-stack-stx".to_string(),
-        stacker: alice_principal.clone().into(),
+        stacker: alice_principal.into(),
         balance: Value::UInt(10240000000000),
         locked: Value::UInt(0),
         burnchain_unlock_height: Value::UInt(0),
@@ -2149,7 +2149,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     ]);
     let common_data = PoxPrintFields {
         op_name: "stack-aggregation-commit-indexed".to_string(),
-        stacker: bob_principal.clone().into(),
+        stacker: bob_principal.into(),
         balance: Value::UInt(10240000000000),
         locked: Value::UInt(0),
         burnchain_unlock_height: Value::UInt(0),
@@ -2211,7 +2211,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase_skip_cycle()
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        Some(epochs.clone()),
+        Some(epochs),
         Some(&observer),
     );
 
@@ -2388,7 +2388,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase_skip_cycle()
     ]);
     let common_data = PoxPrintFields {
         op_name: "delegate-stack-stx".to_string(),
-        stacker: alice_principal.clone().into(),
+        stacker: alice_principal.into(),
         balance: Value::UInt(10240000000000),
         locked: Value::UInt(0),
         burnchain_unlock_height: Value::UInt(0),
@@ -2412,7 +2412,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase_skip_cycle()
     ]);
     let common_data = PoxPrintFields {
         op_name: "stack-aggregation-commit-indexed".to_string(),
-        stacker: bob_principal.clone().into(),
+        stacker: bob_principal.into(),
         balance: Value::UInt(10240000000000),
         locked: Value::UInt(0),
         burnchain_unlock_height: Value::UInt(0),
@@ -2436,14 +2436,14 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let observer = TestEventObserver::new();
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        Some(epochs.clone()),
+        Some(epochs),
         Some(&observer),
     );
 
@@ -2501,7 +2501,7 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
         &steph_key,
         steph_nonce,
         min_ustx,
-        &steph_pox_addr.clone(),
+        &steph_pox_addr,
         steph_lock_period,
         &steph_signing_key,
         get_tip(peer.sortdb.as_ref()).block_height,
@@ -2559,14 +2559,14 @@ fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let observer = TestEventObserver::new();
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        Some(epochs.clone()),
+        Some(epochs),
         Some(&observer),
     );
 
@@ -2624,7 +2624,7 @@ fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
         &steph_key,
         steph_nonce,
         min_ustx,
-        &steph_pox_addr.clone(),
+        &steph_pox_addr,
         steph_lock_period,
         &steph_signing_key,
         get_tip(peer.sortdb.as_ref()).block_height,
@@ -2680,14 +2680,14 @@ fn pox_4_delegate_stack_increase_events() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let observer = TestEventObserver::new();
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        Some(epochs.clone()),
+        Some(epochs),
         Some(&observer),
     );
 
@@ -2716,8 +2716,7 @@ fn pox_4_delegate_stack_increase_events() {
     // alice delegate to bob
     let next_cycle = get_current_reward_cycle(&peer, &burnchain) + 1;
     let amount = 100_000_000;
-    let alice_delegate =
-        make_pox_4_delegate_stx(&alice_key, 0, amount, bob_principal.clone(), None, None);
+    let alice_delegate = make_pox_4_delegate_stx(&alice_key, 0, amount, bob_principal, None, None);
 
     // bob delegate-stack-stx
     let bob_delegate_stack_stx = make_pox_4_delegate_stack_stx(
@@ -2731,18 +2730,13 @@ fn pox_4_delegate_stack_increase_events() {
     );
 
     // bob delegate-stack-increase
-    let bob_delegate_stack_increase = make_pox_4_delegate_stack_increase(
-        &bob_key,
-        1,
-        &alice_principal,
-        bob_pox_addr.clone(),
-        amount / 2,
-    );
+    let bob_delegate_stack_increase =
+        make_pox_4_delegate_stack_increase(&bob_key, 1, &alice_principal, bob_pox_addr, amount / 2);
 
     latest_block = Some(peer.tenure_with_txs(
         &[
-            alice_delegate.clone(),
-            bob_delegate_stack_stx.clone(),
+            alice_delegate,
+            bob_delegate_stack_stx,
             bob_delegate_stack_increase.clone(),
         ],
         &mut coinbase_nonce,
@@ -2770,8 +2764,8 @@ fn pox_4_delegate_stack_increase_events() {
         ("start-cycle-id", Value::UInt(next_cycle)),
         ("end-cycle-id", Optional(OptionalData { data: None })),
         ("increase-by", Value::UInt(amount / 2)),
-        ("pox-addr", bob_pox_addr_val.clone()),
-        ("delegator", alice_principal.clone().into()),
+        ("pox-addr", bob_pox_addr_val),
+        ("delegator", alice_principal.into()),
     ]);
 }
 
@@ -2786,14 +2780,14 @@ fn pox_4_revoke_delegate_stx_events() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let observer = TestEventObserver::new();
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        Some(epochs.clone()),
+        Some(epochs),
         Some(&observer),
     );
 
@@ -2942,7 +2936,7 @@ fn pox_4_revoke_delegate_stx_events() {
     ]);
     let common_data = PoxPrintFields {
         op_name: "revoke-delegate-stx".to_string(),
-        stacker: alice_principal.clone().into(),
+        stacker: alice_principal.into(),
         balance: Value::UInt(10240000000000),
         locked: Value::UInt(0),
         burnchain_unlock_height: Value::UInt(0),
@@ -3026,14 +3020,14 @@ fn verify_signer_key_signatures() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let observer = TestEventObserver::new();
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        Some(epochs.clone()),
+        Some(epochs),
         Some(&observer),
     );
 
@@ -4335,7 +4329,7 @@ fn stack_agg_increase() {
     )
     .unwrap();
 
-    peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
+    peer_config.aggregate_public_key = Some(aggregate_public_key);
     peer_config
         .stacker_dbs
         .push(boot_code_id(MINERS_NAME, false));
@@ -4346,7 +4340,7 @@ fn stack_agg_increase() {
     peer_config.burnchain.pox_constants.pox_3_activation_height = 101;
     peer_config.burnchain.pox_constants.v3_unlock_height = 102;
     peer_config.burnchain.pox_constants.pox_4_activation_height = 105;
-    peer_config.test_signers = Some(test_signers.clone());
+    peer_config.test_signers = Some(test_signers);
     peer_config.burnchain.pox_constants.reward_cycle_length = 20;
     peer_config.burnchain.pox_constants.prepare_length = 5;
     let epochs = peer_config.epochs.clone().unwrap();
@@ -4445,7 +4439,7 @@ fn stack_agg_increase() {
     let bob_delegate_stack_stx_for_carl_tx = make_pox_4_delegate_stack_stx(
         &bob.private_key,
         bob.nonce,
-        carl.principal.clone(),
+        carl.principal,
         amount,
         bob.pox_address.clone(),
         burn_block_height as u128,
@@ -4456,7 +4450,7 @@ fn stack_agg_increase() {
     let bob_delegate_stack_stx_for_dave_tx = make_pox_4_delegate_stack_stx(
         &bob.private_key,
         bob.nonce,
-        dave.principal.clone(),
+        dave.principal,
         amount,
         bob.pox_address.clone(),
         burn_block_height as u128,
@@ -4478,11 +4472,11 @@ fn stack_agg_increase() {
     bob.nonce += 1;
 
     let txs = vec![
-        carl_delegate_stx_to_bob_tx.clone(),
-        dave_delegate_stx_to_bob_tx.clone(),
-        bob_delegate_stack_stx_for_carl_tx.clone(),
-        bob_delegate_stack_stx_for_dave_tx.clone(),
-        bobs_aggregate_commit_index_tx.clone(),
+        carl_delegate_stx_to_bob_tx,
+        dave_delegate_stx_to_bob_tx,
+        bob_delegate_stack_stx_for_carl_tx,
+        bob_delegate_stack_stx_for_dave_tx,
+        bobs_aggregate_commit_index_tx,
     ];
 
     // Advance to next block in order to collect aggregate commit reward index
@@ -4526,7 +4520,7 @@ fn stack_agg_increase() {
     let bob_delegate_stack_stx_for_eve_tx = make_pox_4_delegate_stack_stx(
         &bob.private_key,
         bob.nonce,
-        eve.principal.clone(),
+        eve.principal,
         amount,
         bob.pox_address.clone(),
         burn_block_height as u128,
@@ -4589,7 +4583,7 @@ fn stack_agg_increase() {
     let bob_delegate_stack_stx_for_faith_tx = make_pox_4_delegate_stack_stx(
         &bob.private_key,
         bob.nonce,
-        frank.principal.clone(),
+        frank.principal,
         amount,
         bob.pox_address.clone(),
         burn_block_height as u128,
@@ -4600,7 +4594,7 @@ fn stack_agg_increase() {
     let bob_delegate_stack_stx_for_grace_tx = make_pox_4_delegate_stack_stx(
         &bob.private_key,
         bob.nonce,
-        grace.principal.clone(),
+        grace.principal,
         amount,
         bob.pox_address.clone(),
         burn_block_height as u128,
@@ -4621,15 +4615,15 @@ fn stack_agg_increase() {
     bob.nonce += 1;
 
     let txs = vec![
-        eve_delegate_stx_to_bob_tx.clone(),
-        bob_delegate_stack_stx_for_eve_tx.clone(),
-        bobs_err_aggregate_increase.clone(),
-        bobs_aggregate_increase.clone(),
-        frank_delegate_stx_to_bob_tx.clone(),
-        grace_delegate_stx_to_bob_tx.clone(),
-        bob_delegate_stack_stx_for_faith_tx.clone(),
-        bob_delegate_stack_stx_for_grace_tx.clone(),
-        bobs_aggregate_commit_index_tx.clone(),
+        eve_delegate_stx_to_bob_tx,
+        bob_delegate_stack_stx_for_eve_tx,
+        bobs_err_aggregate_increase,
+        bobs_aggregate_increase,
+        frank_delegate_stx_to_bob_tx,
+        grace_delegate_stx_to_bob_tx,
+        bob_delegate_stack_stx_for_faith_tx,
+        bob_delegate_stack_stx_for_grace_tx,
+        bobs_aggregate_commit_index_tx,
     ];
 
     // Advance to next block in order to attempt aggregate increase
@@ -5071,7 +5065,7 @@ fn stack_increase_different_signer_keys(use_nakamoto: bool) {
         pox_addr.clone(),
         lock_period,
         second_signer_pk.clone(),
-        Some(signature.clone()),
+        Some(signature),
         u128::MAX,
         1,
     );
@@ -5226,7 +5220,7 @@ fn stack_stx_signer_key(use_nakamoto: bool) {
     //                       (lock-period uint)
     //                       (signer-key (buff 33)))
     let pox_addr = pox_addr_from(stacker_key);
-    let pox_addr_val = Value::Tuple(pox_addr.clone().as_clarity_tuple().unwrap());
+    let pox_addr_val = Value::Tuple(pox_addr.as_clarity_tuple().unwrap());
     let signature = make_signer_key_signature(
         &pox_addr,
         signer_key,
@@ -5246,8 +5240,8 @@ fn stack_stx_signer_key(use_nakamoto: bool) {
             pox_addr_val.clone(),
             Value::UInt(block_height as u128),
             Value::UInt(2),
-            Value::some(Value::buff_from(signature.clone()).unwrap()).unwrap(),
-            signer_key_val.clone(),
+            Value::some(Value::buff_from(signature).unwrap()).unwrap(),
+            signer_key_val,
             Value::UInt(u128::MAX),
             Value::UInt(1),
         ],
@@ -5326,7 +5320,7 @@ fn stack_stx_signer_auth(use_nakamoto: bool) {
     let reward_cycle = get_current_reward_cycle(&peer, &burnchain);
 
     let pox_addr = pox_addr_from(stacker_key);
-    let pox_addr_val = Value::Tuple(pox_addr.clone().as_clarity_tuple().unwrap());
+    let pox_addr_val = Value::Tuple(pox_addr.as_clarity_tuple().unwrap());
     let lock_period = 6;
 
     let topic = Pox4SignatureTopic::StackStx;
@@ -5749,7 +5743,6 @@ fn test_set_signer_key_auth(use_nakamoto: bool) {
     let signer_txs = get_last_block_sender_transactions(&observer, signer_addr);
 
     let invalid_tx_period_result = signer_txs
-        .clone()
         .get(signer_invalid_period_nonce as usize)
         .unwrap()
         .result
@@ -5762,7 +5755,6 @@ fn test_set_signer_key_auth(use_nakamoto: bool) {
     );
 
     let invalid_tx_cycle_result = signer_txs
-        .clone()
         .get(signer_invalid_cycle_nonce as usize)
         .unwrap()
         .result
@@ -5881,7 +5873,7 @@ fn stack_extend_signer_key(use_nakamoto: bool) {
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block) * 2;
 
     let pox_addr = pox_addr_from(stacker_key);
-    let pox_addr_val = Value::Tuple(pox_addr.clone().as_clarity_tuple().unwrap());
+    let pox_addr_val = Value::Tuple(pox_addr.as_clarity_tuple().unwrap());
 
     let signer_sk = Secp256k1PrivateKey::from_seed(&[0]);
     let signer_extend_sk = Secp256k1PrivateKey::from_seed(&[1]);
@@ -6029,7 +6021,7 @@ fn delegate_stack_stx_signer_key(use_nakamoto: bool) {
     //                          (until-burn-ht (optional uint))
     //                          (pox-addr (optional { version: (buff 1), hashbytes: (buff 32) })))
     let pox_addr = pox_addr_from(stacker_key);
-    let pox_addr_val = Value::Tuple(pox_addr.clone().as_clarity_tuple().unwrap());
+    let pox_addr_val = Value::Tuple(pox_addr.as_clarity_tuple().unwrap());
     let signer_sk = Secp256k1PrivateKey::from_seed(&[1, 1, 1]);
     let signer_key = Secp256k1PublicKey::from_private(&signer_sk);
     let signer_key_val = Value::buff_from(signer_key.to_bytes_compressed()).unwrap();
@@ -6052,7 +6044,7 @@ fn delegate_stack_stx_signer_key(use_nakamoto: bool) {
             "delegate-stx",
             vec![
                 Value::UInt(min_ustx + 1),
-                delegate_principal.clone().into(),
+                delegate_principal.into(),
                 Value::none(),
                 Value::Optional(OptionalData {
                     data: Some(Box::new(pox_addr_val.clone())),
@@ -6076,10 +6068,10 @@ fn delegate_stack_stx_signer_key(use_nakamoto: bool) {
             delegate_nonce + 1,
             "stack-aggregation-commit",
             vec![
-                pox_addr_val.clone(),
+                pox_addr_val,
                 Value::UInt(next_reward_cycle.into()),
                 Value::some(Value::buff_from(signature).unwrap()).unwrap(),
-                signer_key_val.clone(),
+                signer_key_val,
                 Value::UInt(u128::MAX),
                 Value::UInt(1),
             ],
@@ -6171,7 +6163,7 @@ fn delegate_stack_stx_extend_signer_key(use_nakamoto: bool) {
         alice_stacker_key,
         alice_nonce,
         min_ustx + 1,
-        bob_delegate_principal.clone(),
+        bob_delegate_principal,
         None,
         Some(pox_addr.clone()),
     );
@@ -6264,7 +6256,7 @@ fn delegate_stack_stx_extend_signer_key(use_nakamoto: bool) {
             pox_addr.as_clarity_tuple().unwrap().into(),
             Value::UInt(next_reward_cycle.into()),
             Value::some(Value::buff_from(signature).unwrap()).unwrap(),
-            signer_key_val.clone(),
+            signer_key_val,
             Value::UInt(u128::MAX),
             Value::UInt(1),
         ],
@@ -6288,7 +6280,7 @@ fn delegate_stack_stx_extend_signer_key(use_nakamoto: bool) {
             pox_addr.as_clarity_tuple().unwrap().into(),
             Value::UInt(extend_cycle.into()),
             Value::some(Value::buff_from(extend_signature).unwrap()).unwrap(),
-            signer_extend_key_val.clone(),
+            signer_extend_key_val,
             Value::UInt(u128::MAX),
             Value::UInt(2),
         ],
@@ -6559,7 +6551,7 @@ fn delegate_stack_increase(use_nakamoto: bool) {
         alice_key,
         alice_nonce,
         2 * min_ustx,
-        bob_delegate_address.clone(),
+        bob_delegate_address,
         None,
         Some(pox_addr.clone()),
     );
@@ -6609,7 +6601,7 @@ fn delegate_stack_increase(use_nakamoto: bool) {
             pox_addr.as_clarity_tuple().unwrap().into(),
             Value::UInt(next_reward_cycle.into()),
             (Value::some(Value::buff_from(signature).unwrap()).unwrap()),
-            signer_key_val.clone(),
+            signer_key_val,
             Value::UInt(u128::MAX),
             Value::UInt(1),
         ],
@@ -6627,7 +6619,7 @@ fn delegate_stack_increase(use_nakamoto: bool) {
 
     let expected_result = Value::okay(Value::Tuple(
         TupleData::from_data(vec![
-            ("stacker".into(), Value::Principal(alice_address.clone())),
+            ("stacker".into(), Value::Principal(alice_address)),
             ("total-locked".into(), Value::UInt(min_ustx * 2)),
         ])
         .unwrap(),
@@ -6688,7 +6680,7 @@ pub fn pox_4_scenario_test_setup<'a>(
     )
     .unwrap();
 
-    peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
+    peer_config.aggregate_public_key = Some(aggregate_public_key);
     peer_config
         .stacker_dbs
         .push(boot_code_id(MINERS_NAME, false));
@@ -6696,12 +6688,12 @@ pub fn pox_4_scenario_test_setup<'a>(
     peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
     peer_config
         .initial_balances
-        .append(&mut initial_balances.clone());
+        .extend_from_slice(&initial_balances);
     peer_config.burnchain.pox_constants.v2_unlock_height = 81;
     peer_config.burnchain.pox_constants.pox_3_activation_height = 101;
     peer_config.burnchain.pox_constants.v3_unlock_height = 102;
     peer_config.burnchain.pox_constants.pox_4_activation_height = 105;
-    peer_config.test_signers = Some(test_signers.clone());
+    peer_config.test_signers = Some(test_signers);
     peer_config.burnchain.pox_constants.reward_cycle_length = 20;
     peer_config.burnchain.pox_constants.prepare_length = 5;
 
@@ -6759,20 +6751,16 @@ pub fn pox_4_scenario_test_setup_nakamoto<'a>(
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
-    let (peer, keys) = instantiate_pox_peer_with_epoch(
-        &burnchain,
-        test_name,
-        Some(epochs.clone()),
-        Some(observer),
-    );
+    let (peer, keys) =
+        instantiate_pox_peer_with_epoch(&burnchain, test_name, Some(epochs), Some(observer));
 
     let test_key = keys[3].clone();
     let test_keys = vec![test_key.clone()];
     let test_addr = key_to_stacks_addr(&test_key);
     let test_signers = TestSigners::new(vec![test_key.clone()]);
-    let aggregate_public_key = test_signers.aggregate_public_key.clone();
+    let aggregate_public_key = test_signers.aggregate_public_key;
 
     let private_key = StacksPrivateKey::from_seed(&[2]);
     let test_signers = TestSigners::new(test_keys.clone());
@@ -6789,7 +6777,7 @@ pub fn pox_4_scenario_test_setup_nakamoto<'a>(
         max_amount: None,
     }];
     let mut peer_config = TestPeerConfig::default();
-    peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
+    peer_config.aggregate_public_key = Some(aggregate_public_key);
     let mut pox_constants = peer_config.clone().burnchain.pox_constants;
     pox_constants.reward_cycle_length = 10;
     pox_constants.v2_unlock_height = 21;
@@ -6805,7 +6793,7 @@ pub fn pox_4_scenario_test_setup_nakamoto<'a>(
 
     boot_plan.initial_balances = initial_balances;
     boot_plan.pox_constants = pox_constants.clone();
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
     peer_config.burnchain = burnchain.clone();
     peer_config.test_signers = Some(test_signers.clone());
 
@@ -6832,7 +6820,7 @@ pub fn pox_4_scenario_test_setup_nakamoto<'a>(
         reward_cycle as u128,
         reward_cycle.wrapping_add(1),
         min_ustx as u128,
-        peer_config.clone(),
+        peer_config,
         Some(test_signers),
     )
 }
@@ -7237,7 +7225,7 @@ fn test_scenario_one(use_nakamoto: bool) {
         lock_period,
         &alice.public_key,
         target_height,
-        Some(alice_signature.clone()),
+        Some(alice_signature),
         u128::MAX,
         1,
     );
@@ -7723,7 +7711,7 @@ fn test_scenario_two(use_nakamoto: bool) {
         lock_period,
         &alice.public_key,
         burn_block_height,
-        Some(alice_signature_for_carl.clone()),
+        Some(alice_signature_for_carl),
         u128::MAX,
         1,
     );
@@ -8110,7 +8098,7 @@ fn test_scenario_three(use_nakamoto: bool) {
         lock_period,
         &alice.public_key,
         burn_block_height,
-        Some(alice_signature_for_alice_err.clone()),
+        Some(alice_signature_for_alice_err),
         u128::MAX,
         1,
     );
@@ -8138,7 +8126,7 @@ fn test_scenario_three(use_nakamoto: bool) {
         lock_period,
         &bob.public_key,
         burn_block_height,
-        Some(bob_signature_for_bob_err.clone()),
+        Some(bob_signature_for_bob_err),
         u128::MAX,
         1,
     );
@@ -8203,7 +8191,7 @@ fn test_scenario_three(use_nakamoto: bool) {
     );
     // Collecting all the pool stackers
     let davids_stackers = &[
-        (eve.clone(), lock_period),
+        (eve, lock_period),
         (frank.clone(), lock_period),
         (grace.clone(), lock_period),
         (alice.clone(), lock_period),
@@ -8242,7 +8230,7 @@ fn test_scenario_three(use_nakamoto: bool) {
         david.nonce,
         &david.pox_address,
         next_reward_cycle,
-        Some(carl_signature_for_david_err.clone()),
+        Some(carl_signature_for_david_err),
         &carl.public_key,
         u128::MAX,
         1,
@@ -8254,7 +8242,7 @@ fn test_scenario_three(use_nakamoto: bool) {
         david.nonce,
         &david.pox_address,
         next_reward_cycle,
-        Some(carl_signature_for_david.clone()),
+        Some(carl_signature_for_david),
         &carl.public_key,
         u128::MAX,
         1,
@@ -8570,7 +8558,7 @@ fn test_scenario_four(use_nakamoto: bool) {
         lock_period,
         &alice.public_key,
         burn_block_height,
-        Some(alice_signature_initial.clone()),
+        Some(alice_signature_initial),
         u128::MAX,
         1,
     );
@@ -8584,13 +8572,13 @@ fn test_scenario_four(use_nakamoto: bool) {
         lock_period,
         &bob.public_key,
         burn_block_height,
-        Some(bob_signature_initial.clone()),
+        Some(bob_signature_initial),
         u128::MAX,
         1,
     );
     bob.nonce += 1;
 
-    let txs = vec![alice_stack.clone(), bob_stack.clone()];
+    let txs = vec![alice_stack, bob_stack];
 
     // Commit tx & advance to the reward set calculation height (2nd block of the prepare phase for reward cycle 6)
     let target_height = peer
@@ -8664,11 +8652,7 @@ fn test_scenario_four(use_nakamoto: bool) {
         next_reward_cycle,
     );
     bob.nonce += 1;
-    let mut txs = vec![
-        alice_vote_err.clone(),
-        alice_vote_expected.clone(),
-        bob_vote_expected.clone(),
-    ];
+    let mut txs = vec![alice_vote_err, alice_vote_expected, bob_vote_expected];
 
     // Also vote for aggregate key with default test signer if in Nakamoto:
     if let Some(test_signers) = test_signers.clone() {
@@ -8750,7 +8734,7 @@ fn test_scenario_four(use_nakamoto: bool) {
         alice.pox_address.clone(),
         lock_period,
         bob.public_key.clone(),
-        Some(alice_signature_extend_err.clone()),
+        Some(alice_signature_extend_err),
         u128::MAX,
         1,
     );
@@ -8762,7 +8746,7 @@ fn test_scenario_four(use_nakamoto: bool) {
         alice.pox_address.clone(),
         lock_period,
         alice.public_key.clone(),
-        Some(alice_signature_extend.clone()),
+        Some(alice_signature_extend),
         u128::MAX,
         1,
     );
@@ -8775,17 +8759,13 @@ fn test_scenario_four(use_nakamoto: bool) {
         &alice.private_key,
         alice.nonce,
         alice_index,
-        peer_config.aggregate_public_key.clone().unwrap(),
+        peer_config.aggregate_public_key.unwrap(),
         1,
         7,
     );
     alice.nonce += 1;
 
-    let txs = vec![
-        alice_extend_err.clone(),
-        alice_extend.clone(),
-        alice_vote_expected_err.clone(),
-    ];
+    let txs = vec![alice_extend_err, alice_extend, alice_vote_expected_err];
     let target_height = target_height.wrapping_add(1);
     let (latest_block, tx_block, receipts) = advance_to_block_height(
         &mut peer,
@@ -8857,7 +8837,7 @@ fn delegate_stack_increase_err(use_nakamoto: bool) {
     let signer_sk = StacksPrivateKey::from_seed(&[1, 3, 3, 7]);
     let signer_pk = StacksPublicKey::from_private(&signer_sk);
     let signer_pk_bytes = signer_pk.to_bytes_compressed();
-    let signer_key_val = Value::buff_from(signer_pk_bytes.clone()).unwrap();
+    let signer_key_val = Value::buff_from(signer_pk_bytes).unwrap();
 
     let pox_addr = PoxAddress::from_legacy(
         AddressHashMode::SerializeP2PKH,
@@ -8872,7 +8852,7 @@ fn delegate_stack_increase_err(use_nakamoto: bool) {
         alice_key,
         alice_nonce,
         2 * min_ustx,
-        bob_delegate_address.clone(),
+        bob_delegate_address,
         None,
         Some(pox_addr.clone()),
     );
@@ -9158,7 +9138,7 @@ pub fn prepare_pox4_test<'a>(
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let (mut peer, keys) =
         instantiate_pox_peer_with_epoch(&burnchain, test_name, Some(epochs.clone()), observer);
@@ -9194,13 +9174,12 @@ pub fn prepare_pox4_test<'a>(
         let addrs: Vec<StacksAddress> = keys.iter().map(key_to_stacks_addr).collect();
 
         let balances: Vec<(PrincipalData, u64)> = addrs
-            .clone()
             .into_iter()
             .map(|addr| (addr.into(), (1024 * POX_THRESHOLD_STEPS_USTX) as u64))
             .collect();
         boot_plan.initial_balances = balances;
         boot_plan.pox_constants = pox_constants.clone();
-        burnchain.pox_constants = pox_constants.clone();
+        burnchain.pox_constants = pox_constants;
 
         info!("---- Booting into Nakamoto Peer ----");
         let peer = boot_plan.boot_into_nakamoto_peer(vec![], observer);
@@ -9315,15 +9294,13 @@ pub fn tenure_with_txs(
     if let Some(test_signers) = test_signers {
         let (burn_ops, mut tenure_change, miner_key) =
             peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
-        let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+        let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops);
         let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
         tenure_change.tenure_consensus_hash = consensus_hash.clone();
         tenure_change.burn_view_consensus_hash = consensus_hash.clone();
 
-        let tenure_change_tx = peer
-            .miner
-            .make_nakamoto_tenure_change(tenure_change.clone());
+        let tenure_change_tx = peer.miner.make_nakamoto_tenure_change(tenure_change);
         let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
 
         let blocks_and_sizes = peer.make_nakamoto_tenure(
@@ -9648,7 +9625,7 @@ fn no_lockups_2_5() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let observer = TestEventObserver::new();
 
@@ -9952,9 +9929,9 @@ fn test_scenario_five(use_nakamoto: bool) {
         (heidi.clone(), heidi_lock_period),
     ];
     let eves_stackers = &[
-        (ivan.clone(), ivan_lock_period),
-        (jude.clone(), jude_lock_period),
-        (mallory.clone(), mallory_lock_period),
+        (ivan, ivan_lock_period),
+        (jude, jude_lock_period),
+        (mallory, mallory_lock_period),
     ];
 
     // David calls 'delegate-stack-stx' for each of his stackers
@@ -10479,10 +10456,7 @@ fn test_scenario_five(use_nakamoto: bool) {
         .saturating_sub(peer_config.burnchain.pox_constants.prepare_length as u64)
         .wrapping_add(2);
     // This assertion just makes testing logic a bit easier
-    let davids_stackers = &[
-        (grace.clone(), grace_lock_period),
-        (heidi.clone(), heidi_lock_period),
-    ];
+    let davids_stackers = &[(grace, grace_lock_period), (heidi, heidi_lock_period)];
 
     info!("Scenario five: submitting increase and aggregate-commit txs");
     let (latest_block, tx_block, receipts) = advance_to_block_height(

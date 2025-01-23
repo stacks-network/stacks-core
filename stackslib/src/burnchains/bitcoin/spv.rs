@@ -1627,7 +1627,7 @@ mod test {
             .unwrap();
         assert_eq!(spv_client.read_block_headers(1, 10).unwrap(), headers);
 
-        let mut all_headers = vec![genesis_regtest_header.clone()];
+        let mut all_headers = vec![genesis_regtest_header];
         all_headers.append(&mut headers.clone());
 
         assert_eq!(spv_client.read_block_headers(0, 10).unwrap(), all_headers);
@@ -1650,9 +1650,7 @@ mod test {
         }
 
         // should succeed
-        spv_client
-            .insert_block_headers_before(9, headers.clone())
-            .unwrap();
+        spv_client.insert_block_headers_before(9, headers).unwrap();
     }
 
     #[test]
@@ -1771,10 +1769,7 @@ mod test {
         ];
 
         // should fail
-        if let btc_error::InvalidPoW = spv_client
-            .handle_headers(40317, bad_headers.clone())
-            .unwrap_err()
-        {
+        if let btc_error::InvalidPoW = spv_client.handle_headers(40317, bad_headers).unwrap_err() {
         } else {
             panic!("Bad PoW headers accepted");
         }

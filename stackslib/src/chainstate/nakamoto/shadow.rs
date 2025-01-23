@@ -694,7 +694,7 @@ impl NakamotoBlockBuilder {
         let coinbase_tx = {
             let mut tx_coinbase = StacksTransaction::new(
                 tx_version.clone(),
-                miner_tx_auth.clone(),
+                miner_tx_auth,
                 TransactionPayload::Coinbase(coinbase_payload, Some(recipient), Some(vrf_proof)),
             );
             tx_coinbase.chain_id = chain_id;

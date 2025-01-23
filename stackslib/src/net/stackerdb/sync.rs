@@ -606,7 +606,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             false
         };
 
-        self.chunk_invs.insert(naddr.clone(), new_inv);
+        self.chunk_invs.insert(naddr, new_inv);
 
         self.chunk_push_priorities
             .retain(|(chunk, ..)| chunk.chunk_data.slot_id != slot_id);

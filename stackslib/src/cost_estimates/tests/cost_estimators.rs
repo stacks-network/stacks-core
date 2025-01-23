@@ -852,7 +852,7 @@ fn test_cost_estimator_epochs_independent() {
                 &StacksEpochId::Epoch20
             )
             .expect("Should be able to provide cost estimate now"),
-        cost_200.clone(),
+        cost_200,
     );
 
     // Check: We get back cost_205 for Epoch2_05.
@@ -863,6 +863,6 @@ fn test_cost_estimator_epochs_independent() {
                 &StacksEpochId::Epoch2_05
             )
             .expect("Should be able to provide cost estimate now"),
-        cost_205.clone(),
+        cost_205,
     );
 }

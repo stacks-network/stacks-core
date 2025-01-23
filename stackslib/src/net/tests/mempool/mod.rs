@@ -61,7 +61,7 @@ fn test_mempool_sync_2_peers() {
         .collect();
 
     peer_1_config.initial_balances = initial_balances.clone();
-    peer_2_config.initial_balances = initial_balances.clone();
+    peer_2_config.initial_balances = initial_balances;
 
     let mut peer_1 = TestPeer::new(peer_1_config);
     let mut peer_2 = TestPeer::new(peer_2_config);
@@ -327,7 +327,7 @@ fn test_mempool_sync_2_peers_paginated() {
         .collect();
 
     peer_1_config.initial_balances = initial_balances.clone();
-    peer_2_config.initial_balances = initial_balances.clone();
+    peer_2_config.initial_balances = initial_balances;
 
     let mut peer_1 = TestPeer::new(peer_1_config);
     let mut peer_2 = TestPeer::new(peer_2_config);
@@ -516,7 +516,7 @@ fn test_mempool_sync_2_peers_blacklisted() {
         .collect();
 
     peer_1_config.initial_balances = initial_balances.clone();
-    peer_2_config.initial_balances = initial_balances.clone();
+    peer_2_config.initial_balances = initial_balances;
 
     let mut peer_1 = TestPeer::new(peer_1_config);
     let mut peer_2 = TestPeer::new(peer_2_config);
@@ -725,7 +725,7 @@ fn test_mempool_sync_2_peers_problematic() {
         .collect();
 
     peer_1_config.initial_balances = initial_balances.clone();
-    peer_2_config.initial_balances = initial_balances.clone();
+    peer_2_config.initial_balances = initial_balances;
 
     let mut peer_1 = TestPeer::new(peer_1_config);
     let mut peer_2 = TestPeer::new(peer_2_config);
@@ -987,7 +987,7 @@ pub fn test_mempool_storage_nakamoto() {
                         );
                         txs.push(stx_transfer.clone());
                         (*mempool_txs.borrow_mut()).push(stx_transfer.clone());
-                        all_txs.push(stx_transfer.clone());
+                        all_txs.push(stx_transfer);
                     }
                     txs
                 },
@@ -1101,7 +1101,7 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
         &observer,
         10,
         3,
-        bitvecs.clone(),
+        bitvecs,
         1,
         initial_balances,
     );

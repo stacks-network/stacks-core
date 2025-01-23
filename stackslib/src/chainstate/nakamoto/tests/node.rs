@@ -1513,7 +1513,6 @@ impl TestPeer<'_> {
             peer.malleablized_blocks.append(&mut malleablized_blocks);
 
             let block_data = blocks
-                .clone()
                 .into_iter()
                 .map(|(blk, sz, cost, _)| (blk, sz, cost))
                 .collect();
@@ -1603,7 +1602,6 @@ impl TestPeer<'_> {
         self.malleablized_blocks.append(&mut malleablized_blocks);
 
         let block_data = blocks
-            .clone()
             .into_iter()
             .map(|(blk, sz, cost, _)| (blk, sz, cost))
             .collect();

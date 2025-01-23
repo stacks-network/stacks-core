@@ -1975,7 +1975,7 @@ mod test {
 
         let invoked = invoke_command(
             "test",
-            &["initialize".to_string(), json_name.clone(), db_name.clone()],
+            &["initialize".to_string(), json_name, db_name.clone()],
         );
         let exit = invoked.0;
         let result = invoked.1.unwrap();
@@ -2300,7 +2300,7 @@ mod test {
                 "eval_at_chaintip".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
                 cargo_workspace_as_string("sample/contracts/tokens-mint.clar"),
-                db_name.clone(),
+                db_name,
                 "--costs".to_string(),
             ],
         );
@@ -2352,7 +2352,7 @@ mod test {
                 "launch".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens-ft".to_string(),
                 cargo_workspace_as_string("sample/contracts/tokens-ft.clar"),
-                db_name.clone(),
+                db_name,
                 "--assets".to_string(),
             ],
         );
