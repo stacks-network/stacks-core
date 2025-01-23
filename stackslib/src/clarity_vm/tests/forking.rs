@@ -89,8 +89,8 @@ fn test_at_block_mutations(#[case] version: ClarityVersion, #[case] epoch: Stack
 
         {
             let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-            let command = format!("(var-get datum)");
-            let value = env.eval_read_only(&c, &command).unwrap();
+            let command = "(var-get datum)";
+            let value = env.eval_read_only(&c, command).unwrap();
             assert_eq!(value, Value::Int(expected_value));
         }
 
@@ -168,8 +168,8 @@ fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
 
         {
             let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-            let command = format!("(var-get datum)");
-            let value = env.eval_read_only(&c, &command).unwrap();
+            let command = "(var-get datum)";
+            let value = env.eval_read_only(&c, command).unwrap();
             assert_eq!(value, Value::Int(expected_value));
         }
 

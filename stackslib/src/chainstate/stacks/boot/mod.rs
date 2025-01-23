@@ -280,9 +280,7 @@ impl RewardSet {
     /// If there are no reward set signers, a ChainstateError is returned.
     pub fn total_signing_weight(&self) -> Result<u32, String> {
         let Some(ref reward_set_signers) = self.signers else {
-            return Err(format!(
-                "Unable to calculate total weight - No signers in reward set"
-            ));
+            return Err("Unable to calculate total weight - No signers in reward set".to_string());
         };
         Ok(reward_set_signers
             .iter()
@@ -630,17 +628,12 @@ impl StacksChainState {
         sortdb: &SortitionDB,
         stacks_block_id: &StacksBlockId,
     ) -> Result<u128, Error> {
-        self.eval_boot_code_read_only(
-            sortdb,
-            stacks_block_id,
-            "pox",
-            &format!("(get-stacking-minimum)"),
-        )
-        .map(|value| {
-            value
-                .expect_u128()
-                .expect("FATAL: unexpected PoX structure")
-        })
+        self.eval_boot_code_read_only(sortdb, stacks_block_id, "pox", "(get-stacking-minimum)")
+            .map(|value| {
+                value
+                    .expect_u128()
+                    .expect("FATAL: unexpected PoX structure")
+            })
     }
 
     pub fn get_total_ustx_stacked(
@@ -1742,11 +1735,7 @@ pub mod test {
     }
 
     pub fn get_balance(peer: &mut TestPeer, addr: &PrincipalData) -> u128 {
-        let value = eval_at_tip(
-            peer,
-            "pox",
-            &format!("(stx-get-balance '{})", addr.to_string()),
-        );
+        let value = eval_at_tip(peer, "pox", &format!("(stx-get-balance '{addr})"));
         if let Value::UInt(balance) = value {
             return balance;
         } else {
@@ -1758,11 +1747,7 @@ pub mod test {
         peer: &mut TestPeer,
         addr: &PrincipalData,
     ) -> Option<(PoxAddress, u128, u128, Vec<u128>)> {
-        let value_opt = eval_at_tip(
-            peer,
-            "pox-4",
-            &format!("(get-stacker-info '{})", addr.to_string()),
-        );
+        let value_opt = eval_at_tip(peer, "pox-4", &format!("(get-stacker-info '{addr})"));
         let data = if let Some(d) = value_opt.expect_optional().unwrap() {
             d
         } else {
@@ -1811,11 +1796,7 @@ pub mod test {
         peer: &mut TestPeer,
         addr: &PrincipalData,
     ) -> Option<(u128, PoxAddress, u128, u128)> {
-        let value_opt = eval_at_tip(
-            peer,
-            "pox",
-            &format!("(get-stacker-info '{})", addr.to_string()),
-        );
+        let value_opt = eval_at_tip(peer, "pox", &format!("(get-stacker-info '{addr})"));
         let data = if let Some(d) = value_opt.expect_optional().unwrap() {
             d
         } else {
@@ -4266,7 +4247,7 @@ pub mod test {
                               (var-set test-result
                                        (match result ok_value -1 err_value err_value))
                               (var-set test-run true))
-                        ", boot_code_test_addr().to_string()));
+                        ", boot_code_test_addr()));
 
                     block_txs.push(bob_test_tx);
 
@@ -4280,7 +4261,7 @@ pub mod test {
                               (var-set test-result
                                        (match result ok_value -1 err_value err_value))
                               (var-set test-run true))
-                        ", boot_code_test_addr().to_string()));
+                        ", boot_code_test_addr()));
 
                     block_txs.push(alice_test_tx);
 
@@ -4294,7 +4275,7 @@ pub mod test {
                               (var-set test-result
                                        (match result ok_value -1 err_value err_value))
                               (var-set test-run true))
-                        ", boot_code_test_addr().to_string()));
+                        ", boot_code_test_addr()));
 
                     block_txs.push(charlie_test_tx);
                 }

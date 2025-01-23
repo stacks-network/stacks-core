@@ -797,7 +797,7 @@ impl<'a> TestRPC<'a> {
             format!("127.0.0.1:{}", peer_1_http)
                 .parse::<SocketAddr>()
                 .unwrap(),
-            Some(UrlString::try_from(format!("http://peer1.com")).unwrap()),
+            Some(UrlString::try_from("http://peer1.com".to_string()).unwrap()),
             peer_1.to_peer_host(),
             &peer_1.config.connection_opts,
             0,
@@ -808,7 +808,7 @@ impl<'a> TestRPC<'a> {
             format!("127.0.0.1:{}", peer_2_http)
                 .parse::<SocketAddr>()
                 .unwrap(),
-            Some(UrlString::try_from(format!("http://peer2.com")).unwrap()),
+            Some(UrlString::try_from("http://peer2.com".to_string()).unwrap()),
             peer_2.to_peer_host(),
             &peer_2.config.connection_opts,
             1,
@@ -864,7 +864,7 @@ impl<'a> TestRPC<'a> {
             format!("127.0.0.1:{}", peer.config.http_port)
                 .parse::<SocketAddr>()
                 .unwrap(),
-            Some(UrlString::try_from(format!("http://peer1.com")).unwrap()),
+            Some(UrlString::try_from("http://peer1.com".to_string()).unwrap()),
             peer.to_peer_host(),
             &peer.config.connection_opts,
             0,
@@ -875,7 +875,7 @@ impl<'a> TestRPC<'a> {
             format!("127.0.0.1:{}", other_peer.config.http_port)
                 .parse::<SocketAddr>()
                 .unwrap(),
-            Some(UrlString::try_from(format!("http://peer2.com")).unwrap()),
+            Some(UrlString::try_from("http://peer2.com".to_string()).unwrap()),
             other_peer.to_peer_host(),
             &other_peer.config.connection_opts,
             1,
