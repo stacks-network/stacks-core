@@ -108,7 +108,7 @@ impl From<&StacksPrivateKey> for StandardPrincipalData {
             &vec![StacksPublicKey::from_private(o)],
         )
         .unwrap();
-        StandardPrincipalData::from(stacks_addr)
+        StandardPrincipalData::try_from(stacks_addr).unwrap()
     }
 }
 

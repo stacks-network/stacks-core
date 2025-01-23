@@ -774,7 +774,7 @@ fn contract_id_consensus_serialize<W: Write>(
 ) -> Result<(), codec_error> {
     let addr = &cid.issuer;
     let name = &cid.name;
-    write_next(fd, &addr.0)?;
+    write_next(fd, &addr.version())?;
     write_next(fd, &addr.1)?;
     write_next(fd, name)?;
     Ok(())
@@ -787,11 +787,13 @@ fn contract_id_consensus_deserialize<R: Read>(
     let bytes: [u8; 20] = read_next(fd)?;
     let name: ContractName = read_next(fd)?;
     let qn = QualifiedContractIdentifier::new(
-        StacksAddress {
-            version,
-            bytes: Hash160(bytes),
-        }
-        .into(),
+        StacksAddress::new(version, Hash160(bytes))
+            .map_err(|_| {
+                codec_error::DeserializeError(
+                    "Failed to make StacksAddress with given version".into(),
+                )
+            })?
+            .into(),
         name,
     );
     Ok(qn)

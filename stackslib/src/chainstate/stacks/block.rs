@@ -1457,10 +1457,7 @@ mod test {
         let mut tx_invalid_coinbase = tx_coinbase.clone();
         tx_invalid_coinbase.anchor_mode = TransactionAnchorMode::OffChainOnly;
 
-        let stx_address = StacksAddress {
-            version: 0,
-            bytes: Hash160([0u8; 20]),
-        };
+        let stx_address = StacksAddress::new(0, Hash160([0u8; 20])).unwrap();
         let mut tx_invalid_anchor = StacksTransaction::new(
             TransactionVersion::Testnet,
             origin_auth.clone(),
@@ -1585,10 +1582,7 @@ mod test {
         let mut tx_coinbase_offchain = tx_coinbase.clone();
         tx_coinbase_offchain.anchor_mode = TransactionAnchorMode::OffChainOnly;
 
-        let stx_address = StacksAddress {
-            version: 0,
-            bytes: Hash160([0u8; 20]),
-        };
+        let stx_address = StacksAddress::new(0, Hash160([0u8; 20])).unwrap();
         let mut tx_invalid_anchor = StacksTransaction::new(
             TransactionVersion::Testnet,
             origin_auth.clone(),
@@ -1794,10 +1788,7 @@ mod test {
             microblock_pubkey_hash: Hash160([9u8; 20]),
         };
 
-        let stx_address = StacksAddress {
-            version: 0,
-            bytes: Hash160([0u8; 20]),
-        };
+        let stx_address = StacksAddress::new(0, Hash160([0u8; 20])).unwrap();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -1964,10 +1955,7 @@ mod test {
             TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, Some(proof)),
         );
 
-        let stx_address = StacksAddress {
-            version: 0,
-            bytes: Hash160([0u8; 20]),
-        };
+        let stx_address = StacksAddress::new(0, Hash160([0u8; 20])).unwrap();
         let tx_transfer = StacksTransaction::new(
             TransactionVersion::Testnet,
             origin_auth.clone(),

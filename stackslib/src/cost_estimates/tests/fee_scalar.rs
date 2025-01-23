@@ -83,7 +83,7 @@ fn make_dummy_transfer_tx(fee: u64) -> StacksTransactionReceipt {
         TransactionVersion::Mainnet,
         TransactionAuth::Standard(TransactionSpendingCondition::new_initial_sighash()),
         TransactionPayload::TokenTransfer(
-            PrincipalData::Standard(StandardPrincipalData(0, [0; 20])),
+            PrincipalData::Standard(StandardPrincipalData::new(0, [0; 20]).unwrap()),
             1,
             TokenTransferMemo([0; 34]),
         ),
@@ -103,7 +103,7 @@ fn make_dummy_cc_tx(fee: u64) -> StacksTransactionReceipt {
         TransactionVersion::Mainnet,
         TransactionAuth::Standard(TransactionSpendingCondition::new_initial_sighash()),
         TransactionPayload::ContractCall(TransactionContractCall {
-            address: StacksAddress::new(0, Hash160([0; 20])),
+            address: StacksAddress::new(0, Hash160([0; 20])).unwrap(),
             contract_name: "cc-dummy".into(),
             function_name: "func-name".into(),
             function_args: vec![],

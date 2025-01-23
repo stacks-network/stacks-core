@@ -999,7 +999,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
     match args[0].as_ref() {
         "initialize" => {
-            let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
+            let mut argv = args.to_vec();
 
             let mainnet = if let Ok(Some(_)) = consume_arg(&mut argv, &["--testnet"], false) {
                 false
@@ -1124,7 +1124,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 panic_test!();
             }
 
-            let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
+            let mut argv = args.to_vec();
             let contract_id = if let Ok(optarg) = consume_arg(&mut argv, &["--contract_id"], true) {
                 optarg
                     .map(|optarg_str| {
@@ -1250,7 +1250,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             (0, Some(result))
         }
         "repl" => {
-            let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
+            let mut argv = args.to_vec();
             let mainnet = if let Ok(Some(_)) = consume_arg(&mut argv, &["--testnet"], false) {
                 false
             } else {
@@ -1278,15 +1278,15 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 let content: String = {
                     let mut buffer = String::new();
                     stdout.write(b"> ").unwrap_or_else(|e| {
-                        panic!("Failed to write stdout prompt string:\n{}", e);
+                        panic!("Failed to write stdout prompt string:\n{e}");
                     });
                     stdout.flush().unwrap_or_else(|e| {
-                        panic!("Failed to flush stdout prompt string:\n{}", e);
+                        panic!("Failed to flush stdout prompt string:\n{e}");
                     });
                     match io::stdin().read_line(&mut buffer) {
                         Ok(_) => buffer,
                         Err(error) => {
-                            eprintln!("Error reading from stdin:\n{}", error);
+                            eprintln!("Error reading from stdin:\n{error}");
                             panic_test!();
                         }
                     }
@@ -1382,7 +1382,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             }
         }
         "eval" => {
-            let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
+            let mut argv = args.to_vec();
 
             let costs = if let Ok(Some(_)) = consume_arg(&mut argv, &["--costs"], false) {
                 true
@@ -1445,7 +1445,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             }
         }
         "eval_at_chaintip" => {
-            let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
+            let mut argv = args.to_vec();
 
             let costs = if let Ok(Some(_)) = consume_arg(&mut argv, &["--costs"], false) {
                 true
@@ -1527,7 +1527,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             }
         }
         "eval_at_block" => {
-            let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
+            let mut argv = args.to_vec();
 
             let costs = if let Ok(Some(_)) = consume_arg(&mut argv, &["--costs"], false) {
                 true
@@ -1609,7 +1609,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             }
         }
         "launch" => {
-            let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
+            let mut argv = args.to_vec();
             let coverage_folder = if let Ok(covarg) = consume_arg(&mut argv, &["--c"], true) {
                 covarg
             } else {
@@ -1764,7 +1764,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             }
         }
         "execute" => {
-            let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
+            let mut argv = args.to_vec();
             let coverage_folder = if let Ok(covarg) = consume_arg(&mut argv, &["--c"], true) {
                 covarg
             } else {

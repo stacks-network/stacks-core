@@ -2063,10 +2063,7 @@ fn test_make_miners_stackerdb_config() {
         .collect();
     let miner_addrs: Vec<_> = miner_hash160s
         .iter()
-        .map(|miner_hash160| StacksAddress {
-            version: 1,
-            bytes: miner_hash160.clone(),
-        })
+        .map(|miner_hash160| StacksAddress::new(1, miner_hash160.clone()).unwrap())
         .collect();
 
     debug!("miners = {:#?}", &miner_hash160s);
@@ -2268,8 +2265,8 @@ fn test_make_miners_stackerdb_config() {
         .iter()
         .map(|config| {
             (
-                config.signers[0].0.bytes.clone(),
-                config.signers[1].0.bytes.clone(),
+                config.signers[0].0.bytes().clone(),
+                config.signers[1].0.bytes().clone(),
             )
         })
         .collect();

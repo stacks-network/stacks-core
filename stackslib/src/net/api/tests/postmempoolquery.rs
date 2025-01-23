@@ -96,7 +96,7 @@ fn test_try_make_response() {
 
     let test_rpc = TestRPC::setup(function_name!());
     let mempool_txids = test_rpc.mempool_txids.clone();
-    let mempool_txids: HashSet<_> = mempool_txids.iter().map(|txid| txid.clone()).collect();
+    let mempool_txids: HashSet<_> = mempool_txids.iter().copied().collect();
 
     let sync_data = test_rpc
         .peer_1
@@ -131,10 +131,7 @@ fn test_stream_mempool_txs() {
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
-    let addr = StacksAddress {
-        version: 1,
-        bytes: Hash160([0xff; 20]),
-    };
+    let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
     let mut txs = vec![];
     let block_height = 10;
     let mut total_len = 0;
@@ -351,10 +348,7 @@ fn test_stream_mempool_txs() {
 
 #[test]
 fn test_decode_tx_stream() {
-    let addr = StacksAddress {
-        version: 1,
-        bytes: Hash160([0xff; 20]),
-    };
+    let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
     let mut txs = vec![];
     for _i in 0..10 {
         let pk = StacksPrivateKey::new();

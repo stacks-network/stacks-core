@@ -10696,8 +10696,8 @@ pub mod tests {
 
         let good_ops = vec![
             BlockstackOperationType::TransferStx(TransferStxOp {
-                sender: StacksAddress::new(1, Hash160([1u8; 20])),
-                recipient: StacksAddress::new(2, Hash160([2u8; 20])),
+                sender: StacksAddress::new(1, Hash160([1u8; 20])).unwrap(),
+                recipient: StacksAddress::new(2, Hash160([2u8; 20])).unwrap(),
                 transfered_ustx: 123,
                 memo: vec![0x00, 0x01, 0x02, 0x03, 0x04],
 
@@ -10707,8 +10707,11 @@ pub mod tests {
                 burn_header_hash: first_burn_hash.clone(),
             }),
             BlockstackOperationType::StackStx(StackStxOp {
-                sender: StacksAddress::new(3, Hash160([3u8; 20])),
-                reward_addr: PoxAddress::Standard(StacksAddress::new(4, Hash160([4u8; 20])), None),
+                sender: StacksAddress::new(3, Hash160([3u8; 20])).unwrap(),
+                reward_addr: PoxAddress::Standard(
+                    StacksAddress::new(4, Hash160([4u8; 20])).unwrap(),
+                    None,
+                ),
                 stacked_ustx: 456,
                 num_cycles: 6,
                 signer_key: Some(StacksPublicKeyBuffer([0x02; 33])),
@@ -10721,12 +10724,12 @@ pub mod tests {
                 burn_header_hash: first_burn_hash.clone(),
             }),
             BlockstackOperationType::DelegateStx(DelegateStxOp {
-                sender: StacksAddress::new(6, Hash160([6u8; 20])),
-                delegate_to: StacksAddress::new(7, Hash160([7u8; 20])),
+                sender: StacksAddress::new(6, Hash160([6u8; 20])).unwrap(),
+                delegate_to: StacksAddress::new(7, Hash160([7u8; 20])).unwrap(),
                 reward_addr: Some((
                     123,
                     PoxAddress::Standard(
-                        StacksAddress::new(8, Hash160([8u8; 20])),
+                        StacksAddress::new(8, Hash160([8u8; 20])).unwrap(),
                         Some(AddressHashMode::SerializeP2PKH),
                     ),
                 )),
@@ -10739,7 +10742,7 @@ pub mod tests {
                 burn_header_hash: first_burn_hash.clone(),
             }),
             BlockstackOperationType::VoteForAggregateKey(VoteForAggregateKeyOp {
-                sender: StacksAddress::new(6, Hash160([6u8; 20])),
+                sender: StacksAddress::new(6, Hash160([6u8; 20])).unwrap(),
                 aggregate_key: vote_key,
                 signer_key: vote_key,
                 round: 1,
@@ -10791,8 +10794,8 @@ pub mod tests {
         // if the same ops get mined in a different burnchain block, they will still be available
         let good_ops_2 = vec![
             BlockstackOperationType::TransferStx(TransferStxOp {
-                sender: StacksAddress::new(1, Hash160([1u8; 20])),
-                recipient: StacksAddress::new(2, Hash160([2u8; 20])),
+                sender: StacksAddress::new(1, Hash160([1u8; 20])).unwrap(),
+                recipient: StacksAddress::new(2, Hash160([2u8; 20])).unwrap(),
                 transfered_ustx: 123,
                 memo: vec![0x00, 0x01, 0x02, 0x03, 0x04],
 
@@ -10802,8 +10805,11 @@ pub mod tests {
                 burn_header_hash: fork_burn_hash.clone(),
             }),
             BlockstackOperationType::StackStx(StackStxOp {
-                sender: StacksAddress::new(3, Hash160([3u8; 20])),
-                reward_addr: PoxAddress::Standard(StacksAddress::new(4, Hash160([4u8; 20])), None),
+                sender: StacksAddress::new(3, Hash160([3u8; 20])).unwrap(),
+                reward_addr: PoxAddress::Standard(
+                    StacksAddress::new(4, Hash160([4u8; 20])).unwrap(),
+                    None,
+                ),
                 stacked_ustx: 456,
                 num_cycles: 6,
                 signer_key: None,
@@ -10816,11 +10822,11 @@ pub mod tests {
                 burn_header_hash: fork_burn_hash.clone(),
             }),
             BlockstackOperationType::DelegateStx(DelegateStxOp {
-                sender: StacksAddress::new(6, Hash160([6u8; 20])),
-                delegate_to: StacksAddress::new(7, Hash160([7u8; 20])),
+                sender: StacksAddress::new(6, Hash160([6u8; 20])).unwrap(),
+                delegate_to: StacksAddress::new(7, Hash160([7u8; 20])).unwrap(),
                 reward_addr: Some((
                     123,
-                    PoxAddress::Standard(StacksAddress::new(8, Hash160([8u8; 20])), None),
+                    PoxAddress::Standard(StacksAddress::new(8, Hash160([8u8; 20])).unwrap(), None),
                 )),
                 delegated_ustx: 789,
                 until_burn_height: Some(1000),
@@ -10831,7 +10837,7 @@ pub mod tests {
                 burn_header_hash: fork_burn_hash.clone(),
             }),
             BlockstackOperationType::VoteForAggregateKey(VoteForAggregateKeyOp {
-                sender: StacksAddress::new(6, Hash160([6u8; 20])),
+                sender: StacksAddress::new(6, Hash160([6u8; 20])).unwrap(),
                 aggregate_key: StacksPublicKeyBuffer([0x01; 33]),
                 signer_key: StacksPublicKeyBuffer([0x02; 33]),
                 round: 1,

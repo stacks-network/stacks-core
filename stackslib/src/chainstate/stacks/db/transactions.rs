@@ -1299,7 +1299,6 @@ impl StacksChainState {
                             info!("Smart-contract processed with {}", err_type;
                                       "txid" => %tx.txid(),
                                       "contract" => %contract_id,
-                                      "code" => %contract_code_str,
                                       "error" => ?error);
                             // When top-level code in a contract publish causes a runtime error,
                             // the transaction is accepted, but the contract is not created.
@@ -1344,7 +1343,6 @@ impl StacksChainState {
                                 info!("Smart-contract encountered an analysis error at runtime";
                                       "txid" => %tx.txid(),
                                       "contract" => %contract_id,
-                                      "code" => %contract_code_str,
                                       "error" => %check_error);
 
                                 let receipt =
@@ -1360,7 +1358,6 @@ impl StacksChainState {
                                 warn!("Unexpected analysis error invalidating transaction: if included, this will invalidate a block";
                                       "txid" => %tx.txid(),
                                       "contract" => %contract_id,
-                                      "code" => %contract_code_str,
                                       "error" => %check_error);
                                 return Err(Error::ClarityError(clarity_error::Interpreter(
                                     InterpreterError::Unchecked(check_error),
@@ -1371,7 +1368,6 @@ impl StacksChainState {
                             error!("Unexpected error invalidating transaction: if included, this will invalidate a block";
                                        "txid" => %tx.txid(),
                                        "contract_name" => %contract_id,
-                                       "code" => %contract_code_str,
                                        "error" => ?e);
                             return Err(Error::ClarityError(e));
                         }
@@ -1413,7 +1409,6 @@ impl StacksChainState {
                 Ok(receipt)
             }
             TransactionPayload::Coinbase(..) => {
-                // no-op; not handled here
                 // NOTE: technically, post-conditions are allowed (even if they're non-sensical).
 
                 let receipt = StacksTransactionReceipt::from_coinbase(tx.clone());
@@ -1604,16 +1599,35 @@ pub mod test {
         epoch_id: StacksEpochId::Epoch21,
         ast_rules: ASTRules::PrecheckSize,
     };
+    pub const TestBurnStateDB_25: UnitTestBurnStateDB = UnitTestBurnStateDB {
+        epoch_id: StacksEpochId::Epoch25,
+        ast_rules: ASTRules::PrecheckSize,
+    };
+    pub const TestBurnStateDB_30: UnitTestBurnStateDB = UnitTestBurnStateDB {
+        epoch_id: StacksEpochId::Epoch30,
+        ast_rules: ASTRules::PrecheckSize,
+    };
+    pub const TestBurnStateDB_31: UnitTestBurnStateDB = UnitTestBurnStateDB {
+        epoch_id: StacksEpochId::Epoch31,
+        ast_rules: ASTRules::PrecheckSize,
+    };
 
     pub const ALL_BURN_DBS: &[&dyn BurnStateDB] = &[
         &TestBurnStateDB_20 as &dyn BurnStateDB,
         &TestBurnStateDB_2_05 as &dyn BurnStateDB,
         &TestBurnStateDB_21 as &dyn BurnStateDB,
+        &TestBurnStateDB_30 as &dyn BurnStateDB,
+        &TestBurnStateDB_31 as &dyn BurnStateDB,
     ];
 
     pub const PRE_21_DBS: &[&dyn BurnStateDB] = &[
         &TestBurnStateDB_20 as &dyn BurnStateDB,
         &TestBurnStateDB_2_05 as &dyn BurnStateDB,
+    ];
+
+    pub const NAKAMOTO_DBS: &[&dyn BurnStateDB] = &[
+        &TestBurnStateDB_30 as &dyn BurnStateDB,
+        &TestBurnStateDB_31 as &dyn BurnStateDB,
     ];
 
     #[test]
@@ -1702,10 +1716,7 @@ pub mod test {
         .unwrap();
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let addr = auth.origin().address_testnet();
-        let recv_addr = StacksAddress {
-            version: 1,
-            bytes: Hash160([0xff; 20]),
-        };
+        let recv_addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
 
         let mut tx_stx_transfer = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -1769,11 +1780,7 @@ pub mod test {
 
             let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
             let recv_addr = PrincipalData::from(QualifiedContractIdentifier {
-                issuer: StacksAddress {
-                    version: 1,
-                    bytes: Hash160([0xfe; 20]),
-                }
-                .into(),
+                issuer: StacksAddress::new(1, Hash160([0xfe; 20])).unwrap().into(),
                 name: "contract-hellow".into(),
             });
 
@@ -2045,10 +2052,7 @@ pub mod test {
         let addr = auth.origin().address_testnet();
         let addr_sponsor = auth.sponsor().unwrap().address_testnet();
 
-        let recv_addr = StacksAddress {
-            version: 1,
-            bytes: Hash160([0xff; 20]),
-        };
+        let recv_addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
 
         let mut tx_stx_transfer = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -2378,7 +2382,7 @@ pub mod test {
 
                 // Verify that the syntax error is recorded in the receipt
                 let expected_error =
-                    if burn_db.get_stacks_epoch(0).unwrap().epoch_id == StacksEpochId::Epoch21 {
+                    if burn_db.get_stacks_epoch(0).unwrap().epoch_id >= StacksEpochId::Epoch21 {
                         expected_errors_2_1[i].to_string()
                     } else {
                         expected_errors[i].to_string()
@@ -5044,14 +5048,8 @@ pub mod test {
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let addr = auth.origin().address_testnet();
         let origin = addr.to_account_principal();
-        let recv_addr = StacksAddress {
-            version: 1,
-            bytes: Hash160([0xff; 20]),
-        };
-        let contract_addr = StacksAddress {
-            version: 1,
-            bytes: Hash160([0x01; 20]),
-        };
+        let recv_addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
+        let contract_addr = StacksAddress::new(1, Hash160([0x01; 20])).unwrap();
 
         let asset_info_1 = AssetInfo {
             contract_address: contract_addr.clone(),
@@ -6896,14 +6894,8 @@ pub mod test {
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let addr = auth.origin().address_testnet();
         let origin = addr.to_account_principal();
-        let _recv_addr = StacksAddress {
-            version: 1,
-            bytes: Hash160([0xff; 20]),
-        };
-        let contract_addr = StacksAddress {
-            version: 1,
-            bytes: Hash160([0x01; 20]),
-        };
+        let _recv_addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
+        let contract_addr = StacksAddress::new(1, Hash160([0x01; 20])).unwrap();
 
         let asset_info = AssetInfo {
             contract_address: contract_addr.clone(),
@@ -7250,10 +7242,7 @@ pub mod test {
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let addr = auth.origin().address_testnet();
         let origin = addr.to_account_principal();
-        let _recv_addr = StacksAddress {
-            version: 1,
-            bytes: Hash160([0xff; 20]),
-        };
+        let _recv_addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
 
         // stx-transfer for 123 microstx
         let mut stx_asset_map = AssetMap::new();
@@ -8746,10 +8735,7 @@ pub mod test {
         .unwrap();
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let addr = auth.origin().address_testnet();
-        let recv_addr = StacksAddress {
-            version: 1,
-            bytes: Hash160([0xff; 20]),
-        };
+        let recv_addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
 
         let smart_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -8960,10 +8946,7 @@ pub mod test {
         .unwrap();
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let addr = auth.origin().address_testnet();
-        let recv_addr = StacksAddress {
-            version: 1,
-            bytes: Hash160([0xff; 20]),
-        };
+        let recv_addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
 
         let smart_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -11398,5 +11381,439 @@ pub mod test {
         }
 
         conn.commit_block();
+    }
+
+    /// Verify that transactions with bare PrincipalDatas in them cannot decode if the version byte
+    /// is inappropriate.
+    #[test]
+    fn test_invalid_address_prevents_tx_decode() {
+        // token transfer
+        let bad_payload_bytes = vec![
+            TransactionPayloadID::TokenTransfer as u8,
+            // Clarity value type (StandardPrincipalData)
+            0x05,
+            // bad address (version byte 32)
+            0x20,
+            // address body (0x00000000000000000000)
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            // amount (1 uSTX)
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x01,
+            // memo
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+            0x11,
+        ];
+
+        let mut good_payload_bytes = bad_payload_bytes.clone();
+
+        // only diff is the address version
+        good_payload_bytes[2] = 0x1f;
+
+        let bad_payload: Result<TransactionPayload, _> =
+            TransactionPayload::consensus_deserialize(&mut &bad_payload_bytes[..]);
+        assert!(bad_payload.is_err());
+
+        let _: TransactionPayload =
+            TransactionPayload::consensus_deserialize(&mut &good_payload_bytes[..]).unwrap();
+
+        // contract-call with bad contract address
+        let bad_payload_bytes = vec![
+            TransactionPayloadID::ContractCall as u8,
+            // Stacks address
+            // bad version byte
+            0x20,
+            // address body (0x00000000000000000000)
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            // contract name ("hello")
+            0x05,
+            0x68,
+            0x65,
+            0x6c,
+            0x6c,
+            0x6f,
+            // function name ("world")
+            0x05,
+            0x77,
+            0x6f,
+            0x72,
+            0x6c,
+            0x64,
+            // arguments (good address)
+            // length (1)
+            0x00,
+            0x00,
+            0x00,
+            0x01,
+            // StandardPrincipalData
+            0x05,
+            // address version (1)
+            0x01,
+            // address body (0x00000000000000000000)
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+        ];
+
+        let mut good_payload_bytes = bad_payload_bytes.clone();
+
+        // only diff is the address version
+        good_payload_bytes[1] = 0x1f;
+
+        let bad_payload: Result<TransactionPayload, _> =
+            TransactionPayload::consensus_deserialize(&mut &bad_payload_bytes[..]);
+        assert!(bad_payload.is_err());
+
+        let _: TransactionPayload =
+            TransactionPayload::consensus_deserialize(&mut &good_payload_bytes[..]).unwrap();
+
+        // contract-call with bad Principal argument
+        let bad_payload_bytes = vec![
+            TransactionPayloadID::ContractCall as u8,
+            // Stacks address
+            0x01,
+            // address body (0x00000000000000000000)
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            // contract name ("hello")
+            0x05,
+            0x68,
+            0x65,
+            0x6c,
+            0x6c,
+            0x6f,
+            // function name ("world")
+            0x05,
+            0x77,
+            0x6f,
+            0x72,
+            0x6c,
+            0x64,
+            // arguments (good address)
+            // length (1)
+            0x00,
+            0x00,
+            0x00,
+            0x01,
+            // StandardPrincipalData
+            0x05,
+            // address version (32 -- bad)
+            0x20,
+            // address body (0x00000000000000000000)
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+        ];
+
+        let mut good_payload_bytes = bad_payload_bytes.clone();
+        good_payload_bytes[39] = 0x1f;
+
+        let bad_payload: Result<TransactionPayload, _> =
+            TransactionPayload::consensus_deserialize(&mut &bad_payload_bytes[..]);
+        assert!(bad_payload.is_err());
+
+        let _: TransactionPayload =
+            TransactionPayload::consensus_deserialize(&mut &good_payload_bytes[..]).unwrap();
+
+        let bad_payload_bytes = vec![
+            // payload type ID
+            TransactionPayloadID::NakamotoCoinbase as u8,
+            // buffer
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            // have contract recipient, so Some(..)
+            0x0a,
+            // contract address type
+            0x06,
+            // address (bad version)
+            0x20,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            // name length
+            0x0c,
+            // name ('foo-contract')
+            0x66,
+            0x6f,
+            0x6f,
+            0x2d,
+            0x63,
+            0x6f,
+            0x6e,
+            0x74,
+            0x72,
+            0x61,
+            0x63,
+            0x74,
+            // proof bytes
+            0x92,
+            0x75,
+            0xdf,
+            0x67,
+            0xa6,
+            0x8c,
+            0x87,
+            0x45,
+            0xc0,
+            0xff,
+            0x97,
+            0xb4,
+            0x82,
+            0x01,
+            0xee,
+            0x6d,
+            0xb4,
+            0x47,
+            0xf7,
+            0xc9,
+            0x3b,
+            0x23,
+            0xae,
+            0x24,
+            0xcd,
+            0xc2,
+            0x40,
+            0x0f,
+            0x52,
+            0xfd,
+            0xb0,
+            0x8a,
+            0x1a,
+            0x6a,
+            0xc7,
+            0xec,
+            0x71,
+            0xbf,
+            0x9c,
+            0x9c,
+            0x76,
+            0xe9,
+            0x6e,
+            0xe4,
+            0x67,
+            0x5e,
+            0xbf,
+            0xf6,
+            0x06,
+            0x25,
+            0xaf,
+            0x28,
+            0x71,
+            0x85,
+            0x01,
+            0x04,
+            0x7b,
+            0xfd,
+            0x87,
+            0xb8,
+            0x10,
+            0xc2,
+            0xd2,
+            0x13,
+            0x9b,
+            0x73,
+            0xc2,
+            0x3b,
+            0xd6,
+            0x9d,
+            0xe6,
+            0x63,
+            0x60,
+            0x95,
+            0x3a,
+            0x64,
+            0x2c,
+            0x2a,
+            0x33,
+            0x0a,
+        ];
+
+        let mut good_payload_bytes = bad_payload_bytes.clone();
+        debug!(
+            "index is {:?}",
+            good_payload_bytes.iter().find(|x| **x == 0x20)
+        );
+        good_payload_bytes[35] = 0x1f;
+
+        let bad_payload: Result<TransactionPayload, _> =
+            TransactionPayload::consensus_deserialize(&mut &bad_payload_bytes[..]);
+        assert!(bad_payload.is_err());
+
+        let _: TransactionPayload =
+            TransactionPayload::consensus_deserialize(&mut &good_payload_bytes[..]).unwrap();
     }
 }

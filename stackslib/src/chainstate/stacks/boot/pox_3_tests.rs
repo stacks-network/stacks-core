@@ -238,7 +238,7 @@ fn simple_pox_lockup_transition_pox_2() {
         0,
         1024 * POX_THRESHOLD_STEPS_USTX,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).bytes,
+        key_to_stacks_addr(&alice).destruct().1,
         4,
         tip.block_height,
     );
@@ -322,7 +322,7 @@ fn simple_pox_lockup_transition_pox_2() {
         512 * POX_THRESHOLD_STEPS_USTX,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&bob).bytes,
+            key_to_stacks_addr(&bob).destruct().1,
         ),
         6,
         tip.block_height,
@@ -348,7 +348,7 @@ fn simple_pox_lockup_transition_pox_2() {
         1,
         512 * POX_THRESHOLD_STEPS_USTX,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&bob).bytes,
+        key_to_stacks_addr(&bob).destruct().1,
         4,
         tip.block_height,
     );
@@ -365,7 +365,7 @@ fn simple_pox_lockup_transition_pox_2() {
         512 * POX_THRESHOLD_STEPS_USTX,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&alice).bytes,
+            key_to_stacks_addr(&alice).destruct().1,
         ),
         12,
         tip.block_height,
@@ -409,7 +409,7 @@ fn simple_pox_lockup_transition_pox_2() {
         512 * POX_THRESHOLD_STEPS_USTX,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&bob).bytes,
+            key_to_stacks_addr(&bob).destruct().1,
         ),
         6,
         tip,
@@ -421,7 +421,7 @@ fn simple_pox_lockup_transition_pox_2() {
         512 * POX_THRESHOLD_STEPS_USTX,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&alice).bytes,
+            key_to_stacks_addr(&alice).destruct().1,
         ),
         6,
         tip,
@@ -630,7 +630,7 @@ fn pox_auto_unlock(alice_first: bool) {
         1024 * POX_THRESHOLD_STEPS_USTX,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&alice).bytes,
+            key_to_stacks_addr(&alice).destruct().1,
         ),
         6,
         tip.block_height,
@@ -642,7 +642,7 @@ fn pox_auto_unlock(alice_first: bool) {
         1 * POX_THRESHOLD_STEPS_USTX,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&bob).bytes,
+            key_to_stacks_addr(&bob).destruct().1,
         ),
         6,
         tip.block_height,
@@ -663,11 +663,11 @@ fn pox_auto_unlock(alice_first: bool) {
         assert_eq!(reward_set_entries.len(), 2);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            key_to_stacks_addr(&bob).bytes.0.to_vec()
+            key_to_stacks_addr(&bob).bytes().0.to_vec()
         );
         assert_eq!(
             reward_set_entries[1].reward_address.bytes(),
-            key_to_stacks_addr(&alice).bytes.0.to_vec()
+            key_to_stacks_addr(&alice).bytes().0.to_vec()
         );
     }
 
@@ -697,7 +697,7 @@ fn pox_auto_unlock(alice_first: bool) {
         assert_eq!(reward_set_entries.len(), 1);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            key_to_stacks_addr(&alice).bytes.0.to_vec()
+            key_to_stacks_addr(&alice).bytes().0.to_vec()
         );
     }
 
@@ -791,7 +791,7 @@ fn pox_auto_unlock(alice_first: bool) {
         1024 * POX_THRESHOLD_STEPS_USTX,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&alice).bytes,
+            key_to_stacks_addr(&alice).destruct().1,
         ),
         6,
         tip.block_height,
@@ -803,7 +803,7 @@ fn pox_auto_unlock(alice_first: bool) {
         1 * POX_THRESHOLD_STEPS_USTX,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&bob).bytes,
+            key_to_stacks_addr(&bob).destruct().1,
         ),
         6,
         tip.block_height,
@@ -824,11 +824,11 @@ fn pox_auto_unlock(alice_first: bool) {
         assert_eq!(reward_set_entries.len(), 2);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            key_to_stacks_addr(&bob).bytes.0.to_vec()
+            key_to_stacks_addr(&bob).bytes().0.to_vec()
         );
         assert_eq!(
             reward_set_entries[1].reward_address.bytes(),
-            key_to_stacks_addr(&alice).bytes.0.to_vec()
+            key_to_stacks_addr(&alice).bytes().0.to_vec()
         );
     }
 
@@ -857,7 +857,7 @@ fn pox_auto_unlock(alice_first: bool) {
         assert_eq!(reward_set_entries.len(), 1);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            key_to_stacks_addr(&alice).bytes.0.to_vec()
+            key_to_stacks_addr(&alice).bytes().0.to_vec()
         );
     }
 
@@ -1045,7 +1045,7 @@ fn delegate_stack_increase() {
     let bob = keys.pop().unwrap();
     let bob_address = key_to_stacks_addr(&bob);
     let bob_principal = PrincipalData::from(bob_address.clone());
-    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes.clone());
+    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes().clone());
     let mut alice_nonce = 0;
     let mut bob_nonce = 0;
 
@@ -1691,7 +1691,7 @@ fn stack_increase() {
         first_lockup_amt,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&alice).bytes,
+            key_to_stacks_addr(&alice).destruct().1,
         ),
         6,
         tip.block_height,
@@ -1715,7 +1715,7 @@ fn stack_increase() {
         assert_eq!(reward_set_entries.len(), 1);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            key_to_stacks_addr(&alice).bytes.0.to_vec()
+            key_to_stacks_addr(&alice).bytes().0.to_vec()
         );
         assert_eq!(reward_set_entries[0].amount_stacked, first_lockup_amt,);
     }
@@ -1735,7 +1735,7 @@ fn stack_increase() {
         assert_eq!(reward_set_entries.len(), 1);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            key_to_stacks_addr(&alice).bytes.0.to_vec()
+            key_to_stacks_addr(&alice).bytes().0.to_vec()
         );
         assert_eq!(reward_set_entries[0].amount_stacked, first_lockup_amt,);
     }
@@ -1773,7 +1773,7 @@ fn stack_increase() {
         assert_eq!(reward_set_entries.len(), 1);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            key_to_stacks_addr(&alice).bytes.0.to_vec()
+            key_to_stacks_addr(&alice).bytes().0.to_vec()
         );
         assert_eq!(reward_set_entries[0].amount_stacked, first_lockup_amt,);
     }
@@ -1793,7 +1793,7 @@ fn stack_increase() {
         assert_eq!(reward_set_entries.len(), 1);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            key_to_stacks_addr(&alice).bytes.0.to_vec()
+            key_to_stacks_addr(&alice).bytes().0.to_vec()
         );
         assert_eq!(
             reward_set_entries[0].amount_stacked,
@@ -1859,7 +1859,7 @@ fn stack_increase() {
         first_lockup_amt,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&alice).bytes,
+            key_to_stacks_addr(&alice).destruct().1,
         ),
         6,
         tip.block_height,
@@ -1882,7 +1882,7 @@ fn stack_increase() {
         assert_eq!(reward_set_entries.len(), 1);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            key_to_stacks_addr(&alice).bytes.0.to_vec()
+            key_to_stacks_addr(&alice).bytes().0.to_vec()
         );
         assert_eq!(reward_set_entries[0].amount_stacked, first_lockup_amt,);
     }
@@ -1902,7 +1902,7 @@ fn stack_increase() {
         assert_eq!(reward_set_entries.len(), 1);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            key_to_stacks_addr(&alice).bytes.0.to_vec()
+            key_to_stacks_addr(&alice).bytes().0.to_vec()
         );
         assert_eq!(reward_set_entries[0].amount_stacked, first_lockup_amt,);
     }
@@ -1950,7 +1950,7 @@ fn stack_increase() {
         assert_eq!(reward_set_entries.len(), 1);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            key_to_stacks_addr(&alice).bytes.0.to_vec()
+            key_to_stacks_addr(&alice).bytes().0.to_vec()
         );
         assert_eq!(reward_set_entries[0].amount_stacked, first_lockup_amt,);
     }
@@ -1965,7 +1965,7 @@ fn stack_increase() {
         assert_eq!(reward_set_entries.len(), 1);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            key_to_stacks_addr(&alice).bytes.0.to_vec()
+            key_to_stacks_addr(&alice).bytes().0.to_vec()
         );
         assert_eq!(
             reward_set_entries[0].amount_stacked,
@@ -2138,7 +2138,7 @@ fn pox_extend_transition() {
         );
         assert_eq!(
             (reward_addrs[0].0).hash160(),
-            key_to_stacks_addr(&alice).bytes
+            key_to_stacks_addr(&alice).destruct().1,
         );
         assert_eq!(reward_addrs[0].1, ALICE_LOCKUP);
     };
@@ -2174,7 +2174,7 @@ fn pox_extend_transition() {
         );
         assert_eq!(
             (reward_addrs[0].0).hash160(),
-            key_to_stacks_addr(&bob).bytes
+            key_to_stacks_addr(&bob).destruct().1,
         );
         assert_eq!(reward_addrs[0].1, BOB_LOCKUP);
 
@@ -2184,7 +2184,7 @@ fn pox_extend_transition() {
         );
         assert_eq!(
             (reward_addrs[1].0).hash160(),
-            key_to_stacks_addr(&alice).bytes
+            key_to_stacks_addr(&alice).destruct().1,
         );
         assert_eq!(reward_addrs[1].1, ALICE_LOCKUP);
     };
@@ -2204,7 +2204,7 @@ fn pox_extend_transition() {
         0,
         ALICE_LOCKUP,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).bytes,
+        key_to_stacks_addr(&alice).destruct().1,
         4,
         tip.block_height,
     );
@@ -2267,7 +2267,7 @@ fn pox_extend_transition() {
         BOB_LOCKUP,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&bob).bytes,
+            key_to_stacks_addr(&bob).destruct().1,
         ),
         3,
         tip.block_height,
@@ -2279,7 +2279,7 @@ fn pox_extend_transition() {
         1,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&alice).bytes,
+            key_to_stacks_addr(&alice).destruct().1,
         ),
         6,
     );
@@ -2293,7 +2293,7 @@ fn pox_extend_transition() {
         1,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&bob).bytes,
+            key_to_stacks_addr(&bob).destruct().1,
         ),
         1,
     );
@@ -2358,7 +2358,7 @@ fn pox_extend_transition() {
         ALICE_LOCKUP,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&alice).bytes,
+            key_to_stacks_addr(&alice).destruct().1,
         ),
         4,
         tip.block_height,
@@ -2377,7 +2377,7 @@ fn pox_extend_transition() {
         assert_eq!(reward_set_entries.len(), 1);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            key_to_stacks_addr(&alice).bytes.0.to_vec()
+            key_to_stacks_addr(&alice).bytes().0.to_vec()
         );
         assert_eq!(reward_set_entries[0].amount_stacked, ALICE_LOCKUP,);
     }
@@ -2406,7 +2406,7 @@ fn pox_extend_transition() {
         BOB_LOCKUP,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&bob).bytes,
+            key_to_stacks_addr(&bob).destruct().1,
         ),
         3,
         tip.block_height,
@@ -2418,7 +2418,7 @@ fn pox_extend_transition() {
         3,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&alice).bytes,
+            key_to_stacks_addr(&alice).destruct().1,
         ),
         6,
     );
@@ -2436,7 +2436,7 @@ fn pox_extend_transition() {
         assert_eq!(reward_set_entries.len(), 1);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            key_to_stacks_addr(&alice).bytes.0.to_vec()
+            key_to_stacks_addr(&alice).bytes().0.to_vec()
         );
         assert_eq!(reward_set_entries[0].amount_stacked, ALICE_LOCKUP,);
     }
@@ -2447,12 +2447,12 @@ fn pox_extend_transition() {
         assert_eq!(reward_set_entries.len(), 2);
         assert_eq!(
             reward_set_entries[1].reward_address.bytes(),
-            key_to_stacks_addr(&alice).bytes.0.to_vec()
+            key_to_stacks_addr(&alice).bytes().0.to_vec()
         );
         assert_eq!(reward_set_entries[1].amount_stacked, ALICE_LOCKUP,);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            key_to_stacks_addr(&bob).bytes.0.to_vec()
+            key_to_stacks_addr(&bob).bytes().0.to_vec()
         );
         assert_eq!(reward_set_entries[0].amount_stacked, BOB_LOCKUP,);
     }
@@ -2463,7 +2463,7 @@ fn pox_extend_transition() {
         assert_eq!(reward_set_entries.len(), 1);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            key_to_stacks_addr(&alice).bytes.0.to_vec()
+            key_to_stacks_addr(&alice).bytes().0.to_vec()
         );
         assert_eq!(reward_set_entries[0].amount_stacked, ALICE_LOCKUP,);
     }
@@ -2668,7 +2668,7 @@ fn delegate_extend_pox_3() {
             Value::UInt(LOCKUP_AMT),
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(tip.block_height as u128),
             Value::UInt(3),
@@ -2689,7 +2689,7 @@ fn delegate_extend_pox_3() {
             Value::UInt(LOCKUP_AMT),
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(tip.block_height as u128),
             Value::UInt(6),
@@ -2708,7 +2708,7 @@ fn delegate_extend_pox_3() {
             vec![
                 make_pox_addr(
                     AddressHashMode::SerializeP2PKH,
-                    charlie_address.bytes.clone(),
+                    charlie_address.bytes().clone(),
                 ),
                 Value::UInt(first_v3_cycle as u128 + ix),
             ],
@@ -2733,7 +2733,7 @@ fn delegate_extend_pox_3() {
         assert_eq!(reward_set_entries.len(), 1);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            key_to_stacks_addr(&charlie).bytes.0.to_vec()
+            key_to_stacks_addr(&charlie).bytes().0.to_vec()
         );
         assert_eq!(reward_set_entries[0].amount_stacked, 2 * LOCKUP_AMT);
     }
@@ -2791,7 +2791,7 @@ fn delegate_extend_pox_3() {
             PrincipalData::from(bob_address.clone()).into(),
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(1),
         ],
@@ -2808,7 +2808,7 @@ fn delegate_extend_pox_3() {
         vec![
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(first_v3_cycle as u128 + 3),
         ],
@@ -2860,7 +2860,7 @@ fn delegate_extend_pox_3() {
         assert_eq!(reward_set_entries.len(), 1);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            key_to_stacks_addr(&charlie).bytes.0.to_vec()
+            key_to_stacks_addr(&charlie).bytes().0.to_vec()
         );
         assert_eq!(reward_set_entries[0].amount_stacked, 2 * LOCKUP_AMT);
     }
@@ -2884,7 +2884,7 @@ fn delegate_extend_pox_3() {
             PrincipalData::from(bob_address.clone()).into(),
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(3),
         ],
@@ -3112,7 +3112,7 @@ fn pox_3_getters() {
         LOCKUP_AMT,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&alice).bytes,
+            key_to_stacks_addr(&alice).destruct().1,
         ),
         4,
         tip.block_height,
@@ -3141,7 +3141,7 @@ fn pox_3_getters() {
             Value::UInt(LOCKUP_AMT),
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(tip.block_height as u128),
             Value::UInt(4),
@@ -3155,7 +3155,7 @@ fn pox_3_getters() {
         vec![
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(first_v3_cycle as u128),
         ],
@@ -3168,7 +3168,7 @@ fn pox_3_getters() {
         vec![
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(first_v3_cycle as u128 + 1),
         ],
@@ -3181,7 +3181,7 @@ fn pox_3_getters() {
         vec![
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(first_v3_cycle as u128 + 2),
         ],
@@ -3229,10 +3229,10 @@ fn pox_3_getters() {
     }}", &alice_address,
         &bob_address,
         &bob_address, &format!("{}.hello-world", &charlie_address), first_v3_cycle + 1,
-        &charlie_address.bytes, first_v3_cycle + 0, &charlie_address,
-        &charlie_address.bytes, first_v3_cycle + 1, &charlie_address,
-        &charlie_address.bytes, first_v3_cycle + 2, &charlie_address,
-        &charlie_address.bytes, first_v3_cycle + 3, &charlie_address,
+        charlie_address.bytes(), first_v3_cycle + 0, &charlie_address,
+        charlie_address.bytes(), first_v3_cycle + 1, &charlie_address,
+        charlie_address.bytes(), first_v3_cycle + 2, &charlie_address,
+        charlie_address.bytes(), first_v3_cycle + 3, &charlie_address,
         first_v3_cycle,
         first_v3_cycle + 1,
         first_v3_cycle + 2,
@@ -3523,7 +3523,7 @@ fn get_pox_addrs() {
             AddressHashMode::SerializeP2WSH,
         ])
         .map(|(key, hash_mode)| {
-            let pox_addr = PoxAddress::from_legacy(hash_mode, key_to_stacks_addr(key).bytes);
+            let pox_addr = PoxAddress::from_legacy(hash_mode, key_to_stacks_addr(key).destruct().1);
             txs.push(make_pox_3_lockup(
                 key,
                 0,
@@ -3870,17 +3870,17 @@ fn stack_aggregation_increase() {
     let bob = keys.pop().unwrap();
     let bob_address = key_to_stacks_addr(&bob);
     let bob_principal = PrincipalData::from(bob_address.clone());
-    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes.clone());
+    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes().clone());
     let charlie = keys.pop().unwrap();
     let charlie_address = key_to_stacks_addr(&charlie);
     let charlie_pox_addr = make_pox_addr(
         AddressHashMode::SerializeP2PKH,
-        charlie_address.bytes.clone(),
+        charlie_address.bytes().clone(),
     );
     let dan = keys.pop().unwrap();
     let dan_address = key_to_stacks_addr(&dan);
     let dan_principal = PrincipalData::from(dan_address.clone());
-    let dan_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, dan_address.bytes.clone());
+    let dan_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, dan_address.bytes().clone());
     let alice_nonce = 0;
     let mut bob_nonce = 0;
     let mut charlie_nonce = 0;
@@ -3937,7 +3937,7 @@ fn stack_aggregation_increase() {
         &dan,
         dan_nonce,
         dan_stack_amount,
-        PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, dan_address.bytes.clone()),
+        PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, dan_address.bytes().clone()),
         12,
         tip.block_height,
     );
@@ -4333,7 +4333,7 @@ fn pox_3_delegate_stx_addr_validation() {
             Value::none(),
             Value::some(make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                alice_address.bytes.clone(),
+                alice_address.bytes().clone(),
             ))
             .unwrap(),
         ],
@@ -4348,7 +4348,7 @@ fn pox_3_delegate_stx_addr_validation() {
             (
                 ClarityName::try_from("hashbytes".to_owned()).unwrap(),
                 Value::Sequence(SequenceData::Buffer(BuffData {
-                    data: bob_address.bytes.as_bytes().to_vec(),
+                    data: bob_address.bytes().as_bytes().to_vec(),
                 })),
             ),
         ])
@@ -4437,6 +4437,9 @@ fn pox_3_delegate_stx_addr_validation() {
 
     assert_eq!(
         alice_pox_addr,
-        make_pox_addr(AddressHashMode::SerializeP2PKH, alice_address.bytes.clone(),)
+        make_pox_addr(
+            AddressHashMode::SerializeP2PKH,
+            alice_address.bytes().clone(),
+        )
     );
 }

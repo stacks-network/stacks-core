@@ -488,10 +488,11 @@ pub fn get_latest_block_proposal(
     )
     .map_err(|e| e.to_string())?;
     let miner_signed_addr = StacksAddress::p2pkh(false, &pubkey);
-    if miner_signed_addr.bytes != miner_addr.bytes {
+    if miner_signed_addr.bytes() != miner_addr.bytes() {
         return Err(format!(
             "Invalid miner signature on proposal. Found {}, expected {}",
-            miner_signed_addr.bytes, miner_addr.bytes
+            miner_signed_addr.bytes(),
+            miner_addr.bytes()
         ));
     }
 
@@ -911,7 +912,7 @@ pub fn boot_to_epoch_3(
     for (stacker_sk, signer_sk) in stacker_sks.iter().zip(signer_sks.iter()) {
         let pox_addr = PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            tests::to_addr(stacker_sk).bytes,
+            tests::to_addr(stacker_sk).bytes().clone(),
         );
         let pox_addr_tuple: clarity::vm::Value =
             pox_addr.clone().as_clarity_tuple().unwrap().into();
@@ -1073,7 +1074,7 @@ pub fn boot_to_pre_epoch_3_boundary(
     for (stacker_sk, signer_sk) in stacker_sks.iter().zip(signer_sks.iter()) {
         let pox_addr = PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            tests::to_addr(stacker_sk).bytes,
+            tests::to_addr(stacker_sk).bytes().clone(),
         );
         let pox_addr_tuple: clarity::vm::Value =
             pox_addr.clone().as_clarity_tuple().unwrap().into();
@@ -1312,7 +1313,7 @@ pub fn setup_epoch_3_reward_set(
     for (stacker_sk, signer_sk) in stacker_sks.iter().zip(signer_sks.iter()) {
         let pox_addr = PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            tests::to_addr(stacker_sk).bytes,
+            tests::to_addr(stacker_sk).bytes().clone(),
         );
         let pox_addr_tuple: clarity::vm::Value =
             pox_addr.clone().as_clarity_tuple().unwrap().into();
@@ -2559,7 +2560,7 @@ fn correct_burn_outs() {
 
             let pox_addr = PoxAddress::from_legacy(
                 AddressHashMode::SerializeP2PKH,
-                tests::to_addr(account.0).bytes,
+                tests::to_addr(account.0).bytes().clone(),
             );
             let pox_addr_tuple: clarity::vm::Value =
                 pox_addr.clone().as_clarity_tuple().unwrap().into();
@@ -11122,4 +11123,120 @@ fn test_tenure_extend_from_flashblocks() {
     follower_run_loop_stopper.store(false, Ordering::SeqCst);
 
     follower_thread.join().unwrap();
+}
+
+/// Mine a smart contract transaction with a call to `from-consensus-buff?` that would decode to an
+/// invalid Principal. Verify that this transaction is dropped from the mempool.
+#[test]
+#[ignore]
+fn mine_invalid_principal_from_consensus_buff() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut conf, _miner_account) = naka_neon_integration_conf(None);
+    let password = "12345".to_string();
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    conf.connection_options.auth_token = Some(password.clone());
+    conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    let stacker_sk = setup_stacker(&mut conf);
+    let signer_sk = Secp256k1PrivateKey::new();
+    let signer_addr = tests::to_addr(&signer_sk);
+    let sender_sk = Secp256k1PrivateKey::new();
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let sender_addr = tests::to_addr(&sender_sk);
+    conf.add_initial_balance(PrincipalData::from(sender_addr).to_string(), 1000000);
+    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+
+    test_observer::spawn();
+    test_observer::register(&mut conf, &[EventKeyType::AnyEvent]);
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks: proposals_submitted,
+        naka_mined_blocks: mined_blocks,
+        ..
+    } = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+    let mut signers = TestSigners::new(vec![signer_sk]);
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &conf,
+        &blocks_processed,
+        &[stacker_sk],
+        &[signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("------------------------- Reached Epoch 3.0 -------------------------");
+
+    blind_signer(&conf, &signers, proposals_submitted);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    // submit faulty contract
+    let contract = "(print (from-consensus-buff? principal 0x062011deadbeef11ababffff11deadbeef11ababffff0461626364))";
+
+    let contract_tx_bytes = make_contract_publish(
+        &sender_sk,
+        0,
+        1024,
+        conf.burnchain.chain_id,
+        "contract",
+        contract,
+    );
+    submit_tx(&http_origin, &contract_tx_bytes);
+
+    let contract_tx =
+        StacksTransaction::consensus_deserialize(&mut &contract_tx_bytes[..]).unwrap();
+
+    // mine one more block
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    let blocks_processed_before = coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .get_stacks_blocks_processed();
+    let commits_before = commits_submitted.load(Ordering::SeqCst);
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let blocks_count = mined_blocks.load(Ordering::SeqCst);
+        let blocks_processed = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        Ok(blocks_count > blocks_before
+            && blocks_processed > blocks_processed_before
+            && commits_submitted.load(Ordering::SeqCst) > commits_before)
+    })
+    .unwrap();
+
+    let dropped_txs = test_observer::get_memtx_drops();
+
+    // we identified and dropped the offending tx as problematic
+    debug!("dropped_txs: {:?}", &dropped_txs);
+    assert_eq!(dropped_txs.len(), 1);
+    assert_eq!(dropped_txs[0].0, format!("0x{}", &contract_tx.txid()));
+    assert_eq!(dropped_txs[0].1.as_str(), "Problematic");
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
 }

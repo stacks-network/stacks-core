@@ -1219,10 +1219,7 @@ mod test {
 
         // dummy reward
         let mut tip_reward = make_dummy_miner_payment_schedule(
-            &StacksAddress {
-                version: 0,
-                bytes: Hash160([0u8; 20]),
-            },
+            &StacksAddress::new(0, Hash160([0u8; 20])).unwrap(),
             0,
             0,
             0,
@@ -1294,10 +1291,7 @@ mod test {
 
         // dummy reward
         let mut tip_reward = make_dummy_miner_payment_schedule(
-            &StacksAddress {
-                version: 0,
-                bytes: Hash160([0u8; 20]),
-            },
+            &StacksAddress::new(0, Hash160([0u8; 20])).unwrap(),
             0,
             0,
             0,
@@ -1344,10 +1338,7 @@ mod test {
 
         // dummy reward
         let mut tip_reward = make_dummy_miner_payment_schedule(
-            &StacksAddress {
-                version: 0,
-                bytes: Hash160([0u8; 20]),
-            },
+            &StacksAddress::new(0, Hash160([0u8; 20])).unwrap(),
             0,
             0,
             0,
