@@ -669,8 +669,7 @@ pub struct TransactionContractCall {
 
 impl TransactionContractCall {
     pub fn contract_identifier(&self) -> QualifiedContractIdentifier {
-        let standard_principal =
-            StandardPrincipalData(self.address.version, self.address.bytes.0.clone());
+        let standard_principal = StandardPrincipalData::from(self.address.clone());
         QualifiedContractIdentifier::new(standard_principal, self.contract_name.clone())
     }
 }
@@ -1126,10 +1125,7 @@ pub mod test {
         post_condition_mode: &TransactionPostConditionMode,
         epoch_id: StacksEpochId,
     ) -> Vec<StacksTransaction> {
-        let addr = StacksAddress {
-            version: 1,
-            bytes: Hash160([0xff; 20]),
-        };
+        let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
         let asset_name = ClarityName::try_from("hello-asset").unwrap();
         let asset_value = Value::buff_from(vec![0, 1, 2, 3]).unwrap();
         let contract_name = ContractName::try_from("hello-world").unwrap();
@@ -1276,15 +1272,9 @@ pub mod test {
 
         let tx_post_condition_principals = vec![
             PostConditionPrincipal::Origin,
-            PostConditionPrincipal::Standard(StacksAddress {
-                version: 1,
-                bytes: Hash160([1u8; 20]),
-            }),
+            PostConditionPrincipal::Standard(StacksAddress::new(1, Hash160([1u8; 20])).unwrap()),
             PostConditionPrincipal::Contract(
-                StacksAddress {
-                    version: 2,
-                    bytes: Hash160([2u8; 20]),
-                },
+                StacksAddress::new(2, Hash160([2u8; 20])).unwrap(),
                 ContractName::try_from("hello-world").unwrap(),
             ),
         ];
@@ -1403,10 +1393,7 @@ pub mod test {
             ]);
         }
 
-        let stx_address = StacksAddress {
-            version: 1,
-            bytes: Hash160([0xff; 20]),
-        };
+        let stx_address = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
         let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
         let mut tx_payloads = vec![
@@ -1424,10 +1411,7 @@ pub mod test {
                 TokenTransferMemo([0u8; 34]),
             ),
             TransactionPayload::ContractCall(TransactionContractCall {
-                address: StacksAddress {
-                    version: 4,
-                    bytes: Hash160([0xfc; 20]),
-                },
+                address: StacksAddress::new(4, Hash160([0xfc; 20])).unwrap(),
                 contract_name: ContractName::try_from("hello-contract-name").unwrap(),
                 function_name: ClarityName::try_from("hello-contract-call").unwrap(),
                 function_args: vec![Value::Int(0)],
@@ -1481,9 +1465,9 @@ pub mod test {
                 ),
                 TransactionPayload::Coinbase(
                     CoinbasePayload([0x12; 32]),
-                    Some(PrincipalData::Standard(StandardPrincipalData(
-                        0x01, [0x02; 20],
-                    ))),
+                    Some(PrincipalData::Standard(
+                        StandardPrincipalData::new(0x01, [0x02; 20]).unwrap(),
+                    )),
                     Some(proof.clone()),
                 ),
             ])
@@ -1499,9 +1483,9 @@ pub mod test {
                 ),
                 TransactionPayload::Coinbase(
                     CoinbasePayload([0x12; 32]),
-                    Some(PrincipalData::Standard(StandardPrincipalData(
-                        0x01, [0x02; 20],
-                    ))),
+                    Some(PrincipalData::Standard(
+                        StandardPrincipalData::new(0x01, [0x02; 20]).unwrap(),
+                    )),
                     None,
                 ),
             ])
@@ -1649,10 +1633,7 @@ pub mod test {
         )
         .unwrap();
 
-        let stx_address = StacksAddress {
-            version: 1,
-            bytes: Hash160([0xff; 20]),
-        };
+        let stx_address = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
         let payload = TransactionPayload::TokenTransfer(
             stx_address.into(),
             123,

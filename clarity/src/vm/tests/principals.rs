@@ -668,7 +668,7 @@ fn test_principal_construct_good() {
         Value::Response(ResponseData {
             committed: true,
             data: Box::new(Value::Principal(PrincipalData::Standard(
-                StandardPrincipalData(22, transfer_buffer)
+                StandardPrincipalData::new(22, transfer_buffer).unwrap()
             )))
         }),
         execute_with_parameters(
@@ -688,7 +688,7 @@ fn test_principal_construct_good() {
         Value::Response(ResponseData {
             committed: true,
             data: Box::new(Value::Principal(PrincipalData::Standard(
-                StandardPrincipalData(20, transfer_buffer)
+                StandardPrincipalData::new(20, transfer_buffer).unwrap()
             )))
         }),
         execute_with_parameters(
@@ -710,7 +710,7 @@ fn test_principal_construct_good() {
             committed: true,
             data: Box::new(Value::Principal(PrincipalData::Contract(
                 QualifiedContractIdentifier::new(
-                    StandardPrincipalData(22, transfer_buffer),
+                    StandardPrincipalData::new(22, transfer_buffer).unwrap(),
                     "hello-world".into()
                 )
             )))
@@ -734,7 +734,7 @@ fn test_principal_construct_good() {
             committed: true,
             data: Box::new(Value::Principal(PrincipalData::Contract(
                 QualifiedContractIdentifier::new(
-                    StandardPrincipalData(20, transfer_buffer),
+                    StandardPrincipalData::new(20, transfer_buffer).unwrap(),
                     "hello-world".into()
                 )
             )))
@@ -756,7 +756,7 @@ fn test_principal_construct_good() {
         Value::Response(ResponseData {
             committed: true,
             data: Box::new(Value::Principal(PrincipalData::Standard(
-                StandardPrincipalData(26, transfer_buffer)
+                StandardPrincipalData::new(26, transfer_buffer).unwrap()
             )))
         }),
         execute_with_parameters(
@@ -776,7 +776,7 @@ fn test_principal_construct_good() {
         Value::Response(ResponseData {
             committed: true,
             data: Box::new(Value::Principal(PrincipalData::Standard(
-                StandardPrincipalData(21, transfer_buffer)
+                StandardPrincipalData::new(21, transfer_buffer).unwrap()
             )))
         }),
         execute_with_parameters(
@@ -798,7 +798,7 @@ fn test_principal_construct_good() {
             committed: true,
             data: Box::new(Value::Principal(PrincipalData::Contract(
                 QualifiedContractIdentifier::new(
-                    StandardPrincipalData(26, transfer_buffer),
+                    StandardPrincipalData::new(26, transfer_buffer).unwrap(),
                     "hello-world".into()
                 )
             )))
@@ -822,7 +822,7 @@ fn test_principal_construct_good() {
             committed: true,
             data: Box::new(Value::Principal(PrincipalData::Contract(
                 QualifiedContractIdentifier::new(
-                    StandardPrincipalData(21, transfer_buffer),
+                    StandardPrincipalData::new(21, transfer_buffer).unwrap(),
                     "hello-world".into()
                 )
             )))
@@ -853,15 +853,14 @@ fn create_principal_from_strings(
     if let Some(name) = name {
         // contract principal requested
         Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier::new(
-            StandardPrincipalData(version_array[0], principal_array),
+            StandardPrincipalData::new(version_array[0], principal_array).unwrap(),
             name.into(),
         )))
     } else {
         // standard principal requested
-        Value::Principal(PrincipalData::Standard(StandardPrincipalData(
-            version_array[0],
-            principal_array,
-        )))
+        Value::Principal(PrincipalData::Standard(
+            StandardPrincipalData::new(version_array[0], principal_array).unwrap(),
+        ))
     }
 }
 

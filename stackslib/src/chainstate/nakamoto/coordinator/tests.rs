@@ -110,7 +110,7 @@ fn advance_to_nakamoto(
     )
     .unwrap();
     let default_pox_addr =
-        PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes.clone());
+        PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes().clone());
 
     let mut tip = None;
     for sortition_height in 0..11 {
@@ -825,7 +825,8 @@ fn block_descendant() {
                 StacksAddress::new(
                     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
                     Hash160::from_data(&index.to_be_bytes()),
-                ),
+                )
+                .unwrap(),
                 Some(AddressHashMode::SerializeP2PKH),
             )),
         })
@@ -914,7 +915,8 @@ fn block_info_tests(use_primary_testnet: bool) {
                 StacksAddress::new(
                     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
                     Hash160::from_data(&index.to_be_bytes()),
-                ),
+                )
+                .unwrap(),
                 Some(AddressHashMode::SerializeP2PKH),
             )),
             max_amount: None,
@@ -1342,7 +1344,8 @@ fn pox_treatment() {
                 StacksAddress::new(
                     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
                     Hash160::from_data(&index.to_be_bytes()),
-                ),
+                )
+                .unwrap(),
                 Some(AddressHashMode::SerializeP2PKH),
             )),
             max_amount: None,
@@ -3093,7 +3096,8 @@ fn process_next_nakamoto_block_deadlock() {
                 StacksAddress::new(
                     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
                     Hash160::from_data(&index.to_be_bytes()),
-                ),
+                )
+                .unwrap(),
                 Some(AddressHashMode::SerializeP2PKH),
             )),
             max_amount: None,

@@ -50,7 +50,7 @@ impl AssetIdentifier {
     pub fn STX() -> AssetIdentifier {
         AssetIdentifier {
             contract_identifier: QualifiedContractIdentifier::new(
-                StandardPrincipalData(0, [0u8; 20]),
+                StandardPrincipalData::null_principal(),
                 ContractName::try_from("STX".to_string()).unwrap(),
             ),
             asset_name: ClarityName::try_from("STX".to_string()).unwrap(),
@@ -61,7 +61,7 @@ impl AssetIdentifier {
     pub fn STX_burned() -> AssetIdentifier {
         AssetIdentifier {
             contract_identifier: QualifiedContractIdentifier::new(
-                StandardPrincipalData(0, [0u8; 20]),
+                StandardPrincipalData::null_principal(),
                 ContractName::try_from("BURNED".to_string()).unwrap(),
             ),
             asset_name: ClarityName::try_from("BURNED".to_string()).unwrap(),
