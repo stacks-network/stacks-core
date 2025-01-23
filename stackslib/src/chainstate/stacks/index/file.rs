@@ -194,11 +194,8 @@ impl TrieFile {
             .map(|stat| Some(stat.len()))
             .unwrap_or(None);
 
-        match (size_before_opt, size_after_opt) {
-            (Some(sz_before), Some(sz_after)) => {
-                debug!("Shrank DB from {} to {} bytes", sz_before, sz_after);
-            }
-            _ => {}
+        if let (Some(sz_before), Some(sz_after)) = (size_before_opt, size_after_opt) {
+            debug!("Shrank DB from {} to {} bytes", sz_before, sz_after);
         }
 
         Ok(())
@@ -461,11 +458,8 @@ impl TrieFile {
         self.write_all(buf)?;
         self.flush()?;
 
-        match self {
-            TrieFile::Disk(ref mut data) => {
-                data.fd.sync_data()?;
-            }
-            _ => {}
+        if let TrieFile::Disk(ref mut data) = self {
+            data.fd.sync_data()?;
         }
         Ok(offset)
     }

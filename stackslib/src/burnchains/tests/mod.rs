@@ -580,12 +580,9 @@ impl TestBurnchainBlock {
         assert_eq!(parent_snapshot.block_height + 1, self.block_height);
 
         for i in 0..self.txs.len() {
-            match self.txs[i] {
-                BlockstackOperationType::LeaderKeyRegister(ref mut data) => {
-                    assert_eq!(data.block_height, self.block_height);
-                    data.consensus_hash = parent_snapshot.consensus_hash.clone();
-                }
-                _ => {}
+            if let BlockstackOperationType::LeaderKeyRegister(ref mut data) = self.txs[i] {
+                assert_eq!(data.block_height, self.block_height);
+                data.consensus_hash = parent_snapshot.consensus_hash.clone();
             }
         }
     }

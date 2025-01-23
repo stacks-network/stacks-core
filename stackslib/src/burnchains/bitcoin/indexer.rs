@@ -282,11 +282,8 @@ impl BitcoinIndexer {
                         btc_error::ConnectionError
                     })?;
 
-                match self.runtime.sock.take() {
-                    Some(s) => {
-                        let _ = s.shutdown(Shutdown::Both);
-                    }
-                    None => {}
+                if let Some(s) = self.runtime.sock.take() {
+                    let _ = s.shutdown(Shutdown::Both);
                 }
 
                 self.runtime.sock = Some(s);
@@ -294,11 +291,8 @@ impl BitcoinIndexer {
             }
             Err(_e) => {
                 let s = self.runtime.sock.take();
-                match s {
-                    Some(s) => {
-                        let _ = s.shutdown(Shutdown::Both);
-                    }
-                    None => {}
+                if let Some(s) = s {
+                    let _ = s.shutdown(Shutdown::Both);
                 }
                 Err(btc_error::ConnectionError)
             }
@@ -932,11 +926,8 @@ impl BitcoinIndexer {
 
 impl Drop for BitcoinIndexer {
     fn drop(&mut self) {
-        match self.runtime.sock {
-            Some(ref mut s) => {
-                let _ = s.shutdown(Shutdown::Both);
-            }
-            None => {}
+        if let Some(ref mut s) = self.runtime.sock {
+            let _ = s.shutdown(Shutdown::Both);
         }
     }
 }

@@ -1534,15 +1534,12 @@ impl PeerNetwork {
         }
 
         // does the peer agree with our PoX view up to this reward cycle?
-        match stats.inv.pox_inv_cmp(&self.pox_id) {
-            Some((disagreed, _, _)) => {
-                if disagreed < target_block_reward_cycle {
-                    // can't proceed
-                    debug!("{:?}: remote neighbor {:?} disagrees with our PoX inventory at reward cycle {} (asked for {})", &self.local_peer, nk, disagreed, target_block_reward_cycle);
-                    return Ok(0);
-                }
+        if let Some((disagreed, _, _)) = stats.inv.pox_inv_cmp(&self.pox_id) {
+            if disagreed < target_block_reward_cycle {
+                // can't proceed
+                debug!("{:?}: remote neighbor {:?} disagrees with our PoX inventory at reward cycle {} (asked for {})", &self.local_peer, nk, disagreed, target_block_reward_cycle);
+                return Ok(0);
             }
-            None => {}
         }
 
         let target_block_height = self
@@ -2523,13 +2520,10 @@ impl PeerNetwork {
         let mut cur_neighbors = HashSet::new();
         for (nk, event_id) in self.events.iter() {
             // only outbound authenticated peers
-            match self.peers.get(event_id) {
-                Some(convo) => {
-                    if convo.is_outbound() && convo.is_authenticated() {
-                        cur_neighbors.insert(nk.clone());
-                    }
+            if let Some(convo) = self.peers.get(event_id) {
+                if convo.is_outbound() && convo.is_authenticated() {
+                    cur_neighbors.insert(nk.clone());
                 }
-                None => {}
             }
         }
 
@@ -2543,17 +2537,14 @@ impl PeerNetwork {
 
     /// Set a hint that we learned something new, and need to sync invs again
     pub fn hint_sync_invs(&mut self, target_height: u64) {
-        match self.inv_state {
-            Some(ref mut inv_state) => {
-                debug!(
-                    "Awaken inv sync to re-scan peer block inventories at height {}",
-                    target_height
-                );
-                inv_state.hint_learned_data = true;
-                inv_state.hint_do_rescan = true;
-                inv_state.hint_learned_data_height = target_height;
-            }
-            None => {}
+        if let Some(ref mut inv_state) = self.inv_state {
+            debug!(
+                "Awaken inv sync to re-scan peer block inventories at height {}",
+                target_height
+            );
+            inv_state.hint_learned_data = true;
+            inv_state.hint_do_rescan = true;
+            inv_state.hint_learned_data_height = target_height;
         }
     }
 

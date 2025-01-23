@@ -429,56 +429,52 @@ impl HttpPeer {
         // get incoming bytes and update the state of this conversation.
         let mut convo_dead = false;
         let recv_res = convo.recv(client_sock);
-        match recv_res {
-            Err(e) => {
-                match e {
-                    net_error::PermanentlyDrained => {
-                        // socket got closed, but we might still have pending unsolicited messages
-                        debug!(
-                            "Remote HTTP peer disconnected event {} (socket {:?})",
-                            event_id, &client_sock
-                        );
-                        convo_dead = true;
-                    }
-                    net_error::InvalidMessage => {
-                        // got sent bad data.  If this was an inbound conversation, send it a HTTP
-                        // 400 and close the socket.
-                        debug!("Got a bad HTTP message on socket {:?}", &client_sock);
-                        match convo.reply_error(StacksHttpResponse::new_empty_error(
-                            &HttpBadRequest::new(
-                                "Received an HTTP message that the node could not decode"
-                                    .to_string(),
-                            ),
-                        )) {
-                            Ok(_) => {
-                                // prime the socket
-                                if let Err(e) = HttpPeer::saturate_http_socket(client_sock, convo) {
-                                    debug!(
-                                        "Failed to flush HTTP 400 to socket {:?}: {:?}",
-                                        &client_sock, &e
-                                    );
-                                    // convo_dead = true;
-                                }
-                            }
-                            Err(e) => {
+        if let Err(e) = recv_res {
+            match e {
+                net_error::PermanentlyDrained => {
+                    // socket got closed, but we might still have pending unsolicited messages
+                    debug!(
+                        "Remote HTTP peer disconnected event {} (socket {:?})",
+                        event_id, &client_sock
+                    );
+                    convo_dead = true;
+                }
+                net_error::InvalidMessage => {
+                    // got sent bad data.  If this was an inbound conversation, send it a HTTP
+                    // 400 and close the socket.
+                    debug!("Got a bad HTTP message on socket {:?}", &client_sock);
+                    match convo.reply_error(StacksHttpResponse::new_empty_error(
+                        &HttpBadRequest::new(
+                            "Received an HTTP message that the node could not decode".to_string(),
+                        ),
+                    )) {
+                        Ok(_) => {
+                            // prime the socket
+                            if let Err(e) = HttpPeer::saturate_http_socket(client_sock, convo) {
                                 debug!(
-                                    "Failed to reply HTTP 400 to socket {:?}: {:?}",
+                                    "Failed to flush HTTP 400 to socket {:?}: {:?}",
                                     &client_sock, &e
                                 );
-                                convo_dead = true;
+                                // convo_dead = true;
                             }
                         }
-                    }
-                    _ => {
-                        debug!(
-                            "Failed to receive HTTP data on event {} (socket {:?}): {:?}",
-                            event_id, &client_sock, &e
-                        );
-                        convo_dead = true;
+                        Err(e) => {
+                            debug!(
+                                "Failed to reply HTTP 400 to socket {:?}: {:?}",
+                                &client_sock, &e
+                            );
+                            convo_dead = true;
+                        }
                     }
                 }
+                _ => {
+                    debug!(
+                        "Failed to receive HTTP data on event {} (socket {:?}): {:?}",
+                        event_id, &client_sock, &e
+                    );
+                    convo_dead = true;
+                }
             }
-            Ok(_) => {}
         }
 
         // react to inbound messages -- do we need to send something out, or fulfill requests
@@ -730,11 +726,8 @@ mod test {
                 peer.step().unwrap();
 
                 // asked to yield?
-                match http_rx.try_recv() {
-                    Ok(_) => {
-                        break;
-                    }
-                    Err(_) => {}
+                if let Ok(_) = http_rx.try_recv() {
+                    break;
                 }
             }
 

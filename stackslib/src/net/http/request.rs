@@ -273,29 +273,23 @@ impl StacksMessageCodec for HttpRequestPreamble {
             .map_err(CodecError::WriteError)?;
 
         // content-type
-        match self.content_type {
-            Some(ref c) => {
-                fd.write_all("Content-Type: ".as_bytes())
-                    .map_err(CodecError::WriteError)?;
-                fd.write_all(c.to_string().as_str().as_bytes())
-                    .map_err(CodecError::WriteError)?;
-                fd.write_all("\r\n".as_bytes())
-                    .map_err(CodecError::WriteError)?;
-            }
-            None => {}
+        if let Some(ref c) = self.content_type {
+            fd.write_all("Content-Type: ".as_bytes())
+                .map_err(CodecError::WriteError)?;
+            fd.write_all(c.to_string().as_str().as_bytes())
+                .map_err(CodecError::WriteError)?;
+            fd.write_all("\r\n".as_bytes())
+                .map_err(CodecError::WriteError)?;
         }
 
         // content-length
-        match self.content_length {
-            Some(l) => {
-                fd.write_all("Content-Length: ".as_bytes())
-                    .map_err(CodecError::WriteError)?;
-                fd.write_all(format!("{}", l).as_bytes())
-                    .map_err(CodecError::WriteError)?;
-                fd.write_all("\r\n".as_bytes())
-                    .map_err(CodecError::WriteError)?;
-            }
-            None => {}
+        if let Some(l) = self.content_length {
+            fd.write_all("Content-Length: ".as_bytes())
+                .map_err(CodecError::WriteError)?;
+            fd.write_all(format!("{}", l).as_bytes())
+                .map_err(CodecError::WriteError)?;
+            fd.write_all("\r\n".as_bytes())
+                .map_err(CodecError::WriteError)?;
         }
 
         // keep-alive

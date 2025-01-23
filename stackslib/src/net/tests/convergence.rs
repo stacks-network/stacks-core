@@ -218,7 +218,7 @@ fn test_walk_ring_15_org_biased() {
         let peers = test_walk_ring(&mut peer_configs);
 
         for i in 1..peer_count {
-            match PeerDB::get_peer(
+            if let Some(p) = PeerDB::get_peer(
                 peers[i].network.peerdb.conn(),
                 peer_0.addr.network_id,
                 &peer_0.addr.addrbytes,
@@ -226,11 +226,8 @@ fn test_walk_ring_15_org_biased() {
             )
             .unwrap()
             {
-                Some(p) => {
-                    assert_eq!(p.asn, 1);
-                    assert_eq!(p.org, 1);
-                }
-                None => {}
+                assert_eq!(p.asn, 1);
+                assert_eq!(p.org, 1);
             }
         }
 
@@ -398,7 +395,7 @@ fn test_walk_line_15_org_biased() {
         let peers = test_walk_line(&mut peer_configs);
 
         for i in 1..peer_count {
-            match PeerDB::get_peer(
+            if let Some(p) = PeerDB::get_peer(
                 peers[i].network.peerdb.conn(),
                 peer_0.addr.network_id,
                 &peer_0.addr.addrbytes,
@@ -406,11 +403,8 @@ fn test_walk_line_15_org_biased() {
             )
             .unwrap()
             {
-                Some(p) => {
-                    assert_eq!(p.asn, 1);
-                    assert_eq!(p.org, 1);
-                }
-                None => {}
+                assert_eq!(p.asn, 1);
+                assert_eq!(p.org, 1);
             }
         }
 
@@ -634,7 +628,7 @@ fn test_walk_star_15_org_biased() {
         let peers = test_walk_star(&mut peer_configs);
 
         for i in 1..peer_count {
-            match PeerDB::get_peer(
+            if let Some(p) = PeerDB::get_peer(
                 peers[i].network.peerdb.conn(),
                 peer_0.addr.network_id,
                 &peer_0.addr.addrbytes,
@@ -642,11 +636,8 @@ fn test_walk_star_15_org_biased() {
             )
             .unwrap()
             {
-                Some(p) => {
-                    assert_eq!(p.asn, 1);
-                    assert_eq!(p.org, 1);
-                }
-                None => {}
+                assert_eq!(p.asn, 1);
+                assert_eq!(p.org, 1);
             }
         }
 
@@ -849,14 +840,11 @@ fn dump_peers(peers: &[TestPeer]) {
             let stats_opt = peers[i]
                 .network
                 .get_neighbor_stats(&peers[j].to_neighbor().addr);
-            match stats_opt {
-                Some(stats) => {
-                    neighbor_index.push(j);
-                    if stats.outbound {
-                        outbound_neighbor_index.push(j);
-                    }
+            if let Some(stats) = stats_opt {
+                neighbor_index.push(j);
+                if stats.outbound {
+                    outbound_neighbor_index.push(j);
                 }
-                None => {}
             }
         }
 
@@ -882,16 +870,13 @@ fn dump_peer_histograms(peers: &[TestPeer]) {
             let stats_opt = peers[i]
                 .network
                 .get_neighbor_stats(&peers[j].to_neighbor().addr);
-            match stats_opt {
-                Some(stats) => {
-                    neighbor_index.push(j);
-                    if stats.outbound {
-                        outbound_neighbor_index.push(j);
-                    } else {
-                        inbound_neighbor_index.push(j);
-                    }
+            if let Some(stats) = stats_opt {
+                neighbor_index.push(j);
+                if stats.outbound {
+                    outbound_neighbor_index.push(j);
+                } else {
+                    inbound_neighbor_index.push(j);
                 }
-                None => {}
             }
         }
         for inbound in inbound_neighbor_index.iter() {
@@ -1001,32 +986,26 @@ fn run_topology_test_ex<F>(
             debug!("Step peer {:?}", &nk);
 
             // allowed peers are still connected
-            match initial_allowed.get(&nk) {
-                Some(ref peer_list) => {
-                    for pnk in peer_list.iter() {
-                        if !peers[i].network.events.contains_key(&pnk.clone()) {
-                            error!(
-                                "{:?}: Perma-allowed peer {:?} not connected anymore",
-                                &nk, &pnk
-                            );
-                            assert!(false);
-                        }
+            if let Some(ref peer_list) = initial_allowed.get(&nk) {
+                for pnk in peer_list.iter() {
+                    if !peers[i].network.events.contains_key(&pnk.clone()) {
+                        error!(
+                            "{:?}: Perma-allowed peer {:?} not connected anymore",
+                            &nk, &pnk
+                        );
+                        assert!(false);
                     }
                 }
-                None => {}
             };
 
             // denied peers are never connected
-            match initial_denied.get(&nk) {
-                Some(ref peer_list) => {
-                    for pnk in peer_list.iter() {
-                        if peers[i].network.events.contains_key(&pnk.clone()) {
-                            error!("{:?}: Perma-denied peer {:?} connected", &nk, &pnk);
-                            assert!(false);
-                        }
+            if let Some(ref peer_list) = initial_denied.get(&nk) {
+                for pnk in peer_list.iter() {
+                    if peers[i].network.events.contains_key(&pnk.clone()) {
+                        error!("{:?}: Perma-denied peer {:?} connected", &nk, &pnk);
+                        assert!(false);
                     }
                 }
-                None => {}
             };
 
             // all ports are unique in the p2p socket table

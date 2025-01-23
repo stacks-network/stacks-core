@@ -338,11 +338,8 @@ impl TestStacksNode {
             panic!("Tried to fork an unforkable chainstate instance");
         }
 
-        match fs::metadata(&chainstate_path(new_test_name)) {
-            Ok(_) => {
-                fs::remove_dir_all(&chainstate_path(new_test_name)).unwrap();
-            }
-            Err(_) => {}
+        if let Ok(_) = fs::metadata(&chainstate_path(new_test_name)) {
+            fs::remove_dir_all(&chainstate_path(new_test_name)).unwrap();
         }
 
         copy_dir(
@@ -525,17 +522,14 @@ impl TestStacksNode {
         miner: &TestMiner,
     ) -> Option<BlockSnapshot> {
         for commit_op in miner.block_commits.iter().rev() {
-            match SortitionDB::get_block_snapshot_for_winning_stacks_block(
+            if let Some(sn) = SortitionDB::get_block_snapshot_for_winning_stacks_block(
                 ic,
                 &fork_tip.sortition_id,
                 &commit_op.block_header_hash,
             )
             .unwrap()
             {
-                Some(sn) => {
-                    return Some(sn);
-                }
-                None => {}
+                return Some(sn);
             }
         }
         return None;
@@ -1424,11 +1418,8 @@ pub fn instantiate_and_exec(
     post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx)>>,
 ) -> StacksChainState {
     let path = chainstate_path(test_name);
-    match fs::metadata(&path) {
-        Ok(_) => {
-            fs::remove_dir_all(&path).unwrap();
-        }
-        Err(_) => {}
+    if let Ok(_) = fs::metadata(&path) {
+        fs::remove_dir_all(&path).unwrap();
     };
 
     let initial_balances = balances

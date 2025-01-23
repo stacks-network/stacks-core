@@ -1887,9 +1887,8 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
         // blow away db
         trie_sql::clear_tables(self.sqlite_tx())?;
 
-        match self.data.uncommitted_writes {
-            Some((_, ref mut trie_storage)) => trie_storage.format()?,
-            None => {}
+        if let Some((_, ref mut trie_storage)) = self.data.uncommitted_writes {
+            trie_storage.format()?
         };
 
         self.data.set_block(T::sentinel(), None);

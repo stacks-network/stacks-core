@@ -1089,22 +1089,16 @@ fn test_nakamoto_inv_sync_across_epoch_change() {
             .unwrap_or(0);
 
         // nothing should break
-        match peer.network.inv_state {
-            Some(ref inv) => {
-                assert_eq!(inv.get_broken_peers().len(), 0);
-                assert_eq!(inv.get_dead_peers().len(), 0);
-                assert_eq!(inv.get_diverged_peers().len(), 0);
-            }
-            None => {}
+        if let Some(ref inv) = peer.network.inv_state {
+            assert_eq!(inv.get_broken_peers().len(), 0);
+            assert_eq!(inv.get_dead_peers().len(), 0);
+            assert_eq!(inv.get_diverged_peers().len(), 0);
         }
 
-        match other_peer.network.inv_state {
-            Some(ref inv) => {
-                assert_eq!(inv.get_broken_peers().len(), 0);
-                assert_eq!(inv.get_dead_peers().len(), 0);
-                assert_eq!(inv.get_diverged_peers().len(), 0);
-            }
-            None => {}
+        if let Some(ref inv) = other_peer.network.inv_state {
+            assert_eq!(inv.get_broken_peers().len(), 0);
+            assert_eq!(inv.get_dead_peers().len(), 0);
+            assert_eq!(inv.get_diverged_peers().len(), 0);
         }
 
         round += 1;

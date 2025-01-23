@@ -515,13 +515,12 @@ impl Neighbor {
             // setting BLOCKSTACK_NEIGHBOR_TEST_${PORTNUMBER} will let us select an organization
             // for this peer
             use std::env;
-            match env::var(format!("BLOCKSTACK_NEIGHBOR_TEST_{}", addr.port).to_string()) {
-                Ok(asn_str) => {
-                    neighbor.asn = asn_str.parse().unwrap();
-                    neighbor.org = neighbor.asn;
-                    test_debug!("Override {:?} to ASN/org {}", &neighbor.addr, neighbor.asn);
-                }
-                Err(_) => {}
+            if let Ok(asn_str) =
+                env::var(format!("BLOCKSTACK_NEIGHBOR_TEST_{}", addr.port).to_string())
+            {
+                neighbor.asn = asn_str.parse().unwrap();
+                neighbor.org = neighbor.asn;
+                test_debug!("Override {:?} to ASN/org {}", &neighbor.addr, neighbor.asn);
             };
         }
 
@@ -544,13 +543,10 @@ impl Neighbor {
                     let asn_opt =
                         PeerDB::asn_lookup(conn, &addr.addrbytes).map_err(net_error::DBError)?;
 
-                    match asn_opt {
-                        Some(a) => {
-                            if a != 0 {
-                                peer.asn = a;
-                            }
+                    if let Some(a) = asn_opt {
+                        if a != 0 {
+                            peer.asn = a;
                         }
-                        None => {}
                     };
                 }
                 Ok(Some(peer))
@@ -3110,11 +3106,8 @@ mod test {
         services: u16,
     ) -> (PeerDB, SortitionDB, StackerDBs, PoxId, StacksChainState) {
         let test_path = format!("/tmp/stacks-test-databases-{}", testname);
-        match fs::metadata(&test_path) {
-            Ok(_) => {
-                fs::remove_dir_all(&test_path).unwrap();
-            }
-            Err(_) => {}
+        if let Ok(_) = fs::metadata(&test_path) {
+            fs::remove_dir_all(&test_path).unwrap();
         };
 
         fs::create_dir_all(&test_path).unwrap();

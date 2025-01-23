@@ -2376,11 +2376,8 @@ pub mod test {
             if self.closed {
                 return Ok(0);
             }
-            match self.read_error {
-                Some(ref e) => {
-                    return Err(io::Error::from((*e).clone()));
-                }
-                None => {}
+            if let Some(ref e) = self.read_error {
+                return Err(io::Error::from((*e).clone()));
             }
 
             let sz = self.c.read(buf)?;
@@ -2403,11 +2400,8 @@ pub mod test {
             if self.closed {
                 return Err(io::Error::from(ErrorKind::Other)); // EBADF
             }
-            match self.write_error {
-                Some(ref e) => {
-                    return Err(io::Error::from((*e).clone()));
-                }
-                None => {}
+            if let Some(ref e) = self.write_error {
+                return Err(io::Error::from((*e).clone()));
             }
             self.c.write(buf)
         }
@@ -2799,11 +2793,8 @@ pub mod test {
 
         pub fn make_test_path(config: &TestPeerConfig) -> String {
             let test_path = TestPeer::test_path(&config);
-            match fs::metadata(&test_path) {
-                Ok(_) => {
-                    fs::remove_dir_all(&test_path).unwrap();
-                }
-                Err(_) => {}
+            if let Ok(_) = fs::metadata(&test_path) {
+                fs::remove_dir_all(&test_path).unwrap();
             };
 
             fs::create_dir_all(&test_path).unwrap();
@@ -3559,11 +3550,8 @@ pub mod test {
             ch: &ConsensusHash,
         ) {
             for op in blockstack_ops.iter_mut() {
-                match op {
-                    BlockstackOperationType::LeaderKeyRegister(ref mut data) => {
-                        data.consensus_hash = (*ch).clone();
-                    }
-                    _ => {}
+                if let BlockstackOperationType::LeaderKeyRegister(ref mut data) = op {
+                    data.consensus_hash = (*ch).clone();
                 }
             }
         }

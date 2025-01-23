@@ -1291,9 +1291,8 @@ impl<T: MarfTrieId> MARF<T> {
             // used in testing in order to short-circuit block-height lookups
             //   when the trie struct is tested outside of marf.rs usage
             if height == 0 {
-                match storage.test_genesis_block {
-                    Some(ref s) => return Ok(Some(s.clone())),
-                    _ => {}
+                if let Some(ref s) = storage.test_genesis_block {
+                    return Ok(Some(s.clone()));
                 }
             }
         }
