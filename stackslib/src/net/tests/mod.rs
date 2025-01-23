@@ -515,7 +515,7 @@ impl NakamotoBootPlan {
             .config
             .test_stackers
             .clone()
-            .unwrap_or(vec![])
+            .unwrap_or_default()
             .iter()
             .map(|test_stacker| {
                 let pox_addr = test_stacker

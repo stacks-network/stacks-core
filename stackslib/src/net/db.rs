@@ -140,7 +140,7 @@ impl LocalPeer {
         data_url: UrlString,
         stacker_dbs: Vec<QualifiedContractIdentifier>,
     ) -> LocalPeer {
-        let mut pkey = privkey.unwrap_or(Secp256k1PrivateKey::new());
+        let mut pkey = privkey.unwrap_or_default();
         pkey.set_compress_public(true);
 
         let mut rng = thread_rng();
@@ -2869,10 +2869,7 @@ mod test {
 
         let n15_fresh =
             PeerDB::get_initial_neighbors(db.conn(), 0x9abcdef0, 0x78, 15, 23456 + 14).unwrap();
-        assert!(are_present(
-            &n15_fresh[10..15].to_vec(),
-            &initial_neighbors[10..20].to_vec()
-        ));
+        assert!(are_present(&n15_fresh[10..15], &initial_neighbors[10..20]));
         for n in &n15_fresh[10..15] {
             assert!(n.expire_block > 23456 + 14);
             assert!(n.allowed == 0);

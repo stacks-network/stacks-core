@@ -7592,8 +7592,8 @@ fn test_deser_abort() {
     ";
 
     let tx_payload = TransactionPayload::new_smart_contract(
-        &format!("hello-world"),
-        &contract.to_string(),
+        "hello-world",
+        contract,
         Some(ClarityVersion::Clarity2),
     )
     .unwrap();

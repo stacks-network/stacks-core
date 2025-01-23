@@ -475,7 +475,7 @@ impl StacksChainState {
 
         let _ = StacksChainState::mkdirs(&block_path)?;
 
-        block_path.push(to_hex(block_hash_bytes).to_string());
+        block_path.push(to_hex(block_hash_bytes));
         let blocks_path_str = block_path
             .to_str()
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
@@ -996,7 +996,7 @@ impl StacksChainState {
                 // load up associated block data
                 staging_block.block_data =
                     StacksChainState::load_block_bytes(blocks_path, consensus_hash, block_hash)?
-                        .unwrap_or(vec![]);
+                        .unwrap_or_default();
                 Ok(Some(staging_block))
             }
             _ => {
@@ -1162,7 +1162,7 @@ impl StacksChainState {
                 // load associated block data
                 staging_microblock.block_data =
                     StacksChainState::load_staging_microblock_bytes(blocks_conn, microblock_hash)?
-                        .unwrap_or(vec![]);
+                        .unwrap_or_default();
                 Ok(Some(staging_microblock))
             }
             None => {
@@ -6980,7 +6980,7 @@ pub mod test {
         .unwrap();
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -7045,7 +7045,7 @@ pub mod test {
         .unwrap();
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -8593,7 +8593,7 @@ pub mod test {
         let num_mblocks = microblocks.len();
 
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
         let child_block_header = StacksBlockHeader {
             version: 0x01,

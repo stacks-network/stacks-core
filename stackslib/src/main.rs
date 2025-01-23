@@ -540,7 +540,7 @@ fn main() {
         let microblocks =
             StacksChainState::find_parent_microblock_stream(chainstate.db(), &block_info)
                 .unwrap()
-                .unwrap_or(vec![]);
+                .unwrap_or_default();
 
         let mut mblock_report = vec![];
         for mblock in microblocks.iter() {

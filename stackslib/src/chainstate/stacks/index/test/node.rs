@@ -4253,7 +4253,7 @@ fn trie_cursor_walk_full() {
     assert_eq!(ptr, node_ptrs[31]);
     assert_eq!(
         node,
-        TrieNodeType::Leaf(TrieLeaf::new(&[], &[31u8; 40].to_vec()))
+        TrieNodeType::Leaf(TrieLeaf::new(&[], [31u8; 40].as_ref()))
     );
     assert_eq!(hash, hashes[31]);
 

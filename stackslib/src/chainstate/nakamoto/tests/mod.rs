@@ -259,7 +259,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     };
 
     let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-    let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+    let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
     let coinbase_payload =
         TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, Some(proof.clone()));
@@ -591,10 +591,10 @@ pub fn test_load_store_update_nakamoto_blocks() {
 
     let private_key = StacksPrivateKey::new();
     let epoch2_proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-    let epoch2_proof = VRFProof::from_bytes(&epoch2_proof_bytes[..].to_vec()).unwrap();
+    let epoch2_proof = VRFProof::from_bytes(&epoch2_proof_bytes[..]).unwrap();
 
     let nakamoto_proof_bytes = hex_bytes("973c815ac3e81a4aff3243f3d8310d24ab9783acd6caa4dcfab20a3744584b2f966acf08140e1a7e1e685695d51b1b511f4f19260a21887244a6c47f7637b8bdeaf5eafe85c1975bab75bc0668fe8a0b").unwrap();
-    let nakamoto_proof = VRFProof::from_bytes(&nakamoto_proof_bytes[..].to_vec()).unwrap();
+    let nakamoto_proof = VRFProof::from_bytes(&nakamoto_proof_bytes[..]).unwrap();
 
     let coinbase_payload = TransactionPayload::Coinbase(
         CoinbasePayload([0x12; 32]),

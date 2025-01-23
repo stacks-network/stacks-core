@@ -369,7 +369,7 @@ pub fn setup_states_with_epochs(
     );
 
     let block_limit = ExecutionCost::max_value();
-    let initial_balances = initial_balances.unwrap_or(vec![]);
+    let initial_balances = initial_balances.unwrap_or_default();
     for path in paths.iter() {
         let burnchain = get_burnchain(path, pox_consts.clone());
 
