@@ -1889,6 +1889,7 @@ fn miner_forking() {
     let Counters {
         naka_skip_commit_op: skip_commit_op_rl2,
         naka_submitted_commits: commits_submitted_rl2,
+        naka_submitted_commit_last_burn_height: commits_submitted_rl2_last_burn_height,
         ..
     } = run_loop_2.counters();
     let _run_loop_2_thread = thread::Builder::new()
@@ -1910,6 +1911,8 @@ fn miner_forking() {
     .expect("Timed out waiting for boostrapped node to catch up to the miner");
 
     let commits_submitted_rl1 = signer_test.running_nodes.commits_submitted.clone();
+    let commits_submitted_rl1_last_burn_height =
+        signer_test.running_nodes.last_commit_burn_height.clone();
     let skip_commit_op_rl1 = signer_test
         .running_nodes
         .nakamoto_test_skip_commit_op
@@ -1966,13 +1969,18 @@ fn miner_forking() {
     info!("Pausing stacks block proposal to force an empty tenure commit from RL2");
     TEST_BROADCAST_STALL.set(true);
     let rl1_commits_before = commits_submitted_rl1.load(Ordering::SeqCst);
+    let burn_height_before = get_burn_height();
 
     info!("Unpausing commits from RL1");
     skip_commit_op_rl1.set(false);
 
     info!("Waiting for commits from RL1");
     wait_for(30, || {
-        Ok(commits_submitted_rl1.load(Ordering::SeqCst) > rl1_commits_before)
+        Ok(
+            commits_submitted_rl1.load(Ordering::SeqCst) > rl1_commits_before
+                && commits_submitted_rl1_last_burn_height.load(Ordering::SeqCst)
+                    >= burn_height_before,
+        )
     })
     .expect("Timed out waiting for miner 1 to submit a commit op");
 
@@ -2003,13 +2011,17 @@ fn miner_forking() {
         "------------------------- RL2 Wins Sortition With Outdated View -------------------------"
     );
     let rl2_commits_before = commits_submitted_rl2.load(Ordering::SeqCst);
+    let burn_height = get_burn_height();
 
     info!("Unpausing commits from RL2");
     skip_commit_op_rl2.set(false);
 
     info!("Waiting for commits from RL2");
     wait_for(30, || {
-        Ok(commits_submitted_rl2.load(Ordering::SeqCst) > rl2_commits_before)
+        Ok(
+            commits_submitted_rl2.load(Ordering::SeqCst) > rl2_commits_before
+                && commits_submitted_rl2_last_burn_height.load(Ordering::SeqCst) >= burn_height,
+        )
     })
     .expect("Timed out waiting for miner 1 to submit a commit op");
 
