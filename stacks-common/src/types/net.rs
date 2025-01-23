@@ -118,15 +118,12 @@ impl PeerAddress {
         )
     }
 
-    /// Convert to SocketAddr
-    pub fn to_socketaddr(&self, port: u16) -> SocketAddr {
+    /// Convert to IpAddr
+    pub fn to_ipaddr(&self) -> IpAddr {
         if self.is_ipv4() {
-            SocketAddr::new(
-                IpAddr::V4(Ipv4Addr::new(
-                    self.0[12], self.0[13], self.0[14], self.0[15],
-                )),
-                port,
-            )
+            IpAddr::V4(Ipv4Addr::new(
+                self.0[12], self.0[13], self.0[14], self.0[15],
+            ))
         } else {
             let addr_words: [u16; 8] = [
                 ((self.0[0] as u16) << 8) | (self.0[1] as u16),
@@ -138,21 +135,23 @@ impl PeerAddress {
                 ((self.0[12] as u16) << 8) | (self.0[13] as u16),
                 ((self.0[14] as u16) << 8) | (self.0[15] as u16),
             ];
-
-            SocketAddr::new(
-                IpAddr::V6(Ipv6Addr::new(
-                    addr_words[0],
-                    addr_words[1],
-                    addr_words[2],
-                    addr_words[3],
-                    addr_words[4],
-                    addr_words[5],
-                    addr_words[6],
-                    addr_words[7],
-                )),
-                port,
-            )
+            IpAddr::V6(Ipv6Addr::new(
+                addr_words[0],
+                addr_words[1],
+                addr_words[2],
+                addr_words[3],
+                addr_words[4],
+                addr_words[5],
+                addr_words[6],
+                addr_words[7],
+            ))
         }
+    }
+
+    /// Convert to SocketAddr
+    pub fn to_socketaddr(&self, port: u16) -> SocketAddr {
+        let ip_addr = self.to_ipaddr();
+        SocketAddr::new(ip_addr, port)
     }
 
     /// Convert from socket address
@@ -227,6 +226,10 @@ impl PeerAddress {
 
     pub fn to_bin(&self) -> String {
         to_bin(&self.0)
+    }
+
+    pub fn pretty_print(&self) -> String {
+        self.to_ipaddr().to_string()
     }
 }
 

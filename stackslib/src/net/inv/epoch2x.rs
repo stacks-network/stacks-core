@@ -19,6 +19,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 
+use p2p::DropSource;
 use rand;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
@@ -39,7 +40,7 @@ use crate::net::codec::*;
 use crate::net::connection::{ConnectionOptions, ConnectionP2P, ReplyHandleP2P};
 use crate::net::db::{PeerDB, *};
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-use crate::net::p2p::{PeerNetwork, PeerNetworkWorkState};
+use crate::net::p2p::{DropReason, PeerNetwork, PeerNetworkWorkState};
 use crate::net::{
     Error as net_error, GetBlocksInv, Neighbor, NeighborKey, PeerAddress, StacksMessage, StacksP2P,
     *,
@@ -2310,6 +2311,7 @@ impl PeerNetwork {
                     stats.done
                 );
                 if !stats.done {
+                    // TODO: the result of this match doesn't seem to be used? is that intentional?
                     match network.inv_sync_run(&mut new_pins, sortdb, nk, stats, inv_state.request_timeout, ibd) {
                         Ok(d) => d,
                         Err(net_error::StaleView) => {
@@ -2676,12 +2678,22 @@ impl PeerNetwork {
 
         // disconnect and ban broken peers
         for broken in broken_neighbors.into_iter() {
-            self.deregister_and_ban_neighbor(&broken);
+            //substantial changes to the epoch2x sync would be required to get further detail about why the connection was broken. Just use "Unknown" for now.
+            self.deregister_and_ban_neighbor(
+                &broken,
+                DropReason::BrokenConnection("Unknown".into()),
+                DropSource::Epoch2xInventorySync,
+            );
         }
 
         // disconnect from dead connections
         for dead in dead_neighbors.into_iter() {
-            self.deregister_neighbor(&dead);
+            //substantial changes to the epoch2x sync would be required to get further detail about why the connection is dead. Just use "Unknown" for now.
+            self.deregister_neighbor(
+                &dead,
+                DropReason::DeadConnection("Unknown".into()),
+                DropSource::Epoch2xInventorySync,
+            );
         }
 
         (done, throttled)

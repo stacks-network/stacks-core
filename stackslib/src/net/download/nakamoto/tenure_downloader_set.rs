@@ -42,7 +42,7 @@ use crate::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, NakamotoStagingBlocksConnRef,
 };
 use crate::chainstate::stacks::boot::RewardSet;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{blocks, StacksChainState};
 use crate::chainstate::stacks::{
     Error as chainstate_error, StacksBlockHeader, TenureChangePayload,
 };
@@ -62,7 +62,7 @@ use crate::net::inv::epoch2x::InvState;
 use crate::net::inv::nakamoto::{NakamotoInvStateMachine, NakamotoTenureInv};
 use crate::net::neighbors::rpc::NeighborRPC;
 use crate::net::neighbors::NeighborComms;
-use crate::net::p2p::{CurrentRewardSet, PeerNetwork};
+use crate::net::p2p::{CurrentRewardSet, DropReason, DropSource, PeerNetwork};
 use crate::net::server::HttpPeer;
 use crate::net::{Error as NetError, Neighbor, NeighborAddress, NeighborKey};
 use crate::util_lib::db::{DBConn, Error as DBError};
@@ -583,25 +583,33 @@ impl NakamotoTenureDownloaderSet {
                 "Send request to {naddr} for tenure {} (state {})",
                 &downloader.tenure_id_consensus_hash, &downloader.state
             );
-            let Ok(sent) = downloader.send_next_download_request(network, neighbor_rpc) else {
-                info!(
-                    "Downloader for tenure {} to {naddr} failed; this peer is dead",
-                    &downloader.tenure_id_consensus_hash,
-                );
-                Self::mark_failed_and_deprioritize_peer(
-                    &mut self.attempt_failed_tenures,
-                    &mut self.deprioritized_peers,
-                    &downloader.tenure_id_consensus_hash,
-                    naddr,
-                );
-                neighbor_rpc.add_dead(network, naddr);
-                continue;
+            match downloader.send_next_download_request(network, neighbor_rpc) {
+                Ok(true) => {}
+                Ok(false) => {
+                    // this downloader is dead or broken
+                    finished.push(naddr.clone());
+                    continue;
+                }
+                Err(e) => {
+                    info!(
+                        "Downloader for tenure {} to {naddr} failed; this peer is dead",
+                        &downloader.tenure_id_consensus_hash,
+                    );
+                    Self::mark_failed_and_deprioritize_peer(
+                        &mut self.attempt_failed_tenures,
+                        &mut self.deprioritized_peers,
+                        &downloader.tenure_id_consensus_hash,
+                        naddr,
+                    );
+                    neighbor_rpc.add_dead(
+                        network,
+                        naddr,
+                        DropReason::DeadConnection(format!("Download request failed: {e}")),
+                        DropSource::NakamotoTenureDownloader,
+                    );
+                    continue;
+                }
             };
-            if !sent {
-                // this downloader is dead or broken
-                finished.push(naddr.clone());
-                continue;
-            }
         }
 
         // clear dead, broken, and done
@@ -631,32 +639,30 @@ impl NakamotoTenureDownloaderSet {
             };
             debug!("Got response from {naddr}");
 
-            let Ok(blocks_opt) = downloader
-                .handle_next_download_response(response)
-                .map_err(|e| {
+            let blocks = match downloader.handle_next_download_response(response) {
+                Ok(Some(blocks)) => blocks,
+                Ok(None) => continue,
+                Err(e) => {
                     info!(
                         "Failed to handle response from {naddr} on tenure {}: {e}",
                         &downloader.tenure_id_consensus_hash,
                     );
-                    e
-                })
-            else {
-                debug!(
-                    "Failed to handle download response from {naddr} on tenure {}",
-                    &downloader.tenure_id_consensus_hash
-                );
-                Self::mark_failed_and_deprioritize_peer(
-                    &mut self.attempt_failed_tenures,
-                    &mut self.deprioritized_peers,
-                    &downloader.tenure_id_consensus_hash,
-                    &naddr,
-                );
-                neighbor_rpc.add_dead(network, &naddr);
-                continue;
-            };
-
-            let Some(blocks) = blocks_opt else {
-                continue;
+                    Self::mark_failed_and_deprioritize_peer(
+                        &mut self.attempt_failed_tenures,
+                        &mut self.deprioritized_peers,
+                        &downloader.tenure_id_consensus_hash,
+                        &naddr,
+                    );
+                    neighbor_rpc.add_dead(
+                        network,
+                        &naddr,
+                        DropReason::DeadConnection(format!(
+                            "Failed to handle download response: {e}"
+                        )),
+                        DropSource::NakamotoTenureDownloader,
+                    );
+                    continue;
+                }
             };
 
             debug!(
