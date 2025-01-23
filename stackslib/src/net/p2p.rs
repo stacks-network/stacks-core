@@ -423,6 +423,12 @@ pub struct PeerNetwork {
     // how many downloader passes have we done?
     pub num_downloader_passes: u64,
 
+    // number of epoch2 state machine passes
+    pub(crate) epoch2_state_machine_passes: u128,
+
+    // number of nakamoto state machine passes
+    pub(crate) nakamoto_state_machine_passes: u128,
+
     // to whom did we send a block or microblock stream as part of our anti-entropy protocol, and
     // when did we send it?
     antientropy_blocks: HashMap<NeighborKey, HashMap<StacksBlockId, u64>>,
@@ -593,6 +599,8 @@ impl PeerNetwork {
             num_state_machine_passes: 0,
             num_inv_sync_passes: 0,
             num_downloader_passes: 0,
+            epoch2_state_machine_passes: 0,
+            nakamoto_state_machine_passes: 0,
 
             antientropy_blocks: HashMap::new(),
             antientropy_microblocks: HashMap::new(),
@@ -3578,6 +3586,15 @@ impl PeerNetwork {
         }
     }
 
+    /// Check to see if we need to run the epoch 2.x state machines.
+    /// This will be true if we're either in epoch 2.5 or lower, OR, if we're in epoch 3.0 or
+    /// higher AND the Stacks tip is not yet a Nakamoto block.  This latter condition indicates
+    /// that the epoch 2.x state machines are still needed to download the final epoch 2.x blocks.
+    pub(crate) fn need_epoch2_state_machines(&self, epoch_id: StacksEpochId) -> bool {
+        epoch_id < StacksEpochId::Epoch30
+            || (epoch_id >= StacksEpochId::Epoch30 && !self.stacks_tip.is_nakamoto)
+    }
+
     /// Do the actual work in the state machine.
     /// Return true if we need to prune connections.
     /// This will call the epoch-appropriate network worker
@@ -3606,7 +3623,7 @@ impl PeerNetwork {
 
             // in Nakamoto epoch, but we might still be doing epoch 2.x things since Nakamoto does
             // not begin on a reward cycle boundary.
-            if cur_epoch.epoch_id >= StacksEpochId::Epoch30 && !self.stacks_tip.is_nakamoto {
+            if self.need_epoch2_state_machines(cur_epoch.epoch_id) {
                 debug!(
                     "{:?}: run Epoch 2.x work loop in Nakamoto epoch",
                     self.get_local_peer()
@@ -3655,6 +3672,8 @@ impl PeerNetwork {
         ibd: bool,
         network_result: &mut NetworkResult,
     ) {
+        self.nakamoto_state_machine_passes += 1;
+
         // always do an inv sync
         let learned = self.do_network_inv_sync_nakamoto(sortdb, ibd);
         debug!(
@@ -3704,6 +3723,8 @@ impl PeerNetwork {
         ibd: bool,
         network_result: &mut NetworkResult,
     ) -> bool {
+        self.epoch2_state_machine_passes += 1;
+
         // do some Actual Work(tm)
         let mut do_prune = false;
         let mut did_cycle = false;
