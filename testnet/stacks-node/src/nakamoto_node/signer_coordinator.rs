@@ -18,9 +18,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-#[cfg(test)]
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use libsigner::v0::messages::{MinerSlotID, SignerMessage as SignerMessageV0};
 use libsigner::{BlockProposal, SignerSession, StackerDBSession};
@@ -315,7 +313,7 @@ impl SignerCoordinator {
         // the amount of current rejections to eventually modify the timeout
         let mut rejections: u32 = 0;
         // default timeout
-        let mut rejections_timeout = core::time::Duration::from_secs(BLOCK_REJECTIONS_TIMEOUT_BASE);
+        let mut rejections_timeout = Duration::from_secs(BLOCK_REJECTIONS_TIMEOUT_BASE);
         // this is used for comparing block_status to identify if it has been changed from the previous event
         let mut block_status_tracker = BlockStatus::default();
         loop {
@@ -373,7 +371,7 @@ impl SignerCoordinator {
             if rejections != block_status.total_reject_weight {
                 rejections_timer = Instant::now();
                 rejections = block_status.total_reject_weight;
-                rejections_timeout = core::time::Duration::from_secs_f32(
+                rejections_timeout = Duration::from_secs_f32(
                     BLOCK_REJECTIONS_TIMEOUT_BASE as f32
                         - (BLOCK_REJECTIONS_TIMEOUT_BASE as f32
                             * ((rejections as f32 / self.weight_threshold as f32).powf(2.0))),
