@@ -2846,7 +2846,8 @@ pub fn mine_invalid_token_transfers_block(
         .try_mine_tx(clarity_tx, &tx_coinbase_signed, ASTRules::PrecheckSize)
         .unwrap();
 
-    let recipient = StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0xff; 20]));
+    let recipient =
+        StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0xff; 20])).unwrap();
     let tx1 = make_token_transfer(
         miner,
         burnchain_height,

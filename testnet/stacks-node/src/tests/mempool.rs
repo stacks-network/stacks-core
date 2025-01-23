@@ -328,7 +328,7 @@ fn mempool_setup_chainstate() {
 
                 // mismatched network on contract-call!
                 let bad_addr = StacksAddress::from_public_keys(
-                    88,
+                    18,
                     &AddressHashMode::SerializeP2PKH,
                     1,
                     &vec![StacksPublicKey::from_private(&other_sk)],
@@ -470,8 +470,12 @@ fn mempool_setup_chainstate() {
                 });
 
                 // recipient must be testnet
-                let mut mainnet_recipient = to_addr(&other_sk);
-                mainnet_recipient.version = C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
+                let testnet_recipient = to_addr(&other_sk);
+                let mainnet_recipient = StacksAddress::new(
+                    C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                    testnet_recipient.destruct().1,
+                )
+                .unwrap();
                 let mainnet_princ = mainnet_recipient.into();
                 let tx_bytes = make_stacks_transfer(
                     &contract_sk,

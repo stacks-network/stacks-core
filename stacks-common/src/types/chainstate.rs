@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2025 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::fmt::{self, Display};
 use std::io::{Read, Write};
 use std::str::FromStr;
@@ -9,6 +25,7 @@ use serde::ser::Error as ser_Error;
 use serde::Serialize;
 use sha2::{Digest as Sha2Digest, Sha256, Sha512_256};
 
+use crate::address::Error as AddressError;
 use crate::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
 use crate::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
@@ -277,8 +294,48 @@ impl fmt::Display for PoxId {
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Serialize, Deserialize, Hash)]
 pub struct StacksAddress {
-    pub version: u8,
-    pub bytes: Hash160,
+    version: u8,
+    bytes: Hash160,
+}
+
+impl StacksAddress {
+    pub fn new(version: u8, hash: Hash160) -> Result<StacksAddress, AddressError> {
+        if version >= 32 {
+            return Err(AddressError::InvalidVersion(version));
+        }
+
+        Ok(StacksAddress {
+            version,
+            bytes: hash,
+        })
+    }
+
+    // NEVER, EVER use this in ANY production code!
+    // It should never be possible to construct an address with a version greater than 31
+    #[cfg(any(test, feature = "testing"))]
+    pub fn new_unsafe(version: u8, bytes: Hash160) -> Self {
+        Self { version, bytes }
+    }
+
+    pub fn version(&self) -> u8 {
+        self.version
+    }
+
+    pub fn bytes(&self) -> &Hash160 {
+        &self.bytes
+    }
+
+    pub fn destruct(self) -> (u8, Hash160) {
+        (self.version, self.bytes)
+    }
+
+    /// Because addresses are crockford-32 encoded, the version must be a 5-bit number.
+    /// Historically, it was possible to construct invalid addresses given that we use a u8 to
+    /// represent the version.  This function is used to validate addresses before relying on their
+    /// version.
+    pub fn has_valid_version(&self) -> bool {
+        self.version < 32
+    }
 }
 
 impl StacksMessageCodec for StacksAddress {
@@ -290,6 +347,11 @@ impl StacksMessageCodec for StacksAddress {
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksAddress, CodecError> {
         let version: u8 = read_next(fd)?;
+        if version >= 32 {
+            return Err(CodecError::DeserializeError(
+                "Address version byte must be in range 0 to 31".into(),
+            ));
+        }
         let hash160: Hash160 = read_next(fd)?;
         Ok(StacksAddress {
             version,

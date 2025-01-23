@@ -47,6 +47,7 @@ pub enum SerializationError {
     DeserializeExpected(TypeSignature),
     LeftoverBytesInDeserialization,
     SerializationError(String),
+    UnexpectedSerialization,
 }
 
 lazy_static! {
@@ -90,6 +91,9 @@ impl std::fmt::Display for SerializationError {
                 "Deserialization expected the type of the input to be: {}",
                 e
             ),
+            SerializationError::UnexpectedSerialization => {
+                write!(f, "The serializer handled an input in an unexpected way")
+            }
             SerializationError::LeftoverBytesInDeserialization => {
                 write!(f, "Deserialization error: bytes left over in buffer")
             }
@@ -201,7 +205,7 @@ trait ClarityValueSerializable<T: std::marker::Sized> {
 
 impl ClarityValueSerializable<StandardPrincipalData> for StandardPrincipalData {
     fn serialize_write<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
-        w.write_all(&[self.0])?;
+        w.write_all(&[self.version()])?;
         w.write_all(&self.1)
     }
 
@@ -210,7 +214,8 @@ impl ClarityValueSerializable<StandardPrincipalData> for StandardPrincipalData {
         let mut data = [0; 20];
         r.read_exact(&mut version)?;
         r.read_exact(&mut data)?;
-        Ok(StandardPrincipalData(version[0], data))
+        StandardPrincipalData::new(version[0], data)
+            .map_err(|_| SerializationError::UnexpectedSerialization)
     }
 }
 
@@ -2110,16 +2115,16 @@ pub mod tests {
             ("03", Ok(Value::Bool(true))),
             ("04", Ok(Value::Bool(false))),
             ("050011deadbeef11ababffff11deadbeef11ababffff", Ok(
-                StandardPrincipalData(
+                StandardPrincipalData::new(
                     0x00,
                     [0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff,
-                     0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff]).into())),
+                     0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff]).unwrap().into())),
             ("060011deadbeef11ababffff11deadbeef11ababffff0461626364", Ok(
                 QualifiedContractIdentifier::new(
-                    StandardPrincipalData(
+                    StandardPrincipalData::new(
                         0x00,
                         [0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff,
-                         0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff]),
+                         0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff]).unwrap(),
                     "abcd".into()).into())),
             ("0700ffffffffffffffffffffffffffffffff", Ok(Value::okay(Value::Int(-1)).unwrap())),
             ("0800ffffffffffffffffffffffffffffffff", Ok(Value::error(Value::Int(-1)).unwrap())),
