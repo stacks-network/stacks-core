@@ -98,7 +98,7 @@ jobs:
     steps:
       ## Creates releases
       - name: Create Release
-        uses: stacks-network/actions/stacks-core/release/create-github-releases@feat/release-signer-alongside-node
+        uses: stacks-network/actions/stacks-core/release/create-releases@feat/release-signer-alongside-node
         with:
           node_tag: ${{ inputs.node_tag }}
           node_docker_tag: ${{ inputs.node_docker_tag }}
@@ -131,7 +131,7 @@ jobs:
           - debian
     steps:
       - name: Create Docker Image
-        uses: stacks-network/actions/stacks-core/release/create-docker-images@feat/release-signer-alongside-node
+        uses: stacks-network/actions/stacks-core/release/docker-images@feat/release-signer-alongside-node
         with:
           node_tag: ${{ inputs.node_tag }}
           node_docker_tag: ${{ inputs.node_docker_tag }}
