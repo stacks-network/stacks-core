@@ -3334,6 +3334,15 @@ pub mod test {
                     self.network.nakamoto_state_machine_passes,
                     nakamoto_passes + 1
                 );
+                let epoch2_expected_passes = if self.network.stacks_tip.is_nakamoto {
+                    epoch2_passes
+                } else {
+                    epoch2_passes + 1
+                };
+                assert_eq!(
+                    self.network.epoch2_state_machine_passes,
+                    epoch2_expected_passes
+                );
             }
             if self
                 .network
@@ -3430,6 +3439,15 @@ pub mod test {
                 assert_eq!(
                     self.network.nakamoto_state_machine_passes,
                     nakamoto_passes + 1
+                );
+                let epoch2_expected_passes = if self.network.stacks_tip.is_nakamoto {
+                    epoch2_passes
+                } else {
+                    epoch2_passes + 1
+                };
+                assert_eq!(
+                    self.network.epoch2_state_machine_passes,
+                    epoch2_expected_passes
                 );
             }
             if self
