@@ -63,7 +63,7 @@ fn test_exact_block_costs() {
     conf.node.microblock_frequency = 500;
 
     conf.initial_balances.push(InitialBalance {
-        address: spender_addr.clone(),
+        address: spender_addr,
         amount: 200_000_000,
     });
 
@@ -306,7 +306,7 @@ fn test_dynamic_db_method_costs() {
     conf.burnchain.epochs = Some(epochs);
 
     conf.initial_balances.push(InitialBalance {
-        address: spender_addr.clone(),
+        address: spender_addr,
         amount: 200_000_000,
     });
 
@@ -766,15 +766,15 @@ fn test_cost_limit_switch_version205() {
     conf.burnchain.pox_2_activation = Some(10_003);
 
     conf.initial_balances.push(InitialBalance {
-        address: alice_pd.clone(),
+        address: alice_pd,
         amount: 10492300000,
     });
     conf.initial_balances.push(InitialBalance {
-        address: bob_pd.clone(),
+        address: bob_pd,
         amount: 10492300000,
     });
     conf.initial_balances.push(InitialBalance {
-        address: creator_pd.clone(),
+        address: creator_pd,
         amount: 10492300000,
     });
 

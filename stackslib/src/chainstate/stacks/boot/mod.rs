@@ -108,17 +108,17 @@ pub mod docs;
 
 lazy_static! {
     pub static ref BOOT_CODE_POX_MAINNET: String =
-        format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, BOOT_CODE_POX_BODY);
+        format!("{BOOT_CODE_POX_MAINNET_CONSTS}\n{BOOT_CODE_POX_BODY}");
     pub static ref BOOT_CODE_POX_TESTNET: String =
-        format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, BOOT_CODE_POX_BODY);
+        format!("{BOOT_CODE_POX_TESTNET_CONSTS}\n{BOOT_CODE_POX_BODY}");
     pub static ref POX_2_MAINNET_CODE: String =
-        format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, POX_2_BODY);
+        format!("{BOOT_CODE_POX_MAINNET_CONSTS}\n{POX_2_BODY}");
     pub static ref POX_2_TESTNET_CODE: String =
-        format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_2_BODY);
+        format!("{BOOT_CODE_POX_TESTNET_CONSTS}\n{POX_2_BODY}");
     pub static ref POX_3_MAINNET_CODE: String =
-        format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, POX_3_BODY);
+        format!("{BOOT_CODE_POX_MAINNET_CONSTS}\n{POX_3_BODY}");
     pub static ref POX_3_TESTNET_CODE: String =
-        format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_3_BODY);
+        format!("{BOOT_CODE_POX_TESTNET_CONSTS}\n{POX_3_BODY}");
     pub static ref POX_4_CODE: String = POX_4_BODY.to_string();
     pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
     pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
@@ -126,16 +126,16 @@ lazy_static! {
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
         ("cost-voting", BOOT_CODE_COST_VOTING_MAINNET),
-        ("bns", &BOOT_CODE_BNS),
-        ("genesis", &BOOT_CODE_GENESIS),
+        ("bns", BOOT_CODE_BNS),
+        ("genesis", BOOT_CODE_GENESIS),
     ];
     pub static ref STACKS_BOOT_CODE_TESTNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_TESTNET),
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
         ("cost-voting", &BOOT_CODE_COST_VOTING_TESTNET),
-        ("bns", &BOOT_CODE_BNS),
-        ("genesis", &BOOT_CODE_GENESIS),
+        ("bns", BOOT_CODE_BNS),
+        ("genesis", BOOT_CODE_GENESIS),
     ];
 }
 
@@ -397,7 +397,7 @@ impl StacksChainState {
                 // chain id doesn't matter since it won't be used
                 CHAIN_ID_MAINNET,
                 ClarityVersion::Clarity2,
-                sender_addr.clone(),
+                sender_addr,
                 None,
                 LimitedCostTracker::new_free(),
                 |vm_env| {
@@ -528,7 +528,7 @@ impl StacksChainState {
             // 4. delete the user's stacking-state entry.
             clarity.with_clarity_db(|db| {
                 // lookup the Stacks account and alter their unlock height to next block
-                let mut balance = db.get_stx_balance_snapshot(&principal)?;
+                let mut balance = db.get_stx_balance_snapshot(principal)?;
                 let canonical_locked = balance.canonical_balance_repr()?.amount_locked();
                 if canonical_locked < *amount_locked {
                     panic!("Principal missed reward slots, but did not have as many locked tokens as expected. Actual: {}, Expected: {}", canonical_locked, *amount_locked);
@@ -597,7 +597,7 @@ impl StacksChainState {
         let headers_db = HeadersDBConn(StacksDBConn::new(&ro_index, ()));
         self.clarity_state
             .eval_read_only(
-                &stacks_block_id,
+                stacks_block_id,
                 &headers_db,
                 &iconn,
                 &boot::boot_code_id(boot_contract_name, self.mainnet),
@@ -1671,7 +1671,6 @@ pub mod test {
         let addrs: Vec<StacksAddress> = keys.iter().map(key_to_stacks_addr).collect();
 
         let balances: Vec<(PrincipalData, u64)> = addrs
-            .clone()
             .into_iter()
             .map(|addr| (addr.into(), (1024 * POX_THRESHOLD_STEPS_USTX) as u64))
             .collect();
@@ -1852,7 +1851,7 @@ pub mod test {
             chainstate
                 .with_read_only_clarity_tx(
                     &sortdb
-                        .index_handle_at_block(&chainstate, &stacks_block_id)
+                        .index_handle_at_block(chainstate, &stacks_block_id)
                         .unwrap(),
                     &stacks_block_id,
                     |clarity_tx| StacksChainState::get_account(clarity_tx, addr),
@@ -2209,7 +2208,7 @@ pub mod test {
             "delegate-stx",
             vec![
                 Value::UInt(amount),
-                Value::Principal(delegate_to.clone()),
+                Value::Principal(delegate_to),
                 match until_burn_ht {
                     Some(burn_ht) => Value::some(Value::UInt(burn_ht)).unwrap(),
                     None => Value::none(),
@@ -2241,7 +2240,7 @@ pub mod test {
             POX_4_NAME,
             "delegate-stack-stx",
             vec![
-                Value::Principal(stacker.clone()),
+                Value::Principal(stacker),
                 Value::UInt(amount),
                 Value::Tuple(pox_addr.as_clarity_tuple().unwrap()),
                 Value::UInt(start_burn_height),
@@ -2265,7 +2264,7 @@ pub mod test {
             POX_4_NAME,
             "delegate-stack-extend",
             vec![
-                Value::Principal(stacker.clone()),
+                Value::Principal(stacker),
                 Value::Tuple(pox_addr.as_clarity_tuple().unwrap()),
                 Value::UInt(extend_count),
             ],
@@ -2464,7 +2463,7 @@ pub mod test {
         make_tx(sender_key, nonce, 0, payload)
     }
 
-    fn make_tx(
+    pub fn make_tx(
         key: &StacksPrivateKey,
         nonce: u64,
         tx_fee: u64,
@@ -2797,7 +2796,7 @@ pub mod test {
     }
 
     pub fn get_current_reward_cycle(peer: &TestPeer, burnchain: &Burnchain) -> u128 {
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
             .unwrap();
         burnchain
             .block_height_to_reward_cycle(tip.block_height)
@@ -2825,7 +2824,7 @@ pub mod test {
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
@@ -2952,7 +2951,7 @@ pub mod test {
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
@@ -3019,7 +3018,7 @@ pub mod test {
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
@@ -3031,7 +3030,7 @@ pub mod test {
                 ];
 
                 if tenure_id == 1 {
-                    let alice_lockup_1 = make_pox_lockup(&alice, 0, 512 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 1, tip.block_height);
+                    let alice_lockup_1 = make_pox_lockup(&alice, 0, 512 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).destruct().1, 1, tip.block_height);
                     block_txs.push(alice_lockup_1);
                 }
                 if tenure_id == 2 {
@@ -3063,8 +3062,8 @@ pub mod test {
                     let tx = make_tx(&alice, 5, 0, cc_payload.clone());
                     block_txs.push(tx);
 
-                    let alice_allowance = make_pox_contract_call(&alice, 6, "allow-contract-caller", vec![alice_contract.clone(), Value::none()]);
-                    let tx = make_tx(&alice, 7, 0, cc_payload.clone()); // should be allowed!
+                    let alice_allowance = make_pox_contract_call(&alice, 6, "allow-contract-caller", vec![alice_contract, Value::none()]);
+                    let tx = make_tx(&alice, 7, 0, cc_payload); // should be allowed!
                     block_txs.push(alice_allowance);
                     block_txs.push(tx);
                 }
@@ -3136,7 +3135,7 @@ pub mod test {
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
@@ -3247,7 +3246,7 @@ pub mod test {
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
@@ -3269,7 +3268,7 @@ pub mod test {
                             0,
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&alice).bytes,
+                            key_to_stacks_addr(&alice).destruct().1,
                             12,
                             tip.block_height,
                         );
@@ -3316,14 +3315,14 @@ pub mod test {
                     assert_eq!(alice_account.stx_balance.amount_locked(), 0);
                     assert_eq!(alice_account.stx_balance.unlock_height(), 0);
                 }
-                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
                 .unwrap();
                 assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
 
                 // no reward addresses
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
                         &burnchain,
@@ -3360,11 +3359,11 @@ pub mod test {
                 let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
                 assert_eq!(alice_balance, 0);
 
-                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
                 .unwrap();
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
                         &burnchain,
@@ -3373,7 +3372,7 @@ pub mod test {
                     )
                 })
                 .unwrap();
-                let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.test_get_total_ustx_stacked(
                         sortdb,
                         &tip_index_block,
@@ -3409,7 +3408,7 @@ pub mod test {
                     );
                     assert_eq!(
                         (reward_addrs[0].0).hash160(),
-                        key_to_stacks_addr(&alice).bytes
+                        key_to_stacks_addr(&alice).destruct().1,
                     );
                     assert_eq!(reward_addrs[0].1, 1024 * POX_THRESHOLD_STEPS_USTX);
 
@@ -3458,7 +3457,7 @@ pub mod test {
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let cur_reward_cycle = burnchain
@@ -3485,7 +3484,7 @@ pub mod test {
                                 0,
                                 1024 * POX_THRESHOLD_STEPS_USTX,
                                 AddressHashMode::SerializeP2PKH,
-                                key_to_stacks_addr(key).bytes,
+                                key_to_stacks_addr(key).destruct().1,
                                 12,
                                 tip.block_height,
                             );
@@ -3556,10 +3555,10 @@ pub mod test {
                     // No locks have taken place
                     for key in keys.iter() {
                         // has not locked up STX
-                        let balance = get_balance(&mut peer, &key_to_stacks_addr(&key).into());
+                        let balance = get_balance(&mut peer, &key_to_stacks_addr(key).into());
                         assert_eq!(balance, 1024 * POX_THRESHOLD_STEPS_USTX);
 
-                        let account = get_account(&mut peer, &key_to_stacks_addr(&key).into());
+                        let account = get_account(&mut peer, &key_to_stacks_addr(key).into());
                         assert_eq!(
                             account.stx_balance.amount_unlocked(),
                             1024 * POX_THRESHOLD_STEPS_USTX
@@ -3568,14 +3567,14 @@ pub mod test {
                         assert_eq!(account.stx_balance.unlock_height(), 0);
                     }
                 }
-                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
                 .unwrap();
                 assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
 
                 // no reward addresses
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
                         &burnchain,
@@ -3614,11 +3613,11 @@ pub mod test {
                     assert_eq!(balance, 0);
                 }
 
-                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
                 .unwrap();
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
                         &burnchain,
@@ -3627,7 +3626,7 @@ pub mod test {
                     )
                 })
                 .unwrap();
-                let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.test_get_total_ustx_stacked(
                         sortdb,
                         &tip_index_block,
@@ -3653,24 +3652,24 @@ pub mod test {
                     assert_eq!(reward_addrs.len(), 4);
                     let mut all_addrbytes = HashSet::new();
                     for key in keys.iter() {
-                        all_addrbytes.insert(key_to_stacks_addr(&key).bytes);
+                        all_addrbytes.insert(key_to_stacks_addr(key).destruct().1);
                     }
 
                     for key in keys.iter() {
                         let (amount_ustx, pox_addr, lock_period, first_reward_cycle) =
-                            get_stacker_info(&mut peer, &key_to_stacks_addr(&key).into()).unwrap();
+                            get_stacker_info(&mut peer, &key_to_stacks_addr(key).into()).unwrap();
                         eprintln!("\n{}: {} uSTX stacked for {} cycle(s); addr is {:?}; first reward cycle is {}\n", key.to_hex(), amount_ustx, lock_period, &pox_addr, first_reward_cycle);
 
                         assert_eq!(
                             (reward_addrs[0].0).version(),
                             AddressHashMode::SerializeP2PKH as u8
                         );
-                        assert!(all_addrbytes.contains(&key_to_stacks_addr(&key).bytes));
-                        all_addrbytes.remove(&key_to_stacks_addr(&key).bytes);
+                        assert!(all_addrbytes.contains(&key_to_stacks_addr(key).destruct().1));
+                        all_addrbytes.remove(&key_to_stacks_addr(key).destruct().1);
                         assert_eq!(reward_addrs[0].1, 1024 * POX_THRESHOLD_STEPS_USTX);
 
                         // Lock-up is consistent with stacker state
-                        let account = get_account(&mut peer, &key_to_stacks_addr(&key).into());
+                        let account = get_account(&mut peer, &key_to_stacks_addr(key).into());
                         assert_eq!(account.stx_balance.amount_unlocked(), 0);
                         assert_eq!(
                             account.stx_balance.amount_locked(),
@@ -3719,7 +3718,7 @@ pub mod test {
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
@@ -3746,7 +3745,7 @@ pub mod test {
                             "do-lockup",
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&alice).bytes,
+                            key_to_stacks_addr(&alice).destruct().1,
                             1,
                         );
                         block_txs.push(alice_stack);
@@ -3784,14 +3783,14 @@ pub mod test {
                     let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
                     assert_eq!(alice_balance, 1024 * POX_THRESHOLD_STEPS_USTX);
                 }
-                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
                 .unwrap();
                 assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
 
                 // no reward addresses
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
                         &burnchain,
@@ -3827,11 +3826,11 @@ pub mod test {
                 let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
                 assert_eq!(alice_balance, 0);
 
-                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
                 .unwrap();
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
                         &burnchain,
@@ -3840,7 +3839,7 @@ pub mod test {
                     )
                 })
                 .unwrap();
-                let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.test_get_total_ustx_stacked(
                         sortdb,
                         &tip_index_block,
@@ -3899,7 +3898,7 @@ pub mod test {
                         );
                         assert_eq!(
                             (reward_addrs[0].0).hash160(),
-                            key_to_stacks_addr(&alice).bytes
+                            key_to_stacks_addr(&alice).destruct().1,
                         );
                         assert_eq!(reward_addrs[0].1, 1024 * POX_THRESHOLD_STEPS_USTX);
 
@@ -3986,7 +3985,7 @@ pub mod test {
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
@@ -4008,7 +4007,7 @@ pub mod test {
                             0,
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&alice).bytes,
+                            key_to_stacks_addr(&alice).destruct().1,
                             12,
                             tip.block_height,
                         );
@@ -4020,7 +4019,7 @@ pub mod test {
                             0,
                             (4 * 1024 * POX_THRESHOLD_STEPS_USTX) / 5,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&bob).bytes,
+                            key_to_stacks_addr(&bob).destruct().1,
                             12,
                             tip.block_height,
                         );
@@ -4064,14 +4063,14 @@ pub mod test {
                     assert_eq!(bob_balance, 1024 * POX_THRESHOLD_STEPS_USTX);
                 }
 
-                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
                 .unwrap();
                 assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
 
                 // no reward addresses
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
                         &burnchain,
@@ -4114,11 +4113,11 @@ pub mod test {
                     1024 * POX_THRESHOLD_STEPS_USTX - (4 * 1024 * POX_THRESHOLD_STEPS_USTX) / 5
                 );
 
-                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
                 .unwrap();
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
                         &burnchain,
@@ -4156,7 +4155,7 @@ pub mod test {
                     );
                     assert_eq!(
                         (reward_addrs[1].0).hash160(),
-                        key_to_stacks_addr(&alice).bytes
+                        key_to_stacks_addr(&alice).destruct().1,
                     );
                     assert_eq!(reward_addrs[1].1, 1024 * POX_THRESHOLD_STEPS_USTX);
 
@@ -4166,7 +4165,7 @@ pub mod test {
                     );
                     assert_eq!(
                         (reward_addrs[0].0).hash160(),
-                        key_to_stacks_addr(&bob).bytes
+                        key_to_stacks_addr(&bob).destruct().1,
                     );
                     assert_eq!(reward_addrs[0].1, (4 * 1024 * POX_THRESHOLD_STEPS_USTX) / 5);
                 } else {
@@ -4202,7 +4201,7 @@ pub mod test {
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
@@ -4216,11 +4215,11 @@ pub mod test {
                 if tenure_id == 1 {
                     // Alice locks up exactly 12.5% of the liquid STX supply, twice.
                     // Only the first one succeeds.
-                    let alice_lockup_1 = make_pox_lockup(&alice, 0, 512 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 12, tip.block_height);
+                    let alice_lockup_1 = make_pox_lockup(&alice, 0, 512 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).destruct().1, 12, tip.block_height);
                     block_txs.push(alice_lockup_1);
 
                     // will be rejected
-                    let alice_lockup_2 = make_pox_lockup(&alice, 1, 512 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 12, tip.block_height);
+                    let alice_lockup_2 = make_pox_lockup(&alice, 1, 512 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).destruct().1, 12, tip.block_height);
                     block_txs.push(alice_lockup_2);
 
                     // let's make some allowances for contract-calls through smart contracts
@@ -4309,7 +4308,7 @@ pub mod test {
 
             if tenure_id <= 1 {
                 // no reward addresses
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
                         &burnchain,
@@ -4415,7 +4414,7 @@ pub mod test {
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
@@ -4437,7 +4436,7 @@ pub mod test {
                             0,
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&alice).bytes,
+                            key_to_stacks_addr(&alice).destruct().1,
                             1,
                             tip.block_height,
                         );
@@ -4477,14 +4476,14 @@ pub mod test {
                     assert_eq!(alice_balance, 1024 * POX_THRESHOLD_STEPS_USTX);
                 }
 
-                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
                 .unwrap();
                 assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
 
                 // no reward addresses
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
                         &burnchain,
@@ -4519,11 +4518,11 @@ pub mod test {
 
                 let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
 
-                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
                 .unwrap();
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
                         &burnchain,
@@ -4532,7 +4531,7 @@ pub mod test {
                     )
                 })
                 .unwrap();
-                let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.test_get_total_ustx_stacked(
                         sortdb,
                         &tip_index_block,
@@ -4570,7 +4569,7 @@ pub mod test {
                         );
                         assert_eq!(
                             (reward_addrs[0].0).hash160(),
-                            key_to_stacks_addr(&alice).bytes
+                            key_to_stacks_addr(&alice).destruct().1,
                         );
                         assert_eq!(reward_addrs[0].1, 1024 * POX_THRESHOLD_STEPS_USTX);
 
@@ -4664,7 +4663,7 @@ pub mod test {
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
@@ -4686,7 +4685,7 @@ pub mod test {
                             0,
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&alice).bytes,
+                            key_to_stacks_addr(&alice).destruct().1,
                             1,
                             tip.block_height,
                         );
@@ -4703,7 +4702,7 @@ pub mod test {
                             "do-lockup",
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&charlie).bytes,
+                            key_to_stacks_addr(&charlie).destruct().1,
                             1,
                         );
                         block_txs.push(charlie_stack);
@@ -4723,7 +4722,7 @@ pub mod test {
                             1,
                             512 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&alice).bytes,
+                            key_to_stacks_addr(&alice).destruct().1,
                             1,
                             tip.block_height,
                         );
@@ -4737,7 +4736,7 @@ pub mod test {
                             "do-lockup",
                             512 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&charlie).bytes,
+                            key_to_stacks_addr(&charlie).destruct().1,
                             1,
                         );
                         block_txs.push(charlie_stack);
@@ -4781,15 +4780,15 @@ pub mod test {
             );
             let charlie_balance = get_balance(&mut peer, &key_to_stacks_addr(&charlie).into());
 
-            let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
             })
             .unwrap();
-            let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 chainstate.get_stacking_minimum(sortdb, &tip_index_block)
             })
             .unwrap();
-            let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 chainstate.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
             })
             .unwrap();
@@ -4803,7 +4802,7 @@ pub mod test {
                     assert_eq!(charlie_contract_balance, 0);
                 }
 
-                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
                 .unwrap();
@@ -4839,7 +4838,7 @@ pub mod test {
                 // should have just re-locked
                 // stacking minimum should be minimum, since we haven't
                 // locked up 25% of the tokens yet
-                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
                 .unwrap();
@@ -4907,7 +4906,7 @@ pub mod test {
                     );
                     assert_eq!(
                         (reward_addrs[1].0).hash160(),
-                        key_to_stacks_addr(&alice).bytes
+                        key_to_stacks_addr(&alice).destruct().1,
                     );
                     assert_eq!(reward_addrs[1].1, 1024 * POX_THRESHOLD_STEPS_USTX);
 
@@ -4917,7 +4916,7 @@ pub mod test {
                     );
                     assert_eq!(
                         (reward_addrs[0].0).hash160(),
-                        key_to_stacks_addr(&charlie).bytes
+                        key_to_stacks_addr(&charlie).destruct().1,
                     );
                     assert_eq!(reward_addrs[0].1, 1024 * POX_THRESHOLD_STEPS_USTX);
 
@@ -5035,7 +5034,7 @@ pub mod test {
                     );
                     assert_eq!(
                         (reward_addrs[1].0).hash160(),
-                        key_to_stacks_addr(&alice).bytes
+                        key_to_stacks_addr(&alice).destruct().1,
                     );
                     assert_eq!(reward_addrs[1].1, 512 * POX_THRESHOLD_STEPS_USTX);
 
@@ -5045,7 +5044,7 @@ pub mod test {
                     );
                     assert_eq!(
                         (reward_addrs[0].0).hash160(),
-                        key_to_stacks_addr(&charlie).bytes
+                        key_to_stacks_addr(&charlie).destruct().1,
                     );
                     assert_eq!(reward_addrs[0].1, 512 * POX_THRESHOLD_STEPS_USTX);
 
@@ -5186,7 +5185,7 @@ pub mod test {
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
@@ -5208,7 +5207,7 @@ pub mod test {
                             0,
                             512 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&alice).bytes,
+                            key_to_stacks_addr(&alice).destruct().1,
                             1,
                             tip.block_height,
                         );
@@ -5219,7 +5218,7 @@ pub mod test {
                             0,
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&bob).bytes,
+                            key_to_stacks_addr(&bob).destruct().1,
                             1,
                             tip.block_height,
                         );
@@ -5230,7 +5229,7 @@ pub mod test {
                             0,
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&charlie).bytes,
+                            key_to_stacks_addr(&charlie).destruct().1,
                             1,
                             tip.block_height,
                         );
@@ -5241,7 +5240,7 @@ pub mod test {
                             0,
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&danielle).bytes,
+                            key_to_stacks_addr(&danielle).destruct().1,
                             1,
                             tip.block_height,
                         );
@@ -5257,7 +5256,7 @@ pub mod test {
                             "do-lockup",
                             512 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2SH,
-                            key_to_stacks_addr(&alice).bytes,
+                            key_to_stacks_addr(&alice).destruct().1,
                             1,
                         );
                         block_txs.push(alice_stack);
@@ -5367,23 +5366,23 @@ pub mod test {
             let expected_pox_addrs: Vec<(u8, Hash160)> = vec![
                 (
                     AddressHashMode::SerializeP2PKH as u8,
-                    key_to_stacks_addr(&alice).bytes,
+                    key_to_stacks_addr(&alice).destruct().1,
                 ),
                 (
                     AddressHashMode::SerializeP2PKH as u8,
-                    key_to_stacks_addr(&bob).bytes,
+                    key_to_stacks_addr(&bob).destruct().1,
                 ),
                 (
                     AddressHashMode::SerializeP2PKH as u8,
-                    key_to_stacks_addr(&charlie).bytes,
+                    key_to_stacks_addr(&charlie).destruct().1,
                 ),
                 (
                     AddressHashMode::SerializeP2PKH as u8,
-                    key_to_stacks_addr(&danielle).bytes,
+                    key_to_stacks_addr(&danielle).destruct().1,
                 ),
                 (
                     AddressHashMode::SerializeP2SH as u8,
-                    key_to_stacks_addr(&alice).bytes,
+                    key_to_stacks_addr(&alice).destruct().1,
                 ),
             ];
 
@@ -5426,15 +5425,15 @@ pub mod test {
                 512 * POX_THRESHOLD_STEPS_USTX - 1,
             ];
 
-            let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 chainstate.get_stacking_minimum(sortdb, &tip_index_block)
             })
             .unwrap();
-            let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
             })
             .unwrap();
-            let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 chainstate.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
             })
             .unwrap();
@@ -5453,7 +5452,7 @@ pub mod test {
                 assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
 
                 // no reward addresses
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
                         &burnchain,
@@ -5632,7 +5631,7 @@ pub mod test {
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
@@ -5645,7 +5644,7 @@ pub mod test {
 
                 if tenure_id == 1 {
                     // Alice locks up exactly 25% of the liquid STX supply, so this should succeed.
-                    let alice_lockup = make_pox_lockup(&alice, 0, 1024 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 12, tip.block_height);
+                    let alice_lockup = make_pox_lockup(&alice, 0, 1024 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).destruct().1, 12, tip.block_height);
                     block_txs.push(alice_lockup);
 
                     // Bob rejects with exactly 25% of the liquid STX supply (shouldn't affect
@@ -5728,19 +5727,19 @@ pub mod test {
                 .unwrap() as u128;
             let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
 
-            let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 chainstate.get_stacking_minimum(sortdb, &tip_index_block)
             })
             .unwrap();
-            let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
             })
             .unwrap();
-            let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 chainstate.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
             })
             .unwrap();
-            let total_stacked_next = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let total_stacked_next = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 chainstate.test_get_total_ustx_stacked(
                     sortdb,
                     &tip_index_block,
@@ -5851,7 +5850,7 @@ pub mod test {
                         );
                         assert_eq!(
                             (reward_addrs[0].0).hash160(),
-                            key_to_stacks_addr(&alice).bytes
+                            key_to_stacks_addr(&alice).destruct().1,
                         );
                         assert_eq!(reward_addrs[0].1, 1024 * POX_THRESHOLD_STEPS_USTX);
                     }

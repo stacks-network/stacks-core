@@ -74,7 +74,7 @@ fn test_try_parse_request() {
 
     // try to decode a bad microblock
     let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
-    let mut bad_mblock = mblock.clone();
+    let mut bad_mblock = mblock;
     bad_mblock.txs.clear();
     let request = StacksHttpRequest::new_post_microblock(
         addr.into(),

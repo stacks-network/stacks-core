@@ -463,7 +463,7 @@ impl BitcoinIndexer {
         network_id: BitcoinNetworkType,
     ) -> Result<SpvClient, btc_error> {
         SpvClient::new_without_migration(
-            &reorg_headers_path,
+            reorg_headers_path,
             start_block,
             end_block,
             network_id,
@@ -480,7 +480,7 @@ impl BitcoinIndexer {
         network_id: BitcoinNetworkType,
     ) -> Result<SpvClient, btc_error> {
         SpvClient::new(
-            &reorg_headers_path,
+            reorg_headers_path,
             start_block,
             end_block,
             network_id,
@@ -1334,11 +1334,9 @@ mod test {
         let mut spv_client_reorg =
             SpvClient::new(path_2, 0, None, BitcoinNetworkType::Regtest, true, false).unwrap();
 
-        spv_client
-            .insert_block_headers_after(0, headers_1.clone())
-            .unwrap();
+        spv_client.insert_block_headers_after(0, headers_1).unwrap();
         spv_client_reorg
-            .insert_block_headers_after(0, headers_2.clone())
+            .insert_block_headers_after(0, headers_2)
             .unwrap();
 
         spv_client.update_chain_work().unwrap();
@@ -1512,11 +1510,9 @@ mod test {
         let mut spv_client_reorg =
             SpvClient::new(path_2, 0, None, BitcoinNetworkType::Regtest, true, false).unwrap();
 
-        spv_client
-            .insert_block_headers_after(0, headers_1.clone())
-            .unwrap();
+        spv_client.insert_block_headers_after(0, headers_1).unwrap();
         spv_client_reorg
-            .insert_block_headers_after(0, headers_2.clone())
+            .insert_block_headers_after(0, headers_2)
             .unwrap();
 
         assert_eq!(spv_client.read_block_headers(0, 10).unwrap().len(), 4);
@@ -3329,7 +3325,7 @@ mod test {
 
         // put these bad headers into the "main" chain
         spv_client
-            .insert_block_headers_after(40318, bad_headers.clone())
+            .insert_block_headers_after(40318, bad_headers)
             .unwrap();
 
         // *now* calculate main chain work
@@ -3467,7 +3463,7 @@ mod test {
 
         // set up SPV client so we don't have chain work at first
         let mut spv_client = SpvClient::new_without_migration(
-            &db_path,
+            db_path,
             0,
             None,
             BitcoinNetworkType::Regtest,
@@ -3476,9 +3472,7 @@ mod test {
         )
         .unwrap();
 
-        spv_client
-            .test_write_block_headers(0, headers.clone())
-            .unwrap();
+        spv_client.test_write_block_headers(0, headers).unwrap();
         assert_eq!(spv_client.get_highest_header_height().unwrap(), 2);
 
         let mut indexer = BitcoinIndexer::new(
@@ -3509,7 +3503,7 @@ mod test {
 
         let should_keep_running = Arc::new(AtomicBool::new(true));
         let mut indexer = BitcoinIndexer::new(
-            BitcoinIndexerConfig::test_default(db_path.to_string()),
+            BitcoinIndexerConfig::test_default(db_path),
             BitcoinIndexerRuntime::new(BitcoinNetworkType::Mainnet),
             Some(should_keep_running.clone()),
         );

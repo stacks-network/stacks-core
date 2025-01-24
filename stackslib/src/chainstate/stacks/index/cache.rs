@@ -151,7 +151,7 @@ impl<T: MarfTrieId> TrieCacheState<T> {
 
     /// Get the block ID, given its hash
     pub fn load_block_id(&self, block_hash: &T) -> Option<u32> {
-        self.block_id_cache.get(block_hash).map(|id| *id)
+        self.block_id_cache.get(block_hash).copied()
     }
 }
 
@@ -466,7 +466,7 @@ pub mod test {
             total_read_time, &read_bench
         );
 
-        let mut bench = write_bench.clone();
+        let mut bench = write_bench;
         bench.add(&read_bench);
 
         eprintln!("MARF bench total: {:#?}", &bench);

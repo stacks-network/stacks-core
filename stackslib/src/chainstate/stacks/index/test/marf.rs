@@ -1474,7 +1474,7 @@ fn marf_insert_random_4096_128_merkle_proof() {
 
             m.begin(&prev_block_header, &block_header).unwrap();
 
-            let marf_values = values.iter().map(|x| MARFValue::from_value(&x)).collect();
+            let marf_values = values.iter().map(|x| MARFValue::from_value(x)).collect();
 
             m.insert_batch(&keys, marf_values).unwrap();
             m.commit().unwrap();
@@ -2081,7 +2081,7 @@ fn test_marf_read_only() {
     } else {
         assert!(false);
     }
-    if let Err(Error::ReadOnlyError) = ro_marf.insert_raw(triepath.clone(), leaf.clone()) {
+    if let Err(Error::ReadOnlyError) = ro_marf.insert_raw(triepath.clone(), leaf) {
     } else {
         assert!(false);
     }
@@ -2136,12 +2136,12 @@ fn test_marf_begin_from_sentinel_twice() {
 
     marf.begin(&BlockHeaderHash::sentinel(), &block_header_1)
         .unwrap();
-    marf.insert_raw(triepath_1, value_1.clone()).unwrap();
+    marf.insert_raw(triepath_1, value_1).unwrap();
     marf.commit_to(&block_header_1).unwrap();
 
     marf.begin(&BlockHeaderHash::sentinel(), &block_header_2)
         .unwrap();
-    marf.insert_raw(triepath_2, value_2.clone()).unwrap();
+    marf.insert_raw(triepath_2, value_2).unwrap();
     marf.commit_to(&block_header_2).unwrap();
 
     let read_value_1 = MARF::get_path(
@@ -2219,7 +2219,7 @@ fn test_marf_unconfirmed() {
     }
 
     let unconfirmed_tip = marf.begin_unconfirmed(&block_header).unwrap();
-    marf.insert_raw(triepath_1, value_1.clone()).unwrap();
+    marf.insert_raw(triepath_1, value_1).unwrap();
     marf.commit().unwrap();
 
     // read succeeds
@@ -2236,7 +2236,7 @@ fn test_marf_unconfirmed() {
     );
 
     marf.begin_unconfirmed(&block_header).unwrap();
-    marf.insert_raw(triepath_2, value_2.clone()).unwrap();
+    marf.insert_raw(triepath_2, value_2).unwrap();
     marf.drop_current();
 
     // read still succeeds -- only current trie is dropped

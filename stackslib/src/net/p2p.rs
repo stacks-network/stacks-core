@@ -1008,10 +1008,10 @@ impl PeerNetwork {
         neighbor_key: &NeighborKey,
         message: StacksMessage,
     ) -> Result<(), net_error> {
-        let event_id = if let Some(event_id) = self.events.get(&neighbor_key) {
+        let event_id = if let Some(event_id) = self.events.get(neighbor_key) {
             *event_id
         } else {
-            info!("Not connected to {:?}", &neighbor_key);
+            info!("Not connected to {:?}", neighbor_key);
             return Err(net_error::NoSuchNeighbor);
         };
 
@@ -1199,7 +1199,7 @@ impl PeerNetwork {
 
             // don't talk if denied
             if PeerDB::is_peer_denied(
-                &self.peerdb.conn(),
+                self.peerdb.conn(),
                 neighbor.network_id,
                 &neighbor.addrbytes,
                 neighbor.port,
@@ -1460,7 +1460,7 @@ impl PeerNetwork {
 
         // receive all in-bound requests
         for i in 0..self.handles.len() {
-            if let Some(ref handle) = self.handles.get(i) {
+            if let Some(handle) = self.handles.get(i) {
                 loop {
                     // drain all inbound requests
                     let inbound_request_res = handle.chan_in.try_recv();
@@ -1677,7 +1677,7 @@ impl PeerNetwork {
 
         // denied?
         if PeerDB::is_peer_denied(
-            &self.peerdb.conn(),
+            self.peerdb.conn(),
             neighbor_key.network_id,
             &neighbor_key.addrbytes,
             neighbor_key.port,
@@ -1690,10 +1690,10 @@ impl PeerNetwork {
         }
 
         // already connected?
-        if let Some(event_id) = self.get_event_id(&neighbor_key) {
+        if let Some(event_id) = self.get_event_id(neighbor_key) {
             debug!(
                 "{:?}: already connected to {:?} on event {}",
-                &self.local_peer, &neighbor_key, event_id
+                &self.local_peer, neighbor_key, event_id
             );
             return Err(net_error::AlreadyConnected(event_id, neighbor_key.clone()));
         }
@@ -1702,7 +1702,7 @@ impl PeerNetwork {
         if !self.connection_opts.private_neighbors && neighbor_key.addrbytes.is_in_private_range() {
             debug!("{:?}: Peer {:?} is in private range and we are configured to drop private neighbors",
                   &self.local_peer,
-                  &neighbor_key
+                  neighbor_key
             );
             return Err(net_error::Denied);
         }
@@ -1852,7 +1852,7 @@ impl PeerNetwork {
 
     /// Get the event ID associated with a neighbor key
     pub fn get_event_id(&self, neighbor_key: &NeighborKey) -> Option<usize> {
-        self.events.get(neighbor_key).map(|eid| *eid)
+        self.events.get(neighbor_key).copied()
     }
 
     /// Get a ref to a conversation given a neighbor key
@@ -1945,7 +1945,7 @@ impl PeerNetwork {
     /// Deregister by neighbor key
     pub fn deregister_neighbor(&mut self, neighbor_key: &NeighborKey) {
         debug!("Disconnect from {:?}", neighbor_key);
-        let event_id = match self.events.get(&neighbor_key) {
+        let event_id = match self.events.get(neighbor_key) {
             None => {
                 return;
             }
@@ -1972,7 +1972,7 @@ impl PeerNetwork {
         peer_key: &NeighborKey,
         message_payload: StacksMessageType,
     ) -> Result<StacksMessage, net_error> {
-        match self.events.get(&peer_key) {
+        match self.events.get(peer_key) {
             None => {
                 // not connected
                 debug!("Could not sign for peer {:?}: not connected", peer_key);
@@ -2265,13 +2265,10 @@ impl PeerNetwork {
 
     /// Get stats for a neighbor
     pub fn get_neighbor_stats(&self, nk: &NeighborKey) -> Option<NeighborStats> {
-        match self.events.get(&nk) {
-            None => None,
-            Some(eid) => match self.peers.get(&eid) {
-                None => None,
-                Some(ref convo) => Some(convo.stats.clone()),
-            },
-        }
+        self.events
+            .get(nk)
+            .and_then(|eid| self.peers.get(eid))
+            .map(|convo| convo.stats.clone())
     }
 
     /// Update peer connections as a result of a peer graph walk.
@@ -3115,7 +3112,7 @@ impl PeerNetwork {
             };
 
             let block_info = match StacksChainState::load_staging_block_info(
-                &chainstate.db(),
+                chainstate.db(),
                 &StacksBlockHeader::make_index_block_hash(
                     &ancestor_sn.consensus_hash,
                     &ancestor_sn.winning_stacks_block_hash,
@@ -3144,7 +3141,7 @@ impl PeerNetwork {
             };
 
             let microblocks = match StacksChainState::load_processed_microblock_stream_fork(
-                &chainstate.db(),
+                chainstate.db(),
                 &block_info.parent_consensus_hash,
                 &block_info.parent_anchored_block_hash,
                 &block_info.parent_microblock_hash,
@@ -3240,7 +3237,7 @@ impl PeerNetwork {
         let neighbor_keys: Vec<NeighborKey> = self
             .inv_state
             .as_ref()
-            .map(|inv_state| inv_state.block_stats.keys().map(|nk| nk.clone()).collect())
+            .map(|inv_state| inv_state.block_stats.keys().cloned().collect())
             .unwrap_or(vec![]);
 
         if self.antientropy_start_reward_cycle == 0 {
@@ -4047,7 +4044,7 @@ impl PeerNetwork {
                         // drop one at random
                         let idx = thread_rng().gen::<usize>() % self.walk_pingbacks.len();
                         let drop_addr = match self.walk_pingbacks.keys().skip(idx).next() {
-                            Some(ref addr) => (*addr).clone(),
+                            Some(addr) => (*addr).clone(),
                             None => {
                                 continue;
                             }
@@ -4102,7 +4099,7 @@ impl PeerNetwork {
 
     /// Get the local peer from the peer DB, but also preserve the public IP address
     pub fn load_local_peer(&self) -> Result<LocalPeer, net_error> {
-        let mut lp = PeerDB::get_local_peer(&self.peerdb.conn())?;
+        let mut lp = PeerDB::get_local_peer(self.peerdb.conn())?;
         lp.public_ip_address
             .clone_from(&self.local_peer.public_ip_address);
         Ok(lp)
@@ -4893,7 +4890,7 @@ impl PeerNetwork {
         }
 
         // update our relay statistics, so we know who to forward messages to
-        self.update_relayer_stats(&network_result);
+        self.update_relayer_stats(network_result);
 
         // finally, handle network I/O requests from other threads, and get back reply handles to them.
         // do this after processing new sockets, so we don't accidentally re-use an event ID.
@@ -4992,7 +4989,7 @@ impl PeerNetwork {
             )
         };
 
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())?;
+        let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
 
         let mut ret: HashMap<NeighborKey, Vec<(Vec<RelayData>, StacksTransaction)>> =
             HashMap::new();

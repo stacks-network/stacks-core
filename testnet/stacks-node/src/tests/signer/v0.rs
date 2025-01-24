@@ -128,7 +128,7 @@ impl SignerTest<SpawnedSigner> {
         for stacker_sk in self.signer_stacks_private_keys.iter() {
             let pox_addr = PoxAddress::from_legacy(
                 AddressHashMode::SerializeP2PKH,
-                tests::to_addr(stacker_sk).bytes,
+                tests::to_addr(stacker_sk).bytes().clone(),
             );
             let pox_addr_tuple: clarity::vm::Value =
                 pox_addr.clone().as_clarity_tuple().unwrap().into();
@@ -1586,7 +1586,7 @@ fn multiple_miners() {
     conf_node_2.node.p2p_address = format!("{localhost}:{node_2_p2p}");
     conf_node_2.node.seed = btc_miner_2_seed.clone();
     conf_node_2.burnchain.local_mining_public_key = Some(btc_miner_2_pk.to_hex());
-    conf_node_2.node.local_peer_seed = btc_miner_2_seed.clone();
+    conf_node_2.node.local_peer_seed = btc_miner_2_seed;
     conf_node_2.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[2]));
     conf_node_2.node.miner = true;
     conf_node_2.events_observers.clear();
@@ -1867,7 +1867,7 @@ fn miner_forking() {
     conf_node_2.node.p2p_address = format!("{localhost}:{node_2_p2p}");
     conf_node_2.node.seed = btc_miner_2_seed.clone();
     conf_node_2.burnchain.local_mining_public_key = Some(btc_miner_2_pk.to_hex());
-    conf_node_2.node.local_peer_seed = btc_miner_2_seed.clone();
+    conf_node_2.node.local_peer_seed = btc_miner_2_seed;
     conf_node_2.node.miner = true;
     conf_node_2.events_observers.clear();
     conf_node_2.events_observers.extend(node_2_listeners);
@@ -1889,6 +1889,7 @@ fn miner_forking() {
     let Counters {
         naka_skip_commit_op: skip_commit_op_rl2,
         naka_submitted_commits: commits_submitted_rl2,
+        naka_submitted_commit_last_burn_height: commits_submitted_rl2_last_burn_height,
         ..
     } = run_loop_2.counters();
     let _run_loop_2_thread = thread::Builder::new()
@@ -1910,6 +1911,8 @@ fn miner_forking() {
     .expect("Timed out waiting for boostrapped node to catch up to the miner");
 
     let commits_submitted_rl1 = signer_test.running_nodes.commits_submitted.clone();
+    let commits_submitted_rl1_last_burn_height =
+        signer_test.running_nodes.last_commit_burn_height.clone();
     let skip_commit_op_rl1 = signer_test
         .running_nodes
         .nakamoto_test_skip_commit_op
@@ -1966,13 +1969,18 @@ fn miner_forking() {
     info!("Pausing stacks block proposal to force an empty tenure commit from RL2");
     TEST_BROADCAST_STALL.set(true);
     let rl1_commits_before = commits_submitted_rl1.load(Ordering::SeqCst);
+    let burn_height_before = get_burn_height();
 
     info!("Unpausing commits from RL1");
     skip_commit_op_rl1.set(false);
 
     info!("Waiting for commits from RL1");
     wait_for(30, || {
-        Ok(commits_submitted_rl1.load(Ordering::SeqCst) > rl1_commits_before)
+        Ok(
+            commits_submitted_rl1.load(Ordering::SeqCst) > rl1_commits_before
+                && commits_submitted_rl1_last_burn_height.load(Ordering::SeqCst)
+                    >= burn_height_before,
+        )
     })
     .expect("Timed out waiting for miner 1 to submit a commit op");
 
@@ -2003,13 +2011,17 @@ fn miner_forking() {
         "------------------------- RL2 Wins Sortition With Outdated View -------------------------"
     );
     let rl2_commits_before = commits_submitted_rl2.load(Ordering::SeqCst);
+    let burn_height = get_burn_height();
 
     info!("Unpausing commits from RL2");
     skip_commit_op_rl2.set(false);
 
     info!("Waiting for commits from RL2");
     wait_for(30, || {
-        Ok(commits_submitted_rl2.load(Ordering::SeqCst) > rl2_commits_before)
+        Ok(
+            commits_submitted_rl2.load(Ordering::SeqCst) > rl2_commits_before
+                && commits_submitted_rl2_last_burn_height.load(Ordering::SeqCst) >= burn_height,
+        )
     })
     .expect("Timed out waiting for miner 1 to submit a commit op");
 
@@ -2440,7 +2452,7 @@ fn retry_on_rejection() {
         .map(StacksPublicKey::from_private)
         .take(num_signers)
         .collect();
-    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(rejecting_signers.clone());
+    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(rejecting_signers);
 
     let proposals_before = signer_test
         .running_nodes
@@ -3904,7 +3916,7 @@ fn multiple_miners_mock_sign_epoch_25() {
     conf_node_2.node.p2p_address = format!("{localhost}:{node_2_p2p}");
     conf_node_2.node.seed = btc_miner_2_seed.clone();
     conf_node_2.burnchain.local_mining_public_key = Some(btc_miner_2_pk.to_hex());
-    conf_node_2.node.local_peer_seed = btc_miner_2_seed.clone();
+    conf_node_2.node.local_peer_seed = btc_miner_2_seed;
     conf_node_2.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[2]));
     conf_node_2.node.miner = true;
     conf_node_2.events_observers.clear();
@@ -4193,7 +4205,7 @@ fn signer_set_rollover() {
     for stacker_sk in new_signer_private_keys.iter() {
         let pox_addr = PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            tests::to_addr(stacker_sk).bytes,
+            tests::to_addr(stacker_sk).bytes().clone(),
         );
         let pox_addr_tuple: clarity::vm::Value =
             pox_addr.clone().as_clarity_tuple().unwrap().into();
@@ -4624,7 +4636,7 @@ fn multiple_miners_with_nakamoto_blocks() {
     conf_node_2.node.p2p_address = format!("{localhost}:{node_2_p2p}");
     conf_node_2.node.seed = btc_miner_2_seed.clone();
     conf_node_2.burnchain.local_mining_public_key = Some(btc_miner_2_pk.to_hex());
-    conf_node_2.node.local_peer_seed = btc_miner_2_seed.clone();
+    conf_node_2.node.local_peer_seed = btc_miner_2_seed;
     conf_node_2.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[2]));
     conf_node_2.node.miner = true;
     conf_node_2.events_observers.clear();
@@ -4887,7 +4899,7 @@ fn partial_tenure_fork() {
     conf_node_2.node.p2p_address = format!("{localhost}:{node_2_p2p}");
     conf_node_2.node.seed = btc_miner_2_seed.clone();
     conf_node_2.burnchain.local_mining_public_key = Some(btc_miner_2_pk.to_hex());
-    conf_node_2.node.local_peer_seed = btc_miner_2_seed.clone();
+    conf_node_2.node.local_peer_seed = btc_miner_2_seed;
     conf_node_2.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[2]));
     conf_node_2.node.miner = true;
     conf_node_2.events_observers.clear();
@@ -6530,7 +6542,7 @@ fn continue_after_fast_block_no_sortition() {
     conf_node_2.node.p2p_address = format!("{localhost}:{node_2_p2p}");
     conf_node_2.node.seed = btc_miner_2_seed.clone();
     conf_node_2.burnchain.local_mining_public_key = Some(btc_miner_2_pk.to_hex());
-    conf_node_2.node.local_peer_seed = btc_miner_2_seed.clone();
+    conf_node_2.node.local_peer_seed = btc_miner_2_seed;
     conf_node_2.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[2]));
     conf_node_2.node.miner = true;
     conf_node_2.events_observers.clear();
@@ -6684,7 +6696,7 @@ fn continue_after_fast_block_no_sortition() {
 
     // Make all signers ignore block proposals
     let ignoring_signers = all_signers.to_vec();
-    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(ignoring_signers.clone());
+    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(ignoring_signers);
 
     info!("------------------------- Submit Miner 2 Block Commit -------------------------");
     let rejections_before = signer_test
@@ -7306,7 +7318,7 @@ fn multiple_miners_with_custom_chain_id() {
     conf_node_2.node.p2p_address = format!("{localhost}:{node_2_p2p}");
     conf_node_2.node.seed = btc_miner_2_seed.clone();
     conf_node_2.burnchain.local_mining_public_key = Some(btc_miner_2_pk.to_hex());
-    conf_node_2.node.local_peer_seed = btc_miner_2_seed.clone();
+    conf_node_2.node.local_peer_seed = btc_miner_2_seed;
     conf_node_2.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[2]));
     conf_node_2.node.miner = true;
     conf_node_2.events_observers.clear();
@@ -8209,7 +8221,7 @@ fn tenure_extend_after_failed_miner() {
     conf_node_2.node.p2p_address = format!("{localhost}:{node_2_p2p}");
     conf_node_2.node.seed = btc_miner_2_seed.clone();
     conf_node_2.burnchain.local_mining_public_key = Some(btc_miner_2_pk.to_hex());
-    conf_node_2.node.local_peer_seed = btc_miner_2_seed.clone();
+    conf_node_2.node.local_peer_seed = btc_miner_2_seed;
     conf_node_2.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[2]));
     conf_node_2.node.miner = true;
     conf_node_2.events_observers.clear();
@@ -8581,7 +8593,7 @@ fn tenure_extend_after_bad_commit() {
     conf_node_2.node.p2p_address = format!("{localhost}:{node_2_p2p}");
     conf_node_2.node.seed = btc_miner_2_seed.clone();
     conf_node_2.burnchain.local_mining_public_key = Some(btc_miner_2_pk.to_hex());
-    conf_node_2.node.local_peer_seed = btc_miner_2_seed.clone();
+    conf_node_2.node.local_peer_seed = btc_miner_2_seed;
     conf_node_2.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[2]));
     conf_node_2.node.miner = true;
     conf_node_2.events_observers.clear();
@@ -9060,7 +9072,7 @@ fn tenure_extend_after_2_bad_commits() {
     conf_node_2.node.p2p_address = format!("{localhost}:{node_2_p2p}");
     conf_node_2.node.seed = btc_miner_2_seed.clone();
     conf_node_2.burnchain.local_mining_public_key = Some(btc_miner_2_pk.to_hex());
-    conf_node_2.node.local_peer_seed = btc_miner_2_seed.clone();
+    conf_node_2.node.local_peer_seed = btc_miner_2_seed;
     conf_node_2.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[2]));
     conf_node_2.node.miner = true;
     conf_node_2.events_observers.clear();
@@ -9752,7 +9764,7 @@ fn global_acceptance_depends_on_block_announcement() {
         .cloned()
         .take(num_signers * 3 / 10)
         .collect();
-    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(rejecting_signers.clone());
+    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(rejecting_signers);
     TEST_SKIP_BLOCK_ANNOUNCEMENT.set(true);
     TEST_IGNORE_SIGNERS.set(true);
     TEST_SKIP_BLOCK_BROADCAST.set(true);
@@ -10002,7 +10014,7 @@ fn no_reorg_due_to_successive_block_validation_ok() {
     conf_node_2.node.p2p_address = format!("{localhost}:{node_2_p2p}");
     conf_node_2.node.seed = btc_miner_2_seed.clone();
     conf_node_2.burnchain.local_mining_public_key = Some(btc_miner_2_pk.to_hex());
-    conf_node_2.node.local_peer_seed = btc_miner_2_seed.clone();
+    conf_node_2.node.local_peer_seed = btc_miner_2_seed;
     conf_node_2.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[2]));
     conf_node_2.node.miner = true;
     conf_node_2.events_observers.clear();
@@ -10171,7 +10183,7 @@ fn no_reorg_due_to_successive_block_validation_ok() {
                         .unwrap()
                     && proposal.block.header.chain_length == block_n.stacks_height + 1
                 {
-                    block_n_1 = Some(proposal.block.clone());
+                    block_n_1 = Some(proposal.block);
                     return Ok(true);
                 }
             }
@@ -10230,7 +10242,7 @@ fn no_reorg_due_to_successive_block_validation_ok() {
                     .map(|pk| pk == mining_pk_2)
                     .unwrap()
                 {
-                    block_n_1_prime = Some(proposal.block.clone());
+                    block_n_1_prime = Some(proposal.block);
                     return Ok(true);
                 }
             }
@@ -10369,7 +10381,7 @@ fn no_reorg_due_to_successive_block_validation_ok() {
                         .map(|pk| pk == mining_pk_2)
                         .unwrap()
                 {
-                    block_n_2 = Some(proposal.block.clone());
+                    block_n_2 = Some(proposal.block);
                     return Ok(true);
                 }
             }
@@ -10923,9 +10935,9 @@ fn injected_signatures_are_ignored_across_boundaries() {
     // Stack the new signer
     let pox_addr = PoxAddress::from_legacy(
         AddressHashMode::SerializeP2PKH,
-        tests::to_addr(&new_signer_private_key).bytes,
+        tests::to_addr(&new_signer_private_key).bytes().clone(),
     );
-    let pox_addr_tuple: clarity::vm::Value = pox_addr.clone().as_clarity_tuple().unwrap().into();
+    let pox_addr_tuple: clarity::vm::Value = pox_addr.as_clarity_tuple().unwrap().into();
     let signature = make_pox_4_signer_key_signature(
         &pox_addr,
         &new_signer_private_key,
@@ -10950,7 +10962,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
         "stack-stx",
         &[
             clarity::vm::Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT),
-            pox_addr_tuple.clone(),
+            pox_addr_tuple,
             clarity::vm::Value::UInt(burn_block_height as u128),
             clarity::vm::Value::UInt(1),
             clarity::vm::Value::some(clarity::vm::Value::buff_from(signature).unwrap()).unwrap(),

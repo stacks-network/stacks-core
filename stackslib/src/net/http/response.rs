@@ -259,7 +259,7 @@ impl HttpResponsePreamble {
         keep_alive: bool,
         content_length: Option<u32>,
         content_type: HttpContentType,
-        mut keys: Vec<String>,
+        keys: Vec<String>,
         values: Vec<String>,
     ) -> HttpResponsePreamble {
         assert_eq!(keys.len(), values.len());
@@ -272,7 +272,7 @@ impl HttpResponsePreamble {
             keep_alive,
         );
 
-        for (k, v) in keys.drain(..).zip(values) {
+        for (k, v) in keys.into_iter().zip(values) {
             res.add_header(k, v);
         }
         res
@@ -668,7 +668,7 @@ impl HttpResponsePayload {
         match self {
             Self::Empty => Ok(()),
             Self::JSON(value) => serde_json::to_writer(fd, &value).map_err(Error::JsonError),
-            Self::Bytes(value) => fd.write_all(&value).map_err(Error::WriteError),
+            Self::Bytes(value) => fd.write_all(value).map_err(Error::WriteError),
             Self::Text(value) => fd.write_all(value.as_bytes()).map_err(Error::WriteError),
         }
     }

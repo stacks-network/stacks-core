@@ -430,7 +430,7 @@ fn test_secp256k1() {
     )
     .unwrap();
     eprintln!("addr from privk {:?}", &addr);
-    let principal = addr.to_account_principal();
+    let principal = addr.try_into().unwrap();
     if let PrincipalData::Standard(data) = principal {
         eprintln!("test_secp256k1 principal {:?}", data.to_address());
     }
@@ -446,7 +446,7 @@ fn test_secp256k1() {
     )
     .unwrap();
     eprintln!("addr from hex {:?}", addr);
-    let principal = addr.to_account_principal();
+    let principal: PrincipalData = addr.try_into().unwrap();
     if let PrincipalData::Standard(data) = principal.clone() {
         eprintln!("test_secp256k1 principal {:?}", data.to_address());
     }
@@ -491,8 +491,9 @@ fn test_principal_of_fix() {
         .unwrap()],
     )
     .unwrap()
-    .to_account_principal();
-    let testnet_principal = StacksAddress::from_public_keys(
+    .try_into()
+    .unwrap();
+    let testnet_principal: PrincipalData = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
         1,
@@ -502,7 +503,8 @@ fn test_principal_of_fix() {
         .unwrap()],
     )
     .unwrap()
-    .to_account_principal();
+    .try_into()
+    .unwrap();
 
     // Clarity2, mainnet, should have a mainnet principal.
     assert_eq!(

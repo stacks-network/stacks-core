@@ -379,7 +379,7 @@ impl BurnSamplePoint {
 
         // total burns for valid blocks?
         // NOTE: this can't overflow -- there's no way we get that many (u64) burns
-        let total_burns_u128 = BurnSamplePoint::get_total_burns(&burn_sample).unwrap() as u128;
+        let total_burns_u128 = BurnSamplePoint::get_total_burns(burn_sample).unwrap() as u128;
         let total_burns = Uint512::from_u128(total_burns_u128);
 
         // determine range start/end for each sample.
@@ -785,7 +785,7 @@ mod tests {
         let mut result = BurnSamplePoint::make_min_median_distribution(
             MINING_COMMITMENT_WINDOW,
             commits.clone(),
-            missed_commits.clone(),
+            missed_commits,
             vec![false, false, false, false, false, false],
         );
 
@@ -1261,11 +1261,7 @@ mod tests {
                 ],
             },
             BurnDistFixture {
-                consumed_leader_keys: vec![
-                    leader_key_1.clone(),
-                    leader_key_2.clone(),
-                    leader_key_3.clone(),
-                ],
+                consumed_leader_keys: vec![leader_key_1, leader_key_2, leader_key_3],
                 block_commits: vec![
                     block_commit_1.clone(),
                     block_commit_2.clone(),
@@ -1283,7 +1279,7 @@ mod tests {
                             0x70989faf596c8b65,
                             0x41a3ed94d3cb0a84,
                         ]),
-                        candidate: block_commit_1.clone(),
+                        candidate: block_commit_1,
                     },
                     BurnSamplePoint {
                         burns: block_commit_2.burn_fee.into(),
@@ -1301,7 +1297,7 @@ mod tests {
                             0xe1313f5eb2d916ca,
                             0x8347db29a7961508,
                         ]),
-                        candidate: block_commit_2.clone(),
+                        candidate: block_commit_2,
                     },
                     BurnSamplePoint {
                         burns: (block_commit_3.burn_fee).into(),
@@ -1314,7 +1310,7 @@ mod tests {
                             0x8347db29a7961508,
                         ]),
                         range_end: Uint256::max(),
-                        candidate: block_commit_3.clone(),
+                        candidate: block_commit_3,
                     },
                 ],
             },

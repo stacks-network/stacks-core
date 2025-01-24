@@ -91,8 +91,8 @@ impl HttpPeer {
     #[cfg_attr(test, mutants::skip)]
     pub fn find_free_conversation(&self, data_url: &UrlString) -> Option<usize> {
         for (event_id, convo) in self.peers.iter() {
-            if let Some(ref url) = convo.get_url() {
-                if *url == data_url && !convo.is_request_inflight() {
+            if let Some(url) = convo.get_url() {
+                if url == data_url && !convo.is_request_inflight() {
                     return Some(*event_id);
                 }
             }
@@ -556,7 +556,7 @@ impl HttpPeer {
         let mut to_remove = vec![];
         let mut msgs = vec![];
         for event_id in &poll_state.ready {
-            let Some(client_sock) = self.sockets.get_mut(&event_id) else {
+            let Some(client_sock) = self.sockets.get_mut(event_id) else {
                 debug!("Rogue socket event {}", event_id);
                 to_remove.push(*event_id);
                 continue;
@@ -746,7 +746,7 @@ mod test {
             client_requests.push(request);
         }
 
-        for (i, request) in client_requests.drain(..).enumerate() {
+        for (i, request) in client_requests.into_iter().enumerate() {
             let (client_sx, client_rx) = sync_channel(1);
             let client = thread::spawn(move || {
                 let mut sock = TcpStream::connect(
@@ -792,7 +792,7 @@ mod test {
             client_handles.push(client_rx);
         }
 
-        for (i, client_thread) in client_threads.drain(..).enumerate() {
+        for (i, client_thread) in client_threads.into_iter().enumerate() {
             test_debug!("Client join {}", i);
             client_thread.join().unwrap();
             let resp = client_handles[i].recv().unwrap();
@@ -1143,13 +1143,9 @@ mod test {
                 let auth_origin = TransactionAuth::from_p2pkh(&privk_origin).unwrap();
                 let mut tx_contract = StacksTransaction::new(
                     TransactionVersion::Testnet,
-                    auth_origin.clone(),
-                    TransactionPayload::new_smart_contract(
-                        &"hello-world".to_string(),
-                        &big_contract.to_string(),
-                        None,
-                    )
-                    .unwrap(),
+                    auth_origin,
+                    TransactionPayload::new_smart_contract("hello-world", &big_contract, None)
+                        .unwrap(),
                 );
 
                 tx_contract.chain_id = chainstate.config().chain_id;

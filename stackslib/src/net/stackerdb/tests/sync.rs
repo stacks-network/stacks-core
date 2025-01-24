@@ -69,10 +69,11 @@ impl StackerDBConfig {
 /// `setup_stackerdb()`
 fn add_stackerdb(config: &mut TestPeerConfig, stackerdb_config: Option<StackerDBConfig>) -> usize {
     let name = ContractName::try_from(format!("db-{}", config.stacker_dbs.len())).unwrap();
-    let addr = StacksAddress {
-        version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-        bytes: Hash160::from_data(&config.stacker_dbs.len().to_be_bytes()),
-    };
+    let addr = StacksAddress::new(
+        C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+        Hash160::from_data(&config.stacker_dbs.len().to_be_bytes()),
+    )
+    .unwrap();
 
     let stackerdb_config = stackerdb_config.unwrap_or(StackerDBConfig::noop());
 
@@ -110,10 +111,11 @@ fn setup_stackerdb(peer: &mut TestPeer, idx: usize, fill: bool, num_slots: usize
             }
         };
         let pubk = StacksPublicKey::from_private(&pk);
-        let addr = StacksAddress {
-            version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-            bytes: Hash160::from_node_public_key(&pubk),
-        };
+        let addr = StacksAddress::new(
+            C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+            Hash160::from_node_public_key(&pubk),
+        )
+        .unwrap();
 
         pks.push(pk);
         slots.push((addr, 1u32));

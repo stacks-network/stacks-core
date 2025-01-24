@@ -507,10 +507,7 @@ mod tests {
             ],
         };
 
-        let sender = StacksAddress {
-            version: 0,
-            bytes: Hash160([0; 20]),
-        };
+        let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let op = PreStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
@@ -571,10 +568,7 @@ mod tests {
             ],
         };
 
-        let sender = StacksAddress {
-            version: 0,
-            bytes: Hash160([0; 20]),
-        };
+        let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
 
         // pre-2.1 this fails
         let op_err = PreStxOp::parse_from_tx(
@@ -652,10 +646,7 @@ mod tests {
             ],
         };
 
-        let sender = StacksAddress {
-            version: 0,
-            bytes: Hash160([0; 20]),
-        };
+        let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let op = StackStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
@@ -726,10 +717,7 @@ mod tests {
             ],
         };
 
-        let sender = StacksAddress {
-            version: 0,
-            bytes: Hash160([0; 20]),
-        };
+        let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let op = StackStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
@@ -798,10 +786,7 @@ mod tests {
             ],
         };
 
-        let sender = StacksAddress {
-            version: 0,
-            bytes: Hash160([0; 20]),
-        };
+        let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
 
         // pre-2.1: this fails
         let op_err = StackStxOp::parse_from_tx(
@@ -849,10 +834,7 @@ mod tests {
         let sender_addr = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2";
         let sender = StacksAddress::from_string(sender_addr).unwrap();
         let reward_addr = PoxAddress::Standard(
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160([0x01; 20]),
-            },
+            StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_SINGLESIG, Hash160([0x01; 20])).unwrap(),
             None,
         );
         let op = StackStxOp {
