@@ -66,13 +66,13 @@ impl HttpRequestPreamble {
         keep_alive: bool,
     ) -> HttpRequestPreamble {
         HttpRequestPreamble {
-            version: version,
-            verb: verb,
+            version,
+            verb,
             path_and_query_str,
             host: PeerHost::from_host_port(hostname, port),
             content_type: None,
             content_length: None,
-            keep_alive: keep_alive,
+            keep_alive,
             headers: BTreeMap::new(),
         }
     }
@@ -98,7 +98,7 @@ impl HttpRequestPreamble {
     ) -> HttpRequestPreamble {
         HttpRequestPreamble {
             version: HttpVersion::Http11,
-            verb: verb,
+            verb,
             path_and_query_str,
             host: peerhost,
             content_type: None,
@@ -117,7 +117,7 @@ impl HttpRequestPreamble {
         hostname: String,
         port: u16,
         keep_alive: bool,
-        mut keys: Vec<String>,
+        keys: Vec<String>,
         values: Vec<String>,
     ) -> HttpRequestPreamble {
         assert_eq!(keys.len(), values.len());
@@ -130,7 +130,7 @@ impl HttpRequestPreamble {
             keep_alive,
         );
 
-        for (k, v) in keys.drain(..).zip(values) {
+        for (k, v) in keys.into_iter().zip(values) {
             req.add_header(k, v);
         }
         req
@@ -385,14 +385,14 @@ impl StacksMessageCodec for HttpRequestPreamble {
                         )
                     })?;
                     if !value.is_ascii() {
-                        return Err(CodecError::DeserializeError(format!(
-                            "Invalid HTTP request: header value is not ASCII-US"
-                        )));
+                        return Err(CodecError::DeserializeError(
+                            "Invalid HTTP request: header value is not ASCII-US".to_string(),
+                        ));
                     }
                     if value.len() > HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize {
-                        return Err(CodecError::DeserializeError(format!(
-                            "Invalid HTTP request: header value is too big"
-                        )));
+                        return Err(CodecError::DeserializeError(
+                            "Invalid HTTP request: header value is too big".to_string(),
+                        ));
                     }
 
                     let key = req.headers[i].name.to_string().to_lowercase();
@@ -443,14 +443,14 @@ impl StacksMessageCodec for HttpRequestPreamble {
                 };
 
                 Ok(HttpRequestPreamble {
-                    version: version,
-                    verb: verb,
+                    version,
+                    verb,
                     path_and_query_str,
                     host: peerhost.unwrap(),
-                    content_type: content_type,
-                    content_length: content_length,
-                    keep_alive: keep_alive,
-                    headers: headers,
+                    content_type,
+                    content_length,
+                    keep_alive,
+                    headers,
                 })
             }
         }
@@ -655,7 +655,7 @@ impl HttpRequestContents {
         let buf = "".to_string();
         let mut serializer = form_urlencoded::Serializer::new(buf);
         for (k, v) in self.query_args.iter() {
-            serializer.append_pair(&k, &v);
+            serializer.append_pair(k, v);
         }
         serializer.finish()
     }

@@ -130,7 +130,7 @@ fn trait_invocation_behavior() {
         u32::MAX,
         u32::MAX,
     );
-    burnchain_config.pox_constants = pox_constants.clone();
+    burnchain_config.pox_constants = pox_constants;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -151,7 +151,7 @@ fn trait_invocation_behavior() {
     eprintln!("Chain bootstrapped...");
 
     let mut run_loop = neon::RunLoop::new(conf.clone());
-    let runloop_burnchain = burnchain_config.clone();
+    let runloop_burnchain = burnchain_config;
 
     let blocks_processed = run_loop.get_blocks_processed_arc();
 
@@ -496,7 +496,7 @@ fn trait_invocation_behavior() {
         &contract_addr,
         "invoke-simple",
         "invocation-2",
-        &[Value::Principal(impl_contract_id.clone().into())],
+        &[Value::Principal(impl_contract_id.into())],
     );
     let expected_good_23_2_nonce = spender_nonce;
     spender_nonce += 1;

@@ -17,9 +17,9 @@
 use hashbrown::{HashMap, HashSet};
 
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
-use crate::vm::ast::types::{BuildASTPass, ContractAST};
+use crate::vm::ast::types::ContractAST;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{cost_functions, runtime_cost, CostTracker, LimitedCostTracker};
+use crate::vm::costs::{runtime_cost, CostTracker};
 use crate::vm::functions::define::DefineFunctions;
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::PreSymbolicExpressionType::{
@@ -27,7 +27,6 @@ use crate::vm::representations::PreSymbolicExpressionType::{
     SugaredFieldIdentifier, TraitReference, Tuple,
 };
 use crate::vm::representations::{ClarityName, PreSymbolicExpression};
-use crate::vm::types::Value;
 use crate::vm::ClarityVersion;
 
 #[cfg(test)]
@@ -420,7 +419,7 @@ impl Graph {
         let list = self
             .adjacency_list
             .get_mut(src_expr_index)
-            .ok_or_else(|| ParseErrors::InterpreterFailure)?;
+            .ok_or(ParseErrors::InterpreterFailure)?;
         list.push(dst_expr_index);
         Ok(())
     }
@@ -491,7 +490,7 @@ impl GraphWalker {
     fn get_cycling_dependencies(
         &mut self,
         graph: &Graph,
-        sorted_indexes: &Vec<usize>,
+        sorted_indexes: &[usize],
     ) -> Option<Vec<usize>> {
         let mut tainted: HashSet<usize> = HashSet::new();
 

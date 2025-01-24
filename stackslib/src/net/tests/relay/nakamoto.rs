@@ -112,7 +112,7 @@ impl ExitedPeer {
 
         let net_result = self.network.run(
             &indexer,
-            &mut sortdb,
+            &sortdb,
             &mut stacks_node.chainstate,
             &mut mempool,
             dns_client,
@@ -138,7 +138,7 @@ impl ExitedPeer {
         self.mempool = Some(mempool);
         self.indexer = Some(indexer);
 
-        receipts_res.and_then(|receipts| Ok((net_result, receipts)))
+        receipts_res.map(|receipts| (net_result, receipts))
     }
 }
 
@@ -385,7 +385,7 @@ fn test_buffer_data_message() {
     ]];
 
     let (mut peer, _followers) =
-        make_nakamoto_peers_from_invs(function_name!(), &observer, 10, 5, bitvecs.clone(), 1);
+        make_nakamoto_peers_from_invs(function_name!(), &observer, 10, 5, bitvecs, 1);
 
     let peer_nk = peer.to_neighbor().addr;
     let nakamoto_block = NakamotoBlock {
@@ -501,7 +501,7 @@ fn test_buffer_data_message() {
     }
     assert!(!peer
         .network
-        .buffer_sortition_data_message(0, &peer_nk, blocks_available.clone()));
+        .buffer_sortition_data_message(0, &peer_nk, blocks_available));
 
     for _ in 0..peer
         .network
@@ -514,11 +514,9 @@ fn test_buffer_data_message() {
             microblocks_available.clone()
         ));
     }
-    assert!(!peer.network.buffer_sortition_data_message(
-        0,
-        &peer_nk,
-        microblocks_available.clone()
-    ));
+    assert!(!peer
+        .network
+        .buffer_sortition_data_message(0, &peer_nk, microblocks_available));
 
     for _ in 0..peer.network.connection_opts.max_buffered_blocks {
         assert!(peer
@@ -527,7 +525,7 @@ fn test_buffer_data_message() {
     }
     assert!(!peer
         .network
-        .buffer_sortition_data_message(0, &peer_nk, block.clone()));
+        .buffer_sortition_data_message(0, &peer_nk, block));
 
     for _ in 0..peer.network.connection_opts.max_buffered_microblocks {
         assert!(peer
@@ -536,7 +534,7 @@ fn test_buffer_data_message() {
     }
     assert!(!peer
         .network
-        .buffer_sortition_data_message(0, &peer_nk, microblocks.clone()));
+        .buffer_sortition_data_message(0, &peer_nk, microblocks));
 
     for _ in 0..peer.network.connection_opts.max_buffered_nakamoto_blocks {
         assert!(peer
@@ -545,7 +543,7 @@ fn test_buffer_data_message() {
     }
     assert!(!peer
         .network
-        .buffer_sortition_data_message(0, &peer_nk, nakamoto_block.clone()));
+        .buffer_sortition_data_message(0, &peer_nk, nakamoto_block));
 
     for _ in 0..peer.network.connection_opts.max_buffered_stackerdb_chunks {
         assert!(peer
@@ -554,7 +552,7 @@ fn test_buffer_data_message() {
     }
     assert!(!peer
         .network
-        .buffer_stacks_data_message(0, &peer_nk, stackerdb_chunk.clone()));
+        .buffer_stacks_data_message(0, &peer_nk, stackerdb_chunk));
 }
 
 /// Verify that Nakmaoto blocks whose sortitions are known will *not* be buffered, but instead
@@ -567,14 +565,8 @@ fn test_no_buffer_ready_nakamoto_blocks() {
     ]];
 
     let rc_len = 10u64;
-    let (peer, mut followers) = make_nakamoto_peers_from_invs(
-        function_name!(),
-        &observer,
-        rc_len as u32,
-        5,
-        bitvecs.clone(),
-        1,
-    );
+    let (peer, mut followers) =
+        make_nakamoto_peers_from_invs(function_name!(), &observer, rc_len as u32, 5, bitvecs, 1);
     let peer_nk = peer.to_neighbor().addr;
     let mut follower = followers.pop().unwrap();
 
@@ -824,14 +816,8 @@ fn test_buffer_nonready_nakamoto_blocks() {
     ]];
 
     let rc_len = 10u64;
-    let (peer, mut followers) = make_nakamoto_peers_from_invs(
-        function_name!(),
-        &observer,
-        rc_len as u32,
-        5,
-        bitvecs.clone(),
-        1,
-    );
+    let (peer, mut followers) =
+        make_nakamoto_peers_from_invs(function_name!(), &observer, rc_len as u32, 5, bitvecs, 1);
     let peer_nk = peer.to_neighbor().addr;
     let mut follower = followers.pop().unwrap();
 
@@ -1069,14 +1055,8 @@ fn test_nakamoto_boot_node_from_block_push() {
     ];
 
     let rc_len = 10u64;
-    let (peer, mut followers) = make_nakamoto_peers_from_invs(
-        function_name!(),
-        &observer,
-        rc_len as u32,
-        5,
-        bitvecs.clone(),
-        1,
-    );
+    let (peer, mut followers) =
+        make_nakamoto_peers_from_invs(function_name!(), &observer, rc_len as u32, 5, bitvecs, 1);
     let peer_nk = peer.to_neighbor().addr;
     let mut follower = followers.pop().unwrap();
 

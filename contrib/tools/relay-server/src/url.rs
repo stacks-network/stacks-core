@@ -9,7 +9,7 @@ impl QueryEx for str {
         match self.split_once('?') {
             Some((_, right)) if !right.is_empty() => right
                 .split('&')
-                .map(|v| v.split_once('=').unwrap_or((v, &"")))
+                .map(|v| v.split_once('=').unwrap_or((v, "")))
                 .collect(),
             _ => HashMap::new(),
         }

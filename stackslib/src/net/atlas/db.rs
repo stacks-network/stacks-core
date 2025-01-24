@@ -55,7 +55,7 @@ use crate::util_lib::db::{
     DBConn, Error as db_error, FromColumn, FromRow,
 };
 
-pub const ATLASDB_VERSION: &'static str = "2";
+pub const ATLASDB_VERSION: &str = "2";
 
 /// The maximum number of atlas attachment instances that should be
 /// checked at once (this is used to limit the return size of
@@ -66,7 +66,7 @@ pub const ATLASDB_VERSION: &'static str = "2";
 /// Attachment as well (which is larger).
 pub const MAX_PROCESS_PER_ROUND: u32 = 1_000;
 
-const ATLASDB_INITIAL_SCHEMA: &'static [&'static str] = &[
+const ATLASDB_INITIAL_SCHEMA: &[&str] = &[
     r#"
     CREATE TABLE attachments(
         hash TEXT UNIQUE PRIMARY KEY,
@@ -90,7 +90,7 @@ const ATLASDB_INITIAL_SCHEMA: &'static [&'static str] = &[
     "CREATE TABLE db_config(version TEXT NOT NULL);",
 ];
 
-const ATLASDB_SCHEMA_2: &'static [&'static str] = &[
+const ATLASDB_SCHEMA_2: &[&str] = &[
     // We have to allow status to be null, because SQLite won't let us add
     //  a not null column without a default. The default defeats the point of
     //  having not-null here anyways, so we leave this field nullable.
@@ -105,7 +105,7 @@ const ATLASDB_SCHEMA_2: &'static [&'static str] = &[
     "#,
 ];
 
-const ATLASDB_INDEXES: &'static [&'static str] = &[
+const ATLASDB_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS index_was_instantiated ON attachments(was_instantiated);",
     "CREATE INDEX IF NOT EXISTS index_instance_status ON attachment_instances(status);",
 ];
@@ -127,14 +127,14 @@ pub enum AttachmentInstanceStatus {
 }
 
 impl FromRow<Attachment> for Attachment {
-    fn from_row<'a>(row: &'a Row) -> Result<Attachment, db_error> {
+    fn from_row(row: &Row) -> Result<Attachment, db_error> {
         let content: Vec<u8> = row.get_unwrap("content");
         Ok(Attachment { content })
     }
 }
 
 impl FromRow<AttachmentInstance> for AttachmentInstance {
-    fn from_row<'a>(row: &'a Row) -> Result<AttachmentInstance, db_error> {
+    fn from_row(row: &Row) -> Result<AttachmentInstance, db_error> {
         let hex_content_hash: String = row.get_unwrap("content_hash");
         let attachment_index: u32 = row.get_unwrap("attachment_index");
         let block_height =
@@ -160,7 +160,7 @@ impl FromRow<AttachmentInstance> for AttachmentInstance {
 }
 
 impl FromRow<(u32, u32)> for (u32, u32) {
-    fn from_row<'a>(row: &'a Row) -> Result<(u32, u32), db_error> {
+    fn from_row(row: &Row) -> Result<(u32, u32), db_error> {
         let t1: u32 = row.get_unwrap(0);
         let t2: u32 = row.get_unwrap(1);
         Ok((t1, t2))
@@ -286,13 +286,11 @@ impl AtlasDB {
             } else {
                 return Err(db_error::NoDBError);
             }
-        } else {
+        } else if readwrite {
             // can just open
-            if readwrite {
-                OpenFlags::SQLITE_OPEN_READ_WRITE
-            } else {
-                OpenFlags::SQLITE_OPEN_READ_ONLY
-            }
+            OpenFlags::SQLITE_OPEN_READ_WRITE
+        } else {
+            OpenFlags::SQLITE_OPEN_READ_ONLY
         };
         let conn = sqlite_open(path, open_flags, false)?;
         Self::check_instantiate_db(atlas_config, conn, readwrite, create_flag)
@@ -376,7 +374,7 @@ impl AtlasDB {
     // Open an atlas database in memory (used for testing)
     #[cfg(test)]
     pub fn connect_memory(atlas_config: AtlasConfig) -> Result<AtlasDB, db_error> {
-        let conn = Connection::open_in_memory().map_err(|e| db_error::SqliteError(e))?;
+        let conn = Connection::open_in_memory().map_err(db_error::SqliteError)?;
         let mut db = AtlasDB {
             atlas_config,
             conn,
@@ -445,7 +443,7 @@ impl AtlasDB {
         &self.conn
     }
 
-    pub fn tx_begin<'a>(&'a mut self) -> Result<Transaction<'a>, db_error> {
+    pub fn tx_begin(&mut self) -> Result<Transaction<'_>, db_error> {
         if !self.readwrite {
             return Err(db_error::ReadOnly);
         }
@@ -462,7 +460,7 @@ impl AtlasDB {
         let max = (page_index + 1) * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
         let qry = "SELECT MIN(block_height) as min, MAX(block_height) as max FROM attachment_instances WHERE attachment_index >= ?1 AND attachment_index < ?2";
         let args = params![min, max];
-        let mut stmt = self.conn.prepare(&qry)?;
+        let mut stmt = self.conn.prepare(qry)?;
         let mut rows = stmt.query(args)?;
 
         match rows.next() {
@@ -502,7 +500,7 @@ impl AtlasDB {
             .ok_or(db_error::Overflow)?;
         let qry = "SELECT attachment_index, is_available FROM attachment_instances WHERE attachment_index >= ?1 AND attachment_index < ?2 AND index_block_hash = ?3 ORDER BY attachment_index ASC";
         let args = params![min, max, block_id,];
-        let rows = query_rows::<(u32, u32), _>(&self.conn, &qry, args)?;
+        let rows = query_rows::<(u32, u32), _>(&self.conn, qry, args)?;
 
         let mut bool_vector = vec![true; AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE as usize];
         for (attachment_index, is_available) in rows.into_iter() {

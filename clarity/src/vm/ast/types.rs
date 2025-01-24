@@ -20,7 +20,6 @@ use hashbrown::{HashMap, HashSet};
 
 use crate::vm::ast::errors::ParseResult;
 use crate::vm::representations::{PreSymbolicExpression, SymbolicExpression, TraitDefinition};
-use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{QualifiedContractIdentifier, TraitIdentifier};
 use crate::vm::{ClarityName, ClarityVersion};
 
@@ -95,6 +94,10 @@ impl PreExpressionsDrain {
 
     pub fn len(&self) -> usize {
         self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
     }
 }
 

@@ -37,11 +37,12 @@ use std::time::{Duration, Instant};
 use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;
 use libsigner::v0::messages::{
-    BlockAccepted, BlockResponse, MessageSlotID, PeerInfo, SignerMessage,
+    BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, PeerInfo, SignerMessage,
 };
-use libsigner::{SignerEntries, SignerEventTrait};
+use libsigner::{BlockProposal, SignerEntries, SignerEventTrait};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
+use stacks::chainstate::nakamoto::NakamotoBlock;
 use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
@@ -49,7 +50,8 @@ use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
 use stacks::types::chainstate::{StacksAddress, StacksPublicKey};
-use stacks::types::PublicKey;
+use stacks::types::{PrivateKey, PublicKey};
+use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::MerkleHashFunc;
 use stacks::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::codec::StacksMessageCodec;
@@ -86,11 +88,14 @@ pub struct RunningNodes {
     pub run_loop_stopper: Arc<AtomicBool>,
     pub vrfs_submitted: RunLoopCounter,
     pub commits_submitted: RunLoopCounter,
+    pub last_commit_burn_height: RunLoopCounter,
     pub blocks_processed: RunLoopCounter,
+    pub sortitions_processed: RunLoopCounter,
     pub nakamoto_blocks_proposed: RunLoopCounter,
     pub nakamoto_blocks_mined: RunLoopCounter,
     pub nakamoto_blocks_rejected: RunLoopCounter,
     pub nakamoto_blocks_signer_pushed: RunLoopCounter,
+    pub nakamoto_miner_directives: Arc<AtomicU64>,
     pub nakamoto_test_skip_commit_op: TestFlag<bool>,
     pub coord_channel: Arc<Mutex<CoordinatorChannels>>,
     pub conf: NeonConfig,
@@ -125,7 +130,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         )
     }
 
-    fn new_with_config_modifications<F: FnMut(&mut SignerConfig), G: FnMut(&mut NeonConfig)>(
+    pub fn new_with_config_modifications<F: FnMut(&mut SignerConfig), G: FnMut(&mut NeonConfig)>(
         num_signers: usize,
         initial_balances: Vec<(StacksAddress, u64)>,
         mut signer_config_modifier: F,
@@ -262,6 +267,33 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         }).expect("Timed out while waiting for the signers to be registered");
     }
 
+    /// Send a status request to the signers to ensure they are registered for both reward cycles.
+    pub fn wait_for_registered_both_reward_cycles(&mut self, timeout_secs: u64) {
+        let mut finished_signers = HashSet::new();
+        wait_for(timeout_secs, || {
+            self.send_status_request(&finished_signers);
+            thread::sleep(Duration::from_secs(1));
+            let latest_states = self.get_states(&finished_signers);
+            for (ix, state) in latest_states.iter().enumerate() {
+                let Some(state) = state else {
+                    continue;
+                };
+                debug!("Signer #{ix} state info: {state:?}");
+                if state.runloop_state == State::RegisteredSigners && state.running_signers.len() == 2 {
+                    finished_signers.insert(ix);
+                } else {
+                    warn!(
+                        "Signer #{ix} returned state = {:?}, running signers = {:?}. Will try again",
+                        state.runloop_state, state.running_signers
+                    );
+                }
+            }
+            debug!("Number of finished signers: {:?}", finished_signers.len());
+            Ok(finished_signers.len() == self.spawned_signers.len())
+        })
+        .expect("Timed out while waiting for the signers to be registered for both reward cycles");
+    }
+
     pub fn wait_for_cycle(&mut self, timeout_secs: u64, reward_cycle: u64) {
         let mut finished_signers = HashSet::new();
         wait_for(timeout_secs, || {
@@ -349,6 +381,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             timeout.as_secs(),
             coord_channels,
             commits_submitted,
+            true,
         )
         .unwrap();
         let t_start = Instant::now();
@@ -517,6 +550,27 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             .get_stackerdb_signer_slots(&signer_stackerdb_contract_id, valid_signer_set)
     }
 
+    fn get_signer_slot_id(
+        &self,
+        reward_cycle: u64,
+        signer_address: &StacksAddress,
+    ) -> Result<Option<SignerSlotID>, ClientError> {
+        let valid_signer_set =
+            u32::try_from(reward_cycle % 2).expect("FATAL: reward_cycle % 2 exceeds u32::MAX");
+        let signer_stackerdb_contract_id = boot_code_id(SIGNERS_NAME, false);
+
+        let slots = self
+            .stacks_client
+            .get_stackerdb_signer_slots(&signer_stackerdb_contract_id, valid_signer_set)?;
+
+        Ok(slots
+            .iter()
+            .position(|(address, _)| address == signer_address)
+            .map(|pos| {
+                SignerSlotID(u32::try_from(pos).expect("FATAL: number of signers exceeds u32::MAX"))
+            }))
+    }
+
     fn get_signer_indices(&self, reward_cycle: u64) -> Vec<SignerSlotID> {
         self.get_signer_slots(reward_cycle)
             .expect("FATAL: failed to get signer slots from stackerdb")
@@ -591,24 +645,21 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                 .filter_map(|chunk| {
                     let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
                         .expect("Failed to deserialize SignerMessage");
-                    match message {
-                        SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) => {
-                            if accepted.signer_signature_hash == *signer_signature_hash
-                                && expected_signers.iter().any(|pk| {
-                                    pk.verify(
-                                        accepted.signer_signature_hash.bits(),
-                                        &accepted.signature,
-                                    )
-                                    .expect("Failed to verify signature")
-                                })
-                            {
-                                Some(accepted.signature)
-                            } else {
-                                None
-                            }
+                    if let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = message
+                    {
+                        if accepted.signer_signature_hash == *signer_signature_hash
+                            && expected_signers.iter().any(|pk| {
+                                pk.verify(
+                                    accepted.signer_signature_hash.bits(),
+                                    &accepted.signature,
+                                )
+                                .expect("Failed to verify signature")
+                            })
+                        {
+                            return Some(accepted.signature);
                         }
-                        _ => None,
                     }
+                    None
                 })
                 .collect::<HashSet<_>>();
             Ok(signatures.len() > expected_signers.len() * 7 / 10)
@@ -647,6 +698,33 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         })
     }
 
+    /// Get all block rejections for a given block
+    pub fn get_block_rejections(
+        &self,
+        signer_signature_hash: &Sha512Trunc256Sum,
+    ) -> Vec<BlockRejection> {
+        let stackerdb_events = test_observer::get_stackerdb_chunks();
+        let block_rejections = stackerdb_events
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+            .filter_map(|chunk| {
+                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                    .expect("Failed to deserialize SignerMessage");
+                match message {
+                    SignerMessage::BlockResponse(BlockResponse::Rejected(rejection)) => {
+                        if rejection.signer_signature_hash == *signer_signature_hash {
+                            Some(rejection)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }
+            })
+            .collect::<Vec<_>>();
+        block_rejections
+    }
+
     /// Get the latest block response from the given slot
     pub fn get_latest_block_response(&self, slot_id: u32) -> BlockResponse {
         let mut stackerdb = StackerDB::new(
@@ -672,11 +750,29 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
     /// Get the latest block acceptance from the given slot
     pub fn get_latest_block_acceptance(&self, slot_id: u32) -> BlockAccepted {
-        let block_response = self.get_latest_block_response(slot_id);
-        match block_response {
-            BlockResponse::Accepted(accepted) => accepted,
-            _ => panic!("Latest block response from slot #{slot_id} isn't a block acceptance"),
-        }
+        self.get_latest_block_response(slot_id)
+            .as_block_accepted()
+            .expect("Latest block response from slot #{slot_id} isn't a block acceptance")
+            .clone()
+    }
+
+    /// Get miner stackerDB messages
+    pub fn get_miner_proposal_messages(&self) -> Vec<BlockProposal> {
+        let proposals: Vec<_> = test_observer::get_stackerdb_chunks()
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+            .filter_map(|chunk| {
+                let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                else {
+                    return None;
+                };
+                match message {
+                    SignerMessage::BlockProposal(proposal) => Some(proposal),
+                    _ => None,
+                }
+            })
+            .collect();
+        proposals
     }
 
     /// Get /v2/info from the node
@@ -684,6 +780,61 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         self.stacks_client
             .get_peer_info()
             .expect("Failed to get peer info")
+    }
+
+    pub fn verify_no_block_response_found(
+        &self,
+        stackerdb: &mut StackerDB<MessageSlotID>,
+        reward_cycle: u64,
+        hash: Sha512Trunc256Sum,
+    ) {
+        let slot_ids: Vec<_> = self
+            .get_signer_indices(reward_cycle)
+            .iter()
+            .map(|id| id.0)
+            .collect();
+
+        let latest_msgs = StackerDB::get_messages::<SignerMessage>(
+            stackerdb
+                .get_session_mut(&MessageSlotID::BlockResponse)
+                .expect("Failed to get BlockResponse stackerdb session"),
+            &slot_ids,
+        )
+        .expect("Failed to get messages from stackerdb");
+        for msg in latest_msgs.iter() {
+            if let SignerMessage::BlockResponse(response) = msg {
+                assert_ne!(response.get_signer_signature_hash(), hash);
+            }
+        }
+    }
+
+    pub fn inject_accept_signature(
+        &self,
+        block: &NakamotoBlock,
+        private_key: &StacksPrivateKey,
+        reward_cycle: u64,
+    ) {
+        let mut stackerdb = StackerDB::new(
+            &self.running_nodes.conf.node.rpc_bind,
+            private_key.clone(),
+            false,
+            reward_cycle,
+            self.get_signer_slot_id(reward_cycle, &to_addr(private_key))
+                .expect("Failed to get signer slot id")
+                .expect("Signer does not have a slot id"),
+        );
+
+        let signature = private_key
+            .sign(block.header.signer_signature_hash().bits())
+            .expect("Failed to sign block");
+        let accepted = BlockResponse::accepted(
+            block.header.signer_signature_hash(),
+            signature,
+            get_epoch_time_secs().wrapping_add(u64::MAX),
+        );
+        stackerdb
+            .send_message_with_retry::<SignerMessage>(accepted.into())
+            .expect("Failed to send accept signature");
     }
 }
 
@@ -780,11 +931,14 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
         blocks_processed,
+        sortitions_processed,
         naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
+        naka_submitted_commit_last_burn_height: last_commit_burn_height,
         naka_proposed_blocks: naka_blocks_proposed,
         naka_mined_blocks: naka_blocks_mined,
         naka_rejected_blocks: naka_blocks_rejected,
+        naka_miner_directives,
         naka_skip_commit_op: nakamoto_test_skip_commit_op,
         naka_signer_pushed_blocks,
         ..
@@ -816,12 +970,15 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
         run_loop_stopper,
         vrfs_submitted,
         commits_submitted,
+        last_commit_burn_height,
         blocks_processed,
+        sortitions_processed,
         nakamoto_blocks_proposed: naka_blocks_proposed,
         nakamoto_blocks_mined: naka_blocks_mined,
         nakamoto_blocks_rejected: naka_blocks_rejected,
         nakamoto_blocks_signer_pushed: naka_signer_pushed_blocks,
         nakamoto_test_skip_commit_op,
+        nakamoto_miner_directives: naka_miner_directives.0,
         coord_channel,
         conf: naka_conf,
     }

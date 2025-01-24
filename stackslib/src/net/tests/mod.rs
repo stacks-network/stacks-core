@@ -280,7 +280,7 @@ impl NakamotoBootPlan {
                     &mut sort_handle,
                     &mut node.chainstate,
                     &peer.network.stacks_tip.block_id(),
-                    &block,
+                    block,
                     None,
                     NakamotoBlockObtainMethod::Pushed,
                 )
@@ -317,7 +317,7 @@ impl NakamotoBootPlan {
                     &mut sort_handle,
                     &mut node.chainstate,
                     &peer.network.stacks_tip.block_id(),
-                    &block,
+                    block,
                     None,
                     NakamotoBlockObtainMethod::Pushed,
                 )
@@ -352,10 +352,10 @@ impl NakamotoBootPlan {
 
     /// Make a peer and transition it into the Nakamoto epoch.
     /// The node needs to be stacking; otherwise, Nakamoto won't activate.
-    fn boot_nakamoto_peers<'a>(
+    fn boot_nakamoto_peers(
         mut self,
-        observer: Option<&'a TestEventObserver>,
-    ) -> (TestPeer<'a>, Vec<TestPeer<'a>>) {
+        observer: Option<&TestEventObserver>,
+    ) -> (TestPeer<'_>, Vec<TestPeer<'_>>) {
         let mut peer_config = TestPeerConfig::new(&self.test_name, 0, 0);
         peer_config.network_id = self.network_id;
         peer_config.private_key = self.private_key.clone();
@@ -443,7 +443,7 @@ impl NakamotoBootPlan {
         let mut other_peer_nonces = vec![0; other_peers.len()];
         let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&self.private_key));
         let default_pox_addr =
-            PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes.clone());
+            PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes().clone());
 
         let mut sortition_height = peer.get_burn_block_height();
         debug!("\n\n======================");
@@ -474,11 +474,11 @@ impl NakamotoBootPlan {
         // advance to just past pox-4 instantiation
         let mut blocks_produced = false;
         while sortition_height <= epoch_25_height {
-            peer.tenure_with_txs(&vec![], &mut peer_nonce);
+            peer.tenure_with_txs(&[], &mut peer_nonce);
             for (other_peer, other_peer_nonce) in
                 other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
             {
-                other_peer.tenure_with_txs(&vec![], other_peer_nonce);
+                other_peer.tenure_with_txs(&[], other_peer_nonce);
             }
 
             sortition_height = peer.get_burn_block_height();
@@ -490,11 +490,11 @@ impl NakamotoBootPlan {
         //  that if its the first block produced, this will be 0 which will
         //  prevent the lockups from being valid.
         if !blocks_produced {
-            peer.tenure_with_txs(&vec![], &mut peer_nonce);
+            peer.tenure_with_txs(&[], &mut peer_nonce);
             for (other_peer, other_peer_nonce) in
                 other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
             {
-                other_peer.tenure_with_txs(&vec![], other_peer_nonce);
+                other_peer.tenure_with_txs(&[], other_peer_nonce);
             }
 
             sortition_height = peer.get_burn_block_height();
@@ -507,7 +507,7 @@ impl NakamotoBootPlan {
         let reward_cycle = peer
             .config
             .burnchain
-            .block_height_to_reward_cycle(sortition_height.into())
+            .block_height_to_reward_cycle(sortition_height)
             .unwrap();
 
         // Make all the test Stackers stack
@@ -583,11 +583,7 @@ impl NakamotoBootPlan {
         debug!("\n\n======================");
         debug!("Advance to the Prepare Phase");
         debug!("========================\n\n");
-        while !peer
-            .config
-            .burnchain
-            .is_in_prepare_phase(sortition_height.into())
-        {
+        while !peer.config.burnchain.is_in_prepare_phase(sortition_height) {
             let mut old_tip = peer.network.stacks_tip.clone();
             stacks_block = peer.tenure_with_txs(&[], &mut peer_nonce);
 
@@ -626,7 +622,7 @@ impl NakamotoBootPlan {
         // advance to the start of epoch 3.0
         while sortition_height < epoch_30_height - 1 {
             let mut old_tip = peer.network.stacks_tip.clone();
-            peer.tenure_with_txs(&vec![], &mut peer_nonce);
+            peer.tenure_with_txs(&[], &mut peer_nonce);
 
             let (stacks_tip_ch, stacks_tip_bh) =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
@@ -641,7 +637,7 @@ impl NakamotoBootPlan {
                 other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
             {
                 let mut old_tip = peer.network.stacks_tip.clone();
-                other_peer.tenure_with_txs(&vec![], other_peer_nonce);
+                other_peer.tenure_with_txs(&[], other_peer_nonce);
 
                 let (stacks_tip_ch, stacks_tip_bh) =
                     SortitionDB::get_canonical_stacks_chain_tip_hash(other_peer.sortdb().conn())
@@ -662,11 +658,11 @@ impl NakamotoBootPlan {
         debug!("========================\n\n");
     }
 
-    pub fn boot_into_nakamoto_peers<'a>(
+    pub fn boot_into_nakamoto_peers(
         self,
         boot_plan: Vec<NakamotoBootTenure>,
-        observer: Option<&'a TestEventObserver>,
-    ) -> (TestPeer<'a>, Vec<TestPeer<'a>>) {
+        observer: Option<&TestEventObserver>,
+    ) -> (TestPeer<'_>, Vec<TestPeer<'_>>) {
         let test_signers = self.test_signers.clone();
         let pox_constants = self.pox_constants.clone();
         let test_stackers = self.test_stackers.clone();
@@ -690,7 +686,7 @@ impl NakamotoBootPlan {
 
             match plan_tenure {
                 NakamotoBootTenure::NoSortition(boot_steps) => {
-                    assert!(boot_steps.len() > 0);
+                    assert!(!boot_steps.is_empty());
                     // just extend the last sortition
                     let (burn_ops, tenure_change_extend, miner_key) =
                         peer.begin_nakamoto_tenure(TenureChangeCause::Extended);
@@ -732,7 +728,7 @@ impl NakamotoBootPlan {
 
                             match next_step {
                                 NakamotoBootStep::TenureExtend(transactions) => {
-                                    assert!(transactions.len() > 0);
+                                    assert!(!transactions.is_empty());
                                     if let Some(last_block) = last_block_opt {
                                         let tenure_extension = tenure_change.extend(
                                             next_consensus_hash.clone(),
@@ -740,7 +736,7 @@ impl NakamotoBootPlan {
                                             blocks_since_last_tenure
                                         );
                                         let tenure_extension_tx =
-                                            miner.make_nakamoto_tenure_change(tenure_extension.clone());
+                                            miner.make_nakamoto_tenure_change(tenure_extension);
 
                                         txs.push(tenure_extension_tx);
                                         txs.extend_from_slice(&transactions[..]);
@@ -749,7 +745,7 @@ impl NakamotoBootPlan {
                                     debug!("\n\nExtend current tenure in empty tenure {} (blocks so far: {}, blocks_since_last_tenure = {}, steps so far: {})\n\n", &next_consensus_hash, blocks_so_far.len(), blocks_since_last_tenure, i);
                                 }
                                 NakamotoBootStep::Block(transactions) => {
-                                    assert!(transactions.len() > 0);
+                                    assert!(!transactions.is_empty());
                                     debug!("\n\nMake block {} with {} transactions in empty tenure {}\n\n", blocks_so_far.len(), transactions.len(), &next_consensus_hash);
                                     txs.extend_from_slice(&transactions[..]);
                                     num_expected_transactions += transactions.len();
@@ -789,7 +785,7 @@ impl NakamotoBootPlan {
                     all_blocks.push(blocks);
                 }
                 NakamotoBootTenure::Sortition(boot_steps) => {
-                    assert!(boot_steps.len() > 0);
+                    assert!(!boot_steps.is_empty());
                     let (burn_ops, mut tenure_change, miner_key) =
                         peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
                     let (burn_ht, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
@@ -833,7 +829,7 @@ impl NakamotoBootPlan {
 
                             match next_step {
                                 NakamotoBootStep::TenureExtend(transactions) => {
-                                    assert!(transactions.len() > 0);
+                                    assert!(!transactions.is_empty());
                                     if let Some(last_block) = last_block_opt {
                                         let tenure_extension = tenure_change.extend(
                                             consensus_hash.clone(),
@@ -841,7 +837,7 @@ impl NakamotoBootPlan {
                                             blocks_since_last_tenure // blocks_so_far.len() as u32,
                                         );
                                         let tenure_extension_tx =
-                                            miner.make_nakamoto_tenure_change(tenure_extension.clone());
+                                            miner.make_nakamoto_tenure_change(tenure_extension);
 
                                         txs.push(tenure_extension_tx);
                                         txs.extend_from_slice(&transactions[..]);
@@ -850,7 +846,7 @@ impl NakamotoBootPlan {
                                     debug!("\n\nExtend current tenure {} (blocks so far: {}, steps so far: {})\n\n", &consensus_hash, blocks_so_far.len(), i);
                                 }
                                 NakamotoBootStep::Block(transactions) => {
-                                    assert!(transactions.len() > 0);
+                                    assert!(!transactions.is_empty());
                                     debug!("\n\nMake block {} with {} transactions in tenure {}\n\n", blocks_so_far.len(), transactions.len(), &consensus_hash);
                                     txs.extend_from_slice(&transactions[..]);
                                     num_expected_transactions += transactions.len();
@@ -1017,11 +1013,11 @@ impl NakamotoBootPlan {
         (peer, other_peers)
     }
 
-    pub fn boot_into_nakamoto_peer<'a>(
+    pub fn boot_into_nakamoto_peer(
         self,
         boot_plan: Vec<NakamotoBootTenure>,
-        observer: Option<&'a TestEventObserver>,
-    ) -> TestPeer<'a> {
+        observer: Option<&TestEventObserver>,
+    ) -> TestPeer<'_> {
         self.boot_into_nakamoto_peers(boot_plan, observer).0
     }
 }
@@ -1147,7 +1143,7 @@ fn test_boot_nakamoto_peer() {
         0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3,
     ]);
 
-    let plan = NakamotoBootPlan::new(&function_name!())
+    let plan = NakamotoBootPlan::new(function_name!())
         .with_private_key(private_key)
         .with_pox_constants(10, 3)
         .with_initial_balances(vec![(addr.into(), 1_000_000)])
@@ -1343,29 +1339,29 @@ fn test_network_result_update() {
     };
 
     let nblk1 = NakamotoBlock {
-        header: naka_header_1.clone(),
+        header: naka_header_1,
         txs: vec![],
     };
     let nblk2 = NakamotoBlock {
-        header: naka_header_2.clone(),
+        header: naka_header_2,
         txs: vec![],
     };
 
     let pushed_nblk1 = NakamotoBlock {
-        header: naka_pushed_header_1.clone(),
+        header: naka_pushed_header_1,
         txs: vec![],
     };
     let pushed_nblk2 = NakamotoBlock {
-        header: naka_pushed_header_2.clone(),
+        header: naka_pushed_header_2,
         txs: vec![],
     };
 
     let uploaded_nblk1 = NakamotoBlock {
-        header: naka_uploaded_header_1.clone(),
+        header: naka_uploaded_header_1,
         txs: vec![],
     };
     let uploaded_nblk2 = NakamotoBlock {
-        header: naka_uploaded_header_2.clone(),
+        header: naka_uploaded_header_2,
         txs: vec![],
     };
 
@@ -1415,25 +1411,23 @@ fn test_network_result_update() {
 
     network_result_1
         .unhandled_messages
-        .insert(nk1.clone(), vec![msg1.clone()]);
+        .insert(nk1.clone(), vec![msg1]);
     network_result_1
         .blocks
-        .push((ConsensusHash([0x11; 20]), blk1.clone(), 1));
-    network_result_1.confirmed_microblocks.push((
-        ConsensusHash([0x11; 20]),
-        vec![mblk1.clone()],
-        1,
-    ));
+        .push((ConsensusHash([0x11; 20]), blk1, 1));
+    network_result_1
+        .confirmed_microblocks
+        .push((ConsensusHash([0x11; 20]), vec![mblk1], 1));
     network_result_1
         .nakamoto_blocks
         .insert(nblk1.block_id(), nblk1.clone());
     network_result_1
         .pushed_transactions
-        .insert(nk1.clone(), vec![(vec![], pushed_tx1.clone())]);
+        .insert(nk1.clone(), vec![(vec![], pushed_tx1)]);
     network_result_1.pushed_blocks.insert(
         nk1.clone(),
         vec![BlocksData {
-            blocks: vec![BlocksDatum(ConsensusHash([0x11; 20]), pushed_blk1.clone())],
+            blocks: vec![BlocksDatum(ConsensusHash([0x11; 20]), pushed_blk1)],
         }],
     );
     network_result_1.pushed_microblocks.insert(
@@ -1442,7 +1436,7 @@ fn test_network_result_update() {
             vec![],
             MicroblocksData {
                 index_anchor_block: StacksBlockId([0x11; 32]),
-                microblocks: vec![pushed_mblk1.clone()],
+                microblocks: vec![pushed_mblk1],
             },
         )],
     );
@@ -1455,28 +1449,23 @@ fn test_network_result_update() {
             },
         )],
     );
-    network_result_1
-        .uploaded_transactions
-        .push(uploaded_tx1.clone());
+    network_result_1.uploaded_transactions.push(uploaded_tx1);
     network_result_1.uploaded_blocks.push(BlocksData {
-        blocks: vec![BlocksDatum(
-            ConsensusHash([0x11; 20]),
-            uploaded_blk1.clone(),
-        )],
+        blocks: vec![BlocksDatum(ConsensusHash([0x11; 20]), uploaded_blk1)],
     });
     network_result_1.uploaded_microblocks.push(MicroblocksData {
         index_anchor_block: StacksBlockId([0x11; 32]),
-        microblocks: vec![uploaded_mblk1.clone()],
+        microblocks: vec![uploaded_mblk1],
     });
     network_result_1
         .uploaded_nakamoto_blocks
-        .push(uploaded_nblk1.clone());
+        .push(uploaded_nblk1);
     network_result_1
         .pushed_stackerdb_chunks
-        .push(pushed_stackerdb_chunk_1.clone());
+        .push(pushed_stackerdb_chunk_1);
     network_result_1
         .uploaded_stackerdb_chunks
-        .push(uploaded_stackerdb_chunk_1.clone());
+        .push(uploaded_stackerdb_chunk_1);
     network_result_1.synced_transactions.push(synced_tx1);
 
     network_result_2
@@ -1484,22 +1473,20 @@ fn test_network_result_update() {
         .insert(nk2.clone(), vec![msg2.clone()]);
     network_result_2
         .blocks
-        .push((ConsensusHash([0x22; 20]), blk2.clone(), 2));
-    network_result_2.confirmed_microblocks.push((
-        ConsensusHash([0x22; 20]),
-        vec![mblk2.clone()],
-        2,
-    ));
+        .push((ConsensusHash([0x22; 20]), blk2, 2));
+    network_result_2
+        .confirmed_microblocks
+        .push((ConsensusHash([0x22; 20]), vec![mblk2], 2));
     network_result_2
         .nakamoto_blocks
-        .insert(nblk2.block_id(), nblk2.clone());
+        .insert(nblk2.block_id(), nblk2);
     network_result_2
         .pushed_transactions
-        .insert(nk2.clone(), vec![(vec![], pushed_tx2.clone())]);
+        .insert(nk2.clone(), vec![(vec![], pushed_tx2)]);
     network_result_2.pushed_blocks.insert(
         nk2.clone(),
         vec![BlocksData {
-            blocks: vec![BlocksDatum(ConsensusHash([0x22; 20]), pushed_blk2.clone())],
+            blocks: vec![BlocksDatum(ConsensusHash([0x22; 20]), pushed_blk2)],
         }],
     );
     network_result_2.pushed_microblocks.insert(
@@ -1508,7 +1495,7 @@ fn test_network_result_update() {
             vec![],
             MicroblocksData {
                 index_anchor_block: StacksBlockId([0x22; 32]),
-                microblocks: vec![pushed_mblk2.clone()],
+                microblocks: vec![pushed_mblk2],
             },
         )],
     );
@@ -1521,54 +1508,47 @@ fn test_network_result_update() {
             },
         )],
     );
-    network_result_2
-        .uploaded_transactions
-        .push(uploaded_tx2.clone());
+    network_result_2.uploaded_transactions.push(uploaded_tx2);
     network_result_2.uploaded_blocks.push(BlocksData {
-        blocks: vec![BlocksDatum(
-            ConsensusHash([0x22; 20]),
-            uploaded_blk2.clone(),
-        )],
+        blocks: vec![BlocksDatum(ConsensusHash([0x22; 20]), uploaded_blk2)],
     });
     network_result_2.uploaded_microblocks.push(MicroblocksData {
         index_anchor_block: StacksBlockId([0x22; 32]),
-        microblocks: vec![uploaded_mblk2.clone()],
+        microblocks: vec![uploaded_mblk2],
     });
     network_result_2
         .uploaded_nakamoto_blocks
-        .push(uploaded_nblk2.clone());
+        .push(uploaded_nblk2);
     network_result_2
         .pushed_stackerdb_chunks
-        .push(pushed_stackerdb_chunk_2.clone());
+        .push(pushed_stackerdb_chunk_2);
     network_result_2
         .uploaded_stackerdb_chunks
-        .push(uploaded_stackerdb_chunk_2.clone());
+        .push(uploaded_stackerdb_chunk_2);
     network_result_2.synced_transactions.push(synced_tx2);
 
     let mut network_result_union = network_result_2.clone();
     let mut n1 = network_result_1.clone();
     network_result_union
         .unhandled_messages
-        .extend(n1.unhandled_messages.into_iter());
+        .extend(n1.unhandled_messages);
     network_result_union.blocks.append(&mut n1.blocks);
     network_result_union
         .confirmed_microblocks
         .append(&mut n1.confirmed_microblocks);
     network_result_union
         .nakamoto_blocks
-        .extend(n1.nakamoto_blocks.into_iter());
+        .extend(n1.nakamoto_blocks);
     network_result_union
         .pushed_transactions
-        .extend(n1.pushed_transactions.into_iter());
-    network_result_union
-        .pushed_blocks
-        .extend(n1.pushed_blocks.into_iter());
+        .extend(n1.pushed_transactions);
+    network_result_union.pushed_blocks.extend(n1.pushed_blocks);
     network_result_union
         .pushed_microblocks
-        .extend(n1.pushed_microblocks.into_iter());
+        .extend(n1.pushed_microblocks);
     network_result_union
         .pushed_nakamoto_blocks
-        .extend(n1.pushed_nakamoto_blocks.into_iter());
+        .extend(n1.pushed_nakamoto_blocks);
     network_result_union
         .uploaded_transactions
         .append(&mut n1.uploaded_transactions);
@@ -1658,7 +1638,7 @@ fn test_network_result_update() {
         },
     };
 
-    old.uploaded_stackerdb_chunks.push(old_chunk_1.clone());
+    old.uploaded_stackerdb_chunks.push(old_chunk_1);
     // replaced
     new.uploaded_stackerdb_chunks.push(new_chunk_1.clone());
     // included
@@ -1666,7 +1646,7 @@ fn test_network_result_update() {
 
     assert_eq!(
         old.update(new).uploaded_stackerdb_chunks,
-        vec![new_chunk_1.clone(), new_chunk_2.clone()]
+        vec![new_chunk_1, new_chunk_2]
     );
 
     // stackerdb pushed chunks get consolidated correctly
@@ -1717,7 +1697,7 @@ fn test_network_result_update() {
         },
     };
 
-    old.pushed_stackerdb_chunks.push(old_chunk_1.clone());
+    old.pushed_stackerdb_chunks.push(old_chunk_1);
     // replaced
     new.pushed_stackerdb_chunks.push(new_chunk_1.clone());
     // included
@@ -1725,7 +1705,7 @@ fn test_network_result_update() {
 
     assert_eq!(
         old.update(new).pushed_stackerdb_chunks,
-        vec![new_chunk_1.clone(), new_chunk_2.clone()]
+        vec![new_chunk_1, new_chunk_2]
     );
 
     // nakamoto blocks obtained via download, upload, or pushed get consoldated
@@ -1743,7 +1723,7 @@ fn test_network_result_update() {
     );
     old.nakamoto_blocks.insert(nblk1.block_id(), nblk1.clone());
     old.pushed_nakamoto_blocks.insert(
-        nk1.clone(),
+        nk1,
         vec![(
             vec![],
             NakamotoBlocksData {
@@ -1768,7 +1748,7 @@ fn test_network_result_update() {
 
     let mut new_pushed = new.clone();
     let mut new_uploaded = new.clone();
-    let mut new_downloaded = new.clone();
+    let mut new_downloaded = new;
 
     new_downloaded
         .nakamoto_blocks

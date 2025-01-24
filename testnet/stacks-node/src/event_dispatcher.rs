@@ -162,6 +162,7 @@ pub struct MinedNakamotoBlockEvent {
     pub block_size: u64,
     pub cost: ExecutionCost,
     pub miner_signature: MessageSignature,
+    pub miner_signature_hash: Sha512Trunc256Sum,
     pub signer_signature_hash: Sha512Trunc256Sum,
     pub tx_events: Vec<TransactionEvent>,
     pub signer_bitvec: String,
@@ -592,6 +593,7 @@ impl EventObserver {
         rewards: Vec<(PoxAddress, u64)>,
         burns: u64,
         slot_holders: Vec<PoxAddress>,
+        consensus_hash: &ConsensusHash,
     ) -> serde_json::Value {
         let reward_recipients = rewards
             .into_iter()
@@ -613,7 +615,8 @@ impl EventObserver {
             "burn_block_height": burn_block_height,
             "reward_recipients": serde_json::Value::Array(reward_recipients),
             "reward_slot_holders": serde_json::Value::Array(reward_slot_holders),
-            "burn_amount": burns
+            "burn_amount": burns,
+            "consensus_hash": format!("0x{consensus_hash}"),
         })
     }
 
@@ -866,6 +869,7 @@ impl EventObserver {
             "reward_set": reward_set_value,
             "cycle_number": cycle_number_value,
             "tenure_height": coinbase_height,
+            "consensus_hash": format!("0x{}", metadata.consensus_hash),
         });
 
         let as_object_mut = payload.as_object_mut().unwrap();
@@ -952,9 +956,14 @@ impl ProposalCallbackReceiver for ProposalCallbackHandler {
 }
 
 impl MemPoolEventDispatcher for EventDispatcher {
-    fn mempool_txs_dropped(&self, txids: Vec<Txid>, reason: MemPoolDropReason) {
+    fn mempool_txs_dropped(
+        &self,
+        txids: Vec<Txid>,
+        new_txid: Option<Txid>,
+        reason: MemPoolDropReason,
+    ) {
         if !txids.is_empty() {
-            self.process_dropped_mempool_txs(txids, reason)
+            self.process_dropped_mempool_txs(txids, new_txid, reason)
         }
     }
 
@@ -1097,6 +1106,7 @@ impl BlockEventDispatcher for EventDispatcher {
         rewards: Vec<(PoxAddress, u64)>,
         burns: u64,
         recipient_info: Vec<PoxAddress>,
+        consensus_hash: &ConsensusHash,
     ) {
         self.process_burn_block(
             burn_block,
@@ -1104,6 +1114,7 @@ impl BlockEventDispatcher for EventDispatcher {
             rewards,
             burns,
             recipient_info,
+            consensus_hash,
         )
     }
 }
@@ -1140,6 +1151,7 @@ impl EventDispatcher {
         rewards: Vec<(PoxAddress, u64)>,
         burns: u64,
         recipient_info: Vec<PoxAddress>,
+        consensus_hash: &ConsensusHash,
     ) {
         // lazily assemble payload only if we have observers
         let interested_observers = self.filter_observers(&self.burn_block_observers_lookup, true);
@@ -1153,6 +1165,7 @@ impl EventDispatcher {
             rewards,
             burns,
             recipient_info,
+            consensus_hash,
         );
 
         for observer in interested_observers.iter() {
@@ -1309,7 +1322,7 @@ impl EventDispatcher {
             let mature_rewards = serde_json::Value::Array(mature_rewards_vec);
 
             #[cfg(any(test, feature = "testing"))]
-            if test_skip_block_announcement(&block) {
+            if test_skip_block_announcement(block) {
                 return;
             }
 
@@ -1528,6 +1541,7 @@ impl EventDispatcher {
             cost: consumed.clone(),
             tx_events,
             miner_signature: block.header.miner_signature,
+            miner_signature_hash: block.header.miner_signature_hash(),
             signer_signature_hash: block.header.signer_signature_hash(),
             signer_signature: block.header.signer_signature.clone(),
             signer_bitvec,
@@ -1582,7 +1596,12 @@ impl EventDispatcher {
         }
     }
 
-    pub fn process_dropped_mempool_txs(&self, txs: Vec<Txid>, reason: MemPoolDropReason) {
+    pub fn process_dropped_mempool_txs(
+        &self,
+        txs: Vec<Txid>,
+        new_txid: Option<Txid>,
+        reason: MemPoolDropReason,
+    ) {
         // lazily assemble payload only if we have observers
         let interested_observers = self.filter_observers(&self.mempool_observers_lookup, true);
 
@@ -1595,10 +1614,22 @@ impl EventDispatcher {
             .map(|tx| serde_json::Value::String(format!("0x{tx}")))
             .collect();
 
-        let payload = json!({
-            "dropped_txids": serde_json::Value::Array(dropped_txids),
-            "reason": reason.to_string(),
-        });
+        let payload = match new_txid {
+            Some(id) => {
+                json!({
+                    "dropped_txids": serde_json::Value::Array(dropped_txids),
+                    "reason": reason.to_string(),
+                    "new_txid": format!("0x{}", &id),
+                })
+            }
+            None => {
+                json!({
+                    "dropped_txids": serde_json::Value::Array(dropped_txids),
+                    "reason": reason.to_string(),
+                    "new_txid": null,
+                })
+            }
+        };
 
         for observer in interested_observers.iter() {
             observer.send_dropped_mempool_txs(&payload);
@@ -1818,7 +1849,7 @@ mod test {
             txs: vec![],
         };
         let mut metadata = StacksHeaderInfo::regtest_genesis();
-        metadata.anchored_header = StacksBlockHeaderTypes::Nakamoto(block_header.clone());
+        metadata.anchored_header = StacksBlockHeaderTypes::Nakamoto(block_header);
         let receipts = vec![];
         let parent_index_hash = StacksBlockId([0; 32]);
         let winner_txid = Txid([0; 32]);
@@ -1848,7 +1879,7 @@ mod test {
             &mblock_confirmed_consumed,
             &pox_constants,
             &None,
-            &Some(signer_bitvec.clone()),
+            &Some(signer_bitvec),
             block_timestamp,
             coinbase_height,
         );
@@ -2103,7 +2134,7 @@ mod test {
         let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
         let timeout = Duration::from_secs(5);
 
-        let observer = EventObserver::new(Some(working_dir.clone()), endpoint, timeout);
+        let observer = EventObserver::new(Some(working_dir), endpoint, timeout);
 
         // Call send_payload
         observer.send_payload(&payload, "/test");
@@ -2353,11 +2384,7 @@ mod test {
             }
         });
 
-        let observer = EventObserver::new(
-            Some(working_dir.clone()),
-            format!("127.0.0.1:{port}"),
-            timeout,
-        );
+        let observer = EventObserver::new(Some(working_dir), format!("127.0.0.1:{port}"), timeout);
 
         let payload = json!({"key": "value"});
         let payload2 = json!({"key": "value2"});

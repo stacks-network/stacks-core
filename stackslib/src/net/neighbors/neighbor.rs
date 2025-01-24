@@ -35,7 +35,7 @@ impl Neighbor {
         Neighbor {
             addr: key.clone(),
             public_key: pubk.clone(),
-            expire_block: expire_block,
+            expire_block,
             last_contact_time: 0,
             allowed: 0,
             denied: 0,
@@ -49,15 +49,15 @@ impl Neighbor {
     /// Update this peer in the DB.
     /// If there's no DB entry for this peer, then do nothing.
     /// Updates last-contact-time to now, since this is only called when we get back a Handshake
-    pub fn save_update<'a>(
+    pub fn save_update(
         &mut self,
-        tx: &DBTx<'a>,
+        tx: &DBTx<'_>,
         stacker_dbs: Option<&[QualifiedContractIdentifier]>,
     ) -> Result<(), net_error> {
         self.last_contact_time = get_epoch_time_secs();
-        PeerDB::update_peer(tx, &self).map_err(net_error::DBError)?;
+        PeerDB::update_peer(tx, self).map_err(net_error::DBError)?;
         if let Some(stacker_dbs) = stacker_dbs {
-            PeerDB::update_peer_stacker_dbs(tx, &self, stacker_dbs).map_err(net_error::DBError)?;
+            PeerDB::update_peer_stacker_dbs(tx, self, stacker_dbs).map_err(net_error::DBError)?;
         }
         Ok(())
     }
@@ -66,13 +66,13 @@ impl Neighbor {
     /// Updates last-contact-time to now, since this is only called when we get back a Handshake
     /// Return true if saved.
     /// Return false if not saved -- i.e. the frontier is full and we should try evicting neighbors.
-    pub fn save<'a>(
+    pub fn save(
         &mut self,
-        tx: &DBTx<'a>,
+        tx: &DBTx<'_>,
         stacker_dbs: Option<&[QualifiedContractIdentifier]>,
     ) -> Result<bool, net_error> {
         self.last_contact_time = get_epoch_time_secs();
-        PeerDB::try_insert_peer(tx, &self, stacker_dbs.unwrap_or(&[])).map_err(net_error::DBError)
+        PeerDB::try_insert_peer(tx, self, stacker_dbs.unwrap_or(&[])).map_err(net_error::DBError)
     }
 
     /// Attempt to load a neighbor from our peer DB, given its NeighborAddress reported by another

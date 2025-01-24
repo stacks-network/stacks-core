@@ -137,7 +137,7 @@ fn test_bad_microblock_fees_pre_v210() {
     let chainstate_path = peer.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
             .unwrap();
         sn.block_height
     };
@@ -148,7 +148,7 @@ fn test_bad_microblock_fees_pre_v210() {
     let mut block_ids = vec![];
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
             .unwrap();
 
         let acct = get_stacks_account(&mut peer, &addr.to_account_principal());
@@ -337,7 +337,7 @@ fn test_bad_microblock_fees_pre_v210() {
 
         // should always succeed
         let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
-        peer.process_stacks_epoch_at_tip_checked(&stacks_block, &vec![])
+        peer.process_stacks_epoch_at_tip_checked(&stacks_block, &[])
             .unwrap();
 
         block_ids.push(StacksBlockHeader::make_index_block_hash(
@@ -460,7 +460,7 @@ fn test_bad_microblock_fees_fix_transition() {
     let chainstate_path = peer.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
             .unwrap();
         sn.block_height
     };
@@ -471,7 +471,7 @@ fn test_bad_microblock_fees_fix_transition() {
     let mut block_ids = vec![];
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
             .unwrap();
 
         let acct = get_stacks_account(&mut peer, &addr.to_account_principal());
@@ -660,7 +660,7 @@ fn test_bad_microblock_fees_fix_transition() {
 
         // should always succeed
         let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
-        peer.process_stacks_epoch_at_tip_checked(&stacks_block, &vec![])
+        peer.process_stacks_epoch_at_tip_checked(&stacks_block, &[])
             .unwrap();
 
         block_ids.push(StacksBlockHeader::make_index_block_hash(
@@ -817,7 +817,7 @@ fn test_get_block_info_v210() {
     let chainstate_path = peer.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
             .unwrap();
         sn.block_height
     };
@@ -827,7 +827,7 @@ fn test_get_block_info_v210() {
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
             .unwrap();
 
         let acct = get_stacks_account(&mut peer, &addr.to_account_principal());
@@ -1016,7 +1016,7 @@ fn test_get_block_info_v210() {
 
         // should always succeed
         peer.next_burnchain_block(burn_ops.clone());
-        peer.process_stacks_epoch_at_tip_checked(&stacks_block, &vec![])
+        peer.process_stacks_epoch_at_tip_checked(&stacks_block, &[])
             .unwrap();
     }
 
@@ -1189,7 +1189,7 @@ fn test_get_block_info_v210_no_microblocks() {
     let chainstate_path = peer.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
             .unwrap();
         sn.block_height
     };
@@ -1199,7 +1199,7 @@ fn test_get_block_info_v210_no_microblocks() {
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
             .unwrap();
 
         let acct = get_stacks_account(&mut peer, &addr.to_account_principal());
@@ -1320,7 +1320,7 @@ fn test_get_block_info_v210_no_microblocks() {
 
         // should always succeed
         peer.next_burnchain_block(burn_ops.clone());
-        peer.process_stacks_epoch_at_tip_checked(&stacks_block, &vec![])
+        peer.process_stacks_epoch_at_tip_checked(&stacks_block, &[])
             .unwrap();
     }
 
@@ -1510,7 +1510,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
     let chainstate_path = peer.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
             .unwrap();
         sn.block_height
     };
@@ -1526,7 +1526,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
             .unwrap();
 
         let acct = get_stacks_account(&mut peer, &addr.to_account_principal());
@@ -1602,17 +1602,15 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                             } else {
                                 make_coinbase(miner, tenure_id)
                             }
+                        } else if let Some(alt_recipient) = alt_recipient_id {
+                            make_coinbase_with_nonce(
+                                miner,
+                                tenure_id,
+                                miner.get_nonce(),
+                                Some(alt_recipient),
+                            )
                         } else {
-                            if let Some(alt_recipient) = alt_recipient_id {
-                                make_coinbase_with_nonce(
-                                    miner,
-                                    tenure_id,
-                                    miner.get_nonce(),
-                                    Some(alt_recipient),
-                                )
-                            } else {
-                                make_coinbase(miner, tenure_id)
-                            }
+                            make_coinbase(miner, tenure_id)
                         }
                     } else {
                         let pk = StacksPrivateKey::new();
@@ -1787,7 +1785,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
 
         // should always succeed
         peer.next_burnchain_block(burn_ops.clone());
-        peer.process_stacks_epoch_at_tip_checked(&stacks_block, &vec![])
+        peer.process_stacks_epoch_at_tip_checked(&stacks_block, &[])
             .unwrap();
     }
 
@@ -1887,7 +1885,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
 
                         if i > 2 {
                             eprintln!("recipient_total_reward: {} = {} + {}", recipient_total_reward + block_reward_opt.clone().unwrap().expect_u128().unwrap(), recipient_total_reward, block_reward_opt.clone().unwrap().expect_u128().unwrap());
-                            recipient_total_reward += block_reward_opt.clone().unwrap().expect_u128().unwrap();
+                            recipient_total_reward += block_reward_opt.unwrap().expect_u128().unwrap();
                         }
                     }
                     else {

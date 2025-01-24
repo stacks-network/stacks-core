@@ -76,7 +76,7 @@ enum BitFieldEncoding {
 }
 
 /// Encode the inner count array, using a sparse representation if it would save space
-fn encode_bitfield<W: Write>(fd: &mut W, bytes: &Vec<u8>) -> Result<(), codec_error> {
+fn encode_bitfield<W: Write>(fd: &mut W, bytes: &[u8]) -> Result<(), codec_error> {
     let mut num_filled = 0;
     for bits in bytes.iter() {
         if *bits > 0 {
@@ -99,7 +99,7 @@ fn encode_bitfield<W: Write>(fd: &mut W, bytes: &Vec<u8>) -> Result<(), codec_er
         // more efficient to encode as-is
         // (note that the array has a 4-byte length prefix)
         write_next(fd, &(BitFieldEncoding::Full as u8))?;
-        write_next(fd, bytes)?;
+        write_next(fd, &bytes.to_vec())?;
     }
     Ok(())
 }
@@ -351,7 +351,7 @@ impl<H: BloomHash + Clone + StacksMessageCodec> BloomCounter<H> {
         max_items: u32,
         hasher: H,
     ) -> Result<BloomCounter<H>, db_error> {
-        let sql = format!("CREATE TABLE IF NOT EXISTS {}(counts BLOB NOT NULL, num_bins INTEGER NOT NULL, num_hashes INTEGER NOT NULL, hasher BLOB NOT NULL);", table_name);
+        let sql = format!("CREATE TABLE IF NOT EXISTS {table_name}(counts BLOB NOT NULL, num_bins INTEGER NOT NULL, num_hashes INTEGER NOT NULL, hasher BLOB NOT NULL);");
         tx.execute(&sql, NO_PARAMS).map_err(db_error::SqliteError)?;
 
         let (num_bins, num_hashes) = bloom_hash_count(error_rate, max_items);
@@ -366,21 +366,21 @@ impl<H: BloomHash + Clone + StacksMessageCodec> BloomCounter<H> {
 
         tx.execute(&sql, args).map_err(db_error::SqliteError)?;
 
-        let sql = format!("SELECT rowid FROM {}", table_name);
-        let counts_rowid: u64 = query_expect_row(&tx, &sql, NO_PARAMS)?
+        let sql = format!("SELECT rowid FROM {table_name}");
+        let counts_rowid: u64 = query_expect_row(tx, &sql, NO_PARAMS)?
             .expect("BUG: inserted bloom counter but can't find row ID");
 
         Ok(BloomCounter {
             hasher,
             table_name: table_name.to_string(),
-            num_bins: num_bins,
+            num_bins,
             num_hashes,
             counts_rowid: counts_rowid as u32,
         })
     }
 
     pub fn try_load(conn: &DBConn, table_name: &str) -> Result<Option<BloomCounter<H>>, db_error> {
-        let sql = format!("SELECT rowid,* FROM {}", table_name);
+        let sql = format!("SELECT rowid,* FROM {table_name}");
         let result = conn.query_row_and_then(&sql, NO_PARAMS, |row| {
             let mut hasher_blob = row
                 .get_ref("hasher")?

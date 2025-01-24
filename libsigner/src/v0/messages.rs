@@ -283,6 +283,7 @@ pub struct PeerInfo {
 }
 
 impl StacksMessageCodec for PeerInfo {
+    #[allow(clippy::needless_as_bytes)] // as_bytes isn't necessary, but verbosity is preferable in the codec impls
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.burn_block_height)?;
         write_next(fd, self.stacks_tip_consensus_hash.as_bytes())?;
@@ -684,6 +685,30 @@ impl BlockResponse {
         match self {
             BlockResponse::Accepted(accepted) => accepted.signer_signature_hash,
             BlockResponse::Rejected(rejection) => rejection.signer_signature_hash,
+        }
+    }
+
+    /// The signer signature hash for the block response
+    pub fn signer_signature_hash(&self) -> Sha512Trunc256Sum {
+        match self {
+            BlockResponse::Accepted(accepted) => accepted.signer_signature_hash,
+            BlockResponse::Rejected(rejection) => rejection.signer_signature_hash,
+        }
+    }
+
+    /// Get the block accept data from the block response
+    pub fn as_block_accepted(&self) -> Option<&BlockAccepted> {
+        match self {
+            BlockResponse::Accepted(accepted) => Some(accepted),
+            _ => None,
+        }
+    }
+
+    /// Get the block accept data from the block response
+    pub fn as_block_rejection(&self) -> Option<&BlockRejection> {
+        match self {
+            BlockResponse::Rejected(rejection) => Some(rejection),
+            _ => None,
         }
     }
 }
@@ -1237,7 +1262,7 @@ mod test {
             txs: vec![],
         };
         let tx_merkle_root = {
-            let txid_vecs = block
+            let txid_vecs: Vec<_> = block
                 .txs
                 .iter()
                 .map(|tx| tx.txid().as_bytes().to_vec())

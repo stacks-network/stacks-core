@@ -120,7 +120,7 @@ impl MinerStatus {
     }
 
     pub fn is_blocked(&self) -> bool {
-        if self.blockers.len() > 0 {
+        if !self.blockers.is_empty() {
             debug!("Miner: blocked by {:?}", &self.blockers);
             true
         } else {
@@ -262,11 +262,7 @@ pub struct MinerEpochInfo<'a> {
 
 impl From<&UnconfirmedState> for MicroblockMinerRuntime {
     fn from(unconfirmed: &UnconfirmedState) -> MicroblockMinerRuntime {
-        let considered = unconfirmed
-            .mined_txs
-            .iter()
-            .map(|(txid, _)| txid.clone())
-            .collect();
+        let considered = unconfirmed.mined_txs.keys().cloned().collect();
         MicroblockMinerRuntime {
             bytes_so_far: unconfirmed.bytes_so_far,
             prev_microblock_header: unconfirmed.last_mblock.clone(),
@@ -876,15 +872,15 @@ impl<'a> StacksMicroblockBuilder<'a> {
     ) -> Result<StacksMicroblock, Error> {
         let miner_pubkey_hash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(miner_key));
-        if txs.len() == 0 {
+        if txs.is_empty() {
             return Err(Error::NoTransactionsToMine);
         }
 
-        let txid_vecs = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+        let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
 
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
         let tx_merkle_root = merkle_tree.root();
-        let mut next_microblock_header = if let Some(ref prev_microblock) = prev_microblock_header {
+        let mut next_microblock_header = if let Some(prev_microblock) = prev_microblock_header {
             StacksMicroblockHeader::from_parent_unsigned(prev_microblock, &tx_merkle_root)
                 .ok_or(Error::MicroblockStreamTooLongError)?
         } else {
@@ -903,7 +899,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         next_microblock_header.verify(&miner_pubkey_hash).unwrap();
         Ok(StacksMicroblock {
             header: next_microblock_header,
-            txs: txs,
+            txs,
         })
     }
 
@@ -1052,7 +1048,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                             // note: this path _does_ not perform the tx block budget % heuristic,
                             //  because this code path is not directly called with a mempool handle.
                             clarity_tx.reset_cost(cost_before.clone());
-                            if total_budget.proportion_largest_dimension(&cost_before)
+                            if total_budget.proportion_largest_dimension(cost_before)
                                 < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
                             {
                                 warn!(
@@ -1358,7 +1354,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                                     if let Some(measured_cost) = measured_cost {
                                                         if let Err(e) = estimator.notify_event(
                                                             &mempool_tx.tx.payload,
-                                                            &measured_cost,
+                                                            measured_cost,
                                                             &block_limit,
                                                             &stacks_epoch_id,
                                                         ) {
@@ -1387,7 +1383,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                     },
                 );
 
-                if to_drop_and_blacklist.len() > 0 {
+                if !to_drop_and_blacklist.is_empty() {
                     debug!(
                         "Dropping and blacklisting {} problematic transaction(s)",
                         &to_drop_and_blacklist.len()
@@ -1427,8 +1423,16 @@ impl<'a> StacksMicroblockBuilder<'a> {
         self.runtime.num_mined = num_txs;
 
         mem_pool.drop_txs(&invalidated_txs)?;
-        event_dispatcher.mempool_txs_dropped(invalidated_txs, MemPoolDropReason::TOO_EXPENSIVE);
-        event_dispatcher.mempool_txs_dropped(to_drop_and_blacklist, MemPoolDropReason::PROBLEMATIC);
+        event_dispatcher.mempool_txs_dropped(
+            invalidated_txs,
+            None,
+            MemPoolDropReason::TOO_EXPENSIVE,
+        );
+        event_dispatcher.mempool_txs_dropped(
+            to_drop_and_blacklist,
+            None,
+            MemPoolDropReason::PROBLEMATIC,
+        );
 
         if blocked {
             debug!(
@@ -1463,7 +1467,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
     }
 }
 
-impl<'a> Drop for StacksMicroblockBuilder<'a> {
+impl Drop for StacksMicroblockBuilder<'_> {
     fn drop(&mut self) {
         debug!(
             "Drop StacksMicroblockBuilder";
@@ -1509,22 +1513,22 @@ impl StacksBlockBuilder {
             total_anchored_fees: 0,
             total_confirmed_streamed_fees: 0,
             total_streamed_fees: 0,
-            bytes_so_far: bytes_so_far,
+            bytes_so_far,
             anchored_done: false,
             parent_consensus_hash: parent_chain_tip.consensus_hash.clone(),
             parent_header_hash: header.parent_block.clone(),
-            header: header,
+            header,
             parent_microblock_hash: parent_chain_tip
                 .microblock_tail
                 .as_ref()
-                .map(|ref hdr| hdr.block_hash()),
+                .map(|hdr| hdr.block_hash()),
             prev_microblock_header: StacksMicroblockHeader::first_unsigned(
                 &EMPTY_MICROBLOCK_PARENT_HASH,
                 &Sha512Trunc256Sum([0u8; 32]),
             ), // will be updated
             miner_privkey: StacksPrivateKey::new(), // caller should overwrite this, or refrain from mining microblocks
             miner_payouts: None,
-            miner_id: miner_id,
+            miner_id,
         }
     }
 
@@ -1610,7 +1614,7 @@ impl StacksBlockBuilder {
     }
 
     /// Assign the block parent
-    pub fn set_parent_block(&mut self, parent_block_hash: &BlockHeaderHash) -> () {
+    pub fn set_parent_block(&mut self, parent_block_hash: &BlockHeaderHash) {
         self.header.parent_block = parent_block_hash.clone();
     }
 
@@ -1619,7 +1623,7 @@ impl StacksBlockBuilder {
         &mut self,
         parent_mblock_hash: &BlockHeaderHash,
         parent_mblock_seq: u16,
-    ) -> () {
+    ) {
         self.header.parent_microblock = parent_mblock_hash.clone();
         self.header.parent_microblock_sequence = parent_mblock_seq;
     }
@@ -1641,7 +1645,7 @@ impl StacksBlockBuilder {
     }
 
     /// Reset measured costs and fees
-    pub fn reset_costs(&mut self) -> () {
+    pub fn reset_costs(&mut self) {
         self.total_anchored_fees = 0;
         self.total_confirmed_streamed_fees = 0;
         self.total_streamed_fees = 0;
@@ -1704,7 +1708,7 @@ impl StacksBlockBuilder {
 
     pub fn finalize_block(&mut self, clarity_tx: &mut ClarityTx) -> StacksBlock {
         // done!  Calculate state root and tx merkle root
-        let txid_vecs = self
+        let txid_vecs: Vec<_> = self
             .txs
             .iter()
             .map(|tx| tx.txid().as_bytes().to_vec())
@@ -1770,7 +1774,7 @@ impl StacksBlockBuilder {
 
     /// Cut the next microblock.
     pub fn mine_next_microblock<'a>(&mut self) -> Result<StacksMicroblock, Error> {
-        let txid_vecs = self
+        let txid_vecs: Vec<_> = self
             .micro_txs
             .iter()
             .map(|tx| tx.txid().as_bytes().to_vec())
@@ -1828,19 +1832,19 @@ impl StacksBlockBuilder {
         if let Some(microblock_parent_hash) = self.parent_microblock_hash.as_ref() {
             // load up a microblock fork
             let microblocks = StacksChainState::load_microblock_stream_fork(
-                &chainstate.db(),
-                &parent_consensus_hash,
-                &parent_header_hash,
-                &microblock_parent_hash,
+                chainstate.db(),
+                parent_consensus_hash,
+                parent_header_hash,
+                microblock_parent_hash,
             )?
             .ok_or(Error::NoSuchBlockError)?;
 
             debug!(
                 "Loaded {} microblocks made by {}/{} tipped at {}",
                 microblocks.len(),
-                &parent_consensus_hash,
-                &parent_header_hash,
-                &microblock_parent_hash
+                parent_consensus_hash,
+                parent_header_hash,
+                microblock_parent_hash
             );
             Ok(microblocks)
         } else {
@@ -1851,7 +1855,7 @@ impl StacksBlockBuilder {
             );
             let (parent_microblocks, _) =
                 match StacksChainState::load_descendant_staging_microblock_stream_with_poison(
-                    &chainstate.db(),
+                    chainstate.db(),
                     &parent_index_hash,
                     0,
                     u16::MAX,
@@ -1863,8 +1867,8 @@ impl StacksBlockBuilder {
             debug!(
                 "Loaded {} microblocks made by {}/{}",
                 parent_microblocks.len(),
-                &parent_consensus_hash,
-                &parent_header_hash
+                parent_consensus_hash,
+                parent_header_hash
             );
             Ok(parent_microblocks)
         }
@@ -1953,7 +1957,7 @@ impl StacksBlockBuilder {
             parent_microblocks.len()
         );
 
-        if parent_microblocks.len() == 0 {
+        if parent_microblocks.is_empty() {
             self.set_parent_microblock(&EMPTY_MICROBLOCK_PARENT_HASH, 0);
         } else {
             let num_mblocks = parent_microblocks.len();
@@ -2073,7 +2077,7 @@ impl StacksBlockBuilder {
         mut builder: StacksBlockBuilder,
         chainstate_handle: &StacksChainState,
         burn_dbconn: &SortitionHandleConn,
-        mut txs: Vec<StacksTransaction>,
+        txs: Vec<StacksTransaction>,
         mut mblock_txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost, Option<StacksMicroblock>), Error> {
         debug!("Build anchored block from {} transactions", txs.len());
@@ -2081,7 +2085,7 @@ impl StacksBlockBuilder {
         let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn, true)?;
         let ast_rules = miner_epoch_info.ast_rules;
         let (mut epoch_tx, _) = builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
-        for tx in txs.drain(..) {
+        for tx in txs.into_iter() {
             match builder.try_mine_tx(&mut epoch_tx, &tx, ast_rules.clone()) {
                 Ok(_) => {
                     debug!("Included {}", &tx.txid());
@@ -2114,12 +2118,12 @@ impl StacksBlockBuilder {
         let block = builder.mine_anchored_block(&mut epoch_tx);
         let size = builder.bytes_so_far;
 
-        let mblock_opt = if mblock_txs.len() > 0 {
+        let mblock_opt = if mblock_txs.is_empty() {
+            None
+        } else {
             builder.micro_txs.append(&mut mblock_txs);
             let mblock = builder.mine_next_microblock()?;
             Some(mblock)
-        } else {
-            None
         };
 
         let cost = builder.epoch_finish(epoch_tx)?;
@@ -2400,11 +2404,11 @@ impl StacksBlockBuilder {
                                         .elapsed()
                                         .as_millis()
                                         .try_into()
-                                        .unwrap_or_else(|_| i64::MAX);
+                                        .unwrap_or(i64::MAX);
                                     let time_estimate_ms: u64 = time_estimate_ms
                                         .try_into()
                                         // should be unreachable
-                                        .unwrap_or_else(|_| 0);
+                                        .unwrap_or(0);
                                     update_timings.push((txinfo.tx.txid(), time_estimate_ms));
                                 }
 
@@ -2472,7 +2476,7 @@ impl StacksBlockBuilder {
                                             if let Some(measured_cost) = measured_cost {
                                                 if let Err(e) = estimator.notify_event(
                                                     &txinfo.tx.payload,
-                                                    &measured_cost,
+                                                    measured_cost,
                                                     &block_limit,
                                                     &stacks_epoch_id,
                                                 ) {
@@ -2513,7 +2517,7 @@ impl StacksBlockBuilder {
                     }
                 }
 
-                if to_drop_and_blacklist.len() > 0 {
+                if !to_drop_and_blacklist.is_empty() {
                     let _ = mempool.drop_and_blacklist_txs(&to_drop_and_blacklist);
                 }
 
@@ -2543,8 +2547,12 @@ impl StacksBlockBuilder {
         mempool.drop_txs(&invalidated_txs)?;
 
         if let Some(observer) = event_observer {
-            observer.mempool_txs_dropped(invalidated_txs, MemPoolDropReason::TOO_EXPENSIVE);
-            observer.mempool_txs_dropped(to_drop_and_blacklist, MemPoolDropReason::PROBLEMATIC);
+            observer.mempool_txs_dropped(invalidated_txs, None, MemPoolDropReason::TOO_EXPENSIVE);
+            observer.mempool_txs_dropped(
+                to_drop_and_blacklist,
+                None,
+                MemPoolDropReason::PROBLEMATIC,
+            );
         }
 
         if let Err(e) = result {
@@ -2573,8 +2581,7 @@ impl StacksBlockBuilder {
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         burnchain: &Burnchain,
     ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
-        if let TransactionPayload::Coinbase(..) = coinbase_tx.payload {
-        } else {
+        if !matches!(coinbase_tx.payload, TransactionPayload::Coinbase(..)) {
             return Err(Error::MemPoolError(
                 "Not a coinbase transaction".to_string(),
             ));
@@ -2707,7 +2714,7 @@ impl BlockBuilder for StacksBlockBuilder {
         ast_rules: ASTRules,
     ) -> TransactionResult {
         if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
-            return TransactionResult::skipped_due_to_error(&tx, Error::BlockTooBigError);
+            return TransactionResult::skipped_due_to_error(tx, Error::BlockTooBigError);
         }
 
         match limit_behavior {
@@ -2718,14 +2725,14 @@ impl BlockBuilder for StacksBlockBuilder {
                         //   other contract calls
                         if !cc.address.is_boot_code_addr() {
                             return TransactionResult::skipped(
-                                &tx,
+                                tx,
                                 "BlockLimitFunction::CONTRACT_LIMIT_HIT".to_string(),
                             );
                         }
                     }
                     TransactionPayload::SmartContract(..) => {
                         return TransactionResult::skipped(
-                            &tx,
+                            tx,
                             "BlockLimitFunction::CONTRACT_LIMIT_HIT".to_string(),
                         );
                     }
@@ -2734,7 +2741,7 @@ impl BlockBuilder for StacksBlockBuilder {
             }
             BlockLimitFunction::LIMIT_REACHED => {
                 return TransactionResult::skipped(
-                    &tx,
+                    tx,
                     "BlockLimitFunction::LIMIT_REACHED".to_string(),
                 )
             }
@@ -2760,14 +2767,14 @@ impl BlockBuilder for StacksBlockBuilder {
             if let Err(e) = Relayer::static_check_problematic_relayed_tx(
                 clarity_tx.config.mainnet,
                 clarity_tx.get_epoch(),
-                &tx,
+                tx,
                 ast_rules,
             ) {
                 info!(
                     "Detected problematic tx {} while mining; dropping from mempool",
                     tx.txid()
                 );
-                return TransactionResult::problematic(&tx, Error::NetError(e));
+                return TransactionResult::problematic(tx, Error::NetError(e));
             }
             let (fee, receipt) = match StacksChainState::process_transaction(
                 clarity_tx, tx, quiet, ast_rules,
@@ -2775,9 +2782,9 @@ impl BlockBuilder for StacksBlockBuilder {
                 Ok((fee, receipt)) => (fee, receipt),
                 Err(e) => {
                     let (is_problematic, e) =
-                        TransactionResult::is_problematic(&tx, e, clarity_tx.get_epoch());
+                        TransactionResult::is_problematic(tx, e, clarity_tx.get_epoch());
                     if is_problematic {
-                        return TransactionResult::problematic(&tx, e);
+                        return TransactionResult::problematic(tx, e);
                     } else {
                         match e {
                             Error::CostOverflowError(cost_before, cost_after, total_budget) => {
@@ -2801,7 +2808,7 @@ impl BlockBuilder for StacksBlockBuilder {
                                         None
                                     };
                                     return TransactionResult::error(
-                                        &tx,
+                                        tx,
                                         Error::TransactionTooBigError(measured_cost),
                                     );
                                 } else {
@@ -2812,12 +2819,12 @@ impl BlockBuilder for StacksBlockBuilder {
                                         &total_budget
                                     );
                                     return TransactionResult::skipped_due_to_error(
-                                        &tx,
+                                        tx,
                                         Error::BlockTooBigError,
                                     );
                                 }
                             }
-                            _ => return TransactionResult::error(&tx, e),
+                            _ => return TransactionResult::error(tx, e),
                         }
                     }
                 }
@@ -2831,7 +2838,7 @@ impl BlockBuilder for StacksBlockBuilder {
             self.txs.push(tx.clone());
             self.total_anchored_fees += fee;
 
-            TransactionResult::success(&tx, fee, receipt)
+            TransactionResult::success(tx, fee, receipt)
         } else {
             // building up the microblocks
             if tx.anchor_mode != TransactionAnchorMode::OffChainOnly
@@ -2850,14 +2857,14 @@ impl BlockBuilder for StacksBlockBuilder {
             if let Err(e) = Relayer::static_check_problematic_relayed_tx(
                 clarity_tx.config.mainnet,
                 clarity_tx.get_epoch(),
-                &tx,
+                tx,
                 ast_rules,
             ) {
                 info!(
                     "Detected problematic tx {} while mining; dropping from mempool",
                     tx.txid()
                 );
-                return TransactionResult::problematic(&tx, Error::NetError(e));
+                return TransactionResult::problematic(tx, Error::NetError(e));
             }
             let (fee, receipt) = match StacksChainState::process_transaction(
                 clarity_tx, tx, quiet, ast_rules,
@@ -2865,9 +2872,9 @@ impl BlockBuilder for StacksBlockBuilder {
                 Ok((fee, receipt)) => (fee, receipt),
                 Err(e) => {
                     let (is_problematic, e) =
-                        TransactionResult::is_problematic(&tx, e, clarity_tx.get_epoch());
+                        TransactionResult::is_problematic(tx, e, clarity_tx.get_epoch());
                     if is_problematic {
-                        return TransactionResult::problematic(&tx, e);
+                        return TransactionResult::problematic(tx, e);
                     } else {
                         match e {
                             Error::CostOverflowError(cost_before, cost_after, total_budget) => {
@@ -2892,23 +2899,21 @@ impl BlockBuilder for StacksBlockBuilder {
                                     };
 
                                     return TransactionResult::error(
-                                        &tx,
+                                        tx,
                                         Error::TransactionTooBigError(measured_cost),
                                     );
                                 } else {
                                     warn!(
-                                        "Transaction {} reached block cost {}; budget was {}",
-                                        tx.txid(),
-                                        &cost_after,
-                                        &total_budget
+                                        "Transaction {} reached block cost {cost_after}; budget was {total_budget}",
+                                        tx.txid()
                                     );
                                     return TransactionResult::skipped_due_to_error(
-                                        &tx,
+                                        tx,
                                         Error::BlockTooBigError,
                                     );
                                 }
                             }
-                            _ => return TransactionResult::error(&tx, e),
+                            _ => return TransactionResult::error(tx, e),
                         }
                     }
                 }
@@ -2923,7 +2928,7 @@ impl BlockBuilder for StacksBlockBuilder {
             self.micro_txs.push(tx.clone());
             self.total_streamed_fees += fee;
 
-            TransactionResult::success(&tx, fee, receipt)
+            TransactionResult::success(tx, fee, receipt)
         };
 
         self.bytes_so_far += tx_len;

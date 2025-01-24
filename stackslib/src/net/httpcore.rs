@@ -59,10 +59,10 @@ use crate::net::{Error as NetError, MessageSequence, ProtocolFamily, StacksNodeS
 const CHUNK_BUF_LEN: usize = 32768;
 
 /// canonical stacks tip height header
-pub const STACKS_HEADER_HEIGHT: &'static str = "X-Canonical-Stacks-Tip-Height";
+pub const STACKS_HEADER_HEIGHT: &str = "X-Canonical-Stacks-Tip-Height";
 
 /// request ID header
-pub const STACKS_REQUEST_ID: &'static str = "X-Request-Id";
+pub const STACKS_REQUEST_ID: &str = "X-Request-Id";
 
 /// Request ID to use or expect from non-Stacks HTTP clients.
 /// In particular, if a HTTP response does not contain the x-request-id header, then it's assumed
@@ -80,12 +80,12 @@ pub enum TipRequest {
 
 impl TipRequest {}
 
-impl ToString for TipRequest {
-    fn to_string(&self) -> String {
+impl fmt::Display for TipRequest {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::UseLatestAnchoredTip => "".to_string(),
-            Self::UseLatestUnconfirmedTip => "latest".to_string(),
-            Self::SpecificTip(ref tip) => format!("{}", tip),
+            Self::UseLatestAnchoredTip => write!(f, ""),
+            Self::UseLatestUnconfirmedTip => write!(f, "latest"),
+            Self::SpecificTip(ref tip) => write!(f, "{tip}"),
         }
     }
 }
@@ -189,7 +189,7 @@ pub mod request {
         contract_key: &str,
     ) -> Result<QualifiedContractIdentifier, HttpError> {
         let address = if let Some(address_str) = captures.name(address_key) {
-            if let Some(addr) = StacksAddress::from_string(&address_str.as_str()) {
+            if let Some(addr) = StacksAddress::from_string(address_str.as_str()) {
                 addr
             } else {
                 return Err(HttpError::Http(
@@ -316,7 +316,7 @@ impl HttpRequestContentsExtensions for HttpRequestContents {
     /// Use a particular tip request
     fn for_tip(mut self, tip_req: TipRequest) -> Self {
         if tip_req != TipRequest::UseLatestAnchoredTip {
-            self.query_arg("tip".to_string(), format!("{}", &tip_req.to_string()))
+            self.query_arg("tip".to_string(), tip_req.to_string())
         } else {
             let _ = self.take_query_arg(&"tip".to_string());
             self
@@ -383,7 +383,7 @@ pub trait RPCRequestHandler: HttpRequest + HttpResponse + RPCRequestHandlerClone
     ) -> Result<BlockSnapshot, StacksHttpResponse> {
         SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).map_err(|e| {
             StacksHttpResponse::new_error(
-                &preamble,
+                preamble,
                 &HttpServerError::new(format!("Failed to load canonical burnchain tip: {:?}", &e)),
             )
         })
@@ -398,7 +398,7 @@ pub trait RPCRequestHandler: HttpRequest + HttpResponse + RPCRequestHandlerClone
     ) -> Result<StacksEpoch, StacksHttpResponse> {
         SortitionDB::get_stacks_epoch(sortdb.conn(), block_height)
             .map_err(|e| {
-                StacksHttpResponse::new_error(&preamble, &HttpServerError::new(format!("Could not load Stacks epoch for canonical burn height: {:?}", &e)))
+                StacksHttpResponse::new_error(preamble, &HttpServerError::new(format!("Could not load Stacks epoch for canonical burn height: {:?}", &e)))
             })?
             .ok_or_else(|| {
                 let msg = format!(
@@ -406,7 +406,7 @@ pub trait RPCRequestHandler: HttpRequest + HttpResponse + RPCRequestHandlerClone
                     block_height
                 );
                 warn!("{}", &msg);
-                StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
+                StacksHttpResponse::new_error(preamble, &HttpServerError::new(msg))
             })
     }
 
@@ -421,14 +421,14 @@ pub trait RPCRequestHandler: HttpRequest + HttpResponse + RPCRequestHandlerClone
             .map_err(|e| {
                 let msg = format!("Failed to load stacks chain tip header: {:?}", &e);
                 warn!("{}", &msg);
-                StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
+                StacksHttpResponse::new_error(preamble, &HttpServerError::new(msg))
             })?
             .ok_or_else(|| {
                 let msg =
                     "No stacks tip exists yet. Perhaps no blocks have been processed by this node"
                         .to_string();
                 warn!("{}", &msg);
-                StacksHttpResponse::new_error(&preamble, &HttpNotFound::new(msg))
+                StacksHttpResponse::new_error(preamble, &HttpNotFound::new(msg))
             })
     }
 }
@@ -475,11 +475,11 @@ impl StacksHttpRequest {
         }
         let (decoded_path, _) = decode_request_path(&preamble.path_and_query_str)?;
         let full_query_string = contents.get_full_query_string();
-        if full_query_string.len() > 0 {
-            preamble.path_and_query_str = format!("{}?{}", &decoded_path, &full_query_string);
+        preamble.path_and_query_str = if full_query_string.is_empty() {
+            decoded_path
         } else {
-            preamble.path_and_query_str = decoded_path;
-        }
+            format!("{decoded_path}?{full_query_string}")
+        };
 
         Ok(Self {
             preamble,
@@ -1039,7 +1039,7 @@ impl StacksHttp {
         let payload = match handler.try_parse_request(
             preamble,
             &captures,
-            if query.len() > 0 { Some(&query) } else { None },
+            if query.is_empty() { None } else { Some(&query) },
             body,
         ) {
             Ok(p) => p,
@@ -1078,7 +1078,7 @@ impl StacksHttp {
             let payload = match request.try_parse_request(
                 preamble,
                 &captures,
-                if query.len() > 0 { Some(&query) } else { None },
+                if query.is_empty() { None } else { Some(&query) },
                 body,
             ) {
                 Ok(p) => p,
@@ -1256,7 +1256,7 @@ impl StacksHttp {
     }
 
     /// Clear any pending response state -- i.e. due to a failed request.
-    fn reset(&mut self) -> () {
+    fn reset(&mut self) {
         self.request_handler_index = None;
         self.reply = None;
     }
@@ -1332,7 +1332,7 @@ impl StacksHttp {
     /// This can only return a finite set of identifiers, which makes it safer to use for Prometheus metrics
     /// For details see https://github.com/stacks-network/stacks-core/issues/4574
     pub fn metrics_identifier(&self, req: &mut StacksHttpRequest) -> &str {
-        let Ok((decoded_path, _)) = decode_request_path(&req.request_path()) else {
+        let Ok((decoded_path, _)) = decode_request_path(req.request_path()) else {
             return "<err-url-decode>";
         };
 
@@ -1385,7 +1385,7 @@ impl StacksHttp {
                 )),
             }
         } else {
-            let (message, _) = http.read_payload(&preamble, &mut message_bytes)?;
+            let (message, _) = http.read_payload(&preamble, message_bytes)?;
             Ok(message)
         }
     }

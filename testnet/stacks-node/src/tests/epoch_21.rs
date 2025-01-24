@@ -100,7 +100,7 @@ fn advance_to_2_1(
         u32::MAX,
         u32::MAX,
     ));
-    burnchain_config.pox_constants = pox_constants.clone();
+    burnchain_config.pox_constants = pox_constants;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -165,7 +165,7 @@ fn advance_to_2_1(
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    let runloop_burnchain = burnchain_config.clone();
+    let runloop_burnchain = burnchain_config;
     thread::spawn(move || run_loop.start(Some(runloop_burnchain), 0));
 
     // give the run loop some time to start up!
@@ -289,7 +289,7 @@ fn transition_adds_burn_block_height() {
     let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
         advance_to_2_1(
             vec![InitialBalance {
-                address: spender_addr.clone(),
+                address: spender_addr,
                 amount: 200_000_000,
             }],
             None,
@@ -546,7 +546,7 @@ fn transition_fixes_bitcoin_rigidity() {
     let _spender_btc_addr = BitcoinAddress::from_bytes_legacy(
         BitcoinNetworkType::Regtest,
         LegacyBitcoinAddressType::PublicKeyHash,
-        &spender_stx_addr.bytes.0,
+        &spender_stx_addr.bytes().0,
     )
     .unwrap();
 
@@ -599,7 +599,7 @@ fn transition_fixes_bitcoin_rigidity() {
         u32::MAX,
         u32::MAX,
     );
-    burnchain_config.pox_constants = pox_constants.clone();
+    burnchain_config.pox_constants = pox_constants;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -625,7 +625,7 @@ fn transition_fixes_bitcoin_rigidity() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    let runloop_burnchain = burnchain_config.clone();
+    let runloop_burnchain = burnchain_config;
     thread::spawn(move || run_loop.start(Some(runloop_burnchain), 0));
 
     // give the run loop some time to start up!
@@ -1372,7 +1372,7 @@ fn transition_adds_mining_from_segwit() {
     }
 
     let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, _coord_channel) =
-        advance_to_2_1(initial_balances, None, Some(pox_constants.clone()), true);
+        advance_to_2_1(initial_balances, None, Some(pox_constants), true);
 
     let utxos = btc_regtest_controller
         .get_all_utxos(&Secp256k1PublicKey::from_hex(MINER_BURN_PUBLIC_KEY).unwrap());
@@ -1510,7 +1510,7 @@ fn transition_removes_pox_sunset() {
         u32::MAX,
         u32::MAX,
     );
-    burnchain_config.pox_constants = pox_constants.clone();
+    burnchain_config.pox_constants = pox_constants;
 
     let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
         conf.clone(),
@@ -1776,7 +1776,7 @@ fn transition_empty_blocks() {
         u32::MAX,
         u32::MAX,
     );
-    burnchain_config.pox_constants = pox_constants.clone();
+    burnchain_config.pox_constants = pox_constants;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -1800,7 +1800,7 @@ fn transition_empty_blocks() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    let runloop_burnchain_config = burnchain_config.clone();
+    let runloop_burnchain_config = burnchain_config;
     thread::spawn(move || run_loop.start(Some(runloop_burnchain_config), 0));
 
     // give the run loop some time to start up!
@@ -4582,7 +4582,7 @@ fn trait_invocation_cross_epoch() {
 
     let (mut conf, _) = neon_integration_test_conf();
     let mut initial_balances = vec![InitialBalance {
-        address: spender_addr.clone(),
+        address: spender_addr,
         amount: 200_000_000,
     }];
     conf.initial_balances.append(&mut initial_balances);
@@ -4611,7 +4611,7 @@ fn trait_invocation_cross_epoch() {
         u32::MAX,
         u32::MAX,
     );
-    burnchain_config.pox_constants = pox_constants.clone();
+    burnchain_config.pox_constants = pox_constants;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -4636,7 +4636,7 @@ fn trait_invocation_cross_epoch() {
     let blocks_processed = run_loop.get_blocks_processed_arc();
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    let runloop_burnchain = burnchain_config.clone();
+    let runloop_burnchain = burnchain_config;
     thread::spawn(move || run_loop.start(Some(runloop_burnchain), 0));
 
     // give the run loop some time to start up!
@@ -4745,12 +4745,12 @@ fn trait_invocation_cross_epoch() {
     }
 
     let interesting_txids = [
-        invoke_txid.clone(),
-        invoke_1_txid.clone(),
-        invoke_2_txid.clone(),
-        use_txid.clone(),
-        impl_txid.clone(),
-        trait_txid.clone(),
+        invoke_txid,
+        invoke_1_txid,
+        invoke_2_txid,
+        use_txid,
+        impl_txid,
+        trait_txid,
     ];
 
     let blocks = test_observer::get_blocks();
@@ -4817,7 +4817,7 @@ fn test_v1_unlock_height_with_current_stackers() {
     let mut initial_balances = vec![];
 
     initial_balances.push(InitialBalance {
-        address: spender_addr.clone(),
+        address: spender_addr,
         amount: stacked + 100_000,
     });
 
@@ -4874,7 +4874,7 @@ fn test_v1_unlock_height_with_current_stackers() {
         u32::MAX,
         u32::MAX,
     );
-    burnchain_config.pox_constants = pox_constants.clone();
+    burnchain_config.pox_constants = pox_constants;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -5070,7 +5070,7 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
     let mut initial_balances = vec![];
 
     initial_balances.push(InitialBalance {
-        address: spender_addr.clone(),
+        address: spender_addr,
         amount: stacked + 100_000,
     });
 
@@ -5127,7 +5127,7 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
         u32::MAX,
         u32::MAX,
     );
-    burnchain_config.pox_constants = pox_constants.clone();
+    burnchain_config.pox_constants = pox_constants;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller

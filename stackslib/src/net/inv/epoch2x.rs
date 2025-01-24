@@ -82,7 +82,7 @@ impl PeerBlocksInv {
             num_sortitions: 0,
             num_reward_cycles: 0,
             last_updated_at: 0,
-            first_block_height: first_block_height,
+            first_block_height,
         }
     }
 
@@ -96,13 +96,13 @@ impl PeerBlocksInv {
     ) -> PeerBlocksInv {
         assert_eq!(block_inv.len(), microblocks_inv.len());
         PeerBlocksInv {
-            block_inv: block_inv,
-            microblocks_inv: microblocks_inv,
-            num_sortitions: num_sortitions,
-            num_reward_cycles: num_reward_cycles,
-            pox_inv: pox_inv,
+            block_inv,
+            microblocks_inv,
+            num_sortitions,
+            num_reward_cycles,
+            pox_inv,
             last_updated_at: get_epoch_time_secs(),
-            first_block_height: first_block_height,
+            first_block_height,
         }
     }
 
@@ -175,8 +175,8 @@ impl PeerBlocksInv {
         assert!(block_height >= self.first_block_height);
         let sortition_height = block_height - self.first_block_height;
 
-        self.num_sortitions = if self.num_sortitions < sortition_height + (bitlen as u64) {
-            sortition_height + (bitlen as u64)
+        self.num_sortitions = if self.num_sortitions < sortition_height + bitlen {
+            sortition_height + bitlen
         } else {
             self.num_sortitions
         };
@@ -541,7 +541,7 @@ impl NeighborBlockStats {
         is_bootstrap_peer: bool,
     ) -> NeighborBlockStats {
         NeighborBlockStats {
-            nk: nk,
+            nk,
             inv: PeerBlocksInv::empty(first_block_height),
             pox_reward_cycle: 0,
             block_reward_cycle: 0,
@@ -558,7 +558,7 @@ impl NeighborBlockStats {
             learned_data: false,
             learned_data_height: u64::MAX,
             scans: 0,
-            is_bootstrap_peer: is_bootstrap_peer,
+            is_bootstrap_peer,
         }
     }
 
@@ -693,7 +693,7 @@ impl NeighborBlockStats {
         self.status = NeighborBlockStats::diagnose_nack(
             &self.nk,
             nack_data,
-            &chain_view,
+            chain_view,
             preamble_burn_block_height,
             preamble_burn_stable_block_height,
             preamble_burn_block_hash,
@@ -792,7 +792,7 @@ impl NeighborBlockStats {
                     StacksMessageType::Nack(nack_data) => {
                         debug!("Remote neighbor {:?} nack'ed our GetPoxInv at reward cycle {}: NACK code {}", &self.nk, self.target_pox_reward_cycle, nack_data.error_code);
                         let is_bootstrap_peer = PeerDB::is_initial_peer(
-                            &network.peerdb.conn(),
+                            network.peerdb.conn(),
                             self.nk.network_id,
                             &self.nk.addrbytes,
                             self.nk.port,
@@ -892,7 +892,7 @@ impl NeighborBlockStats {
                     StacksMessageType::Nack(nack_data) => {
                         debug!("Remote neighbor {:?} nack'ed our GetBlocksInv at reward cycle {}: NACK code {}", &self.nk, self.target_block_reward_cycle, nack_data.error_code);
                         let is_bootstrap_peer = PeerDB::is_initial_peer(
-                            &network.peerdb.conn(),
+                            network.peerdb.conn(),
                             self.nk.network_id,
                             &self.nk.addrbytes,
                             self.nk.port,
@@ -983,11 +983,11 @@ impl InvState {
         InvState {
             block_stats: HashMap::new(),
 
-            request_timeout: request_timeout,
-            first_block_height: first_block_height,
+            request_timeout,
+            first_block_height,
 
             last_change_at: 0,
-            sync_interval: sync_interval,
+            sync_interval,
 
             hint_learned_data: false,
             hint_learned_data_height: u64::MAX,
@@ -1007,7 +1007,7 @@ impl InvState {
         peers: HashSet<NeighborKey>,
         bootstrap_peers: &HashSet<NeighborKey>,
         max_neighbors: usize,
-    ) -> () {
+    ) {
         for (nk, stats) in self.block_stats.iter_mut() {
             if stats.status != NodeStatus::Online {
                 stats.status = NodeStatus::Online;
@@ -1024,7 +1024,7 @@ impl InvState {
             if let Some(stats) = self.block_stats.get_mut(peer) {
                 debug!("Already tracking inventories of peer {:?}", &peer);
                 stats.reset_pox_scan(0);
-                stats.is_bootstrap_peer = bootstrap_peers.contains(&peer);
+                stats.is_bootstrap_peer = bootstrap_peers.contains(peer);
             } else if self.block_stats.len() < max_neighbors {
                 debug!("Will track inventories of new peer {:?}", &peer);
                 self.block_stats.insert(
@@ -1032,7 +1032,7 @@ impl InvState {
                     NeighborBlockStats::new(
                         peer.clone(),
                         self.first_block_height,
-                        bootstrap_peers.contains(&peer),
+                        bootstrap_peers.contains(peer),
                     ),
                 );
                 added += 1;
@@ -1051,7 +1051,7 @@ impl InvState {
         // if we're still connected to these peers, then keep them pinned
         self.pinned.clear();
         for peer in peers.iter() {
-            if let Some(event_id) = network.get_event_id(&peer) {
+            if let Some(event_id) = network.get_event_id(peer) {
                 self.pinned.insert(event_id);
             }
         }
@@ -1167,15 +1167,15 @@ impl InvState {
     }
 
     #[cfg(test)]
-    pub fn add_peer(&mut self, nk: NeighborKey, is_bootstrap_peer: bool) -> () {
+    pub fn add_peer(&mut self, nk: NeighborKey, is_bootstrap_peer: bool) {
         self.block_stats.insert(
             nk.clone(),
             NeighborBlockStats::new(nk, self.first_block_height, is_bootstrap_peer),
         );
     }
 
-    pub fn del_peer(&mut self, nk: &NeighborKey) -> () {
-        self.block_stats.remove(&nk);
+    pub fn del_peer(&mut self, nk: &NeighborKey) {
+        self.block_stats.remove(nk);
     }
 
     /// Is there any downloader-actionable data available?
@@ -1211,7 +1211,7 @@ impl InvState {
         consensus_hash: &ConsensusHash,
         microblocks: bool,
     ) -> Result<Option<u64>, net_error> {
-        let sn = match SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash)? {
+        let sn = match SortitionDB::get_block_snapshot_consensus(sortdb.conn(), consensus_hash)? {
             Some(sn) => {
                 if !sn.pox_valid {
                     debug!(
@@ -1600,13 +1600,11 @@ impl PeerNetwork {
             <= max_burn_block_height
         {
             self.burnchain.pox_constants.reward_cycle_length as u64
+        } else if target_block_height > max_burn_block_height {
+            debug!("{:?}: will not send GetBlocksInv to {:?}, since we are sync'ed up to its highest sortition block (target block is {}, max burn block is {})", &self.local_peer, nk, target_block_height, max_burn_block_height);
+            0
         } else {
-            if target_block_height > max_burn_block_height {
-                debug!("{:?}: will not send GetBlocksInv to {:?}, since we are sync'ed up to its highest sortition block (target block is {}, max burn block is {})", &self.local_peer, nk, target_block_height, max_burn_block_height);
-                0
-            } else {
-                max_burn_block_height - target_block_height + 1
-            }
+            max_burn_block_height - target_block_height + 1
         };
 
         if num_blocks == 0 {
@@ -1768,9 +1766,8 @@ impl PeerNetwork {
     ) -> Result<Option<(u64, GetBlocksInv)>, net_error> {
         if stats.block_reward_cycle <= stats.inv.num_reward_cycles {
             self.make_getblocksinv(sortdb, nk, stats, stats.block_reward_cycle)
-                .and_then(|getblocksinv_opt| {
-                    Ok(getblocksinv_opt
-                        .map(|getblocksinv| (stats.block_reward_cycle, getblocksinv)))
+                .map(|getblocksinv_opt| {
+                    getblocksinv_opt.map(|getblocksinv| (stats.block_reward_cycle, getblocksinv))
                 })
         } else {
             Ok(None)
@@ -1845,7 +1842,7 @@ impl PeerNetwork {
         };
 
         let payload = StacksMessageType::GetPoxInv(getpoxinv);
-        let event_id_opt = self.get_event_id(&nk);
+        let event_id_opt = self.get_event_id(nk);
 
         let message = self.sign_for_neighbor(nk, payload)?;
         let request = self
@@ -2167,13 +2164,13 @@ impl PeerNetwork {
             let again = match stats.state {
                 InvWorkState::GetPoxInvBegin => self
                     .inv_getpoxinv_begin(pins, sortdb, nk, stats, request_timeout)
-                    .and_then(|_| Ok(true))?,
+                    .map(|_| true)?,
                 InvWorkState::GetPoxInvFinish => {
                     self.inv_getpoxinv_try_finish(sortdb, nk, stats, ibd)?
                 }
                 InvWorkState::GetBlocksInvBegin => self
                     .inv_getblocksinv_begin(pins, sortdb, nk, stats, request_timeout)
-                    .and_then(|_| Ok(true))?,
+                    .map(|_| true)?,
                 InvWorkState::GetBlocksInvFinish => {
                     self.inv_getblocksinv_try_finish(nk, stats, ibd)?
                 }
@@ -2277,7 +2274,7 @@ impl PeerNetwork {
             let mut ibd_diverged_height: Option<u64> = None;
 
             let bootstrap_peers: HashSet<_> =
-                PeerDB::get_bootstrap_peers(&network.peerdb.conn(), network.local_peer.network_id)
+                PeerDB::get_bootstrap_peers(network.peerdb.conn(), network.local_peer.network_id)
                     .unwrap_or(vec![])
                     .into_iter()
                     .map(|neighbor| neighbor.addr)
@@ -2343,7 +2340,7 @@ impl PeerNetwork {
                         // if this node diverged from us, and we're in ibd, and this is an
                         // always-allowed peer, then start scanning here (or lower)
                         if ibd
-                            && bootstrap_peers.contains(&nk)
+                            && bootstrap_peers.contains(nk)
                             && stats.status == NodeStatus::Diverged
                         {
                             inv_state.last_change_at = get_epoch_time_secs();
@@ -2402,7 +2399,7 @@ impl PeerNetwork {
                     &network.local_peer, inv_state.block_sortition_start,
                 );
 
-                if !inv_state.hint_learned_data && inv_state.block_stats.len() > 0 {
+                if !inv_state.hint_learned_data && !inv_state.block_stats.is_empty() {
                     // did a full scan without learning anything new
                     inv_state.last_rescanned_at = get_epoch_time_secs();
                     inv_state.hint_do_rescan = false;
@@ -2561,7 +2558,7 @@ impl PeerNetwork {
     }
 
     /// Initialize inv state
-    pub fn init_inv_sync_epoch2x(&mut self, sortdb: &SortitionDB) -> () {
+    pub fn init_inv_sync_epoch2x(&mut self, sortdb: &SortitionDB) {
         // find out who we'll be synchronizing with for the duration of this inv sync
         debug!(
             "{:?}: Initializing peer block inventory state",
@@ -2719,7 +2716,7 @@ impl PeerNetwork {
         // only count an inv_sync as passing if there's an always-allowed node
         // in our inv state
         let always_allowed: HashSet<_> =
-            PeerDB::get_always_allowed_peers(&self.peerdb.conn(), self.local_peer.network_id)
+            PeerDB::get_always_allowed_peers(self.peerdb.conn(), self.local_peer.network_id)
                 .unwrap_or(vec![])
                 .into_iter()
                 .map(|neighbor| neighbor.addr)
@@ -2729,7 +2726,7 @@ impl PeerNetwork {
         // always-allowed peer?
         let mut finished_always_allowed_inv_sync = false;
 
-        if always_allowed.len() == 0 {
+        if always_allowed.is_empty() {
             // vacuously, we are done so we can return
             return true;
         }
@@ -2742,7 +2739,7 @@ impl PeerNetwork {
         };
 
         for (nk, stats) in inv_state.block_stats.iter() {
-            if self.is_bound(&nk) {
+            if self.is_bound(nk) {
                 // this is the same address we're bound to
                 continue;
             }
@@ -2750,7 +2747,7 @@ impl PeerNetwork {
                 // this is a peer at our address
                 continue;
             }
-            if !always_allowed.contains(&nk) {
+            if !always_allowed.contains(nk) {
                 // this peer isn't in the always-allowed set
                 continue;
             }

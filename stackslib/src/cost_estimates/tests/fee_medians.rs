@@ -65,7 +65,7 @@ fn make_dummy_cc_tx(fee: u64, execution_cost: &ExecutionCost) -> StacksTransacti
         TransactionVersion::Mainnet,
         TransactionAuth::Standard(TransactionSpendingCondition::new_initial_sighash()),
         TransactionPayload::ContractCall(TransactionContractCall {
-            address: StacksAddress::new(0, Hash160([0; 20])),
+            address: StacksAddress::new(0, Hash160([0; 20])).unwrap(),
             contract_name: "cc-dummy".into(),
             function_name: "func-name".into(),
             function_args: vec![],
@@ -286,7 +286,7 @@ fn test_window_size_forget_something() {
 #[test]
 fn test_fee_rate_estimate_5_vs_95() {
     assert_eq!(
-        fee_rate_estimate_from_sorted_weighted_fees(&vec![
+        fee_rate_estimate_from_sorted_weighted_fees(&[
             FeeRateAndWeight {
                 fee_rate: 1f64,
                 weight: 5u64,
@@ -307,7 +307,7 @@ fn test_fee_rate_estimate_5_vs_95() {
 #[test]
 fn test_fee_rate_estimate_50_vs_50() {
     assert_eq!(
-        fee_rate_estimate_from_sorted_weighted_fees(&vec![
+        fee_rate_estimate_from_sorted_weighted_fees(&[
             FeeRateAndWeight {
                 fee_rate: 1f64,
                 weight: 50u64,
@@ -328,7 +328,7 @@ fn test_fee_rate_estimate_50_vs_50() {
 #[test]
 fn test_fee_rate_estimate_95_vs_5() {
     assert_eq!(
-        fee_rate_estimate_from_sorted_weighted_fees(&vec![
+        fee_rate_estimate_from_sorted_weighted_fees(&[
             FeeRateAndWeight {
                 fee_rate: 1f64,
                 weight: 95u64,

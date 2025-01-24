@@ -81,8 +81,8 @@ fn trie_cmp<T: MarfTrieId>(
     let mut frontier_1 = VecDeque::new();
     let mut frontier_2 = VecDeque::new();
 
-    assert!(t1.data().len() > 0);
-    assert!(t2.data().len() > 0);
+    assert!(!t1.data().is_empty());
+    assert!(!t2.data().is_empty());
 
     let (n1_data, n1_hash) = t1.data()[0].clone();
     let (n2_data, n2_hash) = t2.data()[0].clone();
@@ -99,7 +99,7 @@ fn trie_cmp<T: MarfTrieId>(
     frontier_1.push_back((n1_data, n1_hash));
     frontier_2.push_back((n2_data, n2_hash));
 
-    while frontier_1.len() > 0 && frontier_2.len() > 0 {
+    while !frontier_1.is_empty() && !frontier_2.is_empty() {
         if frontier_1.len() != frontier_2.len() {
             debug!("frontier len mismatch");
             return false;
@@ -121,13 +121,13 @@ fn trie_cmp<T: MarfTrieId>(
         // search children
         for ptr in n1_data.ptrs() {
             if ptr.id != TrieNodeID::Empty as u8 && !is_backptr(ptr.id) {
-                let (child_data, child_hash) = t1.read_nodetype(&ptr).unwrap();
+                let (child_data, child_hash) = t1.read_nodetype(ptr).unwrap();
                 frontier_1.push_back((child_data, child_hash))
             }
         }
         for ptr in n2_data.ptrs() {
             if ptr.id != TrieNodeID::Empty as u8 && !is_backptr(ptr.id) {
-                let (child_data, child_hash) = t2.read_nodetype(&ptr).unwrap();
+                let (child_data, child_hash) = t2.read_nodetype(ptr).unwrap();
                 frontier_2.push_back((child_data, child_hash))
             }
         }
@@ -165,7 +165,7 @@ fn load_store_trie_m_n_same(m: u64, n: u64, same: bool) {
         path_bytes[24..32].copy_from_slice(&i.to_be_bytes());
 
         let path = TrieHash::from_bytes(&path_bytes).unwrap();
-        let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
+        let value = TrieLeaf::new(&[], &[i as u8; 40]);
         confirmed_marf.insert_raw(path.clone(), value).unwrap();
     }
 
@@ -236,7 +236,7 @@ fn load_store_trie_m_n_same(m: u64, n: u64, same: bool) {
             }
 
             let path = TrieHash::from_bytes(&path_bytes).unwrap();
-            let value = TrieLeaf::new(&vec![], &[(i + 128) as u8; 40].to_vec());
+            let value = TrieLeaf::new(&[], &[(i + 128) as u8; 40]);
 
             new_inserted.push((path.clone(), value.clone()));
 
@@ -254,7 +254,7 @@ fn load_store_trie_m_n_same(m: u64, n: u64, same: bool) {
 
         // verify that all new keys are there, off the unconfirmed tip
         for (path, expected_value) in new_inserted.iter() {
-            let value = MARF::get_path(&mut marf.borrow_storage_backend(), &unconfirmed_tip, &path)
+            let value = MARF::get_path(&mut marf.borrow_storage_backend(), &unconfirmed_tip, path)
                 .unwrap()
                 .unwrap();
             assert_eq!(expected_value.data, value.data);
@@ -280,9 +280,9 @@ fn load_store_trie_m_n_same(m: u64, n: u64, same: bool) {
 
     // test rollback
     for path in all_new_paths.iter() {
-        eprintln!("path present? {:?}", &path);
+        eprintln!("path present? {path:?}");
         assert!(
-            MARF::get_path(&mut marf.borrow_storage_backend(), &unconfirmed_tip, &path)
+            MARF::get_path(&mut marf.borrow_storage_backend(), &unconfirmed_tip, path)
                 .unwrap()
                 .is_some()
         );
@@ -291,8 +291,8 @@ fn load_store_trie_m_n_same(m: u64, n: u64, same: bool) {
     marf.drop_unconfirmed();
 
     for path in all_new_paths.iter() {
-        eprintln!("path absent?  {:?}", &path);
-        assert!(MARF::get_path(&mut marf.borrow_storage_backend(), &confirmed_tip, &path).is_err());
+        eprintln!("path absent?  {path:?}");
+        assert!(MARF::get_path(&mut marf.borrow_storage_backend(), &confirmed_tip, path).is_err());
     }
 }
 

@@ -313,7 +313,7 @@ impl StackerDBs {
                 // attempt to load the config from the contract itself
                 StackerDBConfig::from_smart_contract(
                     chainstate,
-                    &sortdb,
+                    sortdb,
                     &stackerdb_contract_id,
                     num_neighbors,
                     connection_opts
@@ -347,7 +347,7 @@ impl StackerDBs {
                         &e
                     );
                 }
-            } else if (new_config != stackerdb_config && new_config.signers.len() > 0)
+            } else if (new_config != stackerdb_config && !new_config.signers.is_empty())
                 || (new_config == stackerdb_config
                     && new_config.signers.len()
                         != self.get_slot_versions(&stackerdb_contract_id)?.len())
@@ -546,7 +546,7 @@ impl PeerNetwork {
             if let Ok(Some(_)) = NakamotoChainState::get_tenure_start_block_header(
                 &mut chainstate.index_conn(),
                 &tip_block_id,
-                &rc_consensus_hash,
+                rc_consensus_hash,
             ) {
                 debug!("{:?}: NACK StackerDBGetChunksInv / StackerDBPushChunk from {} since {} != {} (remote is stale)", self.get_local_peer(), &naddr, &self.get_chain_view().rc_consensus_hash, rc_consensus_hash);
                 return StacksMessageType::Nack(NackData::new(NackErrorCodes::StaleView));

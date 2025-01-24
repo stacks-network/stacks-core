@@ -76,14 +76,14 @@ fn disable_pox() {
     });
 
     initial_balances.push(InitialBalance {
-        address: spender_2_addr.clone(),
+        address: spender_2_addr,
         amount: stacked + 100_000,
     });
 
     // // create a third initial balance so that there's more liquid ustx than the stacked amount bug.
     // //  otherwise, it surfaces the DoS vector.
     initial_balances.push(InitialBalance {
-        address: spender_3_addr.clone(),
+        address: spender_3_addr,
         amount: stacked + 100_000,
     });
 
@@ -220,7 +220,7 @@ fn disable_pox() {
         "stack-stx",
         &[
             Value::UInt(stacked.into()),
-            pox_addr_tuple_1.clone(),
+            pox_addr_tuple_1,
             Value::UInt(sort_height as u128),
             Value::UInt(12),
         ],
@@ -269,7 +269,7 @@ fn disable_pox() {
         "stack-stx",
         &[
             Value::UInt(stacked.into()),
-            pox_addr_tuple_2.clone(),
+            pox_addr_tuple_2,
             Value::UInt(sort_height as u128),
             Value::UInt(12),
         ],
@@ -288,7 +288,7 @@ fn disable_pox() {
         "stack-stx",
         &[
             Value::UInt(stacked.into()),
-            pox_addr_tuple_3.clone(),
+            pox_addr_tuple_3,
             Value::UInt(sort_height as u128),
             Value::UInt(10),
         ],
@@ -444,22 +444,23 @@ fn disable_pox() {
     let reward_cycle_max = *reward_cycle_pox_addrs.keys().max().unwrap();
 
     let pox_addr_1 = PoxAddress::Standard(
-        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_1).unwrap()),
+        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_1).unwrap()).unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
     let pox_addr_2 = PoxAddress::Standard(
-        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_2).unwrap()),
+        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_2).unwrap()).unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
     let pox_addr_3 = PoxAddress::Standard(
-        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_3).unwrap()),
+        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_3).unwrap()).unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
     let burn_pox_addr = PoxAddress::Standard(
         StacksAddress::new(
             26,
             Hash160::from_hex("0000000000000000000000000000000000000000").unwrap(),
-        ),
+        )
+        .unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
 
@@ -474,7 +475,7 @@ fn disable_pox() {
         ),
         (
             23u64,
-            HashMap::from([(pox_addr_1.clone(), 13u64), (burn_pox_addr.clone(), 1)]),
+            HashMap::from([(pox_addr_1, 13u64), (burn_pox_addr.clone(), 1)]),
         ),
         // cycle 24 is the first 2.1, it should have pox_2 and pox_3 with equal
         //  slots (because increase hasn't gone into effect yet) and 2 burn slots
@@ -491,14 +492,14 @@ fn disable_pox() {
         (
             25,
             HashMap::from([
-                (pox_addr_2.clone(), 9u64),
-                (pox_addr_3.clone(), 4),
+                (pox_addr_2, 9u64),
+                (pox_addr_3, 4),
                 (burn_pox_addr.clone(), 1),
             ]),
         ),
         // Epoch 2.2 has started, so the reward set should be all burns.
         (26, HashMap::from([(burn_pox_addr.clone(), 14)])),
-        (27, HashMap::from([(burn_pox_addr.clone(), 14)])),
+        (27, HashMap::from([(burn_pox_addr, 14)])),
     ]);
 
     for reward_cycle in reward_cycle_min..(reward_cycle_max + 1) {
@@ -742,7 +743,7 @@ fn pox_2_unlock_all() {
         "stack-stx",
         &[
             Value::UInt(stacked.into()),
-            pox_addr_tuple_1.clone(),
+            pox_addr_tuple_1,
             Value::UInt(sort_height as u128),
             Value::UInt(12),
         ],
@@ -803,7 +804,7 @@ fn pox_2_unlock_all() {
         "stack-stx",
         &[
             Value::UInt(stacked.into()),
-            pox_addr_tuple_2.clone(),
+            pox_addr_tuple_2,
             Value::UInt(sort_height as u128),
             Value::UInt(12),
         ],
@@ -823,7 +824,7 @@ fn pox_2_unlock_all() {
         "stack-stx",
         &[
             Value::UInt(stacked.into()),
-            pox_addr_tuple_3.clone(),
+            pox_addr_tuple_3,
             Value::UInt(sort_height as u128),
             Value::UInt(10),
         ],
@@ -1110,41 +1111,39 @@ fn pox_2_unlock_all() {
     let reward_cycle_max = *reward_cycle_pox_addrs.keys().max().unwrap();
 
     let pox_addr_1 = PoxAddress::Standard(
-        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_1).unwrap()),
+        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_1).unwrap()).unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
     let pox_addr_2 = PoxAddress::Standard(
-        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_2).unwrap()),
+        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_2).unwrap()).unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
     let pox_addr_3 = PoxAddress::Standard(
-        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_3).unwrap()),
+        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_3).unwrap()).unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
     let burn_pox_addr = PoxAddress::Standard(
         StacksAddress::new(
             26,
             Hash160::from_hex("0000000000000000000000000000000000000000").unwrap(),
-        ),
+        )
+        .unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
 
     let expected_slots = HashMap::from([
         (42u64, HashMap::from([(pox_addr_1.clone(), 4u64)])),
         (43, HashMap::from([(pox_addr_1.clone(), 4)])),
-        (44, HashMap::from([(pox_addr_1.clone(), 4)])),
+        (44, HashMap::from([(pox_addr_1, 4)])),
         // cycle 45 is the first 2.1, and in the setup of this test, there's not
         //  enough time for the stackers to begin in this cycle
         (45, HashMap::from([(burn_pox_addr.clone(), 4)])),
         (46, HashMap::from([(burn_pox_addr.clone(), 4)])),
-        (
-            47,
-            HashMap::from([(pox_addr_2.clone(), 2), (pox_addr_3.clone(), 2)]),
-        ),
+        (47, HashMap::from([(pox_addr_2, 2), (pox_addr_3, 2)])),
         // Now 2.2 is active, everything should be a burn.
         (48, HashMap::from([(burn_pox_addr.clone(), 4)])),
         (49, HashMap::from([(burn_pox_addr.clone(), 4)])),
-        (50, HashMap::from([(burn_pox_addr.clone(), 4)])),
+        (50, HashMap::from([(burn_pox_addr, 4)])),
     ]);
 
     for reward_cycle in reward_cycle_min..(reward_cycle_max + 1) {

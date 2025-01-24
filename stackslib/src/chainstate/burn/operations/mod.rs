@@ -360,7 +360,7 @@ pub enum BlockstackOperationType {
 }
 
 // serialization helpers for blockstack_op_to_json function
-pub fn memo_serialize(memo: &Vec<u8>) -> String {
+pub fn memo_serialize(memo: &[u8]) -> String {
     let hex_inst = to_hex(memo);
     format!("0x{}", hex_inst)
 }
@@ -369,8 +369,8 @@ pub fn stacks_addr_serialize(addr: &StacksAddress) -> serde_json::Value {
     let addr_str = addr.to_string();
     json!({
         "address": addr_str,
-        "address_hash_bytes": format!("0x{}", addr.bytes),
-        "address_version": addr.version
+        "address_hash_bytes": format!("0x{}", addr.bytes()),
+        "address_version": addr.version()
     })
 }
 

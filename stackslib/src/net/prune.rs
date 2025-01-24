@@ -54,7 +54,7 @@ impl PeerNetwork {
                 None => {
                     continue;
                 }
-                Some(ref convo) => {
+                Some(convo) => {
                     if !convo.stats.outbound {
                         continue;
                     }
@@ -88,7 +88,7 @@ impl PeerNetwork {
                 "==== ORG NEIGHBOR DISTRIBUTION OF {:?} ===",
                 &self.local_peer
             );
-            for (ref _org, ref neighbor_infos) in org_neighbor.iter() {
+            for (ref _org, neighbor_infos) in org_neighbor.iter() {
                 let _neighbors: Vec<NeighborKey> =
                     neighbor_infos.iter().map(|ni| ni.0.clone()).collect();
                 test_debug!(
@@ -196,14 +196,12 @@ impl PeerNetwork {
             // likely to be up for X more seconds, so we only really want to distinguish between nodes that
             // have wildly different uptimes.
             // Within uptime buckets, sort by health.
-            match org_neighbors.get_mut(&org) {
+            match org_neighbors.get_mut(org) {
                 None => {}
                 Some(ref mut neighbor_infos) => {
-                    neighbor_infos.sort_unstable_by(
-                        |&(ref _nk1, ref stats1), &(ref _nk2, ref stats2)| {
-                            PeerNetwork::compare_neighbor_uptime_health(stats1, stats2)
-                        },
-                    );
+                    neighbor_infos.sort_unstable_by(|(_nk1, stats1), (_nk2, stats2)| {
+                        PeerNetwork::compare_neighbor_uptime_health(stats1, stats2)
+                    });
                 }
             }
         }
@@ -211,7 +209,7 @@ impl PeerNetwork {
         // don't let a single organization have more than
         // soft_max_neighbors_per_org neighbors.
         for org in orgs.iter() {
-            match org_neighbors.get_mut(&org) {
+            match org_neighbors.get_mut(org) {
                 None => {}
                 Some(ref mut neighbor_infos) => {
                     if neighbor_infos.len() as u64 > self.connection_opts.soft_max_neighbors_per_org
@@ -269,11 +267,11 @@ impl PeerNetwork {
         while num_outbound - (ret.len() as u64) > self.connection_opts.soft_num_neighbors {
             let mut weighted_sample: HashMap<u32, usize> = HashMap::new();
             for (org, neighbor_info) in org_neighbors.iter() {
-                if neighbor_info.len() > 0 {
+                if !neighbor_info.is_empty() {
                     weighted_sample.insert(*org, neighbor_info.len());
                 }
             }
-            if weighted_sample.len() == 0 {
+            if weighted_sample.is_empty() {
                 // nothing to do
                 break;
             }
@@ -324,8 +322,8 @@ impl PeerNetwork {
             if preserve.contains(event_id) {
                 continue;
             }
-            match self.peers.get(&event_id) {
-                Some(ref convo) => {
+            match self.peers.get(event_id) {
+                Some(convo) => {
                     if !convo.stats.outbound {
                         let stats = convo.stats.clone();
                         if let Some(entry) = ip_neighbor.get_mut(&nk.addrbytes) {
@@ -341,17 +339,15 @@ impl PeerNetwork {
 
         // sort in order by first-contact time (oldest first)
         for (_, stats_list) in ip_neighbor.iter_mut() {
-            stats_list.sort_by(
-                |&(ref _e1, ref _nk1, ref stats1), &(ref _e2, ref _nk2, ref stats2)| {
-                    if stats1.first_contact_time < stats2.first_contact_time {
-                        Ordering::Less
-                    } else if stats1.first_contact_time > stats2.first_contact_time {
-                        Ordering::Greater
-                    } else {
-                        Ordering::Equal
-                    }
-                },
-            );
+            stats_list.sort_by(|(_e1, _nk1, stats1), (_e2, _nk2, stats2)| {
+                if stats1.first_contact_time < stats2.first_contact_time {
+                    Ordering::Less
+                } else if stats1.first_contact_time > stats2.first_contact_time {
+                    Ordering::Greater
+                } else {
+                    Ordering::Equal
+                }
+            });
         }
 
         let mut to_remove = vec![];
@@ -397,7 +393,7 @@ impl PeerNetwork {
     }
 
     /// Prune our frontier.  Ignore connections in the preserve set.
-    pub fn prune_frontier(&mut self, preserve: &HashSet<usize>) -> () {
+    pub fn prune_frontier(&mut self, preserve: &HashSet<usize>) {
         let num_outbound = PeerNetwork::count_outbound_conversations(&self.peers);
         let num_inbound = (self.peers.len() as u64).saturating_sub(num_outbound);
         debug!(
@@ -415,7 +411,7 @@ impl PeerNetwork {
 
         for prune in pruned_by_ip.iter() {
             debug!("{:?}: prune by IP: {:?}", &self.local_peer, prune);
-            self.deregister_neighbor(&prune);
+            self.deregister_neighbor(prune);
 
             if !self.prune_inbound_counts.contains_key(prune) {
                 self.prune_inbound_counts.insert(prune.clone(), 1);
@@ -437,7 +433,7 @@ impl PeerNetwork {
 
         for prune in pruned_by_org.iter() {
             debug!("{:?}: prune by Org: {:?}", &self.local_peer, prune);
-            self.deregister_neighbor(&prune);
+            self.deregister_neighbor(prune);
 
             if !self.prune_outbound_counts.contains_key(prune) {
                 self.prune_outbound_counts.insert(prune.clone(), 1);
@@ -449,7 +445,7 @@ impl PeerNetwork {
 
         #[cfg(test)]
         {
-            if pruned_by_ip.len() > 0 || pruned_by_org.len() > 0 {
+            if !pruned_by_ip.is_empty() || !pruned_by_org.is_empty() {
                 let (mut inbound, mut outbound) = self.dump_peer_table();
 
                 inbound.sort();

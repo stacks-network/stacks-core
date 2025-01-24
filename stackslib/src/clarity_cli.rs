@@ -74,8 +74,8 @@ lazy_static! {
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
         ("cost-voting", BOOT_CODE_COST_VOTING_MAINNET),
-        ("bns", &BOOT_CODE_BNS),
-        ("genesis", &BOOT_CODE_GENESIS),
+        ("bns", BOOT_CODE_BNS),
+        ("genesis", BOOT_CODE_GENESIS),
         ("costs-2", BOOT_CODE_COSTS_2),
         ("pox-2", &POX_2_MAINNET_CODE),
         ("costs-3", BOOT_CODE_COSTS_3),
@@ -85,8 +85,8 @@ lazy_static! {
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
         ("cost-voting", &BOOT_CODE_COST_VOTING_TESTNET),
-        ("bns", &BOOT_CODE_BNS),
-        ("genesis", &BOOT_CODE_GENESIS),
+        ("bns", BOOT_CODE_BNS),
+        ("genesis", BOOT_CODE_GENESIS),
         ("costs-2", BOOT_CODE_COSTS_2_TESTNET),
         ("pox-2", &POX_2_TESTNET_CODE),
         ("costs-3", BOOT_CODE_COSTS_3),
@@ -163,7 +163,7 @@ fn parse(
         DEFAULT_CLI_EPOCH,
         ASTRules::PrecheckSize,
     )
-    .map_err(|e| RuntimeErrorType::ASTError(e))?;
+    .map_err(RuntimeErrorType::ASTError)?;
     Ok(ast.expressions)
 }
 
@@ -173,7 +173,7 @@ trait ClarityStorage {
         headers_db: &'a dyn HeadersDB,
         burn_db: &'a dyn BurnStateDB,
     ) -> ClarityDatabase<'a>;
-    fn get_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a>;
+    fn get_analysis_db(&mut self) -> AnalysisDatabase<'_>;
 }
 
 impl ClarityStorage for WritableMarfStore<'_> {
@@ -185,7 +185,7 @@ impl ClarityStorage for WritableMarfStore<'_> {
         self.as_clarity_db(headers_db, burn_db)
     }
 
-    fn get_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
+    fn get_analysis_db(&mut self) -> AnalysisDatabase<'_> {
         self.as_analysis_db()
     }
 }
@@ -199,7 +199,7 @@ impl ClarityStorage for MemoryBackingStore {
         self.as_clarity_db()
     }
 
-    fn get_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
+    fn get_analysis_db(&mut self) -> AnalysisDatabase<'_> {
         self.as_analysis_db()
     }
 }
@@ -300,7 +300,7 @@ fn get_cli_chain_tip(conn: &Connection) -> StacksBlockId {
     let mut hash_opt = None;
     while let Some(row) = rows.next().expect("FATAL: could not read block hash") {
         let bhh = friendly_expect(
-            StacksBlockId::from_column(&row, "block_hash"),
+            StacksBlockId::from_column(row, "block_hash"),
             "FATAL: could not parse block hash",
         );
         hash_opt = Some(bhh);
@@ -320,10 +320,7 @@ fn get_cli_block_height(conn: &Connection, block_id: &StacksBlockId) -> Option<u
     let mut row_opt = None;
 
     while let Some(row) = rows.next().expect("FATAL: could not read block hash") {
-        let rowid = friendly_expect(
-            u64::from_column(&row, "id"),
-            "FATAL: could not parse row ID",
-        );
+        let rowid = friendly_expect(u64::from_column(row, "id"), "FATAL: could not parse row ID");
         row_opt = Some(rowid);
         break;
     }
@@ -515,7 +512,7 @@ impl CLIHeadersDB {
                 "CREATE TABLE IF NOT EXISTS cli_chain_tips(id INTEGER PRIMARY KEY AUTOINCREMENT, block_hash TEXT UNIQUE NOT NULL);",
                 NO_PARAMS
             ),
-            &format!("FATAL: failed to create 'cli_chain_tips' table"),
+            "FATAL: failed to create 'cli_chain_tips' table",
         );
 
         friendly_expect(
@@ -523,13 +520,13 @@ impl CLIHeadersDB {
                 "CREATE TABLE IF NOT EXISTS cli_config(testnet BOOLEAN NOT NULL);",
                 NO_PARAMS,
             ),
-            &format!("FATAL: failed to create 'cli_config' table"),
+            "FATAL: failed to create 'cli_config' table",
         );
 
         if !mainnet {
             friendly_expect(
                 tx.execute("INSERT INTO cli_config (testnet) VALUES (?1)", &[&true]),
-                &format!("FATAL: failed to set testnet flag"),
+                "FATAL: failed to set testnet flag",
             );
         }
 
@@ -547,7 +544,7 @@ impl CLIHeadersDB {
         let conn = create_or_open_db(&cli_db_path);
         let mut db = CLIHeadersDB {
             db_path: db_path.to_string(),
-            conn: conn,
+            conn,
         };
 
         if instantiate {
@@ -567,7 +564,7 @@ impl CLIHeadersDB {
         let conn = create_or_open_db(&cli_db_path);
         let db = CLIHeadersDB {
             db_path: db_path.to_string(),
-            conn: conn,
+            conn,
         };
 
         Ok(db)
@@ -645,7 +642,7 @@ impl HeadersDB for CLIHeadersDB {
     ) -> Option<BurnchainHeaderHash> {
         // mock it
         let conn = self.conn();
-        if let Some(_) = get_cli_block_height(&conn, id_bhh) {
+        if let Some(_) = get_cli_block_height(conn, id_bhh) {
             let hash_bytes = Sha512Trunc256Sum::from_data(&id_bhh.0);
             Some(BurnchainHeaderHash(hash_bytes.0))
         } else {
@@ -660,7 +657,7 @@ impl HeadersDB for CLIHeadersDB {
     ) -> Option<ConsensusHash> {
         // mock it
         let conn = self.conn();
-        if let Some(_) = get_cli_block_height(&conn, id_bhh) {
+        if let Some(_) = get_cli_block_height(conn, id_bhh) {
             let hash_bytes = Hash160::from_data(&id_bhh.0);
             Some(ConsensusHash(hash_bytes.0))
         } else {
@@ -674,7 +671,7 @@ impl HeadersDB for CLIHeadersDB {
         _epoch: &StacksEpochId,
     ) -> Option<VRFSeed> {
         let conn = self.conn();
-        if let Some(_) = get_cli_block_height(&conn, id_bhh) {
+        if let Some(_) = get_cli_block_height(conn, id_bhh) {
             // mock it, but make it unique
             let hash_bytes = Sha512Trunc256Sum::from_data(&id_bhh.0);
             let hash_bytes_2 = Sha512Trunc256Sum::from_data(&hash_bytes.0);
@@ -690,7 +687,7 @@ impl HeadersDB for CLIHeadersDB {
         _epoch: &StacksEpochId,
     ) -> Option<BlockHeaderHash> {
         let conn = self.conn();
-        if let Some(_) = get_cli_block_height(&conn, id_bhh) {
+        if let Some(_) = get_cli_block_height(conn, id_bhh) {
             // mock it, but make it unique
             let hash_bytes = Sha512Trunc256Sum::from_data(&id_bhh.0);
             let hash_bytes_2 = Sha512Trunc256Sum::from_data(&hash_bytes.0);
@@ -707,8 +704,8 @@ impl HeadersDB for CLIHeadersDB {
         _epoch: Option<&StacksEpochId>,
     ) -> Option<u64> {
         let conn = self.conn();
-        if let Some(height) = get_cli_block_height(&conn, id_bhh) {
-            Some((height * 600 + 1231006505) as u64)
+        if let Some(height) = get_cli_block_height(conn, id_bhh) {
+            Some(height * 600 + 1231006505)
         } else {
             None
         }
@@ -716,8 +713,8 @@ impl HeadersDB for CLIHeadersDB {
 
     fn get_stacks_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
         let conn = self.conn();
-        if let Some(height) = get_cli_block_height(&conn, id_bhh) {
-            Some((height * 10 + 1713799973) as u64)
+        if let Some(height) = get_cli_block_height(conn, id_bhh) {
+            Some(height * 10 + 1713799973)
         } else {
             None
         }
@@ -725,7 +722,7 @@ impl HeadersDB for CLIHeadersDB {
 
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
         let conn = self.conn();
-        if let Some(height) = get_cli_block_height(&conn, id_bhh) {
+        if let Some(height) = get_cli_block_height(conn, id_bhh) {
             Some(height as u32)
         } else {
             None
@@ -746,7 +743,7 @@ impl HeadersDB for CLIHeadersDB {
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         // if the block is defined at all, then return a constant
-        get_cli_block_height(&self.conn(), id_bhh).map(|_| 2000)
+        get_cli_block_height(self.conn(), id_bhh).map(|_| 2000)
     }
 
     fn get_burnchain_tokens_spent_for_winning_block(
@@ -755,7 +752,7 @@ impl HeadersDB for CLIHeadersDB {
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         // if the block is defined at all, then return a constant
-        get_cli_block_height(&self.conn(), id_bhh).map(|_| 1000)
+        get_cli_block_height(self.conn(), id_bhh).map(|_| 1000)
     }
 
     fn get_tokens_earned_for_block(
@@ -764,7 +761,7 @@ impl HeadersDB for CLIHeadersDB {
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         // if the block is defined at all, then return a constant
-        get_cli_block_height(&self.conn(), id_bhh).map(|_| 3000)
+        get_cli_block_height(self.conn(), id_bhh).map(|_| 3000)
     }
 
     fn get_stacks_height_for_tenure_height(
@@ -911,7 +908,7 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
         let mut ast = friendly_expect(
             parse(
                 &contract_identifier,
-                &contract_content,
+                contract_content,
                 ClarityVersion::Clarity2,
             ),
             "Failed to parse program.",
@@ -931,7 +928,7 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
                     .initialize_versioned_contract(
                         contract_identifier,
                         ClarityVersion::Clarity2,
-                        &contract_content,
+                        contract_content,
                         None,
                         ASTRules::PrecheckSize,
                     )
@@ -987,7 +984,7 @@ pub fn add_assets(result: &mut serde_json::Value, assets: bool, asset_map: Asset
 
 pub fn add_serialized_output(result: &mut serde_json::Value, value: Value) {
     let result_raw = {
-        let bytes = (&value).serialize_to_vec().unwrap();
+        let bytes = value.serialize_to_vec().unwrap();
         bytes_to_hex(&bytes)
     };
     result["output_serialized"] = serde_json::to_value(result_raw.as_str()).unwrap();
@@ -995,14 +992,14 @@ pub fn add_serialized_output(result: &mut serde_json::Value, value: Value) {
 
 /// Returns (process-exit-code, Option<json-output>)
 pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_json::Value>) {
-    if args.len() < 1 {
+    if args.is_empty() {
         print_usage(invoked_by);
         return (1, None);
     }
 
     match args[0].as_ref() {
         "initialize" => {
-            let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
+            let mut argv = args.to_vec();
 
             let mainnet = if let Ok(Some(_)) = consume_arg(&mut argv, &["--testnet"], false) {
                 false
@@ -1055,8 +1052,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 panic_test!();
             };
 
-            debug!("Initialize {}", &db_name);
-            let mut header_db = CLIHeadersDB::new(&db_name, mainnet);
+            debug!("Initialize {db_name}");
+            let mut header_db = CLIHeadersDB::new(db_name, mainnet);
             let mut marf_kv = friendly_expect(
                 MarfedKV::open(db_name, None, None),
                 "Failed to open VM database.",
@@ -1127,7 +1124,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 panic_test!();
             }
 
-            let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
+            let mut argv = args.to_vec();
             let contract_id = if let Ok(optarg) = consume_arg(&mut argv, &["--contract_id"], true) {
                 optarg
                     .map(|optarg_str| {
@@ -1253,7 +1250,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             (0, Some(result))
         }
         "repl" => {
-            let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
+            let mut argv = args.to_vec();
             let mainnet = if let Ok(Some(_)) = consume_arg(&mut argv, &["--testnet"], false) {
                 false
             } else {
@@ -1266,11 +1263,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 marf.as_clarity_db(),
                 DEFAULT_CLI_EPOCH,
             );
-            let mut placeholder_context = ContractContext::new(
+            let placeholder_context = ContractContext::new(
                 QualifiedContractIdentifier::transient(),
                 ClarityVersion::Clarity2,
             );
-            let mut exec_env = vm_env.get_exec_environment(None, None, &mut placeholder_context);
+            let mut exec_env = vm_env.get_exec_environment(None, None, &placeholder_context);
             let mut analysis_marf = MemoryBackingStore::new();
 
             let contract_id = QualifiedContractIdentifier::transient();
@@ -1281,15 +1278,15 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 let content: String = {
                     let mut buffer = String::new();
                     stdout.write(b"> ").unwrap_or_else(|e| {
-                        panic!("Failed to write stdout prompt string:\n{}", e);
+                        panic!("Failed to write stdout prompt string:\n{e}");
                     });
                     stdout.flush().unwrap_or_else(|e| {
-                        panic!("Failed to flush stdout prompt string:\n{}", e);
+                        panic!("Failed to flush stdout prompt string:\n{e}");
                     });
                     match io::stdin().read_line(&mut buffer) {
                         Ok(_) => buffer,
                         Err(error) => {
-                            eprintln!("Error reading from stdin:\n{}", error);
+                            eprintln!("Error reading from stdin:\n{error}");
                             panic_test!();
                         }
                     }
@@ -1343,7 +1340,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             );
 
             let contract_id = QualifiedContractIdentifier::transient();
-            let mut placeholder_context = ContractContext::new(
+            let placeholder_context = ContractContext::new(
                 QualifiedContractIdentifier::transient(),
                 ClarityVersion::Clarity2,
             );
@@ -1355,7 +1352,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             match run_analysis_free(&contract_id, &mut ast, &mut analysis_marf, true) {
                 Ok(_) => {
                     let result = vm_env
-                        .get_exec_environment(None, None, &mut placeholder_context)
+                        .get_exec_environment(None, None, &placeholder_context)
                         .eval_raw_with_rules(&content, ASTRules::PrecheckSize);
                     match result {
                         Ok(x) => (
@@ -1385,7 +1382,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             }
         }
         "eval" => {
-            let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
+            let mut argv = args.to_vec();
 
             let costs = if let Ok(Some(_)) = consume_arg(&mut argv, &["--costs"], false) {
                 true
@@ -1402,7 +1399,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 "Failed to open VM database.",
             );
             let mainnet = header_db.is_mainnet();
-            let mut placeholder_context = ContractContext::new(
+            let placeholder_context = ContractContext::new(
                 QualifiedContractIdentifier::transient(),
                 ClarityVersion::Clarity2,
             );
@@ -1411,7 +1408,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 let result_and_cost =
                     with_env_costs(mainnet, &header_db, &mut marf, None, |vm_env| {
                         vm_env
-                            .get_exec_environment(None, None, &mut placeholder_context)
+                            .get_exec_environment(None, None, &placeholder_context)
                             .eval_read_only_with_rules(
                                 &evalInput.contract_identifier,
                                 &evalInput.content,
@@ -1448,7 +1445,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             }
         }
         "eval_at_chaintip" => {
-            let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
+            let mut argv = args.to_vec();
 
             let costs = if let Ok(Some(_)) = consume_arg(&mut argv, &["--costs"], false) {
                 true
@@ -1471,7 +1468,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             );
 
             let mainnet = header_db.is_mainnet();
-            let mut placeholder_context = ContractContext::new(
+            let placeholder_context = ContractContext::new(
                 QualifiedContractIdentifier::transient(),
                 ClarityVersion::Clarity2,
             );
@@ -1488,7 +1485,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     coverage.as_mut(),
                     |vm_env| {
                         vm_env
-                            .get_exec_environment(None, None, &mut placeholder_context)
+                            .get_exec_environment(None, None, &placeholder_context)
                             .eval_read_only_with_rules(
                                 &evalInput.contract_identifier,
                                 &evalInput.content,
@@ -1530,7 +1527,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             }
         }
         "eval_at_block" => {
-            let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
+            let mut argv = args.to_vec();
 
             let costs = if let Ok(Some(_)) = consume_arg(&mut argv, &["--costs"], false) {
                 true
@@ -1567,7 +1564,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 "Failed to open VM database.",
             );
             let mainnet = header_db.is_mainnet();
-            let mut placeholder_context = ContractContext::new(
+            let placeholder_context = ContractContext::new(
                 QualifiedContractIdentifier::transient(),
                 ClarityVersion::Clarity2,
             );
@@ -1575,7 +1572,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 let result_and_cost =
                     with_env_costs(mainnet, &header_db, &mut marf, None, |vm_env| {
                         vm_env
-                            .get_exec_environment(None, None, &mut placeholder_context)
+                            .get_exec_environment(None, None, &placeholder_context)
                             .eval_read_only_with_rules(
                                 &contract_identifier,
                                 &content,
@@ -1612,7 +1609,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             }
         }
         "launch" => {
-            let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
+            let mut argv = args.to_vec();
             let coverage_folder = if let Ok(covarg) = consume_arg(&mut argv, &["--c"], true) {
                 covarg
             } else {
@@ -1767,7 +1764,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             }
         }
         "execute" => {
-            let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
+            let mut argv = args.to_vec();
             let coverage_folder = if let Ok(covarg) = consume_arg(&mut argv, &["--c"], true) {
                 covarg
             } else {
@@ -1847,7 +1844,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                             sender,
                             None,
                             contract_identifier,
-                            &tx_name,
+                            tx_name,
                             &arguments,
                         )
                     },
@@ -1948,6 +1945,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
 #[cfg(test)]
 mod test {
+    use std::path::Path;
+
+    use stacks_common::util::cargo_workspace;
+
     use super::*;
 
     #[test]
@@ -1974,7 +1975,7 @@ mod test {
 
         let invoked = invoke_command(
             "test",
-            &["initialize".to_string(), json_name.clone(), db_name.clone()],
+            &["initialize".to_string(), json_name, db_name.clone()],
         );
         let exit = invoked.0;
         let result = invoked.1.unwrap();
@@ -2034,6 +2035,13 @@ mod test {
         assert!(!header_db.is_mainnet());
     }
 
+    fn cargo_workspace_as_string<P>(relative_path: P) -> String
+    where
+        P: AsRef<Path>,
+    {
+        cargo_workspace(relative_path).display().to_string()
+    }
+
     #[test]
     fn test_samples() {
         let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
@@ -2046,7 +2054,7 @@ mod test {
             "test",
             &[
                 "check".to_string(),
-                "../sample-contracts/tokens.clar".to_string(),
+                cargo_workspace_as_string("sample/contracts/tokens.clar"),
             ],
         );
 
@@ -2054,14 +2062,14 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
 
         eprintln!("check tokens (idempotency)");
         let invoked = invoke_command(
             "test",
             &[
                 "check".to_string(),
-                "../sample-contracts/tokens.clar".to_string(),
+                cargo_workspace_as_string("sample/contracts/tokens.clar"),
                 db_name.clone(),
             ],
         );
@@ -2070,7 +2078,7 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
 
         eprintln!("launch tokens");
         let invoked = invoke_command(
@@ -2078,7 +2086,7 @@ mod test {
             &[
                 "launch".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
-                "../sample-contracts/tokens.clar".to_string(),
+                cargo_workspace_as_string("sample/contracts/tokens.clar"),
                 db_name.clone(),
             ],
         );
@@ -2087,14 +2095,14 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
 
         eprintln!("check names");
         let invoked = invoke_command(
             "test",
             &[
                 "check".to_string(),
-                "../sample-contracts/names.clar".to_string(),
+                cargo_workspace_as_string("sample/contracts/names.clar"),
                 db_name.clone(),
             ],
         );
@@ -2103,14 +2111,14 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
 
         eprintln!("check names with different contract ID");
         let invoked = invoke_command(
             "test",
             &[
                 "check".to_string(),
-                "../sample-contracts/names.clar".to_string(),
+                cargo_workspace_as_string("sample/contracts/names.clar"),
                 db_name.clone(),
                 "--contract_id".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
@@ -2121,7 +2129,7 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
 
         eprintln!("check names with analysis");
         let invoked = invoke_command(
@@ -2129,7 +2137,7 @@ mod test {
             &[
                 "check".to_string(),
                 "--output_analysis".to_string(),
-                "../sample-contracts/names.clar".to_string(),
+                cargo_workspace_as_string("sample/contracts/names.clar"),
                 db_name.clone(),
             ],
         );
@@ -2138,7 +2146,7 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
         assert!(result["analysis"] != json!(null));
 
         eprintln!("check names with cost");
@@ -2147,7 +2155,7 @@ mod test {
             &[
                 "check".to_string(),
                 "--costs".to_string(),
-                "../sample-contracts/names.clar".to_string(),
+                cargo_workspace_as_string("sample/contracts/names.clar"),
                 db_name.clone(),
             ],
         );
@@ -2156,7 +2164,7 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
         assert!(result["costs"] != json!(null));
         assert!(result["assets"] == json!(null));
 
@@ -2166,7 +2174,7 @@ mod test {
             &[
                 "launch".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.names".to_string(),
-                "../sample-contracts/names.clar".to_string(),
+                cargo_workspace_as_string("sample/contracts/names.clar"),
                 "--costs".to_string(),
                 "--assets".to_string(),
                 db_name.clone(),
@@ -2177,7 +2185,7 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
         assert!(result["costs"] != json!(null));
         assert!(result["assets"] != json!(null));
 
@@ -2198,8 +2206,8 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
-        assert!(result["events"].as_array().unwrap().len() == 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
+        assert!(result["events"].as_array().unwrap().is_empty());
         assert_eq!(result["output"], json!({"UInt": 1000}));
 
         eprintln!("eval tokens");
@@ -2208,7 +2216,7 @@ mod test {
             &[
                 "eval".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
-                "../sample-contracts/tokens-mint.clar".to_string(),
+                cargo_workspace_as_string("sample/contracts/tokens-mint.clar"),
                 db_name.clone(),
             ],
         );
@@ -2236,7 +2244,7 @@ mod test {
                 "eval".to_string(),
                 "--costs".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
-                "../sample-contracts/tokens-mint.clar".to_string(),
+                cargo_workspace_as_string("sample/contracts/tokens-mint.clar"),
                 db_name.clone(),
             ],
         );
@@ -2264,7 +2272,7 @@ mod test {
             &[
                 "eval_at_chaintip".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
-                "../sample-contracts/tokens-mint.clar".to_string(),
+                cargo_workspace_as_string("sample/contracts/tokens-mint.clar"),
                 db_name.clone(),
             ],
         );
@@ -2291,8 +2299,8 @@ mod test {
             &[
                 "eval_at_chaintip".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
-                "../sample-contracts/tokens-mint.clar".to_string(),
-                db_name.clone(),
+                cargo_workspace_as_string("sample/contracts/tokens-mint.clar"),
+                db_name,
                 "--costs".to_string(),
             ],
         );
@@ -2327,7 +2335,7 @@ mod test {
             "test",
             &[
                 "check".to_string(),
-                "../sample-contracts/tokens-ft.clar".to_string(),
+                cargo_workspace_as_string("sample/contracts/tokens-ft.clar"),
             ],
         );
 
@@ -2335,7 +2343,7 @@ mod test {
         let result = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
 
         eprintln!("launch tokens");
         let invoked = invoke_command(
@@ -2343,8 +2351,8 @@ mod test {
             &[
                 "launch".to_string(),
                 "S1G2081040G2081040G2081040G208105NK8PE5.tokens-ft".to_string(),
-                "../sample-contracts/tokens-ft.clar".to_string(),
-                db_name.clone(),
+                cargo_workspace_as_string("sample/contracts/tokens-ft.clar"),
+                db_name,
                 "--assets".to_string(),
             ],
         );
@@ -2355,7 +2363,7 @@ mod test {
         eprintln!("{}", serde_json::to_string(&result).unwrap());
 
         assert_eq!(exit, 0);
-        assert!(result["message"].as_str().unwrap().len() > 0);
+        assert!(!result["message"].as_str().unwrap().is_empty());
         assert!(
             result["assets"]["tokens"]["S1G2081040G2081040G2081040G208105NK8PE5"]
                 ["S1G2081040G2081040G2081040G208105NK8PE5.tokens-ft::tokens"]

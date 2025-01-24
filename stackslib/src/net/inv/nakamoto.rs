@@ -241,7 +241,7 @@ impl InvGenerator {
         tenure_id_consensus_hash: &ConsensusHash,
     ) -> Result<Option<InvTenureInfo>, NetError> {
         let tip_block_id = StacksBlockId::new(tip_block_ch, tip_block_bh);
-        if self.processed_tenures.get(&tip_block_id).is_none() {
+        if !self.processed_tenures.contains_key(&tip_block_id) {
             // this tip has no known table.
             // does it have an ancestor with a table? If so, then move its ancestor's table to this
             // tip. Otherwise, make a new table.
@@ -294,7 +294,7 @@ impl InvGenerator {
             // we have not loaded the tenure info for this tip, or it was cleared via cache
             // maintenance.  Either way, got get it from disk.
             let loaded_info_opt =
-                InvTenureInfo::load(chainstate, &tip_block_id, &tenure_id_consensus_hash)?;
+                InvTenureInfo::load(chainstate, &tip_block_id, tenure_id_consensus_hash)?;
 
             tenure_infos.insert(tenure_id_consensus_hash.clone(), loaded_info_opt.clone());
             self.cache_misses = self.cache_misses.saturating_add(1);
@@ -750,8 +750,8 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
     /// Highest reward cycle learned
     pub fn highest_reward_cycle(&self) -> u64 {
         self.inventories
-            .iter()
-            .map(|(_, inv)| inv.highest_reward_cycle())
+            .values()
+            .map(|inv| inv.highest_reward_cycle())
             .max()
             .unwrap_or(0)
     }
@@ -856,7 +856,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
 
         // we're updating inventories, so preserve the state we have
         let mut new_inventories = HashMap::new();
-        let event_ids: Vec<usize> = network.iter_peer_event_ids().map(|e_id| *e_id).collect();
+        let event_ids: Vec<usize> = network.iter_peer_event_ids().copied().collect();
 
         debug!(
             "Send GetNakamotoInv to up to {} peers (ibd={})",
@@ -873,7 +873,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
             if ibd {
                 // in IBD, only connect to initial peers
                 let is_initial = PeerDB::is_initial_peer(
-                    &network.peerdb_conn(),
+                    network.peerdb_conn(),
                     convo.peer_network_id,
                     &convo.peer_addrbytes,
                     convo.peer_port,

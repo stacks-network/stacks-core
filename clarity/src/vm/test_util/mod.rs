@@ -14,7 +14,7 @@ use crate::vm::ast::ASTRules;
 use crate::vm::costs::ExecutionCost;
 use crate::vm::database::{BurnStateDB, HeadersDB};
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::types::{PrincipalData, ResponseData, StandardPrincipalData, TupleData, Value};
+use crate::vm::types::{PrincipalData, StandardPrincipalData, TupleData, Value};
 use crate::vm::{execute as vm_execute, execute_on_network as vm_execute_on_network, StacksEpoch};
 
 pub struct UnitTestBurnStateDB {
@@ -70,7 +70,7 @@ pub fn execute_on_network(s: &str, use_mainnet: bool) -> Value {
 
 pub fn symbols_from_values(vec: Vec<Value>) -> Vec<SymbolicExpression> {
     vec.into_iter()
-        .map(|value| SymbolicExpression::atom_value(value))
+        .map(SymbolicExpression::atom_value)
         .collect()
 }
 
@@ -108,7 +108,7 @@ impl From<&StacksPrivateKey> for StandardPrincipalData {
             &vec![StacksPublicKey::from_private(o)],
         )
         .unwrap();
-        StandardPrincipalData::from(stacks_addr)
+        StandardPrincipalData::try_from(stacks_addr).unwrap()
     }
 }
 
