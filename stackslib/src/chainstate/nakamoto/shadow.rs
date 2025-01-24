@@ -643,7 +643,7 @@ impl NakamotoBlockBuilder {
         let coinbase_payload = CoinbasePayload(naka_tip_tenure_start_header.index_block_hash().0);
 
         // the miner key is irrelevant
-        let miner_key = StacksPrivateKey::new();
+        let miner_key = StacksPrivateKey::random();
         let miner_addr = StacksAddress::p2pkh(mainnet, &StacksPublicKey::from_private(&miner_key));
         let miner_tx_auth = TransactionAuth::from_p2pkh(&miner_key).ok_or_else(|| {
             Error::InvalidStacksBlock(

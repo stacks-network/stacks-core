@@ -9983,7 +9983,7 @@ pub mod test {
 
         for i in 0..32 {
             test_debug!("Making block {}", i);
-            let privk = StacksPrivateKey::new();
+            let privk = StacksPrivateKey::random();
             let block = make_empty_coinbase_block(&privk);
 
             blocks.push(block);
@@ -10198,7 +10198,7 @@ pub mod test {
     fn stacks_db_get_blocks_inventory_for_reward_cycle() {
         let mut peer_config = TestPeerConfig::new(function_name!(), 21313, 21314);
 
-        let privk = StacksPrivateKey::new();
+        let privk = StacksPrivateKey::random();
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -10290,7 +10290,7 @@ pub mod test {
                     let coinbase_tx =
                         make_coinbase_with_nonce(miner, tenure_id as usize, tenure_id, None);
 
-                    let microblock_privkey = StacksPrivateKey::new();
+                    let microblock_privkey = StacksPrivateKey::random();
                     let microblock_pubkeyhash = Hash160::from_node_public_key(
                         &StacksPublicKey::from_private(&microblock_privkey),
                     );
@@ -11008,13 +11008,13 @@ pub mod test {
                     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
                     &AddressHashMode::SerializeP2PKH,
                     1,
-                    &vec![StacksPublicKey::from_private(&StacksPrivateKey::new())],
+                    &vec![StacksPublicKey::from_private(&StacksPrivateKey::random())],
                 )
                 .unwrap()
             })
             .collect();
 
-        let recipient_privk = StacksPrivateKey::new();
+        let recipient_privk = StacksPrivateKey::random();
         let recipient_addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -11333,13 +11333,13 @@ pub mod test {
                     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
                     &AddressHashMode::SerializeP2PKH,
                     1,
-                    &vec![StacksPublicKey::from_private(&StacksPrivateKey::new())],
+                    &vec![StacksPublicKey::from_private(&StacksPrivateKey::random())],
                 )
                 .unwrap()
             })
             .collect();
 
-        let recipient_privk = StacksPrivateKey::new();
+        let recipient_privk = StacksPrivateKey::random();
         let recipient_addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,

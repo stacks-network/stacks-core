@@ -1526,7 +1526,7 @@ impl StacksBlockBuilder {
                 &EMPTY_MICROBLOCK_PARENT_HASH,
                 &Sha512Trunc256Sum([0u8; 32]),
             ), // will be updated
-            miner_privkey: StacksPrivateKey::new(), // caller should overwrite this, or refrain from mining microblocks
+            miner_privkey: StacksPrivateKey::random(), // caller should overwrite this, or refrain from mining microblocks
             miner_payouts: None,
             miner_id,
         }

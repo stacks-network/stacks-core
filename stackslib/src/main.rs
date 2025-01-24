@@ -211,7 +211,7 @@ impl P2PSession {
             peer_info.parent_network_id,
             PeerAddress::from_socketaddr(&peer_addr),
             peer_addr.port(),
-            Some(StacksPrivateKey::new()),
+            Some(StacksPrivateKey::random()),
             u64::MAX,
             UrlString::try_from(format!("http://127.0.0.1:{}", data_port).as_str()).unwrap(),
             vec![],
@@ -1811,7 +1811,7 @@ simulating a miner.
     .expect("Failed to load chain tip header info")
     .expect("Failed to load chain tip header info");
 
-    let sk = StacksPrivateKey::new();
+    let sk = StacksPrivateKey::random();
     let mut tx_auth = TransactionAuth::from_p2pkh(&sk).unwrap();
     tx_auth.set_origin_nonce(0);
 

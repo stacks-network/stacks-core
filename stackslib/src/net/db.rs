@@ -140,7 +140,7 @@ impl LocalPeer {
         data_url: UrlString,
         stacker_dbs: Vec<QualifiedContractIdentifier>,
     ) -> LocalPeer {
-        let mut pkey = privkey.unwrap_or_default();
+        let mut pkey = privkey.unwrap_or(Secp256k1PrivateKey::random());
         pkey.set_compress_public(true);
 
         let mut rng = thread_rng();
@@ -880,7 +880,7 @@ impl PeerDB {
             return Err(db_error::Overflow);
         }
 
-        let new_key = Secp256k1PrivateKey::new();
+        let new_key = Secp256k1PrivateKey::random();
         {
             let tx = self.tx_begin()?;
 
@@ -1241,7 +1241,7 @@ impl PeerDB {
                 addrbytes: peer_addr.clone(),
                 port: peer_port,
             };
-            let empty_key = StacksPublicKey::from_private(&StacksPrivateKey::new());
+            let empty_key = StacksPublicKey::from_private(&StacksPrivateKey::random());
             let mut empty_neighbor = Neighbor::empty(&nk, &empty_key, 0);
 
             empty_neighbor.allowed = allow_deadline;
@@ -1287,7 +1287,7 @@ impl PeerDB {
                 addrbytes: peer_addr.clone(),
                 port: peer_port,
             };
-            let empty_key = StacksPublicKey::from_private(&StacksPrivateKey::new());
+            let empty_key = StacksPublicKey::from_private(&StacksPrivateKey::random());
             let mut empty_neighbor = Neighbor::empty(&nk, &empty_key, 0);
 
             empty_neighbor.denied = deny_deadline as i64;
@@ -2307,7 +2307,7 @@ mod test {
             out_degree: 1,
         };
 
-        let key1 = Secp256k1PrivateKey::new();
+        let key1 = Secp256k1PrivateKey::random();
 
         let path = "/tmp/test-peerdb-try_insert_peer_with_stackerdbs.db".to_string();
         if fs::metadata(&path).is_ok() {
@@ -2508,7 +2508,7 @@ mod test {
             out_degree: 1,
         };
 
-        let key1 = Secp256k1PrivateKey::new();
+        let key1 = Secp256k1PrivateKey::random();
 
         let path = "/tmp/test-peerdb-find_stacker_db_replicas.db".to_string();
         if fs::metadata(&path).is_ok() {
@@ -2800,7 +2800,7 @@ mod test {
                     addrbytes: PeerAddress([i as u8; 16]),
                     port: i,
                 },
-                public_key: Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
+                public_key: Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random()),
                 expire_block: (i + 23456) as u64,
                 last_contact_time: (1552509642 + (i as u64)),
                 allowed: (now_secs + 600) as i64,
@@ -2820,7 +2820,7 @@ mod test {
                     addrbytes: PeerAddress([i as u8; 16]),
                     port: i,
                 },
-                public_key: Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
+                public_key: Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random()),
                 expire_block: (i + 23456) as u64,
                 last_contact_time: (1552509642 + (i as u64)),
                 allowed: 0,
@@ -2901,7 +2901,7 @@ mod test {
                     addrbytes: PeerAddress([i as u8; 16]),
                     port: i,
                 },
-                public_key: Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
+                public_key: Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random()),
                 expire_block: (i + 23456) as u64,
                 last_contact_time: (1552509642 + (i as u64)),
                 allowed: -1,
@@ -2922,7 +2922,7 @@ mod test {
                     addrbytes: PeerAddress([i as u8; 16]),
                     port: i,
                 },
-                public_key: Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
+                public_key: Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random()),
                 expire_block: (i + 23456) as u64,
                 last_contact_time: (1552509642 + (i as u64)),
                 allowed: -1,
@@ -3503,8 +3503,8 @@ mod test {
     /// latest key.
     #[test]
     fn test_connect_new_key() {
-        let key1 = Secp256k1PrivateKey::new();
-        let key2 = Secp256k1PrivateKey::new();
+        let key1 = Secp256k1PrivateKey::random();
+        let key2 = Secp256k1PrivateKey::random();
 
         let path = "/tmp/test-connect-new-key.db".to_string();
         if fs::metadata(&path).is_ok() {
@@ -3571,7 +3571,7 @@ mod test {
     /// Test DB instantiation -- it must work.
     #[test]
     fn test_db_instantiation() {
-        let key1 = Secp256k1PrivateKey::new();
+        let key1 = Secp256k1PrivateKey::random();
 
         let path = "/tmp/test-peerdb-instantiation.db".to_string();
         if fs::metadata(&path).is_ok() {
@@ -3598,7 +3598,7 @@ mod test {
     /// Test `public` setting in DB migration
     #[test]
     fn test_db_schema_3_public_ip_migration() {
-        let key = Secp256k1PrivateKey::new();
+        let key = Secp256k1PrivateKey::random();
 
         let path = "/tmp/test-peerdb-schema-3-public-ip-migration.db".to_string();
         if fs::metadata(&path).is_ok() {
@@ -3669,12 +3669,12 @@ mod test {
 
         for private in private_addrbytes.iter() {
             neighbor.addr.addrbytes = private.clone();
-            neighbor.public_key = Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new());
+            neighbor.public_key = Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random());
             assert!(PeerDB::try_insert_peer(&tx, &neighbor, &[]).unwrap());
         }
         for public in public_addrbytes.iter() {
             neighbor.addr.addrbytes = public.clone();
-            neighbor.public_key = Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new());
+            neighbor.public_key = Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random());
             assert!(PeerDB::try_insert_peer(&tx, &neighbor, &[]).unwrap());
         }
         tx.execute("UPDATE frontier SET public = 1", params![])
@@ -3745,7 +3745,7 @@ mod test {
     /// Verify that multiple peers with the same public key are coalesced by last-contact-time
     #[test]
     fn test_query_peers() {
-        let key = Secp256k1PrivateKey::new();
+        let key = Secp256k1PrivateKey::random();
 
         let path = "/tmp/test-query-peers.db".to_string();
         if fs::metadata(&path).is_ok() {

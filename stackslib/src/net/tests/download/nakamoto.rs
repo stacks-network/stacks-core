@@ -144,7 +144,7 @@ impl NakamotoStagingBlocksConnRef<'_> {
 #[test]
 fn test_nakamoto_tenure_downloader() {
     let ch = ConsensusHash([0x11; 20]);
-    let private_key = StacksPrivateKey::new();
+    let private_key = StacksPrivateKey::random();
     let mut test_signers = TestSigners::new(vec![]);
 
     let reward_set = test_signers.synthesize_reward_set();
@@ -2328,7 +2328,7 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
 /// tenure _T + 1_.  The unconfirmed downloader should be able to handle this case.
 #[test]
 fn test_nakamoto_microfork_download_run_2_peers() {
-    let sender_key = StacksPrivateKey::new();
+    let sender_key = StacksPrivateKey::random();
     let sender_addr = to_addr(&sender_key);
     let initial_balances = vec![(sender_addr.to_account_principal(), 1000000000)];
 
@@ -2509,7 +2509,7 @@ fn test_nakamoto_microfork_download_run_2_peers() {
 #[test]
 fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
     let observer = TestEventObserver::new();
-    let sender_key = StacksPrivateKey::new();
+    let sender_key = StacksPrivateKey::random();
     let sender_addr = to_addr(&sender_key);
     let initial_balances = vec![(sender_addr.to_account_principal(), 1000000000)];
     let bitvecs = vec![vec![true, true, false, false]];
@@ -2689,7 +2689,7 @@ fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
 #[test]
 fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
     let observer = TestEventObserver::new();
-    let sender_key = StacksPrivateKey::new();
+    let sender_key = StacksPrivateKey::random();
     let sender_addr = to_addr(&sender_key);
     let initial_balances = vec![(sender_addr.to_account_principal(), 1000000000)];
     let bitvecs = vec![vec![true, true]];
@@ -2892,7 +2892,7 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
 #[test]
 fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
     let observer = TestEventObserver::new();
-    let sender_key = StacksPrivateKey::new();
+    let sender_key = StacksPrivateKey::random();
     let sender_addr = to_addr(&sender_key);
     let initial_balances = vec![(sender_addr.to_account_principal(), 1000000000)];
     let bitvecs = vec![vec![true, true]];

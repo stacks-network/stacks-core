@@ -1674,13 +1674,13 @@ mod tests {
             previous_tenure_blocks: 1,
             cause: TenureChangeCause::BlockFound,
             pubkey_hash: Hash160::from_node_public_key(&StacksPublicKey::from_private(
-                &StacksPrivateKey::new(),
+                &StacksPrivateKey::random(),
             )),
         };
         let tenure_change_tx_payload = TransactionPayload::TenureChange(tenure_change_payload);
         let tenure_change_tx = StacksTransaction::new(
             TransactionVersion::Testnet,
-            TransactionAuth::from_p2pkh(&StacksPrivateKey::new()).unwrap(),
+            TransactionAuth::from_p2pkh(&StacksPrivateKey::random()).unwrap(),
             tenure_change_tx_payload,
         );
 

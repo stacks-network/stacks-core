@@ -4400,7 +4400,7 @@ mod test {
         )
         .unwrap();
 
-        let mut random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let mut random_sponsor = StacksPrivateKey::random(); // what the origin sees
         random_sponsor.set_compress_public(true);
 
         let auth = TransactionAuth::Sponsored(
@@ -4625,7 +4625,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -4867,7 +4867,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -5104,7 +5104,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -5300,7 +5300,7 @@ mod test {
         )
         .unwrap();
 
-        let random_sponsor = StacksPrivateKey::new();
+        let random_sponsor = StacksPrivateKey::random();
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -5522,7 +5522,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new();
+        let random_sponsor = StacksPrivateKey::random();
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -5852,7 +5852,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -6097,7 +6097,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -6496,7 +6496,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -6661,7 +6661,7 @@ mod test {
         let pubk_4 = StacksPublicKey::from_private(&privk_4);
         let pubk_5 = StacksPublicKey::from_private(&privk_5);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -7074,7 +7074,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -7250,7 +7250,7 @@ mod test {
         let pubk_6 = StacksPublicKey::from_private(&privk_6);
         let pubk_7 = StacksPublicKey::from_private(&privk_7);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -7892,7 +7892,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -8141,7 +8141,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -8399,7 +8399,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
