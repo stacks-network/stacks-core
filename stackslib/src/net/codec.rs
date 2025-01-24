@@ -1641,13 +1641,10 @@ pub mod test {
     fn check_deserialize<T: std::fmt::Debug>(r: Result<T, codec_error>) -> bool {
         match r {
             Ok(m) => {
-                test_debug!("deserialized {:?}", &m);
+                test_debug!("deserialized {m:?}");
                 false
             }
-            Err(e) => match e {
-                codec_error::DeserializeError(_) => true,
-                _ => false,
-            },
+            Err(e) => matches!(e, codec_error::DeserializeError(_)),
         }
     }
 
