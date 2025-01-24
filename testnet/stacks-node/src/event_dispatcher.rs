@@ -1754,6 +1754,7 @@ mod test {
     use std::time::Instant;
 
     use clarity::vm::costs::ExecutionCost;
+    use serial_test::serial;
     use stacks::burnchains::{PoxConstants, Txid};
     use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
     use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksHeaderInfo};
@@ -2037,6 +2038,7 @@ mod test {
     }
 
     #[test]
+    #[serial]
     fn test_process_pending_payloads() {
         use mockito::Matcher;
 
@@ -2112,6 +2114,7 @@ mod test {
     }
 
     #[test]
+    #[serial]
     fn test_send_payload_with_db() {
         use mockito::Matcher;
 
@@ -2261,6 +2264,7 @@ mod test {
     }
 
     #[test]
+    #[serial]
     fn test_send_payload_timeout() {
         let port = get_random_port();
         let timeout = Duration::from_secs(3);
@@ -2323,6 +2327,7 @@ mod test {
     }
 
     #[test]
+    #[serial]
     fn test_send_payload_with_db_force_restart() {
         let port = get_random_port();
         let timeout = Duration::from_secs(3);
