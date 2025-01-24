@@ -592,7 +592,7 @@ impl PartialOrd for StacksAddress {
 impl Ord for StacksAddress {
     fn cmp(&self, other: &StacksAddress) -> Ordering {
         match self.version().cmp(&other.version()) {
-            Ordering::Equal => self.bytes().cmp(&other.bytes()),
+            Ordering::Equal => self.bytes().cmp(other.bytes()),
             inequality => inequality,
         }
     }

@@ -1322,7 +1322,7 @@ impl EventDispatcher {
             let mature_rewards = serde_json::Value::Array(mature_rewards_vec);
 
             #[cfg(any(test, feature = "testing"))]
-            if test_skip_block_announcement(&block) {
+            if test_skip_block_announcement(block) {
                 return;
             }
 

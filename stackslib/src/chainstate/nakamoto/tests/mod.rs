@@ -136,7 +136,7 @@ pub fn get_account(
         &tip
     );
 
-    let snapshot = SortitionDB::get_block_snapshot_consensus(&sortdb.conn(), &tip.consensus_hash)
+    let snapshot = SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &tip.consensus_hash)
         .unwrap()
         .unwrap();
     chainstate
@@ -573,7 +573,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
 #[test]
 pub fn test_load_store_update_nakamoto_blocks() {
     let test_name = function_name!();
-    let path = test_path(&test_name);
+    let path = test_path(test_name);
     let pox_constants = PoxConstants::new(5, 3, 3, 25, 5, 0, 0, 0, 0, 0, 0);
     let epochs = StacksEpoch::unit_test_3_0_only(1);
     let _ = std::fs::remove_dir_all(&path);
@@ -2232,7 +2232,7 @@ fn test_make_miners_stackerdb_config() {
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
         let miner_privkey = &miner_keys[i];
         let miner_pubkey = StacksPublicKey::from_private(miner_privkey);
-        let slot_id = NakamotoChainState::get_miner_slot(&sort_db, &tip, &tip.consensus_hash)
+        let slot_id = NakamotoChainState::get_miner_slot(sort_db, &tip, &tip.consensus_hash)
             .expect("Failed to get miner slot");
         if sortition {
             let slot_id = slot_id.expect("No miner slot exists for this miner").start;
@@ -2533,7 +2533,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
     .enumerate()
     {
         assert!(
-            NakamotoSigners::parse_vote_for_aggregate_public_key(&tx).is_none(),
+            NakamotoSigners::parse_vote_for_aggregate_public_key(tx).is_none(),
             "{}",
             format!("parsed the {i}th transaction: {tx:?}")
         );
@@ -3040,7 +3040,7 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
     let filtered_txs: Vec<_> = filtered_transactions.into_values().collect();
     txs.sort_by_key(|tx| tx.txid());
     assert_eq!(filtered_txs.len(), 1);
-    assert!(filtered_txs.contains(&txs.first().expect("failed to get first tx")));
+    assert!(filtered_txs.contains(txs.first().expect("failed to get first tx")));
 }
 
 pub mod nakamoto_block_signatures {
@@ -3055,7 +3055,7 @@ pub mod nakamoto_block_signatures {
                 .map(|(s, w)| {
                     let mut signing_key = [0u8; 33];
                     signing_key.copy_from_slice(
-                        &Secp256k1PublicKey::from_private(s)
+                        Secp256k1PublicKey::from_private(s)
                             .to_bytes_compressed()
                             .as_slice(),
                     );
