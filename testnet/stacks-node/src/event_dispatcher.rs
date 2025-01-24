@@ -18,6 +18,8 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
+#[cfg(test)]
+use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
@@ -72,9 +74,6 @@ use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use url::Url;
-
-#[cfg(test)]
-use std::sync::LazyLock;
 
 #[cfg(any(test, feature = "testing"))]
 lazy_static! {
