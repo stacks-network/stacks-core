@@ -10495,10 +10495,10 @@ fn clarity_cost_spend_down() {
         let mut submitted_txs = vec![];
         for _nmb_tx in 0..nmb_txs_per_signer {
             for sender_sk in sender_sks.iter() {
-                let sender_nonce = get_and_increment_nonce(&sender_sk, &mut sender_nonces);
+                let sender_nonce = get_and_increment_nonce(sender_sk, &mut sender_nonces);
                 // Fill up the mempool with contract calls
                 let contract_tx = make_contract_call(
-                    &sender_sk,
+                    sender_sk,
                     sender_nonce,
                     tx_fee,
                     naka_conf.burnchain.chain_id,
@@ -10696,7 +10696,7 @@ fn test_tenure_extend_from_flashblocks() {
     let initial_balances: Vec<_> = account_keys
         .iter()
         .map(|privk| {
-            let address = to_addr(&privk).into();
+            let address = to_addr(privk).into();
             (address, 1_000_000)
         })
         .collect();
@@ -10845,12 +10845,12 @@ fn test_tenure_extend_from_flashblocks() {
     .expect("Timed out waiting for interim blocks to be mined");
 
     let (canonical_stacks_tip_ch, _) =
-        SortitionDB::get_canonical_stacks_chain_tip_hash(&sortdb.conn()).unwrap();
+        SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
     let election_tip =
-        SortitionDB::get_block_snapshot_consensus(&sortdb.conn(), &canonical_stacks_tip_ch)
+        SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &canonical_stacks_tip_ch)
             .unwrap()
             .unwrap();
-    let sort_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+    let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
 
     // Stacks chain tip originates from the tenure started at the burnchain tip
     assert!(sort_tip.sortition);
@@ -10878,12 +10878,12 @@ fn test_tenure_extend_from_flashblocks() {
     .unwrap();
 
     let (new_canonical_stacks_tip_ch, _) =
-        SortitionDB::get_canonical_stacks_chain_tip_hash(&sortdb.conn()).unwrap();
+        SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
     let election_tip =
-        SortitionDB::get_block_snapshot_consensus(&sortdb.conn(), &new_canonical_stacks_tip_ch)
+        SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &new_canonical_stacks_tip_ch)
             .unwrap()
             .unwrap();
-    let sort_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+    let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
 
     // this was a flash block -- no sortition
     assert!(!sort_tip.sortition);
@@ -10919,7 +10919,7 @@ fn test_tenure_extend_from_flashblocks() {
 
     // fill mempool with transactions that depend on the burn view
     for sender_sk in account_keys.iter() {
-        let sender_addr = tests::to_addr(&sender_sk);
+        let sender_addr = tests::to_addr(sender_sk);
         let account = loop {
             let Ok(account) = get_account_result(&http_origin, &sender_addr) else {
                 debug!("follower_bootup: Failed to load miner account");
@@ -10931,7 +10931,7 @@ fn test_tenure_extend_from_flashblocks() {
 
         // Fill up the mempool with contract calls
         let contract_tx = make_contract_call(
-            &sender_sk,
+            sender_sk,
             account.nonce,
             tx_fee,
             naka_conf.burnchain.chain_id,
@@ -10961,7 +10961,7 @@ fn test_tenure_extend_from_flashblocks() {
     wait_for(120, || {
         // fill mempool with transactions that depend on the burn view
         for (sender_sk, account_before) in account_keys.iter().zip(accounts_before.iter()) {
-            let sender_addr = tests::to_addr(&sender_sk);
+            let sender_addr = tests::to_addr(sender_sk);
             let account = loop {
                 let Ok(account) = get_account_result(&http_origin, &sender_addr) else {
                     thread::sleep(Duration::from_millis(100));
@@ -11027,7 +11027,7 @@ fn test_tenure_extend_from_flashblocks() {
     .unwrap();
 
     // there was a sortition winner
-    let sort_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+    let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     assert!(sort_tip.sortition);
 
     wait_for(20, || {
@@ -11198,7 +11198,7 @@ fn mine_invalid_principal_from_consensus_buff() {
         1024,
         conf.burnchain.chain_id,
         "contract",
-        &contract,
+        contract,
     );
     submit_tx(&http_origin, &contract_tx_bytes);
 
