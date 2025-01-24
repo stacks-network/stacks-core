@@ -77,8 +77,8 @@ fn marf_insert_different_leaf_same_block_100() {
         merkle_test_marf(
             &mut marf.borrow_storage_backend(),
             &block_header,
-            path_bytes.as_ref(),
-            [99; 40].as_ref(),
+            &path_bytes,
+            &[99; 40],
             None,
         );
 
@@ -151,8 +151,8 @@ fn marf_insert_different_leaf_different_path_different_block_100() {
             merkle_test_marf(
                 &mut marf.borrow_storage_backend(),
                 &block_header,
-                path_bytes.as_ref(),
-                [i; 40].as_ref(),
+                &path_bytes,
+                &[i; 40],
                 None,
             );
         }
@@ -232,8 +232,8 @@ fn marf_insert_same_leaf_different_block_100() {
             merkle_test_marf(
                 &mut marf.borrow_storage_backend(),
                 &next_block_header,
-                path_bytes.as_ref(),
-                [i; 40].as_ref(),
+                &path_bytes,
+                &[i; 40],
                 None,
             );
         }
@@ -312,8 +312,8 @@ fn marf_insert_leaf_sequence_2() {
             merkle_test_marf(
                 &mut marf.borrow_storage_backend(),
                 &last_block_header,
-                path_bytes.as_ref(),
-                [i; 40].as_ref(),
+                &path_bytes,
+                &[i; 40],
                 None,
             );
         }
@@ -380,13 +380,7 @@ fn marf_insert_leaf_sequence_100() {
 
             assert_eq!(leaf.data.to_vec(), [i; 40].to_vec());
 
-            merkle_test_marf(
-                &mut f,
-                &last_block_header,
-                path_bytes.as_ref(),
-                [i; 40].as_ref(),
-                None,
-            );
+            merkle_test_marf(&mut f, &last_block_header, &path_bytes, &[i; 40], None);
         }
         if let Some(root_hashes) = last_root_hashes.take() {
             let next_root_hashes = f.read_root_to_block_table().unwrap();
@@ -615,16 +609,14 @@ where
                     debug!("---------------------------------------");
                     debug!(
                         "MARF verify {:?} {:?} from current block header (immediate) {:?}",
-                        &prev_path,
-                        [j as u8; 40].as_ref(),
-                        &next_block_header
+                        &prev_path, &[j as u8; 40], &next_block_header
                     );
                     debug!("----------------------------------------");
                     merkle_test_marf(
                         &mut marf.borrow_storage_backend(),
                         &next_block_header,
-                        prev_path.as_ref(),
-                        [j as u8; 40].as_ref(),
+                        &prev_path,
+                        &[j as u8; 40],
                         None,
                     );
                 }
@@ -640,16 +632,14 @@ where
                     debug!("---------------------------------------");
                     debug!(
                         "MARF verify {:?} {:?} from current block header (deferred) {:?}",
-                        &prev_path,
-                        [j as u8; 40].as_ref(),
-                        &next_block_header
+                        &prev_path, &[j as u8; 40], &next_block_header
                     );
                     debug!("----------------------------------------");
                     merkle_test_marf(
                         &mut marf.borrow_storage_backend(),
                         &next_block_header,
-                        prev_path.as_ref(),
-                        [j as u8; 40].as_ref(),
+                        &prev_path,
+                        &[j as u8; 40],
                         None,
                     );
                 }
@@ -662,8 +652,8 @@ where
             merkle_test_marf(
                 &mut marf.borrow_storage_backend(),
                 &next_block_header,
-                next_path.as_ref(),
-                [i as u8; 40].as_ref(),
+                &next_path,
+                &[i as u8; 40],
                 None,
             );
         }
@@ -691,16 +681,14 @@ where
             debug!("---------------------------------------");
             debug!(
                 "MARF verify {:?} {:?} from last block header {:?}",
-                &next_path,
-                [i as u8; 40].as_ref(),
-                &last_block_header
+                &next_path, &[i as u8; 40], &last_block_header
             );
             debug!("----------------------------------------");
             merkle_test_marf(
                 &mut marf.borrow_storage_backend(),
                 &last_block_header,
-                next_path.as_ref(),
-                [i as u8; 40].as_ref(),
+                &next_path,
+                &[i as u8; 40],
                 None,
             );
         }
@@ -882,7 +870,7 @@ fn marf_merkle_verify_backptrs() {
                 &mut marf.borrow_storage_backend(),
                 &block_header_3,
                 &path_3,
-                [21; 40].as_ref(),
+                &[21; 40],
                 None,
             );
             if let Some(root_hashes) = last_root_hashes.take() {
@@ -957,7 +945,7 @@ where
                 root_table_cache = Some(merkle_test_marf(
                     &mut marf.borrow_storage_backend(),
                     &block_header,
-                    path.as_ref(),
+                    &path,
                     &value.data.to_vec(),
                     root_table_cache,
                 ));
@@ -1018,7 +1006,7 @@ where
                 root_table_cache = Some(merkle_test_marf(
                     &mut marf.borrow_storage_backend(),
                     &block_header,
-                    path.as_ref(),
+                    &path,
                     &value.data.to_vec(),
                     root_table_cache,
                 ));
@@ -1330,13 +1318,10 @@ fn marf_insert_random_10485760_4096_file_storage() {
             seed = path.clone();
 
             let key = to_hex(&path);
-            let value = to_hex(
-                [
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, i0 as u8, i1 as u8, i2 as u8, i3 as u8,
-                ]
-                .as_ref(),
-            );
+            let value = to_hex(&[
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, i0 as u8, i1 as u8, i2 as u8, i3 as u8,
+            ]);
 
             keys.push(key);
             values.push(value);
@@ -1388,13 +1373,10 @@ fn marf_insert_random_10485760_4096_file_storage() {
             seed = path.clone();
 
             let key = to_hex(&path);
-            let value = to_hex(
-                [
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, i0 as u8, i1 as u8, i2 as u8, i3 as u8,
-                ]
-                .as_ref(),
-            );
+            let value = to_hex(&[
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, i0 as u8, i1 as u8, i2 as u8, i3 as u8,
+            ]);
 
             keys.push(key);
             values.push(value);
@@ -1618,13 +1600,7 @@ fn marf_read_random_1048576_4096_file_storage() {
 
             // can make a merkle proof to each one
             if do_merkle_check {
-                merkle_test_marf(
-                    &mut f,
-                    &block_header,
-                    path.as_ref(),
-                    &value.data.to_vec(),
-                    None,
-                );
+                merkle_test_marf(&mut f, &block_header, &path, &value.data.to_vec(), None);
             }
             if i % 128 == 0 {
                 let end_time = get_epoch_time_ms();
@@ -1927,7 +1903,7 @@ fn marf_insert_flush_to_different_block() {
             root_table_cache = Some(merkle_test_marf(
                 &mut marf.borrow_storage_backend(),
                 &target_block,
-                path.as_ref(),
+                &path,
                 &value.data.to_vec(),
                 root_table_cache,
             ));
@@ -2047,7 +2023,7 @@ fn marf_insert_flush_to_different_block() {
         root_table_cache = Some(merkle_test_marf(
             &mut marf.borrow_storage_backend(),
             &read_from_block,
-            path.as_ref(),
+            &path,
             &value.data.to_vec(),
             root_table_cache,
         ));

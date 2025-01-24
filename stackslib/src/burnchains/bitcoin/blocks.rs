@@ -436,7 +436,7 @@ impl BitcoinBlockParser {
         match (inputs_opt, outputs_opt) {
             (Some(inputs), Some(outputs)) => {
                 Some(BitcoinTransaction {
-                    txid: Txid::from_vec_be(tx.txid().as_bytes().as_ref()).unwrap(), // this *should* panic if it fails
+                    txid: Txid::from_vec_be(tx.txid().as_bytes()).unwrap(), // this *should* panic if it fails
                     vtxindex: vtxindex as u32,
                     opcode,
                     data,
