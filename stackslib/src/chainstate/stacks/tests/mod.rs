@@ -521,18 +521,14 @@ impl TestStacksNode {
         fork_tip: &BlockSnapshot,
         miner: &TestMiner,
     ) -> Option<BlockSnapshot> {
-        for commit_op in miner.block_commits.iter().rev() {
-            if let Some(sn) = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+        miner.block_commits.iter().rev().find_map(|commit_op| {
+            SortitionDB::get_block_snapshot_for_winning_stacks_block(
                 ic,
                 &fork_tip.sortition_id,
                 &commit_op.block_header_hash,
             )
             .unwrap()
-            {
-                return Some(sn);
-            }
-        }
-        return None;
+        })
     }
 
     pub fn get_miner_balance(clarity_tx: &mut ClarityTx, addr: &StacksAddress) -> u128 {
