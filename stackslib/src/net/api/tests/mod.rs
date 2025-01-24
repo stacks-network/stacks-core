@@ -338,12 +338,7 @@ impl<'a> TestRPC<'a> {
         let mut tx_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&privk1).unwrap(),
-            TransactionPayload::new_smart_contract(
-                &format!("hello-world"),
-                &contract.to_string(),
-                None,
-            )
-            .unwrap(),
+            TransactionPayload::new_smart_contract("hello-world", contract, None).unwrap(),
         );
 
         tx_contract.chain_id = 0x80000000;
@@ -381,8 +376,8 @@ impl<'a> TestRPC<'a> {
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&privk1).unwrap(),
             TransactionPayload::new_smart_contract(
-                &format!("hello-world-unconfirmed"),
-                &unconfirmed_contract.to_string(),
+                "hello-world-unconfirmed",
+                unconfirmed_contract,
                 None,
             )
             .unwrap(),
@@ -428,9 +423,8 @@ impl<'a> TestRPC<'a> {
             tx.commit().unwrap();
         }
 
-        let tip =
-            SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
-                .unwrap();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
+            .unwrap();
         let mut anchor_cost = ExecutionCost::ZERO;
         let mut anchor_size = 0;
 
@@ -485,7 +479,7 @@ impl<'a> TestRPC<'a> {
         );
 
         let (_, _, consensus_hash) = peer_1.next_burnchain_block(burn_ops.clone());
-        peer_2.next_burnchain_block(burn_ops.clone());
+        peer_2.next_burnchain_block(burn_ops);
 
         peer_1.process_stacks_epoch_at_tip(&stacks_block, &[]);
         peer_2.process_stacks_epoch_at_tip(&stacks_block, &[]);
@@ -699,9 +693,8 @@ impl<'a> TestRPC<'a> {
             .unwrap();
 
         // next tip, coinbase
-        let tip =
-            SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
-                .unwrap();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
+            .unwrap();
 
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -765,7 +758,7 @@ impl<'a> TestRPC<'a> {
         );
 
         let (_, _, next_consensus_hash) = peer_1.next_burnchain_block(next_burn_ops.clone());
-        peer_2.next_burnchain_block(next_burn_ops.clone());
+        peer_2.next_burnchain_block(next_burn_ops);
 
         let view_1 = peer_1.get_burnchain_view().unwrap();
         let view_2 = peer_2.get_burnchain_view().unwrap();
@@ -802,7 +795,7 @@ impl<'a> TestRPC<'a> {
             format!("127.0.0.1:{}", peer_1_http)
                 .parse::<SocketAddr>()
                 .unwrap(),
-            Some(UrlString::try_from(format!("http://peer1.com")).unwrap()),
+            Some(UrlString::try_from("http://peer1.com".to_string()).unwrap()),
             peer_1.to_peer_host(),
             &peer_1.config.connection_opts,
             0,
@@ -813,7 +806,7 @@ impl<'a> TestRPC<'a> {
             format!("127.0.0.1:{}", peer_2_http)
                 .parse::<SocketAddr>()
                 .unwrap(),
-            Some(UrlString::try_from(format!("http://peer2.com")).unwrap()),
+            Some(UrlString::try_from("http://peer2.com".to_string()).unwrap()),
             peer_2.to_peer_host(),
             &peer_2.config.connection_opts,
             1,
@@ -851,18 +844,14 @@ impl<'a> TestRPC<'a> {
             true, true, true, true, true, true, true, true, true, true,
         ]];
 
-        let (mut peer, mut other_peers) = make_nakamoto_peers_from_invs_ext(
-            function_name!(),
-            observer,
-            bitvecs.clone(),
-            |boot_plan| {
+        let (mut peer, mut other_peers) =
+            make_nakamoto_peers_from_invs_ext(function_name!(), observer, bitvecs, |boot_plan| {
                 boot_plan
                     .with_pox_constants(10, 3)
                     .with_extra_peers(1)
                     .with_initial_balances(vec![])
                     .with_malleablized_blocks(false)
-            },
-        );
+            });
         let mut other_peer = other_peers.pop().unwrap();
 
         let peer_1_indexer = BitcoinIndexer::new_unit_test(&peer.config.burnchain.working_dir);
@@ -873,7 +862,7 @@ impl<'a> TestRPC<'a> {
             format!("127.0.0.1:{}", peer.config.http_port)
                 .parse::<SocketAddr>()
                 .unwrap(),
-            Some(UrlString::try_from(format!("http://peer1.com")).unwrap()),
+            Some(UrlString::try_from("http://peer1.com".to_string()).unwrap()),
             peer.to_peer_host(),
             &peer.config.connection_opts,
             0,
@@ -884,7 +873,7 @@ impl<'a> TestRPC<'a> {
             format!("127.0.0.1:{}", other_peer.config.http_port)
                 .parse::<SocketAddr>()
                 .unwrap(),
-            Some(UrlString::try_from(format!("http://peer2.com")).unwrap()),
+            Some(UrlString::try_from("http://peer2.com".to_string()).unwrap()),
             other_peer.to_peer_host(),
             &other_peer.config.connection_opts,
             1,

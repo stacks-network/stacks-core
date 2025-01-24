@@ -831,7 +831,7 @@ fn integration_test_get_info() {
 
                 let res = client.post(&path)
                     .header("Content-Type", "application/octet-stream")
-                    .body(tx_xfer_invalid.clone())
+                    .body(tx_xfer_invalid)
                     .send()
                     .unwrap().json::<serde_json::Value>().unwrap();
 
@@ -852,7 +852,7 @@ fn integration_test_get_info() {
 
                 let res = client.post(&path)
                     .header("Content-Type", "application/octet-stream")
-                    .body(tx_xfer_invalid.clone())
+                    .body(tx_xfer_invalid)
                     .send()
                     .unwrap()
                     .json::<serde_json::Value>()
@@ -928,7 +928,7 @@ fn integration_test_get_info() {
 
                 eprintln!("Test: POST {path}");
 
-                let body = json!({ "transaction_payload": payload_hex.clone() });
+                let body = json!({ "transaction_payload": payload_hex });
 
                 let res = client.post(&path)
                     .json(&body)
@@ -955,17 +955,15 @@ fn integration_test_get_info() {
                     .as_array()
                     .expect("Fees should be array");
 
-                let estimated_fee_rates: Vec<_> = estimations
+                let estimated_fee_rates = estimations
                     .iter()
-                    .map(|x| x.get("fee_rate").expect("Should have fee_rate field"))
-                    .collect();
-                let estimated_fees: Vec<_> = estimations
+                    .map(|x| x.get("fee_rate").expect("Should have fee_rate field"));
+                let estimated_fees = estimations
                     .iter()
-                    .map(|x| x.get("fee").expect("Should have fee field"))
-                    .collect();
+                    .map(|x| x.get("fee").expect("Should have fee field"));
 
-                assert_eq!(estimated_fee_rates.len(), 3, "Fee rates should be length 3 array");
-                assert_eq!(estimated_fees.len(), 3, "Fees should be length 3 array");
+                assert_eq!(estimated_fee_rates.count(), 3, "Fee rates should be length 3 array");
+                assert_eq!(estimated_fees.count(), 3, "Fees should be length 3 array");
 
                 let tx_payload = TransactionPayload::from(TransactionContractCall {
                     address: contract_addr,
@@ -979,7 +977,7 @@ fn integration_test_get_info() {
 
                 eprintln!("Test: POST {path}");
 
-                let body = json!({ "transaction_payload": payload_hex.clone() });
+                let body = json!({ "transaction_payload": payload_hex });
 
                 let res = client.post(&path)
                     .json(&body)
@@ -1006,16 +1004,15 @@ fn integration_test_get_info() {
                     .as_array()
                     .expect("Fees should be array");
 
-                let estimated_fee_rates: Vec<_> = estimations
+                let estimated_fee_rates = estimations
                     .iter()
-                    .map(|x| x.get("fee_rate").expect("Should have fee_rate field"))
-                    .collect();
+                    .map(|x| x.get("fee_rate").expect("Should have fee_rate field"));
                 let estimated_fees: Vec<_> = estimations
                     .iter()
                     .map(|x| x.get("fee").expect("Should have fee field"))
                     .collect();
 
-                assert_eq!(estimated_fee_rates.len(), 3, "Fee rates should be length 3 array");
+                assert_eq!(estimated_fee_rates.count(), 3, "Fee rates should be length 3 array");
                 assert_eq!(estimated_fees.len(), 3, "Fees should be length 3 array");
 
                 let tx_payload = TransactionPayload::from(TransactionContractCall {
@@ -1029,7 +1026,7 @@ fn integration_test_get_info() {
                 let payload_hex = to_hex(&payload_data);
 
                 let estimated_len = 1550;
-                let body = json!({ "transaction_payload": payload_hex.clone(), "estimated_len": estimated_len });
+                let body = json!({ "transaction_payload": payload_hex, "estimated_len": estimated_len });
                 info!("POST body\n {body}");
 
                 let res = client.post(&path)
@@ -1255,7 +1252,7 @@ fn contract_stx_transfer() {
                     3,
                     190,
                     CHAIN_ID_TESTNET,
-                    &contract_identifier.clone().into(),
+                    &contract_identifier.into(),
                     1000,
                 );
                 let xfer_to_contract =
@@ -2263,7 +2260,7 @@ fn mempool_errors() {
                 let res = client
                     .post(&path)
                     .header("Content-Type", "application/octet-stream")
-                    .body(tx_xfer_invalid.clone())
+                    .body(tx_xfer_invalid)
                     .send()
                     .unwrap()
                     .json::<serde_json::Value>()
@@ -2305,7 +2302,7 @@ fn mempool_errors() {
                 let res = client
                     .post(&path)
                     .header("Content-Type", "application/octet-stream")
-                    .body(tx_xfer_invalid.clone())
+                    .body(tx_xfer_invalid)
                     .send()
                     .unwrap()
                     .json::<serde_json::Value>()
@@ -2339,7 +2336,7 @@ fn mempool_errors() {
                 let res = client
                     .post(&path)
                     .header("Content-Type", "application/octet-stream")
-                    .body(tx_xfer_invalid.clone())
+                    .body(tx_xfer_invalid)
                     .send()
                     .unwrap()
                     .json::<serde_json::Value>()
@@ -2384,7 +2381,7 @@ fn mempool_errors() {
                 let res = client
                     .post(&path)
                     .header("Content-Type", "application/octet-stream")
-                    .body(tx_xfer_invalid.clone())
+                    .body(tx_xfer_invalid)
                     .send()
                     .unwrap()
                     .json::<serde_json::Value>()

@@ -71,8 +71,7 @@ fn setup_tracked_cost_test(
 
     let other_contract_id =
         QualifiedContractIdentifier::new(p1_principal.clone(), "contract-other".into());
-    let trait_contract_id =
-        QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
+    let trait_contract_id = QualifiedContractIdentifier::new(p1_principal, "contract-trait".into());
 
     let burn_state_db = UnitTestBurnStateDB {
         epoch_id: epoch,
@@ -210,7 +209,7 @@ fn test_tracked_costs(
     };
 
     let self_contract_id = QualifiedContractIdentifier::new(
-        p1_principal.clone(),
+        p1_principal,
         ContractName::try_from(format!("self-{}", prog_id)).unwrap(),
     );
 

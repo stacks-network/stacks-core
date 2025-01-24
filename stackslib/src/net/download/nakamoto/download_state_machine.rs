@@ -182,7 +182,7 @@ impl NakamotoDownloadStateMachine {
                 StacksBlockId(cursor.winning_stacks_block_hash.0),
                 cursor.block_height,
             ));
-            cursor = SortitionDB::get_block_snapshot(&ih, &cursor.parent_sortition_id)?
+            cursor = SortitionDB::get_block_snapshot(ih, &cursor.parent_sortition_id)?
                 .ok_or(DBError::NotFoundError)?;
         }
         wanted_tenures.reverse();
@@ -1144,7 +1144,7 @@ impl NakamotoDownloadStateMachine {
     ) {
         debug!("Run unconfirmed tenure downloaders");
 
-        let addrs: Vec<_> = downloaders.keys().map(|addr| addr.clone()).collect();
+        let addrs: Vec<_> = downloaders.keys().cloned().collect();
         let mut finished = vec![];
         let mut unconfirmed_blocks = HashMap::new();
         let mut highest_completed_tenure_downloaders = HashMap::new();
@@ -1179,8 +1179,8 @@ impl NakamotoDownloadStateMachine {
                 finished.push(naddr.clone());
                 continue;
             }
-            if neighbor_rpc.has_inflight(&naddr) {
-                debug!("Peer {} has an inflight request", naddr);
+            if neighbor_rpc.has_inflight(naddr) {
+                debug!("Peer {naddr} has an inflight request");
                 continue;
             }
 
@@ -1402,8 +1402,7 @@ impl NakamotoDownloadStateMachine {
         let tenure_blocks = coalesced_blocks
             .into_iter()
             .map(|(consensus_hash, block_map)| {
-                let mut block_list: Vec<_> =
-                    block_map.into_iter().map(|(_, block)| block).collect();
+                let mut block_list: Vec<_> = block_map.into_values().collect();
                 block_list.sort_unstable_by_key(|blk| blk.header.chain_length);
                 (consensus_hash, block_list)
             })
@@ -1565,7 +1564,7 @@ impl NakamotoDownloadStateMachine {
     ) -> Result<HashMap<ConsensusHash, Vec<NakamotoBlock>>, NetError> {
         self.nakamoto_tip = network.stacks_tip.block_id();
         debug!("Downloader: Nakamoto tip is {:?}", &self.nakamoto_tip);
-        self.update_wanted_tenures(&network, sortdb)?;
+        self.update_wanted_tenures(network, sortdb)?;
         self.update_processed_tenures(chainstate)?;
         let new_blocks = self.run_downloads(burnchain_height, network, sortdb, chainstate, ibd);
         self.last_sort_tip = Some(network.burnchain_tip.clone());

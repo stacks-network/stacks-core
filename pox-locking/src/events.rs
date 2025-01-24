@@ -545,7 +545,6 @@ fn create_event_info_data_code(
                     "#,
                     delegate_to = opt
                         .data
-                        .clone()
                         .map(|boxed_value| *boxed_value)
                         .unwrap()
                         .expect_tuple()

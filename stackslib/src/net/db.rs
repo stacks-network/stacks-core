@@ -485,7 +485,7 @@ impl PeerDB {
         }
 
         for asn4 in asn4_entries {
-            PeerDB::asn4_insert(&tx, &asn4)?;
+            PeerDB::asn4_insert(&tx, asn4)?;
         }
 
         for neighbor in initial_neighbors {
@@ -673,7 +673,7 @@ impl PeerDB {
         if create_flag {
             // instantiate!
             match initial_neighbors {
-                Some(ref neighbors) => {
+                Some(neighbors) => {
                     db.instantiate(
                         network_id,
                         parent_network_id,
@@ -823,8 +823,8 @@ impl PeerDB {
 
     /// Read the local peer record
     pub fn get_local_peer(conn: &DBConn) -> Result<LocalPeer, db_error> {
-        let qry = "SELECT * FROM local_peer LIMIT 1".to_string();
-        let rows = query_rows::<LocalPeer, _>(conn, &qry, NO_PARAMS)?;
+        let qry = "SELECT * FROM local_peer LIMIT 1";
+        let rows = query_rows::<LocalPeer, _>(conn, qry, NO_PARAMS)?;
 
         match rows.len() {
             1 => Ok(rows[0].clone()),
@@ -979,7 +979,7 @@ impl PeerDB {
     ) -> Result<bool, db_error> {
         let qry = "SELECT 1 FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3";
         let args = params![network_id, peer_addr.to_bin(), peer_port];
-        Ok(query_row::<i64, _>(conn, &qry, args)?
+        Ok(query_row::<i64, _>(conn, qry, args)?
             .map(|x| x == 1)
             .unwrap_or(false))
     }
@@ -1006,14 +1006,14 @@ impl PeerDB {
         let args = params![network_id, slot];
 
         // N.B. we don't use Self::query_peer() here because `slot` is the primary key
-        query_row::<Neighbor, _>(conn, &qry, args)
+        query_row::<Neighbor, _>(conn, qry, args)
     }
 
     /// Is there any peer at a particular slot?
     pub fn has_peer_at(conn: &DBConn, network_id: u32, slot: u32) -> Result<bool, db_error> {
         let qry = "SELECT 1 FROM frontier WHERE network_id = ?1 AND slot = ?2";
         let args = params![network_id, slot];
-        Ok(query_row::<i64, _>(conn, &qry, args)?
+        Ok(query_row::<i64, _>(conn, qry, args)?
             .map(|x| x == 1)
             .unwrap_or(false))
     }
@@ -1036,7 +1036,7 @@ impl PeerDB {
                 return Ok(false);
             }
             None => {
-                if PeerDB::is_address_denied(conn, &peer_addr)? {
+                if PeerDB::is_address_denied(conn, peer_addr)? {
                     return Ok(true);
                 }
                 return Ok(false);
@@ -1447,8 +1447,7 @@ impl PeerDB {
         let cur_dbs_set: HashSet<_> = PeerDB::static_get_peer_stacker_dbs(tx, neighbor)?
             .into_iter()
             .collect();
-        let new_dbs_set: HashSet<QualifiedContractIdentifier> =
-            dbs.iter().map(|cid| cid.clone()).collect();
+        let new_dbs_set: HashSet<QualifiedContractIdentifier> = dbs.iter().cloned().collect();
         let to_insert: Vec<_> = new_dbs_set.difference(&cur_dbs_set).collect();
         let to_delete: Vec<_> = cur_dbs_set.difference(&new_dbs_set).collect();
 
@@ -1703,7 +1702,7 @@ impl PeerDB {
                 u64_to_sql(now_secs)?,
                 network_epoch,
             ];
-            let mut allow_rows = Self::query_peers(conn, &allow_qry, allow_args)?;
+            let mut allow_rows = Self::query_peers(conn, allow_qry, allow_args)?;
 
             if allow_rows.len() >= (count as usize) {
                 // return a random subset
@@ -1807,7 +1806,7 @@ impl PeerDB {
 
         let qry = "SELECT * FROM asn4 WHERE prefix = (?1 & ~((1 << (32 - mask)) - 1)) ORDER BY prefix DESC LIMIT 1";
         let args = params![addr_u32];
-        let rows = query_rows::<ASEntry4, _>(conn, &qry, args)?;
+        let rows = query_rows::<ASEntry4, _>(conn, qry, args)?;
         match rows.len() {
             0 => Ok(None),
             _ => Ok(Some(rows[0].asn)),
@@ -1830,20 +1829,20 @@ impl PeerDB {
     pub fn asn_count(conn: &DBConn, asn: u32) -> Result<u64, db_error> {
         let qry = "SELECT COUNT(*) FROM frontier WHERE asn = ?1";
         let args = params![asn];
-        let count = query_count(conn, &qry, args)?;
+        let count = query_count(conn, qry, args)?;
         Ok(count as u64)
     }
 
     #[cfg_attr(test, mutants::skip)]
     pub fn get_frontier_size(conn: &DBConn) -> Result<u64, db_error> {
         let qry = "SELECT COUNT(*) FROM frontier";
-        let count = query_count(conn, &qry, NO_PARAMS)?;
+        let count = query_count(conn, qry, NO_PARAMS)?;
         Ok(count as u64)
     }
 
     pub fn get_all_peers(conn: &DBConn) -> Result<Vec<Neighbor>, db_error> {
         let qry = "SELECT * FROM frontier ORDER BY addrbytes ASC, port ASC";
-        let rows = Self::query_peers(conn, &qry, NO_PARAMS)?;
+        let rows = Self::query_peers(conn, qry, NO_PARAMS)?;
         Ok(rows)
     }
 
@@ -1924,11 +1923,11 @@ mod test {
 
         let mut stackerdbs = vec![
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x01, [0x02; 20]),
+                StandardPrincipalData::new(0x01, [0x02; 20]).unwrap(),
                 "db-1".into(),
             ),
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x02, [0x03; 20]),
+                StandardPrincipalData::new(0x02, [0x03; 20]).unwrap(),
                 "db-2".into(),
             ),
         ];
@@ -2097,11 +2096,11 @@ mod test {
         // basic storage and retrieval
         let mut stackerdbs = vec![
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x01, [0x02; 20]),
+                StandardPrincipalData::new(0x01, [0x02; 20]).unwrap(),
                 "db-1".into(),
             ),
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x02, [0x03; 20]),
+                StandardPrincipalData::new(0x02, [0x03; 20]).unwrap(),
                 "db-2".into(),
             ),
         ];
@@ -2127,11 +2126,11 @@ mod test {
         // adding DBs to the same slot just grows the total list
         let mut new_stackerdbs = vec![
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x03, [0x04; 20]),
+                StandardPrincipalData::new(0x03, [0x04; 20]).unwrap(),
                 "db-3".into(),
             ),
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x04, [0x05; 20]),
+                StandardPrincipalData::new(0x04, [0x05; 20]).unwrap(),
                 "db-5".into(),
             ),
         ];
@@ -2332,11 +2331,11 @@ mod test {
 
         let mut stackerdbs = vec![
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x01, [0x02; 20]),
+                StandardPrincipalData::new(0x01, [0x02; 20]).unwrap(),
                 "db-1".into(),
             ),
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x02, [0x03; 20]),
+                StandardPrincipalData::new(0x02, [0x03; 20]).unwrap(),
                 "db-2".into(),
             ),
         ];
@@ -2369,11 +2368,11 @@ mod test {
         // insert new stacker DBs -- keep one the same, and add a different one
         let mut changed_stackerdbs = vec![
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x01, [0x02; 20]),
+                StandardPrincipalData::new(0x01, [0x02; 20]).unwrap(),
                 "db-1".into(),
             ),
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x03, [0x04; 20]),
+                StandardPrincipalData::new(0x03, [0x04; 20]).unwrap(),
                 "db-3".into(),
             ),
         ];
@@ -2409,11 +2408,11 @@ mod test {
         // add back stacker DBs
         let mut new_stackerdbs = vec![
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x04, [0x05; 20]),
+                StandardPrincipalData::new(0x04, [0x05; 20]).unwrap(),
                 "db-4".into(),
             ),
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x05, [0x06; 20]),
+                StandardPrincipalData::new(0x05, [0x06; 20]).unwrap(),
                 "db-5".into(),
             ),
         ];
@@ -2437,11 +2436,11 @@ mod test {
         for _ in 0..2 {
             let mut replace_stackerdbs = vec![
                 QualifiedContractIdentifier::new(
-                    StandardPrincipalData(0x06, [0x07; 20]),
+                    StandardPrincipalData::new(0x06, [0x07; 20]).unwrap(),
                     "db-6".into(),
                 ),
                 QualifiedContractIdentifier::new(
-                    StandardPrincipalData(0x07, [0x08; 20]),
+                    StandardPrincipalData::new(0x07, [0x08; 20]).unwrap(),
                     "db-7".into(),
                 ),
             ];
@@ -2533,11 +2532,11 @@ mod test {
 
         let mut stackerdbs = vec![
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x01, [0x02; 20]),
+                StandardPrincipalData::new(0x01, [0x02; 20]).unwrap(),
                 "db-1".into(),
             ),
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x02, [0x03; 20]),
+                StandardPrincipalData::new(0x02, [0x03; 20]).unwrap(),
                 "db-2".into(),
             ),
         ];
@@ -2572,11 +2571,11 @@ mod test {
         // insert new stacker DBs -- keep one the same, and add a different one
         let mut changed_stackerdbs = vec![
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x01, [0x02; 20]),
+                StandardPrincipalData::new(0x01, [0x02; 20]).unwrap(),
                 "db-1".into(),
             ),
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x03, [0x04; 20]),
+                StandardPrincipalData::new(0x03, [0x04; 20]).unwrap(),
                 "db-3".into(),
             ),
         ];
@@ -2666,11 +2665,11 @@ mod test {
 
         let mut replace_stackerdbs = vec![
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x06, [0x07; 20]),
+                StandardPrincipalData::new(0x06, [0x07; 20]).unwrap(),
                 "db-6".into(),
             ),
             QualifiedContractIdentifier::new(
-                StandardPrincipalData(0x07, [0x08; 20]),
+                StandardPrincipalData::new(0x07, [0x08; 20]).unwrap(),
                 "db-7".into(),
             ),
         ];

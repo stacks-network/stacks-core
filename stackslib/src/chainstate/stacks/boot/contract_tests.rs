@@ -846,7 +846,7 @@ fn pox_2_contract_caller_units() {
                 &symbols_from_values(vec![
                     Value::UInt(USTX_PER_HOLDER),
                     POX_ADDRS[0].clone(),
-                    burn_height.clone(),
+                    burn_height,
                     Value::UInt(3),
                 ])
             )
@@ -876,7 +876,7 @@ fn pox_2_contract_caller_units() {
                 &symbols_from_values(vec![
                     Value::UInt(USTX_PER_HOLDER),
                     POX_ADDRS[2].clone(),
-                    burn_height.clone(),
+                    burn_height,
                     Value::UInt(3),
                 ])
             )
@@ -1020,7 +1020,7 @@ fn pox_2_lock_extend_units() {
                 &symbols_from_values(vec![
                     Value::UInt(USTX_PER_HOLDER),
                     POX_ADDRS[1].clone(),
-                    burn_height.clone(),
+                    burn_height,
                     Value::UInt(3),
                 ])
             )
@@ -1276,7 +1276,7 @@ fn pox_2_delegate_extend_units() {
                     (&USER_KEYS[1]).into(),
                     Value::UInt(1),
                     POX_ADDRS[1].clone(),
-                    burn_height.clone(),
+                    burn_height,
                     Value::UInt(2)
                 ])
             )
@@ -1778,9 +1778,9 @@ fn test_deploy_smart_contract(
 ) -> std::result::Result<(), ClarityError> {
     block.as_transaction(|tx| {
         let (ast, analysis) =
-            tx.analyze_smart_contract(&contract_id, version, content, ASTRules::PrecheckSize)?;
-        tx.initialize_smart_contract(&contract_id, version, &ast, content, None, |_, _| false)?;
-        tx.save_analysis(&contract_id, &analysis)?;
+            tx.analyze_smart_contract(contract_id, version, content, ASTRules::PrecheckSize)?;
+        tx.initialize_smart_contract(contract_id, version, &ast, content, None, |_, _| false)?;
+        tx.save_analysis(contract_id, &analysis)?;
         return Ok(());
     })
 }
@@ -1790,10 +1790,8 @@ fn test_deploy_smart_contract(
 fn max_stackerdb_list() {
     let signers_list: Vec<_> = (0..SIGNERS_MAX_LIST_SIZE)
         .map(|signer_ix| {
-            let signer_address = StacksAddress {
-                version: 0,
-                bytes: Hash160::from_data(&signer_ix.to_be_bytes()),
-            };
+            let signer_address =
+                StacksAddress::new(0, Hash160::from_data(&signer_ix.to_be_bytes())).unwrap();
             Value::Tuple(
                 TupleData::from_data(vec![
                     (
@@ -2457,7 +2455,7 @@ fn delegation_tests() {
                     (&USER_KEYS[4]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
                     POX_ADDRS[0].clone(),
-                    burn_height.clone(),
+                    burn_height,
                     Value::UInt(2)
                 ])
             )

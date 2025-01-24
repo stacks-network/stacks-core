@@ -450,7 +450,7 @@ impl RelayerStats {
         warmup_threshold: usize,
     ) -> HashMap<NeighborKey, usize> {
         let mut dup_counts = self.count_relay_dups(msg);
-        let mut dup_total = dup_counts.values().fold(0, |t, s| t + s);
+        let mut dup_total = dup_counts.values().sum::<usize>();
 
         if dup_total < warmup_threshold {
             // don't make inferences on small samples for total duplicates.
@@ -484,7 +484,7 @@ impl RelayerStats {
         neighbors: &[NeighborKey],
     ) -> Result<HashMap<NeighborKey, usize>, net_error> {
         let asn_counts = RelayerStats::count_ASNs(peerdb.conn(), neighbors)?;
-        let asn_total = asn_counts.values().fold(0, |t, s| t + s);
+        let asn_total = asn_counts.values().sum::<usize>();
 
         let mut ret = HashMap::new();
 
@@ -510,7 +510,7 @@ impl RelayerStats {
         let mut ret = HashSet::new();
         let mut rng = thread_rng();
 
-        let mut norm = rankings.values().fold(0, |t, s| t + s);
+        let mut norm = rankings.values().sum::<usize>();
         let mut rankings_vec: Vec<(NeighborKey, usize)> = rankings.into_iter().collect();
         let mut sampled = 0;
 
@@ -1002,7 +1002,7 @@ impl Relayer {
         if !Relayer::static_check_problematic_relayed_nakamoto_block(
             chainstate.mainnet,
             epoch_id,
-            &block,
+            block,
             ASTRules::PrecheckSize,
         ) {
             warn!(
@@ -1230,9 +1230,8 @@ impl Relayer {
                 &block.block_hash()
             );
             if chainstate.fault_injection.hide_blocks {
-                if let Some(sn) =
-                    SortitionDB::get_block_snapshot_consensus(sort_ic, &consensus_hash)
-                        .expect("FATAL: failed to query downloaded block snapshot")
+                if let Some(sn) = SortitionDB::get_block_snapshot_consensus(sort_ic, consensus_hash)
+                    .expect("FATAL: failed to query downloaded block snapshot")
                 {
                     if Self::fault_injection_is_block_hidden(&block.header, sn.block_height) {
                         continue;
@@ -1345,15 +1344,13 @@ impl Relayer {
                 }
 
                 for BlocksDatum(consensus_hash, block) in blocks_data.blocks.iter() {
-                    match SortitionDB::get_block_snapshot_consensus(
-                        sort_ic.conn(),
-                        &consensus_hash,
-                    )? {
+                    match SortitionDB::get_block_snapshot_consensus(sort_ic.conn(), consensus_hash)?
+                    {
                         Some(sn) => {
                             if !sn.pox_valid {
                                 warn!(
                                     "Consensus hash {} is not on the valid PoX fork",
-                                    &consensus_hash
+                                    consensus_hash
                                 );
                                 continue;
                             }
@@ -1367,14 +1364,14 @@ impl Relayer {
                             }
                         }
                         None => {
-                            warn!("Consensus hash {} not known to this node", &consensus_hash);
+                            warn!("Consensus hash {} not known to this node", consensus_hash);
                             continue;
                         }
                     };
 
                     debug!(
                         "Received pushed block {}/{} from {}",
-                        &consensus_hash,
+                        consensus_hash,
                         block.block_hash(),
                         neighbor_key
                     );
@@ -1382,7 +1379,7 @@ impl Relayer {
                     match Relayer::process_new_anchored_block(
                         sort_ic,
                         chainstate,
-                        &consensus_hash,
+                        consensus_hash,
                         block,
                         0,
                     ) {
@@ -1390,20 +1387,20 @@ impl Relayer {
                             if BlockAcceptResponse::Accepted == accept_response {
                                 debug!(
                                     "Accepted block {}/{} from {}",
-                                    &consensus_hash, &bhh, &neighbor_key
+                                    consensus_hash, &bhh, &neighbor_key
                                 );
                                 new_blocks.insert(consensus_hash.clone(), block.clone());
                             } else {
                                 debug!(
                                     "Rejected block {}/{} from {}: {:?}",
-                                    &consensus_hash, &bhh, &neighbor_key, &accept_response
+                                    consensus_hash, &bhh, &neighbor_key, &accept_response
                                 );
                             }
                         }
                         Err(chainstate_error::InvalidStacksBlock(msg)) => {
                             warn!(
                                 "Invalid pushed Stacks block {}/{}: {}",
-                                &consensus_hash,
+                                consensus_hash,
                                 block.block_hash(),
                                 msg
                             );
@@ -1412,7 +1409,7 @@ impl Relayer {
                         Err(e) => {
                             warn!(
                                 "Could not process pushed Stacks block {}/{}: {:?}",
-                                &consensus_hash,
+                                consensus_hash,
                                 block.block_hash(),
                                 &e
                             );
@@ -2607,21 +2604,18 @@ impl Relayer {
         new_microblocks: Vec<(Vec<RelayData>, MicroblocksData)>,
     ) {
         // have the p2p thread tell our neighbors about newly-discovered blocks
-        let new_block_chs = new_blocks.iter().map(|(ch, _)| ch.clone()).collect();
+        let new_block_chs = new_blocks.keys().cloned().collect();
         let available = Relayer::load_blocks_available_data(sortdb, new_block_chs)
             .unwrap_or(BlocksAvailableMap::new());
         if !available.is_empty() {
             debug!("{:?}: Blocks available: {}", &_local_peer, available.len());
             if let Err(e) = self.p2p.advertize_blocks(available, new_blocks) {
-                warn!("Failed to advertize new blocks: {:?}", &e);
+                warn!("Failed to advertize new blocks: {e:?}");
             }
         }
 
         // have the p2p thread tell our neighbors about newly-discovered confirmed microblock streams
-        let new_mblock_chs = new_confirmed_microblocks
-            .iter()
-            .map(|(ch, _)| ch.clone())
-            .collect();
+        let new_mblock_chs = new_confirmed_microblocks.keys().cloned().collect();
         let mblocks_available = Relayer::load_blocks_available_data(sortdb, new_mblock_chs)
             .unwrap_or(BlocksAvailableMap::new());
         if !mblocks_available.is_empty() {
@@ -2634,7 +2628,7 @@ impl Relayer {
                 .p2p
                 .advertize_microblocks(mblocks_available, new_confirmed_microblocks)
             {
-                warn!("Failed to advertize new confirmed microblocks: {:?}", &e);
+                warn!("Failed to advertize new confirmed microblocks: {e:?}");
             }
         }
 

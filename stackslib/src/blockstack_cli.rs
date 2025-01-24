@@ -632,7 +632,7 @@ fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String,
 
     let mut b58_addr_slice = [0u8; 21];
     b58_addr_slice[0] = b58_version;
-    b58_addr_slice[1..].copy_from_slice(&stx_address.bytes.0);
+    b58_addr_slice[1..].copy_from_slice(&stx_address.bytes().0);
     let b58_address_string = b58::check_encode_slice(&b58_addr_slice);
     Ok(format!(
         "{{
