@@ -49,7 +49,7 @@ rusqlite = { workspace = true, features = ["functions"] }
 
 [dev-dependencies]
 clarity = { path = "../clarity", features = ["testing"] }
-polynomial = "0.2.6"
+stacks-common = { path = "../stacks-common", features = ["testing"] }
 num-traits = "0.2.18"
 
 [dependencies.serde_json]

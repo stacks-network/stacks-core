@@ -78,23 +78,23 @@ impl NeighborWalkResult {
         }
     }
 
-    pub fn add_new(&mut self, nk: NeighborKey) -> () {
+    pub fn add_new(&mut self, nk: NeighborKey) {
         self.new_connections.insert(nk);
     }
 
-    pub fn add_broken(&mut self, nk: NeighborKey) -> () {
+    pub fn add_broken(&mut self, nk: NeighborKey) {
         self.broken_connections.insert(nk);
     }
 
-    pub fn add_dead(&mut self, nk: NeighborKey) -> () {
+    pub fn add_dead(&mut self, nk: NeighborKey) {
         self.dead_connections.insert(nk);
     }
 
-    pub fn add_replaced(&mut self, nk: NeighborKey) -> () {
+    pub fn add_replaced(&mut self, nk: NeighborKey) {
         self.replaced_neighbors.insert(nk);
     }
 
-    pub fn clear(&mut self) -> () {
+    pub fn clear(&mut self) {
         self.new_connections.clear();
         self.dead_connections.clear();
         self.broken_connections.clear();
@@ -275,7 +275,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
             &first_neighbor,
             true,
             network.get_walk_pingbacks().clone(),
-            &network.get_connection_opts(),
+            network.get_connection_opts(),
         );
 
         debug!(
@@ -326,7 +326,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
             &allowed_peer,
             true,
             network.get_walk_pingbacks().clone(),
-            &network.get_connection_opts(),
+            network.get_connection_opts(),
         );
 
         debug!(
@@ -348,7 +348,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         network: &PeerNetwork,
     ) -> Result<NeighborWalk<DB, NC>, net_error> {
         let event_ids: Vec<_> = network.iter_peer_event_ids().collect();
-        if event_ids.len() == 0 {
+        if event_ids.is_empty() {
             debug!(
                 "{:?}: failed to begin inbound neighbor walk: no one's connected to us",
                 network.get_local_peer()
@@ -397,7 +397,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                 &empty_neighbor,
                 false,
                 network.get_walk_pingbacks().clone(),
-                &network.get_connection_opts(),
+                network.get_connection_opts(),
             );
 
             debug!(
@@ -429,7 +429,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         comms: NC,
         network: &PeerNetwork,
     ) -> Result<NeighborWalk<DB, NC>, net_error> {
-        if network.get_walk_pingbacks().len() == 0 {
+        if network.get_walk_pingbacks().is_empty() {
             debug!("{:?}: no walk pingbacks", network.get_local_peer());
             return Err(net_error::NoSuchNeighbor);
         }
@@ -454,7 +454,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         let nk = NeighborKey::from_neighbor_address(
             pingback_peer.peer_version,
             pingback_peer.network_id,
-            &addr,
+            addr,
         );
 
         // don't proceed if denied
@@ -469,7 +469,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
             &empty_neighbor,
             false,
             network.get_walk_pingbacks().clone(),
-            &network.get_connection_opts(),
+            network.get_connection_opts(),
         );
 
         debug!(
@@ -532,7 +532,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     }
 
     /// Clear the walk's connection state
-    fn clear_connections(&mut self, _local_peer: &LocalPeer) -> () {
+    fn clear_connections(&mut self, _local_peer: &LocalPeer) {
         test_debug!("{:?}: Walk clear connections", _local_peer);
         self.pending_neighbor_addrs = None;
         self.comms.reset();
@@ -909,7 +909,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
             debug!(
                 "{:?}: will handshake with {} neighbors out of {} reported by {:?}",
                 network.get_local_peer(),
-                &network.get_connection_opts().max_neighbors_of_neighbor,
+                network.get_connection_opts().max_neighbors_of_neighbor,
                 neighbor_addrs_to_resolve.len(),
                 &self.cur_neighbor.addr
             );
@@ -1043,7 +1043,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
             }
         }
 
-        if still_pending.len() > 0 {
+        if !still_pending.is_empty() {
             // try again
             self.pending_neighbor_addrs = Some(still_pending);
             return Ok(false);
@@ -1078,7 +1078,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         // Do we know about this peer already?
         let (new, neighbor) = self.neighbor_db.add_or_schedule_replace_neighbor(
             network,
-            &preamble,
+            preamble,
             &data.handshake,
             db_data,
             &mut self.neighbor_replacements,
@@ -1390,7 +1390,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         exclude: Option<&Neighbor>,
     ) -> Option<Neighbor> {
         let mut rnd = thread_rng();
-        if frontier.len() == 0 || (exclude.is_some() && frontier.len() == 1) {
+        if frontier.is_empty() || (exclude.is_some() && frontier.len() == 1) {
             return None;
         }
         // select a random neighbor index, if exclude is set, and matches this
@@ -1456,7 +1456,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         let mut rnd = thread_rng();
 
         // step to a node in cur_neighbor's frontier, per MHRWDA
-        let next_neighbor_opt = if self.frontier.len() == 0 {
+        let next_neighbor_opt = if self.frontier.is_empty() {
             // stay here for now -- we don't yet know this neighbor's
             // frontier
             if self.walk_outbound {
@@ -1467,7 +1467,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         } else {
             // continuing the walk
             let next_neighbor =
-                Self::pick_random_neighbor(&self.frontier, None).expect("BUG: empty frontier size"); // won't panic since self.frontier.len() > 0
+                Self::pick_random_neighbor(&self.frontier, None).expect("BUG: empty frontier size"); // won't panic since !self.frontier.is_empty()
             let walk_prob: f64 = rnd.gen();
             if walk_prob
                 < self
@@ -1477,7 +1477,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                 // won the coin toss; will take a step.
                 // take care not to step back to the neighbor from which we
                 // stepped previously
-                if let Some(ref prev_neighbor) = self.prev_neighbor.as_ref() {
+                if let Some(prev_neighbor) = self.prev_neighbor.as_ref() {
                     if prev_neighbor.addr == next_neighbor.addr {
                         // oops, backtracked.  Try to pick a different neighbor, if possible.
                         if self.frontier.len() == 1 {
@@ -1488,14 +1488,14 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                             // acceptance by probabilistically deciding to step to an alternative
                             // instead of backtracking.
                             let alt_next_neighbor =
-                                Self::pick_random_neighbor(&self.frontier, Some(&prev_neighbor))
+                                Self::pick_random_neighbor(&self.frontier, Some(prev_neighbor))
                                     .expect("BUG: empty frontier size");
                             let alt_prob: f64 = rnd.gen();
 
                             let cur_to_alt =
                                 self.degree_ratio(network, &self.cur_neighbor, &alt_next_neighbor);
                             let prev_to_cur =
-                                self.degree_ratio(network, &prev_neighbor, &self.cur_neighbor);
+                                self.degree_ratio(network, prev_neighbor, &self.cur_neighbor);
                             let trans_prob = fmin!(
                                 fmin!(1.0, cur_to_alt * cur_to_alt),
                                 fmax!(1.0, prev_to_cur * prev_to_cur)
@@ -1603,7 +1603,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         }
 
         self.network_pingbacks = still_pending;
-        if self.network_pingbacks.len() > 0 {
+        if !self.network_pingbacks.is_empty() {
             // still connecting
             debug!(
                 "{:?}: Still trying to pingback-handshake with {} neighbors",
@@ -1722,7 +1722,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
 
             if let Err(e) = self.comms.neighbor_send(
                 network,
-                &naddr,
+                naddr,
                 StacksMessageType::Handshake(HandshakeData::from_local_peer(
                     network.get_local_peer(),
                 )),

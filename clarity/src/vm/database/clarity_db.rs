@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use serde_json;
-use stacks_common::address::AddressHashMode;
 use stacks_common::consts::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
@@ -25,8 +23,8 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
     TrieHash, VRFSeed,
 };
-use stacks_common::types::{Address, StacksEpoch as GenericStacksEpoch, StacksEpochId};
-use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
+use stacks_common::types::{StacksEpoch as GenericStacksEpoch, StacksEpochId};
+use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 
 use super::clarity_store::SpecialCaseHandler;
 use super::key_value_wrapper::ValueResult;
@@ -35,20 +33,18 @@ use crate::vm::ast::ASTRules;
 use crate::vm::contracts::Contract;
 use crate::vm::costs::{CostOverflowingMath, ExecutionCost};
 use crate::vm::database::structures::{
-    ClarityDeserializable, ClaritySerializable, ContractMetadata, DataMapMetadata,
-    DataVariableMetadata, FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance,
-    STXBalanceSnapshot, SimmedBlock,
+    ClarityDeserializable, ClaritySerializable, DataMapMetadata, DataVariableMetadata,
+    FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance, STXBalanceSnapshot,
 };
 use crate::vm::database::{ClarityBackingStore, RollbackWrapper};
 use crate::vm::errors::{
-    CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult as Result,
-    RuntimeErrorType,
+    CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
 use crate::vm::representations::ClarityName;
-use crate::vm::types::serialization::{SerializationError, NONE_SERIALIZATION_LEN};
+use crate::vm::types::serialization::NONE_SERIALIZATION_LEN;
 use crate::vm::types::{
-    byte_len_of_serialization, OptionalData, PrincipalData, QualifiedContractIdentifier,
-    SequenceData, StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
+    byte_len_of_serialization, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
+    TupleData, TypeSignature, Value,
 };
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
@@ -82,7 +78,7 @@ impl TryFrom<&str> for StoreType {
     fn try_from(value: &str) -> core::result::Result<Self, Self::Error> {
         use self::StoreType::*;
 
-        let hex_value = u8::from_str_radix(value, 10).map_err(|e| e.to_string())?;
+        let hex_value = value.parse::<u8>().map_err(|e| e.to_string())?;
         match hex_value {
             0x00 => Ok(DataMap),
             0x01 => Ok(Variable),
@@ -506,7 +502,7 @@ impl<'a> ClarityDatabase<'a> {
     }
 
     pub fn put_data<T: ClaritySerializable>(&mut self, key: &str, value: &T) -> Result<()> {
-        self.store.put_data(&key, &value.serialize())
+        self.store.put_data(key, &value.serialize())
     }
 
     /// Like `put()`, but returns the serialized byte size of the stored value
@@ -516,7 +512,7 @@ impl<'a> ClarityDatabase<'a> {
         value: &T,
     ) -> Result<u64> {
         let serialized = value.serialize();
-        self.store.put_data(&key, &serialized)?;
+        self.store.put_data(key, &serialized)?;
         Ok(byte_len_of_serialization(&serialized))
     }
 
@@ -568,7 +564,7 @@ impl<'a> ClarityDatabase<'a> {
 
         let size = serialized.len() as u64;
         let hex_serialized = to_hex(serialized.as_slice());
-        self.store.put_data(&key, &hex_serialized)?;
+        self.store.put_data(key, &hex_serialized)?;
 
         Ok(pre_sanitized_size.unwrap_or(size))
     }
@@ -755,16 +751,14 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<Option<ContractAnalysis>> {
-        let x_opt = self
-            .store
+        self.store
             .get_metadata(contract_identifier, AnalysisDatabase::storage_key())
             // treat NoSuchContract error thrown by get_metadata as an Option::None --
             //    the analysis will propagate that as a CheckError anyways.
-            .ok();
-        match x_opt.flatten() {
-            None => Ok(None),
-            Some(x) => ContractAnalysis::deserialize(&x).map(|out| Some(out)),
-        }
+            .ok()
+            .flatten()
+            .map(|x| ContractAnalysis::deserialize(&x))
+            .transpose()
     }
 
     pub fn get_contract_size(
@@ -978,7 +972,7 @@ impl<'a> ClarityDatabase<'a> {
 
 // Get block information
 
-impl<'a> ClarityDatabase<'a> {
+impl ClarityDatabase<'_> {
     /// Returns the ID of a *Stacks* block, by a *Stacks* block height.
     ///
     /// Fails if `block_height` >= the "currently" under construction Stacks block height.
@@ -1066,7 +1060,7 @@ impl<'a> ClarityDatabase<'a> {
         let query_tip = self.get_index_block_header_hash(current_height.saturating_sub(1))?;
         Ok(self
             .headers_db
-            .get_stacks_height_for_tenure_height(&query_tip, tenure_height.into()))
+            .get_stacks_height_for_tenure_height(&query_tip, tenure_height))
     }
 
     /// Get the last-known burnchain block height.
@@ -1158,7 +1152,7 @@ impl<'a> ClarityDatabase<'a> {
     ///    This is the highest Stacks block in this fork whose consensus hash is known.
     /// 3. Resolve the parent StacksBlockId to its consensus hash
     /// 4. Resolve the consensus hash to the associated SortitionId
-    /// In Epoch 3+:
+    ///    In Epoch 3+:
     /// 1. Get the SortitionId of the current Stacks tip
     fn get_sortition_id_for_stacks_tip(&mut self) -> Result<Option<SortitionId>> {
         if !self
@@ -1276,8 +1270,7 @@ impl<'a> ClarityDatabase<'a> {
                 InterpreterError::Expect(
                     "FATAL: no winning burnchain token spend record for block".into(),
                 )
-            })?
-            .into())
+            })?)
     }
 
     pub fn get_miner_spend_total(&mut self, block_height: u32) -> Result<u128> {
@@ -1294,8 +1287,7 @@ impl<'a> ClarityDatabase<'a> {
                 InterpreterError::Expect(
                     "FATAL: no total burnchain token spend record for block".into(),
                 )
-            })?
-            .into())
+            })?)
     }
 
     pub fn get_block_reward(&mut self, block_height: u32) -> Result<Option<u128>> {
@@ -1316,7 +1308,6 @@ impl<'a> ClarityDatabase<'a> {
         let reward: u128 = self
             .headers_db
             .get_tokens_earned_for_block(&id_bhh, &epoch)
-            .map(|x| x.into())
             .ok_or_else(|| {
                 InterpreterError::Expect("FATAL: matured block has no recorded reward".into())
             })?;
@@ -1337,7 +1328,7 @@ impl<'a> ClarityDatabase<'a> {
 
 // poison-microblock
 
-impl<'a> ClarityDatabase<'a> {
+impl ClarityDatabase<'_> {
     pub fn make_microblock_pubkey_height_key(pubkey_hash: &Hash160) -> String {
         format!("microblock-pubkey-hash::{}", pubkey_hash)
     }
@@ -1360,6 +1351,7 @@ impl<'a> ClarityDatabase<'a> {
         self.store.get_cc_special_cases_handler()
     }
 
+    #[allow(clippy::unnecessary_fallible_conversions)]
     pub fn insert_microblock_poison(
         &mut self,
         height: u32,
@@ -1451,11 +1443,11 @@ impl<'a> ClarityDatabase<'a> {
                 if let PrincipalData::Standard(principal_data) = reporter_principal {
                     Ok((principal_data, seq))
                 } else {
-                    return Err(InterpreterError::Expect(
+                    Err(InterpreterError::Expect(
                         "BUG: poison-microblock report principal is not a standard principal"
                             .into(),
                     )
-                    .into());
+                    .into())
                 }
             })
             .transpose()
@@ -1472,7 +1464,7 @@ fn map_no_contract_as_none<T>(res: Result<Option<T>>) -> Result<Option<T>> {
 }
 
 // Variable Functions...
-impl<'a> ClarityDatabase<'a> {
+impl ClarityDatabase<'_> {
     pub fn create_variable(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -1605,7 +1597,7 @@ impl<'a> ClarityDatabase<'a> {
 }
 
 // Data Map Functions
-impl<'a> ClarityDatabase<'a> {
+impl ClarityDatabase<'_> {
     pub fn create_map(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -1951,7 +1943,7 @@ impl<'a> ClarityDatabase<'a> {
 
 // Asset Functions
 
-impl<'a> ClarityDatabase<'a> {
+impl ClarityDatabase<'_> {
     pub fn create_fungible_token(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -2294,19 +2286,13 @@ impl<'a> ClarityDatabase<'a> {
         let key = ClarityDatabase::make_key_for_account_balance(principal);
         debug!("Fetching account balance"; "principal" => %principal.to_string());
         let result = self.get_data(&key)?;
-        Ok(match result {
-            None => STXBalance::zero(),
-            Some(balance) => balance,
-        })
+        Ok(result.unwrap_or_default())
     }
 
     pub fn get_account_nonce(&mut self, principal: &PrincipalData) -> Result<u64> {
         let key = ClarityDatabase::make_key_for_account_nonce(principal);
         let result = self.get_data(&key)?;
-        Ok(match result {
-            None => 0,
-            Some(nonce) => nonce,
-        })
+        Ok(result.unwrap_or_default())
     }
 
     pub fn set_account_nonce(&mut self, principal: &PrincipalData, nonce: u64) -> Result<()> {
@@ -2316,7 +2302,7 @@ impl<'a> ClarityDatabase<'a> {
 }
 
 // access burnchain state
-impl<'a> ClarityDatabase<'a> {
+impl ClarityDatabase<'_> {
     pub fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
         self.burn_state_db.get_burn_block_height(sortition_id)
     }
@@ -2328,7 +2314,7 @@ impl<'a> ClarityDatabase<'a> {
     }
 
     pub fn get_stacks_epoch_for_block(&self, id_bhh: &StacksBlockId) -> Result<StacksEpochId> {
-        let burn_block = self.get_burnchain_block_height(&id_bhh).ok_or_else(|| {
+        let burn_block = self.get_burnchain_block_height(id_bhh).ok_or_else(|| {
             InterpreterError::Expect(format!(
                 "FATAL: no burnchain block height found for Stacks block {}",
                 id_bhh

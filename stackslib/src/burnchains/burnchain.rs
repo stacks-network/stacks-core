@@ -98,7 +98,7 @@ impl BurnchainStateTransition {
 
     /// Get the transaction IDs of all accepted burnchain operations in this block
     pub fn txids(&self) -> Vec<Txid> {
-        self.accepted_ops.iter().map(|ref op| op.txid()).collect()
+        self.accepted_ops.iter().map(|op| op.txid()).collect()
     }
 
     /// Get the sum of all burnchain tokens spent in this burnchain block's accepted operations
@@ -130,13 +130,13 @@ impl BurnchainStateTransition {
 
         block_total_burns.sort();
 
-        if block_total_burns.len() == 0 {
+        if block_total_burns.is_empty() {
             return Some(0);
         } else if block_total_burns.len() == 1 {
             return Some(block_total_burns[0]);
         } else if block_total_burns.len() % 2 != 0 {
             let idx = block_total_burns.len() / 2;
-            return block_total_burns.get(idx).map(|b| *b);
+            return block_total_burns.get(idx).copied();
         } else {
             // NOTE: the `- 1` is safe because block_total_burns.len() >= 2
             let idx_left = block_total_burns.len() / 2 - 1;
@@ -151,7 +151,7 @@ impl BurnchainStateTransition {
         sort_tx: &mut SortitionHandleTx,
         burnchain: &Burnchain,
         parent_snapshot: &BlockSnapshot,
-        block_ops: &Vec<BlockstackOperationType>,
+        block_ops: &[BlockstackOperationType],
         missed_commits: &[MissedBlockCommit],
     ) -> Result<BurnchainStateTransition, burnchain_error> {
         // block commits discovered in this block.
@@ -196,7 +196,7 @@ impl BurnchainStateTransition {
 
         // find all VRF leader keys that were consumed by the block commits of this block
         let consumed_leader_keys =
-            sort_tx.get_consumed_leader_keys(&parent_snapshot, &block_commits)?;
+            sort_tx.get_consumed_leader_keys(parent_snapshot, &block_commits)?;
 
         // assemble the commit windows
         let mut windowed_block_commits = vec![block_commits];
@@ -269,8 +269,7 @@ impl BurnchainStateTransition {
                 let mut missed_commits_at_height =
                     SortitionDB::get_missed_commits_by_intended(sort_tx.tx(), &sortition_id)?;
                 if let Some(missed_commit_in_block) = missed_commits_map.remove(&sortition_id) {
-                    missed_commits_at_height
-                        .extend(missed_commit_in_block.into_iter().map(|x| x.clone()));
+                    missed_commits_at_height.extend(missed_commit_in_block.into_iter().cloned());
                 }
 
                 windowed_missed_commits.push(missed_commits_at_height);
@@ -355,7 +354,7 @@ impl BurnchainStateTransition {
             );
         }
 
-        accepted_ops.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
+        accepted_ops.sort_by(|a, b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
 
         Ok(BurnchainStateTransition {
             burn_dist,
@@ -425,7 +424,7 @@ impl BurnchainBlock {
             BurnchainBlock::Bitcoin(ref data) => data
                 .txs
                 .iter()
-                .map(|ref tx| BurnchainTransaction::Bitcoin((*tx).clone()))
+                .map(|tx| BurnchainTransaction::Bitcoin((*tx).clone()))
                 .collect(),
         }
     }
@@ -850,7 +849,7 @@ impl Burnchain {
             }
             x if x == Opcodes::TransferStx as u8 => {
                 let pre_stx_txid = TransferStxOp::get_sender_txid(burn_tx).ok()?;
-                let pre_stx_tx = match pre_stx_op_map.get(&pre_stx_txid) {
+                let pre_stx_tx = match pre_stx_op_map.get(pre_stx_txid) {
                     Some(tx_ref) => Some(BlockstackOperationType::PreStx(tx_ref.clone())),
                     None => burnchain_db.find_burnchain_op(indexer, pre_stx_txid),
                 };
@@ -879,7 +878,7 @@ impl Burnchain {
             }
             x if x == Opcodes::StackStx as u8 => {
                 let pre_stx_txid = StackStxOp::get_sender_txid(burn_tx).ok()?;
-                let pre_stx_tx = match pre_stx_op_map.get(&pre_stx_txid) {
+                let pre_stx_tx = match pre_stx_op_map.get(pre_stx_txid) {
                     Some(tx_ref) => Some(BlockstackOperationType::PreStx(tx_ref.clone())),
                     None => burnchain_db.find_burnchain_op(indexer, pre_stx_txid),
                 };
@@ -914,7 +913,7 @@ impl Burnchain {
             }
             x if x == Opcodes::DelegateStx as u8 => {
                 let pre_stx_txid = DelegateStxOp::get_sender_txid(burn_tx).ok()?;
-                let pre_stx_tx = match pre_stx_op_map.get(&pre_stx_txid) {
+                let pre_stx_tx = match pre_stx_op_map.get(pre_stx_txid) {
                     Some(tx_ref) => Some(BlockstackOperationType::PreStx(tx_ref.clone())),
                     None => burnchain_db.find_burnchain_op(indexer, pre_stx_txid),
                 };
@@ -943,7 +942,7 @@ impl Burnchain {
             }
             x if x == Opcodes::VoteForAggregateKey as u8 => {
                 let pre_stx_txid = VoteForAggregateKeyOp::get_sender_txid(burn_tx).ok()?;
-                let pre_stx_tx = match pre_stx_op_map.get(&pre_stx_txid) {
+                let pre_stx_tx = match pre_stx_op_map.get(pre_stx_txid) {
                     Some(tx_ref) => Some(BlockstackOperationType::PreStx(tx_ref.clone())),
                     None => burnchain_db.find_burnchain_op(indexer, pre_stx_txid),
                 };
@@ -976,7 +975,7 @@ impl Burnchain {
     }
 
     /// Sanity check -- a list of checked ops is sorted and all vtxindexes are unique
-    pub fn ops_are_sorted(ops: &Vec<BlockstackOperationType>) -> bool {
+    pub fn ops_are_sorted(ops: &[BlockstackOperationType]) -> bool {
         if ops.len() > 1 {
             for i in 0..ops.len() - 1 {
                 if ops[i].vtxindex() >= ops[i + 1].vtxindex() {
@@ -1039,7 +1038,7 @@ impl Burnchain {
         );
 
         let _blockstack_txs =
-            burnchain_db.store_new_burnchain_block(burnchain, indexer, &block, epoch_id)?;
+            burnchain_db.store_new_burnchain_block(burnchain, indexer, block, epoch_id)?;
         Burnchain::process_affirmation_maps(
             burnchain,
             burnchain_db,
@@ -1111,7 +1110,7 @@ impl Burnchain {
         let blockstack_txs = burnchain_db.store_new_burnchain_block(
             burnchain,
             indexer,
-            &block,
+            block,
             cur_epoch.epoch_id,
         )?;
 
@@ -1128,7 +1127,7 @@ impl Burnchain {
             burnchain,
             &sortition_tip,
             None,
-            |_| {},
+            |_, _| {},
         )
     }
 

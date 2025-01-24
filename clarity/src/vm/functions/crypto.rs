@@ -21,21 +21,13 @@ use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash;
 use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
 
-use crate::vm::callables::{CallableType, NativeHandle};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{
-    constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
-};
+use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, Error, InterpreterError,
-    InterpreterResult as Result, RuntimeErrorType, ShortReturnType,
+    check_argument_count, CheckErrors, InterpreterError, InterpreterResult as Result,
 };
-use crate::vm::representations::SymbolicExpressionType::{Atom, List};
-use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
-use crate::vm::types::{
-    BuffData, CharType, PrincipalData, ResponseData, SequenceData, StacksAddressExtensions,
-    TypeSignature, Value, BUFF_32, BUFF_33, BUFF_65,
-};
+use crate::vm::representations::SymbolicExpression;
+use crate::vm::types::{BuffData, SequenceData, TypeSignature, Value, BUFF_32, BUFF_33, BUFF_65};
 use crate::vm::{eval, ClarityVersion, Environment, LocalContext};
 
 macro_rules! native_hash_func {
@@ -125,9 +117,9 @@ pub fn special_principal_of(
         } else {
             pubkey_to_address_v1(pub_key)?
         };
-        let principal = addr.to_account_principal();
-        return Ok(Value::okay(Value::Principal(principal))
-            .map_err(|_| InterpreterError::Expect("Failed to construct ok".into()))?);
+        let principal = addr.into();
+        Ok(Value::okay(Value::Principal(principal))
+            .map_err(|_| InterpreterError::Expect("Failed to construct ok".into()))?)
     } else {
         Ok(Value::err_uint(1))
     }
@@ -169,17 +161,14 @@ pub fn special_secp256k1_recover(
         _ => return Err(CheckErrors::TypeValueError(BUFF_65.clone(), param1).into()),
     };
 
-    match secp256k1_recover(&message, &signature).map_err(|_| CheckErrors::InvalidSecp65k1Signature)
-    {
-        Ok(pubkey) => {
-            return Ok(Value::okay(
-                Value::buff_from(pubkey.to_vec())
-                    .map_err(|_| InterpreterError::Expect("Failed to construct buff".into()))?,
-            )
-            .map_err(|_| InterpreterError::Expect("Failed to construct ok".into()))?)
-        }
-        _ => return Ok(Value::err_uint(1)),
-    };
+    match secp256k1_recover(message, signature).map_err(|_| CheckErrors::InvalidSecp65k1Signature) {
+        Ok(pubkey) => Ok(Value::okay(
+            Value::buff_from(pubkey.to_vec())
+                .map_err(|_| InterpreterError::Expect("Failed to construct buff".into()))?,
+        )
+        .map_err(|_| InterpreterError::Expect("Failed to construct ok".into()))?),
+        _ => Ok(Value::err_uint(1)),
+    }
 }
 
 pub fn special_secp256k1_verify(

@@ -354,7 +354,7 @@ fn cost_2_contract_is_arithmetic_only() {
 
 impl BurnStateDB for TestSimBurnStateDB {
     fn get_tip_burn_block_height(&self) -> Option<u32> {
-        Some(self.height as u32)
+        Some(self.height)
     }
 
     fn get_tip_sortition_id(&self) -> Option<SortitionId> {
@@ -587,7 +587,7 @@ impl HeadersDB for TestSimHeadersDB {
             let burn_block_height = self.get_burn_block_height_for_block(id_bhh)? as u64;
             Some(
                 BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP as u64 + burn_block_height
-                    - BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT as u64,
+                    - BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
             )
         }
     }
@@ -607,7 +607,7 @@ impl HeadersDB for TestSimHeadersDB {
                 None
             } else {
                 Some(
-                    (BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT as u32 + input_height as u32)
+                    (BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + input_height)
                         .try_into()
                         .unwrap(),
                 )
@@ -846,7 +846,7 @@ fn pox_2_contract_caller_units() {
                 &symbols_from_values(vec![
                     Value::UInt(USTX_PER_HOLDER),
                     POX_ADDRS[0].clone(),
-                    burn_height.clone(),
+                    burn_height,
                     Value::UInt(3),
                 ])
             )
@@ -876,7 +876,7 @@ fn pox_2_contract_caller_units() {
                 &symbols_from_values(vec![
                     Value::UInt(USTX_PER_HOLDER),
                     POX_ADDRS[2].clone(),
-                    burn_height.clone(),
+                    burn_height,
                     Value::UInt(3),
                 ])
             )
@@ -1020,7 +1020,7 @@ fn pox_2_lock_extend_units() {
                 &symbols_from_values(vec![
                     Value::UInt(USTX_PER_HOLDER),
                     POX_ADDRS[1].clone(),
-                    burn_height.clone(),
+                    burn_height,
                     Value::UInt(3),
                 ])
             )
@@ -1276,7 +1276,7 @@ fn pox_2_delegate_extend_units() {
                     (&USER_KEYS[1]).into(),
                     Value::UInt(1),
                     POX_ADDRS[1].clone(),
-                    burn_height.clone(),
+                    burn_height,
                     Value::UInt(2)
                 ])
             )
@@ -1778,9 +1778,9 @@ fn test_deploy_smart_contract(
 ) -> std::result::Result<(), ClarityError> {
     block.as_transaction(|tx| {
         let (ast, analysis) =
-            tx.analyze_smart_contract(&contract_id, version, content, ASTRules::PrecheckSize)?;
-        tx.initialize_smart_contract(&contract_id, version, &ast, content, None, |_, _| false)?;
-        tx.save_analysis(&contract_id, &analysis)?;
+            tx.analyze_smart_contract(contract_id, version, content, ASTRules::PrecheckSize)?;
+        tx.initialize_smart_contract(contract_id, version, &ast, content, None, |_, _| false)?;
+        tx.save_analysis(contract_id, &analysis)?;
         return Ok(());
     })
 }
@@ -1789,12 +1789,9 @@ fn test_deploy_smart_contract(
 // test that the maximum stackerdb list size will fit in a value
 fn max_stackerdb_list() {
     let signers_list: Vec<_> = (0..SIGNERS_MAX_LIST_SIZE)
-        .into_iter()
         .map(|signer_ix| {
-            let signer_address = StacksAddress {
-                version: 0,
-                bytes: Hash160::from_data(&signer_ix.to_be_bytes()),
-            };
+            let signer_address =
+                StacksAddress::new(0, Hash160::from_data(&signer_ix.to_be_bytes())).unwrap();
             Value::Tuple(
                 TupleData::from_data(vec![
                     (
@@ -2458,7 +2455,7 @@ fn delegation_tests() {
                     (&USER_KEYS[4]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
                     POX_ADDRS[0].clone(),
-                    burn_height.clone(),
+                    burn_height,
                     Value::UInt(2)
                 ])
             )
@@ -2524,8 +2521,7 @@ fn test_vote_withdrawal() {
             "vote-proposal",
             &symbols_from_values(vec![Value::UInt(0), Value::UInt(10)]),
         )
-        .unwrap()
-        .0;
+        .unwrap();
 
         // Assert that the number of votes is correct
         assert_eq!(
@@ -2551,8 +2547,7 @@ fn test_vote_withdrawal() {
             "vote-proposal",
             &symbols_from_values(vec![Value::UInt(0), Value::UInt(5)]),
         )
-        .unwrap()
-        .0;
+        .unwrap();
 
         // Assert that the number of votes is correct
         assert_eq!(
@@ -2753,8 +2748,7 @@ fn test_vote_fail() {
                 "vote-proposal",
                 &symbols_from_values(vec![Value::UInt(0), Value::UInt(USTX_PER_HOLDER)]),
             )
-            .unwrap()
-            .0;
+            .unwrap();
         }
 
         // Assert confirmation returns true
@@ -2953,8 +2947,7 @@ fn test_vote_confirm() {
                 "vote-proposal",
                 &symbols_from_values(vec![Value::UInt(0), Value::UInt(USTX_PER_HOLDER)]),
             )
-            .unwrap()
-            .0;
+            .unwrap();
         }
 
         // Assert confirmation returns true
@@ -3047,7 +3040,7 @@ fn test_vote_too_many_confirms() {
                 .0,
                 Value::Response(ResponseData {
                     committed: true,
-                    data: Value::UInt(i as u128).into()
+                    data: Value::UInt(i).into()
                 })
             );
         }
@@ -3061,10 +3054,7 @@ fn test_vote_too_many_confirms() {
                         None,
                         COST_VOTING_CONTRACT_TESTNET.clone(),
                         "vote-proposal",
-                        &symbols_from_values(vec![
-                            Value::UInt(i as u128),
-                            Value::UInt(USTX_PER_HOLDER)
-                        ]),
+                        &symbols_from_values(vec![Value::UInt(i), Value::UInt(USTX_PER_HOLDER)]),
                     )
                     .unwrap()
                     .0,
@@ -3079,7 +3069,7 @@ fn test_vote_too_many_confirms() {
                     None,
                     COST_VOTING_CONTRACT_TESTNET.clone(),
                     "confirm-votes",
-                    &symbols_from_values(vec![Value::UInt(i as u128)])
+                    &symbols_from_values(vec![Value::UInt(i)])
                 )
                 .unwrap()
                 .0,
@@ -3093,13 +3083,9 @@ fn test_vote_too_many_confirms() {
                     None,
                     COST_VOTING_CONTRACT_TESTNET.clone(),
                     "withdraw-votes",
-                    &symbols_from_values(vec![
-                        Value::UInt(i as u128),
-                        Value::UInt(USTX_PER_HOLDER),
-                    ]),
+                    &symbols_from_values(vec![Value::UInt(i), Value::UInt(USTX_PER_HOLDER)]),
                 )
-                .unwrap()
-                .0;
+                .unwrap();
             }
         }
     });
@@ -3122,7 +3108,7 @@ fn test_vote_too_many_confirms() {
                     None,
                     COST_VOTING_CONTRACT_TESTNET.clone(),
                     "confirm-miners",
-                    &symbols_from_values(vec![Value::UInt(i as u128)])
+                    &symbols_from_values(vec![Value::UInt(i)])
                 )
                 .unwrap()
                 .0,

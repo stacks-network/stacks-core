@@ -132,7 +132,7 @@ pub fn set_last_block_transaction_count(transactions_in_block: u64) {
     // Saturating cast from u64 to i64
     #[cfg(feature = "monitoring_prom")]
     prometheus::LAST_BLOCK_TRANSACTION_COUNT
-        .set(i64::try_from(transactions_in_block).unwrap_or_else(|_| i64::MAX));
+        .set(i64::try_from(transactions_in_block).unwrap_or(i64::MAX));
 }
 
 /// Log `execution_cost` as a ratio of `block_limit`.
@@ -162,7 +162,7 @@ pub fn set_last_mined_block_transaction_count(transactions_in_block: u64) {
     // Saturating cast from u64 to i64
     #[cfg(feature = "monitoring_prom")]
     prometheus::LAST_MINED_BLOCK_TRANSACTION_COUNT
-        .set(i64::try_from(transactions_in_block).unwrap_or_else(|_| i64::MAX));
+        .set(i64::try_from(transactions_in_block).unwrap_or(i64::MAX));
 }
 
 pub fn increment_btc_ops_sent_counter() {
@@ -388,7 +388,7 @@ pub fn test_convert_uint256_to_f64() {
     let original = ((Uint512::from_uint256(&Uint256::max()) * Uint512::from_u64(10))
         / Uint512::from_u64(100))
     .to_uint256();
-    assert_approx_eq!(convert_uint256_to_f64_percentage(original, 7), 10 as f64);
+    assert_approx_eq!(convert_uint256_to_f64_percentage(original, 7), 10_f64);
 
     let original = ((Uint512::from_uint256(&Uint256::max()) * Uint512::from_u64(122))
         / Uint512::from_u64(1000))

@@ -76,9 +76,9 @@ const GIT_COMMIT_ENV: Option<&'static str> = option_env!("GIT_COMMIT");
 const GIT_TREE_CLEAN_ENV: Option<&'static str> = option_env!("GIT_TREE_CLEAN");
 
 #[cfg(debug_assertions)]
-const BUILD_TYPE: &'static str = "debug";
+const BUILD_TYPE: &str = "debug";
 #[cfg(not(debug_assertions))]
-const BUILD_TYPE: &'static str = "release";
+const BUILD_TYPE: &str = "release";
 
 pub fn version_string(pkg_name: &str, pkg_version: Option<&str>) -> String {
     let pkg_version = pkg_version.unwrap_or(STACKS_NODE_VERSION);
@@ -90,7 +90,7 @@ pub fn version_string(pkg_name: &str, pkg_version: Option<&str>) -> String {
         "{} {} ({}:{}{}, {} build, {} [{}])",
         pkg_name,
         pkg_version,
-        &git_branch,
+        git_branch,
         git_commit,
         git_tree_clean,
         BUILD_TYPE,

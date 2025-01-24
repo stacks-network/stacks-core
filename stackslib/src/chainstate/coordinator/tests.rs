@@ -128,7 +128,7 @@ pub fn produce_burn_block<'a, I: Iterator<Item = &'a mut BurnchainDB>>(
 ) -> BurnchainHeaderHash {
     let BurnchainBlockData {
         header: par_header, ..
-    } = BurnchainDB::get_burnchain_block(&burnchain_db.conn(), par).unwrap();
+    } = BurnchainDB::get_burnchain_block(burnchain_db.conn(), par).unwrap();
     assert_eq!(&par_header.block_hash, par);
     let block_height = par_header.block_height + 1;
     for op in ops.iter_mut() {
@@ -159,7 +159,7 @@ fn produce_burn_block_do_not_set_height<'a, I: Iterator<Item = &'a mut Burnchain
 ) -> BurnchainHeaderHash {
     let BurnchainBlockData {
         header: par_header, ..
-    } = BurnchainDB::get_burnchain_block(&burnchain_db.conn(), par).unwrap();
+    } = BurnchainDB::get_burnchain_block(burnchain_db.conn(), par).unwrap();
     assert_eq!(&par_header.block_hash, par);
     let block_height = par_header.block_height + 1;
     let timestamp = par_header.timestamp + 1;
@@ -446,6 +446,7 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _rewards: Vec<(PoxAddress, u64)>,
         _burns: u64,
         _slot_holders: Vec<PoxAddress>,
+        _consensus_hash: &ConsensusHash,
     ) {
     }
 }
@@ -570,22 +571,12 @@ pub fn get_burnchain(path: &str, pox_consts: Option<PoxConstants>) -> Burnchain 
 
 pub fn get_sortition_db(path: &str, pox_consts: Option<PoxConstants>) -> SortitionDB {
     let burnchain = get_burnchain(path, pox_consts);
-    SortitionDB::open(
-        &burnchain.get_db_path(),
-        false,
-        burnchain.pox_constants.clone(),
-    )
-    .unwrap()
+    SortitionDB::open(&burnchain.get_db_path(), false, burnchain.pox_constants).unwrap()
 }
 
 pub fn get_rw_sortdb(path: &str, pox_consts: Option<PoxConstants>) -> SortitionDB {
     let burnchain = get_burnchain(path, pox_consts);
-    SortitionDB::open(
-        &burnchain.get_db_path(),
-        true,
-        burnchain.pox_constants.clone(),
-    )
-    .unwrap()
+    SortitionDB::open(&burnchain.get_db_path(), true, burnchain.pox_constants).unwrap()
 }
 
 pub fn get_burnchain_db(path: &str, pox_consts: Option<PoxConstants>) -> BurnchainDB {
@@ -594,7 +585,7 @@ pub fn get_burnchain_db(path: &str, pox_consts: Option<PoxConstants>) -> Burncha
 }
 
 pub fn get_chainstate_path_str(path: &str) -> String {
-    format!("{}/chainstate/", path)
+    format!("{path}/chainstate/")
 }
 
 pub fn get_chainstate(path: &str) -> StacksChainState {
@@ -902,7 +893,7 @@ fn make_stacks_block_with_input(
 
     eprintln!(
         "Find parents stacks header: {} in sortition {} (height {}, parent {}/{},{}, index block hash {})",
-        &parent_block, &parents_sortition.sortition_id, parents_sortition.block_height, &parents_sortition.consensus_hash, parent_block, parent_height, &StacksBlockHeader::make_index_block_hash(&parents_sortition.consensus_hash, &parent_block)
+        &parent_block, &parents_sortition.sortition_id, parents_sortition.block_height, &parents_sortition.consensus_hash, parent_block, parent_height, &StacksBlockHeader::make_index_block_hash(&parents_sortition.consensus_hash, parent_block)
     );
 
     let parent_vtxindex =
@@ -991,7 +982,7 @@ fn make_stacks_block_with_input(
         parent_vtxindex,
 
         txid: next_txid(),
-        vtxindex: (1 + key_index) as u32,
+        vtxindex: 1 + key_index,
         block_height: 0,
         burn_parent_modulus: (BURN_BLOCK_MINED_AT_MODULUS - 1) as u8,
         burn_header_hash: BurnchainHeaderHash([0; 32]),
@@ -1185,7 +1176,7 @@ fn missed_block_commits_2_05() {
                 &mut burnchain,
                 &burnchain_tip.block_hash,
                 vec![],
-                vec![].iter_mut(),
+                [].iter_mut(),
             );
         } else {
             // produce a block with one good op,
@@ -1202,7 +1193,7 @@ fn missed_block_commits_2_05() {
                 &mut burnchain,
                 &burnchain_tip.block_hash,
                 ops,
-                vec![].iter_mut(),
+                [].iter_mut(),
             );
         }
         // handle the sortition
@@ -1222,12 +1213,10 @@ fn missed_block_commits_2_05() {
             // how many commit do we expect to see counted in the current window?
             let expected_window_commits = if ix >= (MINING_COMMITMENT_WINDOW as usize) {
                 (MINING_COMMITMENT_WINDOW - 1) as usize
+            } else if ix >= 3 {
+                ix
             } else {
-                if ix >= 3 {
-                    ix
-                } else {
-                    ix + 1
-                }
+                ix + 1
             };
             // there were 2 burn blocks before we started mining
             let expected_window_size = cmp::min(MINING_COMMITMENT_WINDOW as usize, ix + 3);
@@ -1514,7 +1503,7 @@ fn missed_block_commits_2_1() {
                 &mut burnchain,
                 &burnchain_tip.block_hash,
                 vec![],
-                vec![].iter_mut(),
+                [].iter_mut(),
             );
         } else {
             // produce a block with one good op,
@@ -1531,7 +1520,7 @@ fn missed_block_commits_2_1() {
                 &mut burnchain,
                 &burnchain_tip.block_hash,
                 ops,
-                vec![].iter_mut(),
+                [].iter_mut(),
             );
         }
         // handle the sortition
@@ -1551,12 +1540,10 @@ fn missed_block_commits_2_1() {
             // how many commits do we expect to see counted in the current window?
             let mut expected_window_commits = if ix >= (MINING_COMMITMENT_WINDOW as usize) {
                 (MINING_COMMITMENT_WINDOW - 1) as usize
+            } else if ix >= 3 {
+                ix
             } else {
-                if ix >= 3 {
-                    ix
-                } else {
-                    ix + 1
-                }
+                ix + 1
             };
             // there were 2 burn blocks before we started mining
             let expected_window_size = cmp::min(MINING_COMMITMENT_WINDOW as usize, ix + 3);
@@ -1857,7 +1844,7 @@ fn late_block_commits_2_1() {
                 &mut burnchain,
                 &burnchain_tip.block_hash,
                 vec![],
-                vec![].iter_mut(),
+                [].iter_mut(),
             );
         } else {
             // produce a block with one good op,
@@ -1874,7 +1861,7 @@ fn late_block_commits_2_1() {
                 &mut burnchain,
                 &burnchain_tip.block_hash,
                 ops,
-                vec![].iter_mut(),
+                [].iter_mut(),
             );
         }
         // handle the sortition
@@ -1894,12 +1881,10 @@ fn late_block_commits_2_1() {
             // how many commit do we expect to see counted in the current window?
             let mut expected_window_commits = if ix >= (MINING_COMMITMENT_WINDOW as usize) {
                 (MINING_COMMITMENT_WINDOW - 1) as usize
+            } else if ix >= 3 {
+                ix
             } else {
-                if ix >= 3 {
-                    ix
-                } else {
-                    ix + 1
-                }
+                ix + 1
             };
             // there were 2 burn blocks before we started mining
             let expected_window_size = cmp::min(MINING_COMMITMENT_WINDOW as usize, ix + 3);
@@ -2434,7 +2419,7 @@ fn test_sortition_with_reward_set() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -2680,7 +2665,7 @@ fn test_sortition_with_burner_reward_set() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -2963,7 +2948,7 @@ fn test_pox_btc_ops() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -3310,7 +3295,7 @@ fn test_stx_transfer_btc_ops() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -3510,7 +3495,7 @@ fn test_delegate_stx_btc_ops() {
         StacksEpochId::Epoch21,
     );
 
-    let mut coord = make_coordinator(path, Some(burnchain_conf.clone()));
+    let mut coord = make_coordinator(path, Some(burnchain_conf));
 
     coord.handle_new_burnchain_block().unwrap();
 
@@ -3666,7 +3651,7 @@ fn test_delegate_stx_btc_ops() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -3843,7 +3828,7 @@ fn test_initial_coinbase_reward_distributions() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             vec![],
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -3883,7 +3868,7 @@ fn test_initial_coinbase_reward_distributions() {
                 &mut burnchain,
                 &burnchain_tip.block_hash,
                 vec![],
-                vec![].iter_mut(),
+                [].iter_mut(),
             );
             coord.handle_new_burnchain_block().unwrap();
         } else {
@@ -3934,7 +3919,7 @@ fn test_initial_coinbase_reward_distributions() {
                 &mut burnchain,
                 &burnchain_tip.block_hash,
                 ops,
-                vec![].iter_mut(),
+                [].iter_mut(),
             );
             // handle the sortition
             coord.handle_new_burnchain_block().unwrap();
@@ -4131,7 +4116,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -4334,7 +4319,7 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -4540,7 +4525,7 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -4678,7 +4663,7 @@ fn atlas_stop_start() {
     let atlas_qci = QualifiedContractIdentifier::new(signer_pk.clone().into(), atlas_name.clone());
     // include our simple contract in the atlas config
     let mut atlas_config = AtlasConfig::new(false);
-    atlas_config.contracts.insert(atlas_qci.clone());
+    atlas_config.contracts.insert(atlas_qci);
 
     setup_states(
         &[path],
@@ -4741,7 +4726,7 @@ fn atlas_stop_start() {
                     TransactionVersion::Testnet,
                     TransactionAuth::from_p2pkh(&signer_sk).unwrap(),
                     TransactionPayload::ContractCall(TransactionContractCall {
-                        address: signer_pk.clone().into(),
+                        address: signer_pk.clone(),
                         contract_name: atlas_name.clone(),
                         function_name: "make-attach".into(),
                         function_args: vec![Value::buff_from(vec![ix; 20]).unwrap()],
@@ -4835,7 +4820,7 @@ fn atlas_stop_start() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -5158,7 +5143,7 @@ fn test_epoch_verify_active_pox_contract() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -5478,7 +5463,7 @@ fn test_sortition_with_sunset() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -5819,7 +5804,7 @@ fn test_sortition_with_sunset_and_epoch_switch() {
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
-            vec![].iter_mut(),
+            [].iter_mut(),
         );
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
@@ -6409,7 +6394,7 @@ fn test_pox_no_anchor_selected() {
             path_blinded,
             &sort_db_blind,
             &mut coord_blind,
-            &sort_id,
+            sort_id,
             block,
         );
     }
@@ -6805,7 +6790,7 @@ fn reveal_block<T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProv
     block: &StacksBlock,
 ) {
     let mut chainstate = get_chainstate(chainstate_path);
-    let sortition = SortitionDB::get_block_snapshot(sort_db.conn(), &my_sortition)
+    let sortition = SortitionDB::get_block_snapshot(sort_db.conn(), my_sortition)
         .unwrap()
         .unwrap();
     preprocess_block(&mut chainstate, sort_db, &sortition, block.clone());
@@ -6881,7 +6866,7 @@ fn test_check_chainstate_db_versions() {
     let chainstate_v1 = StacksChainState::open_db_without_migrations(
         false,
         CHAIN_ID_TESTNET,
-        &StacksChainState::header_index_root_path(PathBuf::from(&chainstate_path))
+        StacksChainState::header_index_root_path(PathBuf::from(&chainstate_path))
             .to_str()
             .unwrap(),
     )
@@ -6903,13 +6888,8 @@ fn test_check_chainstate_db_versions() {
     );
 
     // should work just fine in epoch 2
-    assert!(
-        check_chainstate_db_versions(&[epoch_2.clone()], &sortdb_path, &chainstate_path).unwrap()
-    );
+    assert!(check_chainstate_db_versions(&[epoch_2], &sortdb_path, &chainstate_path).unwrap());
 
     // should fail in epoch 2.05
-    assert!(
-        !check_chainstate_db_versions(&[epoch_2_05.clone()], &sortdb_path, &chainstate_path)
-            .unwrap()
-    );
+    assert!(!check_chainstate_db_versions(&[epoch_2_05], &sortdb_path, &chainstate_path).unwrap());
 }

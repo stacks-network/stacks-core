@@ -1,13 +1,8 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
-
-use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::StacksEpochId;
 
 use super::analysis::ContractAnalysis;
-use super::contexts::GlobalContext;
-use super::docs::contracts::ContractRef;
 use super::types::TypeSignature;
-use super::{eval_all, ClarityVersion, ContractContext, Error as VmError, Value};
+use super::ClarityVersion;
 use crate::vm::analysis::{run_analysis, CheckResult};
 use crate::vm::ast::{build_ast_with_rules, ASTRules};
 use crate::vm::costs::LimitedCostTracker;
@@ -21,7 +16,7 @@ pub fn mem_type_check(
     epoch: StacksEpochId,
 ) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
     let contract_identifier = QualifiedContractIdentifier::transient();
-    let mut contract = build_ast_with_rules(
+    let contract = build_ast_with_rules(
         &contract_identifier,
         snippet,
         &mut (),
@@ -37,7 +32,7 @@ pub fn mem_type_check(
     let cost_tracker = LimitedCostTracker::new_free();
     match run_analysis(
         &QualifiedContractIdentifier::transient(),
-        &mut contract,
+        &contract,
         &mut analysis_db,
         false,
         cost_tracker,
@@ -51,7 +46,7 @@ pub fn mem_type_check(
                 .type_map
                 .as_ref()
                 .unwrap()
-                .get_type_expected(&x.expressions.last().unwrap())
+                .get_type_expected(x.expressions.last().unwrap())
                 .cloned();
             Ok((first_type, x))
         }

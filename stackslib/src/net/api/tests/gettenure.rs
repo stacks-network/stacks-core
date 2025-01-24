@@ -129,8 +129,7 @@ fn test_stream_nakamoto_tenure() {
         true, true, true, true, true, true, true, true, true, true,
     ]];
 
-    let mut peer =
-        make_nakamoto_peer_from_invs(function_name!(), &test_observer, 10, 3, bitvecs.clone());
+    let mut peer = make_nakamoto_peer_from_invs(function_name!(), &test_observer, 10, 3, bitvecs);
 
     // can't stream a nonexistant tenure
     assert!(NakamotoTenureStream::new(
@@ -191,7 +190,7 @@ fn test_stream_nakamoto_tenure() {
 
     let ptr = &mut all_block_bytes.as_slice();
     let mut blocks = vec![];
-    while ptr.len() > 0 {
+    while !ptr.is_empty() {
         let block = NakamotoBlock::consensus_deserialize(ptr).unwrap();
         blocks.push(block);
     }

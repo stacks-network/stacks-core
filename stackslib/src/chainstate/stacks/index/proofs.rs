@@ -369,7 +369,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
 
     fn make_proof_hashes(
         node: &TrieNodeType,
-        all_hashes: &Vec<TrieHash>,
+        all_hashes: &[TrieHash],
         chr: u8,
     ) -> Result<Vec<TrieHash>, Error> {
         let mut hashes = vec![];
@@ -610,7 +610,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
 
             // need the target node's root trie ptr, unless this is the first proof (in which case
             // it's a junction proof)
-            if proof.len() > 0 {
+            if !proof.is_empty() {
                 let root_ptr = storage.root_trieptr();
                 let (root_node, _) = storage.read_nodetype(&root_ptr)?;
 
@@ -706,7 +706,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                     return None;
                 }
 
-                if hashes.len() == 0 {
+                if hashes.is_empty() {
                     // special case -- if this shunt proof has no hashes (i.e. this is a leaf from the first
                     // block), then we can safely skip this step
                     trace!(
@@ -834,12 +834,12 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
     /// Given a list of non-backptr ptrs and a root block header hash, calculate a Merkle proof.
     fn make_segment_proof(
         storage: &mut TrieStorageConnection<T>,
-        ptrs: &Vec<TriePtr>,
+        ptrs: &[TriePtr],
         starting_chr: u8,
     ) -> Result<Vec<TrieMerkleProofType<T>>, Error> {
         trace!("make_segment_proof: ptrs = {:?}", &ptrs);
 
-        assert!(ptrs.len() > 0);
+        assert!(!ptrs.is_empty());
         assert_eq!(ptrs[0], storage.root_trieptr());
         for i in 1..ptrs.len() {
             assert!(!is_backptr(ptrs[i].id()));
@@ -857,13 +857,10 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         let mut i = ptrs.len() - 1;
         loop {
             let ptr = &ptrs[i];
-            let proof_node = TrieMerkleProof::ptr_to_segment_proof_node(storage, &ptr, prev_chr)?;
+            let proof_node = TrieMerkleProof::ptr_to_segment_proof_node(storage, ptr, prev_chr)?;
 
             trace!(
-                "make_segment_proof: Add proof node from {:?} child 0x{:02x}: {:?}",
-                &ptr,
-                prev_chr,
-                &proof_node
+                "make_segment_proof: Add proof node from {ptr:?} child 0x{prev_chr:02x}: {proof_node:?}"
             );
 
             proof_segment.push(proof_node);
@@ -896,14 +893,12 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         for child_ptr in node.ptrs() {
             if child_ptr.id != TrieNodeID::Empty as u8 && child_ptr.chr == chr {
                 all_hashes.push(hash.clone());
+            } else if ih >= hashes.len() {
+                trace!("verify_get_hash: {} >= {}", ih, hashes.len());
+                return None;
             } else {
-                if ih >= hashes.len() {
-                    trace!("verify_get_hash: {} >= {}", ih, hashes.len());
-                    return None;
-                } else {
-                    all_hashes.push(hashes[ih].clone());
-                    ih += 1;
-                }
+                all_hashes.push(hashes[ih].clone());
+                ih += 1;
             }
         }
         if all_hashes.len() != count {
@@ -1003,8 +998,8 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
     /// * segment proof i+1 must be a prefix of segment proof i
     /// * segment proof 0 must end in a leaf
     /// * all segment proofs must end in a Node256 (a root)
-    fn is_proof_well_formed(proof: &Vec<TrieMerkleProofType<T>>, expected_path: &TrieHash) -> bool {
-        if proof.len() == 0 {
+    fn is_proof_well_formed(proof: &[TrieMerkleProofType<T>], expected_path: &TrieHash) -> bool {
+        if proof.is_empty() {
             trace!("Proof is empty");
             return false;
         }
@@ -1119,13 +1114,13 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
     /// headers.
     /// NOTE: Trie root hashes are globally unique by design, even if they represent the same contents, so the root_to_block map is bijective with high probability.
     pub fn verify_proof(
-        proof: &Vec<TrieMerkleProofType<T>>,
+        proof: &[TrieMerkleProofType<T>],
         path: &TrieHash,
         value: &MARFValue,
         root_hash: &TrieHash,
         root_to_block: &HashMap<TrieHash, T>,
     ) -> bool {
-        if !TrieMerkleProof::is_proof_well_formed(&proof, path) {
+        if !TrieMerkleProof::is_proof_well_formed(proof, path) {
             test_debug!("Invalid proof -- proof is not well-formed");
             return false;
         }
@@ -1355,7 +1350,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         root_hash: &TrieHash,
         root_to_block: &HashMap<TrieHash, T>,
     ) -> bool {
-        TrieMerkleProof::<T>::verify_proof(&self.0, &path, &marf_value, root_hash, root_to_block)
+        TrieMerkleProof::<T>::verify_proof(&self.0, path, marf_value, root_hash, root_to_block)
     }
 
     /// Walk down the trie pointed to by s until we reach a backptr or a leaf

@@ -159,7 +159,7 @@ impl RPCPoxInfoData {
 
         // Note: should always be 0 unless somehow configured to start later
         let pox_1_first_cycle = burnchain
-            .block_height_to_reward_cycle(u64::from(burnchain.first_block_height))
+            .block_height_to_reward_cycle(burnchain.first_block_height)
             .ok_or(NetError::ChainstateError(
                 "PoX-1 first reward cycle begins before first burn block height".to_string(),
             ))?;
@@ -318,7 +318,7 @@ impl RPCPoxInfoData {
             .active_pox_contract(burnchain.reward_cycle_to_block_height(reward_cycle_id + 1));
 
         let cur_cycle_stacked_ustx = chainstate.get_total_ustx_stacked(
-            &sortdb,
+            sortdb,
             tip,
             reward_cycle_id as u128,
             cur_cycle_pox_contract,
@@ -326,7 +326,7 @@ impl RPCPoxInfoData {
         let next_cycle_stacked_ustx =
             // next_cycle_pox_contract might not be instantiated yet
             match chainstate.get_total_ustx_stacked(
-                &sortdb,
+                sortdb,
                 tip,
                 reward_cycle_id as u128 + 1,
                 next_cycle_pox_contract,
@@ -364,7 +364,7 @@ impl RPCPoxInfoData {
         let cur_cycle_pox_active = sortdb.is_pox_active(burnchain, &burnchain_tip)?;
         let epochs: Vec<_> = SortitionDB::get_stacks_epochs(sortdb.conn())?
             .into_iter()
-            .map(|epoch| RPCPoxEpoch::from(epoch))
+            .map(RPCPoxEpoch::from)
             .collect();
 
         Ok(RPCPoxInfoData {

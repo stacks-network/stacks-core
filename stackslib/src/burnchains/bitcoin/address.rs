@@ -79,8 +79,8 @@ pub const ADDRESS_VERSION_TESTNET_SINGLESIG: u8 = 111;
 pub const ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 196;
 
 // segwit hrps
-pub const SEGWIT_MAINNET_HRP: &'static str = "bc";
-pub const SEGWIT_TESTNET_HRP: &'static str = "tb";
+pub const SEGWIT_MAINNET_HRP: &str = "bc";
+pub const SEGWIT_TESTNET_HRP: &str = "tb";
 
 // segwit witnes versions
 pub const SEGWIT_V0: u8 = 0;
@@ -234,8 +234,8 @@ impl LegacyBitcoinAddress {
         payload_bytes.copy_from_slice(b);
 
         Ok(LegacyBitcoinAddress {
-            network_id: network_id,
-            addrtype: addrtype,
+            network_id,
+            addrtype,
             bytes: Hash160(payload_bytes),
         })
     }
@@ -290,7 +290,7 @@ impl SegwitBitcoinAddress {
         let mut bytes_u5: Vec<u5> = vec![u5::try_from_u8(self.witness_version())
             .expect("FATAL: bad witness version does not fit into a u5")];
         bytes_u5.extend_from_slice(&bytes.to_base32());
-        let addr = bech32::encode(&hrp, bytes_u5, self.bech32_variant())
+        let addr = bech32::encode(hrp, bytes_u5, self.bech32_variant())
             .expect("FATAL: could not encode segwit address");
         addr
     }
@@ -317,7 +317,7 @@ impl SegwitBitcoinAddress {
             None
         }?;
 
-        if quintets.len() == 0 || quintets.len() > 65 {
+        if quintets.is_empty() || quintets.len() > 65 {
             test_debug!("Invalid prog length: {}", quintets.len());
             return None;
         }
@@ -436,8 +436,8 @@ impl BitcoinAddress {
         my_bytes.copy_from_slice(b);
 
         Ok(BitcoinAddress::Legacy(LegacyBitcoinAddress {
-            network_id: network_id,
-            addrtype: addrtype,
+            network_id,
+            addrtype,
             bytes: Hash160(my_bytes),
         }))
     }
@@ -478,7 +478,7 @@ impl BitcoinAddress {
             my_bytes.copy_from_slice(b);
 
             Some(BitcoinAddress::Legacy(LegacyBitcoinAddress {
-                network_id: network_id,
+                network_id,
                 addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                 bytes: Hash160(my_bytes),
             }))
@@ -492,7 +492,7 @@ impl BitcoinAddress {
             my_bytes.copy_from_slice(b);
 
             Some(BitcoinAddress::Legacy(LegacyBitcoinAddress {
-                network_id: network_id,
+                network_id,
                 addrtype: LegacyBitcoinAddressType::ScriptHash,
                 bytes: Hash160(my_bytes),
             }))
@@ -591,10 +591,10 @@ impl BitcoinAddress {
         } else {
             BitcoinNetworkType::Testnet
         };
-        if let Some(addr) = BitcoinAddress::from_scriptpubkey(network_id, scriptpubkey) {
-            if let BitcoinAddress::Segwit(sw) = addr {
-                return Some(BitcoinAddress::Segwit(sw));
-            }
+        if let Some(BitcoinAddress::Segwit(sw)) =
+            BitcoinAddress::from_scriptpubkey(network_id, scriptpubkey)
+        {
+            return Some(BitcoinAddress::Segwit(sw));
         }
         return None;
     }

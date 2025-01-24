@@ -21,6 +21,8 @@ use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use stacks::core::StacksEpochId;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
+#[cfg(test)]
+use stacks::util::tests::TestFlag;
 use stacks::util_lib::db::Error as db_error;
 use stacks_common::deps_common::ctrlc as termination;
 use stacks_common::deps_common::ctrlc::SignalId;
@@ -94,30 +96,6 @@ impl std::ops::Deref for RunLoopCounter {
     }
 }
 
-#[cfg(test)]
-#[derive(Clone)]
-pub struct TestFlag(pub Arc<std::sync::Mutex<Option<bool>>>);
-
-#[cfg(test)]
-impl Default for TestFlag {
-    fn default() -> Self {
-        Self(Arc::new(std::sync::Mutex::new(None)))
-    }
-}
-
-#[cfg(test)]
-impl TestFlag {
-    /// Set the test flag to the given value
-    pub fn set(&self, value: bool) {
-        *self.0.lock().unwrap() = Some(value);
-    }
-
-    /// Get the test flag value. Defaults to false if the flag is not set.
-    pub fn get(&self) -> bool {
-        self.0.lock().unwrap().unwrap_or(false)
-    }
-}
-
 #[derive(Clone, Default)]
 pub struct Counters {
     pub blocks_processed: RunLoopCounter,
@@ -126,16 +104,21 @@ pub struct Counters {
     pub missed_microblock_tenures: RunLoopCounter,
     pub cancelled_commits: RunLoopCounter,
 
+    pub sortitions_processed: RunLoopCounter,
+
     pub naka_submitted_vrfs: RunLoopCounter,
     pub naka_submitted_commits: RunLoopCounter,
+    /// the burn block height when the last commit was submitted
+    pub naka_submitted_commit_last_burn_height: RunLoopCounter,
     pub naka_mined_blocks: RunLoopCounter,
     pub naka_rejected_blocks: RunLoopCounter,
     pub naka_proposed_blocks: RunLoopCounter,
     pub naka_mined_tenures: RunLoopCounter,
     pub naka_signer_pushed_blocks: RunLoopCounter,
+    pub naka_miner_directives: RunLoopCounter,
 
     #[cfg(test)]
-    pub naka_skip_commit_op: TestFlag,
+    pub naka_skip_commit_op: TestFlag<bool>,
 }
 
 impl Counters {
@@ -163,6 +146,10 @@ impl Counters {
         Counters::inc(&self.blocks_processed);
     }
 
+    pub fn bump_sortitions_processed(&self) {
+        Counters::inc(&self.sortitions_processed);
+    }
+
     pub fn bump_microblocks_processed(&self) {
         Counters::inc(&self.microblocks_processed);
     }
@@ -183,8 +170,12 @@ impl Counters {
         Counters::inc(&self.naka_submitted_vrfs);
     }
 
-    pub fn bump_naka_submitted_commits(&self) {
+    pub fn bump_naka_submitted_commits(&self, committed_height: u64) {
         Counters::inc(&self.naka_submitted_commits);
+        Counters::set(
+            &self.naka_submitted_commit_last_burn_height,
+            committed_height,
+        );
     }
 
     pub fn bump_naka_mined_blocks(&self) {
@@ -205,6 +196,10 @@ impl Counters {
 
     pub fn bump_naka_mined_tenures(&self) {
         Counters::inc(&self.naka_mined_tenures);
+    }
+
+    pub fn bump_naka_miner_directives(&self) {
+        Counters::inc(&self.naka_miner_directives);
     }
 
     pub fn set_microblocks_processed(&self, value: u64) {
@@ -637,6 +632,7 @@ impl RunLoop {
                 let mut fee_estimator = moved_config.make_fee_estimator();
 
                 let coord_config = ChainsCoordinatorConfig {
+                    assume_present_anchor_blocks: moved_config.node.assume_present_anchor_blocks,
                     always_use_affirmation_maps: moved_config.node.always_use_affirmation_maps,
                     require_affirmed_anchor_blocks: moved_config
                         .node
@@ -1168,19 +1164,8 @@ impl RunLoop {
 
         let mut sortition_db_height = rc_aligned_height;
         let mut burnchain_height = sortition_db_height;
-        let mut num_sortitions_in_last_cycle = 1;
 
         // prepare to fetch the first reward cycle!
-        let mut target_burnchain_block_height = cmp::min(
-            burnchain_config.reward_cycle_to_block_height(
-                burnchain_config
-                    .block_height_to_reward_cycle(burnchain_height)
-                    .expect("BUG: block height is not in a reward cycle")
-                    + 1,
-            ),
-            burnchain.get_headers_height() - 1,
-        );
-
         debug!("Runloop: Begin main runloop starting a burnchain block {sortition_db_height}");
 
         let mut last_tenure_sortition_height = 0;
@@ -1208,17 +1193,13 @@ impl RunLoop {
 
             let remote_chain_height = burnchain.get_headers_height() - 1;
 
-            // wait for the p2p state-machine to do at least one pass
-            debug!("Runloop: Wait until Stacks block downloads reach a quiescent state before processing more burnchain blocks"; "remote_chain_height" => remote_chain_height, "local_chain_height" => burnchain_height);
-
-            // wait until it's okay to process the next reward cycle's sortitions
-            let ibd = match self.get_pox_watchdog().pox_sync_wait(
+            // wait until it's okay to process the next reward cycle's sortitions.
+            let (ibd, target_burnchain_block_height) = match self.get_pox_watchdog().pox_sync_wait(
                 &burnchain_config,
                 &burnchain_tip,
                 remote_chain_height,
-                num_sortitions_in_last_cycle,
             ) {
-                Ok(ibd) => ibd,
+                Ok(x) => x,
                 Err(e) => {
                     debug!("Runloop: PoX sync wait routine aborted: {e:?}");
                     continue;
@@ -1231,9 +1212,6 @@ impl RunLoop {
             } else {
                 0.0
             };
-
-            // will recalculate this in the following loop
-            num_sortitions_in_last_cycle = 0;
 
             // Download each burnchain block and process their sortitions.  This, in turn, will
             // cause the node's p2p and relayer threads to go fetch and download Stacks blocks and
@@ -1282,8 +1260,6 @@ impl RunLoop {
                         "Runloop: New burnchain block height {next_sortition_height} > {sortition_db_height}"
                     );
 
-                    let mut sort_count = 0;
-
                     debug!("Runloop: block mining until we process all sortitions");
                     signal_mining_blocked(globals.get_miner_status());
 
@@ -1301,9 +1277,6 @@ impl RunLoop {
                                     "Failed to find block in fork processed by burnchain indexer",
                                 )
                         };
-                        if block.sortition {
-                            sort_count += 1;
-                        }
 
                         let sortition_id = &block.sortition_id;
 
@@ -1350,9 +1323,8 @@ impl RunLoop {
                     debug!("Runloop: enable miner after processing sortitions");
                     signal_mining_ready(globals.get_miner_status());
 
-                    num_sortitions_in_last_cycle = sort_count;
                     debug!(
-                        "Runloop: Synchronized sortitions up to block height {next_sortition_height} from {sortition_db_height} (chain tip height is {burnchain_height}); {num_sortitions_in_last_cycle} sortitions"
+                        "Runloop: Synchronized sortitions up to block height {next_sortition_height} from {sortition_db_height} (chain tip height is {burnchain_height})"
                     );
 
                     sortition_db_height = next_sortition_height;
@@ -1370,22 +1342,6 @@ impl RunLoop {
                     break;
                 }
             }
-
-            // advance one reward cycle at a time.
-            // If we're still downloading, then this is simply target_burnchain_block_height + reward_cycle_len.
-            // Otherwise, this is burnchain_tip + reward_cycle_len
-            let next_target_burnchain_block_height = cmp::min(
-                burnchain_config.reward_cycle_to_block_height(
-                    burnchain_config
-                        .block_height_to_reward_cycle(target_burnchain_block_height)
-                        .expect("FATAL: burnchain height before system start")
-                        + 1,
-                ),
-                remote_chain_height,
-            );
-
-            debug!("Runloop: Advance target burnchain block height from {target_burnchain_block_height} to {next_target_burnchain_block_height} (sortition height {sortition_db_height})");
-            target_burnchain_block_height = next_target_burnchain_block_height;
 
             if sortition_db_height >= burnchain_height && !ibd {
                 let canonical_stacks_tip_height =

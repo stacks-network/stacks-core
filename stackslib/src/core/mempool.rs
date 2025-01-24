@@ -78,7 +78,7 @@ pub static MEMPOOL_NAKAMOTO_MAX_TRANSACTION_AGE: Duration =
     Duration::from_secs(MEMPOOL_MAX_TRANSACTION_AGE * 10 * 60);
 
 // name of table for storing the counting bloom filter
-pub const BLOOM_COUNTER_TABLE: &'static str = "txid_bloom_counter";
+pub const BLOOM_COUNTER_TABLE: &str = "txid_bloom_counter";
 
 // bloom filter error rate
 pub const BLOOM_COUNTER_ERROR_RATE: f64 = 0.001;
@@ -333,7 +333,7 @@ impl MemPoolAdmitter {
         tx_size: u64,
     ) -> Result<(), MemPoolRejection> {
         let sortition_id = match SortitionDB::get_sortition_id_by_consensus(
-            &sortdb.conn(),
+            sortdb.conn(),
             &self.cur_consensus_hash,
         ) {
             Ok(Some(x)) => x,
@@ -390,7 +390,12 @@ pub trait ProposalCallbackReceiver: Send {
 
 pub trait MemPoolEventDispatcher {
     fn get_proposal_callback_receiver(&self) -> Option<Box<dyn ProposalCallbackReceiver>>;
-    fn mempool_txs_dropped(&self, txids: Vec<Txid>, reason: MemPoolDropReason);
+    fn mempool_txs_dropped(
+        &self,
+        txids: Vec<Txid>,
+        new_txid: Option<Txid>,
+        reason: MemPoolDropReason,
+    );
     fn mined_block_event(
         &self,
         target_burn_height: u64,
@@ -487,35 +492,25 @@ impl FromStr for MemPoolWalkTxTypes {
     type Err = &'static str;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "TokenTransfer" => {
-                return Ok(Self::TokenTransfer);
-            }
-            "SmartContract" => {
-                return Ok(Self::SmartContract);
-            }
-            "ContractCall" => {
-                return Ok(Self::ContractCall);
-            }
-            _ => {
-                return Err("Unknown mempool tx walk type");
-            }
+            "TokenTransfer" => Ok(Self::TokenTransfer),
+            "SmartContract" => Ok(Self::SmartContract),
+            "ContractCall" => Ok(Self::ContractCall),
+            _ => Err("Unknown mempool tx walk type"),
         }
     }
 }
 
 impl MemPoolWalkTxTypes {
     pub fn all() -> HashSet<MemPoolWalkTxTypes> {
-        [
+        HashSet::from([
             MemPoolWalkTxTypes::TokenTransfer,
             MemPoolWalkTxTypes::SmartContract,
             MemPoolWalkTxTypes::ContractCall,
-        ]
-        .into_iter()
-        .collect()
+        ])
     }
 
     pub fn only(selected: &[MemPoolWalkTxTypes]) -> HashSet<MemPoolWalkTxTypes> {
-        selected.iter().map(|x| x.clone()).collect()
+        selected.iter().copied().collect()
     }
 }
 
@@ -549,13 +544,7 @@ impl Default for MemPoolWalkSettings {
             consider_no_estimate_tx_prob: 5,
             nonce_cache_size: 1024 * 1024,
             candidate_retry_cache_size: 64 * 1024,
-            txs_to_consider: [
-                MemPoolWalkTxTypes::TokenTransfer,
-                MemPoolWalkTxTypes::SmartContract,
-                MemPoolWalkTxTypes::ContractCall,
-            ]
-            .into_iter()
-            .collect(),
+            txs_to_consider: MemPoolWalkTxTypes::all(),
             filter_origins: HashSet::new(),
             tenure_cost_limit_per_block_percentage: None,
         }
@@ -568,13 +557,7 @@ impl MemPoolWalkSettings {
             consider_no_estimate_tx_prob: 5,
             nonce_cache_size: 1024 * 1024,
             candidate_retry_cache_size: 64 * 1024,
-            txs_to_consider: [
-                MemPoolWalkTxTypes::TokenTransfer,
-                MemPoolWalkTxTypes::SmartContract,
-                MemPoolWalkTxTypes::ContractCall,
-            ]
-            .into_iter()
-            .collect(),
+            txs_to_consider: MemPoolWalkTxTypes::all(),
             filter_origins: HashSet::new(),
             tenure_cost_limit_per_block_percentage: None,
         }
@@ -582,13 +565,13 @@ impl MemPoolWalkSettings {
 }
 
 impl FromRow<Txid> for Txid {
-    fn from_row<'a>(row: &'a Row) -> Result<Txid, db_error> {
+    fn from_row(row: &Row) -> Result<Txid, db_error> {
         row.get(0).map_err(db_error::SqliteError)
     }
 }
 
 impl FromRow<MemPoolTxMetadata> for MemPoolTxMetadata {
-    fn from_row<'a>(row: &'a Row) -> Result<MemPoolTxMetadata, db_error> {
+    fn from_row(row: &Row) -> Result<MemPoolTxMetadata, db_error> {
         let txid = Txid::from_column(row, "txid")?;
         let tenure_consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let tenure_block_header_hash = BlockHeaderHash::from_column(row, "block_header_hash")?;
@@ -624,7 +607,7 @@ impl FromRow<MemPoolTxMetadata> for MemPoolTxMetadata {
 }
 
 impl FromRow<MemPoolTxInfo> for MemPoolTxInfo {
-    fn from_row<'a>(row: &'a Row) -> Result<MemPoolTxInfo, db_error> {
+    fn from_row(row: &Row) -> Result<MemPoolTxInfo, db_error> {
         let md = MemPoolTxMetadata::from_row(row)?;
         let tx_bytes: Vec<u8> = row.get_unwrap("tx");
         let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])
@@ -639,7 +622,7 @@ impl FromRow<MemPoolTxInfo> for MemPoolTxInfo {
 }
 
 impl FromRow<MemPoolTxInfoPartial> for MemPoolTxInfoPartial {
-    fn from_row<'a>(row: &'a Row) -> Result<MemPoolTxInfoPartial, db_error> {
+    fn from_row(row: &Row) -> Result<MemPoolTxInfoPartial, db_error> {
         let txid = Txid::from_column(row, "txid")?;
         let fee_rate: Option<f64> = match row.get("fee_rate") {
             Ok(rate) => Some(rate),
@@ -662,7 +645,7 @@ impl FromRow<MemPoolTxInfoPartial> for MemPoolTxInfoPartial {
 }
 
 impl FromRow<(u64, u64)> for (u64, u64) {
-    fn from_row<'a>(row: &'a Row) -> Result<(u64, u64), db_error> {
+    fn from_row(row: &Row) -> Result<(u64, u64), db_error> {
         let t1: i64 = row.get_unwrap(0);
         let t2: i64 = row.get_unwrap(1);
         if t1 < 0 || t2 < 0 {
@@ -672,7 +655,7 @@ impl FromRow<(u64, u64)> for (u64, u64) {
     }
 }
 
-const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[r#"
+const MEMPOOL_INITIAL_SCHEMA: &[&str] = &[r#"
     CREATE TABLE mempool(
         txid TEXT NOT NULL,
         origin_address TEXT NOT NULL,
@@ -697,7 +680,7 @@ const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[r#"
     );
     "#];
 
-const MEMPOOL_SCHEMA_2_COST_ESTIMATOR: &'static [&'static str] = &[
+const MEMPOOL_SCHEMA_2_COST_ESTIMATOR: &[&str] = &[
     r#"
     CREATE TABLE fee_estimates(
         txid TEXT NOT NULL,
@@ -722,7 +705,7 @@ const MEMPOOL_SCHEMA_2_COST_ESTIMATOR: &'static [&'static str] = &[
     "#,
 ];
 
-const MEMPOOL_SCHEMA_3_BLOOM_STATE: &'static [&'static str] = &[
+const MEMPOOL_SCHEMA_3_BLOOM_STATE: &[&str] = &[
     r#"
     CREATE TABLE IF NOT EXISTS removed_txids(
         txid TEXT PRIMARY KEY NOT NULL,
@@ -743,7 +726,7 @@ const MEMPOOL_SCHEMA_3_BLOOM_STATE: &'static [&'static str] = &[
     "#,
 ];
 
-const MEMPOOL_SCHEMA_4_BLACKLIST: &'static [&'static str] = &[
+const MEMPOOL_SCHEMA_4_BLACKLIST: &[&str] = &[
     r#"
     -- List of transactions that will never be stored to the mempool again, for as long as the rows exist.
     -- `arrival_time` indicates when the entry was created. This is used to garbage-collect the list.
@@ -782,7 +765,7 @@ const MEMPOOL_SCHEMA_4_BLACKLIST: &'static [&'static str] = &[
     "#,
 ];
 
-const MEMPOOL_SCHEMA_5: &'static [&'static str] = &[
+const MEMPOOL_SCHEMA_5: &[&str] = &[
     r#"
     ALTER TABLE mempool ADD COLUMN fee_rate NUMBER;
     "#,
@@ -798,7 +781,7 @@ const MEMPOOL_SCHEMA_5: &'static [&'static str] = &[
     "#,
 ];
 
-const MEMPOOL_SCHEMA_6_NONCES: &'static [&'static str] = &[
+const MEMPOOL_SCHEMA_6_NONCES: &[&str] = &[
     r#"
     CREATE TABLE nonces(
         address TEXT PRIMARY KEY NOT NULL,
@@ -810,7 +793,7 @@ const MEMPOOL_SCHEMA_6_NONCES: &'static [&'static str] = &[
     "#,
 ];
 
-const MEMPOOL_SCHEMA_7_TIME_ESTIMATES: &'static [&'static str] = &[
+const MEMPOOL_SCHEMA_7_TIME_ESTIMATES: &[&str] = &[
     r#"
     -- ALLOW NULL
     ALTER TABLE mempool ADD COLUMN time_estimate_ms INTEGER;
@@ -820,7 +803,7 @@ const MEMPOOL_SCHEMA_7_TIME_ESTIMATES: &'static [&'static str] = &[
     "#,
 ];
 
-const MEMPOOL_INDEXES: &'static [&'static str] = &[
+const MEMPOOL_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS by_txid ON mempool(txid);",
     "CREATE INDEX IF NOT EXISTS by_height ON mempool(height);",
     "CREATE INDEX IF NOT EXISTS by_txid_and_height ON mempool(txid,height);",
@@ -882,11 +865,11 @@ impl<'a> MemPoolTx<'a> {
     where
         F: FnOnce(&mut DBTx<'a>, &mut BloomCounter<BloomNodeHasher>) -> R,
     {
-        let mut bc = tx
+        let bc = tx
             .bloom_counter
             .take()
             .expect("BUG: did not replace bloom filter");
-        let res = f(&mut tx.tx, &mut bc);
+        let res = f(&mut tx.tx, bc);
         tx.bloom_counter.replace(bc);
         res
     }
@@ -963,7 +946,7 @@ impl<'a> MemPoolTx<'a> {
             // keep the bloom counter un-saturated -- remove at most one transaction from it to keep
             // the error rate at or below the target error rate
             let evict_txid = {
-                let num_recents = MemPoolDB::get_num_recent_txs(&dbtx)?;
+                let num_recents = MemPoolDB::get_num_recent_txs(dbtx)?;
                 if num_recents >= MAX_BLOOM_COUNTER_TXS.into() {
                     // remove lowest-fee tx (they're paying the least, so replication is
                     // deprioritized)
@@ -971,7 +954,7 @@ impl<'a> MemPoolTx<'a> {
                     let args = params![u64_to_sql(
                         coinbase_height.saturating_sub(BLOOM_COUNTER_DEPTH as u64),
                     )?];
-                    let evict_txid: Option<Txid> = query_row(&dbtx, sql, args)?;
+                    let evict_txid: Option<Txid> = query_row(dbtx, sql, args)?;
                     if let Some(evict_txid) = evict_txid {
                         bloom_counter.remove_raw(dbtx, &evict_txid.0)?;
 
@@ -1139,10 +1122,8 @@ fn db_get_nonce(conn: &DBConn, address: &StacksAddress) -> Result<Option<u64>, d
 #[cfg(test)]
 pub fn db_get_all_nonces(conn: &DBConn) -> Result<Vec<(StacksAddress, u64)>, db_error> {
     let sql = "SELECT * FROM nonces";
-    let mut stmt = conn.prepare(&sql).map_err(|e| db_error::SqliteError(e))?;
-    let mut iter = stmt
-        .query(NO_PARAMS)
-        .map_err(|e| db_error::SqliteError(e))?;
+    let mut stmt = conn.prepare(sql).map_err(db_error::SqliteError)?;
+    let mut iter = stmt.query(NO_PARAMS).map_err(db_error::SqliteError)?;
     let mut ret = vec![];
     while let Ok(Some(row)) = iter.next() {
         let addr = StacksAddress::from_column(row, "address")?;
@@ -1213,6 +1194,12 @@ impl CandidateCache {
     #[cfg_attr(test, mutants::skip)]
     fn len(&self) -> usize {
         self.cache.len() + self.next.len()
+    }
+
+    /// Is the cache empty?
+    #[cfg_attr(test, mutants::skip)]
+    fn is_empty(&self) -> bool {
+        self.cache.is_empty() && self.next.is_empty()
     }
 }
 
@@ -1286,7 +1273,7 @@ impl MemPoolDB {
     /// Apply all schema migrations up to the latest schema.
     fn apply_schema_migrations(tx: &mut DBTx) -> Result<(), db_error> {
         loop {
-            let version = MemPoolDB::get_schema_version(&tx)?.unwrap_or(1);
+            let version = MemPoolDB::get_schema_version(tx)?.unwrap_or(1);
             match version {
                 1 => {
                     MemPoolDB::instantiate_cost_estimator(tx)?;
@@ -1443,7 +1430,7 @@ impl MemPoolDB {
         }
 
         let bloom_counter = BloomCounter::<BloomNodeHasher>::try_load(&conn, BLOOM_COUNTER_TABLE)?
-            .ok_or(db_error::Other(format!("Failed to load bloom counter")))?;
+            .ok_or(db_error::Other("Failed to load bloom counter".to_string()))?;
 
         Ok(MemPoolDB {
             db: conn,
@@ -1659,13 +1646,10 @@ impl MemPoolDB {
              FROM mempool
              WHERE fee_rate IS NULL
              ";
-        let mut query_stmt_null = self
-            .db
-            .prepare(&sql)
-            .map_err(|err| Error::SqliteError(err))?;
+        let mut query_stmt_null = self.db.prepare(sql).map_err(Error::SqliteError)?;
         let mut null_iterator = query_stmt_null
             .query(NO_PARAMS)
-            .map_err(|err| Error::SqliteError(err))?;
+            .map_err(Error::SqliteError)?;
 
         let sql = "
             SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
@@ -1673,13 +1657,10 @@ impl MemPoolDB {
             WHERE fee_rate IS NOT NULL
             ORDER BY fee_rate DESC
             ";
-        let mut query_stmt_fee = self
-            .db
-            .prepare(&sql)
-            .map_err(|err| Error::SqliteError(err))?;
+        let mut query_stmt_fee = self.db.prepare(sql).map_err(Error::SqliteError)?;
         let mut fee_iterator = query_stmt_fee
             .query(NO_PARAMS)
-            .map_err(|err| Error::SqliteError(err))?;
+            .map_err(Error::SqliteError)?;
 
         let stop_reason = loop {
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
@@ -1702,22 +1683,18 @@ impl MemPoolDB {
                     // randomly selecting from either the null fee-rate transactions
                     // or those with fee-rate estimates.
                     let opt_tx = if start_with_no_estimate {
-                        null_iterator
-                            .next()
-                            .map_err(|err| Error::SqliteError(err))?
+                        null_iterator.next().map_err(Error::SqliteError)?
                     } else {
-                        fee_iterator.next().map_err(|err| Error::SqliteError(err))?
+                        fee_iterator.next().map_err(Error::SqliteError)?
                     };
                     match opt_tx {
                         Some(row) => (MemPoolTxInfoPartial::from_row(row)?, start_with_no_estimate),
                         None => {
                             // If the selected iterator is empty, check the other
                             match if start_with_no_estimate {
-                                fee_iterator.next().map_err(|err| Error::SqliteError(err))?
+                                fee_iterator.next().map_err(Error::SqliteError)?
                             } else {
-                                null_iterator
-                                    .next()
-                                    .map_err(|err| Error::SqliteError(err))?
+                                null_iterator.next().map_err(Error::SqliteError)?
                             } {
                                 Some(row) => (
                                     MemPoolTxInfoPartial::from_row(row)?,
@@ -1797,7 +1774,7 @@ impl MemPoolDB {
             };
 
             // Read in and deserialize the transaction.
-            let tx_info_option = MemPoolDB::get_tx(&self.conn(), &candidate.txid)?;
+            let tx_info_option = MemPoolDB::get_tx(self.conn(), &candidate.txid)?;
             let tx_info = match tx_info_option {
                 Some(tx) => tx,
                 None => {
@@ -1835,13 +1812,10 @@ impl MemPoolDB {
                 continue;
             }
 
-            let do_consider = if settings.filter_origins.len() > 0 {
-                settings
+            let do_consider = settings.filter_origins.is_empty()
+                || settings
                     .filter_origins
-                    .contains(&tx_info.metadata.origin_address)
-            } else {
-                true
-            };
+                    .contains(&tx_info.metadata.origin_address);
 
             if !do_consider {
                 debug!("Will skip mempool tx, since it does not have an allowed origin";
@@ -1933,7 +1907,7 @@ impl MemPoolDB {
         drop(query_stmt_null);
         drop(query_stmt_fee);
 
-        if retry_store.len() > 0 {
+        if !retry_store.is_empty() {
             let tx = self.tx_begin()?;
             for (address, nonce) in retry_store.into_iter() {
                 nonce_cache.update(address, nonce, &tx);
@@ -1953,7 +1927,7 @@ impl MemPoolDB {
         &self.db
     }
 
-    pub fn tx_begin<'a>(&'a mut self) -> Result<MemPoolTx<'a>, db_error> {
+    pub fn tx_begin(&mut self) -> Result<MemPoolTx<'_>, db_error> {
         let tx = tx_begin_immediate(&mut self.db)?;
         Ok(MemPoolTx::new(
             tx,
@@ -1964,7 +1938,7 @@ impl MemPoolDB {
 
     pub fn db_has_tx(conn: &DBConn, txid: &Txid) -> Result<bool, db_error> {
         query_row(conn, "SELECT 1 FROM mempool WHERE txid = ?1", params![txid])
-            .and_then(|row_opt: Option<i64>| Ok(row_opt.is_some()))
+            .map(|row_opt: Option<i64>| row_opt.is_some())
     }
 
     pub fn get_tx(conn: &DBConn, txid: &Txid) -> Result<Option<MemPoolTxInfo>, db_error> {
@@ -1975,7 +1949,7 @@ impl MemPoolDB {
     #[cfg(test)]
     pub fn get_all_txs(conn: &DBConn) -> Result<Vec<MemPoolTxInfo>, db_error> {
         let sql = "SELECT * FROM mempool";
-        let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, NO_PARAMS)?;
+        let rows = query_rows::<MemPoolTxInfo, _>(conn, sql, NO_PARAMS)?;
         Ok(rows)
     }
 
@@ -1988,7 +1962,7 @@ impl MemPoolDB {
     ) -> Result<usize, db_error> {
         let sql = "SELECT * FROM mempool WHERE consensus_hash = ?1 AND block_header_hash = ?2";
         let args = params![consensus_hash, block_header_hash];
-        let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, args)?;
+        let rows = query_rows::<MemPoolTxInfo, _>(conn, sql, args)?;
         Ok(rows.len())
     }
 
@@ -2008,7 +1982,7 @@ impl MemPoolDB {
             block_header_hash,
             u64_to_sql(count)?,
         ];
-        let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, args)?;
+        let rows = query_rows::<MemPoolTxInfo, _>(conn, sql, args)?;
         Ok(rows)
     }
 
@@ -2112,7 +2086,7 @@ impl MemPoolDB {
                 &StacksBlockId::new(tip_consensus_hash, tip_block_header_hash),
                 tip_consensus_hash,
             )
-            .map_err(|e| MemPoolRejection::FailedToValidate(e))?
+            .map_err(MemPoolRejection::FailedToValidate)?
             .ok_or(MemPoolRejection::NoSuchChainTip(
                 tip_consensus_hash.clone(),
                 tip_block_header_hash.clone(),
@@ -2229,7 +2203,7 @@ impl MemPoolDB {
 
         // broadcast drop event if a tx is being replaced
         if let (Some(prior_tx), Some(event_observer)) = (prior_tx, event_observer) {
-            event_observer.mempool_txs_dropped(vec![prior_tx.txid], replace_reason);
+            event_observer.mempool_txs_dropped(vec![prior_tx.txid], Some(txid), replace_reason);
         };
 
         Ok(())
@@ -2275,7 +2249,7 @@ impl MemPoolDB {
         if let Some(event_observer) = event_observer {
             let sql = "SELECT txid FROM mempool WHERE accept_time < ?1";
             let txids = query_rows(tx, sql, args)?;
-            event_observer.mempool_txs_dropped(txids, MemPoolDropReason::STALE_COLLECT);
+            event_observer.mempool_txs_dropped(txids, None, MemPoolDropReason::STALE_COLLECT);
         }
 
         let sql = "DELETE FROM mempool WHERE accept_time < ?1";
@@ -2297,7 +2271,7 @@ impl MemPoolDB {
         if let Some(event_observer) = event_observer {
             let sql = "SELECT txid FROM mempool WHERE height < ?1";
             let txids = query_rows(tx, sql, args)?;
-            event_observer.mempool_txs_dropped(txids, MemPoolDropReason::STALE_COLLECT);
+            event_observer.mempool_txs_dropped(txids, None, MemPoolDropReason::STALE_COLLECT);
         }
 
         let sql = "DELETE FROM mempool WHERE height < ?1";
@@ -2377,7 +2351,7 @@ impl MemPoolDB {
         if do_admission_checks {
             mempool_tx
                 .admitter
-                .set_block(&block_hash, (*consensus_hash).clone());
+                .set_block(block_hash, (*consensus_hash).clone());
             mempool_tx
                 .admitter
                 .will_admit_tx(chainstate, sortdb, tx, len)?;
@@ -2386,8 +2360,8 @@ impl MemPoolDB {
         MemPoolDB::try_add_tx(
             mempool_tx,
             chainstate,
-            &consensus_hash,
-            &block_hash,
+            consensus_hash,
+            block_hash,
             true,
             txid.clone(),
             tx_data,
@@ -2572,11 +2546,7 @@ impl MemPoolDB {
 
     /// Blacklist transactions from the mempool
     /// Do not call directly; it's `pub` only for testing
-    pub fn inner_blacklist_txs<'a>(
-        tx: &DBTx<'a>,
-        txids: &[Txid],
-        now: u64,
-    ) -> Result<(), db_error> {
+    pub fn inner_blacklist_txs(tx: &DBTx<'_>, txids: &[Txid], now: u64) -> Result<(), db_error> {
         for txid in txids {
             let sql = "INSERT OR REPLACE INTO tx_blacklist (txid, arrival_time) VALUES (?1, ?2)";
             let args = params![txid, &u64_to_sql(now)?];
@@ -2587,8 +2557,8 @@ impl MemPoolDB {
 
     /// garbage-collect the tx blacklist -- delete any transactions whose blacklist timeout has
     /// been exceeded
-    pub fn garbage_collect_tx_blacklist<'a>(
-        tx: &DBTx<'a>,
+    pub fn garbage_collect_tx_blacklist(
+        tx: &DBTx<'_>,
         now: u64,
         timeout: u64,
         max_size: u64,
@@ -2649,7 +2619,7 @@ impl MemPoolDB {
 
     /// Inner code body for dropping transactions.
     /// Note that the bloom filter will *NOT* be updated.  That's the caller's job, if desired.
-    fn inner_drop_txs<'a>(tx: &DBTx<'a>, txids: &[Txid]) -> Result<(), db_error> {
+    fn inner_drop_txs(tx: &DBTx<'_>, txids: &[Txid]) -> Result<(), db_error> {
         let sql = "DELETE FROM mempool WHERE txid = ?";
         for txid in txids.iter() {
             tx.execute(sql, &[txid])?;
@@ -2730,7 +2700,7 @@ impl MemPoolDB {
 
     /// Get the bloom filter that represents the set of recent transactions we have
     pub fn get_txid_bloom_filter(&self) -> Result<BloomFilter<BloomNodeHasher>, db_error> {
-        self.bloom_counter.to_bloom_filter(&self.conn())
+        self.bloom_counter.to_bloom_filter(self.conn())
     }
 
     /// Find maximum Stacks coinbase height represented in the mempool.
@@ -2748,7 +2718,7 @@ impl MemPoolDB {
     /// Get the transaction ID list that represents the set of transactions that are represented in
     /// the bloom counter.
     pub fn get_bloom_txids(&self) -> Result<Vec<Txid>, db_error> {
-        let max_height = match MemPoolDB::get_max_coinbase_height(&self.conn())? {
+        let max_height = match MemPoolDB::get_max_coinbase_height(self.conn())? {
             Some(h) => h,
             None => {
                 // mempool is empty
@@ -2758,7 +2728,7 @@ impl MemPoolDB {
         let min_height = max_height.saturating_sub(BLOOM_COUNTER_DEPTH as u64);
         let sql = "SELECT mempool.txid FROM mempool WHERE height > ?1 AND height <= ?2 AND NOT EXISTS (SELECT 1 FROM removed_txids WHERE txid = mempool.txid)";
         let args = params![u64_to_sql(min_height)?, u64_to_sql(max_height)?];
-        query_rows(&self.conn(), sql, args)
+        query_rows(self.conn(), sql, args)
     }
 
     /// Get the transaction tag list that represents the set of recent transactions we have.
@@ -2807,7 +2777,7 @@ impl MemPoolDB {
     pub fn get_randomized_txid(&self, txid: &Txid) -> Result<Option<Txid>, db_error> {
         let sql = "SELECT hashed_txid FROM randomized_txids WHERE txid = ?1 LIMIT 1";
         let args = params![txid];
-        query_row(&self.conn(), sql, args)
+        query_row(self.conn(), sql, args)
     }
 
     pub fn find_next_missing_transactions(

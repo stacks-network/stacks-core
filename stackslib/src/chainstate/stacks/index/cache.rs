@@ -151,7 +151,7 @@ impl<T: MarfTrieId> TrieCacheState<T> {
 
     /// Get the block ID, given its hash
     pub fn load_block_id(&self, block_hash: &T) -> Option<u32> {
-        self.block_id_cache.get(block_hash).map(|id| *id)
+        self.block_id_cache.get(block_hash).copied()
     }
 }
 
@@ -414,14 +414,14 @@ pub mod test {
             if batch_size > 0 {
                 for b in (0..block_data.len()).step_by(batch_size) {
                     let batch = &block_data[b..cmp::min(block_data.len(), b + batch_size)];
-                    let keys = batch.iter().map(|(k, _)| k.clone()).collect();
+                    let keys: Vec<_> = batch.iter().map(|(k, _)| k.clone()).collect();
                     let values = batch.iter().map(|(_, v)| v.clone()).collect();
                     marf.insert_batch(&keys, values).unwrap();
                 }
             } else {
                 for (key, value) in block_data.iter() {
                     let path = TrieHash::from_key(key);
-                    let leaf = TrieLeaf::from_value(&vec![], value.clone());
+                    let leaf = TrieLeaf::from_value(&[], value.clone());
                     marf.insert_raw(path, leaf).unwrap();
                 }
             }
@@ -444,7 +444,7 @@ pub mod test {
             test_debug!("Read block {}", i);
             for (key, value) in block_data.iter() {
                 let path = TrieHash::from_key(key);
-                let marf_leaf = TrieLeaf::from_value(&vec![], value.clone());
+                let marf_leaf = TrieLeaf::from_value(&[], value.clone());
 
                 let read_time = SystemTime::now();
                 let leaf = MARF::get_path(
@@ -468,7 +468,7 @@ pub mod test {
             total_read_time, &read_bench
         );
 
-        let mut bench = write_bench.clone();
+        let mut bench = write_bench;
         bench.add(&read_bench);
 
         eprintln!("MARF bench total: {:#?}", &bench);

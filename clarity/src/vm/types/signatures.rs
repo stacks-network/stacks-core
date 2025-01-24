@@ -15,21 +15,18 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::btree_map::Entry;
-use std::collections::{hash_map, BTreeMap};
-use std::hash::{Hash, Hasher};
-use std::ops::Deref;
+use std::collections::BTreeMap;
+use std::hash::Hash;
 use std::sync::Arc;
 use std::{cmp, fmt};
 
 // TypeSignatures
 use hashbrown::HashSet;
 use lazy_static::lazy_static;
-use stacks_common::address::c32;
 use stacks_common::types::StacksEpochId;
-use stacks_common::util::hash;
 
-use crate::vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
-use crate::vm::errors::{CheckErrors, Error as VMError, IncomparableError, RuntimeErrorType};
+use crate::vm::costs::{runtime_cost, CostOverflowingMath};
+use crate::vm::errors::CheckErrors;
 use crate::vm::representations::{
     ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType, TraitDefinition,
     CONTRACT_MAX_NAME_LENGTH,
@@ -53,7 +50,7 @@ impl AssetIdentifier {
     pub fn STX() -> AssetIdentifier {
         AssetIdentifier {
             contract_identifier: QualifiedContractIdentifier::new(
-                StandardPrincipalData(0, [0u8; 20]),
+                StandardPrincipalData::null_principal(),
                 ContractName::try_from("STX".to_string()).unwrap(),
             ),
             asset_name: ClarityName::try_from("STX".to_string()).unwrap(),
@@ -64,7 +61,7 @@ impl AssetIdentifier {
     pub fn STX_burned() -> AssetIdentifier {
         AssetIdentifier {
             contract_identifier: QualifiedContractIdentifier::new(
-                StandardPrincipalData(0, [0u8; 20]),
+                StandardPrincipalData::null_principal(),
                 ContractName::try_from("BURNED".to_string()).unwrap(),
             ),
             asset_name: ClarityName::try_from("BURNED".to_string()).unwrap(),
@@ -589,9 +586,7 @@ impl TypeSignature {
             | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31 => self.admits_type_v2_1(other),
-            StacksEpochId::Epoch10 => {
-                return Err(CheckErrors::Expects("epoch 1.0 not supported".into()))
-            }
+            StacksEpochId::Epoch10 => Err(CheckErrors::Expects("epoch 1.0 not supported".into())),
         }
     }
 
@@ -678,16 +673,12 @@ impl TypeSignature {
                 }
             }
             NoType => Err(CheckErrors::CouldNotDetermineType),
-            CallableType(_) => {
-                return Err(CheckErrors::Expects(
-                    "CallableType should not be used in epoch v2.0".into(),
-                ))
-            }
-            ListUnionType(_) => {
-                return Err(CheckErrors::Expects(
-                    "ListUnionType should not be used in epoch v2.0".into(),
-                ))
-            }
+            CallableType(_) => Err(CheckErrors::Expects(
+                "CallableType should not be used in epoch v2.0".into(),
+            )),
+            ListUnionType(_) => Err(CheckErrors::Expects(
+                "ListUnionType should not be used in epoch v2.0".into(),
+            )),
             _ => Ok(other == self),
         }
     }
@@ -1162,9 +1153,7 @@ impl TypeSignature {
             | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31 => Self::least_supertype_v2_1(a, b),
-            StacksEpochId::Epoch10 => {
-                return Err(CheckErrors::Expects("epoch 1.0 not supported".into()))
-            }
+            StacksEpochId::Epoch10 => Err(CheckErrors::Expects("epoch 1.0 not supported".into())),
         }
     }
 
@@ -1455,8 +1444,7 @@ impl TypeSignature {
 
     // Checks if resulting type signature is of valid size.
     pub fn construct_parent_list_type(args: &[Value]) -> Result<ListTypeData> {
-        let children_types: Result<Vec<_>> =
-            args.iter().map(|x| TypeSignature::type_of(x)).collect();
+        let children_types: Result<Vec<_>> = args.iter().map(TypeSignature::type_of).collect();
         TypeSignature::parent_list_type(&children_types?)
     }
 
@@ -1660,7 +1648,7 @@ impl TypeSignature {
     ) -> Result<BTreeMap<ClarityName, FunctionSignature>> {
         let mut trait_signature: BTreeMap<ClarityName, FunctionSignature> = BTreeMap::new();
         let functions_types = type_args
-            .get(0)
+            .first()
             .ok_or_else(|| CheckErrors::InvalidTypeDescription)?
             .match_list()
             .ok_or(CheckErrors::DefineTraitBadSignature)?;
@@ -1682,11 +1670,10 @@ impl TypeSignature {
             let fn_args_exprs = args[1]
                 .match_list()
                 .ok_or(CheckErrors::DefineTraitBadSignature)?;
-            let mut fn_args = Vec::with_capacity(fn_args_exprs.len());
-            for arg_type in fn_args_exprs.into_iter() {
-                let arg_t = TypeSignature::parse_type_repr(epoch, arg_type, accounting)?;
-                fn_args.push(arg_t);
-            }
+            let fn_args = fn_args_exprs
+                .iter()
+                .map(|arg_type| TypeSignature::parse_type_repr(epoch, arg_type, accounting))
+                .collect::<Result<_>>()?;
 
             // Extract function's type return - must be a response
             let fn_return = match TypeSignature::parse_type_repr(epoch, &args[2], accounting) {
@@ -1766,7 +1753,6 @@ impl TypeSignature {
                 "FAIL: .size() overflowed on too large of a type. construction should have failed!"
                     .into(),
             )
-            .into()
         })
     }
 
@@ -1885,9 +1871,8 @@ impl TupleTypeSignature {
     }
 
     pub fn size(&self) -> Result<u32> {
-        self.inner_size()?.ok_or_else(|| {
-            CheckErrors::Expects("size() overflowed on a constructed type.".into()).into()
-        })
+        self.inner_size()?
+            .ok_or_else(|| CheckErrors::Expects("size() overflowed on a constructed type.".into()))
     }
 
     fn max_depth(&self) -> u8 {
@@ -1945,7 +1930,7 @@ pub fn parse_name_type_pairs<A: CostTracker>(
     // the form:
     // ((name1 type1) (name2 type2) (name3 type3) ...)
     // which is a list of 2-length lists of atoms.
-    use crate::vm::representations::SymbolicExpressionType::{Atom, List};
+    use crate::vm::representations::SymbolicExpressionType::List;
 
     // step 1: parse it into a vec of symbolicexpression pairs.
     let as_pairs: Result<Vec<_>> = name_type_pairs

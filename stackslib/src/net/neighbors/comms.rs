@@ -143,9 +143,7 @@ pub trait NeighborComms {
         if network.is_registered(&nk) {
             // already connected
             self.remove_connecting(network, &nk);
-            return self
-                .neighbor_handshake(network, &nk)
-                .and_then(|handle| Ok(Some(handle)));
+            return self.neighbor_handshake(network, &nk).map(Some);
         }
 
         if let Some(event_id) = self.get_connecting(network, &nk) {
@@ -199,9 +197,7 @@ pub trait NeighborComms {
                     &alt_nk
                 );
                 self.remove_connecting(network, &alt_nk);
-                return self
-                    .neighbor_handshake(network, &alt_nk)
-                    .and_then(|handle| Ok(Some(handle)));
+                return self.neighbor_handshake(network, &alt_nk).map(Some);
             }
             Err(e) => {
                 info!(
@@ -232,7 +228,7 @@ pub trait NeighborComms {
         neighbor_pubkh: &Hash160,
     ) -> Result<Option<ReplyHandleP2P>, net_error> {
         let nk = neighbor_addr.to_neighbor_key(network);
-        match network.can_register_peer_with_pubkey(&nk, true, &neighbor_pubkh) {
+        match network.can_register_peer_with_pubkey(&nk, true, neighbor_pubkh) {
             Ok(_) => self.neighbor_connect_and_handshake(network, &nk),
             Err(net_error::AlreadyConnected(event_id, handshake_nk)) => {
                 // already connected, but on a possibly-different address.
@@ -242,12 +238,10 @@ pub trait NeighborComms {
                 if let Some(convo) = network.get_p2p_convo(event_id) {
                     if !convo.is_outbound() {
                         test_debug!("{:?}: Already connected to {:?} on inbound event {} (address {:?}). Try to establish outbound connection to {:?} {:?}.",
-                               network.get_local_peer(), &nk, &event_id, &handshake_nk, &neighbor_pubkh, &nk);
+                               network.get_local_peer(), &nk, &event_id, &handshake_nk, neighbor_pubkh, &nk);
 
                         self.remove_connecting(network, &nk);
-                        return self
-                            .neighbor_handshake(network, &nk)
-                            .and_then(|handle| Ok(Some(handle)));
+                        return self.neighbor_handshake(network, &nk).map(Some);
                     }
                     test_debug!(
                         "{:?}: Already connected to {:?} on event {} (address: {:?})",
@@ -515,9 +509,7 @@ impl NeighborComms for PeerNetworkComms {
     }
 
     fn get_connecting<NK: ToNeighborKey>(&self, network: &PeerNetwork, nk: &NK) -> Option<usize> {
-        self.connecting
-            .get(&nk.to_neighbor_key(network))
-            .map(|event_ref| *event_ref)
+        self.connecting.get(&nk.to_neighbor_key(network)).copied()
     }
 
     /// Remove a connecting neighbor because it connected

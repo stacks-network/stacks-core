@@ -79,9 +79,8 @@ impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
         let stacks_block_height = u64::from_column(row, "stacks_block_height")?;
         let vtxindex: u32 = row.get_unwrap("vtxindex");
 
-        let schedule_type: HeaderTypeNames = row
-            .get("schedule_type")
-            .unwrap_or_else(|_e| HeaderTypeNames::Epoch2);
+        let schedule_type: HeaderTypeNames =
+            row.get("schedule_type").unwrap_or(HeaderTypeNames::Epoch2);
 
         let coinbase = coinbase_text
             .parse::<u128>()
@@ -123,7 +122,7 @@ impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
 }
 
 impl FromRow<MinerReward> for MinerReward {
-    fn from_row<'a>(row: &'a Row) -> Result<MinerReward, db_error> {
+    fn from_row(row: &Row) -> Result<MinerReward, db_error> {
         let address = StacksAddress::from_column(row, "address")?;
         let recipient_str: Option<String> = row.get_unwrap("recipient");
         let recipient = recipient_str
@@ -420,7 +419,7 @@ impl StacksChainState {
                     panic!();
                 });
 
-                db.set_account_nonce(&principal, next_nonce)?;
+                db.set_account_nonce(principal, next_nonce)?;
                 Ok(())
             })
             .unwrap_or_else(|e| {
@@ -503,8 +502,8 @@ impl StacksChainState {
     }
 
     /// Store a matured miner reward for subsequent query in Clarity, without doing any validation
-    fn inner_insert_matured_miner_reward<'a>(
-        tx: &mut DBTx<'a>,
+    fn inner_insert_matured_miner_reward(
+        tx: &mut DBTx<'_>,
         parent_block_id: &StacksBlockId,
         child_block_id: &StacksBlockId,
         reward: &MinerReward,
@@ -516,7 +515,7 @@ impl StacksChainState {
             &(*parent_block_id).into(),
             &(*child_block_id).into(),
         )?;
-        if cur_rewards.len() > 0 {
+        if !cur_rewards.is_empty() {
             let mut present = false;
             for rw in cur_rewards.iter() {
                 if (rw.is_parent() && reward.is_parent()) || (rw.is_child() && reward.is_child()) {
@@ -564,8 +563,8 @@ impl StacksChainState {
 
     /// Store a parent block's matured reward.  This is the share of the streamed tx fees produced
     /// by the miner who mined this block, and nothing else.
-    pub fn insert_matured_parent_miner_reward<'a>(
-        tx: &mut DBTx<'a>,
+    pub fn insert_matured_parent_miner_reward(
+        tx: &mut DBTx<'_>,
         parent_block_id: &StacksBlockId,
         child_block_id: &StacksBlockId,
         parent_reward: &MinerReward,
@@ -594,8 +593,8 @@ impl StacksChainState {
 
     /// Store a child block's matured miner reward.  This is the block's coinbase, anchored tx fees, and
     /// share of the confirmed streamed tx fees
-    pub fn insert_matured_child_miner_reward<'a>(
-        tx: &mut DBTx<'a>,
+    pub fn insert_matured_child_miner_reward(
+        tx: &mut DBTx<'_>,
         parent_block_id: &StacksBlockId,
         child_block_id: &StacksBlockId,
         child_reward: &MinerReward,
@@ -625,8 +624,8 @@ impl StacksChainState {
     /// Store a child block's matured user burn-support reward.  This is the share of the
     /// block's coinbase, anchored tx fees, and share of the confirmed streamed tx fees that go to
     /// the user burn-support sender
-    pub fn insert_matured_child_user_reward<'a>(
-        tx: &mut DBTx<'a>,
+    pub fn insert_matured_child_user_reward(
+        tx: &mut DBTx<'_>,
         parent_block_id: &StacksBlockId,
         child_block_id: &StacksBlockId,
         child_reward: &MinerReward,
@@ -654,7 +653,7 @@ impl StacksChainState {
     ) -> Result<Vec<MinerReward>, Error> {
         let sql = "SELECT * FROM matured_rewards WHERE parent_index_block_hash = ?1 AND child_index_block_hash = ?2 AND vtxindex = 0";
         let args = params![parent_block_id.0, child_block_id.0];
-        let ret: Vec<MinerReward> = query_rows(conn, sql, args).map_err(|e| Error::DBError(e))?;
+        let ret: Vec<MinerReward> = query_rows(conn, sql, args).map_err(Error::DBError)?;
         Ok(ret)
     }
 
@@ -724,8 +723,8 @@ impl StacksChainState {
     }
 
     /// Get the scheduled miner rewards in a particular Stacks fork at a particular height.
-    pub fn get_scheduled_block_rewards_in_fork_at_height<'a>(
-        tx: &mut StacksDBTx<'a>,
+    pub fn get_scheduled_block_rewards_in_fork_at_height(
+        tx: &mut StacksDBTx<'_>,
         tip: &StacksHeaderInfo,
         block_height: u64,
     ) -> Result<Vec<MinerPaymentSchedule>, Error> {
@@ -868,9 +867,9 @@ impl StacksChainState {
         // of all participants' burns.
         let coinbase_reward = participant
             .coinbase
-            .checked_mul(this_burn_total as u128)
+            .checked_mul(this_burn_total)
             .expect("FATAL: STX coinbase reward overflow")
-            / (burn_total as u128);
+            / burn_total;
 
         // process poison -- someone can steal a fraction of the total coinbase if they can present
         // evidence that the miner forked the microblock stream.  The remainder of the coinbase is
@@ -976,9 +975,9 @@ impl StacksChainState {
             address: child_address,
             recipient: child_recipient,
             coinbase: coinbase_reward,
-            tx_fees_anchored: tx_fees_anchored,
+            tx_fees_anchored,
             tx_fees_streamed_produced: 0,
-            tx_fees_streamed_confirmed: tx_fees_streamed_confirmed,
+            tx_fees_streamed_confirmed,
             vtxindex: participant.vtxindex,
         };
 
@@ -1003,7 +1002,7 @@ impl StacksChainState {
 
         let reward_height = tip_stacks_height - MINER_REWARD_MATURITY;
 
-        assert!(latest_matured_miners.len() > 0);
+        assert!(!latest_matured_miners.is_empty());
         assert!(latest_matured_miners[0].vtxindex == 0);
         assert!(latest_matured_miners[0].miner);
 
@@ -1190,7 +1189,7 @@ mod test {
             new_tip.burn_header_height,
             new_tip.burn_header_timestamp,
             new_tip.microblock_tail.clone(),
-            &block_reward,
+            block_reward,
             None,
             &ExecutionCost::ZERO,
             123,
@@ -1220,10 +1219,7 @@ mod test {
 
         // dummy reward
         let mut tip_reward = make_dummy_miner_payment_schedule(
-            &StacksAddress {
-                version: 0,
-                bytes: Hash160([0u8; 20]),
-            },
+            &StacksAddress::new(0, Hash160([0u8; 20])).unwrap(),
             0,
             0,
             0,
@@ -1295,10 +1291,7 @@ mod test {
 
         // dummy reward
         let mut tip_reward = make_dummy_miner_payment_schedule(
-            &StacksAddress {
-                version: 0,
-                bytes: Hash160([0u8; 20]),
-            },
+            &StacksAddress::new(0, Hash160([0u8; 20])).unwrap(),
             0,
             0,
             0,
@@ -1345,10 +1338,7 @@ mod test {
 
         // dummy reward
         let mut tip_reward = make_dummy_miner_payment_schedule(
-            &StacksAddress {
-                version: 0,
-                bytes: Hash160([0u8; 20]),
-            },
+            &StacksAddress::new(0, Hash160([0u8; 20])).unwrap(),
             0,
             0,
             0,
@@ -1387,7 +1377,7 @@ mod test {
             StacksEpochId::Epoch2_05,
             &participant,
             &participant,
-            &vec![],
+            &[],
             &MinerPaymentSchedule::genesis(true),
             None,
         );
@@ -1418,7 +1408,7 @@ mod test {
             StacksEpochId::Epoch2_05,
             &participant,
             &participant,
-            &vec![],
+            &[],
             &MinerPaymentSchedule::genesis(true),
             None,
         );
@@ -1461,7 +1451,7 @@ mod test {
             StacksEpochId::Epoch2_05,
             &miner,
             &miner,
-            &vec![user.clone()],
+            &[user.clone()],
             &MinerPaymentSchedule::genesis(true),
             None,
         );
@@ -1470,7 +1460,7 @@ mod test {
             StacksEpochId::Epoch2_05,
             &user,
             &miner,
-            &vec![user.clone()],
+            &[user.clone()],
             &MinerPaymentSchedule::genesis(true),
             None,
         );
@@ -1511,7 +1501,7 @@ mod test {
             StacksEpochId::Epoch2_05,
             &participant,
             &participant,
-            &vec![],
+            &[],
             &parent_participant,
             None,
         );

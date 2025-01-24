@@ -14,20 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use hashbrown::{HashMap, HashSet};
+use hashbrown::HashMap;
 
-use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
-use crate::vm::ast::types::{BuildASTPass, ContractAST, PreExpressionsDrain};
-use crate::vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
-use crate::vm::functions::NativeFunctions;
+use crate::vm::ast::types::{BuildASTPass, ContractAST};
+use crate::vm::functions::define::DefineFunctions;
 use crate::vm::representations::PreSymbolicExpressionType::{
-    Atom, AtomValue, FieldIdentifier, List, SugaredFieldIdentifier, TraitReference, Tuple,
+    Atom, FieldIdentifier, List, SugaredFieldIdentifier, TraitReference, Tuple,
 };
-use crate::vm::representations::{
-    ClarityName, PreSymbolicExpression, SymbolicExpression, TraitDefinition,
-};
-use crate::vm::types::{QualifiedContractIdentifier, TraitIdentifier, Value};
+use crate::vm::representations::{ClarityName, PreSymbolicExpression, TraitDefinition};
+use crate::vm::types::{QualifiedContractIdentifier, TraitIdentifier};
 use crate::vm::ClarityVersion;
 
 pub struct TraitsResolver {}
@@ -51,7 +47,7 @@ impl TraitsResolver {
 
         for exp in contract_ast.pre_expressions.iter() {
             // Top-level comment nodes have been filtered from `args` by `try_parse_pre_expr`.
-            let Some((define_type, args)) = self.try_parse_pre_expr(&exp) else {
+            let Some((define_type, args)) = self.try_parse_pre_expr(exp) else {
                 continue;
             };
 
@@ -154,7 +150,7 @@ impl TraitsResolver {
                 | DefineFunctions::NonFungibleToken => {
                     if !args.is_empty() {
                         self.probe_for_generics(
-                            args[1..].to_vec().into_iter(),
+                            args[1..].iter().copied(),
                             &mut referenced_traits,
                             false,
                         )?;

@@ -316,7 +316,7 @@ impl HttpChunkedTransferReaderState {
     }
 }
 
-impl<'a, R: Read> Read for HttpChunkedTransferReader<'a, R> {
+impl<R: Read> Read for HttpChunkedTransferReader<'_, R> {
     /// Read a HTTP chunk-encoded stream.
     /// Returns number of decoded bytes (i.e. number of bytes copied to buf, as expected)
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
@@ -401,7 +401,7 @@ impl<'a, 'state, W: Write> HttpChunkedTransferWriter<'a, 'state, W> {
     }
 }
 
-impl<'a, 'state, W: Write> Write for HttpChunkedTransferWriter<'a, 'state, W> {
+impl<W: Write> Write for HttpChunkedTransferWriter<'_, '_, W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let mut written = 0;
         while written < buf.len() && !self.state.corked {
@@ -504,14 +504,14 @@ mod test {
 
     #[test]
     fn test_segment_reader() {
-        let mut tests = vec![
+        let tests = vec![
             (vec_u8(vec!["a", "b"]), "ab"),
             (vec_u8(vec!["aa", "bbb", "cccc"]), "aabbbcccc"),
             (vec_u8(vec!["aaaa", "bbb", "cc", "d", ""]), "aaaabbbccd"),
             (vec_u8(vec!["", "a", "", "b", ""]), "ab"),
             (vec_u8(vec![""]), ""),
         ];
-        for (input_vec, expected) in tests.drain(..) {
+        for (input_vec, expected) in tests.into_iter() {
             let num_segments = input_vec.len();
             let mut segment_io = SegmentReader::new(input_vec);
             let mut output = vec![0u8; expected.len()];
@@ -526,7 +526,7 @@ mod test {
 
     #[test]
     fn test_http_chunked_encode() {
-        let tests = vec![
+        let tests = [
             // (chunk size, byte string, expected encoding)
             (10, "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd", "a\r\naaaaaaaaaa\r\na\r\nbbbbbbbbbb\r\na\r\ncccccccccc\r\na\r\ndddddddddd\r\n0\r\n\r\n"),
             (10, "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddde", "a\r\naaaaaaaaaa\r\na\r\nbbbbbbbbbb\r\na\r\ncccccccccc\r\na\r\ndddddddddd\r\n1\r\ne\r\n0\r\n\r\n"),
@@ -551,7 +551,7 @@ mod test {
 
     #[test]
     fn test_http_chunked_encode_multi() {
-        let tests = vec![
+        let tests = [
             // chunk size, sequence of writes, expected encoding
             (10, vec!["aaaaaaaaaa", "bbbbb", "bbbbb", "ccc", "ccc", "ccc", "c", "dd", "ddddd", "ddd"], "a\r\naaaaaaaaaa\r\na\r\nbbbbbbbbbb\r\na\r\ncccccccccc\r\na\r\ndddddddddd\r\n0\r\n\r\n"),
             (10, vec!["a", "a", "a", "a", "a", "a", "a", "a", "a", "a"], "a\r\naaaaaaaaaa\r\n0\r\n\r\n"),
@@ -576,7 +576,7 @@ mod test {
 
     #[test]
     fn test_http_chunked_decode() {
-        let tests = vec![
+        let tests = [
             ("a\r\naaaaaaaaaa\r\na\r\nbbbbbbbbbb\r\na\r\ncccccccccc\r\na\r\ndddddddddd\r\n0\r\n\r\n", "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd"),
             ("A\r\naaaaaaaaaa\r\nA\r\nbbbbbbbbbb\r\nA\r\ncccccccccc\r\nA\r\ndddddddddd\r\n0\r\n\r\n", "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd"),
             ("1\r\na\r\n2\r\nbb\r\n3\r\nccc\r\n4\r\ndddd\r\n0\r\n\r\n", "abbcccdddd"),
@@ -598,7 +598,7 @@ mod test {
 
     #[test]
     fn test_http_chunked_decode_multi() {
-        let tests = vec![
+        let tests = [
             (vec_u8(vec!["1\r\na", "\r\n", "0\r\n\r\n"]), "a"),
             (vec_u8(vec!["1\r\na\r", "\n0\r\n\r\n"]), "a"),
             (vec_u8(vec!["1\r\na\r\n", "0\r\n\r", "\n"]), "a"),
@@ -694,7 +694,7 @@ mod test {
 
     #[test]
     fn test_http_chunked_decode_err() {
-        let tests = vec![
+        let tests = [
             (
                 "1; reallyreallyreallyreallylongextension;\r\na\r\n0\r\n\r\n",
                 1,

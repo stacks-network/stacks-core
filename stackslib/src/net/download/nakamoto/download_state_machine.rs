@@ -182,7 +182,7 @@ impl NakamotoDownloadStateMachine {
                 StacksBlockId(cursor.winning_stacks_block_hash.0),
                 cursor.block_height,
             ));
-            cursor = SortitionDB::get_block_snapshot(&ih, &cursor.parent_sortition_id)?
+            cursor = SortitionDB::get_block_snapshot(ih, &cursor.parent_sortition_id)?
                 .ok_or(DBError::NotFoundError)?;
         }
         wanted_tenures.reverse();
@@ -766,7 +766,7 @@ impl NakamotoDownloadStateMachine {
             &self.wanted_tenures,
             inventories.iter(),
         );
-        available.extend(prev_available.into_iter());
+        available.extend(prev_available);
 
         // calculate self.tenure_block_ids
         let prev_tenure_block_ids = self.prev_wanted_tenures
@@ -804,7 +804,7 @@ impl NakamotoDownloadStateMachine {
         // merge tenure block IDs
         for (naddr, prev_available) in prev_tenure_block_ids.into_iter() {
             if let Some(available) = tenure_block_ids.get_mut(&naddr) {
-                available.extend(prev_available.into_iter());
+                available.extend(prev_available);
             } else {
                 tenure_block_ids.insert(naddr, prev_available);
             }
@@ -830,7 +830,7 @@ impl NakamotoDownloadStateMachine {
                 &available,
             );
 
-            prev_schedule.extend(schedule.into_iter());
+            prev_schedule.extend(schedule);
             prev_schedule
         } else {
             let mut prev_schedule = self
@@ -851,13 +851,13 @@ impl NakamotoDownloadStateMachine {
                 &available,
             );
 
-            prev_schedule.extend(schedule.into_iter());
+            prev_schedule.extend(schedule);
             prev_schedule
         };
 
-        test_debug!("new schedule: {:?}", schedule);
-        test_debug!("new available: {:?}", &available);
-        test_debug!("new tenure_block_ids: {:?}", &tenure_block_ids);
+        test_debug!("new schedule: {schedule:?}");
+        test_debug!("new available: {available:?}");
+        test_debug!("new tenure_block_ids: {tenure_block_ids:?}");
 
         self.tenure_download_schedule = schedule;
         self.tenure_block_ids = tenure_block_ids;
@@ -874,7 +874,7 @@ impl NakamotoDownloadStateMachine {
         self.tenure_downloads.make_tenure_downloaders(
             &mut self.tenure_download_schedule,
             &mut self.available_tenures,
-            &mut self.tenure_block_ids,
+            &self.tenure_block_ids,
             count,
             current_reward_sets,
         )
@@ -1144,7 +1144,7 @@ impl NakamotoDownloadStateMachine {
     ) {
         debug!("Run unconfirmed tenure downloaders");
 
-        let addrs: Vec<_> = downloaders.keys().map(|addr| addr.clone()).collect();
+        let addrs: Vec<_> = downloaders.keys().cloned().collect();
         let mut finished = vec![];
         let mut unconfirmed_blocks = HashMap::new();
         let mut highest_completed_tenure_downloaders = HashMap::new();
@@ -1179,8 +1179,8 @@ impl NakamotoDownloadStateMachine {
                 finished.push(naddr.clone());
                 continue;
             }
-            if neighbor_rpc.has_inflight(&naddr) {
-                debug!("Peer {} has an inflight request", naddr);
+            if neighbor_rpc.has_inflight(naddr) {
+                debug!("Peer {naddr} has an inflight request");
                 continue;
             }
 
@@ -1377,7 +1377,7 @@ impl NakamotoDownloadStateMachine {
 
         // schedule downloaders for the highest-confirmed tenure, if we generated any
         self.tenure_downloads
-            .add_downloaders(new_highest_confirmed_downloaders.into_iter());
+            .add_downloaders(new_highest_confirmed_downloaders);
 
         // coalesce blocks -- maps consensus hash to map of block id to block
         let mut coalesced_blocks: HashMap<ConsensusHash, HashMap<StacksBlockId, NakamotoBlock>> =
@@ -1402,8 +1402,7 @@ impl NakamotoDownloadStateMachine {
         let tenure_blocks = coalesced_blocks
             .into_iter()
             .map(|(consensus_hash, block_map)| {
-                let mut block_list: Vec<_> =
-                    block_map.into_iter().map(|(_, block)| block).collect();
+                let mut block_list: Vec<_> = block_map.into_values().collect();
                 block_list.sort_unstable_by_key(|blk| blk.header.chain_length);
                 (consensus_hash, block_list)
             })
@@ -1565,7 +1564,7 @@ impl NakamotoDownloadStateMachine {
     ) -> Result<HashMap<ConsensusHash, Vec<NakamotoBlock>>, NetError> {
         self.nakamoto_tip = network.stacks_tip.block_id();
         debug!("Downloader: Nakamoto tip is {:?}", &self.nakamoto_tip);
-        self.update_wanted_tenures(&network, sortdb)?;
+        self.update_wanted_tenures(network, sortdb)?;
         self.update_processed_tenures(chainstate)?;
         let new_blocks = self.run_downloads(burnchain_height, network, sortdb, chainstate, ibd);
         self.last_sort_tip = Some(network.burnchain_tip.clone());

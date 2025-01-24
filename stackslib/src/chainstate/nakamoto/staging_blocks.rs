@@ -59,7 +59,7 @@ impl fmt::Display for NakamotoBlockObtainMethod {
     }
 }
 
-pub const NAKAMOTO_STAGING_DB_SCHEMA_1: &'static [&'static str] = &[
+pub const NAKAMOTO_STAGING_DB_SCHEMA_1: &[&str] = &[
     r#"
   -- Table for staging nakamoto blocks
   CREATE TABLE nakamoto_staging_blocks (
@@ -102,7 +102,7 @@ pub const NAKAMOTO_STAGING_DB_SCHEMA_1: &'static [&'static str] = &[
     r#"CREATE INDEX nakamoto_staging_blocks_by_tenure_start_block ON nakamoto_staging_blocks(is_tenure_start,consensus_hash);"#,
 ];
 
-pub const NAKAMOTO_STAGING_DB_SCHEMA_2: &'static [&'static str] = &[
+pub const NAKAMOTO_STAGING_DB_SCHEMA_2: &[&str] = &[
     r#"
   DROP TABLE nakamoto_staging_blocks;
   "#,
@@ -155,7 +155,7 @@ pub const NAKAMOTO_STAGING_DB_SCHEMA_2: &'static [&'static str] = &[
     r#"INSERT INTO db_version (version) VALUES (2)"#,
 ];
 
-pub const NAKAMOTO_STAGING_DB_SCHEMA_3: &'static [&'static str] = &[
+pub const NAKAMOTO_STAGING_DB_SCHEMA_3: &[&str] = &[
     r#"CREATE INDEX nakamoto_staging_blocks_by_obtain_method ON nakamoto_staging_blocks(consensus_hash,obtain_method);"#,
     r#"UPDATE db_version SET version = 3"#,
 ];
@@ -185,8 +185,8 @@ impl NakamotoStagingBlocksConn {
 
 pub struct NakamotoStagingBlocksConnRef<'a>(&'a rusqlite::Connection);
 
-impl<'a> NakamotoStagingBlocksConnRef<'a> {
-    pub fn conn(&self) -> NakamotoStagingBlocksConnRef<'a> {
+impl NakamotoStagingBlocksConnRef<'_> {
+    pub fn conn(&self) -> NakamotoStagingBlocksConnRef<'_> {
         NakamotoStagingBlocksConnRef(self.0)
     }
 }
@@ -200,7 +200,7 @@ impl Deref for NakamotoStagingBlocksConnRef<'_> {
 
 pub struct NakamotoStagingBlocksTx<'a>(rusqlite::Transaction<'a>);
 
-impl<'a> NakamotoStagingBlocksTx<'a> {
+impl NakamotoStagingBlocksTx<'_> {
     pub fn commit(self) -> Result<(), rusqlite::Error> {
         self.0.commit()
     }
@@ -217,17 +217,17 @@ impl<'a> Deref for NakamotoStagingBlocksTx<'a> {
     }
 }
 
-impl<'a> DerefMut for NakamotoStagingBlocksTx<'a> {
+impl DerefMut for NakamotoStagingBlocksTx<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 /// Open a Blob handle to a Nakamoto block
-fn inner_open_nakamoto_block<'a>(
-    conn: &'a Connection,
+fn inner_open_nakamoto_block(
+    conn: &Connection,
     rowid: i64,
     readwrite: bool,
-) -> Result<Blob<'a>, ChainstateError> {
+) -> Result<Blob<'_>, ChainstateError> {
     let blob = conn.blob_open(
         rusqlite::DatabaseName::Main,
         "nakamoto_staging_blocks",
@@ -240,11 +240,11 @@ fn inner_open_nakamoto_block<'a>(
 
 impl NakamotoStagingBlocksConn {
     /// Open a Blob handle to a Nakamoto block
-    pub fn open_nakamoto_block<'a>(
-        &'a self,
+    pub fn open_nakamoto_block(
+        &self,
         rowid: i64,
         readwrite: bool,
-    ) -> Result<Blob<'a>, ChainstateError> {
+    ) -> Result<Blob<'_>, ChainstateError> {
         inner_open_nakamoto_block(self.deref(), rowid, readwrite)
     }
 }
@@ -511,7 +511,7 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
     }
 }
 
-impl<'a> NakamotoStagingBlocksTx<'a> {
+impl NakamotoStagingBlocksTx<'_> {
     /// Notify the staging database that a given stacks block has been processed.
     /// This will update the attachable status for children blocks, as well as marking the stacks
     ///  block itself as processed.
@@ -520,7 +520,7 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
             "UPDATE nakamoto_staging_blocks SET processed = 1, processed_time = ?2
                                   WHERE index_block_hash = ?1";
         self.execute(
-            &clear_staged_block,
+            clear_staged_block,
             params![block, u64_to_sql(get_epoch_time_secs())?],
         )?;
 
@@ -534,13 +534,13 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
         let update_dependents = "UPDATE nakamoto_staging_blocks SET orphaned = 1
                                  WHERE parent_block_id = ?";
 
-        self.execute(&update_dependents, &[&block])?;
+        self.execute(update_dependents, &[&block])?;
 
         let clear_staged_block =
             "UPDATE nakamoto_staging_blocks SET processed = 1, processed_time = ?2, orphaned = 1
                                   WHERE index_block_hash = ?1";
         self.execute(
-            &clear_staged_block,
+            clear_staged_block,
             params![block, u64_to_sql(get_epoch_time_secs())?],
         )?;
 
@@ -555,7 +555,7 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
     ) -> Result<(), ChainstateError> {
         let update_dependents = "UPDATE nakamoto_staging_blocks SET burn_attachable = 1
                                  WHERE consensus_hash = ?";
-        self.execute(&update_dependents, &[consensus_hash])?;
+        self.execute(update_dependents, &[consensus_hash])?;
 
         Ok(())
     }
@@ -689,17 +689,15 @@ impl<'a> NakamotoStagingBlocksTx<'a> {
 impl StacksChainState {
     /// Begin a transaction against the staging blocks DB.
     /// Note that this DB is (or will eventually be) in a separate database from the headers.
-    pub fn staging_db_tx_begin<'a>(
-        &'a mut self,
-    ) -> Result<NakamotoStagingBlocksTx<'a>, ChainstateError> {
+    pub fn staging_db_tx_begin(&mut self) -> Result<NakamotoStagingBlocksTx<'_>, ChainstateError> {
         let tx = tx_begin_immediate(&mut self.nakamoto_staging_blocks_conn)?;
         Ok(NakamotoStagingBlocksTx(tx))
     }
 
     /// Begin a tx to both the headers DB and the staging DB
-    pub fn headers_and_staging_tx_begin<'a>(
-        &'a mut self,
-    ) -> Result<(rusqlite::Transaction<'a>, NakamotoStagingBlocksTx<'a>), ChainstateError> {
+    pub fn headers_and_staging_tx_begin(
+        &mut self,
+    ) -> Result<(rusqlite::Transaction<'_>, NakamotoStagingBlocksTx<'_>), ChainstateError> {
         let header_tx = self
             .state_index
             .storage_tx()
@@ -709,9 +707,9 @@ impl StacksChainState {
     }
 
     /// Open a connection to the headers DB, and open a tx to the staging DB
-    pub fn headers_conn_and_staging_tx_begin<'a>(
-        &'a mut self,
-    ) -> Result<(&'a rusqlite::Connection, NakamotoStagingBlocksTx<'a>), ChainstateError> {
+    pub fn headers_conn_and_staging_tx_begin(
+        &mut self,
+    ) -> Result<(&rusqlite::Connection, NakamotoStagingBlocksTx<'_>), ChainstateError> {
         let header_conn = self.state_index.sqlite_conn();
         let staging_tx = tx_begin_immediate(&mut self.nakamoto_staging_blocks_conn)?;
         Ok((header_conn, NakamotoStagingBlocksTx(staging_tx)))
@@ -745,13 +743,13 @@ impl StacksChainState {
     pub fn get_nakamoto_staging_blocks_db_version(
         conn: &Connection,
     ) -> Result<u32, ChainstateError> {
-        let db_version_exists = table_exists(&conn, "db_version")?;
+        let db_version_exists = table_exists(conn, "db_version")?;
         if !db_version_exists {
             return Ok(1);
         }
         let qry = "SELECT version FROM db_version ORDER BY version DESC LIMIT 1";
         let args = NO_PARAMS;
-        let version: Option<i64> = match query_row(&conn, qry, args) {
+        let version: Option<i64> = match query_row(conn, qry, args) {
             Ok(x) => x,
             Err(e) => {
                 error!("Failed to get Nakamoto staging blocks DB version: {:?}", &e);
@@ -823,12 +821,10 @@ impl StacksChainState {
             } else {
                 return Err(DBError::NotFoundError.into());
             }
+        } else if readwrite {
+            OpenFlags::SQLITE_OPEN_READ_WRITE
         } else {
-            if readwrite {
-                OpenFlags::SQLITE_OPEN_READ_WRITE
-            } else {
-                OpenFlags::SQLITE_OPEN_READ_ONLY
-            }
+            OpenFlags::SQLITE_OPEN_READ_ONLY
         };
         let conn = sqlite_open(path, flags, false)?;
         if !exists {

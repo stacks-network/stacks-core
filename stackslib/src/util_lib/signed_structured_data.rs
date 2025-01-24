@@ -30,7 +30,7 @@ pub const STRUCTURED_DATA_PREFIX: [u8; 6] = [0x53, 0x49, 0x50, 0x30, 0x31, 0x38]
 pub fn structured_data_hash(value: Value) -> Sha256Sum {
     let mut bytes = vec![];
     value.serialize_write(&mut bytes).unwrap();
-    Sha256Sum::from_data(&bytes.as_slice())
+    Sha256Sum::from_data(bytes.as_slice())
 }
 
 /// Generate a message hash for signing structured Clarity data.
@@ -216,7 +216,7 @@ pub mod pox4 {
                 );
                 result
                     .expect("FATAL: failed to execute contract call")
-                    .expect_buff(32 as usize)
+                    .expect_buff(32)
                     .expect("FATAL: expected buff result")
             })
         }
@@ -241,7 +241,7 @@ pub mod pox4 {
                         .analyze_smart_contract(
                             &pox_contract_id,
                             clarity_version,
-                            &body,
+                            body,
                             ASTRules::PrecheckSize,
                         )
                         .unwrap();
@@ -250,7 +250,7 @@ pub mod pox4 {
                             &pox_contract_id,
                             clarity_version,
                             &ast,
-                            &body,
+                            body,
                             None,
                             |_, _| false,
                         )
@@ -300,7 +300,9 @@ pub mod pox4 {
             // Test 2: invalid pox address
             let other_pox_address = PoxAddress::from_legacy(
                 AddressHashMode::SerializeP2PKH,
-                StacksAddress::p2pkh(false, &Secp256k1PublicKey::new()).bytes,
+                StacksAddress::p2pkh(false, &Secp256k1PublicKey::new())
+                    .destruct()
+                    .1,
             );
             let result = call_get_signer_message_hash(
                 &mut sim,

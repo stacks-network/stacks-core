@@ -66,7 +66,7 @@ fn test_try_parse_request() {
         .unwrap();
 
     assert_eq!(handler.estimated_len, Some(123));
-    assert_eq!(handler.transaction_payload, Some(tx_payload.clone()));
+    assert_eq!(handler.transaction_payload, Some(tx_payload));
 
     // parsed request consumes headers that would not be in a constructed reqeuest
     parsed_request.clear_headers();

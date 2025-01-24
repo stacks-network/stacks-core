@@ -73,7 +73,8 @@ use super::stacks::db::{
 use super::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
 use super::stacks::{
     Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksTransaction,
-    TenureChangeError, TenureChangePayload, TransactionPayload,
+    TenureChangeError, TenureChangePayload, TokenTransferMemo, TransactionPayload,
+    TransactionVersion,
 };
 use crate::burnchains::{Burnchain, PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -108,8 +109,7 @@ use crate::core::{
 };
 use crate::net::stackerdb::{StackerDBConfig, MINER_SLOT_COUNT};
 use crate::net::Error as net_error;
-use crate::util_lib::boot;
-use crate::util_lib::boot::boot_code_id;
+use crate::util_lib::boot::{self, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::util_lib::db::{
     query_int, query_row, query_row_columns, query_row_panic, query_rows, sqlite_open,
     tx_begin_immediate, u64_to_sql, DBConn, Error as DBError, FromRow,
@@ -347,8 +347,7 @@ pub trait StacksDBIndexed {
                 tip,
                 &nakamoto_keys::ongoing_tenure_coinbase_height(coinbase_height),
             )?
-            .map(|id_str| nakamoto_keys::parse_block_id(&id_str))
-            .flatten())
+            .and_then(|id_str| nakamoto_keys::parse_block_id(&id_str)))
     }
 
     /// Get the first block in the tenure for a given tenure ID consensus hash in the fork
@@ -363,8 +362,7 @@ pub trait StacksDBIndexed {
                 tip,
                 &nakamoto_keys::tenure_start_block_id(tenure_id_consensus_hash),
             )?
-            .map(|id_str| nakamoto_keys::parse_block_id(&id_str))
-            .flatten())
+            .and_then(|id_str| nakamoto_keys::parse_block_id(&id_str)))
     }
 
     /// Get the coinbase height of a tenure (identified by its consensus hash) in a fork identified
@@ -379,8 +377,7 @@ pub trait StacksDBIndexed {
                 tip,
                 &nakamoto_keys::coinbase_height(tenure_id_consensus_hash),
             )?
-            .map(|height_str| nakamoto_keys::parse_u64(&height_str))
-            .flatten())
+            .and_then(|height_str| nakamoto_keys::parse_u64(&height_str)))
     }
 
     /// Get the ongoing tenure ID in the fork identified by `tip`
@@ -390,8 +387,7 @@ pub trait StacksDBIndexed {
     ) -> Result<Option<NakamotoTenureEventId>, DBError> {
         Ok(self
             .get(tip, nakamoto_keys::ongoing_tenure_id())?
-            .map(|id_str| nakamoto_keys::parse_tenure_id_value(&id_str))
-            .flatten())
+            .and_then(|id_str| nakamoto_keys::parse_tenure_id_value(&id_str)))
     }
 
     /// Get the highest block ID in a tenure identified by its consensus hash in the Stacks fork
@@ -406,8 +402,7 @@ pub trait StacksDBIndexed {
                 tip,
                 &nakamoto_keys::highest_block_in_tenure(tenure_id_consensus_hash),
             )?
-            .map(|id_str| nakamoto_keys::parse_block_id(&id_str))
-            .flatten())
+            .and_then(|id_str| nakamoto_keys::parse_block_id(&id_str)))
     }
 
     /// Get the block-found tenure ID for a given tenure's consensus hash (if defined) in a given
@@ -422,8 +417,7 @@ pub trait StacksDBIndexed {
                 tip,
                 &nakamoto_keys::block_found_tenure_id(tenure_id_consensus_hash),
             )?
-            .map(|id_str| nakamoto_keys::parse_tenure_id_value(&id_str))
-            .flatten())
+            .and_then(|id_str| nakamoto_keys::parse_tenure_id_value(&id_str)))
     }
 
     /// Determine if a tenure, identified by its consensus hash, has finished in a fork identified
@@ -475,8 +469,7 @@ pub trait StacksDBIndexed {
                 tip,
                 &nakamoto_keys::parent_tenure_consensus_hash(tenure_id_consensus_hash),
             )?
-            .map(|ch_str| nakamoto_keys::parse_consensus_hash(&ch_str))
-            .flatten())
+            .and_then(|ch_str| nakamoto_keys::parse_consensus_hash(&ch_str)))
     }
 }
 
@@ -1082,23 +1075,21 @@ impl NakamotoBlock {
     /// Get the VRF proof from this block.
     /// It's Some(..) only if there's a coinbase
     pub fn get_vrf_proof(&self) -> Option<&VRFProof> {
-        self.get_coinbase_tx()
-            .map(|coinbase_tx| {
-                if let TransactionPayload::Coinbase(_, _, vrf_proof) = &coinbase_tx.payload {
-                    vrf_proof.as_ref()
-                } else {
-                    // actually unreachable
-                    None
-                }
-            })
-            .flatten()
+        self.get_coinbase_tx().and_then(|coinbase_tx| {
+            if let TransactionPayload::Coinbase(_, _, vrf_proof) = &coinbase_tx.payload {
+                vrf_proof.as_ref()
+            } else {
+                // actually unreachable
+                None
+            }
+        })
     }
 
     /// Try to get the first transaction in the block as a tenure-change
     /// Return Some(tenure-change-payload) if it's a tenure change
     /// Return None if not
     pub fn try_get_tenure_change_payload(&self) -> Option<&TenureChangePayload> {
-        if self.txs.len() == 0 {
+        if self.txs.is_empty() {
             return None;
         }
         if let TransactionPayload::TenureChange(ref tc) = &self.txs[0].payload {
@@ -1145,7 +1136,7 @@ impl NakamotoBlock {
             })
             .collect::<Vec<_>>();
 
-        if tenure_change_positions.len() == 0 {
+        if tenure_change_positions.is_empty() {
             return Ok(false);
         }
 
@@ -1246,7 +1237,7 @@ impl NakamotoBlock {
             })
             .collect::<Vec<_>>();
 
-        if coinbase_positions.len() == 0 && tenure_change_positions.len() == 0 {
+        if coinbase_positions.is_empty() && tenure_change_positions.is_empty() {
             // can't be a first block in a tenure
             return Ok(false);
         }
@@ -1264,7 +1255,7 @@ impl NakamotoBlock {
             return Err(());
         }
 
-        if coinbase_positions.len() == 1 && tenure_change_positions.len() == 0 {
+        if coinbase_positions.len() == 1 && tenure_change_positions.is_empty() {
             // coinbase unaccompanied by a tenure change
             warn!("Invalid block -- have coinbase without tenure change";
                 "consensus_hash" => %self.header.consensus_hash,
@@ -1274,7 +1265,7 @@ impl NakamotoBlock {
             return Err(());
         }
 
-        if coinbase_positions.len() == 0 && tenure_change_positions.len() == 1 {
+        if coinbase_positions.is_empty() && tenure_change_positions.len() == 1 {
             // this is possibly a block with a tenure-extend transaction.
             // It must be the first tx
             if tenure_change_positions[0] != 0 {
@@ -1765,7 +1756,7 @@ impl NakamotoChainState {
                 continue;
             };
 
-            let Ok(_) = staging_block_tx.set_block_orphaned(&block_id).map_err(|e| {
+            let Ok(_) = staging_block_tx.set_block_orphaned(block_id).map_err(|e| {
                 warn!("Failed to mark {} as orphaned: {:?}", &block_id, &e);
                 e
             }) else {
@@ -1864,11 +1855,11 @@ impl NakamotoChainState {
     ///
     /// It returns Err(..) on DB error, or if the child block does not connect to the parent.
     /// The caller should keep calling this until it gets Ok(None)
-    pub fn process_next_nakamoto_block<'a, T: BlockEventDispatcher>(
+    pub fn process_next_nakamoto_block<T: BlockEventDispatcher>(
         stacks_chain_state: &mut StacksChainState,
         sort_db: &mut SortitionDB,
         canonical_sortition_tip: &SortitionId,
-        dispatcher_opt: Option<&'a T>,
+        dispatcher_opt: Option<&T>,
     ) -> Result<Option<StacksEpochReceipt>, ChainstateError> {
         #[cfg(test)]
         fault_injection::stall_block_processing();
@@ -2093,7 +2084,8 @@ impl NakamotoChainState {
             return Err(e);
         };
 
-        let (receipt, clarity_commit, reward_set_data) = ok_opt.expect("FATAL: unreachable");
+        let (mut receipt, clarity_commit, reward_set_data, phantom_unlock_events) =
+            ok_opt.expect("FATAL: unreachable");
 
         assert_eq!(
             receipt.header.anchored_header.block_hash(),
@@ -2121,7 +2113,7 @@ impl NakamotoChainState {
         // succeeds, since *we have already processed* the block.
         Self::infallible_set_block_processed(stacks_chain_state, &block_id);
 
-        let signer_bitvec = (&next_ready_block).header.pox_treatment.clone();
+        let signer_bitvec = (next_ready_block).header.pox_treatment.clone();
 
         let block_timestamp = next_ready_block.header.timestamp;
 
@@ -2147,6 +2139,20 @@ impl NakamotoChainState {
             &receipt.header.anchored_header.block_hash()
         );
 
+        let tx_receipts = &mut receipt.tx_receipts;
+        if let Some(unlock_receipt) =
+            // For the event dispatcher, attach any STXMintEvents that
+            // could not be included in the block (e.g. because the
+            // block didn't have a Coinbase transaction).
+            Self::generate_phantom_unlock_tx(
+                phantom_unlock_events,
+                &stacks_chain_state.config(),
+                next_ready_block.header.chain_length,
+            )
+        {
+            tx_receipts.push(unlock_receipt);
+        }
+
         // announce the block, if we're connected to an event dispatcher
         if let Some(dispatcher) = dispatcher_opt {
             let block_event = (
@@ -2157,7 +2163,7 @@ impl NakamotoChainState {
             dispatcher.announce_block(
                 &block_event,
                 &receipt.header.clone(),
-                &receipt.tx_receipts,
+                tx_receipts,
                 &parent_block_id,
                 next_ready_block_snapshot.winning_block_txid,
                 &receipt.matured_rewards,
@@ -2934,7 +2940,7 @@ impl NakamotoChainState {
 
         let parent_sortition_id = SortitionDB::get_block_commit_parent_sortition_id(
             sortdb_conn,
-            &block_commit_txid,
+            block_commit_txid,
             &sn.sortition_id,
         )?
         .ok_or(ChainstateError::InvalidStacksBlock(
@@ -3017,7 +3023,7 @@ impl NakamotoChainState {
         let args = params![tenure_start_block_id];
         let proof_bytes: Option<String> = query_row(chainstate_conn, sql, args)?;
         if let Some(bytes) = proof_bytes {
-            if bytes.len() == 0 {
+            if bytes.is_empty() {
                 // no VRF proof
                 return Ok(None);
             }
@@ -3138,7 +3144,7 @@ impl NakamotoChainState {
 
         let block_hash = header.block_hash();
 
-        let index_block_hash = StacksBlockId::new(&consensus_hash, &block_hash);
+        let index_block_hash = StacksBlockId::new(consensus_hash, &block_hash);
 
         assert!(*stacks_block_height < u64::try_from(i64::MAX).unwrap());
 
@@ -3262,7 +3268,7 @@ impl NakamotoChainState {
                 StacksBlockHeaderTypes::Epoch2(..) => {
                     assert_eq!(
                         new_tip.parent_block_id,
-                        StacksBlockId::new(&parent_consensus_hash, &parent_tip.block_hash())
+                        StacksBlockId::new(parent_consensus_hash, &parent_tip.block_hash())
                     );
                 }
                 StacksBlockHeaderTypes::Nakamoto(nakamoto_header) => {
@@ -3386,7 +3392,7 @@ impl NakamotoChainState {
             + if new_tenure {
                 0
             } else {
-                Self::get_total_tenure_tx_fees_at(&headers_tx, &parent_hash)?.ok_or_else(|| {
+                Self::get_total_tenure_tx_fees_at(headers_tx, &parent_hash)?.ok_or_else(|| {
                     warn!(
                         "Failed to fetch parent block's total tx fees";
                         "parent_block_id" => %parent_hash,
@@ -3417,7 +3423,7 @@ impl NakamotoChainState {
         Self::insert_stacks_block_header(
             headers_tx.deref_mut(),
             &new_tip_info,
-            &new_tip,
+            new_tip,
             new_vrf_proof,
             anchor_block_cost,
             total_tenure_cost,
@@ -3515,7 +3521,7 @@ impl NakamotoChainState {
         let signer_sighash = block.header.signer_signature_hash();
         for signer_signature in &block.header.signer_signature {
             let signer_pubkey =
-                StacksPublicKey::recover_to_pubkey(signer_sighash.bits(), &signer_signature)
+                StacksPublicKey::recover_to_pubkey(signer_sighash.bits(), signer_signature)
                     .map_err(|e| ChainstateError::InvalidStacksBlock(e.to_string()))?;
             let sql = "INSERT INTO signer_stats(public_key,reward_cycle) VALUES(?1,?2) ON CONFLICT(public_key,reward_cycle) DO UPDATE SET blocks_signed=blocks_signed+1";
             let params = params![signer_pubkey.to_hex(), reward_cycle];
@@ -3937,7 +3943,11 @@ impl NakamotoChainState {
 
         // is this stacks block the first of a new epoch?
         let (applied_epoch_transition, mut tx_receipts) =
-            StacksChainState::process_epoch_transition(&mut clarity_tx, burn_header_height)?;
+            StacksChainState::process_epoch_transition(
+                &mut clarity_tx,
+                sortition_dbconn.as_burn_state_db(),
+                burn_header_height,
+            )?;
 
         debug!(
             "Setup block: Processed epoch transition";
@@ -4027,7 +4037,7 @@ impl NakamotoChainState {
             signer_set_calc = NakamotoSigners::check_and_handle_prepare_phase_start(
                 &mut clarity_tx,
                 first_block_height,
-                &pox_constants,
+                pox_constants,
                 burn_header_height.into(),
                 coinbase_height,
             )?;
@@ -4076,7 +4086,7 @@ impl NakamotoChainState {
         miner_payouts: Option<&MaturedMinerRewards>,
     ) -> Result<Vec<StacksTransactionEvent>, ChainstateError> {
         // add miner payments
-        if let Some(ref rewards) = miner_payouts {
+        if let Some(rewards) = miner_payouts {
             // grant in order by miner, then users
             let matured_ustx = StacksChainState::process_matured_miner_rewards(
                 clarity_tx,
@@ -4164,17 +4174,15 @@ impl NakamotoChainState {
                         "Bitvec does not match the block commit's PoX handling".into(),
                     ));
                 }
-            } else if all_0 {
-                if treated_addr.is_reward() {
-                    warn!(
-                        "Invalid Nakamoto block: rewarded PoX address when bitvec contained 0s for the address";
-                        "reward_address" => %treated_addr.deref(),
-                        "bitvec_values" => ?bitvec_values,
-                    );
-                    return Err(ChainstateError::InvalidStacksBlock(
-                        "Bitvec does not match the block commit's PoX handling".into(),
-                    ));
-                }
+            } else if all_0 && treated_addr.is_reward() {
+                warn!(
+                    "Invalid Nakamoto block: rewarded PoX address when bitvec contained 0s for the address";
+                    "reward_address" => %treated_addr.deref(),
+                    "bitvec_values" => ?bitvec_values,
+                );
+                return Err(ChainstateError::InvalidStacksBlock(
+                    "Bitvec does not match the block commit's PoX handling".into(),
+                ));
             }
         }
 
@@ -4193,17 +4201,19 @@ impl NakamotoChainState {
         applied_epoch_transition: bool,
         signers_updated: bool,
         coinbase_height: u64,
+        phantom_lockup_events: Vec<StacksTransactionEvent>,
     ) -> Result<
         (
             StacksEpochReceipt,
             PreCommitClarityBlock<'a>,
             Option<RewardSetData>,
+            Vec<StacksTransactionEvent>,
         ),
         ChainstateError,
     > {
         // get burn block stats, for the transaction receipt
 
-        let parent_sn = SortitionDB::get_block_snapshot_consensus(burn_dbconn, &parent_ch)?
+        let parent_sn = SortitionDB::get_block_snapshot_consensus(burn_dbconn, parent_ch)?
             .ok_or_else(|| {
                 // shouldn't happen
                 warn!(
@@ -4234,7 +4244,7 @@ impl NakamotoChainState {
             coinbase_height,
         };
 
-        return Ok((epoch_receipt, clarity_commit, None));
+        return Ok((epoch_receipt, clarity_commit, None, phantom_lockup_events));
     }
 
     /// Append a Nakamoto Stacks block to the Stacks chain state.
@@ -4260,6 +4270,7 @@ impl NakamotoChainState {
             StacksEpochReceipt,
             PreCommitClarityBlock<'a>,
             Option<RewardSetData>,
+            Vec<StacksTransactionEvent>,
         ),
         ChainstateError,
     > {
@@ -4413,13 +4424,11 @@ impl NakamotoChainState {
                     "Could not advance tenure, even though tenure changed".into(),
                 ));
             }
-        } else {
-            if coinbase_height != parent_coinbase_height {
-                // this should be unreachable
-                return Err(ChainstateError::InvalidStacksBlock(
-                    "Advanced tenure even though a new tenure did not happen".into(),
-                ));
-            }
+        } else if coinbase_height != parent_coinbase_height {
+            // this should be unreachable
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Advanced tenure even though a new tenure did not happen".into(),
+            ));
         }
 
         // begin processing this block
@@ -4459,7 +4468,7 @@ impl NakamotoChainState {
                 burn_dbconn,
                 first_block_height,
                 pox_constants,
-                &parent_chain_tip,
+                parent_chain_tip,
                 parent_ch,
                 parent_block_hash,
                 parent_chain_tip.burn_header_height,
@@ -4502,7 +4511,7 @@ impl NakamotoChainState {
             Ok((block_fees, _block_burns, txs_receipts)) => (block_fees, txs_receipts),
         };
 
-        tx_receipts.extend(txs_receipts.into_iter());
+        tx_receipts.extend(txs_receipts);
 
         let total_tenure_cost = clarity_tx.cost_so_far();
         let mut block_execution_cost = total_tenure_cost.clone();
@@ -4527,20 +4536,22 @@ impl NakamotoChainState {
                 Ok(lockup_events) => lockup_events,
             };
 
-        // if any, append lockups events to the coinbase receipt
-        if lockup_events.len() > 0 {
+        // If any, append lockups events to the coinbase receipt
+        if let Some(receipt) = tx_receipts.get_mut(0) {
             // Receipts are appended in order, so the first receipt should be
             // the one of the coinbase transaction
-            if let Some(receipt) = tx_receipts.get_mut(0) {
-                if receipt.is_coinbase_tx() {
-                    receipt.events.append(&mut lockup_events);
-                }
-            } else {
-                warn!("Unable to attach lockups events, block's first transaction is not a coinbase transaction")
+            if receipt.is_coinbase_tx() {
+                receipt.events.append(&mut lockup_events);
             }
         }
+
+        // If lockup_events still contains items, it means they weren't attached
+        if !lockup_events.is_empty() {
+            info!("Unable to attach lockup events, block's first transaction is not a coinbase transaction. Will attach as a phantom tx.");
+        }
+
         // if any, append auto unlock events to the coinbase receipt
-        if auto_unlock_events.len() > 0 {
+        if !auto_unlock_events.is_empty() {
             // Receipts are appended in order, so the first receipt should be
             // the one of the coinbase transaction
             if let Some(receipt) = tx_receipts.get_mut(0) {
@@ -4611,6 +4622,7 @@ impl NakamotoChainState {
                 applied_epoch_transition,
                 signer_set_calc.is_some(),
                 coinbase_height,
+                lockup_events,
             );
         }
 
@@ -4618,7 +4630,7 @@ impl NakamotoChainState {
             &mut chainstate_tx.tx,
             &parent_chain_tip.anchored_header,
             &parent_chain_tip.consensus_hash,
-            &block,
+            block,
             vrf_proof_opt,
             chain_tip_burn_header_hash,
             chain_tip_burn_header_height,
@@ -4643,10 +4655,8 @@ impl NakamotoChainState {
         let new_block_id = new_tip.index_block_hash();
         chainstate_tx.log_transactions_processed(&new_block_id, &tx_receipts);
 
-        let reward_cycle = pox_constants.block_height_to_reward_cycle(
-            first_block_height.into(),
-            chain_tip_burn_header_height.into(),
-        );
+        let reward_cycle = pox_constants
+            .block_height_to_reward_cycle(first_block_height, chain_tip_burn_header_height.into());
 
         // store the reward set calculated during this block if it happened
         // NOTE: miner and proposal evaluation should not invoke this because
@@ -4657,14 +4667,14 @@ impl NakamotoChainState {
             Self::write_reward_set(chainstate_tx, &new_block_id, &signer_calculation.reward_set)?;
 
             let cycle_number = if let Some(cycle) = pox_constants.reward_cycle_of_prepare_phase(
-                first_block_height.into(),
+                first_block_height,
                 chain_tip_burn_header_height.into(),
             ) {
                 Some(cycle)
             } else {
                 pox_constants
                     .block_height_to_reward_cycle(
-                        first_block_height.into(),
+                        first_block_height,
                         chain_tip_burn_header_height.into(),
                     )
                     .map(|cycle| cycle + 1)
@@ -4724,7 +4734,12 @@ impl NakamotoChainState {
             coinbase_height,
         };
 
-        Ok((epoch_receipt, clarity_commit, reward_set_data))
+        Ok((
+            epoch_receipt,
+            clarity_commit,
+            reward_set_data,
+            lockup_events,
+        ))
     }
 
     /// Create a StackerDB config for the .miners contract.
@@ -4792,10 +4807,10 @@ impl NakamotoChainState {
             .map(|hash160|
                 // each miner gets two slots
                 (
-                    StacksAddress {
-                        version: 1, // NOTE: the version is ignored in stackerdb; we only care about the hashbytes
-                        bytes: hash160
-                    },
+                    StacksAddress::new(
+                        1, // NOTE: the version is ignored in stackerdb; we only care about the hashbytes
+                        hash160
+                    ).expect("FATAL: infallible: 1 is not a valid address version byte"),
                     MINER_SLOT_COUNT,
                 ))
             .collect();
@@ -4823,7 +4838,7 @@ impl NakamotoChainState {
         tip: &BlockSnapshot,
         election_sortition: &ConsensusHash,
     ) -> Result<Option<Range<u32>>, ChainstateError> {
-        let (stackerdb_config, miners_info) = Self::make_miners_stackerdb_config(sortdb, &tip)?;
+        let (stackerdb_config, miners_info) = Self::make_miners_stackerdb_config(sortdb, tip)?;
 
         // find out which slot we're in
         let Some(signer_ix) = miners_info
@@ -4885,6 +4900,53 @@ impl NakamotoChainState {
             clarity.save_analysis(&contract_id, &analysis).unwrap();
         })
     }
+
+    /// Generate a "phantom" transaction to include STXMintEvents for
+    /// lockups that could not be attached to a Coinbase transaction
+    /// (because the block doesn't have a Coinbase transaction).
+    fn generate_phantom_unlock_tx(
+        events: Vec<StacksTransactionEvent>,
+        config: &ChainstateConfig,
+        stacks_block_height: u64,
+    ) -> Option<StacksTransactionReceipt> {
+        if events.is_empty() {
+            return None;
+        }
+        info!("Generating phantom unlock tx");
+        let version = if config.mainnet {
+            TransactionVersion::Mainnet
+        } else {
+            TransactionVersion::Testnet
+        };
+
+        // Make the txid unique -- the phantom tx payload should include something block-specific otherwise
+        // they will always have the same txid. In this case we use the block height in the memo. This also
+        // happens to give some indication of the purpose of this phantom tx, for anyone looking.
+        let memo = TokenTransferMemo({
+            let str = format!("Block {} token unlocks", stacks_block_height);
+            let mut buf = [0u8; 34];
+            buf[..str.len().min(34)].copy_from_slice(&str.as_bytes()[..]);
+            buf
+        });
+        let boot_code_address = boot_code_addr(config.mainnet);
+        let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
+        let unlock_tx = StacksTransaction::new(
+            version,
+            boot_code_auth,
+            TransactionPayload::TokenTransfer(
+                PrincipalData::Standard(boot_code_address.into()),
+                0,
+                memo,
+            ),
+        );
+        let unlock_receipt = StacksTransactionReceipt::from_stx_transfer(
+            unlock_tx,
+            events,
+            Value::okay_true(),
+            ExecutionCost::ZERO,
+        );
+        Some(unlock_receipt)
+    }
 }
 
 impl StacksMessageCodec for NakamotoBlock {
@@ -4914,7 +4976,7 @@ impl StacksMessageCodec for NakamotoBlock {
         }
 
         // header and transactions must be consistent
-        let txid_vecs = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+        let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
 
         let merkle_tree = MerkleTree::new(&txid_vecs);
         let tx_merkle_root: Sha512Trunc256Sum = merkle_tree.root();

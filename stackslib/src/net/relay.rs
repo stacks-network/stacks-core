@@ -274,7 +274,7 @@ impl RelayerStats {
     }
 
     /// Add in new stats gleaned from the PeerNetwork's network result
-    pub fn merge_relay_stats(&mut self, mut stats: HashMap<NeighborAddress, RelayStats>) -> () {
+    pub fn merge_relay_stats(&mut self, mut stats: HashMap<NeighborAddress, RelayStats>) {
         for (mut addr, new_stats) in stats.drain() {
             addr.clear_public_key();
             let inserted = if let Some(stats) = self.relay_stats.get_mut(&addr) {
@@ -291,7 +291,7 @@ impl RelayerStats {
                         }
                         to_remove.push(*ts);
                     }
-                    for ts in to_remove.drain(..) {
+                    for ts in to_remove.into_iter() {
                         self.relay_updates.remove(&ts);
                     }
                 }
@@ -307,7 +307,7 @@ impl RelayerStats {
     }
 
     /// Record that we've seen a relayed message from one of our neighbors.
-    pub fn add_relayed_message<R: RelayPayload>(&mut self, nk: NeighborKey, msg: &R) -> () {
+    pub fn add_relayed_message<R: RelayPayload>(&mut self, nk: NeighborKey, msg: &R) {
         let h = msg.get_digest();
         let now = get_epoch_time_secs();
         let inserted = if let Some(relayed) = self.recent_messages.get_mut(&nk) {
@@ -319,7 +319,7 @@ impl RelayerStats {
             }
 
             // prune stale
-            while relayed.len() > 0 {
+            while !relayed.is_empty() {
                 let head_ts = match relayed.front() {
                     Some((ts, _)) => *ts,
                     None => {
@@ -342,7 +342,7 @@ impl RelayerStats {
                 let mut to_remove = vec![];
                 for (ts, old_nk) in self.recent_updates.iter() {
                     self.recent_messages.remove(old_nk);
-                    if self.recent_messages.len() <= (MAX_RELAYER_STATS as usize) - 1 {
+                    if self.recent_messages.len() <= MAX_RELAYER_STATS - 1 {
                         break;
                     }
                     to_remove.push(*ts);
@@ -363,7 +363,7 @@ impl RelayerStats {
     }
 
     /// Process a neighbor ban -- remove any state for this neighbor
-    pub fn process_neighbor_ban(&mut self, nk: &NeighborKey) -> () {
+    pub fn process_neighbor_ban(&mut self, nk: &NeighborKey) {
         let addr = NeighborAddress::from_neighbor_key((*nk).clone(), Hash160([0u8; 20]));
         self.recent_messages.remove(nk);
         self.relay_stats.remove(&addr);
@@ -406,7 +406,7 @@ impl RelayerStats {
         // look up ASNs
         let mut asns = HashMap::new();
         for nk in neighbors.iter() {
-            if asns.get(nk).is_none() {
+            if !asns.contains_key(nk) {
                 match PeerDB::asn_lookup(conn, &nk.addrbytes)? {
                     Some(asn) => asns.insert((*nk).clone(), asn),
                     None => asns.insert((*nk).clone(), 0),
@@ -450,7 +450,7 @@ impl RelayerStats {
         warmup_threshold: usize,
     ) -> HashMap<NeighborKey, usize> {
         let mut dup_counts = self.count_relay_dups(msg);
-        let mut dup_total = dup_counts.values().fold(0, |t, s| t + s);
+        let mut dup_total = dup_counts.values().sum::<usize>();
 
         if dup_total < warmup_threshold {
             // don't make inferences on small samples for total duplicates.
@@ -484,7 +484,7 @@ impl RelayerStats {
         neighbors: &[NeighborKey],
     ) -> Result<HashMap<NeighborKey, usize>, net_error> {
         let asn_counts = RelayerStats::count_ASNs(peerdb.conn(), neighbors)?;
-        let asn_total = asn_counts.values().fold(0, |t, s| t + s);
+        let asn_total = asn_counts.values().sum::<usize>();
 
         let mut ret = HashMap::new();
 
@@ -510,16 +510,16 @@ impl RelayerStats {
         let mut ret = HashSet::new();
         let mut rng = thread_rng();
 
-        let mut norm = rankings.values().fold(0, |t, s| t + s);
+        let mut norm = rankings.values().sum::<usize>();
         let mut rankings_vec: Vec<(NeighborKey, usize)> = rankings.into_iter().collect();
         let mut sampled = 0;
 
         if norm <= 1 {
             // there is one or zero options
-            if rankings_vec.len() > 0 {
-                return vec![rankings_vec[0].0.clone()];
-            } else {
+            if rankings_vec.is_empty() {
                 return vec![];
+            } else {
+                return vec![rankings_vec[0].0.clone()];
             }
         }
 
@@ -1002,7 +1002,7 @@ impl Relayer {
         if !Relayer::static_check_problematic_relayed_nakamoto_block(
             chainstate.mainnet,
             epoch_id,
-            &block,
+            block,
             ASTRules::PrecheckSize,
         ) {
             warn!(
@@ -1150,7 +1150,7 @@ impl Relayer {
 
         for (anchored_block_hash, (relayers, mblocks_map)) in new_microblocks.into_iter() {
             for (_, mblock) in mblocks_map.into_iter() {
-                if mblocks_data.get(&anchored_block_hash).is_none() {
+                if !mblocks_data.contains_key(&anchored_block_hash) {
                     mblocks_data.insert(anchored_block_hash.clone(), vec![]);
                 }
 
@@ -1230,9 +1230,8 @@ impl Relayer {
                 &block.block_hash()
             );
             if chainstate.fault_injection.hide_blocks {
-                if let Some(sn) =
-                    SortitionDB::get_block_snapshot_consensus(sort_ic, &consensus_hash)
-                        .expect("FATAL: failed to query downloaded block snapshot")
+                if let Some(sn) = SortitionDB::get_block_snapshot_consensus(sort_ic, consensus_hash)
+                    .expect("FATAL: failed to query downloaded block snapshot")
                 {
                     if Self::fault_injection_is_block_hidden(&block.header, sn.block_height) {
                         continue;
@@ -1345,15 +1344,13 @@ impl Relayer {
                 }
 
                 for BlocksDatum(consensus_hash, block) in blocks_data.blocks.iter() {
-                    match SortitionDB::get_block_snapshot_consensus(
-                        sort_ic.conn(),
-                        &consensus_hash,
-                    )? {
+                    match SortitionDB::get_block_snapshot_consensus(sort_ic.conn(), consensus_hash)?
+                    {
                         Some(sn) => {
                             if !sn.pox_valid {
                                 warn!(
                                     "Consensus hash {} is not on the valid PoX fork",
-                                    &consensus_hash
+                                    consensus_hash
                                 );
                                 continue;
                             }
@@ -1367,14 +1364,14 @@ impl Relayer {
                             }
                         }
                         None => {
-                            warn!("Consensus hash {} not known to this node", &consensus_hash);
+                            warn!("Consensus hash {} not known to this node", consensus_hash);
                             continue;
                         }
                     };
 
                     debug!(
                         "Received pushed block {}/{} from {}",
-                        &consensus_hash,
+                        consensus_hash,
                         block.block_hash(),
                         neighbor_key
                     );
@@ -1382,7 +1379,7 @@ impl Relayer {
                     match Relayer::process_new_anchored_block(
                         sort_ic,
                         chainstate,
-                        &consensus_hash,
+                        consensus_hash,
                         block,
                         0,
                     ) {
@@ -1390,20 +1387,20 @@ impl Relayer {
                             if BlockAcceptResponse::Accepted == accept_response {
                                 debug!(
                                     "Accepted block {}/{} from {}",
-                                    &consensus_hash, &bhh, &neighbor_key
+                                    consensus_hash, &bhh, &neighbor_key
                                 );
                                 new_blocks.insert(consensus_hash.clone(), block.clone());
                             } else {
                                 debug!(
                                     "Rejected block {}/{} from {}: {:?}",
-                                    &consensus_hash, &bhh, &neighbor_key, &accept_response
+                                    consensus_hash, &bhh, &neighbor_key, &accept_response
                                 );
                             }
                         }
                         Err(chainstate_error::InvalidStacksBlock(msg)) => {
                             warn!(
                                 "Invalid pushed Stacks block {}/{}: {}",
-                                &consensus_hash,
+                                consensus_hash,
                                 block.block_hash(),
                                 msg
                             );
@@ -1412,7 +1409,7 @@ impl Relayer {
                         Err(e) => {
                             warn!(
                                 "Could not process pushed Stacks block {}/{}: {:?}",
-                                &consensus_hash,
+                                consensus_hash,
                                 block.block_hash(),
                                 &e
                             );
@@ -1437,7 +1434,7 @@ impl Relayer {
         for (consensus_hash, microblock_stream, _download_time) in
             network_result.confirmed_microblocks.iter()
         {
-            if microblock_stream.len() == 0 {
+            if microblock_stream.is_empty() {
                 continue;
             }
             let anchored_block_hash = microblock_stream[0].header.prev_block.clone();
@@ -1798,7 +1795,7 @@ impl Relayer {
                     }
                 }
 
-                if accepted_blocks.len() > 0 {
+                if !accepted_blocks.is_empty() {
                     pushed_blocks.push(AcceptedNakamotoBlocks {
                         relayers: relayers.clone(),
                         blocks: accepted_blocks,
@@ -2078,7 +2075,9 @@ impl Relayer {
             Relayer::preprocess_pushed_microblocks(&sort_ic, network_result, chainstate)?;
         bad_neighbors.append(&mut new_bad_neighbors);
 
-        if new_blocks.len() > 0 || new_microblocks.len() > 0 || new_confirmed_microblocks.len() > 0
+        if !new_blocks.is_empty()
+            || !new_microblocks.is_empty()
+            || !new_confirmed_microblocks.is_empty()
         {
             info!(
                 "Processing newly received Stacks blocks: {}, microblocks: {}, confirmed microblocks: {}",
@@ -2237,7 +2236,7 @@ impl Relayer {
                 }
                 filtered_tx_data.push((relayers, tx));
             }
-            if filtered_tx_data.len() > 0 {
+            if !filtered_tx_data.is_empty() {
                 filtered_pushed_transactions.insert(nk, filtered_tx_data);
             }
         }
@@ -2605,24 +2604,21 @@ impl Relayer {
         new_microblocks: Vec<(Vec<RelayData>, MicroblocksData)>,
     ) {
         // have the p2p thread tell our neighbors about newly-discovered blocks
-        let new_block_chs = new_blocks.iter().map(|(ch, _)| ch.clone()).collect();
+        let new_block_chs = new_blocks.keys().cloned().collect();
         let available = Relayer::load_blocks_available_data(sortdb, new_block_chs)
             .unwrap_or(BlocksAvailableMap::new());
-        if available.len() > 0 {
+        if !available.is_empty() {
             debug!("{:?}: Blocks available: {}", &_local_peer, available.len());
             if let Err(e) = self.p2p.advertize_blocks(available, new_blocks) {
-                warn!("Failed to advertize new blocks: {:?}", &e);
+                warn!("Failed to advertize new blocks: {e:?}");
             }
         }
 
         // have the p2p thread tell our neighbors about newly-discovered confirmed microblock streams
-        let new_mblock_chs = new_confirmed_microblocks
-            .iter()
-            .map(|(ch, _)| ch.clone())
-            .collect();
+        let new_mblock_chs = new_confirmed_microblocks.keys().cloned().collect();
         let mblocks_available = Relayer::load_blocks_available_data(sortdb, new_mblock_chs)
             .unwrap_or(BlocksAvailableMap::new());
-        if mblocks_available.len() > 0 {
+        if !mblocks_available.is_empty() {
             debug!(
                 "{:?}: Confirmed microblock streams available: {}",
                 &_local_peer,
@@ -2632,12 +2628,12 @@ impl Relayer {
                 .p2p
                 .advertize_microblocks(mblocks_available, new_confirmed_microblocks)
             {
-                warn!("Failed to advertize new confirmed microblocks: {:?}", &e);
+                warn!("Failed to advertize new confirmed microblocks: {e:?}");
             }
         }
 
         // have the p2p thread forward all new unconfirmed microblocks
-        if new_microblocks.len() > 0 {
+        if !new_microblocks.is_empty() {
             debug!(
                 "{:?}: Unconfirmed microblocks: {}",
                 &_local_peer,
@@ -2685,7 +2681,7 @@ impl Relayer {
 
                 // attempt to relay messages (note that this is all best-effort).
                 // punish bad peers
-                if bad_block_neighbors.len() > 0 {
+                if !bad_block_neighbors.is_empty() {
                     debug!(
                         "{:?}: Ban {} peers",
                         &_local_peer,
@@ -2776,7 +2772,7 @@ impl Relayer {
 
         for blocks_and_relayers in accepted_blocks.into_iter() {
             let AcceptedNakamotoBlocks { relayers, blocks } = blocks_and_relayers;
-            if blocks.len() == 0 {
+            if blocks.is_empty() {
                 continue;
             }
 
@@ -2817,7 +2813,7 @@ impl Relayer {
                 &relayers
             );
 
-            if relay_blocks.len() == 0 {
+            if relay_blocks.is_empty() {
                 continue;
             }
 
@@ -2883,7 +2879,7 @@ impl Relayer {
             .unwrap_or(u64::MAX); // don't panic if we somehow receive more than u64::MAX blocks
 
         // punish bad peers
-        if bad_neighbors.len() > 0 {
+        if !bad_neighbors.is_empty() {
             debug!("{:?}: Ban {} peers", &local_peer, bad_neighbors.len());
             if let Err(e) = self.p2p.ban_peers(bad_neighbors) {
                 warn!("Failed to ban bad-block peers: {:?}", &e);
@@ -2891,7 +2887,7 @@ impl Relayer {
         }
 
         // relay if not IBD
-        if !ibd && accepted_blocks.len() > 0 {
+        if !ibd && !accepted_blocks.is_empty() {
             self.relay_epoch3_blocks(local_peer, sortdb, accepted_blocks);
         }
         num_new_nakamoto_blocks
@@ -2932,7 +2928,7 @@ impl Relayer {
         )
         .unwrap_or(vec![]);
 
-        if new_txs.len() > 0 {
+        if !new_txs.is_empty() {
             debug!(
                 "{:?}: Send {} transactions to neighbors",
                 &_local_peer,
@@ -3123,8 +3119,7 @@ impl PeerNetwork {
         recipient: &NeighborKey,
         wanted: &[(ConsensusHash, BurnchainHeaderHash)],
         mut msg_builder: S,
-    ) -> ()
-    where
+    ) where
         S: FnMut(BlocksAvailableData) -> StacksMessageType,
     {
         for i in (0..wanted.len()).step_by(BLOCKS_AVAILABLE_MAX_LEN as usize) {
@@ -3165,7 +3160,7 @@ impl PeerNetwork {
         recipient: &NeighborKey,
         consensus_hash: ConsensusHash,
         block: StacksBlock,
-    ) -> () {
+    ) {
         let blk_hash = block.block_hash();
         let ch = consensus_hash.clone();
         let payload = BlocksData {
@@ -3204,11 +3199,11 @@ impl PeerNetwork {
         recipient: &NeighborKey,
         index_block_hash: StacksBlockId,
         microblocks: Vec<StacksMicroblock>,
-    ) -> () {
+    ) {
         let idx_bhh = index_block_hash.clone();
         let payload = MicroblocksData {
             index_anchor_block: index_block_hash,
-            microblocks: microblocks,
+            microblocks,
         };
         let message =
             match self.sign_for_neighbor(recipient, StacksMessageType::Microblocks(payload)) {
@@ -3269,7 +3264,7 @@ impl PeerNetwork {
                                 network.advertize_to_peer(
                                     recipient,
                                     &[((*ch).clone(), (*bhh).clone())],
-                                    |payload| StacksMessageType::BlocksAvailable(payload),
+                                    StacksMessageType::BlocksAvailable,
                                 );
                             }
                         }
@@ -3311,7 +3306,7 @@ impl PeerNetwork {
                                 network.advertize_to_peer(
                                     recipient,
                                     &[((*ch).clone(), (*bhh).clone())],
-                                    |payload| StacksMessageType::MicroblocksAvailable(payload),
+                                    StacksMessageType::MicroblocksAvailable,
                                 );
                             }
                         }
@@ -3354,7 +3349,7 @@ impl PeerNetwork {
         availability_data: BlocksAvailableMap,
         blocks: HashMap<ConsensusHash, StacksBlock>,
     ) -> Result<(usize, usize), net_error> {
-        let (mut outbound_recipients, mut inbound_recipients) =
+        let (outbound_recipients, inbound_recipients) =
             self.find_block_recipients(&availability_data)?;
         debug!(
             "{:?}: Advertize {} blocks to {} inbound peers, {} outbound peers",
@@ -3367,7 +3362,7 @@ impl PeerNetwork {
         let num_inbound = inbound_recipients.len();
         let num_outbound = outbound_recipients.len();
 
-        for recipient in outbound_recipients.drain(..) {
+        for recipient in outbound_recipients.into_iter() {
             debug!(
                 "{:?}: Advertize {} blocks to outbound peer {}",
                 &self.local_peer,
@@ -3380,7 +3375,7 @@ impl PeerNetwork {
                 &blocks,
             )?;
         }
-        for recipient in inbound_recipients.drain(..) {
+        for recipient in inbound_recipients.into_iter() {
             debug!(
                 "{:?}: Advertize {} blocks to inbound peer {}",
                 &self.local_peer,
@@ -3405,14 +3400,14 @@ impl PeerNetwork {
         availability_data: BlocksAvailableMap,
         microblocks: HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
     ) -> Result<(usize, usize), net_error> {
-        let (mut outbound_recipients, mut inbound_recipients) =
+        let (outbound_recipients, inbound_recipients) =
             self.find_block_recipients(&availability_data)?;
         debug!("{:?}: Advertize {} confirmed microblock streams to {} inbound peers, {} outbound peers", &self.local_peer, availability_data.len(), outbound_recipients.len(), inbound_recipients.len());
 
         let num_inbound = inbound_recipients.len();
         let num_outbound = outbound_recipients.len();
 
-        for recipient in outbound_recipients.drain(..) {
+        for recipient in outbound_recipients.into_iter() {
             debug!(
                 "{:?}: Advertize {} confirmed microblock streams to outbound peer {}",
                 &self.local_peer,
@@ -3425,7 +3420,7 @@ impl PeerNetwork {
                 &microblocks,
             )?;
         }
-        for recipient in inbound_recipients.drain(..) {
+        for recipient in inbound_recipients.into_iter() {
             debug!(
                 "{:?}: Advertize {} confirmed microblock streams to inbound peer {}",
                 &self.local_peer,
@@ -3441,7 +3436,7 @@ impl PeerNetwork {
 
     /// Update accounting information for relayed messages from a network result.
     /// This influences selecting next-hop neighbors to get data from us.
-    pub fn update_relayer_stats(&mut self, network_result: &NetworkResult) -> () {
+    pub fn update_relayer_stats(&mut self, network_result: &NetworkResult) {
         // synchronize
         for (_, convo) in self.peers.iter_mut() {
             let stats = convo.get_stats_mut().take_relayers();

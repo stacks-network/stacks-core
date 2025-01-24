@@ -86,10 +86,10 @@ pub fn copy_dir(src_dir: &str, dest_dir: &str) -> Result<(), io::Error> {
     let mut dir_queue = VecDeque::new();
     dir_queue.push_back("/".to_string());
 
-    while dir_queue.len() > 0 {
+    while !dir_queue.is_empty() {
         let next_dir = dir_queue.pop_front().unwrap();
-        let next_src_dir = path_join(&src_dir, &next_dir);
-        let next_dest_dir = path_join(&dest_dir, &next_dir);
+        let next_src_dir = path_join(src_dir, &next_dir);
+        let next_dest_dir = path_join(dest_dir, &next_dir);
 
         eprintln!("mkdir {next_dest_dir}");
         fs::create_dir_all(&next_dest_dir)?;
@@ -99,11 +99,11 @@ pub fn copy_dir(src_dir: &str, dest_dir: &str) -> Result<(), io::Error> {
             let path = dirent.path();
             let md = fs::metadata(&path)?;
             if md.is_dir() {
-                let frontier = path_join(&next_dir, &dirent.file_name().to_str().unwrap());
+                let frontier = path_join(&next_dir, dirent.file_name().to_str().unwrap());
                 eprintln!("push {frontier}");
                 dir_queue.push_back(frontier);
             } else {
-                let dest_path = path_join(&next_dest_dir, &dirent.file_name().to_str().unwrap());
+                let dest_path = path_join(&next_dest_dir, dirent.file_name().to_str().unwrap());
                 eprintln!("copy {} to {dest_path}", &path.to_str().unwrap());
                 fs::copy(path, dest_path)?;
             }
@@ -140,7 +140,7 @@ impl TestMinerTracePoint {
         stacks_block: StacksBlock,
         microblocks: Vec<StacksMicroblock>,
         block_commit: LeaderBlockCommitOp,
-    ) -> () {
+    ) {
         self.fork_snapshots.insert(miner_id, fork_snapshot);
         self.stacks_blocks.insert(miner_id, stacks_block);
         self.microblocks.insert(miner_id, microblocks);
@@ -203,9 +203,9 @@ impl TestMinerTrace {
         points: Vec<TestMinerTracePoint>,
     ) -> TestMinerTrace {
         TestMinerTrace {
-            points: points,
-            burn_node: burn_node,
-            miners: miners,
+            points,
+            burn_node,
+            miners,
         }
     }
 
@@ -214,7 +214,7 @@ impl TestMinerTrace {
         let mut num_blocks = 0;
         for p in self.points.iter() {
             for miner_id in p.stacks_blocks.keys() {
-                if p.stacks_blocks.get(miner_id).is_some() {
+                if p.stacks_blocks.contains_key(miner_id) {
                     num_blocks += 1;
                 }
             }
@@ -227,7 +227,7 @@ impl TestMinerTrace {
         let mut num_sortitions = 0;
         for p in self.points.iter() {
             for miner_id in p.fork_snapshots.keys() {
-                if p.fork_snapshots.get(miner_id).is_some() {
+                if p.fork_snapshots.contains_key(miner_id) {
                     num_sortitions += 1;
                 }
             }
@@ -288,7 +288,7 @@ impl TestStacksNode {
         let chainstate =
             instantiate_chainstate_with_balances(mainnet, chain_id, test_name, initial_balances);
         TestStacksNode {
-            chainstate: chainstate,
+            chainstate,
             prev_keys: vec![],
             key_ops: HashMap::new(),
             anchored_blocks: vec![],
@@ -304,7 +304,7 @@ impl TestStacksNode {
     pub fn open(mainnet: bool, chain_id: u32, test_name: &str) -> TestStacksNode {
         let chainstate = open_chainstate(mainnet, chain_id, test_name);
         TestStacksNode {
-            chainstate: chainstate,
+            chainstate,
             prev_keys: vec![],
             key_ops: HashMap::new(),
             anchored_blocks: vec![],
@@ -319,7 +319,7 @@ impl TestStacksNode {
 
     pub fn from_chainstate(chainstate: StacksChainState) -> TestStacksNode {
         TestStacksNode {
-            chainstate: chainstate,
+            chainstate,
             prev_keys: vec![],
             key_ops: HashMap::new(),
             anchored_blocks: vec![],
@@ -356,7 +356,7 @@ impl TestStacksNode {
             new_test_name,
         );
         TestStacksNode {
-            chainstate: chainstate,
+            chainstate,
             prev_keys: self.prev_keys.clone(),
             key_ops: self.key_ops.clone(),
             anchored_blocks: self.anchored_blocks.clone(),
@@ -392,7 +392,7 @@ impl TestStacksNode {
         key_register_op
     }
 
-    pub fn add_key_register_op(&mut self, op: &LeaderKeyRegisterOp) -> () {
+    pub fn add_key_register_op(&mut self, op: &LeaderKeyRegisterOp) {
         self.prev_keys.push(op.clone());
         self.key_ops
             .insert(op.public_key.clone(), self.prev_keys.len() - 1);
@@ -555,13 +555,13 @@ impl TestStacksNode {
         burn_block: &mut TestBurnchainBlock,
         miner: &mut TestMiner,
         stacks_block: &StacksBlock,
-        microblocks: &Vec<StacksMicroblock>,
+        microblocks: Vec<StacksMicroblock>,
         burn_amount: u64,
         miner_key: &LeaderKeyRegisterOp,
         parent_block_snapshot_opt: Option<&BlockSnapshot>,
     ) -> LeaderBlockCommitOp {
         self.anchored_blocks.push(stacks_block.clone());
-        self.microblocks.push(microblocks.clone());
+        self.microblocks.push(microblocks);
 
         test_debug!(
             "Miner {}: Commit to stacks block {} (work {},{})",
@@ -704,7 +704,7 @@ impl TestStacksNode {
             burn_block,
             miner,
             &stacks_block,
-            &microblocks,
+            microblocks.clone(),
             burn_amount,
             miner_key,
             parent_block_snapshot_opt.as_ref(),
@@ -721,7 +721,7 @@ pub fn preprocess_stacks_block_data(
     burn_node: &mut TestBurnchainNode,
     fork_snapshot: &BlockSnapshot,
     stacks_block: &StacksBlock,
-    stacks_microblocks: &Vec<StacksMicroblock>,
+    stacks_microblocks: &[StacksMicroblock],
     block_commit_op: &LeaderBlockCommitOp,
 ) -> Option<bool> {
     let block_hash = stacks_block.block_hash();
@@ -782,7 +782,7 @@ pub fn preprocess_stacks_block_data(
         .preprocess_anchored_block(
             &ic,
             &commit_snapshot.consensus_hash,
-            &stacks_block,
+            stacks_block,
             &parent_block_consensus_hash,
             5,
         )
@@ -837,7 +837,7 @@ pub fn check_mining_reward(
     clarity_tx: &mut ClarityTx,
     miner: &mut TestMiner,
     block_height: u64,
-    prev_block_rewards: &Vec<Vec<MinerPaymentSchedule>>,
+    prev_block_rewards: &[Vec<MinerPaymentSchedule>],
 ) -> bool {
     let mut block_rewards = HashMap::new();
     let mut stream_rewards = HashMap::new();
@@ -923,7 +923,7 @@ pub fn check_mining_reward(
             if confirmed_block_height as u64 > block_height - MINER_REWARD_MATURITY {
                 continue;
             }
-            if let Some(ref parent_reward) = stream_rewards.get(&parent_block) {
+            if let Some(parent_reward) = stream_rewards.get(&parent_block) {
                 if parent_reward.address == miner.origin_address().unwrap() {
                     let streamed = match &parent_reward.tx_fees {
                         MinerPaymentTxFees::Epoch2 { streamed, .. } => streamed,
@@ -967,14 +967,12 @@ pub fn get_last_microblock_header(
     miner: &TestMiner,
     parent_block_opt: Option<&StacksBlock>,
 ) -> Option<StacksMicroblockHeader> {
-    let last_microblocks_opt = match parent_block_opt {
-        Some(ref block) => node.get_microblock_stream(&miner, &block.block_hash()),
-        None => None,
-    };
+    let last_microblocks_opt =
+        parent_block_opt.and_then(|block| node.get_microblock_stream(miner, &block.block_hash()));
 
     let last_microblock_header_opt = match last_microblocks_opt {
         Some(last_microblocks) => {
-            if last_microblocks.len() == 0 {
+            if last_microblocks.is_empty() {
                 None
             } else {
                 let l = last_microblocks.len() - 1;
@@ -1087,7 +1085,7 @@ pub fn make_smart_contract_with_version(
         miner.as_transaction_auth().unwrap(),
         TransactionPayload::new_smart_contract(
             &format!("hello-world-{burnchain_height}-{stacks_block_height}"),
-            &contract.to_string(),
+            contract,
             version,
         )
         .unwrap(),
@@ -1356,12 +1354,12 @@ pub fn make_user_stacks_transfer(
 ) -> StacksTransaction {
     let payload =
         TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
-    sign_standard_singlesig_tx(payload.into(), sender, nonce, tx_fee)
+    sign_standard_singlesig_tx(payload, sender, nonce, tx_fee)
 }
 
 pub fn make_user_coinbase(sender: &StacksPrivateKey, nonce: u64, tx_fee: u64) -> StacksTransaction {
     let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None, None);
-    sign_standard_singlesig_tx(payload.into(), sender, nonce, tx_fee)
+    sign_standard_singlesig_tx(payload, sender, nonce, tx_fee)
 }
 
 pub fn make_user_poison_microblock(
@@ -1370,7 +1368,7 @@ pub fn make_user_poison_microblock(
     tx_fee: u64,
     payload: TransactionPayload,
 ) -> StacksTransaction {
-    sign_standard_singlesig_tx(payload.into(), sender, nonce, tx_fee)
+    sign_standard_singlesig_tx(payload, sender, nonce, tx_fee)
 }
 
 pub fn sign_standard_singlesig_tx(
@@ -1421,7 +1419,7 @@ pub fn instantiate_and_exec(
     chain_id: u32,
     test_name: &str,
     balances: Vec<(StacksAddress, u64)>,
-    post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
+    post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx)>>,
 ) -> StacksChainState {
     let path = chainstate_path(test_name);
     match fs::metadata(&path) {

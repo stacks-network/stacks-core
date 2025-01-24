@@ -102,7 +102,7 @@ impl LeaderBlockCommitOp {
     ) -> LeaderBlockCommitOp {
         LeaderBlockCommitOp {
             sunset_burn: 0,
-            block_height: block_height,
+            block_height,
             burn_parent_modulus: if block_height > 0 {
                 u8::try_from((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS)
                     .expect("FATAL: unreachable: unable to form u8 from 3-bit number")
@@ -117,7 +117,7 @@ impl LeaderBlockCommitOp {
             parent_block_ptr: 0,
             parent_vtxindex: 0,
             memo: vec![0x00],
-            burn_fee: burn_fee,
+            burn_fee,
             input: input.clone(),
             block_header_hash: block_header_hash.clone(),
             commit_outs: vec![],
@@ -147,12 +147,12 @@ impl LeaderBlockCommitOp {
         LeaderBlockCommitOp {
             sunset_burn: 0,
             new_seed: new_seed.clone(),
-            key_block_ptr: key_block_ptr,
-            key_vtxindex: key_vtxindex,
+            key_block_ptr,
+            key_vtxindex,
             parent_block_ptr: parent_block_height,
-            parent_vtxindex: parent_vtxindex,
+            parent_vtxindex,
             memo: vec![],
-            burn_fee: burn_fee,
+            burn_fee,
             input: input.clone(),
             block_header_hash: block_header_hash.clone(),
             commit_outs: vec![],
@@ -293,7 +293,7 @@ impl LeaderBlockCommitOp {
             return Err(op_error::InvalidInput);
         }
 
-        if outputs.len() == 0 {
+        if outputs.is_empty() {
             warn!(
                 "Invalid tx: inputs: {}, outputs: {}",
                 tx.num_signers(),
@@ -313,13 +313,11 @@ impl LeaderBlockCommitOp {
         })?;
 
         // basic sanity checks
-        if data.parent_block_ptr == 0 {
-            if data.parent_vtxindex != 0 {
-                warn!("Invalid tx: parent block back-pointer must be positive");
-                return Err(op_error::ParseError);
-            }
-            // if parent block ptr and parent vtxindex are both 0, then this block's parent is
-            // the genesis block.
+        // if parent block ptr and parent vtxindex are both 0, then this block's parent is
+        // the genesis block.
+        if data.parent_block_ptr == 0 && data.parent_vtxindex != 0 {
+            warn!("Invalid tx: parent block back-pointer must be positive");
+            return Err(op_error::ParseError);
         }
 
         if u64::from(data.parent_block_ptr) >= block_height {
@@ -458,7 +456,7 @@ impl LeaderBlockCommitOp {
             treatment: Vec::new(),
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
-            block_height: block_height,
+            block_height,
             burn_header_hash: block_hash.clone(),
         })
     }
@@ -467,9 +465,7 @@ impl LeaderBlockCommitOp {
     pub fn all_outputs_burn(&self) -> bool {
         self.commit_outs
             .iter()
-            .fold(true, |previous_is_burn, output_addr| {
-                previous_is_burn && output_addr.is_burn()
-            })
+            .all(|output_addr| output_addr.is_burn())
     }
 
     pub fn spent_txid(&self) -> &Txid {
@@ -547,7 +543,7 @@ impl RewardSetInfo {
     ) -> Result<Option<RewardSetInfo>, op_error> {
         // did this block-commit pay to the correct PoX addresses?
         let intended_recipients = tx
-            .get_reward_set_payouts_at(&intended_sortition)
+            .get_reward_set_payouts_at(intended_sortition)
             .map_err(|_e| op_error::BlockCommitBadOutputs)?
             .0;
         let block_height = SortitionDB::get_block_snapshot(tx.tx(), intended_sortition)
@@ -832,7 +828,7 @@ impl LeaderBlockCommitOp {
     /// Check the epoch marker in a block-commit to make sure it matches the right epoch.
     /// Valid in Stacks 2.05+
     fn check_epoch_commit_marker(&self, marker: u8) -> Result<(), op_error> {
-        if self.memo.len() < 1 {
+        if self.memo.is_empty() {
             debug!(
                 "Invalid block commit";
                 "reason" => "no epoch marker byte given",
@@ -860,7 +856,7 @@ impl LeaderBlockCommitOp {
             }
             StacksEpochId::Epoch20 => {
                 // no-op, but log for helping node operators watch for old nodes
-                if self.memo.len() < 1 {
+                if self.memo.is_empty() {
                     debug!(
                         "Soon-to-be-invalid block commit";
                         "reason" => "no epoch marker byte given",
@@ -1212,17 +1208,17 @@ mod tests {
     }
 
     fn stacks_address_to_bitcoin_tx_out(addr: &StacksAddress, value: u64) -> TxOut {
-        let btc_version = to_b58_version_byte(addr.version)
+        let btc_version = to_b58_version_byte(addr.version())
             .expect("BUG: failed to decode Stacks version byte to Bitcoin version byte");
         let btc_addr_type = legacy_version_byte_to_address_type(btc_version)
             .expect("BUG: failed to decode Bitcoin version byte")
             .0;
         match btc_addr_type {
             LegacyBitcoinAddressType::PublicKeyHash => {
-                LegacyBitcoinAddress::to_p2pkh_tx_out(&addr.bytes, value)
+                LegacyBitcoinAddress::to_p2pkh_tx_out(addr.bytes(), value)
             }
             LegacyBitcoinAddressType::ScriptHash => {
-                LegacyBitcoinAddress::to_p2sh_tx_out(&addr.bytes, value)
+                LegacyBitcoinAddress::to_p2sh_tx_out(addr.bytes(), value)
             }
         }
     }
@@ -1768,8 +1764,8 @@ mod tests {
                     memo: vec![0x1f],
 
                     commit_outs: vec![
-                        PoxAddress::Standard( StacksAddress { version: 26, bytes: Hash160::empty() }, None ),
-                        PoxAddress::Standard( StacksAddress { version: 26, bytes: Hash160::empty() }, None ),
+                        PoxAddress::Standard( StacksAddress::new(26, Hash160::empty()).unwrap(), None ),
+                        PoxAddress::Standard( StacksAddress::new(26, Hash160::empty()).unwrap(), None ),
                     ],
 
                     burn_fee: 24690,
@@ -1777,10 +1773,10 @@ mod tests {
                     apparent_sender: BurnchainSigner("mgbpit8FvkVJ9kuXY8QSM5P7eibnhcEMBk".to_string()),
 
                     txid: Txid::from_hex("502f3e5756de7e1bdba8c713cd2daab44adb5337d14ff668fdc57cc27d67f0d4").unwrap(),
-                    vtxindex: vtxindex,
-                    block_height: block_height,
+                    vtxindex,
+                    block_height,
                     burn_parent_modulus: ((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-                    burn_header_hash: burn_header_hash,
+                    burn_header_hash,
                     treatment: vec![],                })
             },
             OpFixture {
@@ -1960,7 +1956,7 @@ mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![01, 02, 03, 04, 05],
+            memo: vec![1, 2, 3, 4, 5],
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -1982,7 +1978,7 @@ mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![01, 02, 03, 04, 05],
+            memo: vec![1, 2, 3, 4, 5],
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("9410df84e2b440055c33acb075a0687752df63fe8fe84aeec61abe469f0448c7")
@@ -2043,20 +2039,18 @@ mod tests {
             StacksEpoch::all(0, 0, first_block_height),
         )
         .unwrap();
-        let block_ops = vec![
+        let block_ops = [
             // 122
             vec![],
             // 123
             vec![],
             // 124
             vec![
-                BlockstackOperationType::LeaderKeyRegister(leader_key_1.clone()),
-                BlockstackOperationType::LeaderKeyRegister(leader_key_2.clone()),
+                BlockstackOperationType::LeaderKeyRegister(leader_key_1),
+                BlockstackOperationType::LeaderKeyRegister(leader_key_2),
             ],
             // 125
-            vec![BlockstackOperationType::LeaderBlockCommit(
-                block_commit_1.clone(),
-            )],
+            vec![BlockstackOperationType::LeaderBlockCommit(block_commit_1)],
             // 126
             vec![],
         ];
@@ -2070,7 +2064,7 @@ mod tests {
                     block_height: (i + 1 + first_block_height as usize) as u64,
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: block_header_hashes[i].clone(),
-                    sortition_id: SortitionId(block_header_hashes[i as usize].0.clone()),
+                    sortition_id: SortitionId(block_header_hashes[i].0.clone()),
                     parent_sortition_id: prev_snapshot.sortition_id.clone(),
                     parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
                     consensus_hash: ConsensusHash::from_bytes(&[
@@ -2129,7 +2123,7 @@ mod tests {
                         &prev_snapshot,
                         &snapshot_row,
                         &block_ops[i],
-                        &vec![],
+                        &[],
                         None,
                         None,
                         None,
@@ -2500,7 +2494,7 @@ mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![01, 02, 03, 04, 05],
+            memo: vec![1, 2, 3, 4, 5],
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -2522,7 +2516,7 @@ mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![01, 02, 03, 04, 05],
+            memo: vec![1, 2, 3, 4, 5],
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("9410df84e2b440055c33acb075a0687752df63fe8fe84aeec61abe469f0448c7")
@@ -2578,20 +2572,18 @@ mod tests {
         };
 
         let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
-        let block_ops = vec![
+        let block_ops = [
             // 122
             vec![],
             // 123
             vec![],
             // 124
             vec![
-                BlockstackOperationType::LeaderKeyRegister(leader_key_1.clone()),
-                BlockstackOperationType::LeaderKeyRegister(leader_key_2.clone()),
+                BlockstackOperationType::LeaderKeyRegister(leader_key_1),
+                BlockstackOperationType::LeaderKeyRegister(leader_key_2),
             ],
             // 125
-            vec![BlockstackOperationType::LeaderBlockCommit(
-                block_commit_1.clone(),
-            )],
+            vec![BlockstackOperationType::LeaderBlockCommit(block_commit_1)],
             // 126
             vec![],
         ];
@@ -2605,7 +2597,7 @@ mod tests {
                     block_height: (i + 1 + first_block_height as usize) as u64,
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: block_header_hashes[i].clone(),
-                    sortition_id: SortitionId(block_header_hashes[i as usize].0.clone()),
+                    sortition_id: SortitionId(block_header_hashes[i].0.clone()),
                     parent_sortition_id: prev_snapshot.sortition_id.clone(),
                     parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
                     consensus_hash: ConsensusHash::from_bytes(&[
@@ -2664,7 +2656,7 @@ mod tests {
                         &prev_snapshot,
                         &snapshot_row,
                         &block_ops[i],
-                        &vec![],
+                        &[],
                         None,
                         None,
                         None,
@@ -3264,7 +3256,7 @@ mod tests {
         let anchor_block_hash = BlockHeaderHash([0xaa; 32]);
 
         fn reward_addrs(i: usize) -> PoxAddress {
-            let addr = StacksAddress::new(1, Hash160::from_data(&i.to_be_bytes()));
+            let addr = StacksAddress::new(1, Hash160::from_data(&i.to_be_bytes())).unwrap();
             PoxAddress::Standard(addr, None)
         }
         let burn_addr_0 = PoxAddress::Standard(StacksAddress::burn_address(false), None);
@@ -3403,7 +3395,7 @@ mod tests {
             ),
             (
                 LeaderBlockCommitOp {
-                    commit_outs: vec![burn_addr_0.clone(), burn_addr_1.clone()],
+                    commit_outs: vec![burn_addr_0.clone(), burn_addr_1],
                     ..default_block_commit.clone()
                 },
                 Some(no_punish(&rs_pox_addrs_0b)),
@@ -3435,8 +3427,8 @@ mod tests {
             ),
             (
                 LeaderBlockCommitOp {
-                    commit_outs: vec![burn_addr_0.clone(), reward_addrs(3)],
-                    ..default_block_commit.clone()
+                    commit_outs: vec![burn_addr_0, reward_addrs(3)],
+                    ..default_block_commit
                 },
                 Some(rs_pox_addrs.clone()),
                 Err(op_error::BlockCommitBadOutputs),
@@ -3515,7 +3507,7 @@ mod tests {
             first_block_height,
             &first_burn_hash,
             get_epoch_time_secs(),
-            &vec![
+            &[
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch10,
                     start_height: 0,
@@ -3558,7 +3550,7 @@ mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![01, 02, 03, 04, 05],
+            memo: vec![1, 2, 3, 4, 5],
             txid: Txid([0x01; 32]),
             vtxindex: 456,
             block_height: first_block_height + 1,

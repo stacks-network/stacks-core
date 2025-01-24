@@ -186,7 +186,13 @@ impl MemPoolEventDispatcher for ProposalTestObserver {
         Some(Box::new(Arc::clone(&self.proposal_observer)))
     }
 
-    fn mempool_txs_dropped(&self, txids: Vec<Txid>, reason: mempool::MemPoolDropReason) {}
+    fn mempool_txs_dropped(
+        &self,
+        txids: Vec<Txid>,
+        new_txid: Option<Txid>,
+        reason: mempool::MemPoolDropReason,
+    ) {
+    }
 
     fn mined_block_event(
         &self,
@@ -228,7 +234,7 @@ fn test_try_make_response() {
     let mut requests = vec![];
 
     let tip =
-        SortitionDB::get_canonical_burn_chain_tip(&rpc_test.peer_1.sortdb.as_ref().unwrap().conn())
+        SortitionDB::get_canonical_burn_chain_tip(rpc_test.peer_1.sortdb.as_ref().unwrap().conn())
             .unwrap();
 
     let (stacks_tip_ch, stacks_tip_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(
@@ -254,10 +260,7 @@ fn test_try_make_response() {
         )
         .unwrap();
 
-        let stx_address = StacksAddress {
-            version: 1,
-            bytes: Hash160([0xff; 20]),
-        };
+        let stx_address = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
         let payload = TransactionPayload::TokenTransfer(
             stx_address.into(),
             123,
@@ -334,9 +337,9 @@ fn test_try_make_response() {
     request.add_header("authorization".into(), "password".into());
     requests.push(request);
 
-    // Set the timestamp to a value in the past
+    // Set the timestamp to a value in the past (but NOT BEFORE timeout)
     let mut early_time_block = good_block.clone();
-    early_time_block.header.timestamp -= 10000;
+    early_time_block.header.timestamp -= 400;
     rpc_test
         .peer_1
         .miner
@@ -382,16 +385,42 @@ fn test_try_make_response() {
     request.add_header("authorization".into(), "password".into());
     requests.push(request);
 
+    // Set the timestamp to a value in the past (BEFORE the timeout)
+    let mut stale_block = good_block.clone();
+    stale_block.header.timestamp -= 10000;
+    rpc_test.peer_1.miner.sign_nakamoto_block(&mut stale_block);
+
+    // post the invalid block proposal
+    let proposal = NakamotoBlockProposal {
+        block: stale_block,
+        chain_id: 0x80000000,
+    };
+
+    let mut request = StacksHttpRequest::new_for_peer(
+        rpc_test.peer_1.to_peer_host(),
+        "POST".into(),
+        "/v3/block_proposal".into(),
+        HttpRequestContents::new().payload_json(serde_json::to_value(proposal).unwrap()),
+    )
+    .expect("failed to construct request");
+    request.add_header("authorization".into(), "password".into());
+    requests.push(request);
+
     // execute the requests
     let observer = ProposalTestObserver::new();
     let proposal_observer = Arc::clone(&observer.proposal_observer);
 
     info!("Run requests with observer");
-    let mut responses = rpc_test.run_with_observer(requests, Some(&observer));
+    let responses = rpc_test.run_with_observer(requests, Some(&observer));
 
-    let response = responses.remove(0);
+    for response in responses.iter().take(3) {
+        assert_eq!(response.preamble().status_code, 202);
+    }
+    let response = &responses[3];
+    assert_eq!(response.preamble().status_code, 422);
 
-    // Wait for the results of all 3 requests
+    // Wait for the results of all 3 PROCESSED requests
+    let start = std::time::Instant::now();
     loop {
         info!("Wait for results to be non-empty");
         if proposal_observer
@@ -407,6 +436,10 @@ fn test_try_make_response() {
         } else {
             break;
         }
+        assert!(
+            start.elapsed().as_secs() < 60,
+            "Timed out waiting for results"
+        );
     }
 
     let observer = proposal_observer.lock().unwrap();

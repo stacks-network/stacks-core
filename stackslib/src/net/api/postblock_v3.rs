@@ -32,7 +32,7 @@ use crate::net::httpcore::{
 use crate::net::relay::Relayer;
 use crate::net::{Error as NetError, NakamotoBlocksData, StacksMessageType, StacksNodeState};
 
-pub static PATH: &'static str = "/v3/blocks/upload/";
+pub static PATH: &str = "/v3/blocks/upload/";
 
 #[derive(Clone, Default)]
 pub struct RPCPostBlockRequestHandler {
@@ -164,7 +164,7 @@ impl RPCRequestHandler for RPCPostBlockRequestHandler {
                 let stacks_tip = network.stacks_tip.block_id();
                 Relayer::process_new_nakamoto_block_ext(
                     &network.burnchain,
-                    &sortdb,
+                    sortdb,
                     &mut handle_conn,
                     chainstate,
                     &stacks_tip,
