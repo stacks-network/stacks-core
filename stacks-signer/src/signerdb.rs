@@ -1235,7 +1235,7 @@ mod tests {
             .unwrap()
             .expect("Unable to get block from db");
 
-        assert_eq!(BlockInfo::from(block_proposal_1.clone()), block_info);
+        assert_eq!(BlockInfo::from(block_proposal_1), block_info);
 
         // Test looking up a block with an unknown hash
         let block_info = db
@@ -1250,7 +1250,7 @@ mod tests {
             .unwrap()
             .expect("Unable to get block from db");
 
-        assert_eq!(BlockInfo::from(block_proposal_2.clone()), block_info);
+        assert_eq!(BlockInfo::from(block_proposal_2), block_info);
     }
 
     #[test]
@@ -1677,12 +1677,11 @@ mod tests {
                 &StacksPrivateKey::new(),
             )),
         };
-        let tenure_change_tx_payload =
-            TransactionPayload::TenureChange(tenure_change_payload.clone());
+        let tenure_change_tx_payload = TransactionPayload::TenureChange(tenure_change_payload);
         let tenure_change_tx = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&StacksPrivateKey::new()).unwrap(),
-            tenure_change_tx_payload.clone(),
+            tenure_change_tx_payload,
         );
 
         let consensus_hash_1 = ConsensusHash([0x01; 20]);

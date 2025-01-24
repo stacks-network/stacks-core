@@ -759,12 +759,8 @@ fn should_succeed_mining_valid_txs() {
                     ));
 
                     // 0 event should have been produced
-                    let events: Vec<StacksTransactionEvent> = chain_tip
-                        .receipts
-                        .iter()
-                        .flat_map(|a| a.events.clone())
-                        .collect();
-                    assert!(events.is_empty());
+                    let events = chain_tip.receipts.iter().flat_map(|a| a.events.clone());
+                    assert!(events.count() == 0);
                 }
                 2 => {
                     // Inspecting the chain at round 2.
@@ -791,12 +787,8 @@ fn should_succeed_mining_valid_txs() {
                     ));
 
                     // 2 lockup events should have been produced
-                    let events: Vec<StacksTransactionEvent> = chain_tip
-                        .receipts
-                        .iter()
-                        .flat_map(|a| a.events.clone())
-                        .collect();
-                    assert_eq!(events.len(), 2);
+                    let events = chain_tip.receipts.iter().flat_map(|a| a.events.clone());
+                    assert_eq!(events.count(), 2);
                 }
                 3 => {
                     // Inspecting the chain at round 3.
@@ -1339,7 +1331,7 @@ fn test_inner_pick_best_tip() {
         },
     ];
 
-    let sorted_candidates = BlockMinerThread::sort_and_populate_candidates(candidates.clone());
+    let sorted_candidates = BlockMinerThread::sort_and_populate_candidates(candidates);
     assert_eq!(
         None,
         BlockMinerThread::inner_pick_best_tip(vec![], HashMap::new())

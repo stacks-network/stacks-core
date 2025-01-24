@@ -774,7 +774,7 @@ fn contract_id_consensus_serialize<W: Write>(
 ) -> Result<(), codec_error> {
     let addr = &cid.issuer;
     let name = &cid.name;
-    write_next(fd, &addr.0)?;
+    write_next(fd, &addr.version())?;
     write_next(fd, &addr.1)?;
     write_next(fd, name)?;
     Ok(())
@@ -787,11 +787,13 @@ fn contract_id_consensus_deserialize<R: Read>(
     let bytes: [u8; 20] = read_next(fd)?;
     let name: ContractName = read_next(fd)?;
     let qn = QualifiedContractIdentifier::new(
-        StacksAddress {
-            version,
-            bytes: Hash160(bytes),
-        }
-        .into(),
+        StacksAddress::new(version, Hash160(bytes))
+            .map_err(|_| {
+                codec_error::DeserializeError(
+                    "Failed to make StacksAddress with given version".into(),
+                )
+            })?
+            .into(),
         name,
     );
     Ok(qn)
@@ -1887,7 +1889,7 @@ pub mod test {
         // pox bitvec
         maximal_poxinvdata_bytes
             .append(&mut ((GETPOXINV_MAX_BITLEN / 8) as u32).to_be_bytes().to_vec());
-        maximal_poxinvdata_bytes.append(&mut maximal_bitvec.clone());
+        maximal_poxinvdata_bytes.extend_from_slice(&maximal_bitvec);
 
         assert!((maximal_poxinvdata_bytes.len() as u32) < MAX_MESSAGE_LEN);
 
@@ -1960,10 +1962,10 @@ pub mod test {
         maximal_blocksinvdata_bytes.append(&mut (blocks_bitlen as u16).to_be_bytes().to_vec());
         // block bitvec
         maximal_blocksinvdata_bytes.append(&mut (blocks_bitlen / 8).to_be_bytes().to_vec());
-        maximal_blocksinvdata_bytes.append(&mut maximal_bitvec.clone());
+        maximal_blocksinvdata_bytes.extend_from_slice(&maximal_bitvec);
         // microblock bitvec
         maximal_blocksinvdata_bytes.append(&mut (blocks_bitlen / 8).to_be_bytes().to_vec());
-        maximal_blocksinvdata_bytes.append(&mut maximal_bitvec.clone());
+        maximal_blocksinvdata_bytes.extend_from_slice(&maximal_bitvec);
 
         assert!((maximal_blocksinvdata_bytes.len() as u32) < MAX_MESSAGE_LEN);
 

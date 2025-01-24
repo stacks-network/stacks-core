@@ -15,21 +15,18 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::btree_map::Entry;
-use std::collections::{hash_map, BTreeMap};
-use std::hash::{Hash, Hasher};
-use std::ops::Deref;
+use std::collections::BTreeMap;
+use std::hash::Hash;
 use std::sync::Arc;
 use std::{cmp, fmt};
 
 // TypeSignatures
 use hashbrown::HashSet;
 use lazy_static::lazy_static;
-use stacks_common::address::c32;
 use stacks_common::types::StacksEpochId;
-use stacks_common::util::hash;
 
-use crate::vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
-use crate::vm::errors::{CheckErrors, Error as VMError, IncomparableError, RuntimeErrorType};
+use crate::vm::costs::{runtime_cost, CostOverflowingMath};
+use crate::vm::errors::CheckErrors;
 use crate::vm::representations::{
     ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType, TraitDefinition,
     CONTRACT_MAX_NAME_LENGTH,
@@ -53,7 +50,7 @@ impl AssetIdentifier {
     pub fn STX() -> AssetIdentifier {
         AssetIdentifier {
             contract_identifier: QualifiedContractIdentifier::new(
-                StandardPrincipalData(0, [0u8; 20]),
+                StandardPrincipalData::null_principal(),
                 ContractName::try_from("STX".to_string()).unwrap(),
             ),
             asset_name: ClarityName::try_from("STX".to_string()).unwrap(),
@@ -64,7 +61,7 @@ impl AssetIdentifier {
     pub fn STX_burned() -> AssetIdentifier {
         AssetIdentifier {
             contract_identifier: QualifiedContractIdentifier::new(
-                StandardPrincipalData(0, [0u8; 20]),
+                StandardPrincipalData::null_principal(),
                 ContractName::try_from("BURNED".to_string()).unwrap(),
             ),
             asset_name: ClarityName::try_from("BURNED".to_string()).unwrap(),
@@ -1933,7 +1930,7 @@ pub fn parse_name_type_pairs<A: CostTracker>(
     // the form:
     // ((name1 type1) (name2 type2) (name3 type3) ...)
     // which is a list of 2-length lists of atoms.
-    use crate::vm::representations::SymbolicExpressionType::{Atom, List};
+    use crate::vm::representations::SymbolicExpressionType::List;
 
     // step 1: parse it into a vec of symbolicexpression pairs.
     let as_pairs: Result<Vec<_>> = name_type_pairs

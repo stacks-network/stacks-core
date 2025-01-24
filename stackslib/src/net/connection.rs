@@ -1815,7 +1815,7 @@ mod test {
 
         test_debug!("Received {} bytes in total", total_bytes);
 
-        let mut flushed_handles = rx.recv().unwrap();
+        let flushed_handles = rx.recv().unwrap();
 
         match shared_state.lock() {
             Ok(ref mut conn) => {
@@ -1842,15 +1842,15 @@ mod test {
                 assert_eq!(recved.len(), 0);
             }
             Err(e) => {
-                assert!(false, "{:?}", &e);
+                assert!(false, "{e:?}");
                 unreachable!();
             }
         }
 
         // got all messages
         let mut recved = vec![];
-        for (i, rh) in flushed_handles.drain(..).enumerate() {
-            test_debug!("recv {}", i);
+        for (i, rh) in flushed_handles.into_iter().enumerate() {
+            test_debug!("recv {i}");
             let res = rh.recv(0).unwrap();
             recved.push(res);
         }
@@ -2020,7 +2020,7 @@ mod test {
         // the combined ping buffers should be the serialized ping
         let mut combined_ping_buf = vec![];
         combined_ping_buf.append(&mut half_ping);
-        combined_ping_buf.extend_from_slice(&write_buf_05.get_mut());
+        combined_ping_buf.extend_from_slice(write_buf_05.get_mut());
 
         assert_eq!(combined_ping_buf, serialized_ping);
 

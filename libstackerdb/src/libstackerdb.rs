@@ -186,7 +186,7 @@ impl SlotMetadata {
             .map_err(|ve| Error::VerifyingError(ve.to_string()))?;
 
         let pubkh = Hash160::from_node_public_key(&pubk);
-        Ok(pubkh == principal.bytes)
+        Ok(pubkh == *principal.bytes())
     }
 }
 
