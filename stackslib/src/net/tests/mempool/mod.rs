@@ -71,7 +71,7 @@ fn test_mempool_sync_2_peers() {
 
     let num_blocks = 10;
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
+        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
             .unwrap();
         sn.block_height + 1
     };
@@ -102,7 +102,7 @@ fn test_mempool_sync_2_peers() {
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
-            auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
+            auth: TransactionAuth::from_p2pkh(pk).unwrap(),
             anchor_mode: TransactionAnchorMode::Any,
             post_condition_mode: TransactionPostConditionMode::Allow,
             post_conditions: vec![],
@@ -116,7 +116,7 @@ fn test_mempool_sync_2_peers() {
         tx.set_origin_nonce(0);
 
         let mut tx_signer = StacksTransactionSigner::new(&tx);
-        tx_signer.sign_origin(&pk).unwrap();
+        tx_signer.sign_origin(pk).unwrap();
 
         let tx = tx_signer.get_tx().unwrap();
 
@@ -182,7 +182,7 @@ fn test_mempool_sync_2_peers() {
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
-            auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
+            auth: TransactionAuth::from_p2pkh(pk).unwrap(),
             anchor_mode: TransactionAnchorMode::Any,
             post_condition_mode: TransactionPostConditionMode::Allow,
             post_conditions: vec![],
@@ -196,7 +196,7 @@ fn test_mempool_sync_2_peers() {
         tx.set_origin_nonce(1);
 
         let mut tx_signer = StacksTransactionSigner::new(&tx);
-        tx_signer.sign_origin(&pk).unwrap();
+        tx_signer.sign_origin(pk).unwrap();
 
         let tx = tx_signer.get_tx().unwrap();
 
@@ -337,7 +337,7 @@ fn test_mempool_sync_2_peers_paginated() {
 
     let num_blocks = 10;
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
+        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
             .unwrap();
         sn.block_height + 1
     };
@@ -367,7 +367,7 @@ fn test_mempool_sync_2_peers_paginated() {
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
-            auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
+            auth: TransactionAuth::from_p2pkh(pk).unwrap(),
             anchor_mode: TransactionAnchorMode::Any,
             post_condition_mode: TransactionPostConditionMode::Allow,
             post_conditions: vec![],
@@ -381,7 +381,7 @@ fn test_mempool_sync_2_peers_paginated() {
         tx.set_origin_nonce(0);
 
         let mut tx_signer = StacksTransactionSigner::new(&tx);
-        tx_signer.sign_origin(&pk).unwrap();
+        tx_signer.sign_origin(pk).unwrap();
 
         let tx = tx_signer.get_tx().unwrap();
 
@@ -526,7 +526,7 @@ fn test_mempool_sync_2_peers_blacklisted() {
 
     let num_blocks = 10;
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
+        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
             .unwrap();
         sn.block_height + 1
     };
@@ -557,7 +557,7 @@ fn test_mempool_sync_2_peers_blacklisted() {
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
-            auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
+            auth: TransactionAuth::from_p2pkh(pk).unwrap(),
             anchor_mode: TransactionAnchorMode::Any,
             post_condition_mode: TransactionPostConditionMode::Allow,
             post_conditions: vec![],
@@ -571,7 +571,7 @@ fn test_mempool_sync_2_peers_blacklisted() {
         tx.set_origin_nonce(0);
 
         let mut tx_signer = StacksTransactionSigner::new(&tx);
-        tx_signer.sign_origin(&pk).unwrap();
+        tx_signer.sign_origin(pk).unwrap();
 
         let tx = tx_signer.get_tx().unwrap();
 
@@ -735,7 +735,7 @@ fn test_mempool_sync_2_peers_problematic() {
 
     let num_blocks = 10;
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
+        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
             .unwrap();
         sn.block_height + 1
     };
@@ -769,7 +769,7 @@ fn test_mempool_sync_2_peers_problematic() {
         let tx_exceeds_body = format!("{}u1 {}", tx_exceeds_body_start, tx_exceeds_body_end);
 
         let tx = make_contract_tx(
-            &pk,
+            pk,
             0,
             (tx_exceeds_body.len() * 100) as u64,
             "test-exceeds",
@@ -1014,7 +1014,7 @@ pub fn test_mempool_storage_nakamoto() {
                                 &sortdb,
                                 &tip.consensus_hash,
                                 &tip.anchored_header.block_hash(),
-                                &mempool_tx,
+                                mempool_tx,
                                 None,
                                 &epoch.block_limit,
                                 &epoch.epoch_id,
@@ -1158,7 +1158,7 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
-            auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
+            auth: TransactionAuth::from_p2pkh(pk).unwrap(),
             anchor_mode: TransactionAnchorMode::Any,
             post_condition_mode: TransactionPostConditionMode::Allow,
             post_conditions: vec![],
@@ -1172,7 +1172,7 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
         tx.set_origin_nonce(0);
 
         let mut tx_signer = StacksTransactionSigner::new(&tx);
-        tx_signer.sign_origin(&pk).unwrap();
+        tx_signer.sign_origin(pk).unwrap();
 
         let tx = tx_signer.get_tx().unwrap();
 
