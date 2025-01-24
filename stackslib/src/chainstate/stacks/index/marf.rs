@@ -1035,22 +1035,17 @@ impl<T: MarfTrieId> MARF<T> {
         block_hash: &T,
         path: &TrieHash,
     ) -> Result<Option<TrieLeaf>, Error> {
-        trace!("MARF::get_path({:?}) {:?}", block_hash, path);
+        trace!("MARF::get_path({block_hash:?}) {path:?}");
 
         // a NotFoundError _here_ means that a block didn't exist
         storage.open_block(block_hash).map_err(|e| {
-            test_debug!("Failed to open block {:?}: {:?}", block_hash, &e);
+            test_debug!("Failed to open block {block_hash:?}: {e:?}");
             e
         })?;
 
         // a NotFoundError _here_ means that the key doesn't exist in this view
         let (cursor, node) = MARF::walk(storage, block_hash, path).map_err(|e| {
-            trace!(
-                "Failed to look up key {:?} {:?}: {:?}",
-                &block_hash,
-                path,
-                &e
-            );
+            trace!("Failed to look up key {block_hash:?} {path:?}: {e:?}");
             e
         })?;
 
@@ -1061,7 +1056,7 @@ impl<T: MarfTrieId> MARF<T> {
         if cursor.block_hashes.len() + 1 != cursor.node_ptrs.len() {
             trace!("cursor.block_hashes = {:?}", &cursor.block_hashes);
             trace!("cursor.node_ptrs = {:?}", cursor.node_ptrs);
-            assert!(false);
+            panic!();
         }
 
         assert!(cursor.eop());
@@ -1094,12 +1089,12 @@ impl<T: MarfTrieId> MARF<T> {
         if cursor.block_hashes.len() + 1 != cursor.node_ptrs.len() {
             trace!("c.block_hashes = {:?}", &cursor.block_hashes);
             trace!("c.node_ptrs = {:?}", cursor.node_ptrs);
-            assert!(false);
+            panic!();
         }
 
         debug!(
-            "MARF Insert in {}: '{}' = '{}' (...{:?})",
-            block_hash, path, leaf_value.data, &leaf_value.path
+            "MARF Insert in {block_hash}: '{path}' = '{}' (...{:?})",
+            leaf_value.data, &leaf_value.path
         );
 
         Trie::add_value(storage, &mut cursor, &mut value)?;

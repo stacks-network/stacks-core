@@ -193,10 +193,8 @@ impl BlockEventDispatcher for DummyEventDispatcher {
         _block_timestamp: Option<u64>,
         _coinbase_height: u64,
     ) {
-        assert!(
-            false,
-            "We should never try to announce to the dummy dispatcher"
-        );
+        error!("We should never try to announce to the dummy dispatcher");
+        panic!();
     }
 
     fn announce_burn_block(
@@ -208,10 +206,8 @@ impl BlockEventDispatcher for DummyEventDispatcher {
         _slot_holders: Vec<PoxAddress>,
         _consensus_hash: &ConsensusHash,
     ) {
-        assert!(
-            false,
-            "We should never try to announce to the dummy dispatcher"
-        );
+        error!("We should never try to announce to the dummy dispatcher");
+        panic!();
     }
 }
 
@@ -7254,16 +7250,13 @@ pub mod test {
             .unwrap(),
             *block
         );
-        assert_eq!(
-            StacksChainState::get_staging_block_status(
-                chainstate.db(),
-                consensus_hash,
-                &block.block_hash()
-            )
-            .unwrap()
-            .unwrap(),
-            false
-        );
+        assert!(!StacksChainState::get_staging_block_status(
+            chainstate.db(),
+            consensus_hash,
+            &block.block_hash()
+        )
+        .unwrap()
+        .unwrap());
 
         let index_block_hash =
             StacksBlockHeader::make_index_block_hash(consensus_hash, &block.block_hash());
@@ -7331,16 +7324,13 @@ pub mod test {
         .unwrap()
         .is_none());
 
-        assert_eq!(
-            StacksChainState::get_staging_block_status(
-                chainstate.db(),
-                consensus_hash,
-                &block.block_hash()
-            )
-            .unwrap()
-            .unwrap(),
-            true
-        );
+        assert!(StacksChainState::get_staging_block_status(
+            chainstate.db(),
+            consensus_hash,
+            &block.block_hash()
+        )
+        .unwrap()
+        .unwrap());
         assert!(StacksChainState::load_staging_block_data(
             chainstate.db(),
             &chainstate.blocks_path,
@@ -7405,16 +7395,13 @@ pub mod test {
         .unwrap()
         .is_none());
 
-        assert_eq!(
-            StacksChainState::get_staging_block_status(
-                chainstate.db(),
-                consensus_hash,
-                &block.block_hash()
-            )
-            .unwrap()
-            .unwrap(),
-            true
-        );
+        assert!(StacksChainState::get_staging_block_status(
+            chainstate.db(),
+            consensus_hash,
+            &block.block_hash()
+        )
+        .unwrap()
+        .unwrap());
         assert!(StacksChainState::load_staging_block_data(
             chainstate.db(),
             &chainstate.blocks_path,
@@ -8155,17 +8142,14 @@ pub mod test {
                 )
                 .unwrap()
                 .is_some());
-            assert_eq!(
-                chainstate
-                    .get_microblock_status(
-                        &ConsensusHash([2u8; 20]),
-                        &block.block_hash(),
-                        &mb.block_hash()
-                    )
-                    .unwrap()
-                    .unwrap(),
-                true
-            );
+            assert!(chainstate
+                .get_microblock_status(
+                    &ConsensusHash([2u8; 20]),
+                    &block.block_hash(),
+                    &mb.block_hash()
+                )
+                .unwrap()
+                .unwrap());
         }
 
         // but we should still load the full stream if asked
@@ -8399,30 +8383,24 @@ pub mod test {
                 .is_some());
 
             if mb.header.sequence == 0 {
-                assert_eq!(
-                    chainstate
-                        .get_microblock_status(
-                            &ConsensusHash([2u8; 20]),
-                            &block.block_hash(),
-                            &mb.block_hash()
-                        )
-                        .unwrap()
-                        .unwrap(),
-                    true
-                );
+                assert!(chainstate
+                    .get_microblock_status(
+                        &ConsensusHash([2u8; 20]),
+                        &block.block_hash(),
+                        &mb.block_hash()
+                    )
+                    .unwrap()
+                    .unwrap());
             } else {
                 // not processed since seq=0 was the last block to be accepted
-                assert_eq!(
-                    chainstate
-                        .get_microblock_status(
-                            &ConsensusHash([2u8; 20]),
-                            &block.block_hash(),
-                            &mb.block_hash()
-                        )
-                        .unwrap()
-                        .unwrap(),
-                    false
-                );
+                assert!(!chainstate
+                    .get_microblock_status(
+                        &ConsensusHash([2u8; 20]),
+                        &block.block_hash(),
+                        &mb.block_hash()
+                    )
+                    .unwrap()
+                    .unwrap());
             }
         }
 
@@ -8888,14 +8866,11 @@ pub mod test {
             assert!(poison_opt.is_some());
 
             let poison = poison_opt.unwrap();
-            match poison {
-                TransactionPayload::PoisonMicroblock(ref h1, ref h2) => {
-                    assert_eq!(*h2, forked_microblocks[num_mblocks / 2].header);
-                    assert_eq!(*h1, conflicting_microblock.header);
-                }
-                _ => {
-                    assert!(false);
-                }
+            if let TransactionPayload::PoisonMicroblock(h1, h2) = poison {
+                assert_eq!(h2, forked_microblocks[num_mblocks / 2].header);
+                assert_eq!(h1, conflicting_microblock.header);
+            } else {
+                panic!();
             }
         }
     }
@@ -8960,7 +8935,7 @@ pub mod test {
         }
 
         // first block is attachable, but all the rest are not
-        assert_eq!(
+        assert!(
             StacksChainState::load_staging_block(
                 chainstate.db(),
                 &chainstate.blocks_path,
@@ -8969,13 +8944,12 @@ pub mod test {
             )
             .unwrap()
             .unwrap()
-            .attachable,
-            true
+            .attachable
         );
 
         for (block, consensus_hash) in blocks[1..].iter().zip(&consensus_hashes[1..]) {
-            assert_eq!(
-                StacksChainState::load_staging_block(
+            assert!(
+                !StacksChainState::load_staging_block(
                     chainstate.db(),
                     &chainstate.blocks_path,
                     consensus_hash,
@@ -8983,8 +8957,7 @@ pub mod test {
                 )
                 .unwrap()
                 .unwrap()
-                .attachable,
-                false
+                .attachable
             );
         }
 
@@ -8994,8 +8967,8 @@ pub mod test {
             if i + 1 < consensus_hashes.len() {
                 let child_consensus_hash = &consensus_hashes[i + 1];
                 let child_block = &blocks[i + 1];
-                assert_eq!(
-                    StacksChainState::load_staging_block(
+                assert!(
+                    !StacksChainState::load_staging_block(
                         chainstate.db(),
                         &chainstate.blocks_path,
                         child_consensus_hash,
@@ -9003,8 +8976,7 @@ pub mod test {
                     )
                     .unwrap()
                     .unwrap()
-                    .attachable,
-                    false
+                    .attachable
                 );
             }
 
@@ -9020,7 +8992,7 @@ pub mod test {
             if i + 1 < consensus_hashes.len() {
                 let child_consensus_hash = &consensus_hashes[i + 1];
                 let child_block = &blocks[i + 1];
-                assert_eq!(
+                assert!(
                     StacksChainState::load_staging_block(
                         chainstate.db(),
                         &chainstate.blocks_path,
@@ -9029,8 +9001,7 @@ pub mod test {
                     )
                     .unwrap()
                     .unwrap()
-                    .attachable,
-                    true
+                    .attachable
                 );
             }
         }
@@ -9097,7 +9068,7 @@ pub mod test {
         }
 
         // first block is accepted, but all the rest are not
-        assert_eq!(
+        assert!(
             StacksChainState::load_staging_block(
                 chainstate.db(),
                 &chainstate.blocks_path,
@@ -9106,13 +9077,12 @@ pub mod test {
             )
             .unwrap()
             .unwrap()
-            .attachable,
-            true
+            .attachable
         );
 
         for (block, consensus_hash) in blocks[1..].iter().zip(&consensus_hashes[1..]) {
-            assert_eq!(
-                StacksChainState::load_staging_block(
+            assert!(
+                !StacksChainState::load_staging_block(
                     chainstate.db(),
                     &chainstate.blocks_path,
                     consensus_hash,
@@ -9120,8 +9090,7 @@ pub mod test {
                 )
                 .unwrap()
                 .unwrap()
-                .attachable,
-                false
+                .attachable
             );
         }
 
@@ -9131,8 +9100,8 @@ pub mod test {
             if i + 1 < consensus_hashes.len() {
                 let child_consensus_hash = &consensus_hashes[i + 1];
                 let child_block = &blocks[i + 1];
-                assert_eq!(
-                    StacksChainState::load_staging_block(
+                assert!(
+                    !StacksChainState::load_staging_block(
                         chainstate.db(),
                         &chainstate.blocks_path,
                         child_consensus_hash,
@@ -9140,8 +9109,7 @@ pub mod test {
                     )
                     .unwrap()
                     .unwrap()
-                    .attachable,
-                    false
+                    .attachable
                 );
             }
 
@@ -9157,7 +9125,7 @@ pub mod test {
             if i + 1 < consensus_hashes.len() {
                 let child_consensus_hash = &consensus_hashes[i + 1];
                 let child_block = &blocks[i + 1];
-                assert_eq!(
+                assert!(
                     StacksChainState::load_staging_block(
                         chainstate.db(),
                         &chainstate.blocks_path,
@@ -9166,8 +9134,7 @@ pub mod test {
                     )
                     .unwrap()
                     .unwrap()
-                    .attachable,
-                    true
+                    .attachable
                 );
             }
         }
@@ -9247,8 +9214,8 @@ pub mod test {
             &consensus_hashes[2],
             &consensus_hashes[3],
         ]) {
-            assert_eq!(
-                StacksChainState::load_staging_block(
+            assert!(
+                !StacksChainState::load_staging_block(
                     chainstate.db(),
                     &chainstate.blocks_path,
                     consensus_hash,
@@ -9256,8 +9223,7 @@ pub mod test {
                 )
                 .unwrap()
                 .unwrap()
-                .attachable,
-                false
+                .attachable
             );
         }
 
@@ -9281,7 +9247,7 @@ pub mod test {
         assert_block_staging_not_processed(&mut chainstate, &consensus_hashes[0], &block_1);
 
         // first block is attachable
-        assert_eq!(
+        assert!(
             StacksChainState::load_staging_block(
                 chainstate.db(),
                 &chainstate.blocks_path,
@@ -9290,8 +9256,7 @@ pub mod test {
             )
             .unwrap()
             .unwrap()
-            .attachable,
-            true
+            .attachable
         );
 
         // blocks 2 and 3 are not attachable
@@ -9299,8 +9264,8 @@ pub mod test {
             .iter()
             .zip(&[&consensus_hashes[1], &consensus_hashes[2]])
         {
-            assert_eq!(
-                StacksChainState::load_staging_block(
+            assert!(
+                !StacksChainState::load_staging_block(
                     chainstate.db(),
                     &chainstate.blocks_path,
                     consensus_hash,
@@ -9308,8 +9273,7 @@ pub mod test {
                 )
                 .unwrap()
                 .unwrap()
-                .attachable,
-                false
+                .attachable
             );
         }
 
@@ -9325,7 +9289,7 @@ pub mod test {
 
         // now block 2 and 3 are attachable
         for (block, consensus_hash) in blocks[1..3].iter().zip(&consensus_hashes[1..3]) {
-            assert_eq!(
+            assert!(
                 StacksChainState::load_staging_block(
                     chainstate.db(),
                     &chainstate.blocks_path,
@@ -9334,14 +9298,13 @@ pub mod test {
                 )
                 .unwrap()
                 .unwrap()
-                .attachable,
-                true
+                .attachable
             );
         }
 
         // and block 4 is still not
-        assert_eq!(
-            StacksChainState::load_staging_block(
+        assert!(
+            !StacksChainState::load_staging_block(
                 chainstate.db(),
                 &chainstate.blocks_path,
                 &consensus_hashes[3],
@@ -9349,8 +9312,7 @@ pub mod test {
             )
             .unwrap()
             .unwrap()
-            .attachable,
-            false
+            .attachable
         );
     }
 
@@ -9856,7 +9818,7 @@ pub mod test {
             assert_eq!(last_mblock_info.sequence, mblock.header.sequence);
             assert!(!last_mblock_info.processed);
             assert!(!last_mblock_info.orphaned);
-            assert_eq!(last_mblock_info.block_data.len(), 0);
+            assert!(last_mblock_info.block_data.is_empty());
         }
 
         // store block to staging
@@ -9939,7 +9901,7 @@ pub mod test {
             assert_eq!(this_mblock_info.sequence, mblocks[i].header.sequence);
             assert!(this_mblock_info.processed);
             assert!(!this_mblock_info.orphaned);
-            assert_eq!(this_mblock_info.block_data.len(), 0);
+            assert!(this_mblock_info.block_data.is_empty());
         }
     }
 
@@ -9953,13 +9915,16 @@ pub mod test {
                 let mut debug_reader = LogReader::from_reader(&mut mblock_ptr);
                 let next_mblock = StacksMicroblock::consensus_deserialize(&mut debug_reader)
                     .map_err(|e| {
-                        eprintln!("Failed to decode microblock {}: {:?}", mblocks.len(), &e);
-                        eprintln!("Bytes consumed:");
-                        for buf in debug_reader.log().iter() {
-                            eprintln!("  {}", to_hex(buf));
-                        }
-                        assert!(false);
-                        unreachable!();
+                        panic!(
+                            "Failed to decode microblock {}: {e:?}\nBytes consumed:\n{}",
+                            mblocks.len(),
+                            debug_reader
+                                .log()
+                                .iter()
+                                .map(|buf| format!("  {}", to_hex(buf)))
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        );
                     })
                     .unwrap();
                 mblocks.push(next_mblock);

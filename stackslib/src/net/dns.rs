@@ -506,26 +506,12 @@ mod test {
             .queue_lookup("www.google.com", 80, get_epoch_time_ms() + 100)
             .unwrap();
         sleep_ms(200);
-        let mut resolved_err = None;
-        loop {
-            client.try_recv().unwrap();
-            match client.poll_lookup("www.google.com", 80) {
-                Ok(res) => {
-                    resolved_err = Some(res);
-                    break;
-                }
-                Err(e) => {
-                    eprintln!("err: {:?}", &e);
-                    assert!(false);
-                }
-            }
-            sleep_ms(100);
-        }
-        assert!(resolved_err.is_some());
-        eprintln!("{:?}", &resolved_err);
-        assert!(format!("{:?}", &resolved_err.unwrap())
-            .find("timed out")
-            .is_some());
+        client.try_recv().unwrap();
+        let resolved_err = client.poll_lookup("www.google.com", 80).unwrap().unwrap();
+        assert!(
+            format!("{resolved_err:?}").find("timed out").is_some(),
+            "{resolved_err:?}"
+        );
         dns_thread_shutdown(client, thread_handle);
     }
 }

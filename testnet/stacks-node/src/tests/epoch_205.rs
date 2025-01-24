@@ -895,7 +895,7 @@ fn test_cost_limit_switch_version205() {
             _ => false,
         },
     );
-    assert_eq!(increment_calls_bob.len(), 0);
+    assert!(increment_calls_bob.is_empty());
 
     channel.stop_chains_coordinator();
 }

@@ -338,7 +338,7 @@ fn test_run_http_request_no_body() {
         )
         .unwrap();
 
-        assert_eq!(result_chunked.len(), 0);
-        assert_eq!(result_plain.len(), 0);
+        assert!(result_chunked.is_empty());
+        assert!(result_plain.is_empty());
     }
 }

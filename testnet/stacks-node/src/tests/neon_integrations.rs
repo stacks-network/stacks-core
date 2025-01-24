@@ -10267,7 +10267,7 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
         old_tip_info.stacks_tip_height + 5
     );
     // no blocks considered problematic
-    assert_eq!(all_new_files.len(), 0);
+    assert!(all_new_files.is_empty());
 
     // one block contained tx_exceeds
     let blocks = test_observer::get_blocks();

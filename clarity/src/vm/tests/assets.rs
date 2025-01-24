@@ -212,7 +212,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     .unwrap();
 
     assert!(is_err_code(&result, 3));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -224,7 +224,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     .unwrap();
 
     assert!(is_err_code(&result, 3));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     // test 2: from = to
 
@@ -238,7 +238,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     .unwrap();
 
     assert!(is_err_code(&result, 2));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     // test 3: sender is not tx-sender
 
@@ -252,7 +252,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     .unwrap();
 
     assert!(is_err_code(&result, 4));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -264,7 +264,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     .unwrap();
 
     assert!(is_err_code(&result, 4));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     // test 4: amount > balance
 
@@ -278,7 +278,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     .unwrap();
 
     assert!(is_err_code(&result, 1));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -290,7 +290,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     .unwrap();
 
     assert!(is_err_code(&result, 1));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     // test 5: overflow
     //  NOTE: this tested behavior is no longer reachable: the total liquid ustx supply
@@ -569,7 +569,7 @@ fn test_simple_token_system(
     .unwrap();
     assert!(!is_committed(&result));
 
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -597,7 +597,7 @@ fn test_simple_token_system(
     .unwrap();
 
     assert!(is_err_code(&result, 1));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -609,7 +609,7 @@ fn test_simple_token_system(
     .unwrap();
 
     assert!(is_err_code(&result, 2));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let err = execute_transaction(
         &mut owned_env,
@@ -635,7 +635,7 @@ fn test_simple_token_system(
     .unwrap();
 
     assert_eq!(result, Value::UInt(1000));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -647,7 +647,7 @@ fn test_simple_token_system(
     .unwrap();
 
     assert_eq!(result, Value::UInt(9200));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -814,7 +814,7 @@ fn test_simple_token_system(
     .unwrap();
 
     assert!(!is_committed(&result));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 }
 
 #[apply(test_epochs)]
@@ -1126,7 +1126,7 @@ fn test_simple_naming_system(
     )
     .unwrap();
     assert!(is_err_code(&result, 0));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -1157,7 +1157,7 @@ fn test_simple_naming_system(
     .unwrap();
 
     assert!(is_err_code(&result, 1));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -1169,7 +1169,7 @@ fn test_simple_naming_system(
     .unwrap();
 
     assert!(is_committed(&result));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     // let's transfer name
 
@@ -1183,7 +1183,7 @@ fn test_simple_naming_system(
     .unwrap();
 
     assert!(is_err_code(&result, 3));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -1195,7 +1195,7 @@ fn test_simple_naming_system(
     .unwrap();
 
     assert!(is_err_code(&result, 1));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -1207,7 +1207,7 @@ fn test_simple_naming_system(
     .unwrap();
 
     assert!(is_err_code(&result, 2));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -1314,7 +1314,7 @@ fn test_simple_naming_system(
     .unwrap();
 
     assert!(is_committed(&result));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     // p2 burning 8 (which belongs to p1) should succeed even though sender != tx_sender.
     let (result, asset_map, _events) = execute_transaction(
@@ -1375,7 +1375,7 @@ fn test_simple_naming_system(
     .unwrap();
 
     assert!(is_committed(&result));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     {
         let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);

@@ -330,10 +330,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     assert_eq!(block.is_wellformed_tenure_start_block(), Ok(false));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_vrf_proof(), None);
-    assert_eq!(
-        block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
-        false
-    ); // empty blocks not allowed
+    assert!(!block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30)); // empty blocks not allowed
 
     // syntactically invalid block if there's a sortition-inducing tenure change but no coinbase
     let block = NakamotoBlock {
@@ -346,10 +343,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
     assert_eq!(block.get_vrf_proof(), None);
-    assert_eq!(
-        block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
-        false
-    );
+    assert!(!block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30));
 
     // syntactically invalid block if there's a coinbase but not tenure change
     let block = NakamotoBlock {
@@ -362,10 +356,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
     assert_eq!(block.get_vrf_proof(), None);
-    assert_eq!(
-        block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
-        false
-    );
+    assert!(!block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30));
 
     // syntactically invalid block if there's a coinbase and tenure change, but the coinbase is
     // missing a proof
@@ -379,10 +370,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
     assert_eq!(block.get_vrf_proof(), None);
-    assert_eq!(
-        block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
-        false
-    );
+    assert!(!block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30));
 
     // syntactically invalid block if there is more than one coinbase transaction
     let block = NakamotoBlock {
@@ -399,10 +387,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
     assert_eq!(block.get_vrf_proof(), None);
-    assert_eq!(
-        block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
-        false
-    );
+    assert!(!block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30));
 
     // syntactically invalid block if the coinbase comes before a tenure change
     let block = NakamotoBlock {
@@ -415,10 +400,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
     assert_eq!(block.get_vrf_proof(), None);
-    assert_eq!(
-        block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
-        false
-    );
+    assert!(!block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30));
 
     // syntactically invalid block if there is a tenure change after the coinbase
     let block = NakamotoBlock {
@@ -435,10 +417,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
     assert_eq!(block.get_vrf_proof(), None);
-    assert_eq!(
-        block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
-        false
-    );
+    assert!(!block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30));
 
     // syntatically invalid block if there's an invalid tenure change
     let block = NakamotoBlock {
@@ -455,10 +434,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
     assert_eq!(block.get_vrf_proof(), None);
-    assert_eq!(
-        block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
-        false
-    );
+    assert!(!block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30));
 
     // syntactically valid tenure-start block only if we have a syntactically valid tenure change and a syntactically
     // valid coinbase
@@ -475,10 +451,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     );
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
     assert_eq!(block.get_vrf_proof(), Some(&proof));
-    assert_eq!(
-        block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
-        true
-    );
+    assert!(block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30));
 
     // syntactically valid non-tenure-start block only if we have a syntactically valid tenure change which is not sortition-induced,
     // or we don't have one at all.
@@ -495,10 +468,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         Some(&tenure_extend_payload)
     );
     assert_eq!(block.get_vrf_proof(), None);
-    assert_eq!(
-        block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
-        true
-    );
+    assert!(block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30));
 
     // syntactically valid non-tenure-start block only if we have a syntactically valid tenure change which is not sortition-induced,
     // or we don't have one at all.
@@ -515,10 +485,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         Some(&tenure_extend_payload)
     );
     assert_eq!(block.get_vrf_proof(), None);
-    assert_eq!(
-        block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
-        true
-    );
+    assert!(block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30));
 
     // syntactically invalid if there's more than one tenure change, no matter what
     let block = NakamotoBlock {
@@ -531,10 +498,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
     assert_eq!(block.get_vrf_proof(), None);
-    assert_eq!(
-        block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
-        false
-    );
+    assert!(!block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30));
 
     // syntactically invalid if there's a tx before the one tenure change
     let block = NakamotoBlock {
@@ -547,10 +511,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
     assert_eq!(block.get_vrf_proof(), None);
-    assert_eq!(
-        block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
-        false
-    );
+    assert!(!block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30));
 
     // invalid if there are multiple tenure changes
     let block = NakamotoBlock {
@@ -563,10 +524,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
     assert_eq!(block.get_vrf_proof(), None);
-    assert_eq!(
-        block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
-        false
-    );
+    assert!(!block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30));
 }
 
 /// Tests for non-MARF'ed block storage

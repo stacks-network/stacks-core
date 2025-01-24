@@ -3469,7 +3469,7 @@ fn test_stacks_on_burnchain_ops() {
 
         // no burnchain blocks processed for non-tenure-start blocks
         if !is_tenure_start {
-            assert_eq!(block_burn_txids.len(), 0);
+            assert!(block_burn_txids.is_empty());
             continue;
         }
 

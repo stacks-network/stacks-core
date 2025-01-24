@@ -558,7 +558,7 @@ mod tests {
                 (_, _) => {
                     // either got a key when we didn't expect one, or didn't get a key when we did
                     // expect one.
-                    assert!(false, "Unexpected result: we either got a key when we didn't expect one, or didn't get a key when we did expect one.");
+                    panic!("Unexpected result: we either got a key when we didn't expect one, or didn't get a key when we did expect one.");
                 }
             }
         }

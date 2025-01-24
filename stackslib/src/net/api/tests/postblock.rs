@@ -125,7 +125,7 @@ fn test_try_make_response() {
     );
 
     let resp = response.decode_stacks_block_accepted().unwrap();
-    assert_eq!(resp.accepted, true);
+    assert!(resp.accepted);
     assert_eq!(resp.stacks_block_id, stacks_block_id);
 
     let response = responses.remove(0);
@@ -135,7 +135,7 @@ fn test_try_make_response() {
     );
 
     let resp = response.decode_stacks_block_accepted().unwrap();
-    assert_eq!(resp.accepted, false);
+    assert!(!resp.accepted);
     assert_eq!(resp.stacks_block_id, stacks_block_id);
 
     let response = responses.remove(0);

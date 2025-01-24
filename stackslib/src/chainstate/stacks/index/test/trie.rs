@@ -218,7 +218,7 @@ fn trie_cursor_try_attach_leaf() {
                     TrieNodeType::Node256(ref data) => {
                         assert_eq!(count_children(&data.ptrs), 2)
                     }
-                    _ => assert!(false),
+                    _ => panic!(),
                 };
             }
 
@@ -385,7 +385,7 @@ fn trie_cursor_promote_leaf_to_node4() {
             match node {
                 TrieNodeType::Node4(ref data) => assert_eq!(count_children(&data.ptrs), 2),
                 TrieNodeType::Node256(ref data) => assert_eq!(count_children(&data.ptrs), 2),
-                _ => assert!(false),
+                _ => panic!(),
             };
         }
 
@@ -539,13 +539,10 @@ fn trie_cursor_promote_node4_to_node16() {
         // each ptr we got should point to a node16 with 5 children
         for ptr in ptrs.iter() {
             let (node, hash) = f.read_nodetype(ptr).unwrap();
-            match node {
-                TrieNodeType::Node16(ref data) => {
-                    assert_eq!(count_children(&data.ptrs), 5);
-                }
-                _ => {
-                    assert!(false);
-                }
+            if let TrieNodeType::Node16(ref data) = node {
+                assert_eq!(count_children(&data.ptrs), 5);
+            } else {
+                panic!();
             }
         }
 
@@ -701,13 +698,10 @@ fn trie_cursor_promote_node16_to_node48() {
         // each ptr we got should point to a node16 with 5 children
         for ptr in ptrs.iter() {
             let (node, hash) = f.read_nodetype(ptr).unwrap();
-            match node {
-                TrieNodeType::Node16(ref data) => {
-                    assert_eq!(count_children(&data.ptrs), 5);
-                }
-                _ => {
-                    assert!(false);
-                }
+            if let TrieNodeType::Node16(ref data) = node {
+                assert_eq!(count_children(&data.ptrs), 5);
+            } else {
+                panic!();
             }
         }
 
@@ -809,13 +803,10 @@ fn trie_cursor_promote_node16_to_node48() {
         // each ptr we got should point to a node48 with 17 children
         for ptr in ptrs.iter() {
             let (node, hash) = f.read_nodetype(ptr).unwrap();
-            match node {
-                TrieNodeType::Node48(ref data) => {
-                    assert_eq!(count_children(&data.ptrs), 17);
-                }
-                _ => {
-                    assert!(false);
-                }
+            if let TrieNodeType::Node48(ref data) = node {
+                assert_eq!(count_children(&data.ptrs), 17);
+            } else {
+                panic!();
             }
         }
 
@@ -971,13 +962,10 @@ fn trie_cursor_promote_node48_to_node256() {
         // each ptr we got should point to a node16 with 5 children
         for ptr in ptrs.iter() {
             let (node, hash) = f.read_nodetype(ptr).unwrap();
-            match node {
-                TrieNodeType::Node16(ref data) => {
-                    assert_eq!(count_children(&data.ptrs), 5);
-                }
-                _ => {
-                    assert!(false);
-                }
+            if let TrieNodeType::Node16(ref data) = node {
+                assert_eq!(count_children(&data.ptrs), 5);
+            } else {
+                panic!();
             }
         }
 
@@ -1077,13 +1065,10 @@ fn trie_cursor_promote_node48_to_node256() {
         // each ptr we got should point to a node48 with 17 children
         for ptr in ptrs.iter() {
             let (node, hash) = f.read_nodetype(ptr).unwrap();
-            match node {
-                TrieNodeType::Node48(ref data) => {
-                    assert_eq!(count_children(&data.ptrs), 17);
-                }
-                _ => {
-                    assert!(false);
-                }
+            if let TrieNodeType::Node48(ref data) = node {
+                assert_eq!(count_children(&data.ptrs), 17);
+            } else {
+                panic!();
             }
         }
 
@@ -1184,13 +1169,10 @@ fn trie_cursor_promote_node48_to_node256() {
         // each ptr we got should point to a node256 with 49 children
         for ptr in ptrs.iter() {
             let (node, hash) = f.read_nodetype(ptr).unwrap();
-            match node {
-                TrieNodeType::Node256(ref data) => {
-                    assert_eq!(count_children(&data.ptrs), 49);
-                }
-                _ => {
-                    assert!(false);
-                }
+            if let TrieNodeType::Node256(ref data) = node {
+                assert_eq!(count_children(&data.ptrs), 49);
+            } else {
+                panic!()
             }
         }
 
