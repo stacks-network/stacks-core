@@ -1885,7 +1885,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
 
                         if i > 2 {
                             eprintln!("recipient_total_reward: {} = {} + {}", recipient_total_reward + block_reward_opt.clone().unwrap().expect_u128().unwrap(), recipient_total_reward, block_reward_opt.clone().unwrap().expect_u128().unwrap());
-                            recipient_total_reward += block_reward_opt.clone().unwrap().expect_u128().unwrap();
+                            recipient_total_reward += block_reward_opt.unwrap().expect_u128().unwrap();
                         }
                     }
                     else {

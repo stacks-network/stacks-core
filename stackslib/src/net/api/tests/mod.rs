@@ -377,7 +377,7 @@ impl<'a> TestRPC<'a> {
             TransactionAuth::from_p2pkh(&privk1).unwrap(),
             TransactionPayload::new_smart_contract(
                 "hello-world-unconfirmed",
-                &unconfirmed_contract.to_string(),
+                unconfirmed_contract,
                 None,
             )
             .unwrap(),
@@ -480,7 +480,7 @@ impl<'a> TestRPC<'a> {
         );
 
         let (_, _, consensus_hash) = peer_1.next_burnchain_block(burn_ops.clone());
-        peer_2.next_burnchain_block(burn_ops.clone());
+        peer_2.next_burnchain_block(burn_ops);
 
         peer_1.process_stacks_epoch_at_tip(&stacks_block, &[]);
         peer_2.process_stacks_epoch_at_tip(&stacks_block, &[]);
@@ -760,7 +760,7 @@ impl<'a> TestRPC<'a> {
         );
 
         let (_, _, next_consensus_hash) = peer_1.next_burnchain_block(next_burn_ops.clone());
-        peer_2.next_burnchain_block(next_burn_ops.clone());
+        peer_2.next_burnchain_block(next_burn_ops);
 
         let view_1 = peer_1.get_burnchain_view().unwrap();
         let view_2 = peer_2.get_burnchain_view().unwrap();
@@ -846,18 +846,14 @@ impl<'a> TestRPC<'a> {
             true, true, true, true, true, true, true, true, true, true,
         ]];
 
-        let (mut peer, mut other_peers) = make_nakamoto_peers_from_invs_ext(
-            function_name!(),
-            observer,
-            bitvecs.clone(),
-            |boot_plan| {
+        let (mut peer, mut other_peers) =
+            make_nakamoto_peers_from_invs_ext(function_name!(), observer, bitvecs, |boot_plan| {
                 boot_plan
                     .with_pox_constants(10, 3)
                     .with_extra_peers(1)
                     .with_initial_balances(vec![])
                     .with_malleablized_blocks(false)
-            },
-        );
+            });
         let mut other_peer = other_peers.pop().unwrap();
 
         let peer_1_indexer = BitcoinIndexer::new_unit_test(&peer.config.burnchain.working_dir);

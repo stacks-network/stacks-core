@@ -1889,7 +1889,7 @@ pub mod test {
         // pox bitvec
         maximal_poxinvdata_bytes
             .append(&mut ((GETPOXINV_MAX_BITLEN / 8) as u32).to_be_bytes().to_vec());
-        maximal_poxinvdata_bytes.append(&mut maximal_bitvec.clone());
+        maximal_poxinvdata_bytes.extend_from_slice(&maximal_bitvec);
 
         assert!((maximal_poxinvdata_bytes.len() as u32) < MAX_MESSAGE_LEN);
 
@@ -1962,10 +1962,10 @@ pub mod test {
         maximal_blocksinvdata_bytes.append(&mut (blocks_bitlen as u16).to_be_bytes().to_vec());
         // block bitvec
         maximal_blocksinvdata_bytes.append(&mut (blocks_bitlen / 8).to_be_bytes().to_vec());
-        maximal_blocksinvdata_bytes.append(&mut maximal_bitvec.clone());
+        maximal_blocksinvdata_bytes.extend_from_slice(&maximal_bitvec);
         // microblock bitvec
         maximal_blocksinvdata_bytes.append(&mut (blocks_bitlen / 8).to_be_bytes().to_vec());
-        maximal_blocksinvdata_bytes.append(&mut maximal_bitvec.clone());
+        maximal_blocksinvdata_bytes.extend_from_slice(&maximal_bitvec);
 
         assert!((maximal_blocksinvdata_bytes.len() as u32) < MAX_MESSAGE_LEN);
 

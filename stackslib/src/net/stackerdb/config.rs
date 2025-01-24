@@ -483,7 +483,7 @@ impl StackerDBConfig {
         }
 
         let hint_replicas = if let Some(replicas) = local_hint_replicas {
-            replicas.clone()
+            replicas
         } else {
             let hint_replicas_list = config_tuple
                 .get("hint-replicas")

@@ -1267,7 +1267,7 @@ fn test_build_anchored_blocks_incrementing_nonces() {
         },
     );
 
-    peer.next_burnchain_block(burn_ops.clone());
+    peer.next_burnchain_block(burn_ops);
     peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
     // expensive transaction was not mined, but the two stx-transfers were
@@ -1649,7 +1649,7 @@ fn test_build_anchored_blocks_mempool_fee_transaction_too_low() {
         },
     );
 
-    peer.next_burnchain_block(burn_ops.clone());
+    peer.next_burnchain_block(burn_ops);
     peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
     // Check that the block contains only coinbase transactions (coinbase)
@@ -1744,7 +1744,7 @@ fn test_build_anchored_blocks_zero_fee_transaction() {
         },
     );
 
-    peer.next_burnchain_block(burn_ops.clone());
+    peer.next_burnchain_block(burn_ops);
     peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
     // Check that the block contains 2 transactions (coinbase + zero-fee transaction)
@@ -2334,7 +2334,7 @@ fn test_build_anchored_blocks_invalid() {
 
             if tenure_id == bad_block_ancestor_tenure {
                 bad_block_parent_tip = Some(parent_tip.clone());
-                bad_block_parent = parent_opt.clone();
+                bad_block_parent = parent_opt;
 
                 eprintln!("\n\nancestor of corrupt block: {:?}\n", &parent_tip);
             }
@@ -4144,7 +4144,7 @@ fn test_is_tx_problematic() {
                         block_builder,
                         chainstate,
                         &sortdb.index_handle_at_tip(),
-                        vec![coinbase_tx.clone(), contract_spends_too_much_tx.clone()]
+                        vec![coinbase_tx.clone(), contract_spends_too_much_tx]
                     ) {
                         assert_eq!(txid, contract_spends_too_much_txid);
                     }
@@ -4854,7 +4854,7 @@ fn test_fee_order_mismatch_nonce_order() {
 
     last_block = Some(stacks_block.clone());
 
-    peer.next_burnchain_block(burn_ops.clone());
+    peer.next_burnchain_block(burn_ops);
     peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
     // Both user transactions and the coinbase should have been mined.

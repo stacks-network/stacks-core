@@ -138,7 +138,7 @@ fn peerblocksinv_merge() {
     );
 
     // merge above, non-overlapping, aligned
-    let mut peer_inv_above = peer_inv.clone();
+    let mut peer_inv_above = peer_inv;
     let (new_blocks, new_microblocks) =
         peer_inv_above.merge_blocks_inv(12345 + 32, 16, vec![0x11, 0x22], vec![0x11, 0x22], false);
     assert_eq!(peer_inv_above.num_sortitions, 48);
@@ -306,7 +306,7 @@ fn peerblocksinv_merge_clear_bits() {
     );
 
     // merge above, non-overlapping, aligned
-    let mut peer_inv_above = peer_inv.clone();
+    let mut peer_inv_above = peer_inv;
     let (new_blocks, new_microblocks) =
         peer_inv_above.merge_blocks_inv(12345 + 32, 16, vec![0x11, 0x22], vec![0x11, 0x22], true);
     assert_eq!(peer_inv_above.num_sortitions, 48);
@@ -578,7 +578,7 @@ fn test_sync_inv_set_blocks_microblocks_available() {
         peer_2_config.burnchain.first_block_hash
     );
 
-    let burnchain = peer_1_config.burnchain.clone();
+    let burnchain = peer_1_config.burnchain;
 
     let num_blocks = 5;
     let first_stacks_block_height = {
@@ -1140,7 +1140,7 @@ fn test_sync_inv_make_inv_messages() {
 fn test_sync_inv_diagnose_nack() {
     let peer_config = TestPeerConfig::new(function_name!(), 0, 0);
     let neighbor = peer_config.to_neighbor();
-    let neighbor_key = neighbor.addr.clone();
+    let neighbor_key = neighbor.addr;
     let nack_no_block = NackData {
         error_code: NackErrorCodes::NoSuchBurnchainBlock,
     };
@@ -1230,7 +1230,7 @@ fn test_sync_inv_diagnose_nack() {
         NodeStatus::Diverged,
         NeighborBlockStats::diagnose_nack(
             &neighbor_key,
-            nack_no_block.clone(),
+            nack_no_block,
             &burnchain_view,
             12346,
             12340,

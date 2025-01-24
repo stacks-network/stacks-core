@@ -135,7 +135,7 @@ impl SortitionHandleTx<'_> {
 
         let next_pox = SortitionDB::make_next_pox_id(parent_pox.clone(), next_pox_info.as_ref());
         let next_sortition_id = SortitionDB::make_next_sortition_id(
-            parent_pox.clone(),
+            parent_pox,
             &this_block_hash,
             next_pox_info.as_ref(),
         );

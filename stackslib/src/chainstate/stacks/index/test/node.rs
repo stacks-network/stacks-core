@@ -3970,7 +3970,7 @@ fn read_write_leaf() {
     let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Leaf as u8, 0, 0));
 
     assert!(rres.is_ok());
-    assert_eq!(rres.unwrap(), (TrieNodeType::Leaf(leaf.clone()), hash));
+    assert_eq!(rres.unwrap(), (TrieNodeType::Leaf(leaf), hash));
 }
 
 #[test]
