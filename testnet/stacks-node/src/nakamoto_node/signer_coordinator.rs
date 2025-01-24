@@ -359,6 +359,12 @@ impl SignerCoordinator {
                     }
 
                     if rejections_timer.elapsed() > rejections_timeout {
+                        warn!("Timed out while waiting for responses from signers";
+                                  "elapsed" => rejections_timer.elapsed().as_secs(),
+                                  "rejections_timeout" => rejections_timeout.as_secs(),
+                                  "rejections" => rejections,
+                                  "rejections_threshold" => self.total_weight.saturating_sub(self.weight_threshold)
+                        );
                         return Err(NakamotoNodeError::SigningCoordinatorFailure(
                             "Gave up while tried reaching the threshold".into(),
                         ));
@@ -399,6 +405,12 @@ impl SignerCoordinator {
                 );
                 return Ok(block_status.gathered_signatures.values().cloned().collect());
             } else if rejections_timer.elapsed() > rejections_timeout {
+                warn!("Timed out while waiting for responses from signers";
+                          "elapsed" => rejections_timer.elapsed().as_secs(),
+                          "rejections_timeout" => rejections_timeout.as_secs(),
+                          "rejections" => rejections,
+                          "rejections_threshold" => self.total_weight.saturating_sub(self.weight_threshold)
+                );
                 return Err(NakamotoNodeError::SigningCoordinatorFailure(
                     "Gave up while tried reaching the threshold".into(),
                 ));
