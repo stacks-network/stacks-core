@@ -264,34 +264,31 @@ impl BitcoinIndexer {
         match net::TcpStream::connect((self.config.peer_host.as_str(), self.config.peer_port)) {
             Ok(s) => {
                 // Disable Nagle algorithm
-                s.set_nodelay(true).map_err(|_e| {
-                    test_debug!("Failed to set TCP_NODELAY: {:?}", &_e);
+                s.set_nodelay(true).map_err(|e| {
+                    test_debug!("Failed to set TCP_NODELAY: {e:?}");
                     btc_error::ConnectionError
                 })?;
 
                 // set timeout
                 s.set_read_timeout(Some(Duration::from_secs(self.runtime.timeout)))
-                    .map_err(|_e| {
-                        test_debug!("Failed to set TCP read timeout: {:?}", &_e);
+                    .map_err(|e| {
+                        test_debug!("Failed to set TCP read timeout: {e:?}");
                         btc_error::ConnectionError
                     })?;
 
                 s.set_write_timeout(Some(Duration::from_secs(self.runtime.timeout)))
-                    .map_err(|_e| {
-                        test_debug!("Failed to set TCP write timeout: {:?}", &_e);
+                    .map_err(|e| {
+                        test_debug!("Failed to set TCP write timeout: {e:?}");
                         btc_error::ConnectionError
                     })?;
 
-                if let Some(s) = self.runtime.sock.take() {
-                    let _ = s.shutdown(Shutdown::Both);
+                if let Some(s_old) = self.runtime.sock.replace(s) {
+                    let _ = s_old.shutdown(Shutdown::Both);
                 }
-
-                self.runtime.sock = Some(s);
                 Ok(())
             }
             Err(_e) => {
-                let s = self.runtime.sock.take();
-                if let Some(s) = s {
+                if let Some(s) = self.runtime.sock.take() {
                     let _ = s.shutdown(Shutdown::Both);
                 }
                 Err(btc_error::ConnectionError)
