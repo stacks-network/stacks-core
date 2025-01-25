@@ -264,21 +264,21 @@ impl BitcoinIndexer {
         match net::TcpStream::connect((self.config.peer_host.as_str(), self.config.peer_port)) {
             Ok(s) => {
                 // Disable Nagle algorithm
-                s.set_nodelay(true).map_err(|e| {
-                    test_debug!("Failed to set TCP_NODELAY: {e:?}");
+                s.set_nodelay(true).map_err(|_e| {
+                    test_debug!("Failed to set TCP_NODELAY: {_e:?}");
                     btc_error::ConnectionError
                 })?;
 
                 // set timeout
                 s.set_read_timeout(Some(Duration::from_secs(self.runtime.timeout)))
-                    .map_err(|e| {
-                        test_debug!("Failed to set TCP read timeout: {e:?}");
+                    .map_err(|_e| {
+                        test_debug!("Failed to set TCP read timeout: {_e:?}");
                         btc_error::ConnectionError
                     })?;
 
                 s.set_write_timeout(Some(Duration::from_secs(self.runtime.timeout)))
-                    .map_err(|e| {
-                        test_debug!("Failed to set TCP write timeout: {e:?}");
+                    .map_err(|_e| {
+                        test_debug!("Failed to set TCP write timeout: {_e:?}");
                         btc_error::ConnectionError
                     })?;
 
