@@ -298,9 +298,9 @@ impl SignerCoordinator {
                 block_signer_sighash,
                 EVENT_RECEIVER_POLL,
                 |status| {
-                    status.total_weight_signed < self.weight_threshold
+                    status.total_weight_approved < self.weight_threshold
                         && status
-                            .total_reject_weight
+                            .total_weight_rejected
                             .saturating_add(self.weight_threshold)
                             <= self.total_weight
                 },
@@ -341,18 +341,18 @@ impl SignerCoordinator {
             };
 
             if block_status
-                .total_reject_weight
+                .total_weight_rejected
                 .saturating_add(self.weight_threshold)
                 > self.total_weight
             {
                 info!(
                     "{}/{} signers vote to reject block",
-                    block_status.total_reject_weight, self.total_weight;
+                    block_status.total_weight_rejected, self.total_weight;
                     "block_signer_sighash" => %block_signer_sighash,
                 );
                 counters.bump_naka_rejected_blocks();
                 return Err(NakamotoNodeError::SignersRejected);
-            } else if block_status.total_weight_signed >= self.weight_threshold {
+            } else if block_status.total_weight_approved >= self.weight_threshold {
                 info!("Received enough signatures, block accepted";
                     "block_signer_sighash" => %block_signer_sighash,
                 );
