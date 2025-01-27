@@ -705,8 +705,16 @@ impl RelayerThread {
             .expect("FATAL: unknown consensus hash");
 
         // always clear this even if this isn't the latest sortition
-        let cleared = self.last_commits.remove(&sn.winning_block_txid);
-        let won_sortition = sn.sortition && cleared;
+        let _cleared = self.last_commits.remove(&sn.winning_block_txid);
+        let was_winning_pkh = if let (Some(ref winning_pkh), Some(ref my_pkh)) =
+            (sn.miner_pk_hash, self.get_mining_key_pkh())
+        {
+            winning_pkh == my_pkh
+        } else {
+            false
+        };
+
+        let won_sortition = sn.sortition && was_winning_pkh;
         if won_sortition {
             increment_stx_blocks_mined_counter();
         }
