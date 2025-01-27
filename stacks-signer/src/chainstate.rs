@@ -89,9 +89,9 @@ impl SortitionState {
         if self.miner_status != SortitionMinerStatus::Valid {
             return Ok(false);
         }
-        // if we've already seen a proposed block from this miner. It cannot have timed out.
-        let has_blocks = signer_db.has_proposed_block_in_tenure(&self.consensus_hash)?;
-        if has_blocks {
+        // if we've already signed a block in this tenure, the miner can't have timed out.
+        let has_block = signer_db.has_signed_block_in_tenure(&self.consensus_hash)?;
+        if has_block {
             return Ok(false);
         }
         let Some(received_ts) = signer_db.get_burn_block_receive_time(&self.burn_block_hash)?
@@ -99,13 +99,15 @@ impl SortitionState {
             return Ok(false);
         };
         let received_time = UNIX_EPOCH + Duration::from_secs(received_ts);
-        let Ok(elapsed) = std::time::SystemTime::now().duration_since(received_time) else {
+        let last_activity = signer_db
+            .get_last_activity_time(&self.consensus_hash)?
+            .map(|time| UNIX_EPOCH + Duration::from_secs(time))
+            .unwrap_or(received_time);
+
+        let Ok(elapsed) = std::time::SystemTime::now().duration_since(last_activity) else {
             return Ok(false);
         };
-        if elapsed > timeout {
-            return Ok(true);
-        }
-        Ok(false)
+        Ok(elapsed > timeout)
     }
 }
 
