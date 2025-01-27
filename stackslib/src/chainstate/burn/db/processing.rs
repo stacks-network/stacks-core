@@ -421,7 +421,7 @@ mod tests {
             treatment: vec![],
         };
 
-        let mut burnchain = Burnchain::default_unittest(100, &first_burn_hash);
+        let mut burnchain = Burnchain::default_unittest(100, first_burn_hash);
         burnchain.initial_reward_start_block = 90;
         let mut db = SortitionDB::connect_test(100, &first_burn_hash).unwrap();
 

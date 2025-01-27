@@ -124,7 +124,7 @@ fn test_mempool_sync_2_peers() {
         let tx_bytes = tx.serialize_to_vec();
         let origin_addr = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
         let tx_fee = tx.get_tx_fee();
 
@@ -204,7 +204,7 @@ fn test_mempool_sync_2_peers() {
         let tx_bytes = tx.serialize_to_vec();
         let origin_addr = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
         let tx_fee = tx.get_tx_fee();
 
@@ -389,7 +389,7 @@ fn test_mempool_sync_2_peers_paginated() {
         let tx_bytes = tx.serialize_to_vec();
         let origin_addr = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
         let tx_fee = tx.get_tx_fee();
 
@@ -579,7 +579,7 @@ fn test_mempool_sync_2_peers_blacklisted() {
         let tx_bytes = tx.serialize_to_vec();
         let origin_addr = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
         let tx_fee = tx.get_tx_fee();
 
@@ -780,7 +780,7 @@ fn test_mempool_sync_2_peers_problematic() {
         let tx_bytes = tx.serialize_to_vec();
         let origin_addr = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
         let tx_fee = tx.get_tx_fee();
 
@@ -1180,7 +1180,7 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
         let tx_bytes = tx.serialize_to_vec();
         let origin_addr = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
         let tx_fee = tx.get_tx_fee();
 

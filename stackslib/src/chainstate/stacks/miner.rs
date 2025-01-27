@@ -1583,7 +1583,7 @@ impl StacksBlockBuilder {
             proof,
             pubkh,
         );
-        builder.header.parent_block = EMPTY_MICROBLOCK_PARENT_HASH.clone();
+        builder.header.parent_block = EMPTY_MICROBLOCK_PARENT_HASH;
         builder
     }
 
@@ -2029,7 +2029,7 @@ impl StacksBlockBuilder {
 
     /// Finish up mining an epoch's transactions
     pub fn epoch_finish(self, tx: ClarityTx) -> Result<ExecutionCost, Error> {
-        let new_consensus_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
+        let new_consensus_hash = MINER_BLOCK_CONSENSUS_HASH;
         let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
 
         let index_block_hash =

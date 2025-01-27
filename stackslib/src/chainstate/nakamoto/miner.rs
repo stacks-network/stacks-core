@@ -358,8 +358,8 @@ impl NakamotoBlockBuilder {
                 // parent is genesis (testing only)
                 (
                     StacksHeaderInfo::regtest_genesis(),
-                    FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-                    FIRST_STACKS_BLOCK_HASH.clone(),
+                    FIRST_BURNCHAIN_CONSENSUS_HASH,
+                    FIRST_STACKS_BLOCK_HASH,
                 )
             }
         };
@@ -445,7 +445,7 @@ impl NakamotoBlockBuilder {
     /// Finish up mining an epoch's transactions.
     /// Return the ExecutionCost consumed so far.
     pub fn tenure_finish(self, tx: ClarityTx) -> Result<ExecutionCost, Error> {
-        let new_consensus_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
+        let new_consensus_hash = MINER_BLOCK_CONSENSUS_HASH;
         let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
 
         let index_block_hash =

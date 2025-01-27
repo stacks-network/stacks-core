@@ -259,7 +259,7 @@ fn pox_extend_transition() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants;
 
@@ -919,7 +919,7 @@ fn pox_lock_unlock() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants;
 
@@ -1094,7 +1094,7 @@ fn pox_3_defunct() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants;
 
@@ -1230,7 +1230,7 @@ fn pox_3_unlocks() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants;
 
@@ -1382,7 +1382,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants.clone();
 
@@ -1773,7 +1773,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants.clone();
 
@@ -2202,7 +2202,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase_skip_cycle()
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants.clone();
 
@@ -2434,7 +2434,7 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants;
 
@@ -2557,7 +2557,7 @@ fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants;
 
@@ -2678,7 +2678,7 @@ fn pox_4_delegate_stack_increase_events() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants;
 
@@ -2778,7 +2778,7 @@ fn pox_4_revoke_delegate_stx_events() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants;
 
@@ -3018,7 +3018,7 @@ fn verify_signer_key_signatures() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants;
 
@@ -6749,7 +6749,7 @@ pub fn pox_4_scenario_test_setup_nakamoto<'a>(
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants;
 
@@ -9136,7 +9136,7 @@ pub fn prepare_pox4_test<'a>(
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants;
 
@@ -9370,7 +9370,7 @@ fn missed_slots_no_unlock() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants.clone();
 
@@ -9623,7 +9623,7 @@ fn no_lockups_2_5() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants;
 

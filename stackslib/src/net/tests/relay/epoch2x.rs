@@ -2846,7 +2846,7 @@ fn process_new_blocks_rejects_problematic_asts() {
             };
 
             let parent_header_hash = parent_tip.anchored_header.block_hash();
-            let parent_consensus_hash = parent_tip.consensus_hash.clone();
+            let parent_consensus_hash = parent_tip.consensus_hash;
             let coinbase_tx = make_coinbase(miner, 0);
 
             let block_builder = StacksBlockBuilder::make_regtest_block_builder(
@@ -2906,7 +2906,7 @@ fn process_new_blocks_rejects_problematic_asts() {
             };
 
             let parent_header_hash = parent_tip.anchored_header.block_hash();
-            let parent_consensus_hash = parent_tip.consensus_hash.clone();
+            let parent_consensus_hash = parent_tip.consensus_hash;
             let parent_index_hash = StacksBlockHeader::make_index_block_hash(
                 &parent_consensus_hash,
                 &parent_header_hash,
@@ -3222,7 +3222,7 @@ fn test_block_pay_to_contract_gated_at_v210() {
             };
 
             let parent_header_hash = parent_tip.anchored_header.block_hash();
-            let parent_consensus_hash = parent_tip.consensus_hash.clone();
+            let parent_consensus_hash = parent_tip.consensus_hash;
             let parent_index_hash = StacksBlockHeader::make_index_block_hash(
                 &parent_consensus_hash,
                 &parent_header_hash,
@@ -3398,7 +3398,7 @@ fn test_block_versioned_smart_contract_gated_at_v210() {
             };
 
             let parent_header_hash = parent_tip.anchored_header.block_hash();
-            let parent_consensus_hash = parent_tip.consensus_hash.clone();
+            let parent_consensus_hash = parent_tip.consensus_hash;
             let parent_index_hash = StacksBlockHeader::make_index_block_hash(
                 &parent_consensus_hash,
                 &parent_header_hash,
@@ -3580,7 +3580,7 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
             };
 
             let parent_header_hash = parent_tip.anchored_header.block_hash();
-            let parent_consensus_hash = parent_tip.consensus_hash.clone();
+            let parent_consensus_hash = parent_tip.consensus_hash;
             let parent_index_hash = StacksBlockHeader::make_index_block_hash(
                 &parent_consensus_hash,
                 &parent_header_hash,

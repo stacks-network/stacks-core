@@ -234,7 +234,7 @@ impl RPCRequestHandler for RPCNakamotoTenureRequestHandler {
                     chainstate,
                     block_id,
                     nakamoto_header.consensus_hash.clone(),
-                    nakamoto_header.parent_block_id.clone(),
+                    nakamoto_header.parent_block_id,
                     self.last_block_id.clone(),
                 )
             });

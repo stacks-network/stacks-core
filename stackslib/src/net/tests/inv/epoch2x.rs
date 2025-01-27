@@ -547,7 +547,7 @@ fn test_sync_inv_set_blocks_microblocks_available() {
             let block_header = BurnchainBlockHeader {
                 block_height: header_height,
                 block_hash: block_header_hash.clone(),
-                parent_block_hash: parent_hdr.block_hash.clone(),
+                parent_block_hash: parent_hdr.block_hash,
                 num_txs: 0,
                 timestamp: now,
             };

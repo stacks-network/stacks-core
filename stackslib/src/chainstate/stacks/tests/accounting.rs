@@ -182,7 +182,7 @@ fn test_bad_microblock_fees_pre_v210() {
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash;
                 let parent_index_hash = StacksBlockHeader::make_index_block_hash(
                     &parent_consensus_hash,
                     &parent_header_hash,
@@ -232,10 +232,10 @@ fn test_bad_microblock_fees_pre_v210() {
                 let (parent_mblock_stream, mblock_pubkey_hash) = {
                     if tenure_id > 0 {
                         chainstate
-                            .reload_unconfirmed_state(&sort_ic, parent_index_hash.clone())
+                            .reload_unconfirmed_state(&sort_ic, parent_index_hash)
                             .unwrap();
 
-                        let parent_microblock_privkey = mblock_privks[tenure_id - 1].clone();
+                        let parent_microblock_privkey = mblock_privks[tenure_id - 1];
                         // produce the microblock stream for the parent, which this tenure's anchor
                         // block will confirm.
                         let mut microblock_builder = StacksMicroblockBuilder::new(
@@ -277,13 +277,13 @@ fn test_bad_microblock_fees_pre_v210() {
                             .unwrap();
                         microblocks.push(mblock);
 
-                        let microblock_privkey = mblock_privks[tenure_id].clone();
+                        let microblock_privkey = mblock_privks[tenure_id];
                         let mblock_pubkey_hash = Hash160::from_node_public_key(
                             &StacksPublicKey::from_private(&microblock_privkey),
                         );
                         (microblocks, mblock_pubkey_hash)
                     } else {
-                        let parent_microblock_privkey = mblock_privks[tenure_id].clone();
+                        let parent_microblock_privkey = mblock_privks[tenure_id];
                         let mblock_pubkey_hash = Hash160::from_node_public_key(
                             &StacksPublicKey::from_private(&parent_microblock_privkey),
                         );
@@ -505,7 +505,7 @@ fn test_bad_microblock_fees_fix_transition() {
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash;
                 let parent_index_hash = StacksBlockHeader::make_index_block_hash(
                     &parent_consensus_hash,
                     &parent_header_hash,
@@ -555,10 +555,10 @@ fn test_bad_microblock_fees_fix_transition() {
                 let (parent_mblock_stream, mblock_pubkey_hash) = {
                     if tenure_id > 0 {
                         chainstate
-                            .reload_unconfirmed_state(&sort_ic, parent_index_hash.clone())
+                            .reload_unconfirmed_state(&sort_ic, parent_index_hash)
                             .unwrap();
 
-                        let parent_microblock_privkey = mblock_privks[tenure_id - 1].clone();
+                        let parent_microblock_privkey = mblock_privks[tenure_id - 1];
                         // produce the microblock stream for the parent, which this tenure's anchor
                         // block will confirm.
                         let mut microblock_builder = StacksMicroblockBuilder::new(
@@ -600,13 +600,13 @@ fn test_bad_microblock_fees_fix_transition() {
                             .unwrap();
                         microblocks.push(mblock);
 
-                        let microblock_privkey = mblock_privks[tenure_id].clone();
+                        let microblock_privkey = mblock_privks[tenure_id];
                         let mblock_pubkey_hash = Hash160::from_node_public_key(
                             &StacksPublicKey::from_private(&microblock_privkey),
                         );
                         (microblocks, mblock_pubkey_hash)
                     } else {
-                        let parent_microblock_privkey = mblock_privks[tenure_id].clone();
+                        let parent_microblock_privkey = mblock_privks[tenure_id];
                         let mblock_pubkey_hash = Hash160::from_node_public_key(
                             &StacksPublicKey::from_private(&parent_microblock_privkey),
                         );
@@ -861,7 +861,7 @@ fn test_get_block_info_v210() {
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash;
                 let parent_index_hash = StacksBlockHeader::make_index_block_hash(
                     &parent_consensus_hash,
                     &parent_header_hash,
@@ -911,10 +911,10 @@ fn test_get_block_info_v210() {
                 let (parent_mblock_stream, mblock_pubkey_hash) = {
                     if tenure_id > 0 {
                         chainstate
-                            .reload_unconfirmed_state(&sort_ic, parent_index_hash.clone())
+                            .reload_unconfirmed_state(&sort_ic, parent_index_hash)
                             .unwrap();
 
-                        let parent_microblock_privkey = mblock_privks[tenure_id - 1].clone();
+                        let parent_microblock_privkey = mblock_privks[tenure_id - 1];
                         // produce the microblock stream for the parent, which this tenure's anchor
                         // block will confirm.
                         let mut microblock_builder = StacksMicroblockBuilder::new(
@@ -956,13 +956,13 @@ fn test_get_block_info_v210() {
                             .unwrap();
                         microblocks.push(mblock);
 
-                        let microblock_privkey = mblock_privks[tenure_id].clone();
+                        let microblock_privkey = mblock_privks[tenure_id];
                         let mblock_pubkey_hash = Hash160::from_node_public_key(
                             &StacksPublicKey::from_private(&microblock_privkey),
                         );
                         (microblocks, mblock_pubkey_hash)
                     } else {
-                        let parent_microblock_privkey = mblock_privks[tenure_id].clone();
+                        let parent_microblock_privkey = mblock_privks[tenure_id];
                         let mblock_pubkey_hash = Hash160::from_node_public_key(
                             &StacksPublicKey::from_private(&parent_microblock_privkey),
                         );
@@ -1233,7 +1233,7 @@ fn test_get_block_info_v210_no_microblocks() {
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash;
                 let parent_index_hash = StacksBlockHeader::make_index_block_hash(
                     &parent_consensus_hash,
                     &parent_header_hash,
@@ -1280,7 +1280,7 @@ fn test_get_block_info_v210_no_microblocks() {
                 }
 
                 let mblock_pubkey_hash = {
-                    let parent_microblock_privkey = mblock_privks[tenure_id].clone();
+                    let parent_microblock_privkey = mblock_privks[tenure_id];
                     let mblock_pubkey_hash = Hash160::from_node_public_key(
                         &StacksPublicKey::from_private(&parent_microblock_privkey),
                     );
@@ -1560,7 +1560,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash;
                 let parent_index_hash = StacksBlockHeader::make_index_block_hash(
                     &parent_consensus_hash,
                     &parent_header_hash,
@@ -1680,10 +1680,10 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                 let (parent_mblock_stream, mblock_pubkey_hash) = {
                     if tenure_id > 0 {
                         chainstate
-                            .reload_unconfirmed_state(&sort_ic, parent_index_hash.clone())
+                            .reload_unconfirmed_state(&sort_ic, parent_index_hash)
                             .unwrap();
 
-                        let parent_microblock_privkey = mblock_privks[tenure_id - 1].clone();
+                        let parent_microblock_privkey = mblock_privks[tenure_id - 1];
                         // produce the microblock stream for the parent, which this tenure's anchor
                         // block will confirm.
                         let mut microblock_builder = StacksMicroblockBuilder::new(
@@ -1725,13 +1725,13 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                             .unwrap();
                         microblocks.push(mblock);
 
-                        let microblock_privkey = mblock_privks[tenure_id].clone();
+                        let microblock_privkey = mblock_privks[tenure_id];
                         let mblock_pubkey_hash = Hash160::from_node_public_key(
                             &StacksPublicKey::from_private(&microblock_privkey),
                         );
                         (microblocks, mblock_pubkey_hash)
                     } else {
-                        let parent_microblock_privkey = mblock_privks[tenure_id].clone();
+                        let parent_microblock_privkey = mblock_privks[tenure_id];
                         let mblock_pubkey_hash = Hash160::from_node_public_key(
                             &StacksPublicKey::from_private(&parent_microblock_privkey),
                         );

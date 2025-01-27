@@ -581,7 +581,7 @@ impl WritableMarfStore<'_> {
 
     #[cfg(test)]
     pub fn test_commit(self) {
-        let bhh = self.chain_tip.clone();
+        let bhh = self.chain_tip;
         self.commit_to(&bhh).unwrap();
     }
 

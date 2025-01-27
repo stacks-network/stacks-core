@@ -2606,7 +2606,7 @@ pub mod test {
             let start_block = 0;
             let mut burnchain = Burnchain::default_unittest(
                 start_block,
-                &BurnchainHeaderHash::from_hex(BITCOIN_GENESIS_BLOCK_HASH_REGTEST).unwrap(),
+                BurnchainHeaderHash::from_hex(BITCOIN_GENESIS_BLOCK_HASH_REGTEST).unwrap(),
             );
 
             burnchain.pox_constants = PoxConstants::test_20_no_sunset();
@@ -3058,8 +3058,8 @@ pub mod test {
                 let prev_snapshot = SortitionDB::get_first_block_snapshot(sortdb.conn()).unwrap();
                 let mut fork = TestBurnchainFork::new(
                     prev_snapshot.block_height,
-                    &prev_snapshot.burn_header_hash,
-                    &prev_snapshot.index_root,
+                    prev_snapshot.burn_header_hash,
+                    prev_snapshot.index_root,
                     0,
                 );
                 for i in prev_snapshot.block_height..config.current_block {
@@ -3612,15 +3612,14 @@ pub mod test {
                 .bitcoin_hash(),
             );
             test_debug!(
-                "Block header hash at {} is {}",
-                tip_block_height + 1,
-                &block_header_hash
+                "Block header hash at {} is {block_header_hash}",
+                tip_block_height + 1
             );
 
             let block_header = BurnchainBlockHeader {
                 block_height: tip_block_height + 1,
                 block_hash: block_header_hash.clone(),
-                parent_block_hash: parent_hdr.block_hash.clone(),
+                parent_block_hash: parent_hdr.block_hash,
                 num_txs: num_ops,
                 timestamp: now,
             };

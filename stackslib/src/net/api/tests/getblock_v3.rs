@@ -164,7 +164,7 @@ fn test_stream_nakamoto_blocks() {
         peer.chainstate(),
         nakamoto_tip_block_id,
         nakamoto_tip.0.clone(),
-        nakamoto_header.parent_block_id.clone(),
+        nakamoto_header.parent_block_id,
     )
     .unwrap();
     let mut all_block_bytes = vec![];

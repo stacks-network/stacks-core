@@ -201,7 +201,7 @@ where
         )
         .commit_block();
 
-    let mut tip = first_block.clone();
+    let mut tip = first_block;
 
     if epoch >= StacksEpochId::Epoch2_05 {
         let next_block = StacksBlockId([1; 32]);
@@ -209,7 +209,7 @@ where
             clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &TEST_BURN_STATE_DB);
         clarity_conn.initialize_epoch_2_05().unwrap();
         clarity_conn.commit_block();
-        tip = next_block.clone();
+        tip = next_block;
     }
 
     if epoch >= StacksEpochId::Epoch21 {
@@ -218,7 +218,7 @@ where
             clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &TEST_BURN_STATE_DB);
         clarity_conn.initialize_epoch_2_1().unwrap();
         clarity_conn.commit_block();
-        tip = next_block.clone();
+        tip = next_block;
     }
 
     let mut marf_kv = clarity_instance.destroy();

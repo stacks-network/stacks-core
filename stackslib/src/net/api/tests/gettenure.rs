@@ -169,7 +169,7 @@ fn test_stream_nakamoto_tenure() {
         peer.chainstate(),
         nakamoto_tip_block_id.clone(),
         nakamoto_header.consensus_hash.clone(),
-        nakamoto_header.parent_block_id.clone(),
+        nakamoto_header.parent_block_id,
         None,
     )
     .unwrap();

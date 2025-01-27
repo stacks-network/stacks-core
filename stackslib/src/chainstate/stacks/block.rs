@@ -91,7 +91,7 @@ impl StacksBlockHeader {
             total_work: StacksWorkScore::genesis(),
             proof: VRFProof::empty(),
             parent_block: BOOT_BLOCK_HASH.clone(),
-            parent_microblock: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            parent_microblock: EMPTY_MICROBLOCK_PARENT_HASH,
             parent_microblock_sequence: 0,
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
@@ -148,7 +148,7 @@ impl StacksBlockHeader {
     ) -> StacksBlockHeader {
         let (parent_microblock, parent_microblock_sequence) = match parent_microblock_header {
             Some(header) => (header.block_hash(), header.sequence),
-            None => (EMPTY_MICROBLOCK_PARENT_HASH.clone(), 0),
+            None => (EMPTY_MICROBLOCK_PARENT_HASH, 0),
         };
 
         StacksBlockHeader {
@@ -991,7 +991,7 @@ mod test {
                 work: 456,
             },
             proof,
-            parent_block: FIRST_STACKS_BLOCK_HASH.clone(),
+            parent_block: FIRST_STACKS_BLOCK_HASH,
             parent_microblock: BlockHeaderHash([1u8; 32]),
             parent_microblock_sequence: 3,
             tx_merkle_root: Sha512Trunc256Sum([2u8; 32]),
@@ -1035,7 +1035,7 @@ mod test {
         let header = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
             tx_merkle_root: Sha512Trunc256Sum([1u8; 32]),
             signature: MessageSignature([2u8; 65]),
         };
@@ -1167,7 +1167,7 @@ mod test {
             let header = StacksMicroblockHeader {
                 version: 0x12,
                 sequence: 0x34,
-                prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+                prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
                 tx_merkle_root,
                 signature: MessageSignature([
                     0x00, 0x35, 0x44, 0x45, 0xa1, 0xdc, 0x98, 0xa1, 0xbd, 0x27, 0x98, 0x4d, 0xbe,
@@ -1216,7 +1216,7 @@ mod test {
         let mut mblock_header = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             signature: MessageSignature::empty(),
         };
@@ -1237,7 +1237,7 @@ mod test {
         let mut mblock_header = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             signature: MessageSignature::empty(),
         };
@@ -1558,7 +1558,7 @@ mod test {
         let header = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             signature: MessageSignature::empty(),
         };

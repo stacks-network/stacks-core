@@ -10583,7 +10583,7 @@ pub mod tests {
         let first_block_height = first_block_header.block_height;
 
         let mut headers = vec![first_block_header.clone()];
-        let key_register = make_simple_key_register(&first_block_header.block_hash, 0, 1);
+        let key_register = make_simple_key_register(first_block_header.block_hash, 0, 1);
 
         let (next_headers, commits) = make_reward_cycle(
             &mut burnchain_db,

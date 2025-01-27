@@ -768,7 +768,7 @@ fn replay_block(
     )
     .unwrap();
     let (last_microblock_hash, last_microblock_seq) = match next_microblocks.len() {
-        0 => (EMPTY_MICROBLOCK_PARENT_HASH.clone(), 0),
+        0 => (EMPTY_MICROBLOCK_PARENT_HASH, 0),
         _ => {
             let l = next_microblocks.len();
             (

@@ -159,7 +159,7 @@ fn test_stream_mempool_txs() {
         let tx_bytes = tx.serialize_to_vec();
         let origin_addr = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
         let tx_fee = tx.get_tx_fee();
 

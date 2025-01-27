@@ -975,7 +975,7 @@ impl NakamotoBlockHeader {
             version: 0,
             chain_length: 0,
             burn_spent: 0,
-            consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+            consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH,
             parent_block_id: StacksBlockId(BOOT_BLOCK_HASH.0.clone()),
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
@@ -4286,10 +4286,7 @@ impl NakamotoChainState {
 
         // check that this block attaches to the `parent_chain_tip`
         let (parent_ch, parent_block_hash) = if block.is_first_mined() {
-            (
-                FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-                FIRST_STACKS_BLOCK_HASH.clone(),
-            )
+            (FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH)
         } else {
             (
                 parent_chain_tip.consensus_hash.clone(),

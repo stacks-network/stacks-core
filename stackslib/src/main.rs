@@ -1697,7 +1697,7 @@ simulating a miner.
     loop {
         let parent_block_id = match stacks_header.anchored_header {
             StacksBlockHeaderTypes::Nakamoto(ref nakamoto_header) => {
-                nakamoto_header.parent_block_id.clone()
+                nakamoto_header.parent_block_id
             }
             StacksBlockHeaderTypes::Epoch2(ref epoch2_header) => {
                 let block_info = StacksChainState::load_staging_block(

@@ -500,7 +500,7 @@ pub mod tests {
             .unwrap(),
             vtxindex: 456,
             block_height: 123,
-            burn_header_hash: block_123_hash.clone(),
+            burn_header_hash: block_123_hash,
         };
 
         let block_ops = [
@@ -636,7 +636,7 @@ pub mod tests {
                     .unwrap(),
                     vtxindex: 455,
                     block_height: 123,
-                    burn_header_hash: block_123_hash.clone(),
+                    burn_header_hash: block_123_hash,
                 },
                 res: Err(op_error::LeaderKeyAlreadyRegistered),
             },
@@ -665,7 +665,7 @@ pub mod tests {
                     .unwrap(),
                     vtxindex: 456,
                     block_height: 123,
-                    burn_header_hash: block_123_hash.clone(),
+                    burn_header_hash: block_123_hash,
                 },
                 res: Ok(()),
             },

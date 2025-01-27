@@ -4201,7 +4201,7 @@ impl PeerNetwork {
 
         let parent_block_id = match tenure_start_header.anchored_header {
             StacksBlockHeaderTypes::Nakamoto(ref nakamoto_header) => {
-                nakamoto_header.parent_block_id.clone()
+                nakamoto_header.parent_block_id
             }
             StacksBlockHeaderTypes::Epoch2(..) => StacksChainState::get_parent_block_id(
                 chainstate.db(),
@@ -4525,12 +4525,11 @@ impl PeerNetwork {
                 Err(net_error::DBError(db_error::NotFoundError)) => {
                     // this is the first block
                     debug!(
-                        "First-ever block (no parent): {:?} ({}/{})",
-                        &new_stacks_tip_block_id, &stacks_tip_ch, &stacks_tip_bhh
+                        "First-ever block (no parent): {new_stacks_tip_block_id:?} ({stacks_tip_ch}/{stacks_tip_bhh})"
                     );
                     StacksTipInfo {
-                        consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-                        block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
+                        consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH,
+                        block_hash: FIRST_STACKS_BLOCK_HASH,
                         height: 0,
                         coinbase_height: 0,
                         is_nakamoto: false,
@@ -4998,10 +4997,7 @@ impl PeerNetwork {
         {
             (header.consensus_hash, header.anchored_header.block_hash())
         } else {
-            (
-                FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-                FIRST_STACKS_BLOCK_HASH.clone(),
-            )
+            (FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH)
         };
 
         let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;

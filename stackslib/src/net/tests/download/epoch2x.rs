@@ -736,7 +736,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain_100_blocks() {
                     };
 
                     let parent_header_hash = parent_tip.anchored_header.block_hash();
-                    let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                    let parent_consensus_hash = parent_tip.consensus_hash;
                     let parent_index_hash = StacksBlockHeader::make_index_block_hash(
                         &parent_consensus_hash,
                         &parent_header_hash,

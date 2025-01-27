@@ -2468,7 +2468,7 @@ mod test {
         let header_1 = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
             tx_merkle_root: Sha512Trunc256Sum([1u8; 32]),
             signature: MessageSignature([2u8; 65]),
         };
@@ -2476,7 +2476,7 @@ mod test {
         let header_2 = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
             tx_merkle_root: Sha512Trunc256Sum([2u8; 32]),
             signature: MessageSignature([3u8; 65]),
         };
@@ -3831,7 +3831,7 @@ mod test {
         let header_1 = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
             tx_merkle_root: Sha512Trunc256Sum([1u8; 32]),
             signature: MessageSignature([2u8; 65]),
         };
@@ -3839,7 +3839,7 @@ mod test {
         let header_2 = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
             tx_merkle_root: Sha512Trunc256Sum([2u8; 32]),
             signature: MessageSignature([3u8; 65]),
         };

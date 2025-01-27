@@ -392,7 +392,7 @@ impl StacksHeaderInfo {
             index_root: root_hash,
             burn_header_hash: first_burnchain_block_hash.clone(),
             burn_header_height: first_burnchain_block_height,
-            consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+            consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH,
             burn_header_timestamp: first_burnchain_block_timestamp,
             anchored_block_size: 0,
             burn_view: None,

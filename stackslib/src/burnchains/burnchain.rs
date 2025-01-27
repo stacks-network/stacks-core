@@ -626,7 +626,7 @@ impl Burnchain {
     #[cfg(test)]
     pub fn default_unittest(
         first_block_height: u64,
-        first_block_hash: &BurnchainHeaderHash,
+        first_block_hash: BurnchainHeaderHash,
     ) -> Burnchain {
         use rand::rngs::ThreadRng;
         use rand::{thread_rng, RngCore};
@@ -639,7 +639,7 @@ impl Burnchain {
         let mut ret = Burnchain::new(&tmp_path, "bitcoin", "mainnet").unwrap();
         ret.first_block_height = first_block_height;
         ret.initial_reward_start_block = first_block_height;
-        ret.first_block_hash = first_block_hash.clone();
+        ret.first_block_hash = first_block_hash;
         ret
     }
 
@@ -652,7 +652,7 @@ impl Burnchain {
     pub fn get_chainstate_config_path(working_dir: &String, chain_name: &String) -> String {
         let chainstate_dir = Burnchain::get_chainstate_path_str(working_dir);
         let mut config_pathbuf = PathBuf::from(&chainstate_dir);
-        let chainstate_config_name = format!("{}.ini", chain_name);
+        let chainstate_config_name = format!("{chain_name}.ini");
         config_pathbuf.push(&chainstate_config_name);
 
         config_pathbuf.to_str().unwrap().to_string()

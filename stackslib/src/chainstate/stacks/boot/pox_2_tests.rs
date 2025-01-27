@@ -694,7 +694,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
@@ -708,7 +708,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
 
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    eprintln!("First v2 cycle = {}", first_v2_cycle);
+    eprintln!("First v2 cycle = {first_v2_cycle}");
 
     let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
 
@@ -1154,7 +1154,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
@@ -1169,7 +1169,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
 
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    eprintln!("First v2 cycle = {}", first_v2_cycle);
+    eprintln!("First v2 cycle = {first_v2_cycle}");
 
     let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
 
@@ -1447,7 +1447,7 @@ fn delegate_stack_increase() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
@@ -1803,7 +1803,7 @@ fn stack_increase() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
@@ -1818,7 +1818,7 @@ fn stack_increase() {
 
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    eprintln!("First v2 cycle = {}", first_v2_cycle);
+    eprintln!("First v2 cycle = {first_v2_cycle}");
 
     let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
 
@@ -2050,7 +2050,7 @@ fn test_lock_period_invariant_extend_transition() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
@@ -2062,7 +2062,7 @@ fn test_lock_period_invariant_extend_transition() {
         .unwrap()
         + 1;
 
-    eprintln!("First v2 cycle = {}", first_v2_cycle);
+    eprintln!("First v2 cycle = {first_v2_cycle}");
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
     let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
@@ -2212,7 +2212,7 @@ fn test_pox_extend_transition_pox_2() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
@@ -2224,7 +2224,7 @@ fn test_pox_extend_transition_pox_2() {
         .unwrap()
         + 1;
 
-    eprintln!("First v2 cycle = {}", first_v2_cycle);
+    eprintln!("First v2 cycle = {first_v2_cycle}");
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
     let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
@@ -2655,7 +2655,7 @@ fn test_delegate_extend_transition_pox_2() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
@@ -2667,7 +2667,7 @@ fn test_delegate_extend_transition_pox_2() {
         .unwrap()
         + 1;
 
-    eprintln!("First v2 cycle = {}", first_v2_cycle);
+    eprintln!("First v2 cycle = {first_v2_cycle}");
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
     let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
@@ -3408,7 +3408,7 @@ fn test_pox_2_getters() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
@@ -3420,7 +3420,7 @@ fn test_pox_2_getters() {
         .unwrap()
         + 1;
 
-    eprintln!("First v2 cycle = {}", first_v2_cycle);
+    eprintln!("First v2 cycle = {first_v2_cycle}");
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
     let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
@@ -3702,7 +3702,7 @@ fn test_pox_2_getters() {
 fn test_get_pox_addrs() {
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 4; // 4 reward slots
     burnchain.pox_constants.prepare_length = 2;
@@ -3973,7 +3973,7 @@ fn test_get_pox_addrs() {
 fn test_stack_with_segwit() {
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 4; // 4 reward slots
     burnchain.pox_constants.prepare_length = 2;
@@ -4288,7 +4288,7 @@ fn test_pox_2_delegate_stx_addr_validation() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
@@ -4300,7 +4300,7 @@ fn test_pox_2_delegate_stx_addr_validation() {
         .unwrap()
         + 1;
 
-    eprintln!("First v2 cycle = {}", first_v2_cycle);
+    eprintln!("First v2 cycle = {first_v2_cycle}");
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
     let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
@@ -4473,7 +4473,7 @@ fn stack_aggregation_increase() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
@@ -4488,7 +4488,7 @@ fn stack_aggregation_increase() {
 
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    eprintln!("First v2 cycle = {}", first_v2_cycle);
+    eprintln!("First v2 cycle = {first_v2_cycle}");
 
     let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
 
@@ -4923,7 +4923,7 @@ fn stack_in_both_pox1_and_pox2() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
@@ -4938,7 +4938,7 @@ fn stack_in_both_pox1_and_pox2() {
 
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    eprintln!("First v2 cycle = {}", first_v2_cycle);
+    eprintln!("First v2 cycle = {first_v2_cycle}");
 
     let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
 

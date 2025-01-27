@@ -180,7 +180,7 @@ fn simple_pox_lockup_transition_pox_2() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants.clone();
 
@@ -191,7 +191,7 @@ fn simple_pox_lockup_transition_pox_2() {
 
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    eprintln!("First v2 cycle = {}", first_v2_cycle);
+    eprintln!("First v2 cycle = {first_v2_cycle}");
 
     let observer = TestEventObserver::new();
 
@@ -577,7 +577,7 @@ fn pox_auto_unlock(alice_first: bool) {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants.clone();
 
@@ -593,13 +593,13 @@ fn pox_auto_unlock(alice_first: bool) {
 
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    eprintln!("First v2 cycle = {}", first_v2_cycle);
+    eprintln!("First v2 cycle = {first_v2_cycle}");
 
     let observer = TestEventObserver::new();
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
-        &format!("{}-{}", function_name!(), alice_first),
+        &format!("{}-{alice_first}", function_name!()),
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -1009,7 +1009,7 @@ fn delegate_stack_increase() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants;
 
@@ -1630,7 +1630,7 @@ fn stack_increase() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants;
 
@@ -2059,7 +2059,7 @@ fn pox_extend_transition() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants;
 
@@ -2579,7 +2579,7 @@ fn delegate_extend_pox_3() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants;
 
@@ -3065,7 +3065,7 @@ fn pox_3_getters() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants;
 
@@ -3420,7 +3420,7 @@ fn get_pox_addrs() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants;
 
@@ -3629,7 +3629,7 @@ fn stack_with_segwit() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants;
 
@@ -3844,7 +3844,7 @@ fn stack_aggregation_increase() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants;
 
@@ -4284,7 +4284,7 @@ fn pox_3_delegate_stx_addr_validation() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants;
 

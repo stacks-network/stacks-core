@@ -816,7 +816,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     ) {
         let mut stackerdb = StackerDB::new(
             &self.running_nodes.conf.node.rpc_bind,
-            private_key.clone(),
+            *private_key,
             false,
             reward_cycle,
             self.get_signer_slot_id(reward_cycle, &to_addr(private_key))

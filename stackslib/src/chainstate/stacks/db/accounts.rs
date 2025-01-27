@@ -232,10 +232,10 @@ impl MinerPaymentSchedule {
         MinerPaymentSchedule {
             address: StacksAddress::burn_address(mainnet),
             recipient: StacksAddress::burn_address(mainnet).to_account_principal(),
-            block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
-            consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            parent_block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
-            parent_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+            block_hash: FIRST_STACKS_BLOCK_HASH,
+            consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH,
+            parent_block_hash: FIRST_STACKS_BLOCK_HASH,
+            parent_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH,
             coinbase: 0,
             tx_fees: MinerPaymentTxFees::Epoch2 {
                 anchored: 0,
@@ -1105,10 +1105,10 @@ mod test {
         MinerPaymentSchedule {
             address: addr.clone(),
             recipient: addr.clone().to_account_principal(),
-            block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
-            consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            parent_block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
-            parent_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+            block_hash: FIRST_STACKS_BLOCK_HASH,
+            consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH,
+            parent_block_hash: FIRST_STACKS_BLOCK_HASH,
+            parent_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH,
             coinbase,
             tx_fees: MinerPaymentTxFees::Epoch2 {
                 anchored: tx_fees_anchored,

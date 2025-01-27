@@ -5467,10 +5467,7 @@ impl StacksChainState {
 
         let (parent_consensus_hash, parent_block_hash) = if block.is_first_mined() {
             // has to be the sentinal hashes if this block has no parent
-            (
-                FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-                FIRST_STACKS_BLOCK_HASH.clone(),
-            )
+            (FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH)
         } else {
             (
                 parent_chain_tip.consensus_hash.clone(),
@@ -5479,7 +5476,7 @@ impl StacksChainState {
         };
 
         let (last_microblock_hash, last_microblock_seq) = if microblocks.is_empty() {
-            (EMPTY_MICROBLOCK_PARENT_HASH.clone(), 0)
+            (EMPTY_MICROBLOCK_PARENT_HASH, 0)
         } else {
             let _first_mblock_hash = microblocks[0].block_hash();
             let num_mblocks = microblocks.len();
@@ -6232,7 +6229,7 @@ impl StacksChainState {
             next_microblocks,
         )?;
         let (last_microblock_hash, last_microblock_seq) = match next_microblocks.len() {
-            0 => (EMPTY_MICROBLOCK_PARENT_HASH.clone(), 0),
+            0 => (EMPTY_MICROBLOCK_PARENT_HASH, 0),
             _ => {
                 let l = next_microblocks.len();
                 (
@@ -7664,7 +7661,7 @@ pub mod test {
 
         // don't worry about freeing microblcok state yet
         block.header.parent_microblock_sequence = 0;
-        block.header.parent_microblock = EMPTY_MICROBLOCK_PARENT_HASH.clone();
+        block.header.parent_microblock = EMPTY_MICROBLOCK_PARENT_HASH;
 
         let path = StacksChainState::get_block_path(
             &chainstate.blocks_path,
@@ -8623,7 +8620,7 @@ pub mod test {
         // empty stream
         {
             let mut child_block_header_empty = child_block_header.clone();
-            child_block_header_empty.parent_microblock = EMPTY_MICROBLOCK_PARENT_HASH.clone();
+            child_block_header_empty.parent_microblock = EMPTY_MICROBLOCK_PARENT_HASH;
             child_block_header_empty.parent_microblock_sequence = 0;
 
             let res = StacksChainState::validate_parent_microblock_stream(
@@ -8642,7 +8639,7 @@ pub mod test {
         // non-empty stream, but child drops all microblocks
         {
             let mut child_block_header_empty = child_block_header.clone();
-            child_block_header_empty.parent_microblock = EMPTY_MICROBLOCK_PARENT_HASH.clone();
+            child_block_header_empty.parent_microblock = EMPTY_MICROBLOCK_PARENT_HASH;
             child_block_header_empty.parent_microblock_sequence = 0;
 
             let res = StacksChainState::validate_parent_microblock_stream(

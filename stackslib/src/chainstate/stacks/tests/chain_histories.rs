@@ -101,8 +101,8 @@ where
     let first_snapshot = SortitionDB::get_first_block_snapshot(burn_node.sortdb.conn()).unwrap();
     let mut fork = TestBurnchainFork::new(
         first_snapshot.block_height,
-        &first_snapshot.burn_header_hash,
-        &first_snapshot.index_root,
+        first_snapshot.burn_header_hash,
+        first_snapshot.index_root,
         0,
     );
 
@@ -286,8 +286,8 @@ where
     let first_snapshot = SortitionDB::get_first_block_snapshot(burn_node.sortdb.conn()).unwrap();
     let mut fork = TestBurnchainFork::new(
         first_snapshot.block_height,
-        &first_snapshot.burn_header_hash,
-        &first_snapshot.index_root,
+        first_snapshot.burn_header_hash,
+        first_snapshot.index_root,
         0,
     );
 
@@ -740,8 +740,8 @@ where
     let first_snapshot = SortitionDB::get_first_block_snapshot(burn_node.sortdb.conn()).unwrap();
     let mut fork = TestBurnchainFork::new(
         first_snapshot.block_height,
-        &first_snapshot.burn_header_hash,
-        &first_snapshot.index_root,
+        first_snapshot.burn_header_hash,
+        first_snapshot.index_root,
         0,
     );
 
@@ -1356,8 +1356,8 @@ where
     let first_snapshot = SortitionDB::get_first_block_snapshot(burn_node.sortdb.conn()).unwrap();
     let mut fork_1 = TestBurnchainFork::new(
         first_snapshot.block_height,
-        &first_snapshot.burn_header_hash,
-        &first_snapshot.index_root,
+        first_snapshot.burn_header_hash,
+        first_snapshot.index_root,
         0,
     );
 
@@ -1914,8 +1914,8 @@ where
     let first_snapshot = SortitionDB::get_first_block_snapshot(burn_node.sortdb.conn()).unwrap();
     let mut fork_1 = TestBurnchainFork::new(
         first_snapshot.block_height,
-        &first_snapshot.burn_header_hash,
-        &first_snapshot.index_root,
+        first_snapshot.burn_header_hash,
+        first_snapshot.index_root,
         0,
     );
 

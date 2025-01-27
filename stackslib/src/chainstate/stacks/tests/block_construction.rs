@@ -222,7 +222,7 @@ fn test_build_anchored_blocks_stx_transfers_single() {
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash;
 
                 let mut mempool =
                     MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
@@ -359,7 +359,7 @@ fn test_build_anchored_blocks_empty_with_builder_timeout() {
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash;
 
                 let mut mempool =
                     MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
@@ -497,7 +497,7 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash;
 
                 let mut mempool =
                     MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
@@ -703,7 +703,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash;
                 let parent_index_hash = StacksBlockHeader::make_index_block_hash(
                     &parent_consensus_hash,
                     &parent_header_hash,
@@ -717,10 +717,10 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
                 let (parent_mblock_stream, mblock_pubkey_hash) = {
                     if tenure_id > 0 {
                         chainstate
-                            .reload_unconfirmed_state(&sort_ic, parent_index_hash.clone())
+                            .reload_unconfirmed_state(&sort_ic, parent_index_hash)
                             .unwrap();
 
-                        let parent_microblock_privkey = mblock_privks[tenure_id - 1].clone();
+                        let parent_microblock_privkey = mblock_privks[tenure_id - 1];
                         // produce the microblock stream for the parent, which this tenure's anchor
                         // block will confirm.
                         let mut microblock_builder = StacksMicroblockBuilder::new(
@@ -760,13 +760,13 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
                             .unwrap();
                         microblocks.push(mblock);
 
-                        let microblock_privkey = mblock_privks[tenure_id].clone();
+                        let microblock_privkey = mblock_privks[tenure_id];
                         let mblock_pubkey_hash = Hash160::from_node_public_key(
                             &StacksPublicKey::from_private(&microblock_privkey),
                         );
                         (microblocks, mblock_pubkey_hash)
                     } else {
-                        let parent_microblock_privkey = mblock_privks[tenure_id].clone();
+                        let parent_microblock_privkey = mblock_privks[tenure_id];
                         let mblock_pubkey_hash = Hash160::from_node_public_key(
                             &StacksPublicKey::from_private(&parent_microblock_privkey),
                         );
@@ -959,7 +959,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash;
                 let parent_index_hash = StacksBlockHeader::make_index_block_hash(
                     &parent_consensus_hash,
                     &parent_header_hash,
@@ -973,10 +973,10 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
                 let (parent_mblock_stream, mblock_pubkey_hash) = {
                     if tenure_id > 0 {
                         chainstate
-                            .reload_unconfirmed_state(&sort_ic, parent_index_hash.clone())
+                            .reload_unconfirmed_state(&sort_ic, parent_index_hash)
                             .unwrap();
 
-                        let parent_microblock_privkey = mblock_privks[tenure_id - 1].clone();
+                        let parent_microblock_privkey = mblock_privks[tenure_id - 1];
 
                         // produce the microblock stream for the parent, which this tenure's anchor
                         // block will confirm.
@@ -1017,13 +1017,13 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
                             .unwrap();
                         microblocks.push(mblock);
 
-                        let microblock_privkey = mblock_privks[tenure_id].clone();
+                        let microblock_privkey = mblock_privks[tenure_id];
                         let mblock_pubkey_hash = Hash160::from_node_public_key(
                             &StacksPublicKey::from_private(&microblock_privkey),
                         );
                         (microblocks, mblock_pubkey_hash)
                     } else {
-                        let parent_microblock_privkey = mblock_privks[tenure_id].clone();
+                        let parent_microblock_privkey = mblock_privks[tenure_id];
                         let mblock_pubkey_hash = Hash160::from_node_public_key(
                             &StacksPublicKey::from_private(&parent_microblock_privkey),
                         );
@@ -1106,7 +1106,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
             }
 
             // the parent of this block crosses the epoch boundary
-            let last_block_ch = last_block_ch.clone().unwrap();
+            let last_block_ch = last_block_ch.unwrap();
             assert!(StacksChainState::block_crosses_epoch_boundary(
                 peer.chainstate().db(),
                 &last_block_ch,
@@ -1214,17 +1214,16 @@ fn test_build_anchored_blocks_incrementing_nonces() {
             };
 
             let parent_header_hash = parent_tip.anchored_header.block_hash();
-            let parent_consensus_hash = parent_tip.consensus_hash.clone();
+            let parent_consensus_hash = parent_tip.consensus_hash;
             let coinbase_tx = make_coinbase(miner, 0);
 
             let txs: Vec<_> = private_keys
                 .iter()
                 .flat_map(|privk| {
-                    let privk = privk.clone();
                     (0..25).map(move |tx_nonce| {
                         let contract = "(define-data-var bar int 0)";
                         make_user_contract_publish(
-                            &privk,
+                            privk,
                             tx_nonce,
                             200 * (tx_nonce + 1),
                             &format!("contract-{}", tx_nonce),
@@ -1410,7 +1409,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash;
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
                 let mut mempool =
@@ -1593,7 +1592,7 @@ fn test_build_anchored_blocks_mempool_fee_transaction_too_low() {
             };
 
             let parent_header_hash = parent_tip.anchored_header.block_hash();
-            let parent_consensus_hash = parent_tip.consensus_hash.clone();
+            let parent_consensus_hash = parent_tip.consensus_hash;
 
             let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
@@ -1829,7 +1828,7 @@ fn test_build_anchored_blocks_multiple_chaintips() {
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash;
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
                 let mut mempool =
@@ -1971,7 +1970,7 @@ fn test_build_anchored_blocks_empty_chaintips() {
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash;
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
                 let mut mempool =
@@ -2114,7 +2113,7 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash;
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
                 let mut mempool =
@@ -2480,7 +2479,7 @@ fn test_build_anchored_blocks_bad_nonces() {
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_tip_ch = parent_tip.consensus_hash.clone();
+                let parent_tip_ch = parent_tip.consensus_hash;
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
                 let mut mempool =
@@ -2676,7 +2675,7 @@ fn test_build_microblock_stream_forks() {
         )
         .unwrap();
 
-        addrs.push(addr.clone());
+        addrs.push(addr);
         privks.push(privk);
         mblock_privks.push(mblock_privk);
         balances.push((addr.to_account_principal(), initial_balance));
@@ -2736,7 +2735,7 @@ fn test_build_microblock_stream_forks() {
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash;
                 let parent_index_hash = StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash);
                 let parent_size = parent_tip.anchored_block_size;
 
@@ -2744,7 +2743,7 @@ fn test_build_microblock_stream_forks() {
 
                 let expected_parent_microblock_opt =
                     if tenure_id > 0 {
-                        let parent_microblock_privkey = mblock_privks[tenure_id - 1].clone();
+                        let parent_microblock_privkey = mblock_privks[tenure_id - 1];
 
                         let parent_mblock_stream = {
                             let parent_cost = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash)).unwrap().unwrap();
@@ -2754,10 +2753,10 @@ fn test_build_microblock_stream_forks() {
                             let sort_ic = sortdb.index_handle_at_tip();
 
                             chainstate
-                                .reload_unconfirmed_state(&sort_ic, parent_index_hash.clone())
+                                .reload_unconfirmed_state(&sort_ic, parent_index_hash)
                                 .unwrap();
 
-                            let mut microblock_builder = StacksMicroblockBuilder::new(parent_header_hash.clone(), parent_consensus_hash.clone(), chainstate, &sort_ic, BlockBuilderSettings::max_value()).unwrap();
+                            let mut microblock_builder = StacksMicroblockBuilder::new(parent_header_hash, parent_consensus_hash, chainstate, &sort_ic, BlockBuilderSettings::max_value()).unwrap();
 
                             let mut microblocks = vec![];
                             for i in 0..5 {
@@ -2977,7 +2976,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
         .unwrap();
 
         test_debug!("addr: {:?}", &addr);
-        addrs.push(addr.clone());
+        addrs.push(addr);
         privks.push(privk);
         mblock_privks.push(mblock_privk);
         balances.push((addr.to_account_principal(), initial_balance));
@@ -3062,7 +3061,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
                     };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash;
                 let parent_index_hash = StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash);
                 let parent_size = parent_tip.anchored_block_size;
 
@@ -3071,7 +3070,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
                 let (expected_parent_microblock_opt, fork_1, fork_2) =
                     if tenure_id == 1 {
                         // make a microblock fork
-                        let parent_microblock_privkey = mblock_privks[tenure_id - 1].clone();
+                        let parent_microblock_privkey = mblock_privks[tenure_id - 1];
 
                         let parent_mblock_stream = {
                             let parent_cost = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash)).unwrap().unwrap();
@@ -3081,10 +3080,10 @@ fn test_build_microblock_stream_forks_with_descendants() {
                             let sort_ic = sortdb.index_handle_at_tip();
 
                             chainstate
-                                .reload_unconfirmed_state(&sort_ic, parent_index_hash.clone())
+                                .reload_unconfirmed_state(&sort_ic, parent_index_hash)
                                 .unwrap();
 
-                            let mut microblock_builder = StacksMicroblockBuilder::new(parent_header_hash.clone(), parent_consensus_hash.clone(), chainstate, &sort_ic, BlockBuilderSettings::max_value()).unwrap();
+                            let mut microblock_builder = StacksMicroblockBuilder::new(parent_header_hash, parent_consensus_hash, chainstate, &sort_ic, BlockBuilderSettings::max_value()).unwrap();
 
                             let mut microblocks = vec![];
                             for i in 0..5 {
@@ -3209,8 +3208,8 @@ fn test_build_microblock_stream_forks_with_descendants() {
 
                 if tenure_id == 1 {
                     // prep for tenure 2 and 3
-                    microblock_tail_1 = Some(fork_1.as_ref().unwrap().last().clone().unwrap().header.clone());
-                    microblock_tail_2 = Some(fork_2.as_ref().unwrap().last().clone().unwrap().header.clone());
+                    microblock_tail_1 = Some(fork_1.as_ref().unwrap().last().unwrap().header.clone());
+                    microblock_tail_2 = Some(fork_2.as_ref().unwrap().last().unwrap().header.clone());
                 }
 
                 let nonce =
@@ -3346,7 +3345,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
                 }
 
                 let mut parent_ptrs = parent_block_ptrs.borrow_mut();
-                parent_ptrs.insert(anchored_block.header.parent_block.clone(), parent_tip.burn_header_height);
+                parent_ptrs.insert(anchored_block.header.parent_block, parent_tip.burn_header_height);
 
                 (anchored_block, vec![])
             },
@@ -3380,9 +3379,9 @@ fn test_build_microblock_stream_forks_with_descendants() {
             );
 
             let reporter = if tenure_id == 1 {
-                addrs[0].clone()
+                addrs[0]
             } else {
-                addrs[tenure_id].clone()
+                addrs[tenure_id]
             };
 
             let seq = if tenure_id == 1 || tenure_id == 2 {
@@ -3393,9 +3392,8 @@ fn test_build_microblock_stream_forks_with_descendants() {
 
             // check descendant blocks for their poison-microblock commissions
             test_debug!(
-                "new tip at height {}: {}",
-                next_tip.stacks_block_height,
-                &new_tip_hash
+                "new tip at height {}: {new_tip_hash}",
+                next_tip.stacks_block_height
             );
             reporters.push((reporter, new_tip_hash, seq));
         }
@@ -3403,7 +3401,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
 
     // verify that each submitted poison-microblock created a commission
     for (reporter_addr, chain_tip, seq) in reporters.into_iter() {
-        test_debug!("Check {} in {} for report", &reporter_addr, &chain_tip);
+        test_debug!("Check {reporter_addr} in {chain_tip} for report");
         peer.with_db_state(|ref mut sortdb, ref mut chainstate, _, _| {
             chainstate
                 .with_read_only_clarity_tx(
@@ -3549,7 +3547,7 @@ fn test_contract_call_across_clarity_versions() {
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash;
                 let parent_index_hash = StacksBlockHeader::make_index_block_hash(
                     &parent_consensus_hash,
                     &parent_header_hash,
@@ -3754,14 +3752,14 @@ fn test_contract_call_across_clarity_versions() {
                         tenure_id - 1,
                         tenure_id - 1);
 
-                        let contract_tx = make_versioned_user_contract_publish(&privk_anchored, anchored_sender_nonce, (2 * contract.len()) as u64, &format!("test-{}", tenure_id), &contract, ClarityVersion::Clarity2);
-                        let cc_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 1, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-cc-func", vec![]);
-                        let at_block_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 2, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-at-block-func", vec![]);
-                        let at_block_recursive_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 3, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-at-block-recursive", vec![]);
-                        let get_chain_info_dispatch_1 = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 4, 2000, &addr_anchored, &format!("test-{}", tenure_id), "get-chain-info-dispatch-1",
-                                                                                vec![Value::Principal(PrincipalData::parse(&format!("{}.test-{}", &addr_anchored, tenure_id - 1)).unwrap())]);
-                        let get_chain_info_dispatch_2 = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 5, 2000, &addr_anchored, &format!("test-{}", tenure_id), "get-chain-info-dispatch-2",
-                                                                                vec![Value::Principal(PrincipalData::parse(&format!("{}.test-{}", &addr_anchored, tenure_id - 1)).unwrap())]);
+                        let contract_tx = make_versioned_user_contract_publish(&privk_anchored, anchored_sender_nonce, (2 * contract.len()) as u64, &format!("test-{tenure_id}"), &contract, ClarityVersion::Clarity2);
+                        let cc_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 1, 2000, addr_anchored, &format!("test-{}", tenure_id - 1), "test-cc-func", vec![]);
+                        let at_block_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 2, 2000, addr_anchored, &format!("test-{}", tenure_id - 1), "test-at-block-func", vec![]);
+                        let at_block_recursive_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 3, 2000, addr_anchored, &format!("test-{}", tenure_id - 1), "test-at-block-recursive", vec![]);
+                        let get_chain_info_dispatch_1 = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 4, 2000, addr_anchored, &format!("test-{tenure_id}"), "get-chain-info-dispatch-1",
+                                                                                vec![Value::Principal(PrincipalData::parse(&format!("{addr_anchored}.test-{}", tenure_id - 1)).unwrap())]);
+                        let get_chain_info_dispatch_2 = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 5, 2000, addr_anchored, &format!("test-{tenure_id}"), "get-chain-info-dispatch-2",
+                                                                                vec![Value::Principal(PrincipalData::parse(&format!("{addr_anchored}.test-{}", tenure_id - 1)).unwrap())]);
 
                         vec![contract_tx, cc_tx, at_block_tx, at_block_recursive_tx, get_chain_info_dispatch_1, get_chain_info_dispatch_2]
                     }
@@ -3865,14 +3863,14 @@ fn test_contract_call_across_clarity_versions() {
                         tenure_id - 1,
                         tenure_id - 1);
 
-                        let contract_tx = make_versioned_user_contract_publish(&privk_anchored, anchored_sender_nonce, (2 * contract.len()) as u64, &format!("test-{}", tenure_id), &contract, ClarityVersion::Clarity1);
-                        let cc_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 1, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-cc-func", vec![]);
-                        let at_block_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 2, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-at-block-func", vec![]);
-                        let at_block_recursive_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 3, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-at-block-recursive", vec![]);
-                        let get_chain_info_dispatch_1 = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 4, 2000, &addr_anchored, &format!("test-{}", tenure_id), "get-chain-info-dispatch-1",
-                                                                                vec![Value::Principal(PrincipalData::parse(&format!("{}.test-{}", &addr_anchored, tenure_id - 1)).unwrap())]);
-                        let get_chain_info_dispatch_2 = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 5, 2000, &addr_anchored, &format!("test-{}", tenure_id), "get-chain-info-dispatch-2",
-                                                                                vec![Value::Principal(PrincipalData::parse(&format!("{}.test-{}", &addr_anchored, tenure_id - 1)).unwrap())]);
+                        let contract_tx = make_versioned_user_contract_publish(&privk_anchored, anchored_sender_nonce, (2 * contract.len()) as u64, &format!("test-{tenure_id}"), &contract, ClarityVersion::Clarity1);
+                        let cc_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 1, 2000, addr_anchored, &format!("test-{}", tenure_id - 1), "test-cc-func", vec![]);
+                        let at_block_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 2, 2000, addr_anchored, &format!("test-{}", tenure_id - 1), "test-at-block-func", vec![]);
+                        let at_block_recursive_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 3, 2000, addr_anchored, &format!("test-{}", tenure_id - 1), "test-at-block-recursive", vec![]);
+                        let get_chain_info_dispatch_1 = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 4, 2000, addr_anchored, &format!("test-{tenure_id}"), "get-chain-info-dispatch-1",
+                                                                                vec![Value::Principal(PrincipalData::parse(&format!("{addr_anchored}.test-{}", tenure_id - 1)).unwrap())]);
+                        let get_chain_info_dispatch_2 = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 5, 2000, addr_anchored, &format!("test-{tenure_id}"), "get-chain-info-dispatch-2",
+                                                                                vec![Value::Principal(PrincipalData::parse(&format!("{addr_anchored}.test-{}", tenure_id - 1)).unwrap())]);
 
                         vec![contract_tx, cc_tx, at_block_tx, at_block_recursive_tx, get_chain_info_dispatch_1, get_chain_info_dispatch_2]
                     };
@@ -4009,7 +4007,7 @@ fn test_is_tx_problematic() {
         .unwrap();
 
         privks_expensive.push(pk);
-        addrs_expensive.push(addr.clone());
+        addrs_expensive.push(addr);
         initial_balances.push((addr.to_account_principal(), 10000000000));
     }
 
@@ -4100,7 +4098,7 @@ fn test_is_tx_problematic() {
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash;
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
                 let mut mempool =
@@ -4221,7 +4219,7 @@ fn test_is_tx_problematic() {
 
                         (define-private (internal (ref (optional <trait>))) true)
                         ",
-                        &last_block.clone().unwrap()
+                        last_block.unwrap()
                     );
 
                     let runtime_checkerror_trait_tx = make_user_contract_publish(
@@ -4300,7 +4298,7 @@ fn test_is_tx_problematic() {
                         &privks_expensive[tenure_id],
                         0,
                         2000,
-                        &addrs_expensive[2],
+                        addrs_expensive[2],
                         "spend-too-much",
                         "spend-too-much",
                         vec![]
@@ -4350,7 +4348,7 @@ fn test_is_tx_problematic() {
                         &privks_expensive[tenure_id],
                         0,
                         2000,
-                        &addrs_expensive[2],
+                        addrs_expensive[2],
                         "trait-checkerror",
                         "test",
                         vec![Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier::parse(&format!("{}.foo-impl", &addrs_expensive[2])).unwrap()))],
@@ -4378,7 +4376,7 @@ fn test_is_tx_problematic() {
                         assert_eq!(txid, &runtime_checkerror_problematic.txid());
                     }
                     else {
-                        panic!("Did not get Error::ProblematicTransaction, but got {:?}", &err);
+                        panic!("Did not get Error::ProblematicTransaction, but got {err:?}");
                     }
 
                     problematic_txids.push(runtime_checkerror_problematic.txid());
@@ -4402,7 +4400,7 @@ fn test_is_tx_problematic() {
                         &privks_expensive[tenure_id],
                         0,
                         2000,
-                        &addrs_expensive[2],
+                        addrs_expensive[2],
                         "trait-checkerror",
                         "test-past",
                         vec![Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier::parse(&format!("{}.foo-impl", &addrs_expensive[2])).unwrap()))],
@@ -4502,7 +4500,7 @@ fn mempool_incorporate_pox_unlocks() {
     )
     .unwrap();
     initial_balances.push((addr.to_account_principal(), total_balance));
-    let principal = PrincipalData::from(addr.clone());
+    let principal = PrincipalData::from(addr);
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2020, 2021);
     peer_config.initial_balances = initial_balances;
@@ -4604,7 +4602,7 @@ fn mempool_incorporate_pox_unlocks() {
                  let parent_height = parent_tip.burn_header_height;
 
                  let parent_header_hash = parent_tip.anchored_header.block_hash();
-                 let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                 let parent_consensus_hash = parent_tip.consensus_hash;
                  let coinbase_tx = make_coinbase(miner, tenure_id as usize);
 
                  let mut mempool =
@@ -4643,7 +4641,7 @@ fn mempool_incorporate_pox_unlocks() {
                          &pk,
                          0,
                          10_000,
-                         &StacksAddress::burn_address(false),
+                         StacksAddress::burn_address(false),
                          "pox",
                          "stack-stx",
                          vec![
@@ -4797,7 +4795,7 @@ fn test_fee_order_mismatch_nonce_order() {
             };
 
             let parent_header_hash = parent_tip.anchored_header.block_hash();
-            let parent_consensus_hash = parent_tip.consensus_hash.clone();
+            let parent_consensus_hash = parent_tip.consensus_hash;
 
             let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
@@ -4953,10 +4951,7 @@ fn paramaterized_mempool_walk_test(
     let b_1 = make_block(
         &mut chainstate,
         ConsensusHash([0x1; 20]),
-        &(
-            FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            FIRST_STACKS_BLOCK_HASH.clone(),
-        ),
+        &(FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH),
         1,
         1,
     );

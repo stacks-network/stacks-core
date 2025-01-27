@@ -1133,7 +1133,7 @@ pub mod test {
         let hello_contract_name = "hello-contract-name";
         let hello_contract_body = "hello contract code body";
         let asset_info = AssetInfo {
-            contract_address: addr.clone(),
+            contract_address: addr,
             contract_name: contract_name.clone(),
             asset_name: asset_name.clone(),
         };
@@ -1141,7 +1141,7 @@ pub mod test {
         let mblock_header_1 = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
             tx_merkle_root: Sha512Trunc256Sum([1u8; 32]),
             signature: MessageSignature([2u8; 65]),
         };
@@ -1149,7 +1149,7 @@ pub mod test {
         let mblock_header_2 = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
             tx_merkle_root: Sha512Trunc256Sum([2u8; 32]),
             signature: MessageSignature([3u8; 65]),
         };
@@ -1290,7 +1290,7 @@ pub mod test {
                 vec![TransactionPostCondition::Fungible(
                     tx_pcp.clone(),
                     AssetInfo {
-                        contract_address: addr.clone(),
+                        contract_address: addr,
                         contract_name: contract_name.clone(),
                         asset_name: asset_name.clone(),
                     },
@@ -1300,7 +1300,7 @@ pub mod test {
                 vec![TransactionPostCondition::Nonfungible(
                     tx_pcp.clone(),
                     AssetInfo {
-                        contract_address: addr.clone(),
+                        contract_address: addr,
                         contract_name: contract_name.clone(),
                         asset_name: asset_name.clone(),
                     },
@@ -1316,7 +1316,7 @@ pub mod test {
                     TransactionPostCondition::Fungible(
                         tx_pcp.clone(),
                         AssetInfo {
-                            contract_address: addr.clone(),
+                            contract_address: addr,
                             contract_name: contract_name.clone(),
                             asset_name: asset_name.clone(),
                         },
@@ -1333,7 +1333,7 @@ pub mod test {
                     TransactionPostCondition::Nonfungible(
                         tx_pcp.clone(),
                         AssetInfo {
-                            contract_address: addr.clone(),
+                            contract_address: addr,
                             contract_name: contract_name.clone(),
                             asset_name: asset_name.clone(),
                         },
@@ -1345,7 +1345,7 @@ pub mod test {
                     TransactionPostCondition::Fungible(
                         tx_pcp.clone(),
                         AssetInfo {
-                            contract_address: addr.clone(),
+                            contract_address: addr,
                             contract_name: contract_name.clone(),
                             asset_name: asset_name.clone(),
                         },
@@ -1355,7 +1355,7 @@ pub mod test {
                     TransactionPostCondition::Nonfungible(
                         tx_pcp.clone(),
                         AssetInfo {
-                            contract_address: addr.clone(),
+                            contract_address: addr,
                             contract_name: contract_name.clone(),
                             asset_name: asset_name.clone(),
                         },
@@ -1372,7 +1372,7 @@ pub mod test {
                     TransactionPostCondition::Nonfungible(
                         tx_pcp.clone(),
                         AssetInfo {
-                            contract_address: addr.clone(),
+                            contract_address: addr,
                             contract_name: contract_name.clone(),
                             asset_name: asset_name.clone(),
                         },
@@ -1382,7 +1382,7 @@ pub mod test {
                     TransactionPostCondition::Fungible(
                         tx_pcp.clone(),
                         AssetInfo {
-                            contract_address: addr.clone(),
+                            contract_address: addr,
                             contract_name: contract_name.clone(),
                             asset_name: asset_name.clone(),
                         },
@@ -1514,11 +1514,11 @@ pub mod test {
                     let auth = tx_auth.clone();
 
                     let tx = StacksTransaction {
-                        version: (*version).clone(),
+                        version: *version,
                         chain_id,
                         auth,
-                        anchor_mode: (*anchor_mode).clone(),
-                        post_condition_mode: (*post_condition_mode).clone(),
+                        anchor_mode: *anchor_mode,
+                        post_condition_mode: *post_condition_mode,
                         post_conditions: tx_post_condition.clone(),
                         payload: tx_payload.clone(),
                     };
@@ -1660,7 +1660,7 @@ pub mod test {
             version: 0x00,
             chain_length: 107,
             burn_spent: 25000,
-            consensus_hash: MINER_BLOCK_CONSENSUS_HASH.clone(),
+            consensus_hash: MINER_BLOCK_CONSENSUS_HASH,
             parent_block_id: StacksBlockId::from_bytes(&[0x11; 32]).unwrap(),
             tx_merkle_root,
             state_index_root: TrieHash::from_hex(
