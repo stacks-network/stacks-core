@@ -169,6 +169,7 @@ jobs:
           - tests::nakamoto_integrations::v3_blockbyheight_api_endpoint
           - tests::nakamoto_integrations::mine_invalid_principal_from_consensus_buff
           - tests::nakamoto_integrations::test_tenure_extend_from_flashblocks
+          - tests::nakamoto_integrations::restarting_miner
           # TODO: enable these once v1 signer is supported by a new nakamoto epoch
           # - tests::signer::v1::dkg
           # - tests::signer::v1::sign_request_rejected
