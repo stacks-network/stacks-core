@@ -76,7 +76,7 @@ jobs:
             cpu: armv7
     steps:
       - name: Build Binary (${{ matrix.arch }}_${{ matrix.cpu }})
-        uses: stacks-network/actions/stacks-core/release/create-source-binary@feat/release-signer-alongside-node
+        uses: stacks-network/actions/stacks-core/release/create-source-binary@main
         with:
           arch: ${{ matrix.arch }}
           cpu: ${{ matrix.cpu }}
@@ -98,7 +98,7 @@ jobs:
     steps:
       ## Creates releases
       - name: Create Release
-        uses: stacks-network/actions/stacks-core/release/create-releases@feat/release-signer-alongside-node
+        uses: stacks-network/actions/stacks-core/release/create-releases@main
         with:
           node_tag: ${{ inputs.node_tag }}
           node_docker_tag: ${{ inputs.node_docker_tag }}
@@ -131,7 +131,7 @@ jobs:
           - debian
     steps:
       - name: Create Docker Image
-        uses: stacks-network/actions/stacks-core/release/docker-images@feat/release-signer-alongside-node
+        uses: stacks-network/actions/stacks-core/release/docker-images@main
         with:
           node_tag: ${{ inputs.node_tag }}
           node_docker_tag: ${{ inputs.node_docker_tag }}

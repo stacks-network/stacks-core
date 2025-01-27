@@ -67,7 +67,7 @@ jobs:
     steps:
       - name: Check Release
         id: check_release
-        uses: stacks-network/actions/stacks-core/release/check-release@feat/release-signer-alongside-node
+        uses: stacks-network/actions/stacks-core/release/check-release@main
         with:
           tag: ${{ github.ref_name }}
 
