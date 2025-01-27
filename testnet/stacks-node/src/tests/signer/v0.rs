@@ -493,6 +493,7 @@ fn block_proposal_rejection() {
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
         tenure_idle_timeout: Duration::from_secs(300),
+        reorg_attempts_activity_timeout: Duration::from_secs(30),
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
@@ -7702,6 +7703,7 @@ fn block_validation_response_timeout() {
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
         block_proposal_timeout: Duration::from_secs(100),
         tenure_idle_timeout: Duration::from_secs(300),
+        reorg_attempts_activity_timeout: Duration::from_secs(30),
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
@@ -7871,6 +7873,7 @@ fn block_validation_pending_table() {
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
         tenure_idle_timeout: Duration::from_secs(300),
+        reorg_attempts_activity_timeout: Duration::from_secs(30),
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
@@ -10563,6 +10566,7 @@ fn incoming_signers_ignore_block_proposals() {
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
         tenure_idle_timeout: Duration::from_secs(300),
+        reorg_attempts_activity_timeout: Duration::from_secs(30),
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
@@ -10738,6 +10742,7 @@ fn outgoing_signers_ignore_block_proposals() {
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
         tenure_idle_timeout: Duration::from_secs(300),
+        reorg_attempts_activity_timeout: Duration::from_secs(30),
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
@@ -11179,7 +11184,8 @@ fn injected_signatures_are_ignored_across_boundaries() {
 
 #[test]
 #[ignore]
-/// Test that signers count any block for a given tenure in its database towards a miner tenure activity.
+/// Test that signers count a block proposal that was rejected due to a reorg towards miner activity since it showed up BEFORE
+/// the reorg_attempts_activity_timeout
 ///
 /// Test Setup:
 /// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
@@ -11199,7 +11205,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
 ///
 /// Test Assertion:
 /// Stacks tip advances to N+1
-fn rejected_blocks_count_towards_miner_validity() {
+fn reorg_attempts_count_towards_miner_validity() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -11216,12 +11222,14 @@ fn rejected_blocks_count_towards_miner_validity() {
     let send_amt = 100;
     let send_fee = 180;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let block_proposal_timeout = Duration::from_secs(20);
+    let block_proposal_timeout = Duration::from_secs(30);
+    let reorg_attempts_activity_timeout = Duration::from_secs(20);
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(sender_addr, send_amt + send_fee)],
         |config| {
             config.block_proposal_timeout = block_proposal_timeout;
+            config.reorg_attempts_activity_timeout = reorg_attempts_activity_timeout;
         },
         |_| {},
         None,
@@ -11359,6 +11367,194 @@ fn rejected_blocks_count_towards_miner_validity() {
     assert_eq!(
         block_n_1.stacks_height,
         block_proposal_n_prime.block.header.chain_length + 1
+    );
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// Test that signers do not count a block proposal that was rejected due to a reorg towards miner activity since it showed up AFTER
+/// the reorg_attempts_activity_timeout
+///
+/// Test Setup:
+/// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
+/// The stacks node is then advanced to Epoch 3.0 boundary to allow block signing. The block proposal timeout is set to 20 seconds.
+///
+/// Test Execution:
+/// Test validation endpoint is stalled.
+/// The miner proposes a block N.
+/// Block proposals are stalled.
+/// A new tenure is started.
+/// The test waits for reorg_attempts_activity_timeout + 1 second.
+/// The miner proposes a block N'.
+/// The test waits for block proposal timeout + 1 second.
+/// The validation endpoint is resumed.
+/// The signers accept block N.
+/// The signers reject block N'.
+/// The miner proposes block N+1.
+/// The signers reject block N+1.
+///
+/// Test Assertion:
+/// Stacks tip advances to N.
+fn reorg_attempts_activity_timeout_exceeded() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let block_proposal_timeout = Duration::from_secs(30);
+    let reorg_attempts_activity_timeout = Duration::from_secs(20);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr, send_amt + send_fee)],
+        |config| {
+            config.block_proposal_timeout = block_proposal_timeout;
+            config.reorg_attempts_activity_timeout = reorg_attempts_activity_timeout;
+        },
+        |_| {},
+        None,
+        None,
+    );
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+
+    signer_test.boot_to_epoch_3();
+
+    let wait_for_block_proposal = || {
+        let mut block_proposal = None;
+        let _ = wait_for(30, || {
+            block_proposal = test_observer::get_stackerdb_chunks()
+                .into_iter()
+                .flat_map(|chunk| chunk.modified_slots)
+                .find_map(|chunk| {
+                    let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                        .expect("Failed to deserialize SignerMessage");
+                    if let SignerMessage::BlockProposal(proposal) = message {
+                        return Some(proposal);
+                    }
+                    None
+                });
+            Ok(block_proposal.is_some())
+        });
+        block_proposal
+    };
+
+    info!("------------------------- Test Mine Block N -------------------------");
+    let chain_before = get_chain_info(&signer_test.running_nodes.conf);
+    // Stall validation so signers will be unable to process the tenure change block for Tenure B.
+    TEST_VALIDATE_STALL.set(true);
+    test_observer::clear();
+    // submit a tx so that the miner will mine an extra block
+    let sender_nonce = 0;
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
+    submit_tx(&http_origin, &transfer_tx);
+
+    let block_proposal_n = wait_for_block_proposal().expect("Failed to get block proposal N");
+    let chain_after = get_chain_info(&signer_test.running_nodes.conf);
+    assert_eq!(chain_after, chain_before);
+    TEST_BROADCAST_STALL.set(true);
+
+    info!("------------------------- Start Tenure B  -------------------------");
+    let commits_before = signer_test
+        .running_nodes
+        .commits_submitted
+        .load(Ordering::SeqCst);
+
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let commits_count = signer_test
+                .running_nodes
+                .commits_submitted
+                .load(Ordering::SeqCst);
+            Ok(commits_count > commits_before)
+        },
+    )
+    .unwrap();
+
+    std::thread::sleep(reorg_attempts_activity_timeout.add(Duration::from_secs(1)));
+    test_observer::clear();
+    TEST_BROADCAST_STALL.set(false);
+    let block_proposal_n_prime =
+        wait_for_block_proposal().expect("Failed to get block proposal N'");
+    std::thread::sleep(block_proposal_timeout.add(Duration::from_secs(1)));
+
+    assert_ne!(block_proposal_n, block_proposal_n_prime);
+    let chain_before = get_chain_info(&signer_test.running_nodes.conf);
+    TEST_VALIDATE_STALL.set(false);
+
+    wait_for(30, || {
+        let chain_info = get_chain_info(&signer_test.running_nodes.conf);
+        Ok(chain_info.stacks_tip_height > chain_before.stacks_tip_height)
+    })
+    .expect("Timed out waiting for stacks tip to advance to block N");
+
+    let chain_after = get_chain_info(&signer_test.running_nodes.conf);
+    assert_eq!(
+        chain_after.stacks_tip_height,
+        block_proposal_n.block.header.chain_length
+    );
+
+    let chain_before = chain_after;
+    info!("------------------------- Wait for Block N' Rejection -------------------------");
+    wait_for(30, || {
+        let stackerdb_events = test_observer::get_stackerdb_chunks();
+        let block_rejections = stackerdb_events
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+            .filter_map(|chunk| {
+                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                    .expect("Failed to deserialize SignerMessage");
+                match message {
+                    SignerMessage::BlockResponse(BlockResponse::Rejected(rejection)) => {
+                        if rejection.signer_signature_hash
+                            == block_proposal_n_prime.block.header.signer_signature_hash()
+                        {
+                            assert_eq!(rejection.reason_code, RejectCode::SortitionViewMismatch);
+                            Some(rejection)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }
+            })
+            .collect::<Vec<_>>();
+        Ok(block_rejections.len() >= num_signers * 3 / 10)
+    })
+    .expect("FAIL: Timed out waiting for block proposal rejections of N'");
+
+    info!("------------------------- Ensure chain halts -------------------------");
+    assert!(wait_for(30, || {
+        let chain_info = get_chain_info(&signer_test.running_nodes.conf);
+        Ok(chain_info.stacks_tip_height > chain_before.stacks_tip_height)
+    })
+    .is_err());
+
+    // The signer should automatically attempt to mine a new block once the signers eventually tell it to abandon the previous block
+    // It will accept reject it though because the block proposal timeout is exceeded and its first block proposal arrived AFTER the reorg activity timeout
+    let chain_after = get_chain_info(&signer_test.running_nodes.conf);
+    assert_eq!(
+        chain_after.stacks_tip_height,
+        block_proposal_n.block.header.chain_length
     );
     signer_test.shutdown();
 }

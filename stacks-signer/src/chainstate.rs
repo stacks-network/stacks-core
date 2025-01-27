@@ -124,6 +124,9 @@ pub struct ProposalEvalConfig {
     pub tenure_last_block_proposal_timeout: Duration,
     /// How much idle time must pass before allowing a tenure extend
     pub tenure_idle_timeout: Duration,
+    /// Time following a block's global acceptance that a signer will consider an attempt by a miner to reorg the block
+    /// as valid towards miner activity
+    pub reorg_attempts_activity_timeout: Duration,
 }
 
 impl From<&SignerConfig> for ProposalEvalConfig {
@@ -133,6 +136,7 @@ impl From<&SignerConfig> for ProposalEvalConfig {
             block_proposal_timeout: value.block_proposal_timeout,
             tenure_last_block_proposal_timeout: value.tenure_last_block_proposal_timeout,
             tenure_idle_timeout: value.tenure_idle_timeout,
+            reorg_attempts_activity_timeout: value.reorg_attempts_activity_timeout,
         }
     }
 }
@@ -547,8 +551,10 @@ impl SortitionsView {
         signer_db: &mut SignerDb,
         client: &StacksClient,
         tenure_last_block_proposal_timeout: Duration,
+        reorg_attempts_activity_timeout: Duration,
     ) -> Result<bool, ClientError> {
         // If the tenure change block confirms the expected parent block, it should confirm at least one more block than the last accepted block in the parent tenure.
+        // NOTE: returns the locally accepted block if it is not timed out, otherwise it will return the last globally accepted block.
         let last_block_info = Self::get_tenure_last_block_info(
             &tenure_change.prev_tenure_consensus_hash,
             signer_db,
@@ -568,6 +574,22 @@ impl SortitionsView {
                     "proposed_chain_length" => block.header.chain_length,
                     "expected_at_least" => info.block.header.chain_length + 1,
                 );
+                if info.signed_group.unwrap_or(get_epoch_time_secs())
+                    + reorg_attempts_activity_timeout.as_secs()
+                    > get_epoch_time_secs()
+                {
+                    // Note if there is no signed_group time, this is a locally accepted block (i.e. tenure_last_block_proposal_timeout has not been exceeded).
+                    // Treat any attempt to reorg a locally accepted block as valid miner activity.
+                    // If the call returns a globally accepted block, check its globally accepted time against a quarter of the block_proposal_timeout
+                    // to give the miner some extra buffer time to wait for its chain tip to advance
+                    // The miner may just be slow, so count this invalid block proposal towards valid miner activity.
+                    if let Err(e) = signer_db.update_last_activity_time(
+                        &tenure_change.tenure_consensus_hash,
+                        get_epoch_time_secs(),
+                    ) {
+                        warn!("Failed to update last activity time: {e}");
+                    }
+                }
                 return Ok(false);
             }
         }
@@ -633,6 +655,7 @@ impl SortitionsView {
             signer_db,
             client,
             self.config.tenure_last_block_proposal_timeout,
+            self.config.reorg_attempts_activity_timeout,
         )?;
         if !confirms_expected_parent {
             return Ok(false);
