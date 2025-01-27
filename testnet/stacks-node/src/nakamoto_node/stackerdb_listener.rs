@@ -333,6 +333,7 @@ impl StackerDBListener {
                             "signer_weight" => signer_entry.weight,
                             "total_weight_approved" => block.total_weight_approved,
                             "total_weight_rejected" => block.total_weight_rejected,
+                            "weight_threshold" => self.weight_threshold,
                             "tenure_extend_timestamp" => tenure_extend_timestamp,
                             "server_version" => metadata.server_version,
                         );
@@ -393,6 +394,7 @@ impl StackerDBListener {
                             "signer_weight" => signer_entry.weight,
                             "total_weight_approved" => block.total_weight_approved,
                             "total_weight_rejected" => block.total_weight_rejected,
+                            "weight_threshold" => self.weight_threshold,
                             "reason" => rejected_data.reason,
                             "reason_code" => %rejected_data.reason_code,
                             "tenure_extend_timestamp" => rejected_data.response_data.tenure_extend_timestamp,
