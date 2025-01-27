@@ -313,7 +313,9 @@ impl StackerDBListener {
                                 "signature" => %signature,
                                 "signer_weight" => signer_entry.weight,
                                 "total_weight_approved" => block.total_weight_approved,
+                                "percent_approved" => block.total_weight_approved as f64 / self.total_weight as f64 * 100.0,
                                 "total_weight_rejected" => block.total_weight_rejected,
+                                "percent_rejected" => block.total_weight_rejected as f64 / self.total_weight as f64 * 100.0,
                             );
                             continue;
                         }
@@ -332,7 +334,9 @@ impl StackerDBListener {
                             "signature" => %signature,
                             "signer_weight" => signer_entry.weight,
                             "total_weight_approved" => block.total_weight_approved,
+                            "percent_approved" => block.total_weight_approved as f64 / self.total_weight as f64 * 100.0,
                             "total_weight_rejected" => block.total_weight_rejected,
+                            "percent_rejected" => block.total_weight_rejected as f64 / self.total_weight as f64 * 100.0,
                             "weight_threshold" => self.weight_threshold,
                             "tenure_extend_timestamp" => tenure_extend_timestamp,
                             "server_version" => metadata.server_version,
@@ -393,7 +397,9 @@ impl StackerDBListener {
                             "signature" => %rejected_data.signature,
                             "signer_weight" => signer_entry.weight,
                             "total_weight_approved" => block.total_weight_approved,
+                            "percent_approved" => block.total_weight_approved as f64 / self.total_weight as f64 * 100.0,
                             "total_weight_rejected" => block.total_weight_rejected,
+                            "percent_rejected" => block.total_weight_rejected as f64 / self.total_weight as f64 * 100.0,
                             "weight_threshold" => self.weight_threshold,
                             "reason" => rejected_data.reason,
                             "reason_code" => %rejected_data.reason_code,
