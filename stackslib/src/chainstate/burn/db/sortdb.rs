@@ -3795,7 +3795,7 @@ impl SortitionDBConn<'_> {
             }
 
             let header_hash_opt = if ancestor_snapshot.sortition {
-                Some(ancestor_snapshot.winning_stacks_block_hash.clone())
+                Some(ancestor_snapshot.winning_stacks_block_hash)
             } else {
                 None
             };

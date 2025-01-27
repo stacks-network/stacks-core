@@ -912,7 +912,7 @@ pub fn boot_to_epoch_3(
     for (stacker_sk, signer_sk) in stacker_sks.iter().zip(signer_sks.iter()) {
         let pox_addr = PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            tests::to_addr(stacker_sk).bytes().clone(),
+            *tests::to_addr(stacker_sk).bytes(),
         );
         let pox_addr_tuple: clarity::vm::Value =
             pox_addr.clone().as_clarity_tuple().unwrap().into();
@@ -1074,7 +1074,7 @@ pub fn boot_to_pre_epoch_3_boundary(
     for (stacker_sk, signer_sk) in stacker_sks.iter().zip(signer_sks.iter()) {
         let pox_addr = PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            tests::to_addr(stacker_sk).bytes().clone(),
+            *tests::to_addr(stacker_sk).bytes(),
         );
         let pox_addr_tuple: clarity::vm::Value =
             pox_addr.clone().as_clarity_tuple().unwrap().into();
@@ -1313,7 +1313,7 @@ pub fn setup_epoch_3_reward_set(
     for (stacker_sk, signer_sk) in stacker_sks.iter().zip(signer_sks.iter()) {
         let pox_addr = PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            tests::to_addr(stacker_sk).bytes().clone(),
+            *tests::to_addr(stacker_sk).bytes(),
         );
         let pox_addr_tuple: clarity::vm::Value =
             pox_addr.clone().as_clarity_tuple().unwrap().into();
@@ -2560,7 +2560,7 @@ fn correct_burn_outs() {
 
             let pox_addr = PoxAddress::from_legacy(
                 AddressHashMode::SerializeP2PKH,
-                tests::to_addr(account.0).bytes().clone(),
+                *tests::to_addr(account.0).bytes(),
             );
             let pox_addr_tuple: clarity::vm::Value =
                 pox_addr.clone().as_clarity_tuple().unwrap().into();
@@ -10037,7 +10037,7 @@ fn test_shadow_recovery() {
             break;
         }
 
-        let header = header.anchored_header.as_stacks_nakamoto().clone().unwrap();
+        let header = header.anchored_header.as_stacks_nakamoto().unwrap();
 
         if header.is_shadow_block() {
             assert!(shadow_ids.contains(&header.block_id()));
@@ -10715,7 +10715,7 @@ fn test_tenure_extend_from_flashblocks() {
     signer_test.boot_to_epoch_3();
 
     let naka_conf = signer_test.running_nodes.conf.clone();
-    let mining_key = naka_conf.miner.mining_key.clone().unwrap();
+    let mining_key = naka_conf.miner.mining_key.unwrap();
     let mining_key_pkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(&mining_key));
 
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
@@ -10896,8 +10896,8 @@ fn test_tenure_extend_from_flashblocks() {
     let canonical_stacks_tip = RelayerThread::can_continue_tenure(
         &sortdb,
         &mut chainstate,
-        sort_tip.consensus_hash.clone(),
-        Some(mining_key_pkh.clone()),
+        sort_tip.consensus_hash,
+        Some(mining_key_pkh),
     )
     .unwrap()
     .unwrap();
@@ -10908,7 +10908,7 @@ fn test_tenure_extend_from_flashblocks() {
     assert!(RelayerThread::can_continue_tenure(
         &sortdb,
         &mut chainstate,
-        sort_tip.consensus_hash.clone(),
+        sort_tip.consensus_hash,
         Some(Hash160([0x11; 20]))
     )
     .unwrap()

@@ -725,7 +725,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
                         // block will confirm.
                         let mut microblock_builder = StacksMicroblockBuilder::new(
                             parent_header_hash.clone(),
-                            parent_consensus_hash.clone(),
+                            parent_consensus_hash,
                             chainstate,
                             &sort_ic,
                             BlockBuilderSettings::max_value(),
@@ -982,7 +982,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
                         // block will confirm.
                         let mut microblock_builder = StacksMicroblockBuilder::new(
                             parent_header_hash.clone(),
-                            parent_consensus_hash.clone(),
+                            parent_consensus_hash,
                             chainstate,
                             &sort_ic,
                             BlockBuilderSettings::max_value(),

@@ -3660,7 +3660,7 @@ impl StacksChainState {
             block_hash: block_hash.clone(),
             consensus_hash: block_consensus_hash.clone(),
             parent_block_hash: parent_block_hash.clone(),
-            parent_consensus_hash: parent_consensus_hash.clone(),
+            parent_consensus_hash: *parent_consensus_hash,
             coinbase: coinbase_reward_ustx,
             tx_fees: MinerPaymentTxFees::Epoch2 {
                 anchored: anchored_fees,

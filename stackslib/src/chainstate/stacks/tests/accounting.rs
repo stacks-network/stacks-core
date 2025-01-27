@@ -240,7 +240,7 @@ fn test_bad_microblock_fees_pre_v210() {
                         // block will confirm.
                         let mut microblock_builder = StacksMicroblockBuilder::new(
                             parent_header_hash.clone(),
-                            parent_consensus_hash.clone(),
+                            parent_consensus_hash,
                             chainstate,
                             &sort_ic,
                             BlockBuilderSettings::max_value(),
@@ -563,7 +563,7 @@ fn test_bad_microblock_fees_fix_transition() {
                         // block will confirm.
                         let mut microblock_builder = StacksMicroblockBuilder::new(
                             parent_header_hash.clone(),
-                            parent_consensus_hash.clone(),
+                            parent_consensus_hash,
                             chainstate,
                             &sort_ic,
                             BlockBuilderSettings::max_value(),
@@ -919,7 +919,7 @@ fn test_get_block_info_v210() {
                         // block will confirm.
                         let mut microblock_builder = StacksMicroblockBuilder::new(
                             parent_header_hash.clone(),
-                            parent_consensus_hash.clone(),
+                            parent_consensus_hash,
                             chainstate,
                             &sort_ic,
                             BlockBuilderSettings::max_value(),
@@ -1688,7 +1688,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                         // block will confirm.
                         let mut microblock_builder = StacksMicroblockBuilder::new(
                             parent_header_hash.clone(),
-                            parent_consensus_hash.clone(),
+                            parent_consensus_hash,
                             chainstate,
                             &sort_ic,
                             BlockBuilderSettings::max_value(),

@@ -2978,7 +2978,7 @@ fn process_new_blocks_rejects_problematic_asts() {
             let iconn = &sortdb.index_handle(&tip.sortition_id);
             let mut microblock_builder = StacksMicroblockBuilder::new(
                 parent_header_hash.clone(),
-                parent_consensus_hash.clone(),
+                parent_consensus_hash,
                 chainstate,
                 iconn,
                 BlockBuilderSettings::max_value(),

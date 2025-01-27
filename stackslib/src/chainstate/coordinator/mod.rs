@@ -3100,7 +3100,7 @@ impl<
 
             self.replay_stacks_blocks(
                 canonical_snapshot,
-                vec![next_snapshot.winning_stacks_block_hash.clone()],
+                vec![next_snapshot.winning_stacks_block_hash],
             )?;
         }
         Ok(())
