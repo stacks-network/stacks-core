@@ -2692,22 +2692,16 @@ impl PeerNetwork {
                         &self.local_peer.private_key,
                         StacksMessageType::NatPunchRequest(nonce),
                     )
-                    .map_err(|e| {
-                        info!("Failed to sign NAT punch request: {:?}", &e);
-                        e
-                    })?;
+                    .inspect_err(|e| info!("Failed to sign NAT punch request: {e:?}"))?;
 
                 let mut rh = convo
                     .send_signed_request(natpunch_request, self.connection_opts.timeout)
-                    .map_err(|e| {
-                        info!("Failed to send NAT punch request: {:?}", &e);
-                        e
-                    })?;
+                    .inspect_err(|e| info!("Failed to send NAT punch request: {e:?}"))?;
 
-                self.saturate_p2p_socket(event_id, &mut rh).map_err(|e| {
-                    info!("Failed to saturate NAT punch socket on event {}", &event_id);
-                    e
-                })?;
+                self.saturate_p2p_socket(event_id, &mut rh)
+                    .inspect_err(|_e| {
+                        info!("Failed to saturate NAT punch socket on event {event_id}")
+                    })?;
 
                 self.public_ip_reply_handle = Some(rh);
                 break;
@@ -3669,15 +3663,13 @@ impl PeerNetwork {
         // always do block download
         let new_blocks = self
             .do_network_block_sync_nakamoto(burnchain_height, sortdb, chainstate, ibd)
-            .map_err(|e| {
+            .inspect_err(|e| {
                 warn!(
-                    "{:?}: Failed to perform Nakamoto block sync: {:?}",
-                    &self.get_local_peer(),
-                    &e
-                );
-                e
+                    "{:?}: Failed to perform Nakamoto block sync: {e:?}",
+                    &self.get_local_peer()
+                )
             })
-            .unwrap_or(HashMap::new());
+            .unwrap_or_default();
 
         network_result.consume_nakamoto_blocks(new_blocks);
 
@@ -4407,13 +4399,7 @@ impl PeerNetwork {
                 sortdb,
                 &OnChainRewardSetProvider::new(),
             )
-            .map_err(|e| {
-                warn!(
-                    "Failed to load reward cycle info for cycle {}: {:?}",
-                    rc, &e
-                );
-                e
-            })
+            .inspect_err(|e| warn!("Failed to load reward cycle info for cycle {rc}: {e:?}"))
             .unwrap_or(None) else {
                 continue;
             };

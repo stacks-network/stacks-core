@@ -1131,19 +1131,17 @@ impl LeaderBlockCommitOp {
             .is_after_pox_sunset_end(self.block_height, epoch.epoch_id)
         {
             // sunset has begun and we're not in epoch 2.1 or later, so apply sunset check
-            self.check_after_pox_sunset().map_err(|e| {
-                warn!("Invalid block-commit: bad PoX after sunset: {:?}", &e;
+            self.check_after_pox_sunset().inspect_err(|e| {
+                warn!("Invalid block-commit: bad PoX after sunset: {e:?}";
                           "apparent_sender" => %apparent_sender_repr);
-                e
             })?;
             vec![]
         } else {
             // either in epoch 2.1, or the PoX sunset hasn't completed yet
             self.check_pox(epoch.epoch_id, burnchain, tx, reward_set_info)
-                .map_err(|e| {
-                    warn!("Invalid block-commit: bad PoX: {:?}", &e;
+                .inspect_err(|e| {
+                    warn!("Invalid block-commit: bad PoX: {e:?}";
                           "apparent_sender" => %apparent_sender_repr);
-                    e
                 })?
         };
 

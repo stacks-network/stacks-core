@@ -347,14 +347,13 @@ impl NakamotoChainState {
         let vrf_proof =
             Self::get_block_vrf_proof(chainstate_conn, tip_block_id, &tenure_consensus_hash)?
                 .ok_or_else(|| {
-                    warn!("No VRF proof for {}", &tenure_consensus_hash);
+                    warn!("No VRF proof for {tenure_consensus_hash}");
                     ChainstateError::NoSuchBlockError
                 })
-                .map_err(|e| {
+                .inspect_err(|_e| {
                     warn!("Could not find shadow tenure VRF proof";
                       "tip_block_id" => %tip_block_id,
                       "shadow consensus_hash" => %tenure_consensus_hash);
-                    e
                 })?;
 
         return Ok(Some(vrf_proof));

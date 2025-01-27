@@ -1579,9 +1579,8 @@ impl BurnchainConfigFile {
                 .unwrap_or(default_burnchain_config.fault_injection_burnchain_block_delay),
             max_unspent_utxos: self
                 .max_unspent_utxos
-                .map(|val| {
+                .inspect(|&val| {
                     assert!(val <= 1024, "Value for max_unspent_utxos should be <= 1024");
-                    val
                 })
                 .or(default_burnchain_config.max_unspent_utxos),
         };
