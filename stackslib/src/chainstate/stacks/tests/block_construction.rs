@@ -1277,20 +1277,14 @@ fn test_build_anchored_blocks_incrementing_nonces() {
     //  because the tx fee for each transaction increases with the nonce
     for (i, tx) in stacks_block.txs.iter().enumerate() {
         if i == 0 {
-            let okay = if let TransactionPayload::Coinbase(..) = tx.payload {
-                true
-            } else {
-                false
-            };
+            let okay = matches!(tx.payload, TransactionPayload::Coinbase(..));
             assert!(okay, "Coinbase should be first tx");
         } else {
             let expected_nonce = (i - 1) % 25;
             assert_eq!(
                 tx.get_origin_nonce(),
                 expected_nonce as u64,
-                "{}th transaction should have nonce = {}",
-                i,
-                expected_nonce
+                "{i}th transaction should have nonce = {expected_nonce}",
             );
         }
     }

@@ -1030,10 +1030,7 @@ impl StacksTransaction {
 
     /// Is this a mainnet transaction?  false means 'testnet'
     pub fn is_mainnet(&self) -> bool {
-        match self.version {
-            TransactionVersion::Mainnet => true,
-            _ => false,
-        }
+        self.version == TransactionVersion::Mainnet
     }
 
     /// Is this a phantom transaction?
@@ -3993,10 +3990,10 @@ mod test {
             TransactionAuth::Standard(origin) => origin,
             TransactionAuth::Sponsored(_, sponsor) => sponsor,
         };
-        match spending_condition {
-            TransactionSpendingCondition::OrderIndependentMultisig(..) => true,
-            _ => false,
-        }
+        matches!(
+            spending_condition,
+            TransactionSpendingCondition::OrderIndependentMultisig(..)
+        )
     }
 
     fn check_oversign_origin_multisig(signed_tx: &StacksTransaction) {

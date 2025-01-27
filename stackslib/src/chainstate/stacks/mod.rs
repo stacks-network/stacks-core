@@ -461,17 +461,11 @@ pub enum TransactionAuthField {
 
 impl TransactionAuthField {
     pub fn is_public_key(&self) -> bool {
-        match *self {
-            TransactionAuthField::PublicKey(_) => true,
-            _ => false,
-        }
+        matches!(self, TransactionAuthField::PublicKey(_))
     }
 
     pub fn is_signature(&self) -> bool {
-        match *self {
-            TransactionAuthField::Signature(_, _) => true,
-            _ => false,
-        }
+        matches!(self, TransactionAuthField::Signature(..))
     }
 
     pub fn as_public_key(&self) -> Option<StacksPublicKey> {
