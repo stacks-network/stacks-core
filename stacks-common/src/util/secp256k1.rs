@@ -123,7 +123,7 @@ impl Default for Secp256k1PublicKey {
 impl Secp256k1PublicKey {
     #[cfg(any(test, feature = "testing"))]
     pub fn new() -> Secp256k1PublicKey {
-        Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new())
+        Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random())
     }
 
     pub fn from_hex(hex_string: &str) -> Result<Secp256k1PublicKey, &'static str> {
@@ -249,14 +249,8 @@ impl PublicKey for Secp256k1PublicKey {
     }
 }
 
-impl Default for Secp256k1PrivateKey {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Secp256k1PrivateKey {
-    pub fn new() -> Secp256k1PrivateKey {
+    pub fn random() -> Secp256k1PrivateKey {
         let mut rng = rand::thread_rng();
         loop {
             // keep trying to generate valid bytes
@@ -460,7 +454,7 @@ mod tests {
 
     #[test]
     fn test_parse_serialize_compressed() {
-        let mut t1 = Secp256k1PrivateKey::new();
+        let mut t1 = Secp256k1PrivateKey::random();
         t1.set_compress_public(true);
         let h_comp = t1.to_hex();
         t1.set_compress_public(false);
@@ -654,7 +648,7 @@ mod tests {
         let mut rng = rand::thread_rng();
 
         for i in 0..100 {
-            let privk = Secp256k1PrivateKey::new();
+            let privk = Secp256k1PrivateKey::random();
             let pubk = Secp256k1PublicKey::from_private(&privk);
 
             let mut msg = [0u8; 32];

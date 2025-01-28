@@ -252,7 +252,7 @@ fn ExtendedStacksHeader_StacksBlockHeader_serialize<S: serde::Serializer>(
 ) -> Result<S::Ok, S::Error> {
     let bytes = header.serialize_to_vec();
     let header_hex = to_hex(&bytes);
-    s.serialize_str(&header_hex.as_str())
+    s.serialize_str(header_hex.as_str())
 }
 
 /// In ExtendedStacksHeader, encode the StacksBlockHeader as a hex string
@@ -1008,10 +1008,10 @@ impl StacksChainState {
             )?;
 
             if migrate {
-                StacksChainState::apply_schema_migrations(&tx, mainnet, chain_id)?;
+                StacksChainState::apply_schema_migrations(tx, mainnet, chain_id)?;
             }
 
-            StacksChainState::add_indexes(&tx)?;
+            StacksChainState::add_indexes(tx)?;
         }
 
         dbtx.instantiate_index()?;
@@ -1226,30 +1226,35 @@ impl StacksChainState {
 
     fn parse_genesis_address(addr: &str, mainnet: bool) -> PrincipalData {
         // Typical entries are BTC encoded addresses that need converted to STX
-        let mut stacks_address = match LegacyBitcoinAddress::from_b58(&addr) {
+        let stacks_address = match LegacyBitcoinAddress::from_b58(addr) {
             Ok(addr) => StacksAddress::from_legacy_bitcoin_address(&addr),
             // A few addresses (from legacy placeholder accounts) are already STX addresses
             _ => match StacksAddress::from_string(addr) {
                 Some(addr) => addr,
-                None => panic!("Failed to parsed genesis address {}", addr),
+                None => panic!("Failed to parsed genesis address {addr}"),
             },
         };
         // Convert a given address to the currently running network mode (mainnet vs testnet).
         // All addresses from the Stacks 1.0 import data should be mainnet, but we'll handle either case.
-        stacks_address.version = if mainnet {
-            match stacks_address.version {
+        let converted_version = if mainnet {
+            match stacks_address.version() {
                 C32_ADDRESS_VERSION_TESTNET_SINGLESIG => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
                 C32_ADDRESS_VERSION_TESTNET_MULTISIG => C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                _ => stacks_address.version,
+                _ => stacks_address.version(),
             }
         } else {
-            match stacks_address.version {
+            match stacks_address.version() {
                 C32_ADDRESS_VERSION_MAINNET_SINGLESIG => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
                 C32_ADDRESS_VERSION_MAINNET_MULTISIG => C32_ADDRESS_VERSION_TESTNET_MULTISIG,
-                _ => stacks_address.version,
+                _ => stacks_address.version(),
             }
         };
-        let principal: PrincipalData = stacks_address.into();
+
+        let (_, bytes) = stacks_address.destruct();
+        let principal: PrincipalData = StandardPrincipalData::new(converted_version, bytes.0)
+            .expect("FATAL: infallible constant version byte is not valid")
+            .into();
+
         return principal;
     }
 
@@ -1517,7 +1522,7 @@ impl StacksChainState {
 
                                 let namespace = {
                                     let namespace_str = components[1];
-                                    if !BNS_CHARS_REGEX.is_match(&namespace_str) {
+                                    if !BNS_CHARS_REGEX.is_match(namespace_str) {
                                         panic!("Invalid namespace characters");
                                     }
                                     let buffer = namespace_str.as_bytes();
@@ -1794,7 +1799,7 @@ impl StacksChainState {
         let blocks_path = StacksChainState::blocks_path(path.clone());
         StacksChainState::mkdirs(&blocks_path)?;
 
-        let vm_state_path = StacksChainState::vm_state_path(path.clone());
+        let vm_state_path = StacksChainState::vm_state_path(path);
         StacksChainState::mkdirs(&vm_state_path)?;
         Ok(())
     }
@@ -1835,7 +1840,7 @@ impl StacksChainState {
             .to_string();
 
         let nakamoto_staging_blocks_path =
-            StacksChainState::static_get_nakamoto_staging_blocks_path(path.clone())?;
+            StacksChainState::static_get_nakamoto_staging_blocks_path(path)?;
         let nakamoto_staging_blocks_conn =
             StacksChainState::open_nakamoto_staging_blocks(&nakamoto_staging_blocks_path, true)?;
 
@@ -2170,7 +2175,7 @@ impl StacksChainState {
     where
         F: FnOnce(&mut ClarityReadOnlyConnection) -> R,
     {
-        if let Some(ref unconfirmed) = self.unconfirmed_state.as_ref() {
+        if let Some(unconfirmed) = self.unconfirmed_state.as_ref() {
             if !unconfirmed.is_readable() {
                 return Ok(None);
             }
@@ -2506,7 +2511,7 @@ impl StacksChainState {
                 Ok(txids)
             })
             .optional()?
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
 
         Ok(txids)
     }
@@ -2636,7 +2641,7 @@ impl StacksChainState {
             &[],
             &[],
         )?;
-        let index_block_hash = new_tip.index_block_hash(&new_consensus_hash);
+        let index_block_hash = new_tip.index_block_hash(new_consensus_hash);
         test_debug!(
             "Headers index_indexed_all finished {}-{}",
             &parent_hash,

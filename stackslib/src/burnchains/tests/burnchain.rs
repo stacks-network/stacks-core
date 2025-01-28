@@ -428,16 +428,12 @@ fn test_process_block_ops() {
         ],
         vec![
             BlockstackOperationType::LeaderBlockCommit(block_commit_1.clone()),
-            BlockstackOperationType::LeaderBlockCommit(block_commit_2.clone()),
+            BlockstackOperationType::LeaderBlockCommit(block_commit_2),
             BlockstackOperationType::LeaderBlockCommit(block_commit_3.clone()),
         ],
     ];
 
-    let block_124_winners = vec![
-        block_commit_1.clone(),
-        block_commit_3.clone(),
-        block_commit_1.clone(),
-    ];
+    let block_124_winners = vec![block_commit_1.clone(), block_commit_3, block_commit_1];
 
     let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
 
@@ -714,7 +710,7 @@ fn test_burn_snapshot_sequence() {
         let pubkey_hex = vrf_pubkey.to_hex();
         leader_public_keys.push(pubkey_hex);
 
-        let bitcoin_privkey = Secp256k1PrivateKey::new();
+        let bitcoin_privkey = Secp256k1PrivateKey::random();
         let bitcoin_publickey = BitcoinPublicKey::from_private(&bitcoin_privkey);
 
         leader_bitcoin_public_keys.push(to_hex(&bitcoin_publickey.to_bytes()));

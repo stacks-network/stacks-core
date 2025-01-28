@@ -331,7 +331,7 @@ pub fn make_reward_cycle_with_vote(
             let mut commits = vec![];
             for i in 0..parent_commits.len() {
                 let mut block_commit = make_simple_block_commit(
-                    &burnchain,
+                    burnchain,
                     parent_commits[i].as_ref(),
                     &block_header,
                     next_block_hash(),
@@ -386,7 +386,7 @@ pub fn make_reward_cycle_with_vote(
                         block_commit.parent_vtxindex
                     );
 
-                    if let Some(ref parent_commit) = parent_commits[i].as_ref() {
+                    if let Some(parent_commit) = parent_commits[i].as_ref() {
                         assert!(parent_commit.block_height != block_commit.block_height);
                         assert!(
                             parent_commit.block_height == u64::from(block_commit.parent_block_ptr)
@@ -621,7 +621,7 @@ fn test_parent_block_commits() {
     // orphan
     assert_eq!(parent_commits.len(), all_ops_with_orphan.len() - 1);
 
-    let mut all_ops_with_same_parent = all_ops.clone();
+    let mut all_ops_with_same_parent = all_ops;
     for ops in all_ops_with_same_parent.iter_mut() {
         for opdata in ops.iter_mut() {
             opdata.parent_block_ptr = 3;
@@ -948,7 +948,7 @@ fn test_find_heaviest_block_commit() {
     //             X------- 4,0
     //
     //             X------------ 5,0
-    let mut all_ops_no_majority = filtered_ops.clone();
+    let mut all_ops_no_majority = filtered_ops;
     all_ops_no_majority[0][0].parent_block_ptr = 2;
     all_ops_no_majority[0][0].parent_vtxindex = 10;
     all_ops_no_majority[0][0].burn_fee = 0;
@@ -1153,7 +1153,7 @@ fn test_find_heaviest_parent_commit_many_commits() {
     // 1,0 <-- 2,0 <--- 3,0 <--- 4,0 <--- 5,0
     //  \
     //   `---- 2,1 <--- 3,1 <--- 4,1 <--- 5,1 (winner)
-    let mut all_ops_no_majority = filtered_ops.clone();
+    let mut all_ops_no_majority = filtered_ops;
 
     // 3,0
     all_ops_no_majority[0][0].parent_block_ptr = 2;

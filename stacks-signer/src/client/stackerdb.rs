@@ -293,7 +293,7 @@ mod tests {
     #[test]
     fn send_signer_message_should_succeed() {
         let signer_config = build_signer_config_tomls(
-            &[StacksPrivateKey::new()],
+            &[StacksPrivateKey::random()],
             "localhost:20443",
             Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
             &Network::Testnet,

@@ -65,7 +65,7 @@ fn make_dummy_cc_tx(fee: u64, execution_cost: &ExecutionCost) -> StacksTransacti
         TransactionVersion::Mainnet,
         TransactionAuth::Standard(TransactionSpendingCondition::new_initial_sighash()),
         TransactionPayload::ContractCall(TransactionContractCall {
-            address: StacksAddress::new(0, Hash160([0; 20])),
+            address: StacksAddress::new(0, Hash160([0; 20])).unwrap(),
             contract_name: "cc-dummy".into(),
             function_name: "func-name".into(),
             function_args: vec![],

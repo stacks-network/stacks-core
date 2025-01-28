@@ -104,13 +104,18 @@ pub struct Counters {
     pub missed_microblock_tenures: RunLoopCounter,
     pub cancelled_commits: RunLoopCounter,
 
+    pub sortitions_processed: RunLoopCounter,
+
     pub naka_submitted_vrfs: RunLoopCounter,
     pub naka_submitted_commits: RunLoopCounter,
+    /// the burn block height when the last commit was submitted
+    pub naka_submitted_commit_last_burn_height: RunLoopCounter,
     pub naka_mined_blocks: RunLoopCounter,
     pub naka_rejected_blocks: RunLoopCounter,
     pub naka_proposed_blocks: RunLoopCounter,
     pub naka_mined_tenures: RunLoopCounter,
     pub naka_signer_pushed_blocks: RunLoopCounter,
+    pub naka_miner_directives: RunLoopCounter,
 
     #[cfg(test)]
     pub naka_skip_commit_op: TestFlag<bool>,
@@ -141,6 +146,10 @@ impl Counters {
         Counters::inc(&self.blocks_processed);
     }
 
+    pub fn bump_sortitions_processed(&self) {
+        Counters::inc(&self.sortitions_processed);
+    }
+
     pub fn bump_microblocks_processed(&self) {
         Counters::inc(&self.microblocks_processed);
     }
@@ -161,8 +170,12 @@ impl Counters {
         Counters::inc(&self.naka_submitted_vrfs);
     }
 
-    pub fn bump_naka_submitted_commits(&self) {
+    pub fn bump_naka_submitted_commits(&self, committed_height: u64) {
         Counters::inc(&self.naka_submitted_commits);
+        Counters::set(
+            &self.naka_submitted_commit_last_burn_height,
+            committed_height,
+        );
     }
 
     pub fn bump_naka_mined_blocks(&self) {
@@ -183,6 +196,10 @@ impl Counters {
 
     pub fn bump_naka_mined_tenures(&self) {
         Counters::inc(&self.naka_mined_tenures);
+    }
+
+    pub fn bump_naka_miner_directives(&self) {
+        Counters::inc(&self.naka_miner_directives);
     }
 
     pub fn set_microblocks_processed(&self, value: u64) {
