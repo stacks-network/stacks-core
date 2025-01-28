@@ -7826,7 +7826,11 @@ fn block_validation_check_rejection_timeout_heuristic() {
         |config| {
             config.block_proposal_validation_timeout = timeout;
         },
-        |_| {},
+        |config| {
+            config.miner.block_rejection_timeout_steps.clear();
+            config.miner.block_rejection_timeout_steps.insert(0, Duration::from_secs(600));
+            config.miner.block_rejection_timeout_steps.insert(3, Duration::from_secs(17));
+        },
         None,
         None,
     );

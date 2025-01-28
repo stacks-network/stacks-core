@@ -38,6 +38,8 @@ use stacks::util::secp256k1::MessageSignature;
 use stacks::util_lib::boot::boot_code_id;
 #[cfg(test)]
 use stacks_common::util::tests::TestFlag;
+use std::collections::BTreeMap;
+use std::ops::Bound::Included;
 
 use super::stackerdb_listener::StackerDBListenerComms;
 use super::Error as NakamotoNodeError;
@@ -52,9 +54,6 @@ use crate::Config;
 /// Test-only value for storing the current rejection based timeout
 pub static BLOCK_REJECTIONS_CURRENT_TIMEOUT: LazyLock<TestFlag<Duration>> =
     LazyLock::new(TestFlag::default);
-
-/// Base timeout for rejections heuristic
-pub static BLOCK_REJECTIONS_TIMEOUT_BASE: u64 = 600;
 
 /// The state of the signer database listener, used by the miner thread to
 /// interact with the signer listener.
@@ -81,6 +80,8 @@ pub struct SignerCoordinator {
     /// Rather, this burn block is used to determine whether or not a new
     ///  burn block has arrived since this thread started.
     burn_tip_at_start: ConsensusHash,
+    ///
+    block_rejection_timeout_steps: BTreeMap<u64, Duration>,
 }
 
 impl SignerCoordinator {
@@ -126,6 +127,7 @@ impl SignerCoordinator {
             keep_running,
             listener_thread: None,
             burn_tip_at_start: burn_tip_at_start.clone(),
+            block_rejection_timeout_steps: config.miner.block_rejection_timeout_steps.clone(),
         };
 
         // Spawn the signer DB listener thread
@@ -311,9 +313,17 @@ impl SignerCoordinator {
         // this is used to track the start of the waiting cycle
         let mut rejections_timer = Instant::now();
         // the amount of current rejections to eventually modify the timeout
-        let mut rejections: u32 = 0;
+        let mut rejections: u64 = 0;
         // default timeout
-        let mut rejections_timeout = Duration::from_secs(BLOCK_REJECTIONS_TIMEOUT_BASE);
+        let mut rejections_timeout = self
+            .block_rejection_timeout_steps
+            .range((Included(0), Included(rejections)))
+            .last()
+            .ok_or_else(|| {
+                NakamotoNodeError::SigningCoordinatorFailure(
+                    "Invalid rejection timeout step function definition".into(),
+                )
+            })?;
         // this is used for comparing block_status to identify if it has been changed from the previous event
         let mut block_status_tracker = BlockStatus::default();
         loop {
@@ -324,7 +334,7 @@ impl SignerCoordinator {
                 block_signer_sighash,
                 &mut block_status_tracker,
                 rejections_timer,
-                rejections_timeout,
+                *rejections_timeout.1,
                 EVENT_RECEIVER_POLL,
             )? {
                 Some(status) => status,
@@ -358,10 +368,10 @@ impl SignerCoordinator {
                         return Err(NakamotoNodeError::BurnchainTipChanged);
                     }
 
-                    if rejections_timer.elapsed() > rejections_timeout {
+                    if rejections_timer.elapsed() > *rejections_timeout.1 {
                         warn!("Timed out while waiting for responses from signers";
                                   "elapsed" => rejections_timer.elapsed().as_secs(),
-                                  "rejections_timeout" => rejections_timeout.as_secs(),
+                                  "rejections_timeout" => rejections_timeout.1.as_secs(),
                                   "rejections" => rejections,
                                   "rejections_threshold" => self.total_weight.saturating_sub(self.weight_threshold)
                         );
@@ -374,17 +384,21 @@ impl SignerCoordinator {
                 }
             };
 
-            if rejections != block_status.total_reject_weight {
+            if rejections != block_status.total_reject_weight as u64 {
                 rejections_timer = Instant::now();
-                rejections = block_status.total_reject_weight;
-                rejections_timeout = Duration::from_secs_f32(
-                    BLOCK_REJECTIONS_TIMEOUT_BASE as f32
-                        - (BLOCK_REJECTIONS_TIMEOUT_BASE as f32
-                            * ((rejections as f32 / self.weight_threshold as f32).powf(2.0))),
-                );
+                rejections = block_status.total_reject_weight as u64;
+                rejections_timeout = self
+                    .block_rejection_timeout_steps
+                    .range((Included(0), Included((rejections as f64 / self.total_weight as f64) as u64)))
+                    .last()
+                    .ok_or_else(|| {
+                        NakamotoNodeError::SigningCoordinatorFailure(
+                            "Invalid rejection timeout step function definition".into(),
+                        )
+                    })?;
 
                 #[cfg(test)]
-                BLOCK_REJECTIONS_CURRENT_TIMEOUT.set(rejections_timeout);
+                BLOCK_REJECTIONS_CURRENT_TIMEOUT.set(*rejections_timeout.1);
             }
 
             if block_status
@@ -404,10 +418,10 @@ impl SignerCoordinator {
                     "block_signer_sighash" => %block_signer_sighash,
                 );
                 return Ok(block_status.gathered_signatures.values().cloned().collect());
-            } else if rejections_timer.elapsed() > rejections_timeout {
+            } else if rejections_timer.elapsed() > *rejections_timeout.1 {
                 warn!("Timed out while waiting for responses from signers";
                           "elapsed" => rejections_timer.elapsed().as_secs(),
-                          "rejections_timeout" => rejections_timeout.as_secs(),
+                          "rejections_timeout" => rejections_timeout.1.as_secs(),
                           "rejections" => rejections,
                           "rejections_threshold" => self.total_weight.saturating_sub(self.weight_threshold)
                 );
