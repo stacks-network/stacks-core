@@ -613,6 +613,7 @@ impl Signer {
                 &mut self.signer_db,
                 stacks_client,
                 self.proposal_config.tenure_last_block_proposal_timeout,
+                self.proposal_config.reorg_attempts_activity_timeout,
             ) {
                 Ok(true) => {}
                 Ok(false) => {

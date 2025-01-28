@@ -40,6 +40,7 @@ const BLOCK_PROPOSAL_VALIDATION_TIMEOUT_MS: u64 = 120_000;
 const DEFAULT_FIRST_PROPOSAL_BURN_BLOCK_TIMING_SECS: u64 = 60;
 const DEFAULT_TENURE_LAST_BLOCK_PROPOSAL_TIMEOUT_SECS: u64 = 30;
 const TENURE_IDLE_TIMEOUT_SECS: u64 = 120;
+const DEFAULT_REORG_ATTEMPTS_ACTIVITY_TIMEOUT_MS: u64 = 200_000;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration
@@ -141,6 +142,9 @@ pub struct SignerConfig {
     pub tenure_idle_timeout: Duration,
     /// The maximum age of a block proposal in seconds that will be processed by the signer
     pub block_proposal_max_age_secs: u64,
+    /// Time following a block's global acceptance that a signer will consider an attempt by a miner to reorg the block
+    /// as valid towards miner activity
+    pub reorg_attempts_activity_timeout: Duration,
 }
 
 /// The parsed configuration for the signer
@@ -181,6 +185,9 @@ pub struct GlobalConfig {
     pub tenure_idle_timeout: Duration,
     /// The maximum age of a block proposal that will be processed by the signer
     pub block_proposal_max_age_secs: u64,
+    /// Time following a block's global acceptance that a signer will consider an attempt by a miner to reorg the block
+    /// as valid towards miner activity
+    pub reorg_attempts_activity_timeout: Duration,
 }
 
 /// Internal struct for loading up the config file
@@ -220,6 +227,9 @@ struct RawConfigFile {
     pub tenure_idle_timeout_secs: Option<u64>,
     /// The maximum age of a block proposal (in secs) that will be processed by the signer.
     pub block_proposal_max_age_secs: Option<u64>,
+    /// Time (in millisecs) following a block's global acceptance that a signer will consider an attempt by a miner
+    /// to reorg the block as valid towards miner activity
+    pub reorg_attempts_activity_timeout_ms: Option<u64>,
 }
 
 impl RawConfigFile {
@@ -321,6 +331,12 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             .block_proposal_max_age_secs
             .unwrap_or(DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS);
 
+        let reorg_attempts_activity_timeout = Duration::from_millis(
+            raw_data
+                .reorg_attempts_activity_timeout_ms
+                .unwrap_or(DEFAULT_REORG_ATTEMPTS_ACTIVITY_TIMEOUT_MS),
+        );
+
         Ok(Self {
             node_host: raw_data.node_host,
             endpoint,
@@ -338,6 +354,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             block_proposal_validation_timeout,
             tenure_idle_timeout,
             block_proposal_max_age_secs,
+            reorg_attempts_activity_timeout,
         })
     }
 }
