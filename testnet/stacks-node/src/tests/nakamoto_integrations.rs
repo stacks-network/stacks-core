@@ -247,9 +247,15 @@ pub fn check_nakamoto_empty_block_heuristics() {
             continue;
         }
         let txs = test_observer::parse_transactions(block);
-        let has_tenure_change = txs
-            .iter()
-            .any(|tx| matches!(tx.payload, TransactionPayload::TenureChange(_)));
+        let has_tenure_change = txs.iter().any(|tx| {
+            matches!(
+                tx.payload,
+                TransactionPayload::TenureChange(TenureChangePayload {
+                    cause: TenureChangeCause::BlockFound,
+                    ..
+                })
+            )
+        });
         if has_tenure_change {
             let only_coinbase_and_tenure_change = txs.iter().all(|tx| {
                 matches!(
