@@ -3083,7 +3083,7 @@ fn block_proposal_api_endpoint() {
 
         if ix == 1 {
             // release the test observer mutex so that the handler from 0 can finish!
-            hold_proposal_mutex.take();
+            _ = hold_proposal_mutex.take();
         }
     }
 
@@ -10492,7 +10492,6 @@ fn clarity_cost_spend_down() {
             .get_stacks_blocks_processed();
         // Pause mining so we can add all our transactions to the mempool at once.
         TEST_MINE_STALL.set(true);
-        let mut submitted_txs = vec![];
         for _nmb_tx in 0..nmb_txs_per_signer {
             for sender_sk in sender_sks.iter() {
                 let sender_nonce = get_and_increment_nonce(sender_sk, &mut sender_nonces);
@@ -10508,9 +10507,7 @@ fn clarity_cost_spend_down() {
                     &[],
                 );
                 match submit_tx_fallible(&http_origin, &contract_tx) {
-                    Ok(txid) => {
-                        submitted_txs.push(txid);
-                    }
+                    Ok(_txid) => {}
                     Err(_e) => {
                         // If we fail to submit a tx, we need to make sure we don't
                         // increment the nonce for this sender, so we don't end up
