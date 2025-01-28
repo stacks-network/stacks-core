@@ -2197,7 +2197,7 @@ impl<
                             // matches affirmation
                             PoxAnchorBlockStatus::SelectedAndKnown(
                                 block_hash.clone(),
-                                txid.clone(),
+                                *txid,
                                 reward_set.clone(),
                             )
                         }
@@ -2205,10 +2205,7 @@ impl<
                             // network actually affirms that this anchor block
                             // is absent.
                             warn!("Chose PoX anchor block for reward cycle {affirmed_rc}, but it is affirmed absent by the network"; "affirmation map" => %&canonical_affirmation_map);
-                            PoxAnchorBlockStatus::SelectedAndUnknown(
-                                block_hash.clone(),
-                                txid.clone(),
-                            )
+                            PoxAnchorBlockStatus::SelectedAndUnknown(block_hash.clone(), *txid)
                         }
                         AffirmationMapEntry::Nothing => {
                             // no anchor block selected either way
@@ -2228,10 +2225,7 @@ impl<
                         }
                         AffirmationMapEntry::PoxAnchorBlockAbsent => {
                             // matches affirmation
-                            PoxAnchorBlockStatus::SelectedAndUnknown(
-                                block_hash.clone(),
-                                txid.clone(),
-                            )
+                            PoxAnchorBlockStatus::SelectedAndUnknown(block_hash.clone(), *txid)
                         }
                         AffirmationMapEntry::Nothing => {
                             // no anchor block selected either way

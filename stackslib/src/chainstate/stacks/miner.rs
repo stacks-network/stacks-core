@@ -2086,7 +2086,7 @@ impl StacksBlockBuilder {
         let ast_rules = miner_epoch_info.ast_rules;
         let (mut epoch_tx, _) = builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
         for tx in txs.into_iter() {
-            match builder.try_mine_tx(&mut epoch_tx, &tx, ast_rules.clone()) {
+            match builder.try_mine_tx(&mut epoch_tx, &tx, ast_rules) {
                 Ok(_) => {
                     debug!("Included {}", &tx.txid());
                 }

@@ -942,7 +942,7 @@ impl PeerDB {
                     *cur_peer = peer;
                 }
             } else {
-                grouped_by_public_key.insert(peer.public_key.clone(), peer);
+                grouped_by_public_key.insert(peer.public_key, peer);
             }
         }
         Ok(grouped_by_public_key.into_values().collect())

@@ -554,7 +554,7 @@ impl MempoolSync {
                                     // get the next page
                                     self.mempool_state = MempoolSyncState::SendQuery(
                                         url.clone(),
-                                        addr.clone(),
+                                        *addr,
                                         next_page_id,
                                     );
                                     false
@@ -579,15 +579,15 @@ impl MempoolSync {
                         Ok((false, _, Some(_))) => {
                             // should never happen
                             if cfg!(test) {
-                                panic!("Reached invalid state in {:?}, aborting...", &cur_state);
+                                panic!("Reached invalid state in {cur_state:?}, aborting...");
                             }
-                            warn!("Reached invalid state in {:?}, resetting...", &cur_state);
+                            warn!("Reached invalid state in {cur_state:?}, resetting...");
                             self.mempool_sync_reset();
                             return (true, None);
                         }
                         Err(e) => {
                             // likely a network error
-                            warn!("mempool_sync_recv_response returned {:?}", &e);
+                            warn!("mempool_sync_recv_response returned {e:?}");
                             self.mempool_sync_reset();
                             return (true, None);
                         }

@@ -1930,33 +1930,33 @@ impl PeerNetwork {
                             let request = requestable.make_request_type(peerhost.clone());
                             match network.connect_or_send_http_request(
                                 requestable.get_url().clone(),
-                                addr.clone(),
+                                *addr,
                                 request,
                             ) {
                                 Ok(handle) => {
                                     debug!(
-                                        "{:?}: Begin HTTP request {}",
-                                        &network.local_peer, requestable
+                                        "{:?}: Begin HTTP request {requestable}",
+                                        &network.local_peer
                                     );
                                     return Some((requestable, handle));
                                 }
                                 Err(e) => {
                                     debug!(
-                                        "{:?}: Failed to connect or send HTTP request {}: {:?}",
-                                        &network.local_peer, requestable, &e
+                                        "{:?}: Failed to connect or send HTTP request {requestable}: {e:?}",
+                                        &network.local_peer
                                     );
                                 }
                             }
                         }
 
                         debug!(
-                            "{:?}: Failed request for {} from {:?}",
-                            &network.local_peer, requestable, sockaddrs
+                            "{:?}: Failed request for {requestable} from {sockaddrs:?}",
+                            &network.local_peer
                         );
                     } else {
                         debug!(
-                            "{:?}: Will not request {}: failed to look up DNS name",
-                            &network.local_peer, requestable
+                            "{:?}: Will not request {requestable}: failed to look up DNS name",
+                            &network.local_peer
                         );
                     }
                 }

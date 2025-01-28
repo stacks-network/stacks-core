@@ -1722,7 +1722,7 @@ impl MemPoolDB {
                 Self::save_nonce_for_retry(
                     &mut retry_store,
                     settings.nonce_cache_size,
-                    candidate.origin_address.clone(),
+                    candidate.origin_address,
                     expected_origin_nonce,
                 );
             }
@@ -1730,7 +1730,7 @@ impl MemPoolDB {
                 Self::save_nonce_for_retry(
                     &mut retry_store,
                     settings.nonce_cache_size,
-                    candidate.sponsor_address.clone(),
+                    candidate.sponsor_address,
                     expected_sponsor_nonce,
                 );
             }
@@ -2304,10 +2304,8 @@ impl MemPoolDB {
         fee_rate_estimate: Option<f64>,
     ) -> Result<(), MemPoolRejection> {
         test_debug!(
-            "Mempool submit {} at {}/{}",
+            "Mempool submit {} at {consensus_hash}/{block_hash}",
             tx.txid(),
-            consensus_hash,
-            block_hash
         );
 
         let block_id = StacksBlockId::new(consensus_hash, block_hash);
@@ -2319,15 +2317,14 @@ impl MemPoolDB {
                     0
                 } else {
                     return Err(MemPoolRejection::NoSuchChainTip(
-                        consensus_hash.clone(),
+                        *consensus_hash,
                         block_hash.clone(),
                     ));
                 }
             }
             Err(e) => {
                 return Err(MemPoolRejection::Other(format!(
-                    "Failed to load chain tip: {:?}",
-                    &e
+                    "Failed to load chain tip: {e:?}"
                 )));
             }
         };
@@ -2345,13 +2342,11 @@ impl MemPoolDB {
             if let (Some(addr), Some(nonce)) = (tx.sponsor_address(), tx.get_sponsor_nonce()) {
                 (addr, nonce)
             } else {
-                (origin_address.clone(), origin_nonce)
+                (origin_address, origin_nonce)
             };
 
         if do_admission_checks {
-            mempool_tx
-                .admitter
-                .set_block(block_hash, (*consensus_hash).clone());
+            mempool_tx.admitter.set_block(block_hash, *consensus_hash);
             mempool_tx
                 .admitter
                 .will_admit_tx(chainstate, sortdb, tx, len)?;
@@ -2363,7 +2358,7 @@ impl MemPoolDB {
             consensus_hash,
             block_hash,
             true,
-            txid.clone(),
+            txid,
             tx_data,
             tx_fee,
             coinbase_height,
@@ -2382,7 +2377,7 @@ impl MemPoolDB {
             .map_err(db_error::from)?;
 
         if let Err(e) = monitoring::mempool_accepted(&txid, &chainstate.root_path) {
-            warn!("Failed to monitor TX receive: {:?}", e; "txid" => %txid);
+            warn!("Failed to monitor TX receive: {e:?}"; "txid" => %txid);
         }
 
         Ok(())
@@ -2765,9 +2760,9 @@ impl MemPoolDB {
     pub fn make_mempool_sync_data(&self) -> Result<MemPoolSyncData, db_error> {
         let num_tags = MemPoolDB::get_num_recent_txs(self.conn())?;
         if num_tags < self.max_tx_tags.into() {
-            let seed = self.bloom_counter.get_seed().clone();
-            let tags = self.get_txtags(&seed)?;
-            Ok(MemPoolSyncData::TxTags(seed, tags))
+            let seed = self.bloom_counter.get_seed();
+            let tags = self.get_txtags(seed)?;
+            Ok(MemPoolSyncData::TxTags(*seed, tags))
         } else {
             Ok(MemPoolSyncData::BloomFilter(self.get_txid_bloom_filter()?))
         }

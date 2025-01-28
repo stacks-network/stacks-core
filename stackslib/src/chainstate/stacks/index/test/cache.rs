@@ -100,13 +100,13 @@ fn test_marf_with_cache(
             for b in (0..block_data.len()).step_by(batch_size) {
                 let batch = &block_data[b..cmp::min(block_data.len(), b + batch_size)];
                 let keys: Vec<_> = batch.iter().map(|(k, _)| k.clone()).collect();
-                let values = batch.iter().map(|(_, v)| v.clone()).collect();
+                let values = batch.iter().map(|(_, v)| *v).collect();
                 marf.insert_batch(&keys, values).unwrap();
             }
         } else {
             for (key, value) in block_data.iter() {
                 let path = TrieHash::from_key(key);
-                let leaf = TrieLeaf::from_value(&[], value.clone());
+                let leaf = TrieLeaf::from_value(&[], *value);
                 marf.insert_raw(path, leaf).unwrap();
             }
         }
@@ -117,7 +117,7 @@ fn test_marf_with_cache(
 
     let write_bench = marf.borrow_storage_backend().get_benchmarks();
     marf.borrow_storage_backend().reset_benchmarks();
-    eprintln!("MARF bench writes: {:#?}", &write_bench);
+    eprintln!("MARF bench writes: {write_bench:#?}");
 
     debug!("---------");
     debug!("MARF gets");
@@ -129,7 +129,7 @@ fn test_marf_with_cache(
         test_debug!("Read block {}", i);
         for (key, value) in block_data.iter() {
             let path = TrieHash::from_key(key);
-            let marf_leaf = TrieLeaf::from_value(&[], value.clone());
+            let marf_leaf = TrieLeaf::from_value(&[], *value);
 
             let read_time = SystemTime::now();
             let leaf = MARF::get_path(
@@ -148,18 +148,15 @@ fn test_marf_with_cache(
     }
 
     let read_bench = marf.borrow_storage_backend().get_benchmarks();
-    eprintln!(
-        "MARF bench reads ({} total): {:#?}",
-        total_read_time, &read_bench
-    );
+    eprintln!("MARF bench reads ({total_read_time} total): {read_bench:#?}");
 
     let mut bench = write_bench;
     bench.add(&read_bench);
 
-    eprintln!("MARF bench total: {:#?}", &bench);
+    eprintln!("MARF bench total: {bench:#?}");
 
     root_hash = marf.get_root_hash_at(&last_block_header).unwrap();
-    eprintln!("root hash at {:?}: {:?}", &last_block_header, &root_hash);
+    eprintln!("root hash at {last_block_header:?}: {root_hash:?}");
     root_hash
 }
 
@@ -173,7 +170,7 @@ fn test_marf_node_cache_noop() {
         &test_data,
         None,
     );
-    eprintln!("Final root hash is {}", root_hash);
+    eprintln!("Final root hash is {root_hash}");
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_noop",
@@ -222,7 +219,7 @@ fn test_marf_node_cache_noop_deferred() {
         &test_data,
         None,
     );
-    eprintln!("Final root hash is {}", root_hash);
+    eprintln!("Final root hash is {root_hash}");
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_noop_deferred",
@@ -280,7 +277,7 @@ fn test_marf_node_cache_everything() {
         &test_data,
         None,
     );
-    eprintln!("Final root hash is {}", root_hash);
+    eprintln!("Final root hash is {root_hash}");
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_everything",
@@ -329,7 +326,7 @@ fn test_marf_node_cache_everything_deferred() {
         &test_data,
         None,
     );
-    eprintln!("Final root hash is {}", root_hash);
+    eprintln!("Final root hash is {root_hash}");
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_everything_deferred",
@@ -378,7 +375,7 @@ fn test_marf_node_cache_node256() {
         &test_data,
         None,
     );
-    eprintln!("Final root hash is {}", root_hash);
+    eprintln!("Final root hash is {root_hash}");
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_node256",
@@ -427,7 +424,7 @@ fn test_marf_node_cache_node256_deferred() {
         &test_data,
         None,
     );
-    eprintln!("Final root hash is {}", root_hash);
+    eprintln!("Final root hash is {root_hash}");
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_node256_deferred",
@@ -476,7 +473,7 @@ fn test_marf_node_cache_node256_deferred_15500() {
         &test_data,
         None,
     );
-    eprintln!("Final root hash is {}", root_hash);
+    eprintln!("Final root hash is {root_hash}");
 
     let root_hash_batched = test_marf_with_cache(
         "test_marf_node_cache_node256_deferred_15500",

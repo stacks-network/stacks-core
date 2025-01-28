@@ -137,7 +137,7 @@ fn test_mempool_sync_2_peers() {
             &stacks_tip_ch,
             &stacks_tip_bhh,
             true,
-            txid.clone(),
+            txid,
             tx_bytes,
             tx_fee,
             (num_blocks / 2) as u64,
@@ -217,7 +217,7 @@ fn test_mempool_sync_2_peers() {
             &stacks_tip_ch,
             &stacks_tip_bhh,
             true,
-            txid.clone(),
+            txid,
             tx_bytes,
             tx_fee,
             num_blocks as u64,
@@ -402,7 +402,7 @@ fn test_mempool_sync_2_peers_paginated() {
             &stacks_tip_ch,
             &stacks_tip_bhh,
             true,
-            txid.clone(),
+            txid,
             tx_bytes,
             tx_fee,
             num_blocks,
@@ -592,7 +592,7 @@ fn test_mempool_sync_2_peers_blacklisted() {
             &stacks_tip_ch,
             &stacks_tip_bhh,
             true,
-            txid.clone(),
+            txid,
             tx_bytes,
             tx_fee,
             num_blocks,
@@ -793,7 +793,7 @@ fn test_mempool_sync_2_peers_problematic() {
             &stacks_tip_ch,
             &stacks_tip_bhh,
             true,
-            txid.clone(),
+            txid,
             tx_bytes,
             tx_fee,
             num_blocks,
@@ -940,21 +940,21 @@ pub fn test_mempool_storage_nakamoto() {
     let sortdb = peer.sortdb().reopen().unwrap();
 
     for i in 0..10 {
-        debug!("Tenure {}", i);
+        debug!("Tenure {i}");
         let (burn_ops, mut tenure_change, miner_key) =
             peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
         let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
         let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
-        tenure_change.tenure_consensus_hash = consensus_hash.clone();
-        tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+        tenure_change.tenure_consensus_hash = consensus_hash;
+        tenure_change.burn_view_consensus_hash = consensus_hash;
 
         let tenure_change_tx = peer
             .miner
             .make_nakamoto_tenure_change(tenure_change.clone());
         let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
 
-        debug!("Next burnchain block: {}", &consensus_hash);
+        debug!("Next burnchain block: {consensus_hash}");
 
         let num_blocks: usize = (thread_rng().gen::<usize>() % 10) + 1;
 
@@ -1193,7 +1193,7 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
             &stacks_tip_ch,
             &stacks_tip_bhh,
             true,
-            txid.clone(),
+            txid,
             tx_bytes,
             tx_fee,
             coinbase_height,

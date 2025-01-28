@@ -724,7 +724,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
                         // produce the microblock stream for the parent, which this tenure's anchor
                         // block will confirm.
                         let mut microblock_builder = StacksMicroblockBuilder::new(
-                            parent_header_hash.clone(),
+                            parent_header_hash,
                             parent_consensus_hash,
                             chainstate,
                             &sort_ic,
@@ -946,13 +946,11 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
                             // while straddling the epoch boundary.
                             // Verify that the last block was indeed marked as invalid, and abort.
                             let bhh = last_block.as_ref().unwrap().block_hash();
-                            let ch = last_block_ch.as_ref().unwrap().clone();
-                            assert!(StacksChainState::is_block_orphaned(
-                                chainstate.db(),
-                                &ch,
-                                &bhh
-                            )
-                            .unwrap());
+                            let ch = last_block_ch.as_ref().unwrap();
+                            assert!(
+                                StacksChainState::is_block_orphaned(chainstate.db(), ch, &bhh)
+                                    .unwrap()
+                            );
                             panic!("success");
                         }
                     }
@@ -981,7 +979,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
                         // produce the microblock stream for the parent, which this tenure's anchor
                         // block will confirm.
                         let mut microblock_builder = StacksMicroblockBuilder::new(
-                            parent_header_hash.clone(),
+                            parent_header_hash,
                             parent_consensus_hash,
                             chainstate,
                             &sort_ic,

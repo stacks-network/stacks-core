@@ -2062,7 +2062,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
 
                 let root_hash = trie_ram.read_node_hash(&ptr)?;
 
-                ret.insert(root_hash.clone(), bhh.clone());
+                ret.insert(root_hash, bhh.clone());
                 Some((bhh, trie_ram))
             }
             _ => None,

@@ -492,7 +492,7 @@ impl<'a> TestRPC<'a> {
                 let sort_iconn = sortdb.index_handle_at_tip();
                 let mut microblock_builder = StacksMicroblockBuilder::new(
                     stacks_block.block_hash(),
-                    consensus_hash.clone(),
+                    consensus_hash,
                     peer_1.chainstate(),
                     &sort_iconn,
                     BlockBuilderSettings::max_value(),
@@ -605,7 +605,7 @@ impl<'a> TestRPC<'a> {
                     &consensus_hash,
                     &stacks_block.block_hash(),
                     true,
-                    txid.clone(),
+                    txid,
                     tx_bytes,
                     tx_fee,
                     stacks_block.header.total_work.work,
@@ -910,8 +910,8 @@ impl<'a> TestRPC<'a> {
         assert_eq!(nakamoto_tip, other_nakamoto_tip);
 
         TestRPC {
-            privk1: peer.config.private_key.clone(),
-            privk2: other_peer.config.private_key.clone(),
+            privk1: peer.config.private_key,
+            privk2: other_peer.config.private_key,
             peer_1: peer,
             peer_2: other_peer,
             peer_1_indexer,

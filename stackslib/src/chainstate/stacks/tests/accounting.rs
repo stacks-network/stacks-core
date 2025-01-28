@@ -239,7 +239,7 @@ fn test_bad_microblock_fees_pre_v210() {
                         // produce the microblock stream for the parent, which this tenure's anchor
                         // block will confirm.
                         let mut microblock_builder = StacksMicroblockBuilder::new(
-                            parent_header_hash.clone(),
+                            parent_header_hash,
                             parent_consensus_hash,
                             chainstate,
                             &sort_ic,
@@ -352,8 +352,8 @@ fn test_bad_microblock_fees_pre_v210() {
     ];
 
     for i in 1..num_blocks {
-        let parent_block_id = block_ids[i - 1].clone();
-        let block_id = block_ids[i].clone();
+        let parent_block_id = block_ids[i - 1];
+        let block_id = block_ids[i];
 
         let matured_reward_opt = StacksChainState::get_matured_miner_payment(
             peer.chainstate().db(),
@@ -562,7 +562,7 @@ fn test_bad_microblock_fees_fix_transition() {
                         // produce the microblock stream for the parent, which this tenure's anchor
                         // block will confirm.
                         let mut microblock_builder = StacksMicroblockBuilder::new(
-                            parent_header_hash.clone(),
+                            parent_header_hash,
                             parent_consensus_hash,
                             chainstate,
                             &sort_ic,
@@ -675,8 +675,8 @@ fn test_bad_microblock_fees_fix_transition() {
     ];
 
     for i in 1..num_blocks {
-        let parent_block_id = block_ids[i - 1].clone();
-        let block_id = block_ids[i].clone();
+        let parent_block_id = block_ids[i - 1];
+        let block_id = block_ids[i];
 
         let matured_reward_opt = StacksChainState::get_matured_miner_payment(
             peer.chainstate().db(),
@@ -918,7 +918,7 @@ fn test_get_block_info_v210() {
                         // produce the microblock stream for the parent, which this tenure's anchor
                         // block will confirm.
                         let mut microblock_builder = StacksMicroblockBuilder::new(
-                            parent_header_hash.clone(),
+                            parent_header_hash,
                             parent_consensus_hash,
                             chainstate,
                             &sort_ic,
@@ -1687,7 +1687,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                         // produce the microblock stream for the parent, which this tenure's anchor
                         // block will confirm.
                         let mut microblock_builder = StacksMicroblockBuilder::new(
-                            parent_header_hash.clone(),
+                            parent_header_hash,
                             parent_consensus_hash,
                             chainstate,
                             &sort_ic,

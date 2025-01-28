@@ -952,11 +952,11 @@ impl PostConditionPrincipal {
         match *self {
             PostConditionPrincipal::Origin => origin_principal.clone(),
             PostConditionPrincipal::Standard(ref addr) => {
-                PrincipalData::Standard(StandardPrincipalData::from(addr.clone()))
+                PrincipalData::Standard(StandardPrincipalData::from(*addr))
             }
             PostConditionPrincipal::Contract(ref addr, ref contract_name) => {
                 PrincipalData::Contract(QualifiedContractIdentifier::new(
-                    StandardPrincipalData::from(addr.clone()),
+                    StandardPrincipalData::from(*addr),
                     contract_name.clone(),
                 ))
             }

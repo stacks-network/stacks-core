@@ -1358,17 +1358,14 @@ impl<T: MarfTrieId> MARF<T> {
             .enumerate()
             .zip(values[0..last].iter())
             .try_for_each(|((index, key), value)| {
-                let marf_leaf = TrieLeaf::from_value(&[], value.clone());
+                let marf_leaf = TrieLeaf::from_value(&[], *value);
                 let path = TrieHash::from_key(key);
 
                 if eta_enabled {
                     let updated_progress = 100 * index / last;
                     if updated_progress > progress {
                         progress = updated_progress;
-                        info!(
-                            "Batching insertions in MARF: {}% ({} out of {})",
-                            progress, index, last
-                        );
+                        info!("Batching insertions in MARF: {progress}% ({index} out of {last})");
                     }
                 }
                 MARF::insert_leaf_in_batch(conn, block_hash, &path, &marf_leaf)

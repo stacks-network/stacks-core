@@ -111,7 +111,7 @@ fn make_simple_pox_4_lock(
     lock_period: u128,
 ) -> StacksTransaction {
     let addr = key_to_stacks_addr(key);
-    let pox_addr = PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes().clone());
+    let pox_addr = PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, *addr.bytes());
     let signer_pk = StacksPublicKey::from_private(key);
     let tip = get_tip(peer.sortdb.as_ref());
     let next_reward_cycle = peer
@@ -295,9 +295,9 @@ fn pox_extend_transition() {
     let alice = keys.pop().unwrap();
     let bob = keys.pop().unwrap();
     let alice_address = key_to_stacks_addr(&alice);
-    let alice_principal = PrincipalData::from(alice_address.clone());
+    let alice_principal = PrincipalData::from(alice_address);
     let bob_address = key_to_stacks_addr(&bob);
-    let bob_principal = PrincipalData::from(bob_address.clone());
+    let bob_principal = PrincipalData::from(bob_address);
 
     let EXPECTED_ALICE_FIRST_REWARD_CYCLE = 6;
     let mut coinbase_nonce = 0;
@@ -578,7 +578,7 @@ fn pox_extend_transition() {
         auth_id,
     );
     let alice_stack_signature = alice_signature.clone();
-    let alice_stack_signer_key = alice_signer_key.clone();
+    let alice_stack_signer_key = alice_signer_key;
     let alice_lockup = make_pox_4_lockup(
         &alice,
         2,
@@ -689,7 +689,7 @@ fn pox_extend_transition() {
         3,
         alice_pox_addr,
         6,
-        alice_signer_key.clone(),
+        alice_signer_key,
         Some(alice_signature),
         u128::MAX,
         3,
@@ -1402,13 +1402,13 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
     // alice
     let alice = keys.pop().unwrap();
     let alice_address = key_to_stacks_addr(&alice);
-    let alice_principal = PrincipalData::from(alice_address.clone());
+    let alice_principal = PrincipalData::from(alice_address);
     let alice_pox_addr = pox_addr_from(&alice);
 
     // bob
     let bob = keys.pop().unwrap();
     let bob_address = key_to_stacks_addr(&bob);
-    let bob_principal = PrincipalData::from(bob_address.clone());
+    let bob_principal = PrincipalData::from(bob_address);
     let bob_pox_addr = pox_addr_from(&bob);
     let bob_signing_key = Secp256k1PublicKey::from_private(&bob);
     let bob_pox_addr_val = Value::Tuple(bob_pox_addr.as_clarity_tuple().unwrap());
@@ -1416,11 +1416,8 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
     // steph the solo stacker stacks stx so nakamoto signer set stays stacking.
     let steph_key = keys.pop().unwrap();
     let steph_address = key_to_stacks_addr(&steph_key);
-    let steph_principal = PrincipalData::from(steph_address.clone());
-    let steph_pox_addr_val = make_pox_addr(
-        AddressHashMode::SerializeP2PKH,
-        steph_address.bytes().clone(),
-    );
+    let steph_principal = PrincipalData::from(steph_address);
+    let steph_pox_addr_val = make_pox_addr(AddressHashMode::SerializeP2PKH, *steph_address.bytes());
     let steph_pox_addr = pox_addr_from(&steph_key);
     let steph_signing_key = Secp256k1PublicKey::from_private(&steph_key);
     let steph_key_val = Value::buff_from(steph_signing_key.to_bytes_compressed()).unwrap();
@@ -1793,13 +1790,13 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     // alice
     let alice = keys.pop().unwrap();
     let alice_address = key_to_stacks_addr(&alice);
-    let alice_principal = PrincipalData::from(alice_address.clone());
+    let alice_principal = PrincipalData::from(alice_address);
     let alice_pox_addr = pox_addr_from(&alice);
 
     // bob
     let bob = keys.pop().unwrap();
     let bob_address = key_to_stacks_addr(&bob);
-    let bob_principal = PrincipalData::from(bob_address.clone());
+    let bob_principal = PrincipalData::from(bob_address);
     let bob_pox_addr = pox_addr_from(&bob);
     let bob_signing_key = Secp256k1PublicKey::from_private(&bob);
     let bob_pox_addr_val = Value::Tuple(bob_pox_addr.as_clarity_tuple().unwrap());
@@ -1807,11 +1804,8 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     // steph the solo stacker stacks stx so nakamoto signer set stays stacking.
     let steph_key = keys.pop().unwrap();
     let steph_address = key_to_stacks_addr(&steph_key);
-    let steph_principal = PrincipalData::from(steph_address.clone());
-    let steph_pox_addr_val = make_pox_addr(
-        AddressHashMode::SerializeP2PKH,
-        steph_address.bytes().clone(),
-    );
+    let steph_principal = PrincipalData::from(steph_address);
+    let steph_pox_addr_val = make_pox_addr(AddressHashMode::SerializeP2PKH, *steph_address.bytes());
     let steph_pox_addr = pox_addr_from(&steph_key);
     let steph_signing_key = Secp256k1PublicKey::from_private(&steph_key);
     let steph_key_val = Value::buff_from(steph_signing_key.to_bytes_compressed()).unwrap();
@@ -2222,13 +2216,13 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase_skip_cycle()
     // alice
     let alice = keys.pop().unwrap();
     let alice_address = key_to_stacks_addr(&alice);
-    let alice_principal = PrincipalData::from(alice_address.clone());
+    let alice_principal = PrincipalData::from(alice_address);
     let alice_pox_addr = pox_addr_from(&alice);
 
     // bob
     let bob = keys.pop().unwrap();
     let bob_address = key_to_stacks_addr(&bob);
-    let bob_principal = PrincipalData::from(bob_address.clone());
+    let bob_principal = PrincipalData::from(bob_address);
     let bob_pox_addr = pox_addr_from(&bob);
     let bob_signing_key = Secp256k1PublicKey::from_private(&bob);
     let bob_pox_addr_val = Value::Tuple(bob_pox_addr.as_clarity_tuple().unwrap());
@@ -2453,11 +2447,8 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
 
     let steph_key = keys.pop().unwrap();
     let steph_address = key_to_stacks_addr(&steph_key);
-    let steph_principal = PrincipalData::from(steph_address.clone());
-    let steph_pox_addr_val = make_pox_addr(
-        AddressHashMode::SerializeP2PKH,
-        steph_address.bytes().clone(),
-    );
+    let steph_principal = PrincipalData::from(steph_address);
+    let steph_pox_addr_val = make_pox_addr(AddressHashMode::SerializeP2PKH, *steph_address.bytes());
     let steph_pox_addr = pox_addr_from(&steph_key);
     let steph_signing_key = Secp256k1PublicKey::from_private(&steph_key);
     let steph_key_val = Value::buff_from(steph_signing_key.to_bytes_compressed()).unwrap();
@@ -2576,11 +2567,8 @@ fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
 
     let steph_key = keys.pop().unwrap();
     let steph_address = key_to_stacks_addr(&steph_key);
-    let steph_principal = PrincipalData::from(steph_address.clone());
-    let steph_pox_addr_val = make_pox_addr(
-        AddressHashMode::SerializeP2PKH,
-        steph_address.bytes().clone(),
-    );
+    let steph_principal = PrincipalData::from(steph_address);
+    let steph_pox_addr_val = make_pox_addr(AddressHashMode::SerializeP2PKH, *steph_address.bytes());
     let steph_pox_addr = pox_addr_from(&steph_key);
     let steph_signing_key = Secp256k1PublicKey::from_private(&steph_key);
     let steph_key_val = Value::buff_from(steph_signing_key.to_bytes_compressed()).unwrap();
@@ -2697,12 +2685,12 @@ fn pox_4_delegate_stack_increase_events() {
 
     let alice_key = keys.pop().unwrap();
     let alice_address = key_to_stacks_addr(&alice_key);
-    let alice_principal = PrincipalData::from(alice_address.clone());
+    let alice_principal = PrincipalData::from(alice_address);
     let alice_pox_addr = pox_addr_from(&alice_key);
 
     let bob_key = keys.pop().unwrap();
     let bob_address = key_to_stacks_addr(&bob_key);
-    let bob_principal = PrincipalData::from(bob_address.clone());
+    let bob_principal = PrincipalData::from(bob_address);
     let bob_pox_addr = pox_addr_from(&bob_key);
     let bob_pox_addr_val = Value::Tuple(bob_pox_addr.as_clarity_tuple().unwrap());
 
@@ -2798,21 +2786,18 @@ fn pox_4_revoke_delegate_stx_events() {
     // alice
     let alice = keys.pop().unwrap();
     let alice_address = key_to_stacks_addr(&alice);
-    let alice_principal = PrincipalData::from(alice_address.clone());
+    let alice_principal = PrincipalData::from(alice_address);
 
     // bob
     let bob = keys.pop().unwrap();
     let bob_address = key_to_stacks_addr(&bob);
-    let bob_principal = PrincipalData::from(bob_address.clone());
+    let bob_principal = PrincipalData::from(bob_address);
 
     // steph the solo stacker stacks stx so nakamoto signer set stays stacking.
     let steph = keys.pop().unwrap();
     let steph_address = key_to_stacks_addr(&steph);
-    let steph_principal = PrincipalData::from(steph_address.clone());
-    let steph_pox_addr = make_pox_addr(
-        AddressHashMode::SerializeP2PKH,
-        steph_address.bytes().clone(),
-    );
+    let steph_principal = PrincipalData::from(steph_address);
+    let steph_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, *steph_address.bytes());
 
     let steph_signing_key = Secp256k1PublicKey::from_private(&steph);
     let steph_key_val = Value::buff_from(steph_signing_key.to_bytes_compressed()).unwrap();
@@ -2881,7 +2866,7 @@ fn pox_4_revoke_delegate_stx_events() {
         &alice,
         alice_nonce,
         alice_delegation_amount,
-        PrincipalData::from(bob_address.clone()),
+        PrincipalData::from(bob_address),
         Some(target_height as u128),
         None,
     );
@@ -2931,7 +2916,7 @@ fn pox_4_revoke_delegate_stx_events() {
         ("end-cycle-id", Optional(OptionalData { data: None })),
         (
             "delegate-to",
-            Value::Principal(PrincipalData::from(bob_address.clone())),
+            Value::Principal(PrincipalData::from(bob_address)),
         ),
     ]);
     let common_data = PoxPrintFields {
@@ -3057,12 +3042,10 @@ fn verify_signer_key_signatures() {
 
     let expected_error = Value::error(Value::Int(35)).unwrap();
 
-    let alice_pox_addr = PoxAddress::from_legacy(
-        AddressHashMode::SerializeP2PKH,
-        alice_address.bytes().clone(),
-    );
+    let alice_pox_addr =
+        PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, *alice_address.bytes());
     let bob_pox_addr =
-        PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, bob_address.bytes().clone());
+        PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, *bob_address.bytes());
 
     let period = 1_u128;
 
@@ -3330,7 +3313,7 @@ fn stack_stx_verify_signer_sig(use_nakamoto: bool) {
     let second_stacker_addr = key_to_stacks_addr(second_stacker);
     let second_stacker_pox_addr = PoxAddress::from_legacy(
         AddressHashMode::SerializeP2PKH,
-        second_stacker_addr.bytes().clone(),
+        *second_stacker_addr.bytes(),
     );
 
     let reward_cycle = get_current_reward_cycle(&peer, &burnchain);
@@ -3694,7 +3677,7 @@ fn stack_extend_verify_sig() {
         stacker_nonce,
         pox_addr.clone(),
         lock_period,
-        signer_public_key.clone(),
+        signer_public_key,
         Some(signature),
         u128::MAX,
         1,
@@ -3718,7 +3701,7 @@ fn stack_extend_verify_sig() {
         stacker_nonce,
         pox_addr.clone(),
         lock_period,
-        signer_public_key.clone(),
+        signer_public_key,
         Some(signature),
         u128::MAX,
         1,
@@ -3742,7 +3725,7 @@ fn stack_extend_verify_sig() {
         stacker_nonce,
         pox_addr.clone(),
         lock_period,
-        signer_public_key.clone(),
+        signer_public_key,
         Some(signature),
         u128::MAX,
         1,
@@ -3765,7 +3748,7 @@ fn stack_extend_verify_sig() {
         stacker_nonce,
         pox_addr.clone(),
         lock_period,
-        signer_public_key.clone(),
+        signer_public_key,
         Some(signature),
         u128::MAX,
         2, // wrong auth-id
@@ -3788,7 +3771,7 @@ fn stack_extend_verify_sig() {
         stacker_nonce,
         pox_addr.clone(),
         lock_period,
-        signer_public_key.clone(),
+        signer_public_key,
         Some(signature),
         u128::MAX, // different than signature
         1,
@@ -3811,7 +3794,7 @@ fn stack_extend_verify_sig() {
         stacker_nonce,
         pox_addr.clone(),
         lock_period,
-        signer_public_key.clone(),
+        signer_public_key,
         Some(signature.clone()),
         u128::MAX,
         1,
@@ -3917,7 +3900,7 @@ fn stack_agg_commit_verify_sig() {
         stacker_key,
         stacker_nonce,
         min_ustx,
-        delegate_addr.clone().into(),
+        delegate_addr.into(),
         None,
         None,
     );
@@ -4231,8 +4214,8 @@ impl StackerSignerInfo {
         let public_key = StacksPublicKey::from_private(&private_key);
         let address = key_to_stacks_addr(&private_key);
         let pox_address =
-            PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, address.bytes().clone());
-        let principal = PrincipalData::from(address.clone());
+            PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, *address.bytes());
+        let principal = PrincipalData::from(address);
         let nonce = 0;
         Self {
             private_key,
@@ -4320,7 +4303,7 @@ fn stack_agg_increase() {
     ];
     let aggregate_public_key = test_signers.aggregate_public_key.clone();
     let mut peer_config = TestPeerConfig::new(function_name!(), 0, 0);
-    let private_key = peer_config.private_key.clone();
+    let private_key = peer_config.private_key;
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -4668,7 +4651,7 @@ fn stack_agg_increase() {
         TupleData::from_data(vec![
             (
                 "stacker".into(),
-                Value::Principal(PrincipalData::from(bob.address.clone())),
+                Value::Principal(PrincipalData::from(bob.address)),
             ),
             ("total-locked".into(), Value::UInt(min_ustx * 2)),
         ])
@@ -4691,7 +4674,7 @@ fn stack_agg_increase() {
 
     let common_data = PoxPrintFields {
         op_name: "stack-aggregation-increase".to_string(),
-        stacker: Value::Principal(PrincipalData::from(bob.address.clone())),
+        stacker: Value::Principal(PrincipalData::from(bob.address)),
         balance: Value::UInt(1000000000000000000),
         locked: Value::UInt(0),
         burnchain_unlock_height: Value::UInt(0),
@@ -5064,7 +5047,7 @@ fn stack_increase_different_signer_keys(use_nakamoto: bool) {
         stacker_nonce,
         pox_addr.clone(),
         lock_period,
-        second_signer_pk.clone(),
+        second_signer_pk,
         Some(signature),
         u128::MAX,
         1,
@@ -5098,7 +5081,7 @@ fn stack_increase_different_signer_keys(use_nakamoto: bool) {
         &mut test_signers,
     );
 
-    let txs = get_last_block_sender_transactions(&observer, stacker_addr.clone());
+    let txs = get_last_block_sender_transactions(&observer, stacker_addr);
 
     let tx_result = |nonce: u64| -> Value { txs.get(nonce as usize).unwrap().result.clone() };
 
@@ -5445,7 +5428,7 @@ fn stack_agg_commit_signer_auth(use_nakamoto: bool) {
         stacker_key,
         stacker_nonce,
         min_ustx,
-        delegate_addr.clone().into(),
+        delegate_addr.into(),
         None,
         None,
     );
@@ -5583,7 +5566,7 @@ fn stack_extend_signer_auth(use_nakamoto: bool) {
         stacker_nonce,
         pox_addr.clone(),
         lock_period,
-        signer_public_key.clone(),
+        signer_public_key,
         None,
         u128::MAX,
         1,
@@ -5612,7 +5595,7 @@ fn stack_extend_signer_auth(use_nakamoto: bool) {
         stacker_nonce,
         pox_addr,
         lock_period,
-        signer_public_key.clone(),
+        signer_public_key,
         None,
         u128::MAX,
         1,
@@ -5770,7 +5753,7 @@ fn test_set_signer_key_auth(use_nakamoto: bool) {
         &mut peer,
         &latest_block,
         &pox_addr,
-        current_reward_cycle.clone() as u64,
+        current_reward_cycle as u64,
         &Pox4SignatureTopic::StackStx,
         lock_period,
         &signer_public_key,
@@ -5807,7 +5790,7 @@ fn test_set_signer_key_auth(use_nakamoto: bool) {
         &mut peer,
         &latest_block,
         &pox_addr,
-        current_reward_cycle.clone() as u64,
+        current_reward_cycle as u64,
         &Pox4SignatureTopic::StackStx,
         lock_period,
         &signer_public_key,
@@ -5844,7 +5827,7 @@ fn test_set_signer_key_auth(use_nakamoto: bool) {
         &mut peer,
         &latest_block,
         &pox_addr,
-        current_reward_cycle.clone() as u64,
+        current_reward_cycle as u64,
         &Pox4SignatureTopic::StackStx,
         lock_period,
         &signer_public_key,
@@ -5933,7 +5916,7 @@ fn stack_extend_signer_key(use_nakamoto: bool) {
         stacker_nonce,
         pox_addr.clone(),
         1,
-        signer_extend_key.clone(),
+        signer_extend_key,
         Some(signature),
         u128::MAX,
         1,
@@ -6215,7 +6198,7 @@ fn delegate_stack_stx_extend_signer_key(use_nakamoto: bool) {
         &latest_block,
         &pox_addr,
         next_reward_cycle,
-        &key_to_stacks_addr(bob_delegate_private_key),
+        key_to_stacks_addr(bob_delegate_private_key),
     );
 
     let partially_stacked_1 = get_partially_stacked_state_pox_4(
@@ -6223,7 +6206,7 @@ fn delegate_stack_stx_extend_signer_key(use_nakamoto: bool) {
         &latest_block,
         &pox_addr,
         next_reward_cycle,
-        &key_to_stacks_addr(bob_delegate_private_key),
+        key_to_stacks_addr(bob_delegate_private_key),
     );
 
     info!("Currently partially stacked = {partially_stacked_0:?} + {partially_stacked_1:?}");
@@ -6435,7 +6418,7 @@ fn stack_increase(use_nakamoto: bool) {
         TupleData::from_data(vec![
             (
                 "stacker".into(),
-                Value::Principal(PrincipalData::from(alice_address.clone())),
+                Value::Principal(PrincipalData::from(alice_address)),
             ),
             ("total-locked".into(), Value::UInt(min_ustx * 2)),
         ])
@@ -6475,7 +6458,7 @@ fn stack_increase(use_nakamoto: bool) {
 
     let common_data = PoxPrintFields {
         op_name: "stack-increase".to_string(),
-        stacker: Value::Principal(PrincipalData::from(alice_address.clone())),
+        stacker: Value::Principal(PrincipalData::from(alice_address)),
         balance: Value::UInt(alice_expected_balance),
         locked: Value::UInt(min_ustx),
         burnchain_unlock_height: Value::UInt(expected_unlock_height as u128),
@@ -6671,7 +6654,7 @@ pub fn pox_4_scenario_test_setup<'a>(
     let test_signers = TestSigners::new(vec![]);
     let aggregate_public_key = test_signers.aggregate_public_key.clone();
     let mut peer_config = TestPeerConfig::new(function_name!(), 0, 0);
-    let private_key = peer_config.private_key.clone();
+    let private_key = peer_config.private_key;
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -6756,10 +6739,10 @@ pub fn pox_4_scenario_test_setup_nakamoto<'a>(
     let (peer, keys) =
         instantiate_pox_peer_with_epoch(&burnchain, test_name, Some(epochs), Some(observer));
 
-    let test_key = keys[3].clone();
-    let test_keys = vec![test_key.clone()];
+    let test_key = keys[3];
+    let test_keys = vec![test_key];
     let test_addr = key_to_stacks_addr(&test_key);
-    let test_signers = TestSigners::new(vec![test_key.clone()]);
+    let test_signers = TestSigners::new(vec![test_key]);
     let aggregate_public_key = test_signers.aggregate_public_key;
 
     let private_key = StacksPrivateKey::from_seed(&[2]);
@@ -6770,8 +6753,8 @@ pub fn pox_4_scenario_test_setup_nakamoto<'a>(
         .expect("Expected at least 1 initial balance")
         .1;
     let test_stackers = vec![TestStacker {
-        signer_private_key: test_key.clone(),
-        stacker_private_key: test_key.clone(),
+        signer_private_key: test_key,
+        stacker_private_key: test_key,
         amount: initial_stacker_balance as u128,
         pox_addr: Some(pox_addr_from(&test_key)),
         max_amount: None,
@@ -6862,7 +6845,7 @@ fn test_scenario_one(use_nakamoto: bool) {
     if let Some(ref mut test_signers) = test_signers.as_mut() {
         test_signers
             .signer_keys
-            .extend(vec![alice.private_key.clone(), bob.private_key.clone()]);
+            .extend(vec![alice.private_key, bob.private_key]);
     }
 
     // Alice Signatures
@@ -7137,18 +7120,8 @@ fn test_scenario_one(use_nakamoto: bool) {
 
     // Now starting create vote txs
     // Fetch signer indices in reward cycle 6
-    let alice_index = get_signer_index(
-        &mut peer,
-        latest_block,
-        alice.address.clone(),
-        next_reward_cycle,
-    );
-    let bob_index = get_signer_index(
-        &mut peer,
-        latest_block,
-        bob.address.clone(),
-        next_reward_cycle,
-    );
+    let alice_index = get_signer_index(&mut peer, latest_block, alice.address, next_reward_cycle);
+    let bob_index = get_signer_index(&mut peer, latest_block, bob.address, next_reward_cycle);
     // Alice vote
     let alice_vote = make_signers_vote_for_aggregate_public_key(
         &alice.private_key,
@@ -7175,12 +7148,8 @@ fn test_scenario_one(use_nakamoto: bool) {
     if let Some(test_signers) = test_signers.clone() {
         let tester_key = test_signers.signer_keys[0];
         let tester_addr = key_to_stacks_addr(&tester_key);
-        let tester_index = get_signer_index(
-            &mut peer,
-            latest_block,
-            tester_addr.clone(),
-            next_reward_cycle,
-        );
+        let tester_index =
+            get_signer_index(&mut peer, latest_block, tester_addr, next_reward_cycle);
         let tester_vote = make_signers_vote_for_aggregate_public_key(
             &tester_key,
             1, // only tx is a stack-stx
@@ -7309,7 +7278,7 @@ fn test_deser_abort() {
     if let Some(ref mut test_signers) = test_signers.as_mut() {
         test_signers
             .signer_keys
-            .extend(vec![alice.private_key.clone(), bob.private_key.clone()]);
+            .extend(vec![alice.private_key, bob.private_key]);
     }
 
     // Alice Signatures
@@ -7657,7 +7626,7 @@ fn test_scenario_two(use_nakamoto: bool) {
     if let Some(ref mut test_signers) = test_signers.as_mut() {
         test_signers
             .signer_keys
-            .extend(vec![alice.private_key.clone(), bob.private_key.clone()]);
+            .extend(vec![alice.private_key, bob.private_key]);
     }
 
     // Alice Signature For Carl
@@ -7863,18 +7832,8 @@ fn test_scenario_two(use_nakamoto: bool) {
 
     // Now starting create vote txs
     // Fetch signer indices in reward cycle 6
-    let alice_index = get_signer_index(
-        &mut peer,
-        latest_block,
-        alice.address.clone(),
-        next_reward_cycle,
-    );
-    let bob_index = get_signer_index(
-        &mut peer,
-        latest_block,
-        bob.address.clone(),
-        next_reward_cycle,
-    );
+    let alice_index = get_signer_index(&mut peer, latest_block, alice.address, next_reward_cycle);
+    let bob_index = get_signer_index(&mut peer, latest_block, bob.address, next_reward_cycle);
     // Alice expected vote
     let alice_vote_expected = make_signers_vote_for_aggregate_public_key(
         &alice.private_key,
@@ -8026,11 +7985,9 @@ fn test_scenario_three(use_nakamoto: bool) {
 
     // Add to test signers
     if let Some(ref mut test_signers) = test_signers.as_mut() {
-        test_signers.signer_keys.extend(vec![
-            alice.private_key.clone(),
-            bob.private_key.clone(),
-            carl.private_key.clone(),
-        ]);
+        test_signers
+            .signer_keys
+            .extend(vec![alice.private_key, bob.private_key, carl.private_key]);
     }
 
     let lock_period = 2;
@@ -8384,7 +8341,7 @@ fn test_scenario_three(use_nakamoto: bool) {
     assert_eq!(amount_locked_actual, amount_locked_expected);
 
     // Check Frank stacker address
-    let stacker_expected = Value::Principal(frank.address.clone().into());
+    let stacker_expected = Value::Principal(frank.address.into());
     let stacker_actual = frank_delegate_stx_to_david_tx
         .data_map
         .get("stacker")
@@ -8413,7 +8370,7 @@ fn test_scenario_three(use_nakamoto: bool) {
     assert_eq!(amount_locked_actual, amount_locked_expected);
 
     // Check Grace stacker address
-    let stacker_expected = Value::Principal(grace.address.clone().into());
+    let stacker_expected = Value::Principal(grace.address.into());
     let stacker_actual = grace_delegate_stx_to_david_tx
         .data_map
         .get("stacker")
@@ -8500,7 +8457,7 @@ fn test_scenario_four(use_nakamoto: bool) {
     if let Some(ref mut test_signers) = test_signers.as_mut() {
         test_signers
             .signer_keys
-            .extend(vec![alice.private_key.clone(), bob.private_key.clone()]);
+            .extend(vec![alice.private_key, bob.private_key]);
     }
 
     // Initial Alice Signature
@@ -8610,18 +8567,8 @@ fn test_scenario_four(use_nakamoto: bool) {
 
     // Now starting create vote txs
     // Fetch signer indices in reward cycle 6
-    let alice_index = get_signer_index(
-        &mut peer,
-        latest_block,
-        alice.address.clone(),
-        next_reward_cycle,
-    );
-    let bob_index = get_signer_index(
-        &mut peer,
-        latest_block,
-        bob.address.clone(),
-        next_reward_cycle,
-    );
+    let alice_index = get_signer_index(&mut peer, latest_block, alice.address, next_reward_cycle);
+    let bob_index = get_signer_index(&mut peer, latest_block, bob.address, next_reward_cycle);
     // Alice err vote
     let alice_vote_err = make_signers_vote_for_aggregate_public_key(
         &alice.private_key,
@@ -8658,12 +8605,8 @@ fn test_scenario_four(use_nakamoto: bool) {
     if let Some(test_signers) = test_signers.clone() {
         let tester_key = test_signers.signer_keys[0];
         let tester_addr = key_to_stacks_addr(&tester_key);
-        let tester_index = get_signer_index(
-            &mut peer,
-            latest_block,
-            tester_addr.clone(),
-            next_reward_cycle,
-        );
+        let tester_index =
+            get_signer_index(&mut peer, latest_block, tester_addr, next_reward_cycle);
         let tester_vote = make_signers_vote_for_aggregate_public_key(
             &tester_key,
             1, // only tx is a stack-stx
@@ -8733,7 +8676,7 @@ fn test_scenario_four(use_nakamoto: bool) {
         alice.nonce,
         alice.pox_address.clone(),
         lock_period,
-        bob.public_key.clone(),
+        bob.public_key,
         Some(alice_signature_extend_err),
         u128::MAX,
         1,
@@ -8745,7 +8688,7 @@ fn test_scenario_four(use_nakamoto: bool) {
         alice.nonce,
         alice.pox_address.clone(),
         lock_period,
-        alice.public_key.clone(),
+        alice.public_key,
         Some(alice_signature_extend),
         u128::MAX,
         1,
@@ -8753,7 +8696,7 @@ fn test_scenario_four(use_nakamoto: bool) {
     alice.nonce += 1;
     // Now starting second round of vote txs
     // Fetch signer indices in reward cycle 7
-    let alice_index = get_signer_index(&mut peer, latest_block, alice.address.clone(), 7);
+    let alice_index = get_signer_index(&mut peer, latest_block, alice.address, 7);
     // Alice err vote
     let alice_vote_expected_err = make_signers_vote_for_aggregate_public_key(
         &alice.private_key,
@@ -9056,7 +8999,7 @@ pub fn get_partially_stacked_state_pox_4(
     tip: &StacksBlockId,
     pox_addr: &PoxAddress,
     reward_cycle: u64,
-    sender: &StacksAddress,
+    sender: StacksAddress,
 ) -> Option<u128> {
     with_clarity_db_ro(peer, tip, |db| {
         let lookup_tuple = TupleData::from_data(vec![
@@ -9065,7 +9008,7 @@ pub fn get_partially_stacked_state_pox_4(
                 pox_addr.as_clarity_tuple().unwrap().into(),
             ),
             ("reward-cycle".into(), Value::UInt(reward_cycle.into())),
-            ("sender".into(), PrincipalData::from(sender.clone()).into()),
+            ("sender".into(), PrincipalData::from(sender).into()),
         ])
         .unwrap()
         .into();
@@ -9144,16 +9087,16 @@ pub fn prepare_pox4_test<'a>(
         instantiate_pox_peer_with_epoch(&burnchain, test_name, Some(epochs.clone()), observer);
 
     if use_nakamoto {
-        let test_key = keys[3].clone();
-        let test_keys = vec![test_key.clone()];
+        let test_key = keys[3];
+        let test_keys = vec![test_key];
 
         let private_key = StacksPrivateKey::from_seed(&[2]);
         let test_signers = TestSigners::new(test_keys.clone());
         let test_stackers = test_keys
             .iter()
             .map(|key| TestStacker {
-                signer_private_key: key.clone(),
-                stacker_private_key: key.clone(),
+                signer_private_key: *key,
+                stacker_private_key: *key,
                 amount: 1024 * POX_THRESHOLD_STEPS_USTX,
                 pox_addr: Some(pox_addr_from(key)),
                 max_amount: None,
@@ -9244,8 +9187,8 @@ pub fn tenure_with_txs_fallible(
         let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
         let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
-        tenure_change.tenure_consensus_hash = consensus_hash.clone();
-        tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+        tenure_change.tenure_consensus_hash = consensus_hash;
+        tenure_change.burn_view_consensus_hash = consensus_hash;
 
         let tenure_change_tx = peer
             .miner
@@ -9297,8 +9240,8 @@ pub fn tenure_with_txs(
         let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops);
         let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
-        tenure_change.tenure_consensus_hash = consensus_hash.clone();
-        tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+        tenure_change.tenure_consensus_hash = consensus_hash;
+        tenure_change.burn_view_consensus_hash = consensus_hash;
 
         let tenure_change_tx = peer.miner.make_nakamoto_tenure_change(tenure_change);
         let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
@@ -9776,11 +9719,11 @@ fn test_scenario_five(use_nakamoto: bool) {
     // Add to test signers
     if let Some(ref mut test_signers) = test_signers.as_mut() {
         test_signers.signer_keys.extend(vec![
-            alice.private_key.clone(),
-            bob.private_key.clone(),
-            carl.private_key.clone(),
-            david.private_key.clone(),
-            eve.private_key.clone(),
+            alice.private_key,
+            bob.private_key,
+            carl.private_key,
+            david.private_key,
+            eve.private_key,
         ]);
     }
 
@@ -10097,9 +10040,9 @@ fn test_scenario_five(use_nakamoto: bool) {
 
     let cycle_id = next_reward_cycle;
     // Create vote txs for each signer
-    let alice_index = get_signer_index(&mut peer, latest_block, alice.address.clone(), cycle_id);
-    let bob_index = get_signer_index(&mut peer, latest_block, bob.address.clone(), cycle_id);
-    let carl_index = get_signer_index(&mut peer, latest_block, carl.address.clone(), cycle_id);
+    let alice_index = get_signer_index(&mut peer, latest_block, alice.address, cycle_id);
+    let bob_index = get_signer_index(&mut peer, latest_block, bob.address, cycle_id);
+    let carl_index = get_signer_index(&mut peer, latest_block, carl.address, cycle_id);
     let alice_vote = make_signers_vote_for_aggregate_public_key(
         &alice.private_key,
         alice.nonce,
@@ -10133,10 +10076,7 @@ fn test_scenario_five(use_nakamoto: bool) {
         .config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64);
-    info!(
-        "Scenario five: submitting votes. Target height: {}",
-        target_height
-    );
+    info!("Scenario five: submitting votes. Target height: {target_height}");
     let (latest_block, tx_block, _receipts) = advance_to_block_height(
         &mut peer,
         &observer,
@@ -10305,9 +10245,9 @@ fn test_scenario_five(use_nakamoto: bool) {
             .generate_aggregate_key(cycle_id as u64),
     );
     // create vote txs
-    let alice_index = get_signer_index(&mut peer, latest_block, alice.address.clone(), cycle_id);
-    let bob_index = get_signer_index(&mut peer, latest_block, bob.address.clone(), cycle_id);
-    let carl_index = get_signer_index(&mut peer, latest_block, carl.address.clone(), cycle_id);
+    let alice_index = get_signer_index(&mut peer, latest_block, alice.address, cycle_id);
+    let bob_index = get_signer_index(&mut peer, latest_block, bob.address, cycle_id);
+    let carl_index = get_signer_index(&mut peer, latest_block, carl.address, cycle_id);
     let alice_vote = make_signers_vote_for_aggregate_public_key(
         &alice.private_key,
         alice.nonce,

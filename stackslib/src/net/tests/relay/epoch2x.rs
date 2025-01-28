@@ -1224,13 +1224,7 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
                         let mut sent_microblocks = sent_microblocks.borrow_mut();
 
                         let pushed_block = if !*sent_blocks {
-                            push_block(
-                                &mut peers[0],
-                                &peer_1_nk,
-                                vec![],
-                                consensus_hash.clone(),
-                                block,
-                            )
+                            push_block(&mut peers[0], &peer_1_nk, vec![], consensus_hash, block)
                         } else {
                             true
                         };
@@ -2977,7 +2971,7 @@ fn process_new_blocks_rejects_problematic_asts() {
             // make a bad microblock
             let iconn = &sortdb.index_handle(&tip.sortition_id);
             let mut microblock_builder = StacksMicroblockBuilder::new(
-                parent_header_hash.clone(),
+                parent_header_hash,
                 parent_consensus_hash,
                 chainstate,
                 iconn,

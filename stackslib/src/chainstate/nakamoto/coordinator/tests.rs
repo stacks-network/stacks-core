@@ -101,7 +101,7 @@ fn advance_to_nakamoto(
     test_stackers: &[TestStacker],
 ) {
     let mut peer_nonce = 0;
-    let private_key = peer.config.private_key.clone();
+    let private_key = peer.config.private_key;
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -109,8 +109,7 @@ fn advance_to_nakamoto(
         &vec![StacksPublicKey::from_private(&private_key)],
     )
     .unwrap();
-    let default_pox_addr =
-        PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes().clone());
+    let default_pox_addr = PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, *addr.bytes());
 
     let mut tip = None;
     for sortition_height in 0..11 {
@@ -172,7 +171,7 @@ pub fn boot_nakamoto<'a>(
     observer: Option<&'a TestEventObserver>,
 ) -> TestPeer<'a> {
     let mut peer_config = TestPeerConfig::new(test_name, 0, 0);
-    let private_key = peer_config.private_key.clone();
+    let private_key = peer_config.private_key;
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -365,7 +364,7 @@ fn replay_reward_cycle(
     blocks_to_process.shuffle(&mut thread_rng());
     while let Some(block) = blocks_to_process.pop() {
         let block_id = block.block_id();
-        info!("Process Nakamoto block {} ({:?}", &block_id, &block.header);
+        info!("Process Nakamoto block {block_id} ({:?}", &block.header);
 
         let accepted = Relayer::process_new_nakamoto_block(
             &peer.config.burnchain,
@@ -413,8 +412,8 @@ fn test_simple_nakamoto_coordinator_bootup() {
     let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops);
     let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
-    tenure_change.tenure_consensus_hash = consensus_hash.clone();
-    tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+    tenure_change.tenure_consensus_hash = consensus_hash;
+    tenure_change.burn_view_consensus_hash = consensus_hash;
     let tenure_change_tx = peer.miner.make_nakamoto_tenure_change(tenure_change);
     let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
 
@@ -475,8 +474,8 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
     let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
     let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
-    tenure_change.tenure_consensus_hash = consensus_hash.clone();
-    tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+    tenure_change.tenure_consensus_hash = consensus_hash;
+    tenure_change.burn_view_consensus_hash = consensus_hash;
 
     let tenure_change_tx = peer.miner.make_nakamoto_tenure_change(tenure_change);
     let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
@@ -667,8 +666,8 @@ impl TestPeer<'_> {
         );
         let vrf_proof = self.make_nakamoto_vrf_proof(miner_key);
 
-        tenure_change.tenure_consensus_hash = consensus_hash.clone();
-        tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+        tenure_change.tenure_consensus_hash = consensus_hash;
+        tenure_change.burn_view_consensus_hash = consensus_hash;
 
         let nakamoto_tip =
             if let Some(nakamoto_parent_tenure) = self.nakamoto_parent_tenure_opt.as_ref() {
@@ -757,8 +756,8 @@ impl TestPeer<'_> {
         );
         let vrf_proof = self.make_nakamoto_vrf_proof(miner_key);
 
-        tenure_change.tenure_consensus_hash = consensus_hash.clone();
-        tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+        tenure_change.tenure_consensus_hash = consensus_hash;
+        tenure_change.burn_view_consensus_hash = consensus_hash;
 
         let nakamoto_tip =
             if let Some(nakamoto_parent_tenure) = self.nakamoto_parent_tenure_opt.as_ref() {
@@ -1633,8 +1632,8 @@ fn test_nakamoto_chainstate_getters() {
     let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops);
     let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
-    tenure_change.tenure_consensus_hash = consensus_hash.clone();
-    tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+    tenure_change.tenure_consensus_hash = consensus_hash;
+    tenure_change.burn_view_consensus_hash = consensus_hash;
     let tenure_change_tx = peer.miner.make_nakamoto_tenure_change(tenure_change);
     let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
 
@@ -2107,21 +2106,21 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
     .unwrap();
 
     for i in 0..10 {
-        debug!("Tenure {}", i);
+        debug!("Tenure {i}");
         let (burn_ops, mut tenure_change, miner_key) =
             peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
         let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
         let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
-        tenure_change.tenure_consensus_hash = consensus_hash.clone();
-        tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+        tenure_change.tenure_consensus_hash = consensus_hash;
+        tenure_change.burn_view_consensus_hash = consensus_hash;
 
         let tenure_change_tx = peer
             .miner
             .make_nakamoto_tenure_change(tenure_change.clone());
         let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
 
-        debug!("Next burnchain block: {}", &consensus_hash);
+        debug!("Next burnchain block: {consensus_hash}");
 
         let num_blocks: usize = (thread_rng().gen::<usize>() % 10) + 1;
 
@@ -2256,13 +2255,9 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
         }
 
         eprintln!(
-            "Checking block #{} ({},{}): {} =?= {} + {}",
-            i,
-            &ch,
+            "Checking block #{i} ({ch},{}): {} =?= {expected_total_coinbase} + {expected_total_tx_fees}",
             &sn.block_height,
-            stx_balance.amount_unlocked(),
-            expected_total_coinbase,
-            expected_total_tx_fees
+            stx_balance.amount_unlocked()
         );
         assert_eq!(
             stx_balance.amount_unlocked(),
@@ -2308,7 +2303,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
     }
     for (i, matured_reward_opt) in matured_rewards[4..].into_iter().enumerate() {
         let matured_reward = (*matured_reward_opt).clone().unwrap();
-        debug!("{}: {:?}", i, &matured_reward);
+        debug!("{i}: {matured_reward:?}");
 
         if i < 10 {
             assert_eq!(matured_reward.parent_miner.coinbase, 3_600_000_000);
@@ -2444,8 +2439,8 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
     let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
     let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
-    tenure_change.tenure_consensus_hash = consensus_hash.clone();
-    tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+    tenure_change.tenure_consensus_hash = consensus_hash;
+    tenure_change.burn_view_consensus_hash = consensus_hash;
     let tenure_change_tx = peer
         .miner
         .make_nakamoto_tenure_change(tenure_change.clone());
@@ -2638,8 +2633,8 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
     let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
     let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
-    tenure_change.tenure_consensus_hash = consensus_hash.clone();
-    tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+    tenure_change.tenure_consensus_hash = consensus_hash;
+    tenure_change.burn_view_consensus_hash = consensus_hash;
 
     let tenure_change_tx = peer.miner.make_nakamoto_tenure_change(tenure_change);
     let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
@@ -2802,15 +2797,15 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
         let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
         let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
-        tenure_change.tenure_consensus_hash = consensus_hash.clone();
-        tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+        tenure_change.tenure_consensus_hash = consensus_hash;
+        tenure_change.burn_view_consensus_hash = consensus_hash;
 
         let tenure_change_tx = peer
             .miner
             .make_nakamoto_tenure_change(tenure_change.clone());
         let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
 
-        debug!("Next burnchain block: {}", &consensus_hash);
+        debug!("Next burnchain block: {consensus_hash}");
 
         let block_height = peer.get_burn_block_height();
 
@@ -2848,7 +2843,7 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
                     let mut final_txs = vec![];
                     if let Some(last_block) = last_block_opt.as_ref() {
                         let tenure_extension = tenure_change.extend(
-                            consensus_hash.clone(),
+                            consensus_hash,
                             last_block.clone(),
                             blocks_so_far.len() as u32,
                         );
@@ -2993,13 +2988,9 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
         }
 
         eprintln!(
-            "Checking block #{} ({},{}): {} =?= {} + {}",
-            i,
-            &ch,
+            "Checking block #{i} ({ch},{}): {} =?= {expected_total_coinbase} + {expected_total_tx_fees}",
             &sn.block_height,
-            stx_balance.amount_unlocked(),
-            expected_total_coinbase,
-            expected_total_tx_fees
+            stx_balance.amount_unlocked()
         );
         assert_eq!(
             stx_balance.amount_unlocked(),
@@ -3298,15 +3289,15 @@ fn test_stacks_on_burnchain_ops() {
 
         bitpatterns.insert(consensus_hash.clone(), i);
 
-        tenure_change.tenure_consensus_hash = consensus_hash.clone();
-        tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+        tenure_change.tenure_consensus_hash = consensus_hash;
+        tenure_change.burn_view_consensus_hash = consensus_hash;
 
         let tenure_change_tx = peer
             .miner
             .make_nakamoto_tenure_change(tenure_change.clone());
         let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
 
-        debug!("Next burnchain block: {}", &consensus_hash);
+        debug!("Next burnchain block: {consensus_hash}");
 
         // make sure all our burnchain ops are processed and stored.
         let burn_tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
@@ -3368,7 +3359,7 @@ fn test_stacks_on_burnchain_ops() {
                     let mut final_txs = vec![];
                     if let Some(last_block) = last_block_opt.as_ref() {
                         let tenure_extension = tenure_change.extend(
-                            consensus_hash.clone(),
+                            consensus_hash,
                             last_block.clone(),
                             blocks_so_far.len() as u32,
                         );
@@ -3481,8 +3472,8 @@ fn test_stacks_on_burnchain_ops() {
         expected_burnchain_txids.insert(Txid([bitpattern | 0x40; 32]));
         expected_burnchain_txids.insert(Txid([bitpattern | 0xc0; 32]));
 
-        debug!("At block {}: {:?}", block_height, &block_burn_txids);
-        debug!("Expected: {:?}", &expected_burnchain_txids);
+        debug!("At block {block_height}: {block_burn_txids:?}");
+        debug!("Expected: {expected_burnchain_txids:?}");
         assert_eq!(block_burn_txids, expected_burnchain_txids);
 
         observed_burn_txids.extend(block_burn_txids.into_iter());

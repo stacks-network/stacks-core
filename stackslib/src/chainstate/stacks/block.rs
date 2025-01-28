@@ -1821,14 +1821,14 @@ mod test {
         let order_independent_multisig_condition_p2wsh =
             TransactionSpendingCondition::new_multisig_order_independent_p2wsh(
                 2,
-                vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
+                vec![pubk_1, pubk_2, pubk_3],
             )
             .unwrap();
 
         let order_independent_multisig_condition_p2sh =
             TransactionSpendingCondition::new_multisig_order_independent_p2sh(
                 2,
-                vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
+                vec![pubk_1, pubk_2, pubk_3],
             )
             .unwrap();
 

@@ -1800,7 +1800,7 @@ impl PeerNetwork {
         // appropriately, so it's okay for us to use self.peer_version and
         // self.local_peer.network_id here for the remote peer's neighbor key.
         let (pubkey_opt, neighbor_key) = match neighbor_opt {
-            Some(neighbor) => (Some(neighbor.public_key.clone()), neighbor.addr),
+            Some(neighbor) => (Some(neighbor.public_key), neighbor.addr),
             None => (
                 None,
                 NeighborKey::from_socketaddr(

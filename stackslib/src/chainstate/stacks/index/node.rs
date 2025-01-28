@@ -510,7 +510,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
         self.block_hashes.pop();
 
         self.nodes.push(node.clone());
-        self.node_ptrs.push(ptr.clone());
+        self.node_ptrs.push(*ptr);
         self.block_hashes.push(hash.clone());
 
         self.last_error = None;
@@ -570,7 +570,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
             &block_hash
         );
 
-        self.node_ptrs.push(ptr.clone());
+        self.node_ptrs.push(*ptr);
         self.block_hashes.push(block_hash);
 
         self.last_error = None;

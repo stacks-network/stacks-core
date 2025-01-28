@@ -443,7 +443,7 @@ impl NakamotoBootPlan {
         let mut other_peer_nonces = vec![0; other_peers.len()];
         let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&self.private_key));
         let default_pox_addr =
-            PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes().clone());
+            PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, *addr.bytes());
 
         let mut sortition_height = peer.get_burn_block_height();
         debug!("\n\n======================");
@@ -791,8 +791,8 @@ impl NakamotoBootPlan {
                     let (burn_ht, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
                     let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
-                    tenure_change.tenure_consensus_hash = consensus_hash.clone();
-                    tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+                    tenure_change.tenure_consensus_hash = consensus_hash;
+                    tenure_change.burn_view_consensus_hash = consensus_hash;
 
                     last_tenure_change = Some(tenure_change.clone());
 
@@ -802,7 +802,7 @@ impl NakamotoBootPlan {
 
                     let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
 
-                    debug!("\n\nNew tenure: {}\n\n", &consensus_hash);
+                    debug!("\n\nNew tenure: {consensus_hash}\n\n");
 
                     let mut i = 0;
                     let mut num_expected_transactions = 2; // tenure-change and coinbase
@@ -832,7 +832,7 @@ impl NakamotoBootPlan {
                                     assert!(!transactions.is_empty());
                                     if let Some(last_block) = last_block_opt {
                                         let tenure_extension = tenure_change.extend(
-                                            consensus_hash.clone(),
+                                            consensus_hash,
                                             last_block.clone(),
                                             blocks_since_last_tenure // blocks_so_far.len() as u32,
                                         );

@@ -87,7 +87,7 @@ fn trie_cursor_try_attach_leaf() {
 
             // used to short-circuit block-height lookups, so that we don't
             //   mess up these tests expected trie structures.
-            f.test_genesis_block.replace(block_header.clone());
+            f.test_genesis_block.replace(block_header);
 
             let path_segments = vec![
                 (vec![], 0),
@@ -155,7 +155,7 @@ fn trie_cursor_try_attach_leaf() {
                 assert!(ptr_opt.is_some());
 
                 let ptr = ptr_opt.unwrap();
-                ptrs.push(ptr.clone());
+                ptrs.push(ptr);
 
                 let update_res = Trie::update_root_hash(&mut f, &c);
                 assert!(update_res.is_ok());
@@ -238,7 +238,7 @@ fn trie_cursor_promote_leaf_to_node4() {
 
         // used to short-circuit block-height lookups, so that we don't
         //   mess up these tests expected trie structures.
-        f.test_genesis_block.replace(block_header.clone());
+        f.test_genesis_block.replace(block_header);
 
         let (node, root_hash) = Trie::read_root(&mut f).unwrap();
 
@@ -403,7 +403,7 @@ fn trie_cursor_promote_node4_to_node16() {
         MARF::format(&mut f, &block_header).unwrap();
         // used to short-circuit block-height lookups, so that we don't
         //   mess up these tests expected trie structures.
-        f.test_genesis_block.replace(block_header.clone());
+        f.test_genesis_block.replace(block_header);
 
         let path_segments = vec![
             (vec![], 0),
@@ -563,7 +563,7 @@ fn trie_cursor_promote_node16_to_node48() {
         MARF::format(&mut f, &block_header).unwrap();
         // used to short-circuit block-height lookups, so that we don't
         //   mess up these tests expected trie structures.
-        f.test_genesis_block.replace(block_header.clone());
+        f.test_genesis_block.replace(block_header);
 
         let path_segments = vec![
             (vec![], 0),
@@ -833,7 +833,7 @@ fn trie_cursor_promote_node48_to_node256() {
         MARF::format(&mut f, &block_header).unwrap();
         // used to short-circuit block-height lookups, so that we don't
         //   mess up these tests expected trie structures.
-        f.test_genesis_block.replace(block_header.clone());
+        f.test_genesis_block.replace(block_header);
 
         let path_segments = vec![
             (vec![], 0),
@@ -1217,7 +1217,7 @@ fn trie_cursor_splice_leaf_4() {
 
             // used to short-circuit block-height lookups, so that we don't
             //   mess up these tests expected trie structures.
-            f.test_genesis_block.replace(block_header.clone());
+            f.test_genesis_block.replace(block_header);
 
             let path_segments = vec![
                 (vec![0, 1, 2, 3], 4),
@@ -1307,7 +1307,7 @@ fn trie_cursor_splice_leaf_2() {
 
             // used to short-circuit block-height lookups, so that we don't
             //   mess up these tests expected trie structures.
-            f.test_genesis_block.replace(block_header.clone());
+            f.test_genesis_block.replace(block_header);
 
             let path_segments = vec![
                 (vec![0, 1], 2),

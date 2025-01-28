@@ -131,7 +131,7 @@ impl PoxAddress {
     #[cfg(any(test, feature = "testing"))]
     pub fn hash160(&self) -> Hash160 {
         match *self {
-            PoxAddress::Standard(addr, _) => addr.bytes().clone(),
+            PoxAddress::Standard(addr, _) => *addr.bytes(),
             _ => panic!("Called hash160 on a non-standard PoX address"),
         }
     }

@@ -1732,7 +1732,7 @@ impl PeerNetwork {
                     network_state,
                     network,
                     data_url.clone(),
-                    addr.clone(),
+                    addr,
                     Some(request.clone()),
                 ) {
                     Ok(event_id) => Ok(event_id),
@@ -1744,7 +1744,7 @@ impl PeerNetwork {
                             HttpPeer::saturate_http_socket(socket, convo)?;
                             Ok(event_id)
                         } else {
-                            debug!("HTTP failed to connect to {:?}, {:?}", &data_url, &addr);
+                            debug!("HTTP failed to connect to {data_url:?}, {addr:?}");
                             Err(NetError::PeerNotConnected)
                         }
                     }

@@ -620,7 +620,7 @@ impl HeadersDB for TestSimHeadersDB {
         _id_bhh: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<StacksAddress> {
-        Some(MINER_ADDR.clone())
+        Some(MINER_ADDR)
     }
 
     fn get_burnchain_tokens_spent_for_block(

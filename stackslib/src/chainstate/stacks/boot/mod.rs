@@ -153,10 +153,10 @@ fn make_testnet_cost_voting() -> String {
         )
 }
 
-pub fn make_contract_id(addr: &StacksAddress, name: &str) -> QualifiedContractIdentifier {
+pub fn make_contract_id(addr: StacksAddress, name: String) -> QualifiedContractIdentifier {
     QualifiedContractIdentifier::new(
-        StandardPrincipalData::from(addr.clone()),
-        ContractName::try_from(name.to_string()).unwrap(),
+        StandardPrincipalData::from(addr),
+        ContractName::try_from(name).unwrap(),
     )
 }
 
@@ -306,7 +306,7 @@ impl StacksChainState {
     ///  cycle's "start" has been handled by the Stacks fork yet. This
     ///  is used in Stacks 2.1 to help process unlocks.
     fn handled_pox_cycle_start_key(cycle_number: u64) -> String {
-        format!("chainstate_pox::handled_cycle_start::{}", cycle_number)
+        format!("chainstate_pox::handled_cycle_start::{cycle_number}")
     }
 
     /// Returns whether or not the `cycle_number` PoX cycle has been handled by the
@@ -531,7 +531,7 @@ impl StacksChainState {
                 let mut balance = db.get_stx_balance_snapshot(principal)?;
                 let canonical_locked = balance.canonical_balance_repr()?.amount_locked();
                 if canonical_locked < *amount_locked {
-                    panic!("Principal missed reward slots, but did not have as many locked tokens as expected. Actual: {}, Expected: {}", canonical_locked, *amount_locked);
+                    panic!("Principal missed reward slots, but did not have as many locked tokens as expected. Actual: {canonical_locked}, Expected: {amount_locked}");
                 }
 
                 balance.accelerate_unlock()?;
@@ -690,7 +690,7 @@ impl StacksChainState {
             sortdb,
             stacks_block_id,
             "pox",
-            &format!("(get-total-ustx-stacked u{})", reward_cycle),
+            &format!("(get-total-ustx-stacked u{reward_cycle})"),
         )
         .map(|value| {
             value
@@ -711,7 +711,7 @@ impl StacksChainState {
             sortdb,
             stacks_block_id,
             pox_contract,
-            &format!("(is-pox-active u{})", reward_cycle),
+            &format!("(is-pox-active u{reward_cycle})"),
         )
         .map(|value| {
             value
@@ -841,7 +841,7 @@ impl StacksChainState {
                 "pox_threshold" => threshold,
             );
             for _i in 0..slots_taken {
-                test_debug!("Add to PoX reward set: {:?}", &address);
+                test_debug!("Add to PoX reward set: {address:?}");
                 reward_set.push(address.clone());
             }
             // if stacker did not qualify for a slot *and* they have a stacker
@@ -940,8 +940,7 @@ impl StacksChainState {
         };
         let threshold = threshold_precise + ceil_amount;
         info!(
-            "PoX participation threshold is {}, from {} + {} ({}), participation is {}",
-            threshold, threshold_precise, ceil_amount, scale_by, participation
+            "PoX participation threshold is {threshold}, from {threshold_precise} + {ceil_amount} ({scale_by}), participation is {participation}"
         );
         (threshold, participation)
     }
@@ -953,10 +952,7 @@ impl StacksChainState {
         reward_cycle: u64,
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
         if !self.is_pox_active(sortdb, block_id, u128::from(reward_cycle), POX_1_NAME)? {
-            debug!(
-                "PoX was voted disabled in block {} (reward cycle {})",
-                block_id, reward_cycle
-            );
+            debug!("PoX was voted disabled in block {block_id} (reward cycle {reward_cycle})");
             return Ok(vec![]);
         }
 
@@ -966,14 +962,13 @@ impl StacksChainState {
                 sortdb,
                 block_id,
                 POX_1_NAME,
-                &format!("(get-reward-set-size u{})", reward_cycle),
+                &format!("(get-reward-set-size u{reward_cycle})"),
             )?
             .expect_u128()
             .expect("FATAL: unexpected PoX structure");
 
         debug!(
-            "At block {:?} (reward cycle {}): {} PoX reward addresses",
-            block_id, reward_cycle, num_addrs
+            "At block {block_id:?} (reward cycle {reward_cycle}): {num_addrs} PoX reward addresses"
         );
 
         let mut ret = vec![];
@@ -985,14 +980,13 @@ impl StacksChainState {
                     sortdb,
                     block_id,
                     POX_1_NAME,
-                    &format!("(get-reward-set-pox-address u{} u{})", reward_cycle, i),
+                    &format!("(get-reward-set-pox-address u{reward_cycle} u{i})"),
                 )?
                 .expect_optional()
                 .expect("FATAL: unexpected PoX structure")
                 .unwrap_or_else(|| {
                     panic!(
-                        "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
-                        i, num_addrs, reward_cycle
+                        "FATAL: missing PoX address in slot {i} out of {num_addrs} in reward cycle {reward_cycle}"
                     )
                 })
                 .expect_tuple()
@@ -1000,23 +994,20 @@ impl StacksChainState {
 
             let pox_addr_tuple = tuple_data
                 .get("pox-addr")
-                .unwrap_or_else(|_| panic!("FATAL: no 'pox-addr' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .unwrap_or_else(|_| panic!("FATAL: no 'pox-addr' in return value from (get-reward-set-pox-address u{reward_cycle} u{i})"))
                 .to_owned();
 
             let reward_address = PoxAddress::try_from_pox_tuple(self.mainnet, &pox_addr_tuple)
-                .unwrap_or_else(|| panic!("FATAL: not a valid PoX address: {:?}", &pox_addr_tuple));
+                .unwrap_or_else(|| panic!("FATAL: not a valid PoX address: {pox_addr_tuple:?}"));
 
             let total_ustx = tuple_data
                 .get("total-ustx")
-                .unwrap_or_else(|_| panic!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .unwrap_or_else(|_| panic!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{reward_cycle} u{i})"))
                 .to_owned()
                 .expect_u128()
                 .expect("FATAL: unexpected PoX structure");
 
-            debug!(
-                "PoX reward address (for {} ustx): {}",
-                total_ustx, &reward_address,
-            );
+            debug!("PoX reward address (for {total_ustx} ustx): {reward_address}");
             ret.push(RawRewardSetEntry {
                 reward_address,
                 amount_stacked: total_ustx,
@@ -1035,10 +1026,7 @@ impl StacksChainState {
         reward_cycle: u64,
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
         if !self.is_pox_active(sortdb, block_id, u128::from(reward_cycle), POX_2_NAME)? {
-            debug!(
-                "PoX was voted disabled in block {} (reward cycle {})",
-                block_id, reward_cycle
-            );
+            debug!("PoX was voted disabled in block {block_id} (reward cycle {reward_cycle})");
             return Ok(vec![]);
         }
 
@@ -1048,14 +1036,13 @@ impl StacksChainState {
                 sortdb,
                 block_id,
                 POX_2_NAME,
-                &format!("(get-reward-set-size u{})", reward_cycle),
+                &format!("(get-reward-set-size u{reward_cycle})"),
             )?
             .expect_u128()
             .expect("FATAL: unexpected PoX structure");
 
         debug!(
-            "At block {:?} (reward cycle {}): {} PoX reward addresses",
-            block_id, reward_cycle, num_addrs
+            "At block {block_id:?} (reward cycle {reward_cycle}): {num_addrs} PoX reward addresses"
         );
 
         let mut ret = vec![];
@@ -1066,14 +1053,13 @@ impl StacksChainState {
                     sortdb,
                     block_id,
                     POX_2_NAME,
-                    &format!("(get-reward-set-pox-address u{} u{})", reward_cycle, i),
+                    &format!("(get-reward-set-pox-address u{reward_cycle} u{i})"),
                 )?
                 .expect_optional()
                 .expect("FATAL: unexpected PoX structure")
                 .unwrap_or_else(|| {
                     panic!(
-                        "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
-                        i, num_addrs, reward_cycle
+                        "FATAL: missing PoX address in slot {i} out of {num_addrs} in reward cycle {reward_cycle}"
                     )
                 })
                 .expect_tuple()
@@ -1081,23 +1067,22 @@ impl StacksChainState {
 
             let pox_addr_tuple = tuple
                 .get("pox-addr")
-                .unwrap_or_else(|_| panic!("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .unwrap_or_else(|_| panic!("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address u{reward_cycle} u{i})"))
                 .to_owned();
 
             let reward_address = PoxAddress::try_from_pox_tuple(self.mainnet, &pox_addr_tuple)
-                .unwrap_or_else(|| panic!("FATAL: not a valid PoX address: {:?}", &pox_addr_tuple));
+                .unwrap_or_else(|| panic!("FATAL: not a valid PoX address: {pox_addr_tuple:?}"));
 
             let total_ustx = tuple
                 .get("total-ustx")
-                .unwrap_or_else(|_| panic!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .unwrap_or_else(|_| panic!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{reward_cycle} u{i})"))
                 .to_owned()
                 .expect_u128()
                 .expect("FATAL: unexpected PoX structure");
 
             let stacker = tuple
                 .get("stacker")
-                .unwrap_or_else(|_| panic!("FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
-                    reward_cycle, i))
+                .unwrap_or_else(|_| panic!("FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{reward_cycle} u{i})"))
                 .to_owned()
                 .expect_optional()
                 .expect("FATAL: unexpected PoX structure")
@@ -1131,10 +1116,7 @@ impl StacksChainState {
         reward_cycle: u64,
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
         if !self.is_pox_active(sortdb, block_id, u128::from(reward_cycle), POX_3_NAME)? {
-            debug!(
-                "PoX was voted disabled in block {} (reward cycle {})",
-                block_id, reward_cycle
-            );
+            debug!("PoX was voted disabled in block {block_id} (reward cycle {reward_cycle})");
             return Ok(vec![]);
         }
 
@@ -1144,14 +1126,13 @@ impl StacksChainState {
                 sortdb,
                 block_id,
                 POX_3_NAME,
-                &format!("(get-reward-set-size u{})", reward_cycle),
+                &format!("(get-reward-set-size u{reward_cycle})"),
             )?
             .expect_u128()
             .expect("FATAL: unexpected PoX structure");
 
         debug!(
-            "At block {:?} (reward cycle {}): {} PoX reward addresses",
-            block_id, reward_cycle, num_addrs
+            "At block {block_id:?} (reward cycle {reward_cycle}): {num_addrs} PoX reward addresses"
         );
 
         let mut ret = vec![];
@@ -1162,14 +1143,13 @@ impl StacksChainState {
                     sortdb,
                     block_id,
                     POX_3_NAME,
-                    &format!("(get-reward-set-pox-address u{} u{})", reward_cycle, i),
+                    &format!("(get-reward-set-pox-address u{reward_cycle} u{i})"),
                 )?
                 .expect_optional()
                 .expect("FATAL: unexpected PoX structure")
                 .unwrap_or_else(|| {
                     panic!(
-                        "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
-                        i, num_addrs, reward_cycle
+                        "FATAL: missing PoX address in slot {i} out of {num_addrs} in reward cycle {reward_cycle}"
                     )
                 })
                 .expect_tuple()
@@ -1177,23 +1157,22 @@ impl StacksChainState {
 
             let pox_addr_tuple = tuple
                 .get("pox-addr")
-                .unwrap_or_else(|_| panic!("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .unwrap_or_else(|_| panic!("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address u{reward_cycle} u{i})"))
                 .to_owned();
 
             let reward_address = PoxAddress::try_from_pox_tuple(self.mainnet, &pox_addr_tuple)
-                .unwrap_or_else(|| panic!("FATAL: not a valid PoX address: {:?}", &pox_addr_tuple));
+                .unwrap_or_else(|| panic!("FATAL: not a valid PoX address: {pox_addr_tuple:?}"));
 
             let total_ustx = tuple
                 .get("total-ustx")
-                .unwrap_or_else(|_| panic!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .unwrap_or_else(|_| panic!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{reward_cycle} u{i})"))
                 .to_owned()
                 .expect_u128()
                 .expect("FATAL: unexpected PoX structure");
 
             let stacker = tuple
                 .get("stacker")
-                .unwrap_or_else(|_| panic!("FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
-                    reward_cycle, i))
+                .unwrap_or_else(|_| panic!("FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{reward_cycle} u{i})"))
                 .to_owned()
                 .expect_optional()
                 .expect("FATAL: unexpected PoX structure")
@@ -1234,13 +1213,12 @@ impl StacksChainState {
                 sortdb,
                 block_id,
                 POX_4_NAME,
-                &format!("(get-reward-set-size u{})", reward_cycle),
+                &format!("(get-reward-set-size u{reward_cycle})"),
             )?
             .expect_u128()?;
 
         debug!(
-            "At block {:?} (reward cycle {}): {} PoX reward addresses",
-            block_id, reward_cycle, num_addrs
+            "At block {block_id:?} (reward cycle {reward_cycle}): {num_addrs} PoX reward addresses"
         );
 
         let mut ret = vec![];
@@ -1257,13 +1235,12 @@ impl StacksChainState {
                     sortdb,
                     block_id,
                     POX_4_NAME,
-                    &format!("(get-reward-set-pox-address u{} u{})", reward_cycle, i),
+                    &format!("(get-reward-set-pox-address u{reward_cycle} u{i})"),
                 )?
                 .expect_optional()?
                 .unwrap_or_else(|| {
                     panic!(
-                        "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
-                        i, num_addrs, reward_cycle
+                        "FATAL: missing PoX address in slot {i} out of {num_addrs} in reward cycle {reward_cycle}"
                     )
                 })
                 .expect_tuple()?;
@@ -1308,8 +1285,7 @@ impl StacksChainState {
             .active_pox_contract(reward_cycle_start_height);
 
         info!(
-            "Active PoX contract at {} (cycle start height {}): {}",
-            block_id, reward_cycle_start_height, &pox_contract_name
+            "Active PoX contract at {block_id} (cycle start height {reward_cycle_start_height}): {pox_contract_name}"
         );
         let result = match pox_contract_name {
             x if x == POX_1_NAME => self.get_reward_addresses_pox_1(sortdb, block_id, reward_cycle),
@@ -1317,8 +1293,7 @@ impl StacksChainState {
             x if x == POX_3_NAME => self.get_reward_addresses_pox_3(sortdb, block_id, reward_cycle),
             x if x == POX_4_NAME => self.get_reward_addresses_pox_4(sortdb, block_id, reward_cycle),
             unknown_contract => {
-                panic!("Blockchain implementation failure: PoX contract name '{}' is unknown. Chainstate is corrupted.",
-                       unknown_contract);
+                panic!("Blockchain implementation failure: PoX contract name '{unknown_contract}' is unknown. Chainstate is corrupted.");
             }
         };
 
@@ -1347,12 +1322,11 @@ impl StacksChainState {
                 sortdb,
                 block_id,
                 SIGNERS_VOTING_NAME,
-                &format!("(get-approved-aggregate-key u{})", reward_cycle),
+                &format!("(get-approved-aggregate-key u{reward_cycle})"),
             )?
             .expect_optional()?;
         debug!(
-            "Aggregate public key for reward cycle {} is {:?}",
-            reward_cycle, aggregate_public_key_opt
+            "Aggregate public key for reward cycle {reward_cycle} is {aggregate_public_key_opt:?}"
         );
 
         let aggregate_public_key = match aggregate_public_key_opt {
@@ -1697,17 +1671,17 @@ pub mod test {
         value
     }
 
-    fn contract_id(addr: &StacksAddress, name: &str) -> QualifiedContractIdentifier {
+    fn contract_id(addr: StacksAddress, name: String) -> QualifiedContractIdentifier {
         QualifiedContractIdentifier::new(
-            StandardPrincipalData::from(addr.clone()),
-            ContractName::try_from(name.to_string()).unwrap(),
+            StandardPrincipalData::from(addr),
+            ContractName::try_from(name).unwrap(),
         )
     }
 
     fn eval_contract_at_tip(
         peer: &mut TestPeer,
-        addr: &StacksAddress,
-        name: &str,
+        addr: StacksAddress,
+        name: String,
         expr: &str,
     ) -> Value {
         let sortdb = peer.sortdb.take().unwrap();
@@ -1751,7 +1725,7 @@ pub mod test {
         let data = if let Some(d) = value_opt.expect_optional().unwrap() {
             d
         } else {
-            warn!("get_stacker_info: No PoX info for {}", addr);
+            warn!("get_stacker_info: No PoX info for {addr}");
             return None;
         };
 
@@ -2074,7 +2048,7 @@ pub mod test {
         round: u128,
         cycle: u128,
     ) -> StacksTransaction {
-        debug!("Vote for aggregate key in cycle {}, round {}", cycle, round);
+        debug!("Vote for aggregate key in cycle {cycle}, round {round}");
 
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
@@ -2599,7 +2573,7 @@ pub mod test {
 
         let bad_lock_period_short = generator(
             amount,
-            make_pox_addr(AddressHashMode::SerializeP2PKH, addr_bytes.clone()),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, addr_bytes),
             0,
             nonce,
         );
@@ -2608,7 +2582,7 @@ pub mod test {
 
         let bad_lock_period_long = generator(
             amount,
-            make_pox_addr(AddressHashMode::SerializeP2PKH, addr_bytes.clone()),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, addr_bytes),
             13,
             nonce,
         );
@@ -2617,7 +2591,7 @@ pub mod test {
 
         let bad_amount = generator(
             0,
-            make_pox_addr(AddressHashMode::SerializeP2PKH, addr_bytes.clone()),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, addr_bytes),
             1,
             nonce,
         );
@@ -2690,7 +2664,7 @@ pub mod test {
     fn make_pox_lockup_contract_call(
         key: &StacksPrivateKey,
         nonce: u64,
-        contract_addr: &StacksAddress,
+        contract_addr: StacksAddress,
         name: &str,
         amount: u128,
         addr_version: AddressHashMode,
@@ -2698,7 +2672,7 @@ pub mod test {
         lock_period: u128,
     ) -> StacksTransaction {
         let payload = TransactionPayload::new_contract_call(
-            contract_addr.clone(),
+            contract_addr,
             name,
             "do-contract-lockup",
             vec![
@@ -2715,12 +2689,12 @@ pub mod test {
     fn make_pox_withdraw_stx_contract_call(
         key: &StacksPrivateKey,
         nonce: u64,
-        contract_addr: &StacksAddress,
+        contract_addr: StacksAddress,
         name: &str,
         amount: u128,
     ) -> StacksTransaction {
         let payload = TransactionPayload::new_contract_call(
-            contract_addr.clone(),
+            contract_addr,
             name,
             "withdraw-stx",
             vec![Value::UInt(amount)],
@@ -2837,7 +2811,7 @@ pub mod test {
                     let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
 
                     if tip.total_burn > 0 && missed_initial_blocks == 0 {
-                        eprintln!("Missed initial blocks: {}", missed_initial_blocks);
+                        eprintln!("Missed initial blocks: {missed_initial_blocks}");
                         missed_initial_blocks = tip.block_height;
                     }
 
@@ -2964,7 +2938,7 @@ pub mod test {
                     let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
 
                     if tip.total_burn > 0 && missed_initial_blocks == 0 {
-                        eprintln!("Missed initial blocks: {}", missed_initial_blocks);
+                        eprintln!("Missed initial blocks: {missed_initial_blocks}");
                         missed_initial_blocks = tip.block_height;
                     }
 
@@ -3052,7 +3026,7 @@ pub mod test {
 
                     // the above tx _should_ error, because alice hasn't authorized that contract to stack
                     //   try again with auth -> deauth -> auth
-                    let alice_contract: Value = contract_id(&key_to_stacks_addr(&alice), "nested-stacker").into();
+                    let alice_contract: Value = contract_id(key_to_stacks_addr(&alice), "nested-stacker".into()).into();
 
                     let alice_allowance = make_pox_contract_call(&alice, 3, "allow-contract-caller", vec![alice_contract.clone(), Value::none()]);
                     let alice_disallowance = make_pox_contract_call(&alice, 4, "disallow-contract-caller", vec![alice_contract.clone()]);
@@ -3148,7 +3122,7 @@ pub mod test {
                     let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
 
                     if tip.total_burn > 0 && missed_initial_blocks == 0 {
-                        eprintln!("Missed initial blocks: {}", missed_initial_blocks);
+                        eprintln!("Missed initial blocks: {missed_initial_blocks}");
                         missed_initial_blocks = tip.block_height;
                     }
 
@@ -3158,7 +3132,7 @@ pub mod test {
                         &alice,
                         tenure_id as u64,
                         0,
-                        &format!("alice-burns-{}", &tenure_id),
+                        &format!("alice-burns-{tenure_id}"),
                         "(stx-burn? u1 tx-sender)",
                     );
 
@@ -3344,8 +3318,7 @@ pub mod test {
                     .unwrap() as u128;
 
                 eprintln!(
-                    "\nalice reward cycle: {}\ncur reward cycle: {}\n",
-                    alice_reward_cycle, cur_reward_cycle
+                    "\nalice reward cycle: {alice_reward_cycle}\ncur reward cycle: {cur_reward_cycle}\n"
                 );
             } else {
                 // Alice's address is locked as of the next reward cycle
@@ -3381,7 +3354,7 @@ pub mod test {
                 })
                 .unwrap();
 
-                eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
+                eprintln!("\ntenure: {tenure_id}\nreward cycle: {cur_reward_cycle}\nmin-uSTX: {min_ustx}\naddrs: {reward_addrs:?}\ntotal_liquid_ustx: {total_liquid_ustx}\ntotal-stacked: {total_stacked}\n");
 
                 if cur_reward_cycle >= alice_reward_cycle {
                     // this will grow as more miner rewards are unlocked, so be wary
@@ -3397,7 +3370,7 @@ pub mod test {
 
                     let (amount_ustx, pox_addr, lock_period, first_reward_cycle) =
                         get_stacker_info(&mut peer, &key_to_stacks_addr(&alice).into()).unwrap();
-                    eprintln!("\nAlice: {} uSTX stacked for {} cycle(s); addr is {:?}; first reward cycle is {}\n", amount_ustx, lock_period, &pox_addr, first_reward_cycle);
+                    eprintln!("\nAlice: {amount_ustx} uSTX stacked for {lock_period} cycle(s); addr is {pox_addr:?}; first reward cycle is {first_reward_cycle}\n");
 
                     // one reward address, and it's Alice's
                     // either way, there's a single reward address
@@ -3520,7 +3493,7 @@ pub mod test {
                 // make sure we burn!
                 for op in burn_ops.iter() {
                     if let BlockstackOperationType::LeaderBlockCommit(ref opdata) = &op {
-                        eprintln!("prepare phase {}: {:?}", burn_height, opdata);
+                        eprintln!("prepare phase {burn_height}: {opdata:?}");
                         assert!(opdata.all_outputs_burn());
                         assert!(opdata.burn_fee > 0);
 
@@ -3533,7 +3506,7 @@ pub mod test {
                 // no burns -- 100% commitment
                 for op in burn_ops.iter() {
                     if let BlockstackOperationType::LeaderBlockCommit(ref opdata) = &op {
-                        eprintln!("reward phase {}: {:?}", burn_height, opdata);
+                        eprintln!("reward phase {burn_height}: {opdata:?}");
                         if tenure_id > 1 && cur_reward_cycle > lockup_reward_cycle {
                             assert!(!opdata.all_outputs_burn());
                             rewarded = true;
@@ -3596,8 +3569,7 @@ pub mod test {
                     .unwrap() as u128;
 
                 eprintln!(
-                    "\nlockup reward cycle: {}\ncur reward cycle: {}\n",
-                    lockup_reward_cycle, cur_reward_cycle
+                    "\nlockup reward cycle: {lockup_reward_cycle}\ncur reward cycle: {cur_reward_cycle}\n"
                 );
             } else {
                 // all addresses are locked as of the next reward cycle
@@ -3635,7 +3607,7 @@ pub mod test {
                 })
                 .unwrap();
 
-                eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
+                eprintln!("\ntenure: {tenure_id}\nreward cycle: {cur_reward_cycle}\nmin-uSTX: {min_ustx}\naddrs: {reward_addrs:?}\ntotal_liquid_ustx: {total_liquid_ustx}\ntotal-stacked: {total_stacked}\n");
 
                 if cur_reward_cycle >= lockup_reward_cycle {
                     // this will grow as more miner rewards are unlocked, so be wary
@@ -3658,7 +3630,7 @@ pub mod test {
                     for key in keys.iter() {
                         let (amount_ustx, pox_addr, lock_period, first_reward_cycle) =
                             get_stacker_info(&mut peer, &key_to_stacks_addr(key).into()).unwrap();
-                        eprintln!("\n{}: {} uSTX stacked for {} cycle(s); addr is {:?}; first reward cycle is {}\n", key.to_hex(), amount_ustx, lock_period, &pox_addr, first_reward_cycle);
+                        eprintln!("\n{}: {amount_ustx} uSTX stacked for {lock_period} cycle(s); addr is {pox_addr:?}; first reward cycle is {first_reward_cycle}\n", key.to_hex());
 
                         assert_eq!(
                             (reward_addrs[0].0).version(),
@@ -3741,7 +3713,7 @@ pub mod test {
                         let alice_stack = make_pox_lockup_contract_call(
                             &alice,
                             0,
-                            &key_to_stacks_addr(&bob),
+                            key_to_stacks_addr(&bob),
                             "do-lockup",
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
@@ -3812,8 +3784,7 @@ pub mod test {
                     .unwrap() as u128;
 
                 eprintln!(
-                    "\nalice reward cycle: {}\ncur reward cycle: {}\n",
-                    alice_reward_cycle, cur_reward_cycle
+                    "\nalice reward cycle: {alice_reward_cycle}\ncur reward cycle: {cur_reward_cycle}\n"
                 );
             } else {
                 let tip_burn_block_height =
@@ -3848,7 +3819,7 @@ pub mod test {
                 })
                 .unwrap();
 
-                eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
+                eprintln!("\ntenure: {tenure_id}\nreward cycle: {cur_reward_cycle}\nmin-uSTX: {min_ustx}\naddrs: {reward_addrs:?}\ntotal_liquid_ustx: {total_liquid_ustx}\ntotal-stacked: {total_stacked}\n");
 
                 if cur_reward_cycle >= alice_reward_cycle {
                     // alice's tokens are locked for only one reward cycle
@@ -3879,10 +3850,11 @@ pub mod test {
                         let (amount_ustx, pox_addr, lock_period, first_reward_cycle) =
                             get_stacker_info(
                                 &mut peer,
-                                &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                                &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into())
+                                    .into(),
                             )
                             .unwrap();
-                        eprintln!("\nContract: {} uSTX stacked for {} cycle(s); addr is {:?}; first reward cycle is {}\n", amount_ustx, lock_period, &pox_addr, first_reward_cycle);
+                        eprintln!("\nContract: {amount_ustx} uSTX stacked for {lock_period} cycle(s); addr is {pox_addr:?}; first reward cycle is {first_reward_cycle}\n");
 
                         // should be consistent with the API call
                         assert_eq!(lock_period, 1);
@@ -3905,14 +3877,14 @@ pub mod test {
                         // contract's address's tokens are locked
                         let contract_balance = get_balance(
                             &mut peer,
-                            &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                            &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
                         );
                         assert_eq!(contract_balance, 0);
 
                         // Lock-up is consistent with stacker state
                         let contract_account = get_account(
                             &mut peer,
-                            &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                            &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
                         );
                         assert_eq!(contract_account.stx_balance.amount_unlocked(), 0);
                         assert_eq!(
@@ -3929,7 +3901,7 @@ pub mod test {
                         // no longer locked
                         let contract_balance = get_balance(
                             &mut peer,
-                            &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                            &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
                         );
                         assert_eq!(contract_balance, 1024 * POX_THRESHOLD_STEPS_USTX);
 
@@ -3938,7 +3910,7 @@ pub mod test {
                         // Lock-up is lazy -- state has not been updated
                         let contract_account = get_account(
                             &mut peer,
-                            &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                            &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
                         );
                         assert_eq!(contract_account.stx_balance.amount_unlocked(), 0);
                         assert_eq!(
@@ -4092,8 +4064,7 @@ pub mod test {
                     .unwrap() as u128;
 
                 eprintln!(
-                    "\nalice reward cycle: {}\ncur reward cycle: {}\n",
-                    first_reward_cycle, cur_reward_cycle
+                    "\nalice reward cycle: {first_reward_cycle}\ncur reward cycle: {cur_reward_cycle}\n"
                 );
             } else {
                 // Alice's and Bob's addresses are locked as of the next reward cycle
@@ -4128,8 +4099,7 @@ pub mod test {
                 .unwrap();
 
                 eprintln!(
-                    "\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\n",
-                    cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx
+                    "\nreward cycle: {cur_reward_cycle}\nmin-uSTX: {min_ustx}\naddrs: {reward_addrs:?}\ntotal_liquid_ustx: {total_liquid_ustx}\n"
                 );
 
                 if cur_reward_cycle >= first_reward_cycle {
@@ -4224,13 +4194,13 @@ pub mod test {
 
                     // let's make some allowances for contract-calls through smart contracts
                     //   so that the tests in tenure_id == 3 don't just fail on permission checks
-                    let alice_test = contract_id(&key_to_stacks_addr(&alice), "alice-test").into();
+                    let alice_test = contract_id(key_to_stacks_addr(&alice), "alice-test".into()).into();
                     let alice_allowance = make_pox_contract_call(&alice, 2, "allow-contract-caller", vec![alice_test, Value::none()]);
 
-                    let bob_test = contract_id(&key_to_stacks_addr(&bob), "bob-test").into();
+                    let bob_test = contract_id(key_to_stacks_addr(&bob), "bob-test".into()).into();
                     let bob_allowance = make_pox_contract_call(&bob, 0, "allow-contract-caller", vec![bob_test, Value::none()]);
 
-                    let charlie_test = contract_id(&key_to_stacks_addr(&charlie), "charlie-test").into();
+                    let charlie_test = contract_id(key_to_stacks_addr(&charlie), "charlie-test".into()).into();
                     let charlie_allowance = make_pox_contract_call(&charlie, 0, "allow-contract-caller", vec![charlie_test, Value::none()]);
 
                     block_txs.push(alice_allowance);
@@ -4331,26 +4301,25 @@ pub mod test {
                     .unwrap() as u128;
 
                 eprintln!(
-                    "\nalice reward cycle: {}\ncur reward cycle: {}\n",
-                    first_reward_cycle, cur_reward_cycle
+                    "\nalice reward cycle: {first_reward_cycle}\ncur reward cycle: {cur_reward_cycle}\n"
                 );
             } else if tenure_id == 2 {
                 let alice_test_result = eval_contract_at_tip(
                     &mut peer,
-                    &key_to_stacks_addr(&alice),
-                    "alice-test",
+                    key_to_stacks_addr(&alice),
+                    "alice-test".into(),
                     "(var-get test-run)",
                 );
                 let bob_test_result = eval_contract_at_tip(
                     &mut peer,
-                    &key_to_stacks_addr(&bob),
-                    "bob-test",
+                    key_to_stacks_addr(&bob),
+                    "bob-test".into(),
                     "(var-get test-run)",
                 );
                 let charlie_test_result = eval_contract_at_tip(
                     &mut peer,
-                    &key_to_stacks_addr(&charlie),
-                    "charlie-test",
+                    key_to_stacks_addr(&charlie),
+                    "charlie-test".into(),
                     "(var-get test-run)",
                 );
 
@@ -4360,26 +4329,25 @@ pub mod test {
 
                 let alice_test_result = eval_contract_at_tip(
                     &mut peer,
-                    &key_to_stacks_addr(&alice),
-                    "alice-test",
+                    key_to_stacks_addr(&alice),
+                    "alice-test".into(),
                     "(var-get test-result)",
                 );
                 let bob_test_result = eval_contract_at_tip(
                     &mut peer,
-                    &key_to_stacks_addr(&bob),
-                    "bob-test",
+                    key_to_stacks_addr(&bob),
+                    "bob-test".into(),
                     "(var-get test-result)",
                 );
                 let charlie_test_result = eval_contract_at_tip(
                     &mut peer,
-                    &key_to_stacks_addr(&charlie),
-                    "charlie-test",
+                    key_to_stacks_addr(&charlie),
+                    "charlie-test".into(),
                     "(var-get test-result)",
                 );
 
                 eprintln!(
-                    "\nalice: {:?}, bob: {:?}, charlie: {:?}\n",
-                    &alice_test_result, &bob_test_result, &charlie_test_result
+                    "\nalice: {alice_test_result:?}, bob: {bob_test_result:?}, charlie: {charlie_test_result:?}\n"
                 );
 
                 assert_eq!(bob_test_result, Value::Int(-1));
@@ -4505,8 +4473,7 @@ pub mod test {
                     .unwrap() as u128;
 
                 eprintln!(
-                    "\nalice reward cycle: {}\ncur reward cycle: {}\n",
-                    alice_reward_cycle, cur_reward_cycle
+                    "\nalice reward cycle: {alice_reward_cycle}\ncur reward cycle: {cur_reward_cycle}\n"
                 );
             } else {
                 // Alice's address is locked as of the next reward cycle
@@ -4540,7 +4507,7 @@ pub mod test {
                 })
                 .unwrap();
 
-                eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
+                eprintln!("\ntenure: {tenure_id}\nreward cycle: {cur_reward_cycle}\nmin-uSTX: {min_ustx}\naddrs: {reward_addrs:?}\ntotal_liquid_ustx: {total_liquid_ustx}\ntotal-stacked: {total_stacked}\n");
 
                 if cur_reward_cycle >= alice_reward_cycle {
                     // this will grow as more miner rewards are unlocked, so be wary
@@ -4555,7 +4522,7 @@ pub mod test {
                         let (amount_ustx, pox_addr, lock_period, first_reward_cycle) =
                             get_stacker_info(&mut peer, &key_to_stacks_addr(&alice).into())
                                 .unwrap();
-                        eprintln!("\nAlice: {} uSTX stacked for {} cycle(s); addr is {:?}; first reward cycle is {}\n", amount_ustx, lock_period, &pox_addr, first_reward_cycle);
+                        eprintln!("\nAlice: {amount_ustx} uSTX stacked for {lock_period} cycle(s); addr is {pox_addr:?}; first reward cycle is {first_reward_cycle}\n");
 
                         assert_eq!(first_reward_cycle, alice_reward_cycle);
                         assert_eq!(lock_period, 1);
@@ -4698,7 +4665,7 @@ pub mod test {
                         let charlie_stack = make_pox_lockup_contract_call(
                             &charlie,
                             0,
-                            &key_to_stacks_addr(&bob),
+                            key_to_stacks_addr(&bob),
                             "do-lockup",
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
@@ -4710,7 +4677,7 @@ pub mod test {
                         let charlie_withdraw = make_pox_withdraw_stx_contract_call(
                             &charlie,
                             1,
-                            &key_to_stacks_addr(&bob),
+                            key_to_stacks_addr(&bob),
                             "do-lockup",
                             1024 * POX_THRESHOLD_STEPS_USTX,
                         );
@@ -4732,7 +4699,7 @@ pub mod test {
                         let charlie_stack = make_pox_lockup_contract_call(
                             &charlie,
                             2,
-                            &key_to_stacks_addr(&bob),
+                            key_to_stacks_addr(&bob),
                             "do-lockup",
                             512 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
@@ -4776,7 +4743,7 @@ pub mod test {
             let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
             let charlie_contract_balance = get_balance(
                 &mut peer,
-                &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
             );
             let charlie_balance = get_balance(&mut peer, &key_to_stacks_addr(&charlie).into());
 
@@ -4819,8 +4786,7 @@ pub mod test {
                     .block_height_to_reward_cycle(tip_burn_block_height)
                     .unwrap() as u128;
                 eprintln!(
-                    "\nfirst reward cycle: {}\ncur reward cycle: {}\n",
-                    first_reward_cycle, cur_reward_cycle
+                    "\nfirst reward cycle: {first_reward_cycle}\ncur reward cycle: {cur_reward_cycle}\n"
                 );
 
                 assert!(first_reward_cycle > cur_reward_cycle);
@@ -4853,12 +4819,11 @@ pub mod test {
                     .unwrap() as u128;
                 assert!(second_reward_cycle > cur_reward_cycle);
                 eprintln!(
-                    "\nsecond reward cycle: {}\ncur reward cycle: {}\n",
-                    second_reward_cycle, cur_reward_cycle
+                    "\nsecond reward cycle: {second_reward_cycle}\ncur reward cycle: {cur_reward_cycle}\n"
                 );
             }
 
-            eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
+            eprintln!("\ntenure: {tenure_id}\nreward cycle: {cur_reward_cycle}\nmin-uSTX: {min_ustx}\naddrs: {reward_addrs:?}\ntotal_liquid_ustx: {total_liquid_ustx}\ntotal-stacked: {total_stacked}\n");
 
             // this will grow as more miner rewards are unlocked, so be wary
             if tenure_id >= (MINER_REWARD_MATURITY + 1) as usize {
@@ -4881,7 +4846,7 @@ pub mod test {
                     // in Alice's first reward cycle
                     let (amount_ustx, pox_addr, lock_period, first_pox_reward_cycle) =
                         get_stacker_info(&mut peer, &key_to_stacks_addr(&alice).into()).unwrap();
-                    eprintln!("\nAlice: {} uSTX stacked for {} cycle(s); addr is {:?}; first reward cycle is {}\n", amount_ustx, lock_period, &pox_addr, first_reward_cycle);
+                    eprintln!("\nAlice: {amount_ustx} uSTX stacked for {lock_period} cycle(s); addr is {pox_addr:?}; first reward cycle is {first_reward_cycle}\n");
 
                     assert_eq!(first_reward_cycle, first_reward_cycle);
                     assert_eq!(lock_period, 1);
@@ -4890,10 +4855,10 @@ pub mod test {
                     let (amount_ustx, pox_addr, lock_period, first_pox_reward_cycle) =
                         get_stacker_info(
                             &mut peer,
-                            &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                            &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
                         )
                         .unwrap();
-                    eprintln!("\nCharlie: {} uSTX stacked for {} cycle(s); addr is {:?}; first reward cycle is {}\n", amount_ustx, lock_period, &pox_addr, first_reward_cycle);
+                    eprintln!("\nCharlie: {amount_ustx} uSTX stacked for {lock_period} cycle(s); addr is {pox_addr:?}; first reward cycle is {first_reward_cycle}\n");
 
                     assert_eq!(first_reward_cycle, first_pox_reward_cycle);
                     assert_eq!(lock_period, 1);
@@ -4941,7 +4906,7 @@ pub mod test {
                     // Lock-up is consistent with stacker state
                     let charlie_account = get_account(
                         &mut peer,
-                        &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                        &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
                     );
                     assert_eq!(charlie_account.stx_balance.amount_unlocked(), 0);
                     assert_eq!(
@@ -4968,7 +4933,7 @@ pub mod test {
                     );
                     assert!(get_stacker_info(
                         &mut peer,
-                        &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                        &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
                     )
                     .is_none());
 
@@ -4995,7 +4960,7 @@ pub mod test {
                     // Unlock is lazy
                     let charlie_account = get_account(
                         &mut peer,
-                        &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                        &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
                     );
                     assert_eq!(charlie_account.stx_balance.amount_unlocked(), 0);
                     assert_eq!(charlie_account.stx_balance.amount_locked(), 0);
@@ -5008,7 +4973,7 @@ pub mod test {
                     // in Alice's second reward cycle
                     let (amount_ustx, pox_addr, lock_period, first_pox_reward_cycle) =
                         get_stacker_info(&mut peer, &key_to_stacks_addr(&alice).into()).unwrap();
-                    eprintln!("\nAlice: {} uSTX stacked for {} cycle(s); addr is {:?}; second reward cycle is {}\n", amount_ustx, lock_period, &pox_addr, second_reward_cycle);
+                    eprintln!("\nAlice: {amount_ustx} uSTX stacked for {lock_period} cycle(s); addr is {pox_addr:?}; second reward cycle is {second_reward_cycle}\n");
 
                     assert_eq!(first_pox_reward_cycle, second_reward_cycle);
                     assert_eq!(lock_period, 1);
@@ -5017,10 +4982,10 @@ pub mod test {
                     let (amount_ustx, pox_addr, lock_period, first_pox_reward_cycle) =
                         get_stacker_info(
                             &mut peer,
-                            &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                            &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
                         )
                         .unwrap();
-                    eprintln!("\nCharlie: {} uSTX stacked for {} cycle(s); addr is {:?}; second reward cycle is {}\n", amount_ustx, lock_period, &pox_addr, second_reward_cycle);
+                    eprintln!("\nCharlie: {amount_ustx} uSTX stacked for {lock_period} cycle(s); addr is {pox_addr:?}; second reward cycle is {second_reward_cycle}\n");
 
                     assert_eq!(first_pox_reward_cycle, second_reward_cycle);
                     assert_eq!(lock_period, 1);
@@ -5073,7 +5038,7 @@ pub mod test {
                     // Lock-up is consistent with stacker state
                     let charlie_account = get_account(
                         &mut peer,
-                        &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                        &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
                     );
                     assert_eq!(charlie_account.stx_balance.amount_unlocked(), 0);
                     assert_eq!(
@@ -5101,7 +5066,7 @@ pub mod test {
                     );
                     assert!(get_stacker_info(
                         &mut peer,
-                        &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                        &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
                     )
                     .is_none());
 
@@ -5131,7 +5096,7 @@ pub mod test {
                     // Unlock is lazy
                     let charlie_account = get_account(
                         &mut peer,
-                        &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                        &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
                     );
                     assert_eq!(charlie_account.stx_balance.amount_unlocked(), 0);
                     assert_eq!(
@@ -5252,7 +5217,7 @@ pub mod test {
                         let alice_stack = make_pox_lockup_contract_call(
                             &alice,
                             1,
-                            &key_to_stacks_addr(&bob),
+                            key_to_stacks_addr(&bob),
                             "do-lockup",
                             512 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2SH,
@@ -5316,7 +5281,7 @@ pub mod test {
                         let alice_withdraw_tx = make_pox_withdraw_stx_contract_call(
                             &alice,
                             4,
-                            &key_to_stacks_addr(&bob),
+                            key_to_stacks_addr(&bob),
                             "do-lockup",
                             1,
                         );
@@ -5360,7 +5325,7 @@ pub mod test {
                 key_to_stacks_addr(&bob).into(),
                 key_to_stacks_addr(&charlie).into(),
                 key_to_stacks_addr(&danielle).into(),
-                make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
             ];
 
             let expected_pox_addrs: Vec<(u8, Hash160)> = vec![
@@ -5438,7 +5403,7 @@ pub mod test {
             })
             .unwrap();
 
-            eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
+            eprintln!("\ntenure: {tenure_id}\nreward cycle: {cur_reward_cycle}\nmin-uSTX: {min_ustx}\naddrs: {reward_addrs:?}\ntotal_liquid_ustx: {total_liquid_ustx}\ntotal-stacked: {total_stacked}\n");
 
             if tenure_id <= 1 {
                 if tenure_id < 1 {
@@ -5468,8 +5433,7 @@ pub mod test {
                     .block_height_to_reward_cycle(tip_burn_block_height)
                     .unwrap() as u128;
                 eprintln!(
-                    "first reward cycle: {}\ncur reward cycle: {}\n",
-                    reward_cycle, cur_reward_cycle
+                    "first reward cycle: {reward_cycle}\ncur reward cycle: {cur_reward_cycle}\n"
                 );
 
                 assert!(reward_cycle > cur_reward_cycle);
@@ -5478,7 +5442,7 @@ pub mod test {
                 // alice did _NOT_ spend
                 assert!(get_contract(
                     &mut peer,
-                    &make_contract_id(&key_to_stacks_addr(&alice), "alice-try-spend"),
+                    &make_contract_id(key_to_stacks_addr(&alice), "alice-try-spend".into()),
                 )
                 .is_none());
             }
@@ -5510,7 +5474,7 @@ pub mod test {
                     for addr in stacker_addrs.iter() {
                         let (amount_ustx, pox_addr, lock_period, pox_reward_cycle) =
                             get_stacker_info(&mut peer, addr).unwrap();
-                        eprintln!("\naddr {}: {} uSTX stacked for {} cycle(s); addr is {:?}; first reward cycle is {}\n", addr, amount_ustx, lock_period, &pox_addr, reward_cycle);
+                        eprintln!("\naddr {addr}: {amount_ustx} uSTX stacked for {lock_period} cycle(s); addr is {pox_addr:?}; first reward cycle is {reward_cycle}\n");
 
                         assert_eq!(pox_reward_cycle, reward_cycle);
                         assert_eq!(lock_period, 1);
@@ -5659,7 +5623,7 @@ pub mod test {
 
                     // allowance for the contract-caller
                     // this _should_ be included in the block
-                    let charlie_contract: Value = contract_id(&key_to_stacks_addr(&charlie), "charlie-try-stack").into();
+                    let charlie_contract: Value = contract_id(key_to_stacks_addr(&charlie), "charlie-try-stack".into()).into();
                     let charlie_allowance = make_pox_contract_call(&charlie, 1, "allow-contract-caller",
                                                                    vec![charlie_contract, Value::none()]);
                     block_txs.push(charlie_allowance);
@@ -5748,8 +5712,7 @@ pub mod test {
             })
             .unwrap();
 
-            eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\ntotal-stacked next: {}\n",
-                      tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked, total_stacked_next);
+            eprintln!("\ntenure: {tenure_id}\nreward cycle: {cur_reward_cycle}\nmin-uSTX: {min_ustx}\naddrs: {reward_addrs:?}\ntotal_liquid_ustx: {total_liquid_ustx}\ntotal-stacked: {total_stacked}\ntotal-stacked next: {total_stacked_next}\n");
 
             if tenure_id <= 1 {
                 if tenure_id < 1 {
@@ -5779,16 +5742,15 @@ pub mod test {
                     .unwrap() as u128;
 
                 eprintln!(
-                    "\nalice reward cycle: {}\ncur reward cycle: {}\n",
-                    alice_reward_cycle, cur_reward_cycle
+                    "\nalice reward cycle: {alice_reward_cycle}\ncur reward cycle: {cur_reward_cycle}\n"
                 );
             } else {
                 if tenure_id == 2 {
                     // charlie's contract did NOT materialize
                     let result = eval_contract_at_tip(
                         &mut peer,
-                        &key_to_stacks_addr(&charlie),
-                        "charlie-try-stack",
+                        key_to_stacks_addr(&charlie),
+                        "charlie-try-stack".into(),
                         "(var-get test-passed)",
                     )
                     .expect_bool()
@@ -5796,8 +5758,8 @@ pub mod test {
                     assert!(result, "charlie-try-stack test should be `true`");
                     let result = eval_contract_at_tip(
                         &mut peer,
-                        &key_to_stacks_addr(&charlie),
-                        "charlie-try-reject",
+                        key_to_stacks_addr(&charlie),
+                        "charlie-try-reject".into(),
                         "(var-get test-passed)",
                     )
                     .expect_bool()
@@ -5805,8 +5767,8 @@ pub mod test {
                     assert!(result, "charlie-try-reject test should be `true`");
                     let result = eval_contract_at_tip(
                         &mut peer,
-                        &key_to_stacks_addr(&alice),
-                        "alice-try-reject",
+                        key_to_stacks_addr(&alice),
+                        "alice-try-reject".into(),
                         "(var-get test-passed)",
                     )
                     .expect_bool()
@@ -5832,7 +5794,7 @@ pub mod test {
 
                     let (amount_ustx, pox_addr, lock_period, first_reward_cycle) =
                         get_stacker_info(&mut peer, &key_to_stacks_addr(&alice).into()).unwrap();
-                    eprintln!("\nAlice: {} uSTX stacked for {} cycle(s); addr is {:?}; first reward cycle is {}\n", amount_ustx, lock_period, &pox_addr, first_reward_cycle);
+                    eprintln!("\nAlice: {amount_ustx} uSTX stacked for {lock_period} cycle(s); addr is {pox_addr:?}; first reward cycle is {first_reward_cycle}\n");
 
                     if cur_reward_cycle == alice_reward_cycle {
                         assert_eq!(

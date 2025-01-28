@@ -156,11 +156,7 @@ fn make_test_transaction() -> StacksTransaction {
     let mut tx_stx_transfer = StacksTransaction::new(
         TransactionVersion::Testnet,
         auth,
-        TransactionPayload::TokenTransfer(
-            recv_addr.clone().into(),
-            123,
-            TokenTransferMemo([0u8; 34]),
-        ),
+        TransactionPayload::TokenTransfer(recv_addr.into(), 123, TokenTransferMemo([0u8; 34])),
     );
     tx_stx_transfer.chain_id = 0x80000000;
     tx_stx_transfer.post_condition_mode = TransactionPostConditionMode::Allow;

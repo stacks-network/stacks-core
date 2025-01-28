@@ -241,7 +241,7 @@ fn signers_get_signer_keys_from_stackerdb() {
         None,
     );
 
-    let private_key = peer.config.private_key.clone();
+    let private_key = peer.config.private_key;
 
     let mut expected_signers: Vec<_> =
         [&stacker_1.signer_private_key, &stacker_2.signer_private_key]
@@ -293,7 +293,7 @@ fn signers_db_get_slots() {
         None,
     );
 
-    let private_key = peer.config.private_key.clone();
+    let private_key = peer.config.private_key;
 
     let mut expected_signers: Vec<_> =
         [&stacker_1.signer_private_key, &stacker_2.signer_private_key]
@@ -323,7 +323,7 @@ fn signers_db_get_slots() {
 
     for signer_set in 0..2 {
         for message_id in 0..SIGNER_SLOTS_PER_USER {
-            let contract_name = format!("signers-{}-{}", &signer_set, &message_id);
+            let contract_name = format!("signers-{signer_set}-{message_id}");
             let signers = readonly_call(
                 &mut peer,
                 &latest_block_id,
@@ -334,7 +334,7 @@ fn signers_db_get_slots() {
             .expect_result_ok()
             .unwrap();
 
-            debug!("Check .{}", &contract_name);
+            debug!("Check .{contract_name}");
             if signer_set == 0 {
                 assert_eq!(signers.expect_list().unwrap(), vec![]);
             } else {
@@ -352,7 +352,7 @@ pub fn prepare_signers_test<'a>(
 ) -> (TestPeer<'a>, TestSigners, StacksBlockId, u128) {
     let signer_keys = stackers
         .iter()
-        .map(|s| s.signer_private_key.clone())
+        .map(|s| s.signer_private_key)
         .collect::<Vec<_>>();
     let mut test_signers = TestSigners::new(signer_keys);
 
@@ -371,8 +371,8 @@ pub fn prepare_signers_test<'a>(
 
     let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
-    tenure_change.tenure_consensus_hash = consensus_hash.clone();
-    tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+    tenure_change.tenure_consensus_hash = consensus_hash;
+    tenure_change.burn_view_consensus_hash = consensus_hash;
     let tenure_change_tx = peer.miner.make_nakamoto_tenure_change(tenure_change);
     let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
 
@@ -430,8 +430,8 @@ fn advance_blocks(
 
     let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
-    tenure_change.tenure_consensus_hash = consensus_hash.clone();
-    tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+    tenure_change.tenure_consensus_hash = consensus_hash;
+    tenure_change.burn_view_consensus_hash = consensus_hash;
     let tenure_change_tx = peer.miner.make_nakamoto_tenure_change(tenure_change);
     let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
     let recipient_addr = boot_code_addr(false);

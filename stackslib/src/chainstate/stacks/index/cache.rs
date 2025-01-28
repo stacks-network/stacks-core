@@ -186,8 +186,7 @@ impl<T: MarfTrieId> TrieCache<T> {
             "node256" => TrieCache::Node256(TrieCacheState::new()),
             _ => {
                 error!(
-                    "Unsupported trie node cache strategy '{}'; falling back to `Noop` strategy",
-                    strategy
+                    "Unsupported trie node cache strategy '{strategy}'; falling back to `Noop` strategy"
                 );
                 TrieCache::Noop(TrieCacheState::new())
             }
@@ -287,12 +286,7 @@ impl<T: MarfTrieId> TrieCache<T> {
         assert!(!is_backptr(trieptr.id()));
         match self {
             TrieCache::Noop(_) => {
-                trace!(
-                    "Noop node hash cache store for ({},{:?},{})",
-                    block_id,
-                    &trieptr,
-                    &hash
-                );
+                trace!("Noop node hash cache store for ({block_id},{trieptr:?},{hash})");
             }
             TrieCache::Everything(ref mut state) => {
                 state.store_node_hash(block_id, trieptr, hash);
@@ -353,7 +347,7 @@ pub mod test {
 
         for blk in 0..num_blocks {
             let mut block_data = vec![];
-            test_debug!("Make block {}", blk);
+            test_debug!("Make block {blk}");
             for val in 0..num_inserts_per_block {
                 let path_bytes = Sha512Trunc256Sum::from_data(&data).as_bytes().to_vec();
                 data.copy_from_slice(&path_bytes[0..32]);
@@ -384,16 +378,14 @@ pub mod test {
         let test_file = if test_name == ":memory:" {
             test_name.to_string()
         } else {
-            let test_dir = format!("/tmp/stacks-marf-tests/{}", test_name);
+            let test_dir = format!("/tmp/stacks-marf-tests/{test_name}");
             if fs::metadata(&test_dir).is_ok() {
                 fs::remove_dir_all(&test_dir).unwrap();
             }
             fs::create_dir_all(&test_dir).unwrap();
 
-            let test_file = format!(
-                "{}/marf-cache-{}-{:?}.sqlite",
-                &test_dir, cache_strategy, hash_strategy
-            );
+            let test_file =
+                format!("{test_dir}/marf-cache-{cache_strategy}-{hash_strategy:?}.sqlite");
             test_file
         };
 
@@ -404,7 +396,7 @@ pub mod test {
         let batch_size = batch_size.unwrap_or(0);
 
         for (i, block_data) in data.iter().enumerate() {
-            test_debug!("Write block {}", i);
+            test_debug!("Write block {i}");
             let mut block_hash_bytes = [0u8; 32];
             block_hash_bytes[0..8].copy_from_slice(&(i as u64).to_be_bytes());
 
@@ -415,13 +407,13 @@ pub mod test {
                 for b in (0..block_data.len()).step_by(batch_size) {
                     let batch = &block_data[b..cmp::min(block_data.len(), b + batch_size)];
                     let keys: Vec<_> = batch.iter().map(|(k, _)| k.clone()).collect();
-                    let values = batch.iter().map(|(_, v)| v.clone()).collect();
+                    let values = batch.iter().map(|(_, v)| *v).collect();
                     marf.insert_batch(&keys, values).unwrap();
                 }
             } else {
                 for (key, value) in block_data.iter() {
                     let path = TrieHash::from_key(key);
-                    let leaf = TrieLeaf::from_value(&[], value.clone());
+                    let leaf = TrieLeaf::from_value(&[], *value);
                     marf.insert_raw(path, leaf).unwrap();
                 }
             }
@@ -432,7 +424,7 @@ pub mod test {
 
         let write_bench = marf.borrow_storage_backend().get_benchmarks();
         marf.borrow_storage_backend().reset_benchmarks();
-        eprintln!("MARF bench writes: {:#?}", &write_bench);
+        eprintln!("MARF bench writes: {write_bench:#?}");
 
         debug!("---------");
         debug!("MARF gets");
@@ -441,10 +433,10 @@ pub mod test {
         let mut total_read_time = 0;
         let mut root_hash = TrieHash([0u8; 32]);
         for (i, block_data) in data.iter().enumerate() {
-            test_debug!("Read block {}", i);
+            test_debug!("Read block {i}");
             for (key, value) in block_data.iter() {
                 let path = TrieHash::from_key(key);
-                let marf_leaf = TrieLeaf::from_value(&[], value.clone());
+                let marf_leaf = TrieLeaf::from_value(&[], *value);
 
                 let read_time = SystemTime::now();
                 let leaf = MARF::get_path(
@@ -463,18 +455,15 @@ pub mod test {
         }
 
         let read_bench = marf.borrow_storage_backend().get_benchmarks();
-        eprintln!(
-            "MARF bench reads ({} total): {:#?}",
-            total_read_time, &read_bench
-        );
+        eprintln!("MARF bench reads ({total_read_time} total): {read_bench:#?}");
 
         let mut bench = write_bench;
         bench.add(&read_bench);
 
-        eprintln!("MARF bench total: {:#?}", &bench);
+        eprintln!("MARF bench total: {bench:#?}");
 
         root_hash = marf.get_root_hash_at(&last_block_header).unwrap();
-        eprintln!("root hash at {:?}: {:?}", &last_block_header, &root_hash);
+        eprintln!("root hash at {last_block_header:?}: {root_hash:?}");
         root_hash
     }
 
@@ -488,7 +477,7 @@ pub mod test {
             &test_data,
             None,
         );
-        eprintln!("Final root hash is {}", root_hash);
+        eprintln!("Final root hash is {root_hash}");
 
         let root_hash_batched = test_marf_with_cache(
             "test_marf_node_cache_noop",
@@ -537,7 +526,7 @@ pub mod test {
             &test_data,
             None,
         );
-        eprintln!("Final root hash is {}", root_hash);
+        eprintln!("Final root hash is {root_hash}");
 
         let root_hash_batched = test_marf_with_cache(
             "test_marf_node_cache_noop_deferred",
@@ -621,7 +610,7 @@ pub mod test {
             &test_data,
             None,
         );
-        eprintln!("Final root hash is {}", root_hash);
+        eprintln!("Final root hash is {root_hash}");
 
         let root_hash_batched = test_marf_with_cache(
             "test_marf_node_cache_everything",
@@ -670,7 +659,7 @@ pub mod test {
             &test_data,
             None,
         );
-        eprintln!("Final root hash is {}", root_hash);
+        eprintln!("Final root hash is {root_hash}");
 
         let root_hash_batched = test_marf_with_cache(
             "test_marf_node_cache_everything_deferred",
@@ -719,7 +708,7 @@ pub mod test {
             &test_data,
             None,
         );
-        eprintln!("Final root hash is {}", root_hash);
+        eprintln!("Final root hash is {root_hash}");
 
         let root_hash_batched = test_marf_with_cache(
             "test_marf_node_cache_node256",
@@ -768,7 +757,7 @@ pub mod test {
             &test_data,
             None,
         );
-        eprintln!("Final root hash is {}", root_hash);
+        eprintln!("Final root hash is {root_hash}");
 
         let root_hash_batched = test_marf_with_cache(
             "test_marf_node_cache_node256_deferred",
@@ -817,7 +806,7 @@ pub mod test {
             &test_data,
             None,
         );
-        eprintln!("Final root hash is {}", root_hash);
+        eprintln!("Final root hash is {root_hash}");
 
         let root_hash_batched = test_marf_with_cache(
             "test_marf_node_cache_node256_deferred_15500",

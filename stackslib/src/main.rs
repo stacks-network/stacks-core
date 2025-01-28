@@ -144,14 +144,14 @@ impl P2PSession {
     /// Returns the session handle on success.
     /// Returns error text on failure.
     pub fn begin(peer_addr: SocketAddr, data_port: u16) -> Result<Self, String> {
-        let mut data_addr = peer_addr.clone();
+        let mut data_addr = peer_addr;
         data_addr.set_port(data_port);
 
         // get /v2/info
         let peer_info = send_http_request(
             &format!("{}", data_addr.ip()),
             data_addr.port(),
-            StacksHttpRequest::new_getinfo(PeerHost::from(data_addr.clone()), None)
+            StacksHttpRequest::new_getinfo(PeerHost::from(data_addr), None)
                 .with_header("Connection".to_string(), "close".to_string()),
             Duration::from_secs(60),
         )
@@ -165,7 +165,7 @@ impl P2PSession {
             &format!("{}", data_addr.ip()),
             data_addr.port(),
             StacksHttpRequest::new_get_sortition_consensus(
-                PeerHost::from(data_addr.clone()),
+                PeerHost::from(data_addr),
                 &peer_info.pox_consensus,
             )
             .with_header("Connection".to_string(), "close".to_string()),
@@ -181,7 +181,7 @@ impl P2PSession {
             &format!("{}", data_addr.ip()),
             data_addr.port(),
             StacksHttpRequest::new_get_sortition_consensus(
-                PeerHost::from(data_addr.clone()),
+                PeerHost::from(data_addr),
                 &peer_info.stable_pox_consensus,
             )
             .with_header("Connection".to_string(), "close".to_string()),
@@ -905,10 +905,10 @@ check if the associated microblocks can be downloaded
             .unwrap_or_else(|_| panic!("Error reading file: {}", argv[2]));
         let clarity_version = ClarityVersion::default_for_epoch(clarity_cli::DEFAULT_CLI_EPOCH);
         match clarity_cli::vm_execute(&program, clarity_version) {
-            Ok(Some(result)) => println!("{}", result),
+            Ok(Some(result)) => println!("{result}"),
             Ok(None) => println!(""),
             Err(error) => {
-                panic!("Program Execution Error: \n{}", error);
+                panic!("Program Execution Error: \n{error}");
             }
         }
         return;
@@ -926,7 +926,7 @@ check if the associated microblocks can be downloaded
         let mut marf = MARF::from_path(path, marf_opts).unwrap();
         let res = marf.get(&itip, key).expect("MARF error.");
         match res {
-            Some(x) => println!("{}", x),
+            Some(x) => println!("{x}"),
             None => println!("None"),
         };
         return;
@@ -938,10 +938,10 @@ check if the associated microblocks can be downloaded
         let burntip = BurnchainHeaderHash::from_hex(&argv[4]).unwrap();
 
         let conn = Connection::open(path).unwrap();
-        let mut cur_burn = burntip.clone();
-        let mut cur_tip = tip.clone();
+        let mut cur_burn = burntip;
+        let mut cur_tip = tip;
         loop {
-            println!("{}, {}", cur_burn, cur_tip);
+            println!("{cur_burn}, {cur_tip}");
             let (next_burn, next_tip) = match
                 conn.query_row("SELECT parent_burn_header_hash, parent_anchored_block_hash FROM staging_blocks WHERE anchored_block_hash = ? and burn_header_hash = ?",
                                params![cur_tip, cur_burn], |row| Ok((row.get_unwrap(0), row.get_unwrap(1)))) {
@@ -950,7 +950,7 @@ check if the associated microblocks can be downloaded
                         match e {
                             SqliteError::QueryReturnedNoRows => {},
                             e => {
-                                eprintln!("SQL Error: {}", e);
+                                eprintln!("SQL Error: {e}");
                             },
                         }
                         break
@@ -991,10 +991,7 @@ check if the associated microblocks can be downloaded
         let db_path = &argv[2];
         let byte_prefix = &argv[3];
         let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
-        let query = format!(
-            "SELECT value FROM data_table WHERE key LIKE \"{}%\"",
-            byte_prefix
-        );
+        let query = format!("SELECT value FROM data_table WHERE key LIKE \"{byte_prefix}%\"");
         let mut stmt = conn.prepare(&query).unwrap();
         let mut rows = stmt.query(NO_PARAMS).unwrap();
         while let Ok(Some(row)) = rows.next() {
@@ -1511,7 +1508,7 @@ check if the associated microblocks can be downloaded
                     &new_snapshot.consensus_hash,
                     &new_snapshot.winning_stacks_block_hash,
                 );
-                known_stacks_blocks.insert(stacks_block_id.clone());
+                known_stacks_blocks.insert(stacks_block_id);
 
                 if next_arrival >= stacks_blocks_arrival_order.len() {
                     // all blocks should have been queued up
@@ -1560,7 +1557,7 @@ check if the associated microblocks can be downloaded
                         if next_arrival >= stacks_blocks_arrival_order.len() {
                             break;
                         }
-                        stacks_block_id = stacks_blocks_arrival_order[next_arrival].clone();
+                        stacks_block_id = stacks_blocks_arrival_order[next_arrival];
                     }
                 }
 
