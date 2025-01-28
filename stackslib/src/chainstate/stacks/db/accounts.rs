@@ -1209,11 +1209,9 @@ mod test {
     fn get_tip_ancestor() {
         let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let miner_1 =
-            StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
-                .unwrap();
+            StacksAddress::from_string("SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5").unwrap();
         let user_1 =
-            StacksAddress::from_string(&"SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0".to_string())
-                .unwrap();
+            StacksAddress::from_string("SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0").unwrap();
         let mut miner_reward = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
         let user_reward = make_dummy_user_payment_schedule(&user_1, 500, 0, 0, 750, 1000, 1);
 
@@ -1276,8 +1274,7 @@ mod test {
     fn load_store_miner_payment_schedule() {
         let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let miner_1 =
-            StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
-                .unwrap();
+            StacksAddress::from_string("SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5").unwrap();
 
         let mut miner_reward = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
 
@@ -1322,8 +1319,7 @@ mod test {
     fn load_store_miner_payment_schedule_pay_contract() {
         let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let miner_1 =
-            StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
-                .unwrap();
+            StacksAddress::from_string("SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5").unwrap();
 
         let mut miner_reward = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
         miner_reward.recipient = PrincipalData::Contract(QualifiedContractIdentifier::transient());
@@ -1368,8 +1364,7 @@ mod test {
     #[test]
     fn miner_reward_one_miner_no_tx_fees_no_users() {
         let miner_1 =
-            StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
-                .unwrap();
+            StacksAddress::from_string("SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5").unwrap();
         let participant = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
 
         let (parent_reward, miner_reward) = StacksChainState::calculate_miner_reward(
@@ -1398,8 +1393,7 @@ mod test {
     #[test]
     fn miner_reward_one_miner_no_tx_fees_no_users_pay_contract() {
         let miner_1 =
-            StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
-                .unwrap();
+            StacksAddress::from_string("SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5").unwrap();
         let mut participant = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
         participant.recipient = PrincipalData::Contract(QualifiedContractIdentifier::transient());
 
@@ -1437,11 +1431,9 @@ mod test {
     #[test]
     fn miner_reward_one_miner_one_user_no_tx_fees() {
         let miner_1 =
-            StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
-                .unwrap();
+            StacksAddress::from_string("SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5").unwrap();
         let user_1 =
-            StacksAddress::from_string(&"SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0".to_string())
-                .unwrap();
+            StacksAddress::from_string("SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0").unwrap();
 
         let miner = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 250, 1000);
         let user = make_dummy_user_payment_schedule(&user_1, 500, 0, 0, 750, 1000, 1);
@@ -1485,12 +1477,10 @@ mod test {
     #[test]
     fn miner_reward_tx_fees() {
         let miner_1 =
-            StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
-                .unwrap();
+            StacksAddress::from_string("SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5").unwrap();
 
         let parent_miner_1 =
-            StacksAddress::from_string(&"SP2QDF700V0FWXVNQJJ4XFGBWE6R2Y4APTSFQNBVE".to_string())
-                .unwrap();
+            StacksAddress::from_string("SP2QDF700V0FWXVNQJJ4XFGBWE6R2Y4APTSFQNBVE").unwrap();
 
         let participant = make_dummy_miner_payment_schedule(&miner_1, 500, 100, 105, 1000, 1000);
         let parent_participant =

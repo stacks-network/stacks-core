@@ -4123,7 +4123,7 @@ impl NakamotoChainState {
             .iter()
             .enumerate()
             .fold(HashMap::new(), |mut map, (ix, addr)| {
-                map.entry(addr).or_insert_with(Vec::new).push(ix);
+                map.entry(addr).or_default().push(ix);
                 map
             });
 
@@ -4524,7 +4524,7 @@ impl NakamotoChainState {
         let matured_rewards = matured_miner_rewards_opt
             .as_ref()
             .map(|matured_miner_rewards| matured_miner_rewards.consolidate())
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
 
         let mut lockup_events =
             match Self::finish_block(&mut clarity_tx, matured_miner_rewards_opt.as_ref()) {

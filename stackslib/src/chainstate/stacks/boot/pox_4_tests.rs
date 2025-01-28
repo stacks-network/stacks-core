@@ -557,7 +557,7 @@ fn pox_extend_transition() {
 
     let tip = get_tip(peer.sortdb.as_ref());
 
-    let alice_signer_private = Secp256k1PrivateKey::new();
+    let alice_signer_private = Secp256k1PrivateKey::random();
     let alice_signer_key = Secp256k1PublicKey::from_private(&alice_signer_private);
 
     let reward_cycle = get_current_reward_cycle(&peer, &burnchain);
@@ -636,7 +636,7 @@ fn pox_extend_transition() {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
-    let bob_signer_private = Secp256k1PrivateKey::new();
+    let bob_signer_private = Secp256k1PrivateKey::random();
 
     let reward_cycle = get_current_reward_cycle(&peer, &burnchain);
 
@@ -670,7 +670,7 @@ fn pox_extend_transition() {
     );
 
     // new signing key needed
-    let alice_signer_private = Secp256k1PrivateKey::default();
+    let alice_signer_private = Secp256k1PrivateKey::random();
     let alice_signer_key = StacksPublicKey::from_private(&alice_signer_private);
 
     let alice_signature = make_signer_key_signature(
@@ -3674,7 +3674,7 @@ fn stack_extend_verify_sig() {
     );
 
     // We need a new signer-key for the extend tx
-    let signer_key = Secp256k1PrivateKey::new();
+    let signer_key = Secp256k1PrivateKey::random();
     let signer_public_key = StacksPublicKey::from_private(&signer_key);
 
     // Test 1: invalid reward cycle
@@ -3702,7 +3702,7 @@ fn stack_extend_verify_sig() {
 
     // Test 2: invalid pox-addr
     stacker_nonce += 1;
-    let other_pox_addr = pox_addr_from(&Secp256k1PrivateKey::new());
+    let other_pox_addr = pox_addr_from(&Secp256k1PrivateKey::random());
     let signature = make_signer_key_signature(
         &other_pox_addr,
         &signer_key,
@@ -3726,7 +3726,7 @@ fn stack_extend_verify_sig() {
 
     // Test 3: invalid key used to sign
     stacker_nonce += 1;
-    let other_key = Secp256k1PrivateKey::new();
+    let other_key = Secp256k1PrivateKey::random();
     let signature = make_signer_key_signature(
         &pox_addr,
         &other_key,
@@ -3961,7 +3961,7 @@ fn stack_agg_commit_verify_sig() {
 
     // Test 2: invalid pox addr
     delegate_nonce += 1;
-    let other_pox_addr = pox_addr_from(&Secp256k1PrivateKey::new());
+    let other_pox_addr = pox_addr_from(&Secp256k1PrivateKey::random());
     let signature = make_signer_key_signature(
         &other_pox_addr,
         signer_sk,
@@ -4227,7 +4227,7 @@ struct StackerSignerInfo {
 
 impl StackerSignerInfo {
     fn new() -> Self {
-        let private_key = StacksPrivateKey::new();
+        let private_key = StacksPrivateKey::random();
         let public_key = StacksPublicKey::from_private(&private_key);
         let address = key_to_stacks_addr(&private_key);
         let pox_address =
@@ -4779,7 +4779,7 @@ fn stack_increase_verify_signer_key(use_nakamoto: bool) {
 
     // invalid pox addr
     stacker_nonce += 1;
-    let other_pox_addr = pox_addr_from(&Secp256k1PrivateKey::new());
+    let other_pox_addr = pox_addr_from(&Secp256k1PrivateKey::random());
     let signature = make_signer_key_signature(
         &other_pox_addr, // different than existing
         signer_sk,
@@ -7592,8 +7592,8 @@ fn test_deser_abort() {
     ";
 
     let tx_payload = TransactionPayload::new_smart_contract(
-        &format!("hello-world"),
-        &contract.to_string(),
+        "hello-world",
+        contract,
         Some(ClarityVersion::Clarity2),
     )
     .unwrap();
