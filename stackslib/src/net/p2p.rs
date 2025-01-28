@@ -3253,7 +3253,7 @@ impl PeerNetwork {
             .inv_state
             .as_ref()
             .map(|inv_state| inv_state.block_stats.keys().cloned().collect())
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
 
         if self.antientropy_start_reward_cycle == 0 {
             debug!(
@@ -3677,7 +3677,7 @@ impl PeerNetwork {
                 );
                 e
             })
-            .unwrap_or(HashMap::new());
+            .unwrap_or_default();
 
         network_result.consume_nakamoto_blocks(new_blocks);
 

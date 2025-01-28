@@ -53,7 +53,7 @@ fn test_mempool_sync_2_peers() {
     peer_2_config.connection_opts.mempool_sync_interval = 1;
 
     let num_txs = 10;
-    let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::new()).collect();
+    let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::random()).collect();
     let addrs: Vec<_> = pks.iter().map(to_addr).collect();
     let initial_balances: Vec<_> = addrs
         .iter()
@@ -319,7 +319,7 @@ fn test_mempool_sync_2_peers_paginated() {
     peer_2_config.connection_opts.mempool_sync_interval = 1;
 
     let num_txs = 1024;
-    let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::new()).collect();
+    let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::random()).collect();
     let addrs: Vec<_> = pks.iter().map(to_addr).collect();
     let initial_balances: Vec<_> = addrs
         .iter()
@@ -508,7 +508,7 @@ fn test_mempool_sync_2_peers_blacklisted() {
     peer_2_config.connection_opts.mempool_sync_interval = 1;
 
     let num_txs = 1024;
-    let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::new()).collect();
+    let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::random()).collect();
     let addrs: Vec<_> = pks.iter().map(to_addr).collect();
     let initial_balances: Vec<_> = addrs
         .iter()
@@ -717,7 +717,7 @@ fn test_mempool_sync_2_peers_problematic() {
     peer_2_config.connection_opts.mempool_sync_interval = 1;
 
     let num_txs = 128;
-    let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::new()).collect();
+    let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::random()).collect();
     let addrs: Vec<_> = pks.iter().map(to_addr).collect();
     let initial_balances: Vec<_> = addrs
         .iter()
@@ -1089,7 +1089,7 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
         vec![true, true, true, true, true, true, true, true, true, true],
     ];
     let num_txs = 1024;
-    let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::new()).collect();
+    let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::random()).collect();
     let addrs: Vec<_> = pks.iter().map(to_addr).collect();
     let initial_balances: Vec<_> = addrs
         .iter()

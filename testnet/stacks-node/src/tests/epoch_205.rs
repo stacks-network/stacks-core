@@ -45,7 +45,7 @@ fn test_exact_block_costs() {
         return;
     }
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr = PrincipalData::from(to_addr(&spender_sk));
     let spender_addr_c32 = to_addr(&spender_sk);
 
@@ -280,7 +280,7 @@ fn test_dynamic_db_method_costs() {
         return;
     }
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr = PrincipalData::from(to_addr(&spender_sk));
     let spender_addr_c32 = to_addr(&spender_sk);
     let contract_name = "test-contract";
@@ -694,15 +694,15 @@ fn test_cost_limit_switch_version205() {
     .to_string();
 
     // Create three characters, `creator`, `alice` and `bob`.
-    let creator_sk = StacksPrivateKey::new();
+    let creator_sk = StacksPrivateKey::random();
     let creator_addr = to_addr(&creator_sk);
     let creator_pd: PrincipalData = creator_addr.into();
 
-    let alice_sk = StacksPrivateKey::new();
+    let alice_sk = StacksPrivateKey::random();
     let alice_addr = to_addr(&alice_sk);
     let alice_pd: PrincipalData = alice_addr.into();
 
-    let bob_sk = StacksPrivateKey::new();
+    let bob_sk = StacksPrivateKey::random();
     let bob_addr = to_addr(&bob_sk);
     let bob_pd: PrincipalData = bob_addr.into();
 
@@ -909,7 +909,7 @@ fn bigger_microblock_streams_in_2_05() {
         return;
     }
 
-    let spender_sks: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let spender_sks: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
 
     let (mut conf, miner_account) = neon_integration_test_conf();
