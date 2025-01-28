@@ -5,12 +5,28 @@ name: Github Release
 on:
   workflow_call:
     inputs:
-      tag:
-        description: "Release Tag"
+      node_tag:
+        description: "Node Release Tag"
         required: true
         type: string
-      docker_tag:
-        description: "Docker Release Tag"
+      node_docker_tag:
+        description: "Node Docker Release Tag"
+        required: true
+        type: string
+      signer_tag:
+        description: "Signer Release Tag"
+        required: true
+        type: string
+      signer_docker_tag:
+        description: "Signer Docker Release Tag"
+        required: true
+        type: string
+      is_node_release:
+        description: "True if it is a node release"
+        required: true
+        type: string
+      is_signer_release:
+        description: "True if it is a signer release"
         required: true
         type: string
     secrets:
@@ -22,81 +38,107 @@ concurrency:
   ## Always cancel duplicate jobs
   cancel-in-progress: true
 
-run-name: ${{ inputs.tag }}
+run-name: ${{ inputs.node_tag || inputs.signer_tag }}
 
 jobs:
   ## Build arch dependent binaries from source
   ##
   ## Runs when the following is true:
-  ##  - tag is provided
+  ##  - either node or signer tag is provided
   build-binaries:
     if: |
-      inputs.tag != ''
+      inputs.node_tag != '' ||
+      inputs.signer_tag != ''
     name: Build Binaries
-    uses: ./.github/workflows/create-source-binary.yml
-    with:
-      tag: ${{ inputs.tag }}
-    secrets: inherit
+    runs-on: ubuntu-latest
+    strategy:
+      ## Run a maximum of 10 builds concurrently, using the matrix defined in inputs.arch
+      max-parallel: 10
+      matrix:
+        arch:
+          - linux-musl
+          - linux-glibc
+          - macos
+          - windows
+        cpu:
+          - arm64
+          - armv7
+          - x86-64 ## defaults to x86-64-v3 variant - intel haswell (2013) and newer
+          # - x86-64-v2 ## intel nehalem (2008) and newer
+          # - x86-64-v3 ## intel haswell (2013) and newer
+          # - x86-64-v4 ## intel skylake (2017) and newer
+        exclude:
+          - arch: windows # excludes windows-arm64
+            cpu: arm64
+          - arch: windows # excludes windows-armv7
+            cpu: armv7
+          - arch: macos # excludes macos-armv7
+            cpu: armv7
+    steps:
+      - name: Build Binary (${{ matrix.arch }}_${{ matrix.cpu }})
+        uses: stacks-network/actions/stacks-core/release/create-source-binary@main
+        with:
+          arch: ${{ matrix.arch }}
+          cpu: ${{ matrix.cpu }}
+          node_tag: ${{ inputs.node_tag }}
+          signer_tag: ${{ inputs.signer_tag }}
+          signer_docker_tag: ${{ inputs.signer_docker_tag }}
+          is_node_release: ${{ inputs.is_node_release }}
 
   ## Runs when the following is true:
-  ##  - tag is provided
-  ##  - workflow is building default branch (master)
+  ##  - either node or signer tag is provided
   create-release:
     if: |
-      inputs.tag != ''
+      inputs.node_tag != '' ||
+      inputs.signer_tag != ''
     name: Create Release
     runs-on: ubuntu-latest
     needs:
       - build-binaries
     steps:
-      ## Downloads the artifacts built in `create-source-binary.yml`
-      - name: Download Artifacts
-        id: download_artifacts
-        uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4.1.7
+      ## Creates releases
+      - name: Create Release
+        uses: stacks-network/actions/stacks-core/release/create-releases@main
         with:
-          pattern: ${{ inputs.tag }}-binary-build-*
-          path: release
-          merge-multiple: true
-
-      ## Generate a checksums file to be added to the release page
-      - name: Generate Checksums
-        id: generate_checksum
-        uses: stacks-network/actions/generate-checksum@main
-        with:
-          artifact_download_pattern: "${{ inputs.tag }}-binary-build-*"
-
-      ## Upload the release archives with the checksums file
-      - name: Upload Release
-        id: upload_release
-        uses: softprops/action-gh-release@69320dbe05506a9a39fc8ae11030b214ec2d1f87 #v2.0.5
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-        with:
-          name: Release ${{ inputs.tag || github.ref }}
-          tag_name: ${{ inputs.tag || github.ref }}
-          draft: false
-          prerelease: true
-          fail_on_unmatched_files: true
-          target_commitish: ${{ github.sha }}
-          generate_release_notes: true
-          files: |
-            release/*.zip
-            CHECKSUMS.txt
+          node_tag: ${{ inputs.node_tag }}
+          node_docker_tag: ${{ inputs.node_docker_tag }}
+          signer_tag: ${{ inputs.signer_tag }}
+          signer_docker_tag: ${{ inputs.signer_docker_tag }}
+          is_node_release: ${{ inputs.is_node_release }}
+          is_signer_release: ${{ inputs.is_signer_release }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
   ## Builds arch dependent Docker images from binaries
   ##
   ## Runs when the following is true:
-  ##  - tag is provided
-  ##  - workflow is building default branch (master)
+  ##  - either node or signer tag is provided
   docker-image:
     if: |
-      inputs.tag != ''
+      inputs.node_tag != '' ||
+      inputs.signer_tag != ''
     name: Docker Image (Binary)
-    uses: ./.github/workflows/image-build-binary.yml
+    runs-on: ubuntu-latest
     needs:
       - build-binaries
       - create-release
-    with:
-      tag: ${{ inputs.tag }}
-      docker_tag: ${{ inputs.docker_tag }}
-    secrets: inherit
+    strategy:
+      fail-fast: false
+      ## Build a maximum of 2 images concurrently based on matrix.dist
+      max-parallel: 2
+      matrix:
+        dist:
+          - alpine
+          - debian
+    steps:
+      - name: Create Docker Image
+        uses: stacks-network/actions/stacks-core/release/docker-images@main
+        with:
+          node_tag: ${{ inputs.node_tag }}
+          node_docker_tag: ${{ inputs.node_docker_tag }}
+          signer_tag: ${{ inputs.signer_tag }}
+          signer_docker_tag: ${{ inputs.signer_docker_tag }}
+          is_node_release: ${{ inputs.is_node_release }}
+          is_signer_release: ${{ inputs.is_signer_release }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
+          dist: ${{ matrix.dist }}
