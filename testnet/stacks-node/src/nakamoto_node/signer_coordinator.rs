@@ -14,8 +14,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::sync::atomic::AtomicBool;
+#[cfg(test)]
+use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use libsigner::v0::messages::{MinerSlotID, SignerMessage as SignerMessageV0};
 use libsigner::{BlockProposal, SignerSession, StackerDBSession};
@@ -33,13 +36,24 @@ use stacks::types::chainstate::{StacksBlockId, StacksPrivateKey};
 use stacks::util::hash::Sha512Trunc256Sum;
 use stacks::util::secp256k1::MessageSignature;
 use stacks::util_lib::boot::boot_code_id;
+#[cfg(test)]
+use stacks_common::util::tests::TestFlag;
+use std::collections::BTreeMap;
+use std::ops::Bound::Included;
 
 use super::stackerdb_listener::StackerDBListenerComms;
 use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::StackerDBChannel;
-use crate::nakamoto_node::stackerdb_listener::{StackerDBListener, EVENT_RECEIVER_POLL};
+use crate::nakamoto_node::stackerdb_listener::{
+    BlockStatus, StackerDBListener, EVENT_RECEIVER_POLL,
+};
 use crate::neon::Counters;
 use crate::Config;
+
+#[cfg(test)]
+/// Test-only value for storing the current rejection based timeout
+pub static BLOCK_REJECTIONS_CURRENT_TIMEOUT: LazyLock<TestFlag<Duration>> =
+    LazyLock::new(TestFlag::default);
 
 /// The state of the signer database listener, used by the miner thread to
 /// interact with the signer listener.
@@ -66,6 +80,8 @@ pub struct SignerCoordinator {
     /// Rather, this burn block is used to determine whether or not a new
     ///  burn block has arrived since this thread started.
     burn_tip_at_start: ConsensusHash,
+    ///
+    block_rejection_timeout_steps: BTreeMap<u64, Duration>,
 }
 
 impl SignerCoordinator {
@@ -111,6 +127,7 @@ impl SignerCoordinator {
             keep_running,
             listener_thread: None,
             burn_tip_at_start: burn_tip_at_start.clone(),
+            block_rejection_timeout_steps: config.miner.block_rejection_timeout_steps.clone(),
         };
 
         // Spawn the signer DB listener thread
@@ -293,17 +310,32 @@ impl SignerCoordinator {
         sortdb: &SortitionDB,
         counters: &Counters,
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
+        // this is used to track the start of the waiting cycle
+        let mut rejections_timer = Instant::now();
+        // the amount of current rejections to eventually modify the timeout
+        let mut rejections: u64 = 0;
+        // default timeout
+        let mut rejections_timeout = self
+            .block_rejection_timeout_steps
+            .range((Included(0), Included(rejections)))
+            .last()
+            .ok_or_else(|| {
+                NakamotoNodeError::SigningCoordinatorFailure(
+                    "Invalid rejection timeout step function definition".into(),
+                )
+            })?;
+        // this is used for comparing block_status to identify if it has been changed from the previous event
+        let mut block_status_tracker = BlockStatus::default();
         loop {
+            // At every iteration wait for the block_status.
+            // Exit when the amount of confirmations/rejections reaches the threshold (or until timeout)
+            // Based on the amount of rejections, eventually modify the timeout.
             let block_status = match self.stackerdb_comms.wait_for_block_status(
                 block_signer_sighash,
+                &mut block_status_tracker,
+                rejections_timer,
+                *rejections_timeout.1,
                 EVENT_RECEIVER_POLL,
-                |status| {
-                    status.total_weight_signed < self.weight_threshold
-                        && status
-                            .total_reject_weight
-                            .saturating_add(self.weight_threshold)
-                            <= self.total_weight
-                },
             )? {
                 Some(status) => status,
                 None => {
@@ -336,9 +368,38 @@ impl SignerCoordinator {
                         return Err(NakamotoNodeError::BurnchainTipChanged);
                     }
 
+                    if rejections_timer.elapsed() > *rejections_timeout.1 {
+                        warn!("Timed out while waiting for responses from signers";
+                                  "elapsed" => rejections_timer.elapsed().as_secs(),
+                                  "rejections_timeout" => rejections_timeout.1.as_secs(),
+                                  "rejections" => rejections,
+                                  "rejections_threshold" => self.total_weight.saturating_sub(self.weight_threshold)
+                        );
+                        return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                            "Gave up while tried reaching the threshold".into(),
+                        ));
+                    }
+
                     continue;
                 }
             };
+
+            if rejections != block_status.total_reject_weight as u64 {
+                rejections_timer = Instant::now();
+                rejections = block_status.total_reject_weight as u64;
+                rejections_timeout = self
+                    .block_rejection_timeout_steps
+                    .range((Included(0), Included((rejections as f64 / self.total_weight as f64) as u64)))
+                    .last()
+                    .ok_or_else(|| {
+                        NakamotoNodeError::SigningCoordinatorFailure(
+                            "Invalid rejection timeout step function definition".into(),
+                        )
+                    })?;
+
+                #[cfg(test)]
+                BLOCK_REJECTIONS_CURRENT_TIMEOUT.set(*rejections_timeout.1);
+            }
 
             if block_status
                 .total_reject_weight
@@ -357,10 +418,18 @@ impl SignerCoordinator {
                     "block_signer_sighash" => %block_signer_sighash,
                 );
                 return Ok(block_status.gathered_signatures.values().cloned().collect());
-            } else {
+            } else if rejections_timer.elapsed() > *rejections_timeout.1 {
+                warn!("Timed out while waiting for responses from signers";
+                          "elapsed" => rejections_timer.elapsed().as_secs(),
+                          "rejections_timeout" => rejections_timeout.1.as_secs(),
+                          "rejections" => rejections,
+                          "rejections_threshold" => self.total_weight.saturating_sub(self.weight_threshold)
+                );
                 return Err(NakamotoNodeError::SigningCoordinatorFailure(
-                    "Unblocked without reaching the threshold".into(),
+                    "Gave up while tried reaching the threshold".into(),
                 ));
+            } else {
+                continue;
             }
         }
     }
