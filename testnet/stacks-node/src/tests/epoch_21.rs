@@ -282,7 +282,7 @@ fn transition_adds_burn_block_height() {
     // very simple test to verify that after the 2.1 transition, get-burn-block-info? works as
     // expected
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr = PrincipalData::from(to_addr(&spender_sk));
     let spender_addr_c32 = to_addr(&spender_sk);
 
@@ -682,7 +682,7 @@ fn transition_fixes_bitcoin_rigidity() {
     // applied, even though it's within 6 blocks of the next Stacks block, which will be in epoch
     // 2.1.  This verifies that the new burnchain consideration window only applies to sortitions
     // that happen in Stacks 2.1.
-    let recipient_sk = StacksPrivateKey::new();
+    let recipient_sk = StacksPrivateKey::random();
     let recipient_addr = to_addr(&recipient_sk);
     let transfer_stx_op = TransferStxOp {
         sender: spender_stx_addr,
@@ -834,7 +834,7 @@ fn transition_fixes_bitcoin_rigidity() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // let's fire off our transfer op.
-    let recipient_sk = StacksPrivateKey::new();
+    let recipient_sk = StacksPrivateKey::random();
     let recipient_addr = to_addr(&recipient_sk);
     let transfer_stx_op = TransferStxOp {
         sender: spender_stx_addr,
@@ -1051,7 +1051,7 @@ fn transition_adds_get_pox_addr_recipients() {
     let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
     for _i in 0..7 {
-        let spender_sk = StacksPrivateKey::new();
+        let spender_sk = StacksPrivateKey::random();
         let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
         spender_sks.push(spender_sk);
@@ -1356,7 +1356,7 @@ fn transition_adds_mining_from_segwit() {
     let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
     for _i in 0..7 {
-        let spender_sk = StacksPrivateKey::new();
+        let spender_sk = StacksPrivateKey::random();
         let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
         initial_balances.push(InitialBalance {
@@ -1437,7 +1437,7 @@ fn transition_removes_pox_sunset() {
         return;
     }
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
     let first_bal = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
@@ -2020,9 +2020,9 @@ fn test_pox_reorgs_three_flaps() {
     epochs[StacksEpochId::Epoch21].start_height = 151;
     conf_template.burnchain.epochs = Some(epochs);
 
-    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
-    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
     let balances: Vec<_> = privks
         .iter()
@@ -2053,7 +2053,7 @@ fn test_pox_reorgs_three_flaps() {
     let mut miner_status = vec![];
 
     for i in 0..num_miners {
-        let seed = StacksPrivateKey::new().to_bytes();
+        let seed = StacksPrivateKey::random().to_bytes();
         let (mut conf, _) = neon_integration_test_conf_with_seed(seed);
 
         conf.initial_balances.clear();
@@ -2540,9 +2540,9 @@ fn test_pox_reorg_one_flap() {
     epochs[StacksEpochId::Epoch21].start_height = 151;
     conf_template.burnchain.epochs = Some(epochs);
 
-    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
-    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
     let balances: Vec<_> = privks
         .iter()
@@ -2573,7 +2573,7 @@ fn test_pox_reorg_one_flap() {
     let mut miner_status = vec![];
 
     for i in 0..num_miners {
-        let seed = StacksPrivateKey::new().to_bytes();
+        let seed = StacksPrivateKey::random().to_bytes();
         let (mut conf, _) = neon_integration_test_conf_with_seed(seed);
 
         conf.initial_balances.clear();
@@ -2944,9 +2944,9 @@ fn test_pox_reorg_flap_duel() {
     epochs[StacksEpochId::Epoch21].start_height = 151;
     conf_template.burnchain.epochs = Some(epochs);
 
-    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
-    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
     let balances: Vec<_> = privks
         .iter()
@@ -2977,7 +2977,7 @@ fn test_pox_reorg_flap_duel() {
     let mut miner_status = vec![];
 
     for i in 0..num_miners {
-        let seed = StacksPrivateKey::new().to_bytes();
+        let seed = StacksPrivateKey::random().to_bytes();
         let (mut conf, _) = neon_integration_test_conf_with_seed(seed);
 
         conf.initial_balances.clear();
@@ -3363,9 +3363,9 @@ fn test_pox_reorg_flap_reward_cycles() {
     epochs[StacksEpochId::Epoch21].start_height = 151;
     conf_template.burnchain.epochs = Some(epochs);
 
-    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
-    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
     let balances: Vec<_> = privks
         .iter()
@@ -3396,7 +3396,7 @@ fn test_pox_reorg_flap_reward_cycles() {
     let mut miner_status = vec![];
 
     for i in 0..num_miners {
-        let seed = StacksPrivateKey::new().to_bytes();
+        let seed = StacksPrivateKey::random().to_bytes();
         let (mut conf, _) = neon_integration_test_conf_with_seed(seed);
 
         conf.initial_balances.clear();
@@ -3773,9 +3773,9 @@ fn test_pox_missing_five_anchor_blocks() {
     epochs[StacksEpochId::Epoch21].start_height = 151;
     conf_template.burnchain.epochs = Some(epochs);
 
-    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
-    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
     let balances: Vec<_> = privks
         .iter()
@@ -3806,7 +3806,7 @@ fn test_pox_missing_five_anchor_blocks() {
     let mut miner_status = vec![];
 
     for i in 0..num_miners {
-        let seed = StacksPrivateKey::new().to_bytes();
+        let seed = StacksPrivateKey::random().to_bytes();
         let (mut conf, _) = neon_integration_test_conf_with_seed(seed);
 
         conf.initial_balances.clear();
@@ -4151,9 +4151,9 @@ fn test_sortition_divergence_pre_21() {
     epochs[StacksEpochId::Epoch21].start_height = 241;
     conf_template.burnchain.epochs = Some(epochs);
 
-    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
-    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
     let balances: Vec<_> = privks
         .iter()
@@ -4184,7 +4184,7 @@ fn test_sortition_divergence_pre_21() {
     let mut miner_status = vec![];
 
     for i in 0..num_miners {
-        let seed = StacksPrivateKey::new().to_bytes();
+        let seed = StacksPrivateKey::random().to_bytes();
         let (mut conf, _) = neon_integration_test_conf_with_seed(seed);
 
         conf.initial_balances.clear();
@@ -4552,7 +4552,7 @@ fn trait_invocation_cross_epoch() {
         return;
     }
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr = PrincipalData::from(to_addr(&spender_sk));
     let spender_addr_c32 = to_addr(&spender_sk);
 
@@ -4806,7 +4806,7 @@ fn test_v1_unlock_height_with_current_stackers() {
 
     let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
     let mut initial_balances = vec![];
 
@@ -5059,7 +5059,7 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
 
     let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
     let mut initial_balances = vec![];
 

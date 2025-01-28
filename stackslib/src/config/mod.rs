@@ -2061,7 +2061,7 @@ impl NodeConfig {
         let sockaddr = deny_node.to_socket_addrs().unwrap().next().unwrap();
         let neighbor = NodeConfig::default_neighbor(
             sockaddr,
-            Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
+            Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random()),
             chain_id,
             peer_version,
         );

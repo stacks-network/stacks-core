@@ -1674,7 +1674,7 @@ pub mod test {
         );
 
         let mut tx_conn = next_block.start_transaction_processing();
-        let sk = secp256k1::Secp256k1PrivateKey::new();
+        let sk = secp256k1::Secp256k1PrivateKey::random();
 
         let tx = StacksTransaction {
             version: TransactionVersion::Testnet,

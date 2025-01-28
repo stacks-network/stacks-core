@@ -2620,7 +2620,7 @@ fn miner_trace_replay_randomized(miner_trace: &mut TestMinerTrace) {
 
             match stacks_block_opt {
                 Some(stacks_block) => {
-                    let mut microblocks = microblocks_opt.unwrap_or(vec![]);
+                    let mut microblocks = microblocks_opt.unwrap_or_default();
 
                     // "discover" the stacks block and its microblocks in all nodes
                     // TODO: randomize microblock discovery order too

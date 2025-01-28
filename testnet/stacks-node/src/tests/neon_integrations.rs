@@ -1476,7 +1476,7 @@ fn deep_contract() {
         ")".repeat(stack_limit + 1)
     );
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr = to_addr(&spender_sk);
     let spender_princ: PrincipalData = spender_addr.into();
 
@@ -1656,7 +1656,7 @@ fn liquid_ustx_integration() {
        (ok stx-liquid-supply))
     ";
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr = to_addr(&spender_sk);
     let spender_princ: PrincipalData = spender_addr.into();
 
@@ -1987,7 +1987,7 @@ fn stx_transfer_btc_integration_test() {
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     // let's fire off our transfer op.
-    let recipient_sk = StacksPrivateKey::new();
+    let recipient_sk = StacksPrivateKey::random();
     let recipient_addr = to_addr(&recipient_sk);
     let transfer_stx_op = TransferStxOp {
         sender: spender_stx_addr,
@@ -2128,7 +2128,7 @@ fn stx_delegate_btc_integration_test() {
     let spender_stx_addr: StacksAddress = to_addr(&spender_sk);
     let spender_addr: PrincipalData = spender_stx_addr.into();
 
-    let recipient_sk = StacksPrivateKey::new();
+    let recipient_sk = StacksPrivateKey::random();
     let recipient_addr = to_addr(&recipient_sk);
     let pox_pubkey = Secp256k1PublicKey::from_hex(
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
@@ -2383,7 +2383,7 @@ fn stack_stx_burn_op_test() {
     let spender_sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
     let spender_stx_addr_2: StacksAddress = to_addr(&spender_sk_2);
 
-    let recipient_sk = StacksPrivateKey::new();
+    let recipient_sk = StacksPrivateKey::random();
     let recipient_addr = to_addr(&recipient_sk);
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
@@ -4193,7 +4193,7 @@ fn filter_low_fee_tx_integration_test() {
         return;
     }
 
-    let spender_sks: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let spender_sks: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
 
     let (mut conf, _) = neon_integration_test_conf();
@@ -4292,7 +4292,7 @@ fn filter_long_runtime_tx_integration_test() {
         return;
     }
 
-    let spender_sks: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let spender_sks: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
 
     let (mut conf, _) = neon_integration_test_conf();
@@ -4379,7 +4379,7 @@ fn miner_submit_twice() {
         return;
     }
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
     let contract_content = "
        (define-public (foo (a int))
@@ -4487,7 +4487,7 @@ fn size_check_integration_test() {
         giant_contract.push(' ');
     }
 
-    let spender_sks: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let spender_sks: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
 
     let (mut conf, miner_account) = neon_integration_test_conf();
@@ -4656,7 +4656,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
         small_contract.push(' ');
     }
 
-    let spender_sks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let spender_sks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
 
     let (mut conf, miner_account) = neon_integration_test_conf();
@@ -4860,7 +4860,7 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
         small_contract.push(' ');
     }
 
-    let spender_sks: Vec<_> = (0..20).map(|_| StacksPrivateKey::new()).collect();
+    let spender_sks: Vec<_> = (0..20).map(|_| StacksPrivateKey::random()).collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
 
     let (mut conf, miner_account) = neon_integration_test_conf();
@@ -5042,7 +5042,7 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
         small_contract.push(' ');
     }
 
-    let spender_sks: Vec<_> = (0..25).map(|_| StacksPrivateKey::new()).collect();
+    let spender_sks: Vec<_> = (0..25).map(|_| StacksPrivateKey::random()).collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
 
     let (mut conf, miner_account) = neon_integration_test_conf();
@@ -5198,7 +5198,7 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
         return;
     }
 
-    let spender_sks: Vec<_> = (0..4).map(|_| StacksPrivateKey::new()).collect();
+    let spender_sks: Vec<_> = (0..4).map(|_| StacksPrivateKey::random()).collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
     let spender_addrs_c32: Vec<StacksAddress> = spender_sks.iter().map(to_addr).collect();
 
@@ -5626,7 +5626,7 @@ fn cost_voting_integration() {
         (ok proposal-id)))
     ";
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr = to_addr(&spender_sk);
     let spender_princ: PrincipalData = spender_addr.into();
 
@@ -6221,11 +6221,11 @@ fn block_limit_hit_integration_test() {
             .join(" "),
     );
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let addr = to_addr(&spender_sk);
-    let second_spender_sk = StacksPrivateKey::new();
+    let second_spender_sk = StacksPrivateKey::random();
     let second_spender_addr: PrincipalData = to_addr(&second_spender_sk).into();
-    let third_spender_sk = StacksPrivateKey::new();
+    let third_spender_sk = StacksPrivateKey::random();
     let third_spender_addr: PrincipalData = to_addr(&third_spender_sk).into();
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
@@ -6432,11 +6432,11 @@ fn microblock_limit_hit_integration_test() {
             .join(" "),
     );
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let addr = to_addr(&spender_sk);
-    let second_spender_sk = StacksPrivateKey::new();
+    let second_spender_sk = StacksPrivateKey::random();
     let second_spender_addr: PrincipalData = to_addr(&second_spender_sk).into();
-    let third_spender_sk = StacksPrivateKey::new();
+    let third_spender_sk = StacksPrivateKey::random();
     let third_spender_addr: PrincipalData = to_addr(&third_spender_sk).into();
 
     let (mut conf, _) = neon_integration_test_conf();
@@ -6675,7 +6675,7 @@ fn block_large_tx_integration_test() {
             .join(" ")
     );
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr = to_addr(&spender_sk);
 
     let (mut conf, miner_account) = neon_integration_test_conf();
@@ -6807,7 +6807,7 @@ fn microblock_large_tx_integration_test_FLAKY() {
             .join(" ")
     );
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let addr = to_addr(&spender_sk);
 
     let (mut conf, miner_account) = neon_integration_test_conf();
@@ -6924,13 +6924,13 @@ fn pox_integration_test() {
         return;
     }
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
-    let spender_2_sk = StacksPrivateKey::new();
+    let spender_2_sk = StacksPrivateKey::random();
     let spender_2_addr: PrincipalData = to_addr(&spender_2_sk).into();
 
-    let spender_3_sk = StacksPrivateKey::new();
+    let spender_3_sk = StacksPrivateKey::random();
     let spender_3_addr: PrincipalData = to_addr(&spender_3_sk).into();
 
     let pox_pubkey = Secp256k1PublicKey::from_hex(
@@ -6939,7 +6939,7 @@ fn pox_integration_test() {
     .unwrap();
     let pox_pubkey_hash = bytes_to_hex(&Hash160::from_node_public_key(&pox_pubkey).to_bytes());
 
-    let pox_2_pubkey = Secp256k1PublicKey::from_private(&StacksPrivateKey::new());
+    let pox_2_pubkey = Secp256k1PublicKey::from_private(&StacksPrivateKey::random());
     let pox_2_pubkey_hash = bytes_to_hex(&Hash160::from_node_public_key(&pox_2_pubkey).to_bytes());
 
     let pox_2_address = BitcoinAddress::from_bytes_legacy(
@@ -7449,7 +7449,7 @@ fn atlas_integration_test() {
         return;
     }
 
-    let user_1 = StacksPrivateKey::new();
+    let user_1 = StacksPrivateKey::random();
     let initial_balance_user_1 = InitialBalance {
         address: to_addr(&user_1).into(),
         amount: 1_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS),
@@ -7865,7 +7865,7 @@ fn atlas_integration_test() {
     // executing the transactions, once mined.
     let namespace = "passport";
     for i in 1..10 {
-        let user = StacksPrivateKey::new();
+        let user = StacksPrivateKey::random();
         let zonefile_hex = format!("facade0{i}");
         let hashed_zonefile = Hash160::from_data(&hex_bytes(&zonefile_hex).unwrap());
         let name = format!("johndoe{i}");
@@ -7968,7 +7968,7 @@ fn antientropy_integration_test() {
         return;
     }
 
-    let user_1 = StacksPrivateKey::new();
+    let user_1 = StacksPrivateKey::random();
     let initial_balance_user_1 = InitialBalance {
         address: to_addr(&user_1).into(),
         amount: 1_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS),
@@ -8248,7 +8248,7 @@ fn atlas_stress_integration_test() {
     let batch_size = 20;
 
     for _i in 0..(2 * batches * batch_size + 1) {
-        let user = StacksPrivateKey::new();
+        let user = StacksPrivateKey::random();
         let initial_balance_user = InitialBalance {
             address: to_addr(&user).into(),
             amount: 1_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS),
@@ -8983,7 +8983,7 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
       (ok (var-get counter))))
     "#;
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr = to_addr(&spender_sk);
 
     let (mut conf, _) = neon_integration_test_conf();
@@ -11511,7 +11511,7 @@ fn test_competing_miners_build_on_same_chain(
         return;
     }
 
-    let privks: Vec<_> = (0..100).map(|_| StacksPrivateKey::new()).collect();
+    let privks: Vec<_> = (0..100).map(|_| StacksPrivateKey::random()).collect();
     let balances: Vec<_> = privks
         .iter()
         .map(|privk| {
@@ -11528,7 +11528,7 @@ fn test_competing_miners_build_on_same_chain(
     let mut blocks_processed = vec![];
 
     for _i in 0..num_miners {
-        let seed = StacksPrivateKey::new().to_bytes();
+        let seed = StacksPrivateKey::random().to_bytes();
         let (mut conf, _) = neon_integration_test_conf_with_seed(seed);
 
         conf.initial_balances.append(&mut balances.clone());
@@ -11767,7 +11767,7 @@ fn microblock_miner_multiple_attempts() {
     conf.burnchain.max_rbf = 1000000;
     conf.node.wait_time_for_blocks = 1_000;
 
-    let privks: Vec<_> = (0..100).map(|_| StacksPrivateKey::new()).collect();
+    let privks: Vec<_> = (0..100).map(|_| StacksPrivateKey::random()).collect();
     let balances: Vec<_> = privks
         .iter()
         .map(|privk| {
@@ -11849,7 +11849,7 @@ fn min_txs() {
         return;
     }
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr = to_addr(&spender_sk);
     let spender_princ: PrincipalData = spender_addr.into();
 
@@ -11952,7 +11952,7 @@ fn filter_txs_by_type() {
         return;
     }
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr = to_addr(&spender_sk);
     let spender_princ: PrincipalData = spender_addr.into();
 
@@ -12065,7 +12065,7 @@ fn filter_txs_by_origin() {
         return;
     }
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr = to_addr(&spender_sk);
     let spender_princ: PrincipalData = spender_addr.into();
 

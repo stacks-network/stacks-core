@@ -1531,9 +1531,8 @@ impl From<StandardPrincipalData> for StacksAddress {
     fn from(o: StandardPrincipalData) -> StacksAddress {
         // should be infallible because it's impossible to construct a StandardPrincipalData with
         // an unsupported version byte
-        StacksAddress::new(o.version(), hash::Hash160(o.1)).unwrap_or_else(|_| {
-            panic!("FATAL: could not convert a StandardPrincipalData to StacksAddress")
-        })
+        StacksAddress::new(o.version(), hash::Hash160(o.1))
+            .expect("FATAL: could not convert a StandardPrincipalData to StacksAddress")
     }
 }
 

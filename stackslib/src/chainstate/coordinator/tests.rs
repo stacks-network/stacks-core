@@ -369,7 +369,7 @@ pub fn setup_states_with_epochs(
     );
 
     let block_limit = ExecutionCost::max_value();
-    let initial_balances = initial_balances.unwrap_or(vec![]);
+    let initial_balances = initial_balances.unwrap_or_default();
     for path in paths.iter() {
         let burnchain = get_burnchain(path, pox_consts.clone());
 
@@ -1013,10 +1013,10 @@ fn missed_block_commits_2_05() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::random()).collect();
 
-    let stacker = p2pkh_from(&StacksPrivateKey::new());
-    let rewards = pox_addr_from(&StacksPrivateKey::new());
+    let stacker = p2pkh_from(&StacksPrivateKey::random());
+    let rewards = pox_addr_from(&StacksPrivateKey::random());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![(stacker.clone().into(), balance)];
@@ -1333,10 +1333,10 @@ fn missed_block_commits_2_1() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::random()).collect();
 
-    let stacker = p2pkh_from(&StacksPrivateKey::new());
-    let rewards = pox_addr_from(&StacksPrivateKey::new());
+    let stacker = p2pkh_from(&StacksPrivateKey::random());
+    let rewards = pox_addr_from(&StacksPrivateKey::random());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![(stacker.clone().into(), balance)];
@@ -1677,10 +1677,10 @@ fn late_block_commits_2_1() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::random()).collect();
 
-    let stacker = p2pkh_from(&StacksPrivateKey::new());
-    let rewards = pox_addr_from(&StacksPrivateKey::new());
+    let stacker = p2pkh_from(&StacksPrivateKey::random());
+    let rewards = pox_addr_from(&StacksPrivateKey::random());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![(stacker.clone().into(), balance)];
@@ -2005,7 +2005,7 @@ fn test_simple_setup() {
     let _r = std::fs::remove_dir_all(path_blinded);
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::random()).collect();
 
     setup_states(
         &[path, path_blinded],
@@ -2216,11 +2216,11 @@ fn test_sortition_with_reward_set() {
     let _r = std::fs::remove_dir_all(path);
 
     let mut vrf_keys: Vec<_> = (0..150).map(|_| VRFPrivateKey::new()).collect();
-    let mut committers: Vec<_> = (0..150).map(|_| StacksPrivateKey::new()).collect();
+    let mut committers: Vec<_> = (0..150).map(|_| StacksPrivateKey::random()).collect();
 
     let reward_set_size = 4;
     let reward_set: Vec<_> = (0..reward_set_size)
-        .map(|_| pox_addr_from(&StacksPrivateKey::new()))
+        .map(|_| pox_addr_from(&StacksPrivateKey::random()))
         .collect();
 
     setup_states(
@@ -2389,7 +2389,7 @@ fn test_sortition_with_reward_set() {
                 vec![(pox_addr_from(miner_wrong_out), 0)]
             } else {
                 (0..OUTPUTS_PER_COMMIT)
-                    .map(|ix| (pox_addr_from(&StacksPrivateKey::new()), ix as u16))
+                    .map(|ix| (pox_addr_from(&StacksPrivateKey::random()), ix as u16))
                     .collect()
             };
             let bad_block_recipients = Some(RewardSetInfo {
@@ -2482,13 +2482,13 @@ fn test_sortition_with_burner_reward_set() {
     let _r = std::fs::remove_dir_all(path);
 
     let mut vrf_keys: Vec<_> = (0..150).map(|_| VRFPrivateKey::new()).collect();
-    let mut committers: Vec<_> = (0..150).map(|_| StacksPrivateKey::new()).collect();
+    let mut committers: Vec<_> = (0..150).map(|_| StacksPrivateKey::random()).collect();
 
     let reward_set_size = 3;
     let mut reward_set: Vec<_> = (0..reward_set_size - 1)
         .map(|_| PoxAddress::standard_burn_address(false))
         .collect();
-    reward_set.push(pox_addr_from(&StacksPrivateKey::new()));
+    reward_set.push(pox_addr_from(&StacksPrivateKey::random()));
 
     setup_states(
         &[path],
@@ -2630,7 +2630,7 @@ fn test_sortition_with_burner_reward_set() {
                 vec![(pox_addr_from(miner_wrong_out), 0)]
             } else {
                 (0..OUTPUTS_PER_COMMIT)
-                    .map(|ix| (pox_addr_from(&StacksPrivateKey::new()), ix as u16))
+                    .map(|ix| (pox_addr_from(&StacksPrivateKey::random()), ix as u16))
                     .collect()
             };
             let bad_block_recipients = Some(RewardSetInfo {
@@ -2741,10 +2741,10 @@ fn test_pox_btc_ops() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::random()).collect();
 
-    let stacker = p2pkh_from(&StacksPrivateKey::new());
-    let rewards = pox_addr_from(&StacksPrivateKey::new());
+    let stacker = p2pkh_from(&StacksPrivateKey::random());
+    let rewards = pox_addr_from(&StacksPrivateKey::random());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![(stacker.clone().into(), balance)];
@@ -3028,10 +3028,10 @@ fn test_stx_transfer_btc_ops() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::random()).collect();
 
-    let stacker = p2pkh_from(&StacksPrivateKey::new());
-    let recipient = p2pkh_from(&StacksPrivateKey::new());
+    let stacker = p2pkh_from(&StacksPrivateKey::random());
+    let recipient = p2pkh_from(&StacksPrivateKey::random());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let transfer_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![(stacker.clone().into(), balance)];
@@ -3454,11 +3454,11 @@ fn test_delegate_stx_btc_ops() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::random()).collect();
 
-    let first_del = p2pkh_from(&StacksPrivateKey::new());
-    let second_del = p2pkh_from(&StacksPrivateKey::new());
-    let delegator_addr = p2pkh_from(&StacksPrivateKey::new());
+    let first_del = p2pkh_from(&StacksPrivateKey::random());
+    let second_del = p2pkh_from(&StacksPrivateKey::random());
+    let delegator_addr = p2pkh_from(&StacksPrivateKey::random());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let delegated_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![
@@ -3761,10 +3761,10 @@ fn test_initial_coinbase_reward_distributions() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::random()).collect();
 
-    let stacker = p2pkh_from(&StacksPrivateKey::new());
-    let rewards = p2pkh_from(&StacksPrivateKey::new());
+    let stacker = p2pkh_from(&StacksPrivateKey::random());
+    let rewards = p2pkh_from(&StacksPrivateKey::random());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![(stacker.clone().into(), balance)];
@@ -4002,7 +4002,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..10).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
 
     setup_states(
         &[path],
@@ -4205,7 +4205,7 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..15).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..15).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..15).map(|_| StacksPrivateKey::random()).collect();
 
     setup_states(
         &[path],
@@ -4411,7 +4411,7 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..25).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..25).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..25).map(|_| StacksPrivateKey::random()).collect();
 
     setup_states(
         &[path],
@@ -4633,9 +4633,9 @@ fn atlas_stop_start() {
     let atlas_name: clarity::vm::ContractName = "atlas-test".into();
 
     let vrf_keys: Vec<_> = (0..15).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..15).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..15).map(|_| StacksPrivateKey::random()).collect();
 
-    let signer_sk = StacksPrivateKey::new();
+    let signer_sk = StacksPrivateKey::random();
     let signer_pk = p2pkh_from(&signer_sk);
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
@@ -4928,11 +4928,11 @@ fn test_epoch_verify_active_pox_contract() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..20).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..20).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..20).map(|_| StacksPrivateKey::random()).collect();
 
-    let stacker = p2pkh_from(&StacksPrivateKey::new());
-    let stacker_2 = p2pkh_from(&StacksPrivateKey::new());
-    let rewards = pox_addr_from(&StacksPrivateKey::new());
+    let stacker = p2pkh_from(&StacksPrivateKey::random());
+    let stacker_2 = p2pkh_from(&StacksPrivateKey::random());
+    let rewards = pox_addr_from(&StacksPrivateKey::random());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![
@@ -5230,12 +5230,12 @@ fn test_sortition_with_sunset() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let mut vrf_keys: Vec<_> = (0..200).map(|_| VRFPrivateKey::new()).collect();
-    let mut committers: Vec<_> = (0..200).map(|_| StacksPrivateKey::new()).collect();
+    let mut committers: Vec<_> = (0..200).map(|_| StacksPrivateKey::random()).collect();
 
     let reward_set_size = pox_consts.as_ref().unwrap().reward_slots() as usize;
     assert_eq!(reward_set_size, 6);
     let reward_set: Vec<_> = (0..reward_set_size)
-        .map(|_| pox_addr_from(&StacksPrivateKey::new()))
+        .map(|_| pox_addr_from(&StacksPrivateKey::random()))
         .collect();
 
     setup_states(
@@ -5537,12 +5537,12 @@ fn test_sortition_with_sunset_and_epoch_switch() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let mut vrf_keys: Vec<_> = (0..200).map(|_| VRFPrivateKey::new()).collect();
-    let mut committers: Vec<_> = (0..200).map(|_| StacksPrivateKey::new()).collect();
+    let mut committers: Vec<_> = (0..200).map(|_| StacksPrivateKey::random()).collect();
 
     let reward_set_size = pox_consts.as_ref().unwrap().reward_slots() as usize;
     assert_eq!(reward_set_size, 6);
     let reward_set: Vec<_> = (0..reward_set_size)
-        .map(|_| pox_addr_from(&StacksPrivateKey::new()))
+        .map(|_| pox_addr_from(&StacksPrivateKey::random()))
         .collect();
 
     setup_states_with_epochs(
@@ -5883,7 +5883,7 @@ fn test_pox_processable_block_in_different_pox_forks() {
     let b_blind = get_burnchain(path_blinded, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..20).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..20).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..20).map(|_| StacksPrivateKey::random()).collect();
 
     setup_states_with_epochs(
         &[path, path_blinded],
@@ -6173,7 +6173,7 @@ fn test_pox_no_anchor_selected() {
     let _r = std::fs::remove_dir_all(path_blinded);
 
     let vrf_keys: Vec<_> = (0..10).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
 
     setup_states(
         &[path, path_blinded],
@@ -6388,7 +6388,7 @@ fn test_pox_fork_out_of_order() {
     let _r = std::fs::remove_dir_all(path_blinded);
 
     let vrf_keys: Vec<_> = (0..15).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..15).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..15).map(|_| StacksPrivateKey::random()).collect();
 
     setup_states(
         &[path, path_blinded],
