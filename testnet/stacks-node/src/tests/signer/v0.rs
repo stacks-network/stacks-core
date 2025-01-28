@@ -6535,19 +6535,22 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
 /// Mine 2 empty burn blocks (simulate fast blocks scenario)
 /// Miner 2 proposes block N+1 with a TenureChangePayload
 /// Signers accept and the stacks tip advances to N+1
-/// Miner 2 proposes block N+2 with a TokenTransfer
+/// Miner 2 proposes block N+2 with a TenureExtend
 /// Signers accept and the stacks tip advances to N+2
+/// Miner 2 proposes block N+3 with a TokenTransfer
+/// Signers accept and the stacks tip advances to N+3
 /// Mine an empty burn block
-/// Miner 2 proposes block N+3 with a TenureExtend
-/// Signers accept and the chain advances to N+3
-/// Miner 1 wins the next tenure and proposes a block N+4 with a TenureChangePayload
+/// Miner 2 proposes block N+4 with a TenureExtend
 /// Signers accept and the chain advances to N+4
+/// Miner 1 wins the next tenure and proposes a block N+5 with a TenureChangePayload
+/// Signers accept and the chain advances to N+5
 /// Asserts:
 /// - Block N+1 contains the TenureChangePayload
-/// - Block N+2 contains the TokenTransfer
-/// - Block N+3 contains the TenureExtend
-/// - Block N+4 contains the TenureChangePayload
-/// - The stacks tip advances to N+4
+/// - Block N+2 contains the TenureExtend
+/// - Block N+3 contains the TokenTransfer
+/// - Block N+4 contains the TenureExtend
+/// - Block N+5 contains the TenureChangePayload
+/// - The stacks tip advances to N+5
 #[test]
 #[ignore]
 fn continue_after_fast_block_no_sortition() {
@@ -6908,7 +6911,7 @@ fn continue_after_fast_block_no_sortition() {
     // Allow signers to respond to proposals again
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(Vec::new());
 
-    info!("------------------------- Wait for Miner B's Block N -------------------------";
+    info!("------------------------- Wait for Miner B's Block N+1 -------------------------";
         "blocks_processed_before_2" => %blocks_processed_before_2,
         "stacks_height_before" => %stacks_height_before,
         "nmb_old_blocks" => %nmb_old_blocks);
@@ -6923,7 +6926,7 @@ fn continue_after_fast_block_no_sortition() {
 
         let blocks_mined1_val = blocks_mined1.load(Ordering::SeqCst);
         let blocks_mined2_val = blocks_mined2.load(Ordering::SeqCst);
-        info!("Waiting for Miner B's Block N";
+        info!("Waiting for Miner B's Block N+1";
             "blocks_mined1_val" => %blocks_mined1_val,
             "blocks_mined2_val" => %blocks_mined2_val,
             "stacks_height" => %stacks_height,
@@ -6938,11 +6941,40 @@ fn continue_after_fast_block_no_sortition() {
     .expect("Timed out waiting for block to be mined and processed");
 
     info!(
-        "------------------------- Verify Tenure Change Tx in Miner B's Block N -------------------------"
+        "------------------------- Verify Tenure Change Tx in Miner B's Block N+1 -------------------------"
     );
     verify_last_block_contains_tenure_change_tx(TenureChangeCause::BlockFound);
 
-    info!("------------------------- Wait for Miner B's Block N+1 -------------------------");
+    info!("------------------------- Wait for Miner B's Block N+2 -------------------------");
+
+    let nmb_old_blocks = test_observer::get_blocks().len();
+    let blocks_processed_before_2 = blocks_mined2.load(Ordering::SeqCst);
+    let stacks_height_before = signer_test
+        .stacks_client
+        .get_peer_info()
+        .expect("Failed to get peer info")
+        .stacks_tip_height;
+
+    // wait for the transfer block to be processed
+    wait_for(30, || {
+        let stacks_height = signer_test
+            .stacks_client
+            .get_peer_info()
+            .expect("Failed to get peer info")
+            .stacks_tip_height;
+        Ok(
+            blocks_mined2.load(Ordering::SeqCst) > blocks_processed_before_2
+                && stacks_height > stacks_height_before
+                && test_observer::get_blocks().len() > nmb_old_blocks,
+        )
+    })
+    .expect("Timed out waiting for block to be mined and processed");
+
+    info!("------------------------- Verify Miner B's Block N+2 -------------------------");
+
+    verify_last_block_contains_tenure_change_tx(TenureChangeCause::Extended);
+
+    info!("------------------------- Wait for Miner B's Block N+3 -------------------------");
 
     let nmb_old_blocks = test_observer::get_blocks().len();
     let blocks_processed_before_2 = blocks_mined2.load(Ordering::SeqCst);
@@ -6963,7 +6995,7 @@ fn continue_after_fast_block_no_sortition() {
     );
     submit_tx(&http_origin, &transfer_tx);
 
-    // wait for the tenure-extend block to be processed
+    // wait for the transfer block to be processed
     wait_for(30, || {
         let stacks_height = signer_test
             .stacks_client
@@ -6978,41 +7010,7 @@ fn continue_after_fast_block_no_sortition() {
     })
     .expect("Timed out waiting for block to be mined and processed");
 
-    verify_last_block_contains_tenure_change_tx(TenureChangeCause::Extended);
-
-    let nmb_old_blocks = test_observer::get_blocks().len();
-    let blocks_processed_before_2 = blocks_mined2.load(Ordering::SeqCst);
-    let stacks_height_before = signer_test
-        .stacks_client
-        .get_peer_info()
-        .expect("Failed to get peer info")
-        .stacks_tip_height;
-
-    // wait for the new block with the STX transfer to be processed
-    wait_for(30, || {
-        let stacks_height = signer_test
-            .stacks_client
-            .get_peer_info()
-            .expect("Failed to get peer info")
-            .stacks_tip_height;
-
-        let blocks_mined1_val = blocks_mined1.load(Ordering::SeqCst);
-        let blocks_mined2_val = blocks_mined2.load(Ordering::SeqCst);
-        info!("Waiting for Miner B's Block N";
-            "blocks_mined1_val" => %blocks_mined1_val,
-            "blocks_mined2_val" => %blocks_mined2_val,
-            "stacks_height" => %stacks_height,
-            "observed_blocks" => %test_observer::get_blocks().len());
-
-        Ok(
-            blocks_mined2.load(Ordering::SeqCst) > blocks_processed_before_2
-                && stacks_height > stacks_height_before
-                && test_observer::get_blocks().len() > nmb_old_blocks,
-        )
-    })
-    .expect("Timed out waiting for block to be mined and processed");
-
-    info!("------------------------- Verify Miner B's Block N+1 -------------------------");
+    info!("------------------------- Verify Miner B's Block N+3 -------------------------");
 
     verify_last_block_contains_transfer_tx();
 
@@ -7029,7 +7027,7 @@ fn continue_after_fast_block_no_sortition() {
     .unwrap();
     btc_blocks_mined += 1;
 
-    info!("------------------------- Verify Miner B's Issues a Tenure Change Extend in Block N+2 -------------------------");
+    info!("------------------------- Verify Miner B's Issues a Tenure Change Extend in Block N+4 -------------------------");
     verify_last_block_contains_tenure_change_tx(TenureChangeCause::Extended);
 
     info!("------------------------- Unpause Miner A's Block Commits -------------------------");
@@ -7064,7 +7062,7 @@ fn continue_after_fast_block_no_sortition() {
     assert!(tip.sortition);
     assert_eq!(tip.miner_pk_hash.unwrap(), mining_pkh_1);
 
-    info!("------------------------- Verify Miner A's Issued a Tenure Change in Block N+4 -------------------------");
+    info!("------------------------- Verify Miner A's Issued a Tenure Change in Block N+5 -------------------------");
     verify_last_block_contains_tenure_change_tx(TenureChangeCause::BlockFound);
 
     info!(
