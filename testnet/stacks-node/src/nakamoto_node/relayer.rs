@@ -694,6 +694,9 @@ impl RelayerThread {
     /// this sortition matches the sortition tip and we have a parent to build atop.
     ///
     /// Otherwise, returns None, meaning no action will be taken.
+    // This method is covered by the e2e bitcoind tests, which do not show up
+    //  in mutant coverage.
+    #[cfg_attr(test, mutants::skip)]
     fn process_sortition(
         &mut self,
         consensus_hash: ConsensusHash,
