@@ -826,7 +826,7 @@ fn reloads_signer_set_in() {
         .init();
 
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -942,7 +942,7 @@ fn forked_tenure_testing(
         .init();
 
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -1280,7 +1280,7 @@ fn bitcoind_forking_test() {
     }
 
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -1512,7 +1512,7 @@ fn multiple_miners() {
     }
 
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -1785,7 +1785,7 @@ fn miner_forking() {
     }
 
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -2249,7 +2249,7 @@ fn end_of_tenure() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -2397,7 +2397,7 @@ fn retry_on_rejection() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -2529,7 +2529,7 @@ fn signers_broadcast_signed_blocks() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -2624,7 +2624,7 @@ fn tenure_extend_after_idle_signers() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -2676,7 +2676,7 @@ fn tenure_extend_after_idle_miner() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -2752,7 +2752,7 @@ fn tenure_extend_succeeds_after_rejected_attempt() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -2842,7 +2842,7 @@ fn stx_transfers_dont_effect_idle_timeout() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -2965,9 +2965,9 @@ fn idle_tenure_extend_active_mining() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
-    let deployer_sk = Secp256k1PrivateKey::new();
+    let deployer_sk = Secp256k1PrivateKey::random();
     let deployer_addr = tests::to_addr(&deployer_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -3225,7 +3225,7 @@ fn empty_sortition() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -3333,7 +3333,7 @@ fn empty_sortition() {
     let reward_cycle = signer_test.get_current_reward_cycle();
     let mut stackerdb = StackerDB::new(
         &signer_test.running_nodes.conf.node.rpc_bind,
-        StacksPrivateKey::new(), // We are just reading so don't care what the key is
+        StacksPrivateKey::random(), // We are just reading so don't care what the key is
         false,
         reward_cycle,
         SignerSlotID(0), // We are just reading so again, don't care about index.
@@ -3409,7 +3409,7 @@ fn empty_sortition_before_approval() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -3564,7 +3564,7 @@ fn empty_sortition_before_proposal() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -3716,7 +3716,7 @@ fn mock_sign_epoch_25() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -3840,7 +3840,7 @@ fn multiple_miners_mock_sign_epoch_25() {
     }
 
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -4047,14 +4047,14 @@ fn signer_set_rollover() {
     let new_num_signers = 4;
 
     let new_signer_private_keys: Vec<_> = (0..new_num_signers)
-        .map(|_| StacksPrivateKey::new())
+        .map(|_| StacksPrivateKey::random())
         .collect();
     let new_signer_public_keys: Vec<_> = new_signer_private_keys
         .iter()
         .map(|sk| Secp256k1PublicKey::from_private(sk).to_bytes_compressed())
         .collect();
     let new_signer_addresses: Vec<_> = new_signer_private_keys.iter().map(tests::to_addr).collect();
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -4343,7 +4343,7 @@ fn min_gap_between_blocks() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -4464,7 +4464,7 @@ fn duplicate_signers() {
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
     let mut signer_stacks_private_keys = (0..num_signers)
-        .map(|_| StacksPrivateKey::new())
+        .map(|_| StacksPrivateKey::random())
         .collect::<Vec<_>>();
 
     // First two signers have same private key
@@ -4559,7 +4559,7 @@ fn multiple_miners_with_nakamoto_blocks() {
     let inter_blocks_per_tenure = 5;
 
     // setup sender + recipient for a test stx transfer
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 1000;
     let send_fee = 180;
@@ -4827,7 +4827,7 @@ fn partial_tenure_fork() {
     let inter_blocks_per_tenure = 5;
 
     // setup sender + recipient for a test stx transfer
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 1000;
     let send_fee = 180;
@@ -5307,7 +5307,7 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -5488,7 +5488,7 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -5706,7 +5706,7 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -5926,7 +5926,7 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -6142,7 +6142,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -6461,7 +6461,7 @@ fn continue_after_fast_block_no_sortition() {
 
     let num_signers = 5;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -7007,7 +7007,7 @@ fn continue_after_tenure_extend() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let send_amt = 100;
@@ -7239,7 +7239,7 @@ fn multiple_miners_with_custom_chain_id() {
     let inter_blocks_per_tenure = 5;
 
     // setup sender + recipient for a test stx transfer
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 1000;
     let send_fee = 180;
@@ -7640,7 +7640,7 @@ fn block_validation_response_timeout() {
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
     let timeout = Duration::from_secs(30);
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -7816,7 +7816,7 @@ fn block_validation_pending_table() {
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
     let timeout = Duration::from_secs(30);
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -7977,7 +7977,7 @@ fn new_tenure_while_validating_previous_scenario() {
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
     let timeout = Duration::from_secs(30);
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -8144,7 +8144,7 @@ fn tenure_extend_after_failed_miner() {
 
     let num_signers = 5;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -8506,7 +8506,7 @@ fn tenure_extend_after_bad_commit() {
 
     let num_signers = 5;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -8988,7 +8988,7 @@ fn tenure_extend_after_2_bad_commits() {
 
     let num_signers = 5;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -9679,7 +9679,7 @@ fn global_acceptance_depends_on_block_announcement() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -9934,7 +9934,7 @@ fn no_reorg_due_to_successive_block_validation_ok() {
 
     let num_signers = 5;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -10467,7 +10467,7 @@ fn incoming_signers_ignore_block_proposals() {
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -10529,7 +10529,7 @@ fn incoming_signers_ignore_block_proposals() {
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let mut stackerdb = StackerDB::new(
         &signer_test.running_nodes.conf.node.rpc_bind,
-        StacksPrivateKey::new(), // We are just reading so don't care what the key is
+        StacksPrivateKey::random(), // We are just reading so don't care what the key is
         false,
         next_reward_cycle,
         SignerSlotID(0), // We are just reading so again, don't care about index.
@@ -10640,7 +10640,7 @@ fn outgoing_signers_ignore_block_proposals() {
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -10705,7 +10705,7 @@ fn outgoing_signers_ignore_block_proposals() {
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let mut stackerdb = StackerDB::new(
         &signer_test.running_nodes.conf.node.rpc_bind,
-        StacksPrivateKey::new(), // We are just reading so don't care what the key is
+        StacksPrivateKey::random(), // We are just reading so don't care what the key is
         false,
         old_reward_cycle,
         SignerSlotID(0), // We are just reading so again, don't care about index.
@@ -10813,8 +10813,10 @@ fn injected_signatures_are_ignored_across_boundaries() {
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 4;
     let new_num_signers = 5_usize;
-    let signer_private_keys: Vec<_> = (0..num_signers).map(|_| StacksPrivateKey::new()).collect();
-    let new_signer_private_key = StacksPrivateKey::new();
+    let signer_private_keys: Vec<_> = (0..num_signers)
+        .map(|_| StacksPrivateKey::random())
+        .collect();
+    let new_signer_private_key = StacksPrivateKey::random();
     let mut new_signer_private_keys = signer_private_keys.clone();
     new_signer_private_keys.push(new_signer_private_key);
 
@@ -10823,7 +10825,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
         .map(|sk| Secp256k1PublicKey::from_private(sk).to_bytes_compressed())
         .collect();
     let new_signer_addresses: Vec<_> = new_signer_private_keys.iter().map(tests::to_addr).collect();
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -11217,7 +11219,7 @@ fn reorg_attempts_count_towards_miner_validity() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
@@ -11568,7 +11570,7 @@ fn fast_sortition() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
 
     let mut sender_nonce = 0;
@@ -11651,7 +11653,7 @@ fn multiple_miners_empty_sortition() {
         return;
     }
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_fee = 180;
 
@@ -11925,7 +11927,7 @@ fn single_miner_empty_sortition() {
         return;
     }
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_fee = 180;
 
@@ -12210,7 +12212,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
 
     let num_signers = 5;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let mut sender_nonce = 0;
     let send_amt = 100;

@@ -302,7 +302,7 @@ pub(crate) mod tests {
         pox_consensus_hash: Option<ConsensusHash>,
     ) -> (String, RPCPeerInfoData) {
         // Generate some random info
-        let private_key = StacksPrivateKey::new();
+        let private_key = StacksPrivateKey::random();
         let public_key = StacksPublicKey::from_private(&private_key);
         let public_key_buf = StacksPublicKeyBuffer::from_public_key(&public_key);
         let public_key_hash = Hash160::from_node_public_key(&public_key);
@@ -376,7 +376,7 @@ pub(crate) mod tests {
             let private_key = if signer_id == 0 {
                 config.stacks_private_key
             } else {
-                StacksPrivateKey::new()
+                StacksPrivateKey::random()
             };
             let public_key = StacksPublicKey::from_private(&private_key);
 

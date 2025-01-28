@@ -3724,7 +3724,7 @@ fn test_get_pox_addrs() {
     let mut all_reward_addrs = vec![];
 
     for tenure_id in 0..num_blocks {
-        let microblock_privkey = StacksPrivateKey::new();
+        let microblock_privkey = StacksPrivateKey::random();
         let microblock_pubkeyhash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
         let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
@@ -3997,7 +3997,7 @@ fn test_stack_with_segwit() {
     let mut all_reward_addrs = vec![];
 
     for tenure_id in 0..num_blocks {
-        let microblock_privkey = StacksPrivateKey::new();
+        let microblock_privkey = StacksPrivateKey::random();
         let microblock_pubkeyhash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
         let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())

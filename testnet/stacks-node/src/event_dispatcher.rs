@@ -18,6 +18,8 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
+#[cfg(test)]
+use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
@@ -330,7 +332,7 @@ impl RewardSetEventPayload {
 }
 
 #[cfg(test)]
-static TEST_EVENT_OBSERVER_SKIP_RETRY: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+static TEST_EVENT_OBSERVER_SKIP_RETRY: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
 impl EventObserver {
     fn init_db(db_path: &str) -> Result<Connection, db_error> {
@@ -440,11 +442,7 @@ impl EventObserver {
             Self::send_payload_directly(&payload, &url, timeout);
 
             #[cfg(test)]
-            if TEST_EVENT_OBSERVER_SKIP_RETRY
-                .lock()
-                .unwrap()
-                .unwrap_or(false)
-            {
+            if TEST_EVENT_OBSERVER_SKIP_RETRY.get() {
                 warn!("Fault injection: delete_payload");
                 return;
             }
@@ -509,11 +507,7 @@ impl EventObserver {
             }
 
             #[cfg(test)]
-            if TEST_EVENT_OBSERVER_SKIP_RETRY
-                .lock()
-                .unwrap()
-                .unwrap_or(false)
-            {
+            if TEST_EVENT_OBSERVER_SKIP_RETRY.get() {
                 warn!("Fault injection: skipping retry of payload");
                 return;
             }
@@ -1759,6 +1753,7 @@ mod test {
     use std::time::Instant;
 
     use clarity::vm::costs::ExecutionCost;
+    use serial_test::serial;
     use stacks::burnchains::{PoxConstants, Txid};
     use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
     use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksHeaderInfo};
@@ -2042,6 +2037,7 @@ mod test {
     }
 
     #[test]
+    #[serial]
     fn test_process_pending_payloads() {
         use mockito::Matcher;
 
@@ -2064,6 +2060,8 @@ mod test {
             .create();
 
         let url = &format!("{}/api", &server.url());
+
+        TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
         // Insert payload
         EventObserver::insert_payload(&conn, url, &payload, timeout)
@@ -2115,6 +2113,7 @@ mod test {
     }
 
     #[test]
+    #[serial]
     fn test_send_payload_with_db() {
         use mockito::Matcher;
 
@@ -2135,6 +2134,8 @@ mod test {
         let timeout = Duration::from_secs(5);
 
         let observer = EventObserver::new(Some(working_dir), endpoint, timeout);
+
+        TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
         // Call send_payload
         observer.send_payload(&payload, "/test");
@@ -2262,6 +2263,7 @@ mod test {
     }
 
     #[test]
+    #[serial]
     fn test_send_payload_timeout() {
         let port = get_random_port();
         let timeout = Duration::from_secs(3);
@@ -2324,6 +2326,7 @@ mod test {
     }
 
     #[test]
+    #[serial]
     fn test_send_payload_with_db_force_restart() {
         let port = get_random_port();
         let timeout = Duration::from_secs(3);
@@ -2391,7 +2394,7 @@ mod test {
 
         // Disable retrying so that it sends the payload only once
         // and that payload will be ignored by the test server.
-        TEST_EVENT_OBSERVER_SKIP_RETRY.lock().unwrap().replace(true);
+        TEST_EVENT_OBSERVER_SKIP_RETRY.set(true);
 
         info!("Sending payload 1");
 
@@ -2399,10 +2402,7 @@ mod test {
         observer.send_payload(&payload, "/test");
 
         // Re-enable retrying
-        TEST_EVENT_OBSERVER_SKIP_RETRY
-            .lock()
-            .unwrap()
-            .replace(false);
+        TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
         info!("Sending payload 2");
 
