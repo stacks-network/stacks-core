@@ -2258,7 +2258,13 @@ impl StacksBlockBuilder {
         // nakamoto miner tenure start heuristic:
         //  mine an empty block so you can start your tenure quickly!
         if let Some(tx) = initial_txs.first() {
-            if matches!(&tx.payload, TransactionPayload::TenureChange(_)) {
+            if matches!(
+                &tx.payload,
+                TransactionPayload::TenureChange(TenureChangePayload {
+                    cause: TenureChangeCause::BlockFound,
+                    ..
+                })
+            ) {
                 info!("Nakamoto miner heuristic: during tenure change blocks, produce a fast short block to begin tenure");
                 return Ok((false, tx_events));
             }
