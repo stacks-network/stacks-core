@@ -144,7 +144,7 @@ pub(crate) mod tests {
     use stacks_common::util::hash::{Hash160, Sha256Sum};
 
     use super::*;
-    use crate::config::{GlobalConfig, SignerConfig};
+    use crate::config::{GlobalConfig, SignerConfig, SignerConfigMode};
 
     pub struct MockServerClient {
         pub server: TcpListener,
@@ -393,8 +393,10 @@ pub(crate) mod tests {
         }
         SignerConfig {
             reward_cycle,
-            signer_id: 0,
-            signer_slot_id: SignerSlotID(rand::thread_rng().gen_range(0..num_signers)), // Give a random signer slot id between 0 and num_signers
+            signer_mode: SignerConfigMode::Normal {
+                signer_id: 0,
+                signer_slot_id: SignerSlotID(rand::thread_rng().gen_range(0..num_signers)), // Give a random signer slot id between 0 and num_signers
+            },
             signer_entries: SignerEntries {
                 signer_addr_to_id,
                 signer_id_to_pk,
