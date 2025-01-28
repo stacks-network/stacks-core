@@ -551,10 +551,7 @@ impl TransactionResult {
 
     /// Returns true iff this enum is backed by `TransactionSuccess`.
     pub fn is_ok(&self) -> bool {
-        match &self {
-            TransactionResult::Success(_) => true,
-            _ => false,
-        }
+        matches!(self, TransactionResult::Success(_))
     }
 
     /// Returns a TransactionSuccess result as a pair of 1) fee and 2) receipt.
@@ -568,10 +565,7 @@ impl TransactionResult {
 
     /// Returns true iff this enum is backed by `Error`.
     pub fn is_err(&self) -> bool {
-        match &self {
-            TransactionResult::ProcessingError(_) => true,
-            _ => false,
-        }
+        matches!(self, TransactionResult::ProcessingError(_))
     }
 
     /// Returns an Error result as an Error.

@@ -150,10 +150,10 @@ impl BurnchainParameters {
     }
 
     pub fn is_testnet(network_id: u32) -> bool {
-        match network_id {
-            BITCOIN_NETWORK_ID_TESTNET | BITCOIN_NETWORK_ID_REGTEST => true,
-            _ => false,
-        }
+        matches!(
+            network_id,
+            BITCOIN_NETWORK_ID_TESTNET | BITCOIN_NETWORK_ID_REGTEST
+        )
     }
 }
 

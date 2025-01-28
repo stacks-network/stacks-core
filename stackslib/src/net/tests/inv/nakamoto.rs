@@ -126,16 +126,12 @@ pub fn peer_get_nakamoto_invs<'a>(
             loop {
                 // read back the message
                 let msg: StacksMessage = read_next(&mut tcp_socket).unwrap();
-                let is_inv_reply = if let StacksMessageType::NakamotoInv(..) = &msg.payload {
-                    true
-                } else {
-                    false
-                };
-                if is_inv_reply {
+
+                if matches!(&msg.payload, StacksMessageType::NakamotoInv(..)) {
                     replies.push(msg.payload);
                     break;
                 } else {
-                    debug!("Got spurious meessage {:?}", &msg);
+                    debug!("Got spurious meessage {msg:?}");
                 }
             }
         }
