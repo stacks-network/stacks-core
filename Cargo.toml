@@ -15,8 +15,8 @@ members = [
 # Dependencies we want to keep the same between workspace members
 [workspace.dependencies]
 ed25519-dalek = { version = "2.1.1", features = ["serde", "rand_core"] }
-hashbrown = { version = "0.14.3", features = ["serde"] }
-rand_core = "0.6"
+hashbrown = { version = "0.15.2", features = ["serde"] }
+rand_core = "0.6.4"
 rand = "0.8"
 rand_chacha = "0.3.1"
 tikv-jemallocator = "0.5.4"
