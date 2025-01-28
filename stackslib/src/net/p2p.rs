@@ -1145,13 +1145,10 @@ impl PeerNetwork {
     ) -> u64 {
         let mut ret = 0;
         for (_, socket) in sockets.iter() {
-            match socket.peer_addr() {
-                Ok(addr) => {
-                    if addr.ip() == ipaddr.ip() {
-                        ret += 1;
-                    }
+            if let Ok(addr) = socket.peer_addr() {
+                if addr.ip() == ipaddr.ip() {
+                    ret += 1;
                 }
-                Err(_) => {}
             };
         }
         ret
@@ -1378,12 +1375,9 @@ impl PeerNetwork {
             NetworkRequest::Ban(neighbor_keys) => {
                 for neighbor_key in neighbor_keys.iter() {
                     info!("Request to ban {:?}", neighbor_key);
-                    match self.events.get(neighbor_key) {
-                        Some(event_id) => {
-                            debug!("Will ban {:?} (event {})", neighbor_key, event_id);
-                            self.bans.insert(*event_id);
-                        }
-                        None => {}
+                    if let Some(event_id) = self.events.get(neighbor_key) {
+                        debug!("Will ban {:?} (event {})", neighbor_key, event_id);
+                        self.bans.insert(*event_id);
                     }
                 }
                 Ok(())
@@ -1466,28 +1460,25 @@ impl PeerNetwork {
 
         // receive all in-bound requests
         for i in 0..self.handles.len() {
-            match self.handles.get(i) {
-                Some(handle) => {
-                    loop {
-                        // drain all inbound requests
-                        let inbound_request_res = handle.chan_in.try_recv();
-                        match inbound_request_res {
-                            Ok(inbound_request) => {
-                                messages.push((i, inbound_request));
-                            }
-                            Err(TryRecvError::Empty) => {
-                                // nothing to do
-                                break;
-                            }
-                            Err(TryRecvError::Disconnected) => {
-                                // dead; remove
-                                to_remove.push(i);
-                                break;
-                            }
+            if let Some(handle) = self.handles.get(i) {
+                loop {
+                    // drain all inbound requests
+                    let inbound_request_res = handle.chan_in.try_recv();
+                    match inbound_request_res {
+                        Ok(inbound_request) => {
+                            messages.push((i, inbound_request));
+                        }
+                        Err(TryRecvError::Empty) => {
+                            // nothing to do
+                            break;
+                        }
+                        Err(TryRecvError::Disconnected) => {
+                            // dead; remove
+                            to_remove.push(i);
+                            break;
                         }
                     }
                 }
-                None => {}
             }
         }
 
@@ -1885,11 +1876,8 @@ impl PeerNetwork {
 
     /// Deregister a socket from our p2p network instance.
     fn deregister_socket(&mut self, event_id: usize, socket: mio_net::TcpStream) {
-        match self.network {
-            Some(ref mut network) => {
-                let _ = network.deregister(event_id, &socket);
-            }
-            None => {}
+        if let Some(ref mut network) = self.network {
+            let _ = network.deregister(event_id, &socket);
         }
     }
 
@@ -1969,11 +1957,8 @@ impl PeerNetwork {
     /// Deregister and ban a neighbor
     pub fn deregister_and_ban_neighbor(&mut self, neighbor: &NeighborKey) {
         debug!("Disconnect from and ban {:?}", neighbor);
-        match self.events.get(neighbor) {
-            Some(event_id) => {
-                self.bans.insert(*event_id);
-            }
-            None => {}
+        if let Some(event_id) = self.events.get(neighbor) {
+            self.bans.insert(*event_id);
         }
 
         self.relayer_stats.process_neighbor_ban(neighbor);

@@ -577,13 +577,10 @@ impl TestBurnchainBlock {
     pub fn patch_from_chain_tip(&mut self, parent_snapshot: &BlockSnapshot) {
         assert_eq!(parent_snapshot.block_height + 1, self.block_height);
 
-        for i in 0..self.txs.len() {
-            match self.txs[i] {
-                BlockstackOperationType::LeaderKeyRegister(ref mut data) => {
-                    assert_eq!(data.block_height, self.block_height);
-                    data.consensus_hash = parent_snapshot.consensus_hash.clone();
-                }
-                _ => {}
+        for tx in self.txs.iter_mut() {
+            if let BlockstackOperationType::LeaderKeyRegister(ref mut data) = tx {
+                assert_eq!(data.block_height, self.block_height);
+                data.consensus_hash = parent_snapshot.consensus_hash.clone();
             }
         }
     }

@@ -1137,24 +1137,20 @@ impl<'a> StacksMicroblockBuilder<'a> {
                         TransactionResult::Skipped(TransactionSkipped { error, .. })
                         | TransactionResult::ProcessingError(TransactionError { error, .. }) => {
                             test_debug!("Exclude tx {} from microblock", tx.txid());
-                            match &error {
-                                Error::BlockTooBigError => {
-                                    // done mining -- our execution budget is exceeded.
-                                    // Make the block from the transactions we did manage to get
-                                    test_debug!("Block budget exceeded on tx {}", &tx.txid());
-                                    if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
-                                        test_debug!("Switch to mining stx-transfers only");
-                                        block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
-                                    } else if block_limit_hit
-                                        == BlockLimitFunction::CONTRACT_LIMIT_HIT
-                                    {
-                                        test_debug!(
-                                            "Stop mining microblock block due to limit exceeded"
-                                        );
-                                        break;
-                                    }
+                            if let Error::BlockTooBigError = &error {
+                                // done mining -- our execution budget is exceeded.
+                                // Make the block from the transactions we did manage to get
+                                test_debug!("Block budget exceeded on tx {}", &tx.txid());
+                                if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
+                                    test_debug!("Switch to mining stx-transfers only");
+                                    block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
+                                } else if block_limit_hit == BlockLimitFunction::CONTRACT_LIMIT_HIT
+                                {
+                                    test_debug!(
+                                        "Stop mining microblock block due to limit exceeded"
+                                    );
+                                    break;
                                 }
-                                _ => {}
                             }
                             continue;
                         }
@@ -1188,12 +1184,9 @@ impl<'a> StacksMicroblockBuilder<'a> {
         self.runtime.considered.replace(considered);
         self.runtime.num_mined = num_txs;
 
-        match result {
-            Err(e) => {
-                warn!("Error producing microblock: {}", e);
-                return Err(e);
-            }
-            _ => {}
+        if let Err(e) = result {
+            warn!("Error producing microblock: {}", e);
+            return Err(e);
         }
 
         return self.make_next_microblock(txs_included, miner_key, tx_events, None);

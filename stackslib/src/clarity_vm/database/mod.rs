@@ -737,13 +737,15 @@ fn get_first_block_in_tenure<GTS: GetTenureStartId>(
             }
         }
         None => {
-            if let Some(_) = get_stacks_header_column_from_table(
+            if get_stacks_header_column_from_table(
                 conn.conn(),
                 id_bhh,
                 "consensus_hash",
                 &|r| ConsensusHash::from_row(r).expect("FATAL: malformed consensus_hash"),
                 false,
-            ) {
+            )
+            .is_some()
+            {
                 return id_bhh.clone().into();
             } else {
                 get_stacks_header_column_from_table(

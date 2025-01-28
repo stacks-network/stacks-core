@@ -481,21 +481,18 @@ impl PeerNetwork {
 
             if need_block {
                 // have the downloader request this block if it's new and we don't have it
-                match self.block_downloader {
-                    Some(ref mut downloader) => {
-                        downloader.hint_block_sortition_height_available(
-                            block_sortition_height,
-                            ibd,
-                            need_block,
-                        );
+                if let Some(ref mut downloader) = self.block_downloader {
+                    downloader.hint_block_sortition_height_available(
+                        block_sortition_height,
+                        ibd,
+                        need_block,
+                    );
 
-                        // advance straight to download state if we're in inv state
-                        if self.work_state == PeerNetworkWorkState::BlockInvSync {
-                            debug!("{:?}: advance directly to block download with knowledge of block sortition {}", &self.get_local_peer(), block_sortition_height);
-                        }
-                        self.have_data_to_download = true;
+                    // advance straight to download state if we're in inv state
+                    if self.work_state == PeerNetworkWorkState::BlockInvSync {
+                        debug!("{:?}: advance directly to block download with knowledge of block sortition {}", &self.get_local_peer(), block_sortition_height);
                     }
-                    None => {}
+                    self.have_data_to_download = true;
                 }
             }
         }

@@ -1568,11 +1568,8 @@ pub mod test {
         }
 
         for tx in all_txs.into_iter() {
-            match tx.payload {
-                TransactionPayload::Coinbase(..) => {
-                    continue;
-                }
-                _ => {}
+            if let TransactionPayload::Coinbase(..) = tx.payload {
+                continue;
             }
             txs_anchored.push(tx);
             if txs_anchored.len() >= num_txs {

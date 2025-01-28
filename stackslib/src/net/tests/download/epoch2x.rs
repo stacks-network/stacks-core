@@ -171,20 +171,14 @@ fn test_get_block_availability() {
             };
 
             // nothing should break
-            match peer_1.network.inv_state {
-                Some(ref inv) => {
-                    assert_eq!(inv.get_broken_peers().len(), 0);
-                    assert_eq!(inv.get_diverged_peers().len(), 0);
-                }
-                None => {}
+            if let Some(ref inv) = peer_1.network.inv_state {
+                assert_eq!(inv.get_broken_peers().len(), 0);
+                assert_eq!(inv.get_diverged_peers().len(), 0);
             }
 
-            match peer_2.network.inv_state {
-                Some(ref inv) => {
-                    assert_eq!(inv.get_broken_peers().len(), 0);
-                    assert_eq!(inv.get_diverged_peers().len(), 0);
-                }
-                None => {}
+            if let Some(ref inv) = peer_2.network.inv_state {
+                assert_eq!(inv.get_broken_peers().len(), 0);
+                assert_eq!(inv.get_diverged_peers().len(), 0);
             }
 
             round += 1;
@@ -562,12 +556,9 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain() {
             |peer| {
                 // check peer health
                 // nothing should break
-                match peer.network.block_downloader {
-                    Some(ref dl) => {
-                        assert_eq!(dl.broken_peers.len(), 0);
-                        assert_eq!(dl.dead_peers.len(), 0);
-                    }
-                    None => {}
+                if let Some(ref dl) = peer.network.block_downloader {
+                    assert_eq!(dl.broken_peers.len(), 0);
+                    assert_eq!(dl.dead_peers.len(), 0);
                 }
 
                 // no block advertisements (should be disabled)
@@ -843,12 +834,9 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain_100_blocks() {
             |peer| {
                 // check peer health
                 // nothing should break
-                match peer.network.block_downloader {
-                    Some(ref dl) => {
-                        assert_eq!(dl.broken_peers.len(), 0);
-                        assert_eq!(dl.dead_peers.len(), 0);
-                    }
-                    None => {}
+                if let Some(ref dl) = peer.network.block_downloader {
+                    assert_eq!(dl.broken_peers.len(), 0);
+                    assert_eq!(dl.dead_peers.len(), 0);
                 }
 
                 // no block advertisements (should be disabled)
@@ -934,12 +922,9 @@ pub fn test_get_blocks_and_microblocks_5_peers_star() {
             |peer| {
                 // check peer health
                 // nothing should break
-                match peer.network.block_downloader {
-                    Some(ref dl) => {
-                        assert_eq!(dl.broken_peers.len(), 0);
-                        assert_eq!(dl.dead_peers.len(), 0);
-                    }
-                    None => {}
+                if let Some(ref dl) = peer.network.block_downloader {
+                    assert_eq!(dl.broken_peers.len(), 0);
+                    assert_eq!(dl.dead_peers.len(), 0);
                 }
                 true
             },
@@ -1008,12 +993,9 @@ pub fn test_get_blocks_and_microblocks_5_peers_line() {
             |peer| {
                 // check peer health
                 // nothing should break
-                match peer.network.block_downloader {
-                    Some(ref dl) => {
-                        assert_eq!(dl.broken_peers.len(), 0);
-                        assert_eq!(dl.dead_peers.len(), 0);
-                    }
-                    None => {}
+                if let Some(ref dl) = peer.network.block_downloader {
+                    assert_eq!(dl.broken_peers.len(), 0);
+                    assert_eq!(dl.dead_peers.len(), 0);
                 }
                 true
             },
@@ -1090,12 +1072,9 @@ pub fn test_get_blocks_and_microblocks_overwhelmed_connections() {
             |peer| {
                 // check peer health
                 // nothing should break
-                match peer.network.block_downloader {
-                    Some(ref dl) => {
-                        assert_eq!(dl.broken_peers.len(), 0);
-                        assert_eq!(dl.dead_peers.len(), 0);
-                    }
-                    None => {}
+                if let Some(ref dl) = peer.network.block_downloader {
+                    assert_eq!(dl.broken_peers.len(), 0);
+                    assert_eq!(dl.dead_peers.len(), 0);
                 }
                 true
             },
@@ -1253,11 +1232,8 @@ pub fn test_get_blocks_and_microblocks_ban_url() {
         |_| {},
         |peer| {
             let mut blocked = 0;
-            match peer.network.block_downloader {
-                Some(ref dl) => {
-                    blocked = dl.blocked_urls.len();
-                }
-                None => {}
+            if let Some(ref dl) = peer.network.block_downloader {
+                blocked = dl.blocked_urls.len();
             }
             if blocked >= 1 {
                 // NOTE: this is the success criterion
@@ -1474,12 +1450,9 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_multiple_microblock_desc
             |peer| {
                 // check peer health
                 // nothing should break
-                match peer.network.block_downloader {
-                    Some(ref dl) => {
-                        assert_eq!(dl.broken_peers.len(), 0);
-                        assert_eq!(dl.dead_peers.len(), 0);
-                    }
-                    None => {}
+                if let Some(ref dl) = peer.network.block_downloader {
+                    assert_eq!(dl.broken_peers.len(), 0);
+                    assert_eq!(dl.dead_peers.len(), 0);
                 }
 
                 // no block advertisements (should be disabled)

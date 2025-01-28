@@ -158,7 +158,7 @@ impl LocalPeer {
             "Will be authenticating p2p messages with the following";
             "public key" => &Secp256k1PublicKey::from_private(&pkey).to_hex(),
             "services" => &to_hex(&services.to_be_bytes()),
-            "Stacker DBs" => stacker_dbs.iter().map(|cid| format!("{}", &cid)).collect::<Vec<String>>().join(",")
+            "Stacker DBs" => stacker_dbs.iter().map(|cid| cid.to_string()).collect::<Vec<String>>().join(",")
         );
 
         LocalPeer {

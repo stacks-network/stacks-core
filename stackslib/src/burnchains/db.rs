@@ -1193,9 +1193,10 @@ impl BurnchainDB {
         let ops: Vec<BlockstackOperationType> =
             query_rows(&self.conn, qry, args).expect("FATAL: burnchain DB query error");
         for op in ops {
-            if let Some(_) = indexer
+            if indexer
                 .find_burnchain_header_height(&op.burn_header_hash())
                 .expect("FATAL: burnchain DB query error")
+                .is_some()
             {
                 // this is the op on the canonical fork
                 return Some(op);

@@ -1092,11 +1092,8 @@ impl NonceCache {
         };
 
         // In-memory cache
-        match self.cache.get_mut(&address) {
-            Some(nonce) => {
-                *nonce = value;
-            }
-            None => (),
+        if let Some(nonce) = self.cache.get_mut(&address) {
+            *nonce = value;
         }
 
         success

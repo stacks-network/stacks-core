@@ -194,11 +194,8 @@ impl TrieFile {
             .map(|stat| Some(stat.len()))
             .unwrap_or(None);
 
-        match (size_before_opt, size_after_opt) {
-            (Some(sz_before), Some(sz_after)) => {
-                debug!("Shrank DB from {} to {} bytes", sz_before, sz_after);
-            }
-            _ => {}
+        if let (Some(sz_before), Some(sz_after)) = (size_before_opt, size_after_opt) {
+            debug!("Shrank DB from {} to {} bytes", sz_before, sz_after);
         }
 
         Ok(())
@@ -213,7 +210,7 @@ impl TrieFile {
         let mut set_sqlite_tmpdir = false;
         let mut old_tmpdir_opt = None;
         if let Some(parent_path) = Path::new(db_path).parent() {
-            if let Err(_) = env::var("SQLITE_TMPDIR") {
+            if env::var("SQLITE_TMPDIR").is_err() {
                 debug!(
                     "Sqlite will store temporary migration state in '{}'",
                     parent_path.display()
@@ -461,11 +458,8 @@ impl TrieFile {
         self.write_all(buf)?;
         self.flush()?;
 
-        match self {
-            TrieFile::Disk(ref mut data) => {
-                data.fd.sync_data()?;
-            }
-            _ => {}
+        if let TrieFile::Disk(ref mut data) = self {
+            data.fd.sync_data()?;
         }
         Ok(offset)
     }
