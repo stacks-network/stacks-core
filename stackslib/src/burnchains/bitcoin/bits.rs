@@ -112,22 +112,15 @@ impl BitcoinTxInputStructured {
                 Instruction::PushBytes(payload) => payload,
                 _ => {
                     // not pushbytes, so this can't be a multisig script
-                    test_debug!(
-                        "Not a multisig script: Instruction {} is not a PushBytes",
-                        i
-                    );
+                    test_debug!("Not a multisig script: Instruction {i} is not a PushBytes");
                     return None;
                 }
             };
 
             let pubk = BitcoinPublicKey::from_slice(payload)
-                .map_err(|e| {
+                .inspect_err(|&e| {
                     // not a public key
-                    warn!(
-                        "Not a multisig script: pushbytes {} is not a public key ({:?})",
-                        i, e
-                    );
-                    e
+                    warn!("Not a multisig script: pushbytes {i} is not a public key ({e:?})");
                 })
                 .ok()?;
 
@@ -169,13 +162,9 @@ impl BitcoinTxInputStructured {
         for i in 0..pubkey_vecs.len() {
             let payload = &pubkey_vecs[i];
             let pubk = BitcoinPublicKey::from_slice(&payload[..])
-                .map_err(|e| {
+                .inspect_err(|&e| {
                     // not a public key
-                    warn!(
-                        "Not a multisig script: item {} is not a public key ({:?})",
-                        i, e
-                    );
-                    e
+                    warn!("Not a multisig script: item {i} is not a public key ({e:?})");
                 })
                 .ok()?;
 

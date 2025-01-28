@@ -967,22 +967,11 @@ pub fn get_last_microblock_header(
     miner: &TestMiner,
     parent_block_opt: Option<&StacksBlock>,
 ) -> Option<StacksMicroblockHeader> {
-    let last_microblocks_opt =
-        parent_block_opt.and_then(|block| node.get_microblock_stream(miner, &block.block_hash()));
-
-    let last_microblock_header_opt = match last_microblocks_opt {
-        Some(last_microblocks) => {
-            if last_microblocks.is_empty() {
-                None
-            } else {
-                let l = last_microblocks.len() - 1;
-                Some(last_microblocks[l].header.clone())
-            }
-        }
-        None => None,
-    };
-
-    last_microblock_header_opt
+    parent_block_opt
+        .and_then(|block| node.get_microblock_stream(miner, &block.block_hash()))
+        .as_ref()
+        .and_then(|mblock_stream| mblock_stream.last())
+        .map(|mblock| mblock.header.clone())
 }
 
 pub fn get_all_mining_rewards(
@@ -990,17 +979,14 @@ pub fn get_all_mining_rewards(
     tip: &StacksHeaderInfo,
     block_height: u64,
 ) -> Vec<Vec<MinerPaymentSchedule>> {
-    let mut ret = vec![];
     let mut tx = chainstate.index_tx_begin();
 
-    for i in 0..block_height {
-        let block_rewards =
+    (0..block_height)
+        .map(|i| {
             StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, tip, i)
-                .unwrap();
-        ret.push(block_rewards);
-    }
-
-    ret
+                .unwrap()
+        })
+        .collect()
 }
 
 pub fn make_coinbase(miner: &mut TestMiner, burnchain_height: usize) -> StacksTransaction {

@@ -122,9 +122,8 @@ impl ASEntry4 {
             .ok_or(net_error::DeserializeError(
                 "Line does not match ANS4 regex".to_string(),
             ))
-            .map_err(|e| {
-                debug!("Failed to read line \"{}\"", &buf);
-                e
+            .inspect_err(|_e| {
+                debug!("Failed to read line \"{buf}\"");
             })?;
 
         let prefix_octets_str = caps
@@ -132,9 +131,8 @@ impl ASEntry4 {
             .ok_or(net_error::DeserializeError(
                 "Failed to read ANS4 prefix".to_string(),
             ))
-            .map_err(|e| {
-                debug!("Failed to get octets of \"{}\"", &buf);
-                e
+            .inspect_err(|_e| {
+                debug!("Failed to get octets of \"{buf}\"");
             })?
             .as_str();
 
@@ -143,9 +141,8 @@ impl ASEntry4 {
             .ok_or(net_error::DeserializeError(
                 "Failed to read ASN4 prefix mask".to_string(),
             ))
-            .map_err(|e| {
-                debug!("Failed to get mask of \"{}\"", &buf);
-                e
+            .inspect_err(|_e| {
+                debug!("Failed to get mask of \"{buf}\"");
             })?
             .as_str();
 
@@ -154,9 +151,8 @@ impl ASEntry4 {
             .ok_or(net_error::DeserializeError(
                 "Failed to read ASN ID".to_string(),
             ))
-            .map_err(|e| {
-                debug!("Failed to get ASN of \"{}\"", &buf);
-                e
+            .inspect_err(|_e| {
+                debug!("Failed to get ASN of \"{buf}\"");
             })?
             .as_str();
 

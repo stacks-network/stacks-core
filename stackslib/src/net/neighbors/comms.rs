@@ -106,14 +106,12 @@ pub trait NeighborComms {
 
         let msg = network
             .sign_for_neighbor(&nk, StacksMessageType::Handshake(handshake_data))
-            .map_err(|e| {
+            .inspect_err(|_e| {
                 info!(
-                    "{:?}: Failed to sign for peer {:?}",
+                    "{:?}: Failed to sign for peer {nk:?}",
                     network.get_local_peer(),
-                    &nk
                 );
                 self.add_dead(network, &nk);
-                e
             })?;
 
         network

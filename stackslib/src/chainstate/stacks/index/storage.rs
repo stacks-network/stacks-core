@@ -892,10 +892,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
         let root_disk_ptr = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
 
         let root_ptr = TriePtr::new(TrieNodeID::Node256 as u8, 0, root_disk_ptr as u32);
-        let (mut root_node, root_hash) = read_nodetype(f, &root_ptr).map_err(|e| {
-            error!("Failed to read root node info for {:?}: {:?}", bhh, &e);
-            e
-        })?;
+        let (mut root_node, root_hash) = read_nodetype(f, &root_ptr)
+            .inspect_err(|e| error!("Failed to read root node info for {bhh:?}: {e:?}"))?;
 
         let mut next_index = 1;
 
@@ -922,10 +920,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
             let next_ptr = frontier
                 .pop_front()
                 .expect("BUG: no ptr in non-empty frontier");
-            let (mut next_node, next_hash) = read_nodetype(f, &next_ptr).map_err(|e| {
-                error!("Failed to read node at {:?}: {:?}", &next_ptr, &e);
-                e
-            })?;
+            let (mut next_node, next_hash) = read_nodetype(f, &next_ptr)
+                .inspect_err(|e| error!("Failed to read node at {next_ptr:?}: {e:?}"))?;
 
             if !next_node.is_leaf() {
                 // queue children in the same order we stored them

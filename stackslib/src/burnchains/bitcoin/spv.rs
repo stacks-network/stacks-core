@@ -832,10 +832,7 @@ impl SpvClient {
             // fetching headers in ascending order, so verify that the first item in
             // `block_headers` connects to a parent in the DB (if it has one)
             self.insert_block_headers_after(insert_height, block_headers)
-                .map_err(|e| {
-                    error!("Failed to insert block headers: {:?}", &e);
-                    e
-                })?;
+                .inspect_err(|e| error!("Failed to insert block headers: {e:?}"))?;
 
             // check work
             let chain_tip = self.get_headers_height()?;
@@ -843,22 +840,15 @@ impl SpvClient {
                 (insert_height.saturating_sub(1)) / BLOCK_DIFFICULTY_CHUNK_SIZE,
                 chain_tip / BLOCK_DIFFICULTY_CHUNK_SIZE + 1,
             )
-            .map_err(|e| {
-                error!(
-                    "Received headers with bad target, difficulty, or continuity: {:?}",
-                    &e
-                );
-                e
+            .inspect_err(|e| {
+                error!("Received headers with bad target, difficulty, or continuity: {e:?}")
             })?;
         } else {
             // fetching headers in descending order, so verify that the last item in
             // `block_headers` connects to a child in the DB (if it has one)
             let headers_len = block_headers.len() as u64;
             self.insert_block_headers_before(insert_height, block_headers)
-                .map_err(|e| {
-                    error!("Failed to insert block headers: {:?}", &e);
-                    e
-                })?;
+                .inspect_err(|e| error!("Failed to insert block headers: {e:?}"))?;
 
             // check work
             let interval_start = if insert_height % BLOCK_DIFFICULTY_CHUNK_SIZE == 0 {
@@ -870,12 +860,8 @@ impl SpvClient {
             let interval_end = (insert_height + 1 + headers_len) / BLOCK_DIFFICULTY_CHUNK_SIZE + 1;
 
             self.validate_header_work(interval_start, interval_end)
-                .map_err(|e| {
-                    error!(
-                        "Received headers with bad target, difficulty, or continuity: {:?}",
-                        &e
-                    );
-                    e
+                .inspect_err(|e| {
+                    error!("Received headers with bad target, difficulty, or continuity: {e:?}")
                 })?;
         }
 
@@ -883,16 +869,12 @@ impl SpvClient {
             let total_work_after = self.update_chain_work()?;
             if total_work_after < total_work_before {
                 error!(
-                    "New headers represent less work than the old headers ({} < {})",
-                    total_work_before, total_work_after
+                    "New headers represent less work than the old headers ({total_work_before} < {total_work_after})"
                 );
                 return Err(btc_error::InvalidChainWork);
             }
 
-            debug!(
-                "Handled {} Headers: {}-{}",
-                num_headers, first_header_hash, last_header_hash
-            );
+            debug!("Handled {num_headers} Headers: {first_header_hash}-{last_header_hash}");
         } else {
             debug!("Handled empty header reply");
         }
@@ -956,22 +938,16 @@ impl SpvClient {
         );
 
         SpvClient::validate_header_integrity(start_height, &block_headers, self.check_txcount)
-            .map_err(|e| {
-                error!("Received invalid headers: {:?}", &e);
-                e
-            })?;
+            .inspect_err(|e| error!("Received invalid headers: {e:?}"))?;
 
-        let parent_header = match self.read_block_header(start_height)? {
-            Some(header) => header,
-            None => {
-                warn!(
-                    "No header for block {} -- cannot insert {} headers into {}",
-                    start_height,
-                    block_headers.len(),
-                    self.headers_path
-                );
-                return Err(btc_error::NoncontiguousHeader);
-            }
+        let Some(parent_header) = self.read_block_header(start_height)? else {
+            warn!(
+                "No header for block {} -- cannot insert {} headers into {}",
+                start_height,
+                block_headers.len(),
+                self.headers_path
+            );
+            return Err(btc_error::NoncontiguousHeader);
         };
 
         // contiguous?
@@ -1010,10 +986,7 @@ impl SpvClient {
         );
 
         SpvClient::validate_header_integrity(start_height, &block_headers, self.check_txcount)
-            .map_err(|e| {
-                error!("Received invalid headers: {:?}", &e);
-                e
-            })?;
+            .inspect_err(|e| error!("Received invalid headers: {e:?}"))?;
 
         match self.read_block_header(end_height)? {
             Some(child_header) => {
@@ -1028,10 +1001,7 @@ impl SpvClient {
             None => {
                 // if we're inserting headers in reverse order, we're not guaranteed to have the
                 // child.
-                debug!(
-                    "No header for child block {}, so will not validate continuity",
-                    end_height
-                );
+                debug!("No header for child block {end_height}, so will not validate continuity");
             }
         }
 
