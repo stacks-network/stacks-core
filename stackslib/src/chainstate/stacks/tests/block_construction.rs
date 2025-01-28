@@ -431,7 +431,7 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
     let num_blocks = 10;
 
     for _ in 0..num_blocks {
-        let privk = StacksPrivateKey::new();
+        let privk = StacksPrivateKey::random();
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -649,7 +649,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
 
     let mut mblock_privks = vec![];
     for _ in 0..num_blocks {
-        let mblock_privk = StacksPrivateKey::new();
+        let mblock_privk = StacksPrivateKey::random();
         mblock_privks.push(mblock_privk);
     }
 
@@ -885,7 +885,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
 
     let mut mblock_privks = vec![];
     for _ in 0..num_blocks {
-        let mblock_privk = StacksPrivateKey::new();
+        let mblock_privk = StacksPrivateKey::random();
         mblock_privks.push(mblock_privk);
     }
 
@@ -1152,7 +1152,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
 /// to consider an origin's "next" transaction immediately. Prior behavior would
 /// only do so after processing any other origin's transactions.
 fn test_build_anchored_blocks_incrementing_nonces() {
-    let private_keys: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let private_keys: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let addresses: Vec<_> = private_keys
         .iter()
         .map(|sk| {
@@ -1277,20 +1277,14 @@ fn test_build_anchored_blocks_incrementing_nonces() {
     //  because the tx fee for each transaction increases with the nonce
     for (i, tx) in stacks_block.txs.iter().enumerate() {
         if i == 0 {
-            let okay = if let TransactionPayload::Coinbase(..) = tx.payload {
-                true
-            } else {
-                false
-            };
+            let okay = matches!(tx.payload, TransactionPayload::Coinbase(..));
             assert!(okay, "Coinbase should be first tx");
         } else {
             let expected_nonce = (i - 1) % 25;
             assert_eq!(
                 tx.get_origin_nonce(),
                 expected_nonce as u64,
-                "{}th transaction should have nonce = {}",
-                i,
-                expected_nonce
+                "{i}th transaction should have nonce = {expected_nonce}",
             );
         }
     }
@@ -1310,7 +1304,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
     let mut initial_balances = vec![];
     let num_blocks = 10;
     for i in 0..num_blocks {
-        let pk = StacksPrivateKey::new();
+        let pk = StacksPrivateKey::random();
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -1762,7 +1756,7 @@ fn test_build_anchored_blocks_multiple_chaintips() {
     let num_blocks = 10;
 
     for _ in 0..num_blocks {
-        let privk = StacksPrivateKey::new();
+        let privk = StacksPrivateKey::random();
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -1909,7 +1903,7 @@ fn test_build_anchored_blocks_empty_chaintips() {
     let num_blocks = 10;
 
     for _ in 0..num_blocks {
-        let privk = StacksPrivateKey::new();
+        let privk = StacksPrivateKey::random();
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -2052,7 +2046,7 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
     let num_blocks = 3;
 
     for _ in 0..num_blocks {
-        let privk = StacksPrivateKey::new();
+        let privk = StacksPrivateKey::random();
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -2417,7 +2411,7 @@ fn test_build_anchored_blocks_bad_nonces() {
     let num_blocks = 10;
 
     for _ in 0..num_blocks {
-        let privk = StacksPrivateKey::new();
+        let privk = StacksPrivateKey::random();
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -2665,8 +2659,8 @@ fn test_build_microblock_stream_forks() {
     let initial_balance = 100000000;
 
     for _ in 0..num_blocks {
-        let privk = StacksPrivateKey::new();
-        let mblock_privk = StacksPrivateKey::new();
+        let privk = StacksPrivateKey::random();
+        let mblock_privk = StacksPrivateKey::random();
 
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -2965,8 +2959,8 @@ fn test_build_microblock_stream_forks_with_descendants() {
     let initial_balance = 100000000;
 
     for _ in 0..num_blocks {
-        let privk = StacksPrivateKey::new();
-        let mblock_privk = StacksPrivateKey::new();
+        let privk = StacksPrivateKey::random();
+        let mblock_privk = StacksPrivateKey::random();
 
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -3496,7 +3490,7 @@ fn test_contract_call_across_clarity_versions() {
 
     let mut mblock_privks = vec![];
     for _ in 0..num_blocks {
-        let mblock_privk = StacksPrivateKey::new();
+        let mblock_privk = StacksPrivateKey::random();
         mblock_privks.push(mblock_privk);
     }
 
@@ -3999,7 +3993,7 @@ fn test_is_tx_problematic() {
     let mut initial_balances = vec![];
     let num_blocks = 10;
     for i in 0..num_blocks {
-        let pk = StacksPrivateKey::new();
+        let pk = StacksPrivateKey::random();
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -4493,7 +4487,7 @@ fn test_is_tx_problematic() {
 fn mempool_incorporate_pox_unlocks() {
     let mut initial_balances = vec![];
     let total_balance = 10_000_000_000;
-    let pk = StacksPrivateKey::new();
+    let pk = StacksPrivateKey::random();
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -4918,7 +4912,7 @@ fn paramaterized_mempool_walk_test(
 ) {
     let key_address_pairs: Vec<(Secp256k1PrivateKey, StacksAddress)> = (0..num_users)
         .map(|_user_index| {
-            let privk = StacksPrivateKey::new();
+            let privk = StacksPrivateKey::random();
             let addr = StacksAddress::from_public_keys(
                 C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
                 &AddressHashMode::SerializeP2PKH,

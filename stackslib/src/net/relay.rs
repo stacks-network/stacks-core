@@ -2602,8 +2602,8 @@ impl Relayer {
     ) {
         // have the p2p thread tell our neighbors about newly-discovered blocks
         let new_block_chs = new_blocks.keys().cloned().collect();
-        let available = Relayer::load_blocks_available_data(sortdb, new_block_chs)
-            .unwrap_or(BlocksAvailableMap::new());
+        let available =
+            Relayer::load_blocks_available_data(sortdb, new_block_chs).unwrap_or_default();
         if !available.is_empty() {
             debug!("{:?}: Blocks available: {}", &_local_peer, available.len());
             if let Err(e) = self.p2p.advertize_blocks(available, new_blocks) {
@@ -2613,8 +2613,8 @@ impl Relayer {
 
         // have the p2p thread tell our neighbors about newly-discovered confirmed microblock streams
         let new_mblock_chs = new_confirmed_microblocks.keys().cloned().collect();
-        let mblocks_available = Relayer::load_blocks_available_data(sortdb, new_mblock_chs)
-            .unwrap_or(BlocksAvailableMap::new());
+        let mblocks_available =
+            Relayer::load_blocks_available_data(sortdb, new_mblock_chs).unwrap_or_default();
         if !mblocks_available.is_empty() {
             debug!(
                 "{:?}: Confirmed microblock streams available: {}",
@@ -2923,7 +2923,7 @@ impl Relayer {
             mempool,
             event_observer.map(|obs| obs.as_mempool_event_dispatcher()),
         )
-        .unwrap_or(vec![]);
+        .unwrap_or_default();
 
         if !new_txs.is_empty() {
             debug!(

@@ -1197,7 +1197,7 @@ mod tests {
     #[test]
     fn get_reward_set_should_succeed() {
         let mock = MockServerClient::new();
-        let private_key = StacksPrivateKey::new();
+        let private_key = StacksPrivateKey::random();
         let public_key = StacksPublicKey::from_private(&private_key);
         let mut bytes = [0u8; 33];
         bytes.copy_from_slice(&public_key.to_bytes_compressed());

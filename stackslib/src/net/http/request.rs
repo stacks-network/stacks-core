@@ -537,7 +537,7 @@ impl HttpRequestContents {
                 }
                 kv
             })
-            .unwrap_or(HashMap::new())
+            .unwrap_or_default()
     }
 
     /// chain constructor -- add a query strings' values to the existing values, and also

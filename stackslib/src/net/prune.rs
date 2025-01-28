@@ -417,7 +417,7 @@ impl PeerNetwork {
 
         let pruned_by_org = self
             .prune_frontier_outbound_orgs(preserve)
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
 
         debug!(
             "{:?}: remove {} outbound peers by shared Org",

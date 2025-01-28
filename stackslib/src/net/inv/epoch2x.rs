@@ -2272,7 +2272,7 @@ impl PeerNetwork {
 
             let bootstrap_peers: HashSet<_> =
                 PeerDB::get_bootstrap_peers(network.peerdb.conn(), network.local_peer.network_id)
-                    .unwrap_or(vec![])
+                    .unwrap_or_default()
                     .into_iter()
                     .map(|neighbor| neighbor.addr)
                     .collect();
@@ -2708,7 +2708,7 @@ impl PeerNetwork {
         // in our inv state
         let always_allowed: HashSet<_> =
             PeerDB::get_always_allowed_peers(self.peerdb.conn(), self.local_peer.network_id)
-                .unwrap_or(vec![])
+                .unwrap_or_default()
                 .into_iter()
                 .map(|neighbor| neighbor.addr)
                 .collect();

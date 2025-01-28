@@ -52,10 +52,10 @@ fn microblocks_disabled() {
     let spender_1_bal = 10_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let spender_2_bal = 10_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
-    let spender_1_sk = StacksPrivateKey::new();
+    let spender_1_sk = StacksPrivateKey::random();
     let spender_1_addr: PrincipalData = to_addr(&spender_1_sk).into();
 
-    let spender_2_sk = StacksPrivateKey::new();
+    let spender_2_sk = StacksPrivateKey::random();
     let spender_2_addr: PrincipalData = to_addr(&spender_2_sk).into();
 
     let mut initial_balances = vec![];

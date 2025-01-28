@@ -2508,7 +2508,7 @@ impl StacksChainState {
                 Ok(txids)
             })
             .optional()?
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
 
         Ok(txids)
     }

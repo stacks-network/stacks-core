@@ -773,7 +773,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain_100_blocks() {
                         4,
                     );
 
-                    let mblock_privkey = StacksPrivateKey::new();
+                    let mblock_privkey = StacksPrivateKey::random();
 
                     let mblock_pubkey_hash_bytes = Hash160::from_data(
                         &StacksPublicKey::from_private(&mblock_privkey).to_bytes(),

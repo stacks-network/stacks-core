@@ -1867,7 +1867,7 @@ mod test {
             &BurnchainHeaderHash([0x22; 32]),
             StacksMessageType::Ping(PingData { nonce }),
         );
-        let privkey = Secp256k1PrivateKey::new();
+        let privkey = Secp256k1PrivateKey::random();
         ping.sign(request_id, &privkey).unwrap();
         ping
     }
@@ -1913,7 +1913,7 @@ mod test {
             StacksMessageType::Ping(PingData { nonce: 0x01020304 }),
         );
 
-        let privkey = Secp256k1PrivateKey::new();
+        let privkey = Secp256k1PrivateKey::random();
         ping.sign(1, &privkey).unwrap();
 
         let mut pipes = vec![]; // keep pipes in-scope
@@ -2035,7 +2035,7 @@ mod test {
 
     #[test]
     fn connection_relay_send_recv() {
-        let privkey = Secp256k1PrivateKey::new();
+        let privkey = Secp256k1PrivateKey::random();
         let pubkey = Secp256k1PublicKey::from_private(&privkey);
 
         let neighbor = Neighbor {
@@ -2133,7 +2133,7 @@ mod test {
     #[test]
     fn connection_send_recv() {
         with_timeout(100, || {
-            let privkey = Secp256k1PrivateKey::new();
+            let privkey = Secp256k1PrivateKey::random();
             let pubkey = Secp256k1PublicKey::from_private(&privkey);
 
             let neighbor = Neighbor {
@@ -2248,7 +2248,7 @@ mod test {
 
     #[test]
     fn connection_send_recv_timeout() {
-        let privkey = Secp256k1PrivateKey::new();
+        let privkey = Secp256k1PrivateKey::random();
         let pubkey = Secp256k1PublicKey::from_private(&privkey);
 
         let neighbor = Neighbor {
