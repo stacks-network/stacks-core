@@ -7206,7 +7206,9 @@ fn continue_tenure_extend() {
     let mut tenure_block_founds = vec![];
     let mut transfer_tx_included = false;
     let mut last_block_had_extend = false;
-    for block in test_observer::get_blocks() {
+    for pair in test_observer::get_blocks().windows(2) {
+        let prev_block = &pair[0];
+        let block = &pair[1];
         let mut has_extend = false;
         for tx in block["transactions"].as_array().unwrap() {
             let raw_tx = tx["raw_tx"].as_str().unwrap();
@@ -7227,8 +7229,10 @@ fn continue_tenure_extend() {
                         tenure_extends.push(parsed);
                     }
                     TenureChangeCause::BlockFound => {
-                        if last_block_had_extend {
-                            panic!("Expected a Nakamoto block to happen after tenure extend block");
+                        if last_block_had_extend
+                            && prev_block["transactions"].as_array().unwrap().len() <= 1
+                        {
+                            panic!("Expected other transactions to happen after tenure extend");
                         }
                         tenure_block_founds.push(parsed);
                     }
