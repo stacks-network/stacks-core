@@ -49,7 +49,7 @@ fn test_try_parse_request() {
         request.contents().tip_request(),
         TipRequest::SpecificTip(StacksBlockId([0x22; 32]))
     );
-    assert_eq!(request.contents().get_with_proof(), true);
+    assert!(request.contents().get_with_proof());
 
     let bytes = request.try_serialize().unwrap();
 

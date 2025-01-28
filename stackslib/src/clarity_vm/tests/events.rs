@@ -144,7 +144,7 @@ fn test_emit_print_nok() {
 
     let (value, events) = helper_execute(contract, "emit-event-nok");
     assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
-    assert_eq!(events.len(), 0);
+    assert!(events.is_empty());
 }
 
 #[test]
@@ -230,7 +230,7 @@ fn test_emit_stx_transfer_nok() {
 
     let (value, events) = helper_execute(contract, "emit-event-nok");
     assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
-    assert_eq!(events.len(), 0);
+    assert!(events.is_empty());
 }
 
 #[test]
@@ -268,7 +268,7 @@ fn test_emit_stx_burn_nok() {
 
     let (value, events) = helper_execute(contract, "emit-event-nok");
     assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
-    assert_eq!(events.len(), 0);
+    assert!(events.is_empty());
 }
 
 #[test]
@@ -337,7 +337,7 @@ fn test_emit_ft_transfer_nok() {
 
     let (value, events) = helper_execute(contract, "emit-event-nok");
     assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
-    assert_eq!(events.len(), 0);
+    assert!(events.is_empty());
 }
 
 #[test]
@@ -381,7 +381,7 @@ fn test_emit_ft_mint_nok() {
 
     let (value, events) = helper_execute(contract, "emit-event-nok");
     assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
-    assert_eq!(events.len(), 0);
+    assert!(events.is_empty());
 }
 
 #[test]
@@ -433,7 +433,7 @@ fn test_emit_nft_transfer_nok() {
 
     let (value, events) = helper_execute(contract, "emit-event-nok");
     assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
-    assert_eq!(events.len(), 0);
+    assert!(events.is_empty());
 }
 
 #[test]
@@ -477,5 +477,5 @@ fn test_emit_nft_mint_nok() {
 
     let (value, events) = helper_execute(contract, "emit-event-nok");
     assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
-    assert_eq!(events.len(), 0);
+    assert!(events.is_empty());
 }

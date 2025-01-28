@@ -801,7 +801,7 @@ fn test_sync_inv_make_inv_messages() {
         })
         .unwrap();
 
-    test_debug!("\n\nSend {:?}\n\n", &getpoxinv_request);
+    test_debug!("\n\nSend {getpoxinv_request:?}\n\n");
 
     let reply = peer_1
         .with_network_state(|sortdb, _chainstate, network, _relayer, _mempool| {
@@ -809,7 +809,7 @@ fn test_sync_inv_make_inv_messages() {
         })
         .unwrap();
 
-    test_debug!("\n\nReply {:?}\n\n", &reply);
+    test_debug!("\n\nReply {reply:?}\n\n");
 
     match reply {
         StacksMessageType::PoxInv(poxinv) => {
@@ -817,8 +817,7 @@ fn test_sync_inv_make_inv_messages() {
             assert_eq!(poxinv.pox_bitvec, vec![0x01]);
         }
         x => {
-            error!("Did not get PoxInv, but got {:?}", &x);
-            assert!(false);
+            panic!("Did not get PoxInv, but got {x:?}");
         }
     }
 
@@ -842,7 +841,7 @@ fn test_sync_inv_make_inv_messages() {
         })
         .unwrap();
 
-    test_debug!("\n\nSend {:?}\n\n", &getpoxinv_request);
+    test_debug!("\n\nSend {getpoxinv_request:?}\n\n");
 
     let reply = peer_1
         .with_network_state(|sortdb, _chainstate, network, _relayer, _mempool| {
@@ -850,7 +849,7 @@ fn test_sync_inv_make_inv_messages() {
         })
         .unwrap();
 
-    test_debug!("\n\nReply {:?}\n\n", &reply);
+    test_debug!("\n\nReply {reply:?}\n\n");
 
     match reply {
         StacksMessageType::PoxInv(poxinv) => {
@@ -858,8 +857,7 @@ fn test_sync_inv_make_inv_messages() {
             assert_eq!(poxinv.pox_bitvec, vec![0x7f]);
         }
         x => {
-            error!("Did not get PoxInv, but got {:?}", &x);
-            assert!(false);
+            panic!("Did not get PoxInv, but got {x:?}");
         }
     }
 
@@ -874,7 +872,7 @@ fn test_sync_inv_make_inv_messages() {
         })
         .unwrap();
 
-    test_debug!("\n\nSend {:?}\n\n", &getpoxinv_request);
+    test_debug!("\n\nSend {getpoxinv_request:?}\n\n");
 
     let reply = peer_1
         .with_network_state(|sortdb, _chainstate, network, _relayer, _mempool| {
@@ -882,15 +880,14 @@ fn test_sync_inv_make_inv_messages() {
         })
         .unwrap();
 
-    test_debug!("\n\nReply {:?}\n\n", &reply);
+    test_debug!("\n\nReply {reply:?}\n\n");
 
     match reply {
         StacksMessageType::Nack(nack_data) => {
             assert_eq!(nack_data.error_code, NackErrorCodes::InvalidPoxFork);
         }
         x => {
-            error!("Did not get PoxInv, but got {:?}", &x);
-            assert!(false);
+            panic!("Did not get PoxInv, but got {x:?}");
         }
     }
 
@@ -918,7 +915,7 @@ fn test_sync_inv_make_inv_messages() {
         })
         .unwrap();
 
-    test_debug!("\n\nSend {:?}\n\n", &getblocksinv_request);
+    test_debug!("\n\nSend {getblocksinv_request:?}\n\n");
 
     let reply = peer_1
         .with_network_state(|sortdb, chainstate, network, _relayer, _mempool| {
@@ -931,7 +928,7 @@ fn test_sync_inv_make_inv_messages() {
         })
         .unwrap();
 
-    test_debug!("\n\nReply {:?}\n\n", &reply);
+    test_debug!("\n\nReply {reply:?}\n\n");
 
     match reply {
         StacksMessageType::BlocksInv(blocksinv) => {
@@ -940,8 +937,7 @@ fn test_sync_inv_make_inv_messages() {
             assert_eq!(blocksinv.microblocks_bitvec, vec![0x1e]);
         }
         x => {
-            error!("Did not get BlocksInv, but got {:?}", &x);
-            assert!(false);
+            panic!("Did not get BlocksInv, but got {x:?}");
         }
     };
 
@@ -954,7 +950,7 @@ fn test_sync_inv_make_inv_messages() {
                     .block_height_to_reward_cycle(first_stacks_block_height)
                     .unwrap(),
             );
-            test_debug!("Ask for inv at height {}", height);
+            test_debug!("Ask for inv at height {height}");
             let sn = {
                 let ic = sortdb.index_conn();
                 let sn = SortitionDB::get_ancestor_snapshot(&ic, height, &tip.sortition_id)
@@ -970,7 +966,7 @@ fn test_sync_inv_make_inv_messages() {
         })
         .unwrap();
 
-    test_debug!("\n\nSend {:?}\n\n", &getblocksinv_request);
+    test_debug!("\n\nSend {getblocksinv_request:?}\n\n");
 
     let reply = peer_1
         .with_network_state(|sortdb, chainstate, network, _relayer, _mempool| {
@@ -983,7 +979,7 @@ fn test_sync_inv_make_inv_messages() {
         })
         .unwrap();
 
-    test_debug!("\n\nReply {:?}\n\n", &reply);
+    test_debug!("\n\nReply {reply:?}\n\n");
 
     match reply {
         StacksMessageType::BlocksInv(blocksinv) => {
@@ -992,8 +988,7 @@ fn test_sync_inv_make_inv_messages() {
             assert_eq!(blocksinv.microblocks_bitvec, vec![0x1e]);
         }
         x => {
-            error!("Did not get Nack, but got {:?}", &x);
-            assert!(false);
+            panic!("Did not get Nack, but got {x:?}");
         }
     };
 
@@ -1007,7 +1002,7 @@ fn test_sync_inv_make_inv_messages() {
                     .unwrap()
                     - 1,
             );
-            test_debug!("Ask for inv at height {}", height);
+            test_debug!("Ask for inv at height {height}");
             let sn = {
                 let ic = sortdb.index_conn();
                 let sn = SortitionDB::get_ancestor_snapshot(&ic, height, &tip.sortition_id)
@@ -1023,7 +1018,7 @@ fn test_sync_inv_make_inv_messages() {
         })
         .unwrap();
 
-    test_debug!("\n\nSend {:?}\n\n", &getblocksinv_request);
+    test_debug!("\n\nSend {getblocksinv_request:?}\n\n");
 
     let reply = peer_1
         .with_network_state(|sortdb, chainstate, network, _relayer, _mempool| {
@@ -1036,7 +1031,7 @@ fn test_sync_inv_make_inv_messages() {
         })
         .unwrap();
 
-    test_debug!("\n\nReply {:?}\n\n", &reply);
+    test_debug!("\n\nReply {reply:?}\n\n");
 
     match reply {
         StacksMessageType::BlocksInv(blocksinv) => {
@@ -1045,8 +1040,7 @@ fn test_sync_inv_make_inv_messages() {
             assert_eq!(blocksinv.microblocks_bitvec, vec![0x0]);
         }
         x => {
-            error!("Did not get BlocksInv, but got {:?}", &x);
-            assert!(false);
+            panic!("Did not get BlocksInv, but got {x:?}");
         }
     };
 
@@ -1074,7 +1068,7 @@ fn test_sync_inv_make_inv_messages() {
         })
         .unwrap();
 
-    test_debug!("\n\nSend {:?}\n\n", &getblocksinv_request);
+    test_debug!("\n\nSend {getblocksinv_request:?}\n\n");
 
     let reply = peer_1
         .with_network_state(|sortdb, chainstate, network, _relayer, _mempool| {
@@ -1087,15 +1081,14 @@ fn test_sync_inv_make_inv_messages() {
         })
         .unwrap();
 
-    test_debug!("\n\nReply {:?}\n\n", &reply);
+    test_debug!("\n\nReply {reply:?}\n\n");
 
     match reply {
         StacksMessageType::Nack(nack_data) => {
             assert_eq!(nack_data.error_code, NackErrorCodes::InvalidPoxFork);
         }
         x => {
-            error!("Did not get Nack, but got {:?}", &x);
-            assert!(false);
+            panic!("Did not get Nack, but got {x:?}");
         }
     };
 
@@ -1110,7 +1103,7 @@ fn test_sync_inv_make_inv_messages() {
         })
         .unwrap();
 
-    test_debug!("\n\nSend {:?}\n\n", &getblocksinv_request);
+    test_debug!("\n\nSend {getblocksinv_request:?}\n\n");
 
     let reply = peer_1
         .with_network_state(|sortdb, chainstate, network, _relayer, _mempool| {
@@ -1123,15 +1116,14 @@ fn test_sync_inv_make_inv_messages() {
         })
         .unwrap();
 
-    test_debug!("\n\nReply {:?}\n\n", &reply);
+    test_debug!("\n\nReply {reply:?}\n\n");
 
     match reply {
         StacksMessageType::Nack(nack_data) => {
             assert_eq!(nack_data.error_code, NackErrorCodes::NoSuchBurnchainBlock);
         }
         x => {
-            error!("Did not get Nack, but got {:?}", &x);
-            assert!(false);
+            panic!("Did not get Nack, but got {x:?}");
         }
     };
 }
@@ -1392,18 +1384,18 @@ fn test_sync_inv_2_peers_plain() {
             // nothing should break
             match peer_1.network.inv_state {
                 Some(ref inv) => {
-                    assert_eq!(inv.get_broken_peers().len(), 0);
-                    assert_eq!(inv.get_dead_peers().len(), 0);
-                    assert_eq!(inv.get_diverged_peers().len(), 0);
+                    assert!(inv.get_broken_peers().is_empty());
+                    assert!(inv.get_dead_peers().is_empty());
+                    assert!(inv.get_diverged_peers().is_empty());
                 }
                 None => {}
             }
 
             match peer_2.network.inv_state {
                 Some(ref inv) => {
-                    assert_eq!(inv.get_broken_peers().len(), 0);
-                    assert_eq!(inv.get_dead_peers().len(), 0);
-                    assert_eq!(inv.get_diverged_peers().len(), 0);
+                    assert!(inv.get_broken_peers().is_empty());
+                    assert!(inv.get_dead_peers().is_empty());
+                    assert!(inv.get_diverged_peers().is_empty());
                 }
                 None => {}
             }
@@ -1556,9 +1548,9 @@ fn test_sync_inv_2_peers_stale() {
             match peer_1.network.inv_state {
                 Some(ref inv) => {
                     info!("Peer 1 stats: {:?}", &inv.block_stats);
-                    assert_eq!(inv.get_broken_peers().len(), 0);
-                    assert_eq!(inv.get_dead_peers().len(), 0);
-                    assert_eq!(inv.get_diverged_peers().len(), 0);
+                    assert!(inv.get_broken_peers().is_empty());
+                    assert!(inv.get_dead_peers().is_empty());
+                    assert!(inv.get_diverged_peers().is_empty());
 
                     if let Some(peer_2_inv) = inv.block_stats.get(&peer_2.to_neighbor().addr) {
                         if peer_2_inv.inv.num_sortitions
@@ -1579,9 +1571,9 @@ fn test_sync_inv_2_peers_stale() {
             match peer_2.network.inv_state {
                 Some(ref inv) => {
                     info!("Peer 2 stats: {:?}", &inv.block_stats);
-                    assert_eq!(inv.get_broken_peers().len(), 0);
-                    assert_eq!(inv.get_dead_peers().len(), 0);
-                    assert_eq!(inv.get_diverged_peers().len(), 0);
+                    assert!(inv.get_broken_peers().is_empty());
+                    assert!(inv.get_dead_peers().is_empty());
+                    assert!(inv.get_diverged_peers().is_empty());
 
                     if let Some(peer_1_inv) = inv.block_stats.get(&peer_1.to_neighbor().addr) {
                         if peer_1_inv.inv.num_sortitions
@@ -1706,9 +1698,9 @@ fn test_sync_inv_2_peers_unstable() {
             match peer_1.network.inv_state {
                 Some(ref inv) => {
                     info!("Peer 1 stats: {:?}", &inv.block_stats);
-                    assert_eq!(inv.get_broken_peers().len(), 0);
-                    assert_eq!(inv.get_dead_peers().len(), 0);
-                    assert_eq!(inv.get_diverged_peers().len(), 0);
+                    assert!(inv.get_broken_peers().is_empty());
+                    assert!(inv.get_dead_peers().is_empty());
+                    assert!(inv.get_diverged_peers().is_empty());
 
                     if let Some(stats) = inv.get_stats(&peer_2.to_neighbor().addr) {
                         if stats.target_pox_reward_cycle > 0 {
@@ -1731,9 +1723,9 @@ fn test_sync_inv_2_peers_unstable() {
             match peer_2.network.inv_state {
                 Some(ref inv) => {
                     info!("Peer 2 stats: {:?}", &inv.block_stats);
-                    assert_eq!(inv.get_broken_peers().len(), 0);
-                    assert_eq!(inv.get_dead_peers().len(), 0);
-                    assert_eq!(inv.get_diverged_peers().len(), 0);
+                    assert!(inv.get_broken_peers().is_empty());
+                    assert!(inv.get_dead_peers().is_empty());
+                    assert!(inv.get_diverged_peers().is_empty());
 
                     if let Some(stats) = inv.get_stats(&peer_1.to_neighbor().addr) {
                         if stats.target_pox_reward_cycle > 0 {
@@ -1938,9 +1930,9 @@ fn test_sync_inv_2_peers_different_pox_vectors() {
             match peer_1.network.inv_state {
                 Some(ref inv) => {
                     info!("Peer 1 stats: {:?}", &inv.block_stats);
-                    assert_eq!(inv.get_broken_peers().len(), 0);
-                    assert_eq!(inv.get_dead_peers().len(), 0);
-                    assert_eq!(inv.get_diverged_peers().len(), 0);
+                    assert!(inv.get_broken_peers().is_empty());
+                    assert!(inv.get_dead_peers().is_empty());
+                    assert!(inv.get_diverged_peers().is_empty());
                 }
                 None => {}
             }
@@ -1948,9 +1940,9 @@ fn test_sync_inv_2_peers_different_pox_vectors() {
             match peer_2.network.inv_state {
                 Some(ref inv) => {
                     info!("Peer 2 stats: {:?}", &inv.block_stats);
-                    assert_eq!(inv.get_broken_peers().len(), 0);
-                    assert_eq!(inv.get_dead_peers().len(), 0);
-                    assert_eq!(inv.get_diverged_peers().len(), 0);
+                    assert!(inv.get_broken_peers().is_empty());
+                    assert!(inv.get_dead_peers().is_empty());
+                    assert!(inv.get_diverged_peers().is_empty());
                 }
                 None => {}
             }

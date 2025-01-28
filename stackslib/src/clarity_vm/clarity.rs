@@ -2692,7 +2692,7 @@ mod tests {
                     ASTRules::PrecheckSize,
                 )
                 .unwrap();
-                assert_eq!(receipt.post_condition_aborted, true);
+                assert!(receipt.post_condition_aborted);
             });
             conn.as_transaction(|clarity_tx| {
                 StacksChainState::process_transaction_payload(
@@ -2713,7 +2713,7 @@ mod tests {
                 )
                 .unwrap();
 
-                assert_eq!(receipt.post_condition_aborted, true);
+                assert!(receipt.post_condition_aborted);
             });
 
             conn.commit_block();

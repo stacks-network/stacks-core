@@ -2366,11 +2366,11 @@ mod test {
 
         for epoch_id in epoch_list.iter() {
             if activation_epoch_id.is_none() {
-                assert_eq!(auth.is_supported_in_epoch(*epoch_id), true);
+                assert!(auth.is_supported_in_epoch(*epoch_id));
             } else if activation_epoch_id.unwrap() > *epoch_id {
-                assert_eq!(auth.is_supported_in_epoch(*epoch_id), false);
+                assert!(!auth.is_supported_in_epoch(*epoch_id));
             } else {
-                assert_eq!(auth.is_supported_in_epoch(*epoch_id), true);
+                assert!(auth.is_supported_in_epoch(*epoch_id));
             }
         }
     }

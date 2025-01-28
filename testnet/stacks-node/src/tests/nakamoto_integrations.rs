@@ -10696,7 +10696,7 @@ fn test_tenure_extend_from_flashblocks() {
     let initial_balances: Vec<_> = account_keys
         .iter()
         .map(|privk| {
-            let address = to_addr(privk).into();
+            let address = to_addr(privk);
             (address, 1_000_000)
         })
         .collect();

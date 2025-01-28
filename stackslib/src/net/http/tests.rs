@@ -449,15 +449,10 @@ fn test_http_parse_host_header_value() {
             (Some(ref ph), Some(ref expected_ph)) => assert_eq!(*ph, *expected_ph),
             (None, None) => {}
             (Some(ph), None) => {
-                eprintln!(
-                    "Parsed {} successfully to {:?}, but expected error",
-                    host, ph
-                );
-                assert!(false);
+                panic!("Parsed {host} successfully to {ph:?}, but expected error");
             }
             (None, Some(expected_ph)) => {
-                eprintln!("Failed to parse {} successfully", host);
-                assert!(false);
+                panic!("Failed to parse {host} successfully");
             }
         }
     }
@@ -481,8 +476,8 @@ fn test_http_headers_too_big() {
         HttpResponsePreamble::consensus_deserialize(&mut bad_response_preamble.as_bytes())
             .unwrap_err();
 
-    eprintln!("request_err: {:?}", &request_err);
-    eprintln!("response_err: {:?}", &response_err);
+    eprintln!("request_err: {request_err:?}");
+    eprintln!("response_err: {response_err:?}");
 
     assert!(request_err
         .to_string()

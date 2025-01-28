@@ -816,7 +816,7 @@ mod test {
             vec![127, 0, 0, 1]
         );
 
-        assert_eq!(bin_bytes("").unwrap().len(), 0);
+        assert!(bin_bytes("").unwrap().is_empty());
         assert!(bin_bytes("2").is_err());
     }
 }

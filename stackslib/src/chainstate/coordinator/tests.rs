@@ -433,10 +433,8 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _block_timestamp: Option<u64>,
         _coinbase_height: u64,
     ) {
-        assert!(
-            false,
-            "We should never try to announce to the null dispatcher"
-        );
+        error!("We should never try to announce to the null dispatcher");
+        panic!();
     }
 
     fn announce_burn_block(
@@ -1039,7 +1037,7 @@ fn missed_block_commits_2_05() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -1047,7 +1045,7 @@ fn missed_block_commits_2_05() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
@@ -1359,7 +1357,7 @@ fn missed_block_commits_2_1() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -1367,7 +1365,7 @@ fn missed_block_commits_2_1() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
@@ -1703,7 +1701,7 @@ fn late_block_commits_2_1() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -1711,7 +1709,7 @@ fn late_block_commits_2_1() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
@@ -2026,7 +2024,7 @@ fn test_simple_setup() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -2036,7 +2034,7 @@ fn test_simple_setup() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db_blind.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db_blind
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -2044,7 +2042,7 @@ fn test_simple_setup() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // at first, sortition_ids shouldn't have diverged
     //  but once the first reward cycle begins, they should diverge.
@@ -2240,7 +2238,7 @@ fn test_sortition_with_reward_set() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -2248,7 +2246,7 @@ fn test_sortition_with_reward_set() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     let mut started_first_reward_cycle = false;
     // process sequential blocks, and their sortitions...
@@ -2512,7 +2510,7 @@ fn test_sortition_with_burner_reward_set() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -2520,7 +2518,7 @@ fn test_sortition_with_burner_reward_set() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     let mut started_first_reward_cycle = false;
     // process sequential blocks, and their sortitions...
@@ -2776,7 +2774,7 @@ fn test_pox_btc_ops() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -2784,7 +2782,7 @@ fn test_pox_btc_ops() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     let mut started_first_reward_cycle = false;
     // process sequential blocks, and their sortitions...
@@ -3068,7 +3066,7 @@ fn test_stx_transfer_btc_ops() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -3076,7 +3074,7 @@ fn test_stx_transfer_btc_ops() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     let mut started_first_reward_cycle = false;
     // process sequential blocks, and their sortitions...
@@ -3111,7 +3109,7 @@ fn test_stx_transfer_btc_ops() {
         if reward_cycle_info.is_some() {
             // did we process a reward set last cycle? check if the
             //  recipient set size matches our expectation
-            assert_eq!(reward_recipients.len(), 0);
+            assert!(reward_recipients.is_empty());
             // clear the reward recipients tracker, since those
             //  recipients are now eligible again in the new reward cycle
             reward_recipients.clear();
@@ -3503,7 +3501,7 @@ fn test_delegate_stx_btc_ops() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -3511,7 +3509,7 @@ fn test_delegate_stx_btc_ops() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
@@ -3806,7 +3804,7 @@ fn test_initial_coinbase_reward_distributions() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -3814,7 +3812,7 @@ fn test_initial_coinbase_reward_distributions() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
@@ -4041,7 +4039,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -4049,7 +4047,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
@@ -4244,7 +4242,7 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -4252,7 +4250,7 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
@@ -4450,7 +4448,7 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -4458,7 +4456,7 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
@@ -4686,7 +4684,7 @@ fn atlas_stop_start() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -4694,7 +4692,7 @@ fn atlas_stop_start() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
@@ -4983,7 +4981,7 @@ fn test_epoch_verify_active_pox_contract() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -4991,7 +4989,7 @@ fn test_epoch_verify_active_pox_contract() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
@@ -5275,7 +5273,7 @@ fn test_sortition_with_sunset() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -5283,7 +5281,7 @@ fn test_sortition_with_sunset() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     let mut started_first_reward_cycle = false;
     // process sequential blocks, and their sortitions...
@@ -5349,7 +5347,7 @@ fn test_sortition_with_sunset() {
                         + (pox_consts.as_ref().unwrap().reward_cycle_length as u64)
                 {
                     eprintln!("End of PoX (beyond sunset height {} and in next reward cycle): reward set size is {}", burnchain_tip.block_height, reward_recipients.len());
-                    assert_eq!(reward_recipients.len(), 0);
+                    assert!(reward_recipients.is_empty());
                 } else if burnchain_tip.block_height > last_reward_cycle_block {
                     eprintln!(
                         "End of PoX (beyond sunset height {}): reward set size is {}",
@@ -5588,7 +5586,7 @@ fn test_sortition_with_sunset_and_epoch_switch() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -5596,7 +5594,7 @@ fn test_sortition_with_sunset_and_epoch_switch() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     let mut started_first_reward_cycle = false;
     // process sequential blocks, and their sortitions...
@@ -5665,7 +5663,7 @@ fn test_sortition_with_sunset_and_epoch_switch() {
                             + (pox_consts.as_ref().unwrap().reward_cycle_length as u64)
                     {
                         eprintln!("End of PoX (beyond sunset height {} and in next reward cycle): reward set size is {}", burnchain_tip.block_height, reward_recipients.len());
-                        assert_eq!(reward_recipients.len(), 0);
+                        assert!(reward_recipients.is_empty());
                     } else if burnchain_tip.block_height > last_reward_cycle_block {
                         eprintln!(
                             "End of PoX (beyond sunset height {}): reward set size is {}",
@@ -5935,7 +5933,7 @@ fn test_pox_processable_block_in_different_pox_forks() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -5945,7 +5943,7 @@ fn test_pox_processable_block_in_different_pox_forks() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db_blind.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db_blind
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -5953,7 +5951,7 @@ fn test_pox_processable_block_in_different_pox_forks() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
@@ -6224,7 +6222,7 @@ fn test_pox_no_anchor_selected() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -6234,7 +6232,7 @@ fn test_pox_no_anchor_selected() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db_blind.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db_blind
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -6242,7 +6240,7 @@ fn test_pox_no_anchor_selected() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // at first, sortition_ids shouldn't have diverged
     //  but once the first reward cycle begins, they should diverge.
@@ -6439,7 +6437,7 @@ fn test_pox_fork_out_of_order() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -6449,7 +6447,7 @@ fn test_pox_fork_out_of_order() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db_blind.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db_blind
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -6457,7 +6455,7 @@ fn test_pox_fork_out_of_order() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // at first, sortition_ids shouldn't have diverged
     //  but once the first reward cycle begins, they should diverge.

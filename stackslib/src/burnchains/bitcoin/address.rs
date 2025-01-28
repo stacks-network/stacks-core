@@ -769,12 +769,10 @@ mod tests {
                 (Ok(addr), Some(res)) => assert_eq!(BitcoinAddress::Legacy(addr), res),
                 (Err(_e), None) => {}
                 (Ok(_a), None) => {
-                    test_debug!("Decoded an address when we should not have");
-                    assert!(false);
+                    panic!("Decoded an address when we should not have");
                 }
                 (Err(_e), Some(_res)) => {
-                    test_debug!("Failed to decode when we should have: {}", fixture.addr);
-                    assert!(false);
+                    panic!("Failed to decode when we should have: {}", fixture.addr);
                 }
             }
         }
@@ -893,17 +891,15 @@ mod tests {
                 (Some(addr), Some(res)) => assert_eq!(addr, *res),
                 (None, None) => {}
                 (None, Some(_r)) => {
-                    test_debug!("Failed to decode an address when we should have");
-                    assert!(false);
+                    panic!("Failed to decode an address when we should have");
                 }
                 (Some(_a), None) => {
-                    test_debug!("Decoded an address when we should not have");
-                    assert!(false);
+                    panic!("Decoded an address when we should not have");
                 }
             }
             if let Some(addr) = &fixture.result {
                 assert_eq!(
-                    format!("{}", &addr).to_lowercase(),
+                    format!("{addr}").to_lowercase(),
                     fixture.addr.to_lowercase()
                 );
             }
@@ -1079,16 +1075,13 @@ mod tests {
                 (Some(addr), Some(res)) => assert_eq!(addr, res),
                 (None, None) => {}
                 (None, Some(_r)) => {
-                    test_debug!(
-                        "Failed to decode an address when we should have: {:?}, {:?}",
+                    panic!(
+                        "Failed to decode an address when we should have: {:?}, {_r:?}",
                         &fixture.scriptpubkey,
-                        &_r
                     );
-                    assert!(false);
                 }
                 (Some(_a), None) => {
-                    test_debug!("Decoded an address when we should not have");
-                    assert!(false);
+                    panic!("Decoded an address when we should not have");
                 }
             }
         }

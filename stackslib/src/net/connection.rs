@@ -1547,7 +1547,7 @@ mod test {
         for i in 0..conn.options.outbox_maxlen {
             // send
             if i % 100 == 0 {
-                test_debug!("Generated {} messages...", i);
+                test_debug!("Generated {i} messages...");
             }
             let msg = message_factory(i as u32);
             messages.push(msg);
@@ -1571,9 +1571,9 @@ mod test {
                 protocol.write_message(&mut p, &messages[i]).unwrap();
                 i += 1;
 
-                test_debug!("Flush pipe {}", i);
+                test_debug!("Flush pipe {i}");
                 let _ = p.flush();
-                test_debug!("Flushed pipe {}", i);
+                test_debug!("Flushed pipe {i}");
             }
 
             test_debug!("Pusher exit");
@@ -1602,15 +1602,14 @@ mod test {
                                 thread::yield_now();
                             }
                             if nw > 0 {
-                                test_debug!("Written {} bytes", nw);
+                                test_debug!("Written {nw} bytes");
                             }
                         } else {
                             done = true;
                         }
                     }
                     Err(e) => {
-                        assert!(false, "{:?}", &e);
-                        unreachable!();
+                        panic!("{e:?}");
                     }
                 }
             }
@@ -1632,31 +1631,28 @@ mod test {
 
                             cnt
                         }
-                        Err(e) => match e {
-                            net_error::PermanentlyDrained => {
+                        Err(e) => {
+                            if let net_error::PermanentlyDrained = e {
                                 drained = true;
                                 0
+                            } else {
+                                panic!("{e:?}");
                             }
-                            _ => {
-                                assert!(false, "{:?}", &e);
-                                unreachable!();
-                            }
-                        },
+                        }
                     };
 
                     if nr > 0 {
-                        test_debug!("Received {} bytes", nr);
+                        test_debug!("Received {nr} bytes");
                         total_bytes += nr;
                     }
                 }
                 Err(e) => {
-                    assert!(false, "{:?}", &e);
-                    unreachable!();
+                    panic!("{e:?}");
                 }
             }
         }
 
-        test_debug!("Received {} bytes in total", total_bytes);
+        test_debug!("Received {total_bytes} bytes in total");
 
         match shared_state.lock() {
             Ok(ref mut conn) => {
@@ -1671,9 +1667,9 @@ mod test {
                     conn.outbox.socket_out_ptr
                 );
 
-                assert_eq!(conn.inbox.buf.len(), 0);
+                assert!(conn.inbox.buf.is_empty());
                 assert_eq!(conn.inbox.message_ptr, 0);
-                assert_eq!(conn.outbox.socket_out_buf.len(), 0);
+                assert!(conn.outbox.socket_out_buf.is_empty());
                 assert_eq!(conn.outbox.socket_out_ptr, 0);
 
                 let recved = conn.drain_inbox();
@@ -1681,8 +1677,7 @@ mod test {
                 assert_eq!(recved, expected_messages);
             }
             Err(e) => {
-                assert!(false, "{:?}", &e);
-                unreachable!();
+                panic!("{e:?}");
             }
         }
 
@@ -1734,9 +1729,9 @@ mod test {
                 protocol.write_message(&mut rh, &messages[i]).unwrap();
                 i += 1;
 
-                test_debug!("Flush handle {}", i);
+                test_debug!("Flush handle {i}");
                 let _ = rh.flush();
-                test_debug!("Flushed handle {}", i);
+                test_debug!("Flushed handle {i}");
 
                 rhs.push(rh);
             }
@@ -1765,15 +1760,14 @@ mod test {
                         if conn.outbox.num_messages() > 0 {
                             let nw = conn.send_data(&mut write).unwrap();
                             if nw > 0 {
-                                test_debug!("Written {} bytes", nw);
+                                test_debug!("Written {nw} bytes");
                             }
                         } else {
                             done = true;
                         }
                     }
                     Err(e) => {
-                        assert!(false, "{:?}", &e);
-                        unreachable!();
+                        panic!("{e:?}");
                     }
                 }
             }
@@ -1789,31 +1783,28 @@ mod test {
                     // in the foreground, get the messages
                     let nr = match conn.recv_data(&mut read) {
                         Ok(cnt) => cnt,
-                        Err(e) => match e {
-                            net_error::PermanentlyDrained => {
+                        Err(e) => {
+                            if let net_error::PermanentlyDrained = e {
                                 drained = true;
                                 0
+                            } else {
+                                panic!("{e:?}");
                             }
-                            _ => {
-                                assert!(false, "{:?}", &e);
-                                unreachable!();
-                            }
-                        },
+                        }
                     };
 
                     if nr > 0 {
-                        test_debug!("Received {} bytes", nr);
+                        test_debug!("Received {nr} bytes");
                         total_bytes += nr;
                     }
                 }
                 Err(e) => {
-                    assert!(false, "{:?}", &e);
-                    unreachable!();
+                    panic!("{e:?}");
                 }
             }
         }
 
-        test_debug!("Received {} bytes in total", total_bytes);
+        test_debug!("Received {total_bytes} bytes in total");
 
         let flushed_handles = rx.recv().unwrap();
 
@@ -1830,20 +1821,19 @@ mod test {
                     conn.outbox.socket_out_ptr
                 );
 
-                assert_eq!(conn.inbox.buf.len(), 0);
+                assert!(conn.inbox.buf.is_empty());
                 assert_eq!(conn.inbox.message_ptr, 0);
-                assert_eq!(conn.outbox.socket_out_buf.len(), 0);
+                assert!(conn.outbox.socket_out_buf.is_empty());
                 assert_eq!(conn.outbox.socket_out_ptr, 0);
 
                 // fulfill everything
                 let recved = conn.drain_inbox();
 
                 // everything was sent to the handles -- all solicited
-                assert_eq!(recved.len(), 0);
+                assert!(recved.is_empty());
             }
             Err(e) => {
-                assert!(false, "{e:?}");
-                unreachable!();
+                panic!("{e:?}");
             }
         }
 
@@ -2036,7 +2026,7 @@ mod test {
         }
 
         assert_eq!(nw, ping_size * 2);
-        assert_eq!(conn.outbox.outbox.len(), 0);
+        assert!(conn.outbox.outbox.is_empty());
     }
 
     #[test]
@@ -2352,7 +2342,7 @@ mod test {
         conn.drain_timeouts();
 
         // all messages timed out
-        assert_eq!(conn.outbox.inflight.len(), 0);
+        assert!(conn.outbox.inflight.is_empty());
 
         {
             let mut ping_fd = NetCursor::new(ping_buf.as_mut_slice());

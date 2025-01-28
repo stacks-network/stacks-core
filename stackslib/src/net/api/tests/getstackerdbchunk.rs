@@ -182,7 +182,7 @@ fn test_try_make_response() {
     );
 
     let resp = response.decode_stackerdb_chunk().unwrap();
-    assert_eq!(resp.len(), 0);
+    assert!(resp.is_empty());
 
     let response = responses.remove(0);
     debug!(

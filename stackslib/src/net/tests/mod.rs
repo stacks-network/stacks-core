@@ -1774,12 +1774,12 @@ fn test_network_result_update() {
             .unwrap(),
         &nblk1
     );
-    assert_eq!(updated_downloaded.pushed_nakamoto_blocks.len(), 0);
-    assert_eq!(updated_downloaded.uploaded_nakamoto_blocks.len(), 0);
+    assert!(updated_downloaded.pushed_nakamoto_blocks.is_empty());
+    assert!(updated_downloaded.uploaded_nakamoto_blocks.is_empty());
 
     debug!("====");
     let updated_pushed = old.clone().update(new_pushed);
-    assert_eq!(updated_pushed.nakamoto_blocks.len(), 0);
+    assert!(updated_pushed.nakamoto_blocks.is_empty());
     assert_eq!(updated_pushed.pushed_nakamoto_blocks.len(), 1);
     assert_eq!(
         updated_pushed
@@ -1802,12 +1802,12 @@ fn test_network_result_update() {
             .blocks[0],
         nblk1
     );
-    assert_eq!(updated_pushed.uploaded_nakamoto_blocks.len(), 0);
+    assert!(updated_pushed.uploaded_nakamoto_blocks.is_empty());
 
     debug!("====");
     let updated_uploaded = old.clone().update(new_uploaded);
-    assert_eq!(updated_uploaded.nakamoto_blocks.len(), 0);
-    assert_eq!(updated_uploaded.pushed_nakamoto_blocks.len(), 0);
+    assert!(updated_uploaded.nakamoto_blocks.is_empty());
+    assert!(updated_uploaded.pushed_nakamoto_blocks.is_empty());
     assert_eq!(updated_uploaded.uploaded_nakamoto_blocks.len(), 1);
     assert_eq!(updated_uploaded.uploaded_nakamoto_blocks[0], nblk1);
 }

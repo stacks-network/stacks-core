@@ -388,15 +388,13 @@ pub mod tests {
                 }
                 (Err(_e), None) => {}
                 (Ok(_parsed_tx), None) => {
-                    test_debug!("Parsed a tx when we should not have: {}", tx_fixture.txstr);
-                    assert!(false);
+                    panic!("Parsed a tx when we should not have: {}", tx_fixture.txstr);
                 }
                 (Err(_e), Some(_result)) => {
-                    test_debug!(
+                    panic!(
                         "Did not parse a tx when we should have: {}",
                         tx_fixture.txstr
                     );
-                    assert!(false);
                 }
             };
         }

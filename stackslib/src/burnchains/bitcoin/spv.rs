@@ -1521,7 +1521,7 @@ mod test {
             spv_client.insert_block_headers_after(1, headers.clone())
         {
         } else {
-            assert!(false);
+            panic!();
         }
 
         // should fail
@@ -1529,7 +1529,7 @@ mod test {
             spv_client.insert_block_headers_after(9, headers.clone())
         {
         } else {
-            assert!(false);
+            panic!();
         }
 
         spv_client.drop_headers(1).unwrap();
@@ -1646,7 +1646,7 @@ mod test {
             spv_client.insert_block_headers_before(1, headers.clone())
         {
         } else {
-            assert!(false);
+            panic!();
         }
 
         // should succeed

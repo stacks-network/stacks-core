@@ -121,5 +121,5 @@ fn test_try_make_response() {
         std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
     );
     let resp = response.decode_stackerdb_replicas().unwrap();
-    assert_eq!(resp.len(), 0);
+    assert!(resp.is_empty());
 }

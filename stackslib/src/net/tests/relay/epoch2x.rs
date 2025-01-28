@@ -202,9 +202,7 @@ fn test_relayer_stats_add_relyed_messages() {
         for (_, hash) in relay_stats.recent_messages.get(&nk).unwrap().iter() {
             found = found || (*hash == digest);
         }
-        if !found {
-            assert!(false);
-        }
+        assert!(found);
     }
 
     // never overflow number of neighbors tracked
@@ -346,7 +344,7 @@ fn test_relay_inbound_peer_rankings() {
     };
 
     let dups = relay_stats.count_relay_dups(&all_transactions[0]);
-    assert_eq!(dups.len(), 0);
+    assert!(dups.is_empty());
 
     relay_stats.add_relayed_message(nk_1.clone(), &all_transactions[0]);
     relay_stats.add_relayed_message(nk_1.clone(), &all_transactions[0]);
@@ -782,13 +780,10 @@ fn push_message(
             return false;
         }
         Err(e) => {
-            test_debug!(
-                "{:?} encountered fatal error when forwarding: {:?}",
-                &peer.to_neighbor().addr,
-                &e
+            panic!(
+                "{:?} encountered fatal error when forwarding: {e:?}",
+                &peer.to_neighbor().addr
             );
-            assert!(false);
-            unreachable!();
         }
     }
 }
@@ -3135,10 +3130,10 @@ fn process_new_blocks_rejects_problematic_asts() {
 
     // despite this data showing up in all aspects of the network result, none of it actually
     // gets relayed
-    assert_eq!(processed_blocks.len(), 0);
-    assert_eq!(processed_mblocks.len(), 0);
-    assert_eq!(relay_mblocks.len(), 0);
-    assert_eq!(bad_neighbors.len(), 0);
+    assert!(processed_blocks.is_empty());
+    assert!(processed_mblocks.is_empty());
+    assert!(relay_mblocks.is_empty());
+    assert!(bad_neighbors.is_empty());
 
     let txs_relayed = Relayer::process_transactions(
         &mut network_result,
@@ -3148,7 +3143,7 @@ fn process_new_blocks_rejects_problematic_asts() {
         None,
     )
     .unwrap();
-    assert_eq!(txs_relayed.len(), 0);
+    assert!(txs_relayed.is_empty());
 }
 
 #[test]

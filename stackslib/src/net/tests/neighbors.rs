@@ -70,16 +70,16 @@ fn test_step_walk_1_neighbor_plain() {
 
             match peer_1.network.walk {
                 Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 }
                 None => {}
             };
 
             match peer_2.network.walk {
                 Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 }
                 None => {}
             };
@@ -108,7 +108,7 @@ fn test_step_walk_1_neighbor_plain() {
 
         // peer 2 is in peer 1's frontier DB
         let peer_1_dbconn = peer_1.get_peerdb_conn();
-        match PeerDB::get_peer(
+        if let Some(p) = PeerDB::get_peer(
             peer_1_dbconn,
             neighbor_2.addr.network_id,
             &neighbor_2.addr.addrbytes,
@@ -116,14 +116,10 @@ fn test_step_walk_1_neighbor_plain() {
         )
         .unwrap()
         {
-            None => {
-                test_debug!("no such peer: {:?}", &neighbor_2.addr);
-                assert!(false);
-            }
-            Some(p) => {
-                assert_eq!(p.public_key, neighbor_2.public_key);
-                assert_eq!(p.expire_block, neighbor_2.expire_block);
-            }
+            assert_eq!(p.public_key, neighbor_2.public_key);
+            assert_eq!(p.expire_block, neighbor_2.expire_block);
+        } else {
+            panic!("no such peer: {:?}", &neighbor_2.addr);
         }
 
         // peer 1 learned and confirmed its public IP address from peer 2
@@ -186,18 +182,18 @@ fn test_step_walk_1_neighbor_plain_no_natpunch() {
 
             match peer_1.network.walk {
                 Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.dead_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.dead_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 }
                 None => {}
             };
 
             match peer_2.network.walk {
                 Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.dead_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.dead_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 }
                 None => {}
             };
@@ -230,7 +226,7 @@ fn test_step_walk_1_neighbor_plain_no_natpunch() {
 
         // peer 2 is in peer 1's frontier DB
         let peer_1_dbconn = peer_1.get_peerdb_conn();
-        match PeerDB::get_peer(
+        if let Some(p) = PeerDB::get_peer(
             peer_1_dbconn,
             neighbor_2.addr.network_id,
             &neighbor_2.addr.addrbytes,
@@ -238,14 +234,10 @@ fn test_step_walk_1_neighbor_plain_no_natpunch() {
         )
         .unwrap()
         {
-            None => {
-                test_debug!("no such peer: {:?}", &neighbor_2.addr);
-                assert!(false);
-            }
-            Some(p) => {
-                assert_eq!(p.public_key, neighbor_2.public_key);
-                assert_eq!(p.expire_block, neighbor_2.expire_block);
-            }
+            assert_eq!(p.public_key, neighbor_2.public_key);
+            assert_eq!(p.expire_block, neighbor_2.expire_block);
+        } else {
+            panic!("no such peer: {:?}", &neighbor_2.addr);
         }
 
         // peer 1 did not learn IP address
@@ -308,16 +300,16 @@ fn test_step_walk_1_neighbor_denied() {
 
             match peer_1.network.walk {
                 Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 }
                 None => {}
             };
 
             match peer_2.network.walk {
                 Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 }
                 None => {}
             };
@@ -402,16 +394,16 @@ fn test_step_walk_1_neighbor_bad_epoch() {
 
             match peer_1.network.walk {
                 Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 }
                 None => {}
             };
 
             match peer_2.network.walk {
                 Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 }
                 None => {}
             };
@@ -465,16 +457,16 @@ fn test_step_walk_1_neighbor_heartbeat_ping() {
 
             match peer_1.network.walk {
                 Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 }
                 None => {}
             };
 
             match peer_2.network.walk {
                 Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 }
                 None => {}
             };
@@ -503,7 +495,7 @@ fn test_step_walk_1_neighbor_heartbeat_ping() {
 
         // peer 2 is in peer 1's frontier DB
         let peer_1_dbconn = peer_1.get_peerdb_conn();
-        match PeerDB::get_peer(
+        if let Some(p) = PeerDB::get_peer(
             peer_1_dbconn,
             neighbor_2.addr.network_id,
             &neighbor_2.addr.addrbytes,
@@ -511,18 +503,14 @@ fn test_step_walk_1_neighbor_heartbeat_ping() {
         )
         .unwrap()
         {
-            None => {
-                test_debug!("no such peer: {:?}", &neighbor_2.addr);
-                assert!(false);
-            }
-            Some(p) => {
-                assert_eq!(p.public_key, neighbor_2.public_key);
-                assert_eq!(p.expire_block, neighbor_2.expire_block);
-            }
+            assert_eq!(p.public_key, neighbor_2.public_key);
+            assert_eq!(p.expire_block, neighbor_2.expire_block);
+        } else {
+            panic!("no such peer: {:?}", &neighbor_2.addr);
         }
 
-        assert_eq!(peer_1.network.relay_handles.len(), 0);
-        assert_eq!(peer_2.network.relay_handles.len(), 0);
+        assert!(peer_1.network.relay_handles.is_empty());
+        assert!(peer_2.network.relay_handles.is_empty());
 
         info!("Wait 60 seconds for ping timeout");
         sleep_ms(60000);
@@ -575,8 +563,8 @@ fn test_step_walk_1_neighbor_bootstrapping() {
 
             match peer_1.network.walk {
                 Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
 
                     // peer 2 never gets added to peer 1's frontier
                     assert!(!w.frontier.contains_key(&neighbor_2.addr));
@@ -586,8 +574,8 @@ fn test_step_walk_1_neighbor_bootstrapping() {
 
             match peer_2.network.walk {
                 Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 }
                 None => {}
             };
@@ -659,16 +647,16 @@ fn test_step_walk_1_neighbor_behind() {
 
             match peer_1.network.walk {
                 Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 }
                 None => {}
             };
 
             match peer_2.network.walk {
                 Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
 
                     // peer 1 never gets added to peer 2's frontier
                     assert!(!w.frontier.contains_key(&neighbor_1.addr));
@@ -710,7 +698,7 @@ fn test_step_walk_1_neighbor_behind() {
 
         // peer 2 was added to the peer DB of peer 1, even though peer 1 is very behind peer 2
         let peer_1_dbconn = peer_1.get_peerdb_conn();
-        match PeerDB::get_peer(
+        if let Some(p) = PeerDB::get_peer(
             peer_1_dbconn,
             neighbor_2.addr.network_id,
             &neighbor_2.addr.addrbytes,
@@ -718,14 +706,10 @@ fn test_step_walk_1_neighbor_behind() {
         )
         .unwrap()
         {
-            None => {
-                test_debug!("no such peer: {:?}", &neighbor_2.addr);
-                assert!(false);
-            }
-            Some(p) => {
-                assert_eq!(p.public_key, neighbor_2.public_key);
-                assert_eq!(p.expire_block, neighbor_2.expire_block);
-            }
+            assert_eq!(p.public_key, neighbor_2.public_key);
+            assert_eq!(p.expire_block, neighbor_2.expire_block);
+        } else {
+            panic!("no such peer: {:?}", &neighbor_2.addr);
         }
     })
 }
@@ -791,16 +775,16 @@ fn test_step_walk_10_neighbors_of_neighbor_plain() {
 
                 match peer_1.network.walk {
                     Some(ref w) => {
-                        assert_eq!(w.result.broken_connections.len(), 0);
-                        assert_eq!(w.result.replaced_neighbors.len(), 0);
+                        assert!(w.result.broken_connections.is_empty());
+                        assert!(w.result.replaced_neighbors.is_empty());
                     }
                     None => {}
                 };
 
                 match peer_2.network.walk {
                     Some(ref w) => {
-                        assert_eq!(w.result.broken_connections.len(), 0);
-                        assert_eq!(w.result.replaced_neighbors.len(), 0);
+                        assert!(w.result.broken_connections.is_empty());
+                        assert!(w.result.replaced_neighbors.is_empty());
                     }
                     None => {}
                 };
@@ -944,16 +928,16 @@ fn test_step_walk_10_neighbors_of_neighbor_bootstrapping() {
 
                 match peer_1.network.walk {
                     Some(ref w) => {
-                        assert_eq!(w.result.broken_connections.len(), 0);
-                        assert_eq!(w.result.replaced_neighbors.len(), 0);
+                        assert!(w.result.broken_connections.is_empty());
+                        assert!(w.result.replaced_neighbors.is_empty());
                     }
                     None => {}
                 };
 
                 match peer_2.network.walk {
                     Some(ref w) => {
-                        assert_eq!(w.result.broken_connections.len(), 0);
-                        assert_eq!(w.result.replaced_neighbors.len(), 0);
+                        assert!(w.result.broken_connections.is_empty());
+                        assert!(w.result.replaced_neighbors.is_empty());
                     }
                     None => {}
                 };
@@ -997,19 +981,12 @@ fn test_step_walk_10_neighbors_of_neighbor_bootstrapping() {
                     stale_n.addr.port,
                 )
                 .unwrap();
-                match stale_peer_opt {
-                    None => {}
-                    Some(_) => {
-                        test_debug!("stale peer contacted: {:?}", &stale_n.addr);
-                        assert!(false);
-                    }
+                if stale_peer_opt.is_some() {
+                    panic!("stale peer contacted: {:?}", &stale_n.addr);
                 }
             }
 
-            test_debug!(
-                "Peer 1 has contactd {} of Peer 2's neighbors",
-                num_contacted
-            );
+            test_debug!("Peer 1 has contactd {num_contacted} of Peer 2's neighbors");
 
             if num_contacted < 5 {
                 continue;
@@ -1093,16 +1070,16 @@ fn test_step_walk_2_neighbors_plain() {
 
             match peer_1.network.walk {
                 Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 }
                 None => {}
             };
 
             match peer_2.network.walk {
                 Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 }
                 None => {}
             };
@@ -1141,7 +1118,7 @@ fn test_step_walk_2_neighbors_plain() {
 
         // peer 2 was added to the peer DB of peer 1
         let peer_1_dbconn = peer_1.get_peerdb_conn();
-        match PeerDB::get_peer(
+        if let Some(p) = PeerDB::get_peer(
             peer_1_dbconn,
             neighbor_2.addr.network_id,
             &neighbor_2.addr.addrbytes,
@@ -1149,19 +1126,15 @@ fn test_step_walk_2_neighbors_plain() {
         )
         .unwrap()
         {
-            None => {
-                test_debug!("no such peer: {:?}", &neighbor_2.addr);
-                assert!(false);
-            }
-            Some(p) => {
-                assert_eq!(p.public_key, neighbor_2.public_key);
-                assert_eq!(p.expire_block, neighbor_2.expire_block);
-            }
+            assert_eq!(p.public_key, neighbor_2.public_key);
+            assert_eq!(p.expire_block, neighbor_2.expire_block);
+        } else {
+            panic!("no such peer: {:?}", &neighbor_2.addr);
         }
 
         // peer 1 was added to the peer DB of peer 2
         let peer_2_dbconn = peer_2.get_peerdb_conn();
-        match PeerDB::get_peer(
+        if let Some(p) = PeerDB::get_peer(
             peer_2_dbconn,
             neighbor_1.addr.network_id,
             &neighbor_1.addr.addrbytes,
@@ -1169,14 +1142,10 @@ fn test_step_walk_2_neighbors_plain() {
         )
         .unwrap()
         {
-            None => {
-                test_debug!("no such peer: {:?}", &neighbor_1.addr);
-                assert!(false);
-            }
-            Some(p) => {
-                assert_eq!(p.public_key, neighbor_1.public_key);
-                assert_eq!(p.expire_block, neighbor_1.expire_block);
-            }
+            assert_eq!(p.public_key, neighbor_1.public_key);
+            assert_eq!(p.expire_block, neighbor_1.expire_block);
+        } else {
+            panic!("no such peer: {:?}", &neighbor_1.addr);
         }
 
         // walks were reset at least once
@@ -1373,24 +1342,24 @@ fn test_step_walk_3_neighbors_inbound() {
 
             match peer_1.network.walk {
                 Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 }
                 None => {}
             };
 
             match peer_2.network.walk {
                 Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 }
                 None => {}
             };
 
             match peer_3.network.walk {
                 Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 }
                 None => {}
             };
@@ -1426,77 +1395,61 @@ fn test_step_walk_3_neighbors_inbound() {
 
         // peer 2 was added to the peer DB of peer 1
         let peer_1_dbconn = peer_1.get_peerdb_conn();
-        match PeerDB::get_peer_by_port(
+        if let Some(p) = PeerDB::get_peer_by_port(
             peer_1_dbconn,
             neighbor_2.addr.network_id,
             neighbor_2.addr.port,
         )
         .unwrap()
         {
-            None => {
-                test_debug!("no such peer: {:?}", &neighbor_2.addr);
-                assert!(false);
-            }
-            Some(p) => {
-                assert_eq!(p.public_key, neighbor_2.public_key);
-                assert_eq!(p.expire_block, neighbor_2.expire_block);
-            }
+            assert_eq!(p.public_key, neighbor_2.public_key);
+            assert_eq!(p.expire_block, neighbor_2.expire_block);
+        } else {
+            panic!("no such peer: {:?}", &neighbor_2.addr);
         }
 
         // peer 3 was added to the peer DB of peer 1
-        match PeerDB::get_peer_by_port(
+        if let Some(p) = PeerDB::get_peer_by_port(
             peer_1_dbconn,
             neighbor_3.addr.network_id,
             neighbor_3.addr.port,
         )
         .unwrap()
         {
-            None => {
-                test_debug!("no such peer: {:?}", &neighbor_3.addr);
-                assert!(false);
-            }
-            Some(p) => {
-                assert_eq!(p.public_key, neighbor_3.public_key);
-                assert_eq!(p.expire_block, neighbor_3.expire_block);
-            }
+            assert_eq!(p.public_key, neighbor_3.public_key);
+            assert_eq!(p.expire_block, neighbor_3.expire_block);
+        } else {
+            panic!("no such peer: {:?}", &neighbor_3.addr);
         }
 
         // peer 2 was added to the peer DB of peer 3
         let peer_2_dbconn = peer_2.get_peerdb_conn();
-        match PeerDB::get_peer_by_port(
+        if let Some(p) = PeerDB::get_peer_by_port(
             peer_2_dbconn,
             neighbor_3.addr.network_id,
             neighbor_3.addr.port,
         )
         .unwrap()
         {
-            None => {
-                test_debug!("no such peer: {:?}", &neighbor_3.addr);
-                assert!(false);
-            }
-            Some(p) => {
-                assert_eq!(p.public_key, neighbor_3.public_key);
-                assert_eq!(p.expire_block, neighbor_3.expire_block);
-            }
+            assert_eq!(p.public_key, neighbor_3.public_key);
+            assert_eq!(p.expire_block, neighbor_3.expire_block);
+        } else {
+            panic!("no such peer: {:?}", &neighbor_3.addr);
         }
 
         // peer 3 was added to the peer DB of peer 2
         let peer_3_dbconn = peer_3.get_peerdb_conn();
-        match PeerDB::get_peer_by_port(
+        if let Some(p) = PeerDB::get_peer_by_port(
             peer_3_dbconn,
             neighbor_2.addr.network_id,
             neighbor_2.addr.port,
         )
         .unwrap()
         {
-            None => {
-                test_debug!("no such peer: {:?}", &neighbor_2.addr);
-                assert!(false);
-            }
-            Some(p) => {
-                assert_eq!(p.public_key, neighbor_2.public_key);
-                assert_eq!(p.expire_block, neighbor_2.expire_block);
-            }
+            assert_eq!(p.public_key, neighbor_2.public_key);
+            assert_eq!(p.expire_block, neighbor_2.expire_block);
+        } else {
+            panic!("no such peer: {:?}", &neighbor_2.addr);
         }
     })
 }
@@ -1544,16 +1497,16 @@ fn test_step_walk_2_neighbors_rekey() {
 
                 match peer_1.network.walk {
                     Some(ref w) => {
-                        assert_eq!(w.result.broken_connections.len(), 0);
-                        assert_eq!(w.result.replaced_neighbors.len(), 0);
+                        assert!(w.result.broken_connections.is_empty());
+                        assert!(w.result.replaced_neighbors.is_empty());
                     }
                     None => {}
                 };
 
                 match peer_2.network.walk {
                     Some(ref w) => {
-                        assert_eq!(w.result.broken_connections.len(), 0);
-                        assert_eq!(w.result.replaced_neighbors.len(), 0);
+                        assert!(w.result.broken_connections.is_empty());
+                        assert!(w.result.replaced_neighbors.is_empty());
                     }
                     None => {}
                 };
@@ -1651,16 +1604,16 @@ fn test_step_walk_2_neighbors_different_networks() {
 
             match peer_1.network.walk {
                 Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 }
                 None => {}
             };
 
             match peer_2.network.walk {
                 Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 }
                 None => {}
             };
@@ -1668,7 +1621,7 @@ fn test_step_walk_2_neighbors_different_networks() {
             i += 1;
         }
 
-        debug!("Completed walk round {} step(s)", i);
+        debug!("Completed walk round {i} step(s)");
 
         // peer 1 did NOT contact peer 2
         let stats_1 = peer_1

@@ -214,7 +214,7 @@ fn test_try_make_response() {
     );
 
     let resp = response.decode_stackerdb_chunk_ack().unwrap();
-    assert_eq!(resp.accepted, true);
+    assert!(resp.accepted);
     assert_eq!(resp.metadata.as_ref().unwrap().slot_id, 1);
     assert_eq!(resp.metadata.as_ref().unwrap().slot_version, 1);
 
@@ -225,7 +225,7 @@ fn test_try_make_response() {
     );
 
     let resp = response.decode_stackerdb_chunk_ack().unwrap();
-    assert_eq!(resp.accepted, true);
+    assert!(resp.accepted);
     assert_eq!(resp.metadata.as_ref().unwrap().slot_id, 1);
     assert_eq!(resp.metadata.as_ref().unwrap().slot_version, 2);
 
@@ -236,19 +236,7 @@ fn test_try_make_response() {
     );
 
     let resp = response.decode_stackerdb_chunk_ack().unwrap();
-    assert_eq!(resp.accepted, false);
-    assert_eq!(resp.metadata.as_ref().unwrap().slot_id, 1);
-    assert_eq!(resp.metadata.as_ref().unwrap().slot_version, 2);
-    assert!(resp.reason.is_some());
-
-    let response = responses.remove(0);
-    debug!(
-        "Response:\n{}\n",
-        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
-    );
-
-    let resp = response.decode_stackerdb_chunk_ack().unwrap();
-    assert_eq!(resp.accepted, false);
+    assert!(!resp.accepted);
     assert_eq!(resp.metadata.as_ref().unwrap().slot_id, 1);
     assert_eq!(resp.metadata.as_ref().unwrap().slot_version, 2);
     assert!(resp.reason.is_some());
@@ -260,7 +248,19 @@ fn test_try_make_response() {
     );
 
     let resp = response.decode_stackerdb_chunk_ack().unwrap();
-    assert_eq!(resp.accepted, false);
+    assert!(!resp.accepted);
+    assert_eq!(resp.metadata.as_ref().unwrap().slot_id, 1);
+    assert_eq!(resp.metadata.as_ref().unwrap().slot_version, 2);
+    assert!(resp.reason.is_some());
+
+    let response = responses.remove(0);
+    debug!(
+        "Response:\n{}\n",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+
+    let resp = response.decode_stackerdb_chunk_ack().unwrap();
+    assert!(!resp.accepted);
     assert!(resp.metadata.is_none());
     assert!(resp.reason.is_some());
 

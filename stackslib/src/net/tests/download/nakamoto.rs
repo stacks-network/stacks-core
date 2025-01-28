@@ -562,7 +562,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
             ),
             1
         );
-        assert_eq!(full_schedule.len(), 0);
+        assert!(full_schedule.is_empty());
         assert_eq!(empty_downloaders.len(), 1);
     }
 
@@ -1369,7 +1369,7 @@ fn test_make_tenure_downloaders() {
                 wanted_tenures[w].winning_block_id.0,
                 all_sortitions[i].winning_stacks_block_hash.0
             );
-            assert_eq!(wanted_tenures[w].processed, false);
+            assert!(!wanted_tenures[w].processed);
         }
 
         let Err(NetError::DBError(DBError::NotFoundError)) =
@@ -1388,7 +1388,7 @@ fn test_make_tenure_downloaders() {
             tip.block_height,
         )
         .unwrap();
-        assert_eq!(wanted_tenures.len(), 0);
+        assert!(wanted_tenures.is_empty());
     }
 
     // test load_wanted_tenures_for_reward_cycle
@@ -1418,7 +1418,7 @@ fn test_make_tenure_downloaders() {
                 wanted_tenures[w].winning_block_id.0,
                 all_sortitions[i].winning_stacks_block_hash.0
             );
-            assert_eq!(wanted_tenures[w].processed, false);
+            assert!(!wanted_tenures[w].processed);
         }
 
         let Err(NetError::DBError(DBError::NotFoundError)) =
@@ -1450,7 +1450,7 @@ fn test_make_tenure_downloaders() {
                 wanted_tenures[w].winning_block_id.0,
                 all_sortitions[i].winning_stacks_block_hash.0
             );
-            assert_eq!(wanted_tenures[w].processed, false);
+            assert!(!wanted_tenures[w].processed);
         }
 
         let all_wanted_tenures = wanted_tenures;
@@ -1473,7 +1473,7 @@ fn test_make_tenure_downloaders() {
                 .winning_stacks_block_hash
                 .0
         );
-        assert_eq!(wanted_tenures[0].processed, false);
+        assert!(!wanted_tenures[0].processed);
 
         let wanted_tenures = NakamotoDownloadStateMachine::load_wanted_tenures_at_tip(
             None,
@@ -1482,7 +1482,7 @@ fn test_make_tenure_downloaders() {
             &all_wanted_tenures,
         )
         .unwrap();
-        assert_eq!(wanted_tenures.len(), 0);
+        assert!(wanted_tenures.is_empty());
     }
 
     // test inner_update_processed_wanted_tenures
@@ -1801,7 +1801,7 @@ fn test_make_tenure_downloaders() {
         assert_eq!(tenure_block_ids.len(), 1);
 
         let available_tenures = tenure_block_ids.get(&naddr).unwrap();
-        assert_eq!(available_tenures.len(), 0);
+        assert!(available_tenures.is_empty());
     }
 
     // test make_ibd_download_schedule
@@ -2058,7 +2058,7 @@ fn test_make_tenure_downloaders() {
         );
 
         // only made 4 downloaders got created
-        assert_eq!(ibd_schedule.len(), 0);
+        assert!(ibd_schedule.is_empty());
         assert_eq!(downloaders.downloaders.len(), 10);
         for (i, wt) in rc_wanted_tenures.iter().enumerate() {
             let naddrs = available.get(&wt.tenure_id_consensus_hash).unwrap();

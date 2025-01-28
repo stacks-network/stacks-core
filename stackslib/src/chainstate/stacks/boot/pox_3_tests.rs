@@ -264,7 +264,7 @@ fn simple_pox_lockup_transition_pox_2() {
         get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
     })
     .unwrap();
-    assert_eq!(reward_addrs.len(), 0);
+    assert!(reward_addrs.is_empty());
 
     // check the first reward cycle when Alice's tokens get stacked
     let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
@@ -2227,7 +2227,7 @@ fn pox_extend_transition() {
         get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
     })
     .unwrap();
-    assert_eq!(reward_addrs.len(), 0);
+    assert!(reward_addrs.is_empty());
 
     // check the first reward cycle when Alice's tokens get stacked
     let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
@@ -2741,7 +2741,7 @@ fn delegate_extend_pox_3() {
     for cycle_number in (first_v3_cycle + 3)..(first_v3_cycle + 6) {
         let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
         let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
-        assert_eq!(reward_set_entries.len(), 0);
+        assert!(reward_set_entries.is_empty());
     }
 
     let alice_principal = alice_address.clone().into();
