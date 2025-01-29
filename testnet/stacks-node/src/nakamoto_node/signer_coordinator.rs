@@ -384,7 +384,7 @@ impl SignerCoordinator {
                                   "rejections_threshold" => self.total_weight.saturating_sub(self.weight_threshold)
                         );
                         return Err(NakamotoNodeError::SigningCoordinatorFailure(
-                            "Gave up while tried reaching the threshold".into(),
+                            "Gave up while trying reaching the threshold".into(),
                         ));
                     }
 
@@ -438,7 +438,7 @@ impl SignerCoordinator {
                           "rejections_threshold" => self.total_weight.saturating_sub(self.weight_threshold)
                 );
                 return Err(NakamotoNodeError::SigningCoordinatorFailure(
-                    "Gave up while tried reaching the threshold".into(),
+                    "Gave up while trying reaching the threshold".into(),
                 ));
             } else {
                 continue;
