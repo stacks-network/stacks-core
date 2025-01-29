@@ -2158,8 +2158,8 @@ pub struct MinerConfig {
     pub tenure_extend_poll_secs: Duration,
     /// Duration to wait before attempting to issue a tenure extend
     pub tenure_timeout: Duration,
-    ///
-    pub block_rejection_timeout_steps: BTreeMap<u64, Duration>,
+    /// Define the timeout to apply while waiting for signers responses, based on the amount of rejections
+    pub block_rejection_timeout_steps: HashMap<u64, Duration>,
 }
 
 impl Default for MinerConfig {
@@ -2199,12 +2199,13 @@ impl Default for MinerConfig {
             tenure_extend_poll_secs: Duration::from_secs(DEFAULT_TENURE_EXTEND_POLL_SECS),
             tenure_timeout: Duration::from_secs(DEFAULT_TENURE_TIMEOUT_SECS),
             block_rejection_timeout_steps: {
-                let mut timeouts_btree = BTreeMap::<u64, Duration>::new();
-                timeouts_btree.insert(0, Duration::from_secs(600));
-                timeouts_btree.insert(1, Duration::from_secs(300));
-                timeouts_btree.insert(2, Duration::from_secs(150));
-                timeouts_btree.insert(3, Duration::from_secs(0));
-                timeouts_btree
+                let mut rejections_timeouts_default_map = HashMap::<u64, Duration>::new();
+                rejections_timeouts_default_map.insert(0, Duration::from_secs(600));
+                rejections_timeouts_default_map.insert(10, Duration::from_secs(300));
+                rejections_timeouts_default_map.insert(20, Duration::from_secs(150));
+                rejections_timeouts_default_map.insert(30, Duration::from_secs(60));
+                rejections_timeouts_default_map.insert(31, Duration::from_secs(0));
+                rejections_timeouts_default_map
             },
         }
     }
@@ -2747,14 +2748,14 @@ impl MinerConfigFile {
             tenure_timeout: self.tenure_timeout_secs.map(Duration::from_secs).unwrap_or(miner_default_config.tenure_timeout),
             block_rejection_timeout_steps: {
                 if let Some(block_rejection_timeout_items) = self.block_rejection_timeout_steps {
-                    let mut timeouts_btree = BTreeMap::<u64, Duration>::new();
-                    for (slice, millis) in block_rejection_timeout_items.iter() {
+                    let mut rejection_timeout_durations = HashMap::<u64, Duration>::new();
+                    for (slice, seconds) in block_rejection_timeout_items.iter() {
                         match slice.parse::<u64>() {
-                            Ok(slice_slot) => timeouts_btree.insert(slice_slot, Duration::from_millis(*millis)),
+                            Ok(slice_slot) => rejection_timeout_durations.insert(slice_slot, Duration::from_secs(*seconds)),
                             Err(e) => panic!("block_rejection_timeout_items keys must be unsigned integers: {}", e)
                         };
                     }
-                    timeouts_btree
+                    rejection_timeout_durations
                 } else{
                     miner_default_config.block_rejection_timeout_steps
                 }

@@ -7813,7 +7813,7 @@ fn block_validation_check_rejection_timeout_heuristic() {
     }
 
     info!("------------------------- Test Setup -------------------------");
-    let num_signers = 5;
+    let num_signers = 20;
     let timeout = Duration::from_secs(30);
     let sender_sk = Secp256k1PrivateKey::new();
     let sender_addr = tests::to_addr(&sender_sk);
@@ -7828,8 +7828,22 @@ fn block_validation_check_rejection_timeout_heuristic() {
         },
         |config| {
             config.miner.block_rejection_timeout_steps.clear();
-            config.miner.block_rejection_timeout_steps.insert(0, Duration::from_secs(600));
-            config.miner.block_rejection_timeout_steps.insert(3, Duration::from_secs(17));
+            config
+                .miner
+                .block_rejection_timeout_steps
+                .insert(0, Duration::from_secs(123));
+            config
+                .miner
+                .block_rejection_timeout_steps
+                .insert(10, Duration::from_secs(20));
+            config
+                .miner
+                .block_rejection_timeout_steps
+                .insert(15, Duration::from_secs(10));
+            config
+                .miner
+                .block_rejection_timeout_steps
+                .insert(20, Duration::from_secs(99));
         },
         None,
         None,
@@ -7849,13 +7863,8 @@ fn block_validation_check_rejection_timeout_heuristic() {
 
     let blocks_before = test_observer::get_mined_nakamoto_blocks().len();
 
-    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![all_signers[4]]);
-    TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(vec![
-        all_signers[0],
-        all_signers[1],
-        all_signers[2],
-        all_signers[3],
-    ]);
+    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![all_signers[19]]);
+    TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(all_signers[0..19].to_vec());
 
     next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
@@ -7865,17 +7874,19 @@ fn block_validation_check_rejection_timeout_heuristic() {
     .unwrap();
 
     signer_test
-        .wait_for_block_rejections(timeout.as_secs(), &[all_signers[4]])
+        .wait_for_block_rejections(timeout.as_secs(), &[all_signers[19]])
         .unwrap();
 
-    assert_eq!(BLOCK_REJECTIONS_CURRENT_TIMEOUT.get().as_secs(), 551);
+    thread::sleep(Duration::from_secs(3));
+
+    assert_eq!(BLOCK_REJECTIONS_CURRENT_TIMEOUT.get().as_secs(), 123);
 
     info!("------------------------- Check Rejections-based timeout with 2 rejections -------------------------");
 
     let blocks_before = test_observer::get_mined_nakamoto_blocks().len();
 
-    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![all_signers[3], all_signers[4]]);
-    TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(vec![all_signers[0], all_signers[1], all_signers[2]]);
+    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![all_signers[18], all_signers[19]]);
+    TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(all_signers[0..18].to_vec());
 
     next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
@@ -7885,10 +7896,72 @@ fn block_validation_check_rejection_timeout_heuristic() {
     .unwrap();
 
     signer_test
-        .wait_for_block_rejections(timeout.as_secs(), &[all_signers[3], all_signers[4]])
+        .wait_for_block_rejections(timeout.as_secs(), &[all_signers[18], all_signers[19]])
         .unwrap();
 
-    assert_eq!(BLOCK_REJECTIONS_CURRENT_TIMEOUT.get().as_secs(), 404);
+    thread::sleep(Duration::from_secs(3));
+
+    assert_eq!(BLOCK_REJECTIONS_CURRENT_TIMEOUT.get().as_secs(), 20);
+
+    info!("------------------------- Check Rejections-based timeout with 3 rejections -------------------------");
+
+    let blocks_before = test_observer::get_mined_nakamoto_blocks().len();
+
+    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![all_signers[17], all_signers[18], all_signers[19]]);
+    TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(all_signers[0..17].to_vec());
+
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        30,
+        || Ok(test_observer::get_mined_nakamoto_blocks().len() > blocks_before),
+    )
+    .unwrap();
+
+    signer_test
+        .wait_for_block_rejections(
+            timeout.as_secs(),
+            &[all_signers[17], all_signers[18], all_signers[19]],
+        )
+        .unwrap();
+
+    thread::sleep(Duration::from_secs(3));
+
+    assert_eq!(BLOCK_REJECTIONS_CURRENT_TIMEOUT.get().as_secs(), 10);
+
+    info!("------------------------- Check Rejections-based timeout with 4 rejections -------------------------");
+
+    let blocks_before = test_observer::get_mined_nakamoto_blocks().len();
+
+    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![
+        all_signers[16],
+        all_signers[17],
+        all_signers[18],
+        all_signers[19],
+    ]);
+    TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(all_signers[0..16].to_vec());
+
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        30,
+        || Ok(test_observer::get_mined_nakamoto_blocks().len() > blocks_before),
+    )
+    .unwrap();
+
+    signer_test
+        .wait_for_block_rejections(
+            timeout.as_secs(),
+            &[
+                all_signers[16],
+                all_signers[17],
+                all_signers[18],
+                all_signers[19],
+            ],
+        )
+        .unwrap();
+
+    thread::sleep(Duration::from_secs(3));
+
+    assert_eq!(BLOCK_REJECTIONS_CURRENT_TIMEOUT.get().as_secs(), 99);
 
     // reset reject/ignore
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![]);

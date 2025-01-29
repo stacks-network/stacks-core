@@ -38,7 +38,7 @@ use stacks::util::secp256k1::MessageSignature;
 use stacks::util_lib::boot::boot_code_id;
 #[cfg(test)]
 use stacks_common::util::tests::TestFlag;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ops::Bound::Included;
 
 use super::stackerdb_listener::StackerDBListenerComms;
@@ -81,7 +81,7 @@ pub struct SignerCoordinator {
     ///  burn block has arrived since this thread started.
     burn_tip_at_start: ConsensusHash,
     ///
-    block_rejection_timeout_steps: BTreeMap<u64, Duration>,
+    block_rejection_timeout_steps: HashMap<u64, Duration>,
 }
 
 impl SignerCoordinator {
@@ -310,15 +310,20 @@ impl SignerCoordinator {
         sortdb: &SortitionDB,
         counters: &Counters,
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
-        // this is used to track the start of the waiting cycle
-        let mut rejections_timer = Instant::now();
-        // the amount of current rejections to eventually modify the timeout
+        // build a BTreeMap of the various timeout steps
+        let mut block_rejection_timeout_steps = BTreeMap::<u64, Duration>::new();
+        for (percentage, duration) in self.block_rejection_timeout_steps.iter() {
+            let rejections_amount =
+                ((self.total_weight as f64 / 100.0) * *percentage as f64) as u64;
+            block_rejection_timeout_steps.insert(rejections_amount, *duration);
+        }
+
+        // the amount of current rejections (used to eventually modify the timeout)
         let mut rejections: u64 = 0;
-        // default timeout
+        // default timeout (the 0 entry must be always present)
         let mut rejections_timeout = self
             .block_rejection_timeout_steps
-            .range((Included(0), Included(rejections)))
-            .last()
+            .get(&rejections)
             .ok_or_else(|| {
                 NakamotoNodeError::SigningCoordinatorFailure(
                     "Invalid rejection timeout step function definition".into(),
@@ -326,6 +331,9 @@ impl SignerCoordinator {
             })?;
         // this is used for comparing block_status to identify if it has been changed from the previous event
         let mut block_status_tracker = BlockStatus::default();
+
+        // this is used to track the start of the waiting cycle
+        let mut rejections_timer = Instant::now();
         loop {
             // At every iteration wait for the block_status.
             // Exit when the amount of confirmations/rejections reaches the threshold (or until timeout)
@@ -334,7 +342,7 @@ impl SignerCoordinator {
                 block_signer_sighash,
                 &mut block_status_tracker,
                 rejections_timer,
-                *rejections_timeout.1,
+                *rejections_timeout,
                 EVENT_RECEIVER_POLL,
             )? {
                 Some(status) => status,
@@ -368,10 +376,10 @@ impl SignerCoordinator {
                         return Err(NakamotoNodeError::BurnchainTipChanged);
                     }
 
-                    if rejections_timer.elapsed() > *rejections_timeout.1 {
+                    if rejections_timer.elapsed() > *rejections_timeout {
                         warn!("Timed out while waiting for responses from signers";
                                   "elapsed" => rejections_timer.elapsed().as_secs(),
-                                  "rejections_timeout" => rejections_timeout.1.as_secs(),
+                                  "rejections_timeout" => rejections_timeout.as_secs(),
                                   "rejections" => rejections,
                                   "rejections_threshold" => self.total_weight.saturating_sub(self.weight_threshold)
                         );
@@ -385,20 +393,24 @@ impl SignerCoordinator {
             };
 
             if rejections != block_status.total_reject_weight as u64 {
-                rejections_timer = Instant::now();
                 rejections = block_status.total_reject_weight as u64;
-                rejections_timeout = self
-                    .block_rejection_timeout_steps
-                    .range((Included(0), Included((rejections as f64 / self.total_weight as f64) as u64)))
+                let rejections_timeout_tuple = block_rejection_timeout_steps
+                    .range((Included(0), Included(rejections)))
                     .last()
                     .ok_or_else(|| {
                         NakamotoNodeError::SigningCoordinatorFailure(
                             "Invalid rejection timeout step function definition".into(),
                         )
                     })?;
+                rejections_timeout = rejections_timeout_tuple.1;
+                info!("Number of received rejections updated, resetting timeout";
+                                    "rejections" => rejections,
+                                    "rejections_timeout" => rejections_timeout.as_secs(),
+                                    "rejections_threshold" => self.total_weight.saturating_sub(self.weight_threshold));
+                rejections_timer = Instant::now();
 
                 #[cfg(test)]
-                BLOCK_REJECTIONS_CURRENT_TIMEOUT.set(*rejections_timeout.1);
+                BLOCK_REJECTIONS_CURRENT_TIMEOUT.set(*rejections_timeout);
             }
 
             if block_status
@@ -418,10 +430,10 @@ impl SignerCoordinator {
                     "block_signer_sighash" => %block_signer_sighash,
                 );
                 return Ok(block_status.gathered_signatures.values().cloned().collect());
-            } else if rejections_timer.elapsed() > *rejections_timeout.1 {
+            } else if rejections_timer.elapsed() > *rejections_timeout {
                 warn!("Timed out while waiting for responses from signers";
                           "elapsed" => rejections_timer.elapsed().as_secs(),
-                          "rejections_timeout" => rejections_timeout.1.as_secs(),
+                          "rejections_timeout" => rejections_timeout.as_secs(),
                           "rejections" => rejections,
                           "rejections_threshold" => self.total_weight.saturating_sub(self.weight_threshold)
                 );
