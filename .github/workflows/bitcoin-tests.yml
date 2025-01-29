@@ -146,8 +146,8 @@ jobs:
           - tests::signer::v0::single_miner_empty_sortition
           - tests::signer::v0::multiple_miners_empty_sortition
           - tests::signer::v0::block_proposal_timeout
+          - tests::signer::v0::reorg_attempts_count_towards_miner_validity
           - tests::signer::v0::reorg_attempts_activity_timeout_exceeded
-          - tests::signer::v0::late_reorg_attempts_do_not_count_towards_miner_validity
           - tests::signer::v0::allow_reorg_within_first_proposal_burn_block_timing_secs
           - tests::nakamoto_integrations::burn_ops_integration_test
           - tests::nakamoto_integrations::check_block_heights

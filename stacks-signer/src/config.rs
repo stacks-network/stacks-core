@@ -142,8 +142,8 @@ pub struct SignerConfig {
     pub tenure_idle_timeout: Duration,
     /// The maximum age of a block proposal in seconds that will be processed by the signer
     pub block_proposal_max_age_secs: u64,
-    /// Time following a block's global acceptance that a signer will consider an attempt by a miner to reorg the block
-    /// as valid towards miner activity
+    /// Time following the last block of the previous tenure's global acceptance that a signer will consider an attempt by
+    /// the new miner to reorg it as valid towards miner activity
     pub reorg_attempts_activity_timeout: Duration,
 }
 
@@ -185,8 +185,8 @@ pub struct GlobalConfig {
     pub tenure_idle_timeout: Duration,
     /// The maximum age of a block proposal that will be processed by the signer
     pub block_proposal_max_age_secs: u64,
-    /// Time following a block's global acceptance that a signer will consider an attempt by a miner to reorg the block
-    /// as valid towards miner activity
+    /// Time following the last block of the previous tenure's global acceptance that a signer will consider an attempt by
+    /// the new miner to reorg it as valid towards miner activity
     pub reorg_attempts_activity_timeout: Duration,
 }
 

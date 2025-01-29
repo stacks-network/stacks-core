@@ -774,7 +774,7 @@ impl SignerDb {
 
     /// Return whether there was signed block in a tenure (identified by its consensus hash)
     pub fn has_signed_block_in_tenure(&self, tenure: &ConsensusHash) -> Result<bool, DBError> {
-        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ? AND signed_over = 1 ORDER BY stacks_height DESC LIMIT 1";
+        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ? AND signed_over = 1 DESC LIMIT 1";
         let result: Option<String> = query_row(&self.db, query, [tenure])?;
 
         Ok(result.is_some())

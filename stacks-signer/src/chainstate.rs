@@ -124,8 +124,8 @@ pub struct ProposalEvalConfig {
     pub tenure_last_block_proposal_timeout: Duration,
     /// How much idle time must pass before allowing a tenure extend
     pub tenure_idle_timeout: Duration,
-    /// Time following a block's global acceptance that a signer will consider an attempt by a miner to reorg the block
-    /// as valid towards miner activity
+    /// Time following the last block of the previous tenure's global acceptance that a signer will consider an attempt by
+    /// the new miner to reorg it as valid towards miner activity
     pub reorg_attempts_activity_timeout: Duration,
 }
 
@@ -574,10 +574,9 @@ impl SortitionsView {
                     "proposed_chain_length" => block.header.chain_length,
                     "expected_at_least" => info.block.header.chain_length + 1,
                 );
-                if info.signed_group.unwrap_or(get_epoch_time_secs())
-                    + reorg_attempts_activity_timeout.as_secs()
-                    > get_epoch_time_secs()
-                {
+                if info.signed_group.map_or(true, |signed_time| {
+                    signed_time + reorg_attempts_activity_timeout.as_secs() > get_epoch_time_secs()
+                }) {
                     // Note if there is no signed_group time, this is a locally accepted block (i.e. tenure_last_block_proposal_timeout has not been exceeded).
                     // Treat any attempt to reorg a locally accepted block as valid miner activity.
                     // If the call returns a globally accepted block, check its globally accepted time against a quarter of the block_proposal_timeout
