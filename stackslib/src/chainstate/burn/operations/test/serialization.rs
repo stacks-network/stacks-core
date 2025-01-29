@@ -61,10 +61,7 @@ fn test_serialization_stack_stx_op() {
     let sender_addr = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2";
     let sender = StacksAddress::from_string(sender_addr).unwrap();
     let reward_addr = PoxAddress::Standard(
-        StacksAddress {
-            version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-            bytes: Hash160([0x01; 20]),
-        },
+        StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_SINGLESIG, Hash160([0x01; 20])).unwrap(),
         None,
     );
 
@@ -110,10 +107,7 @@ fn test_serialization_stack_stx_op_with_signer_key() {
     let sender_addr = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2";
     let sender = StacksAddress::from_string(sender_addr).unwrap();
     let reward_addr = PoxAddress::Standard(
-        StacksAddress {
-            version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-            bytes: Hash160([0x01; 20]),
-        },
+        StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_SINGLESIG, Hash160([0x01; 20])).unwrap(),
         None,
     );
 
@@ -191,10 +185,7 @@ fn test_serialization_delegate_stx_op() {
     let delegate_to_addr = "SP24ZBZ8ZE6F48JE9G3F3HRTG9FK7E2H6K2QZ3Q1K";
     let delegate_to = StacksAddress::from_string(delegate_to_addr).unwrap();
     let pox_addr = PoxAddress::Standard(
-        StacksAddress {
-            version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-            bytes: Hash160([0x01; 20]),
-        },
+        StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_SINGLESIG, Hash160([0x01; 20])).unwrap(),
         None,
     );
     let op = DelegateStxOp {

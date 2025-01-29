@@ -87,7 +87,7 @@ impl SignerCoordinator {
         // Create the stacker DB listener
         let mut listener = StackerDBListener::new(
             stackerdb_channel,
-            node_keep_running.clone(),
+            node_keep_running,
             keep_running.clone(),
             reward_set,
             election_block,

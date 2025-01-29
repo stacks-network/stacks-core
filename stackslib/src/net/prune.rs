@@ -54,7 +54,7 @@ impl PeerNetwork {
                 None => {
                     continue;
                 }
-                Some(ref convo) => {
+                Some(convo) => {
                     if !convo.stats.outbound {
                         continue;
                     }
@@ -88,7 +88,7 @@ impl PeerNetwork {
                 "==== ORG NEIGHBOR DISTRIBUTION OF {:?} ===",
                 &self.local_peer
             );
-            for (ref _org, ref neighbor_infos) in org_neighbor.iter() {
+            for (ref _org, neighbor_infos) in org_neighbor.iter() {
                 let _neighbors: Vec<NeighborKey> =
                     neighbor_infos.iter().map(|ni| ni.0.clone()).collect();
                 test_debug!(
@@ -196,7 +196,7 @@ impl PeerNetwork {
             // likely to be up for X more seconds, so we only really want to distinguish between nodes that
             // have wildly different uptimes.
             // Within uptime buckets, sort by health.
-            match org_neighbors.get_mut(&org) {
+            match org_neighbors.get_mut(org) {
                 None => {}
                 Some(ref mut neighbor_infos) => {
                     neighbor_infos.sort_unstable_by(|(_nk1, stats1), (_nk2, stats2)| {
@@ -209,7 +209,7 @@ impl PeerNetwork {
         // don't let a single organization have more than
         // soft_max_neighbors_per_org neighbors.
         for org in orgs.iter() {
-            match org_neighbors.get_mut(&org) {
+            match org_neighbors.get_mut(org) {
                 None => {}
                 Some(ref mut neighbor_infos) => {
                     if neighbor_infos.len() as u64 > self.connection_opts.soft_max_neighbors_per_org
@@ -321,8 +321,8 @@ impl PeerNetwork {
             if preserve.contains(event_id) {
                 continue;
             }
-            match self.peers.get(&event_id) {
-                Some(ref convo) => {
+            match self.peers.get(event_id) {
+                Some(convo) => {
                     if !convo.stats.outbound {
                         let stats = convo.stats.clone();
                         if let Some(entry) = ip_neighbor.get_mut(&nk.addrbytes) {
@@ -426,7 +426,7 @@ impl PeerNetwork {
 
         let pruned_by_org = self
             .prune_frontier_outbound_orgs(preserve)
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
 
         debug!(
             "{:?}: remove {} outbound peers by shared Org",

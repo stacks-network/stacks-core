@@ -58,15 +58,10 @@ pub fn special_is_standard(
     runtime_cost(ClarityCostFunction::IsStandard, env, 0)?;
     let owner = eval(&args[0], env, context)?;
 
-    let version = match owner {
-        Value::Principal(PrincipalData::Standard(StandardPrincipalData(version, _bytes))) => {
-            version
-        }
-        Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier {
-            issuer,
-            name: _,
-        })) => issuer.0,
-        _ => return Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, owner).into()),
+    let version = if let Value::Principal(ref p) = owner {
+        p.version()
+    } else {
+        return Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, owner).into());
     };
 
     Ok(Value::Bool(version_matches_current_network(
@@ -161,10 +156,12 @@ pub fn special_principal_destruct(
     let principal = eval(&args[0], env, context)?;
 
     let (version_byte, hash_bytes, name_opt) = match principal {
-        Value::Principal(PrincipalData::Standard(StandardPrincipalData(version, bytes))) => {
+        Value::Principal(PrincipalData::Standard(p)) => {
+            let (version, bytes) = p.destruct();
             (version, bytes, None)
         }
         Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier { issuer, name })) => {
+            let issuer = issuer.destruct();
             (issuer.0, issuer.1, Some(name))
         }
         _ => {
@@ -254,7 +251,7 @@ pub fn special_principal_construct(
     // Construct the principal.
     let mut transfer_buffer = [0u8; 20];
     transfer_buffer.copy_from_slice(verified_hash_bytes);
-    let principal_data = StandardPrincipalData(version_byte, transfer_buffer);
+    let principal_data = StandardPrincipalData::new(version_byte, transfer_buffer)?;
 
     let principal = if let Some(name) = name_opt {
         // requested a contract principal.  Verify that the `name` is a valid ContractName.

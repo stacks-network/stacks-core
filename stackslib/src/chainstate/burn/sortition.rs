@@ -445,7 +445,7 @@ impl BlockSnapshot {
             BlockHeaderHash(bhh_bytes)
         };
 
-        let mut null_sample_winner = BurnSamplePoint::zero(null_winner.clone());
+        let mut null_sample_winner = BurnSamplePoint::zero(null_winner);
         let mut burn_sample_winner = BurnSamplePoint::zero(commit_winner.clone());
 
         let null_prob = Self::null_miner_probability(atc);
@@ -908,8 +908,8 @@ mod test {
                 &initial_snapshot,
                 &empty_block_header,
                 &BurnchainStateTransition {
-                    burn_dist: vec![empty_burn_point.clone()],
-                    accepted_ops: vec![BlockstackOperationType::LeaderKeyRegister(key.clone())],
+                    burn_dist: vec![empty_burn_point],
+                    accepted_ops: vec![BlockstackOperationType::LeaderKeyRegister(key)],
                     ..BurnchainStateTransition::noop()
                 },
             )

@@ -2134,14 +2134,8 @@ mod test {
         mut tl_env_factory: TopLevelMemoryEnvironmentGenerator,
     ) {
         let mut env = tl_env_factory.get_env(epoch);
-        let u1 = StacksAddress {
-            version: 0,
-            bytes: Hash160([1; 20]),
-        };
-        let u2 = StacksAddress {
-            version: 0,
-            bytes: Hash160([2; 20]),
-        };
+        let u1 = StacksAddress::new(0, Hash160([1; 20])).unwrap();
+        let u2 = StacksAddress::new(0, Hash160([2; 20])).unwrap();
         // insufficient balance must be a non-includable transaction. it must error here,
         //  not simply rollback the tx and squelch the error as includable.
         let e = env

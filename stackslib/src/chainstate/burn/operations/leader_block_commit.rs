@@ -543,7 +543,7 @@ impl RewardSetInfo {
     ) -> Result<Option<RewardSetInfo>, op_error> {
         // did this block-commit pay to the correct PoX addresses?
         let intended_recipients = tx
-            .get_reward_set_payouts_at(&intended_sortition)
+            .get_reward_set_payouts_at(intended_sortition)
             .map_err(|_e| op_error::BlockCommitBadOutputs)?
             .0;
         let block_height = SortitionDB::get_block_snapshot(tx.tx(), intended_sortition)
@@ -1208,17 +1208,17 @@ mod tests {
     }
 
     fn stacks_address_to_bitcoin_tx_out(addr: &StacksAddress, value: u64) -> TxOut {
-        let btc_version = to_b58_version_byte(addr.version)
+        let btc_version = to_b58_version_byte(addr.version())
             .expect("BUG: failed to decode Stacks version byte to Bitcoin version byte");
         let btc_addr_type = legacy_version_byte_to_address_type(btc_version)
             .expect("BUG: failed to decode Bitcoin version byte")
             .0;
         match btc_addr_type {
             LegacyBitcoinAddressType::PublicKeyHash => {
-                LegacyBitcoinAddress::to_p2pkh_tx_out(&addr.bytes, value)
+                LegacyBitcoinAddress::to_p2pkh_tx_out(addr.bytes(), value)
             }
             LegacyBitcoinAddressType::ScriptHash => {
-                LegacyBitcoinAddress::to_p2sh_tx_out(&addr.bytes, value)
+                LegacyBitcoinAddress::to_p2sh_tx_out(addr.bytes(), value)
             }
         }
     }
@@ -1280,11 +1280,7 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(if let op_error::BlockCommitBadOutputs = err {
-            true
-        } else {
-            false
-        });
+        assert!(matches!(err, op_error::BlockCommitBadOutputs));
 
         // should succeed in epoch 2.1 -- can be PoX in 2.1
         let _op = LeaderBlockCommitOp::parse_from_tx(
@@ -1764,8 +1760,8 @@ mod tests {
                     memo: vec![0x1f],
 
                     commit_outs: vec![
-                        PoxAddress::Standard( StacksAddress { version: 26, bytes: Hash160::empty() }, None ),
-                        PoxAddress::Standard( StacksAddress { version: 26, bytes: Hash160::empty() }, None ),
+                        PoxAddress::Standard( StacksAddress::new(26, Hash160::empty()).unwrap(), None ),
+                        PoxAddress::Standard( StacksAddress::new(26, Hash160::empty()).unwrap(), None ),
                     ],
 
                     burn_fee: 24690,
@@ -2046,13 +2042,11 @@ mod tests {
             vec![],
             // 124
             vec![
-                BlockstackOperationType::LeaderKeyRegister(leader_key_1.clone()),
-                BlockstackOperationType::LeaderKeyRegister(leader_key_2.clone()),
+                BlockstackOperationType::LeaderKeyRegister(leader_key_1),
+                BlockstackOperationType::LeaderKeyRegister(leader_key_2),
             ],
             // 125
-            vec![BlockstackOperationType::LeaderBlockCommit(
-                block_commit_1.clone(),
-            )],
+            vec![BlockstackOperationType::LeaderBlockCommit(block_commit_1)],
             // 126
             vec![],
         ];
@@ -2581,13 +2575,11 @@ mod tests {
             vec![],
             // 124
             vec![
-                BlockstackOperationType::LeaderKeyRegister(leader_key_1.clone()),
-                BlockstackOperationType::LeaderKeyRegister(leader_key_2.clone()),
+                BlockstackOperationType::LeaderKeyRegister(leader_key_1),
+                BlockstackOperationType::LeaderKeyRegister(leader_key_2),
             ],
             // 125
-            vec![BlockstackOperationType::LeaderBlockCommit(
-                block_commit_1.clone(),
-            )],
+            vec![BlockstackOperationType::LeaderBlockCommit(block_commit_1)],
             // 126
             vec![],
         ];
@@ -3260,7 +3252,7 @@ mod tests {
         let anchor_block_hash = BlockHeaderHash([0xaa; 32]);
 
         fn reward_addrs(i: usize) -> PoxAddress {
-            let addr = StacksAddress::new(1, Hash160::from_data(&i.to_be_bytes()));
+            let addr = StacksAddress::new(1, Hash160::from_data(&i.to_be_bytes())).unwrap();
             PoxAddress::Standard(addr, None)
         }
         let burn_addr_0 = PoxAddress::Standard(StacksAddress::burn_address(false), None);
@@ -3399,7 +3391,7 @@ mod tests {
             ),
             (
                 LeaderBlockCommitOp {
-                    commit_outs: vec![burn_addr_0.clone(), burn_addr_1.clone()],
+                    commit_outs: vec![burn_addr_0.clone(), burn_addr_1],
                     ..default_block_commit.clone()
                 },
                 Some(no_punish(&rs_pox_addrs_0b)),
@@ -3431,8 +3423,8 @@ mod tests {
             ),
             (
                 LeaderBlockCommitOp {
-                    commit_outs: vec![burn_addr_0.clone(), reward_addrs(3)],
-                    ..default_block_commit.clone()
+                    commit_outs: vec![burn_addr_0, reward_addrs(3)],
+                    ..default_block_commit
                 },
                 Some(rs_pox_addrs.clone()),
                 Err(op_error::BlockCommitBadOutputs),

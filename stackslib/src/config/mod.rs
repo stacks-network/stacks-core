@@ -2061,7 +2061,7 @@ impl NodeConfig {
         let sockaddr = deny_node.to_socket_addrs().unwrap().next().unwrap();
         let neighbor = NodeConfig::default_neighbor(
             sockaddr,
-            Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
+            Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random()),
             chain_id,
             peer_version,
         );
@@ -3310,7 +3310,7 @@ mod tests {
             let config_file = make_burnchain_config_file(false, None);
 
             let config = config_file
-                .into_config_default(default_burnchain_config.clone())
+                .into_config_default(default_burnchain_config)
                 .expect("Should not panic");
             assert_eq!(config.chain_id, CHAIN_ID_TESTNET);
         }

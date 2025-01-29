@@ -151,14 +151,11 @@ fn make_test_transaction() -> StacksTransaction {
     .unwrap();
     let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
     let addr = auth.origin().address_testnet();
-    let recv_addr = StacksAddress {
-        version: 1,
-        bytes: Hash160([0xff; 20]),
-    };
+    let recv_addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
 
     let mut tx_stx_transfer = StacksTransaction::new(
         TransactionVersion::Testnet,
-        auth.clone(),
+        auth,
         TransactionPayload::TokenTransfer(
             recv_addr.clone().into(),
             123,
