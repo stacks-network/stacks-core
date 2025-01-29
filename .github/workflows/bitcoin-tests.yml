@@ -124,6 +124,7 @@ jobs:
           - tests::signer::v0::signing_in_0th_tenure_of_reward_cycle
           - tests::signer::v0::continue_after_tenure_extend
           - tests::signer::v0::tenure_extend_after_idle_signers
+          - tests::signer::v0::tenure_extend_with_other_transactions
           - tests::signer::v0::tenure_extend_after_idle_miner
           - tests::signer::v0::tenure_extend_after_failed_miner
           - tests::signer::v0::tenure_extend_succeeds_after_rejected_attempt
