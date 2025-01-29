@@ -1761,7 +1761,7 @@ fn restarting_miner() {
     naka_conf.miner.activated_vrf_key_path =
         Some(format!("{}/vrf_key", naka_conf.node.working_dir));
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(5);
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::from_seed(&[1, 2, 1, 2, 1, 2]);
     // setup sender + recipient for a test stx transfer
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 1000;
@@ -1770,7 +1770,7 @@ fn restarting_miner() {
         PrincipalData::from(sender_addr).to_string(),
         send_amt * 2 + send_fee,
     );
-    let sender_signer_sk = Secp256k1PrivateKey::new();
+    let sender_signer_sk = Secp256k1PrivateKey::from_seed(&[3, 2, 3, 2, 3, 2]);
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
     let mut signers = TestSigners::new(vec![sender_signer_sk]);
     naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
