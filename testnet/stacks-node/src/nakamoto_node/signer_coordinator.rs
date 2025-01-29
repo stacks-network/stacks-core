@@ -80,7 +80,7 @@ pub struct SignerCoordinator {
     /// Rather, this burn block is used to determine whether or not a new
     ///  burn block has arrived since this thread started.
     burn_tip_at_start: ConsensusHash,
-    /// The tiemout configuration based on the percentage of rejections
+    /// The timeout configuration based on the percentage of rejections
     block_rejection_timeout_steps: HashMap<u64, Duration>,
 }
 
