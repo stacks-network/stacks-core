@@ -962,10 +962,9 @@ impl ConversationP2P {
             reply_message,
             request_preamble.seq,
         )?;
-        let reply_handle = self.relay_signed_message(reply).map_err(|e| {
-            debug!("Unable to reply a {}: {:?}", _msgtype, &e);
-            e
-        })?;
+        let reply_handle = self
+            .relay_signed_message(reply)
+            .inspect_err(|e| debug!("Unable to reply a {_msgtype}: {e:?}"))?;
 
         Ok(reply_handle)
     }
@@ -981,10 +980,9 @@ impl ConversationP2P {
         let _msgtype = forward_message.get_message_name().to_owned();
         let fwd =
             self.sign_relay_message(local_peer, burnchain_view, relay_hints, forward_message)?;
-        let fwd_handle = self.relay_signed_message(fwd).map_err(|e| {
-            debug!("Unable to forward a {}: {:?}", _msgtype, &e);
-            e
-        })?;
+        let fwd_handle = self
+            .relay_signed_message(fwd)
+            .inspect_err(|e| debug!("Unable to forward a {_msgtype}: {e:?}"))?;
 
         Ok(fwd_handle)
     }
@@ -1475,13 +1473,9 @@ impl ConversationP2P {
             neighbors: neighbor_addrs,
         });
         let reply = self.sign_reply(chain_view, &local_peer.private_key, payload, preamble.seq)?;
-        let reply_handle = self.relay_signed_message(reply).map_err(|e| {
-            debug!(
-                "Outbox to {:?} is full; cannot reply to GetNeighbors",
-                &self
-            );
-            e
-        })?;
+        let reply_handle = self
+            .relay_signed_message(reply)
+            .inspect_err(|_e| debug!("Outbox to {self:?} is full; cannot reply to GetNeighbors"))?;
 
         Ok(reply_handle)
     }
@@ -1747,12 +1741,8 @@ impl ConversationP2P {
             &network.stacks_tip.block_hash,
             reward_cycle,
         )?;
-        let nakamoto_inv = NakamotoInvData::try_from(&bitvec_bools).map_err(|e| {
-            warn!(
-                "Failed to create a NakamotoInv response to {:?}: {:?}",
-                get_nakamoto_inv, &e
-            );
-            e
+        let nakamoto_inv = NakamotoInvData::try_from(&bitvec_bools).inspect_err(|e| {
+            warn!("Failed to create a NakamotoInv response to {get_nakamoto_inv:?}: {e:?}")
         })?;
 
         debug!(
