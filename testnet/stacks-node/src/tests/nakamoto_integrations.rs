@@ -247,9 +247,15 @@ pub fn check_nakamoto_empty_block_heuristics() {
             continue;
         }
         let txs = test_observer::parse_transactions(block);
-        let has_tenure_change = txs
-            .iter()
-            .any(|tx| matches!(tx.payload, TransactionPayload::TenureChange(_)));
+        let has_tenure_change = txs.iter().any(|tx| {
+            matches!(
+                tx.payload,
+                TransactionPayload::TenureChange(TenureChangePayload {
+                    cause: TenureChangeCause::BlockFound,
+                    ..
+                })
+            )
+        });
         if has_tenure_change {
             let only_coinbase_and_tenure_change = txs.iter().all(|tx| {
                 matches!(
@@ -3083,7 +3089,7 @@ fn block_proposal_api_endpoint() {
 
         if ix == 1 {
             // release the test observer mutex so that the handler from 0 can finish!
-            hold_proposal_mutex.take();
+            _ = hold_proposal_mutex.take();
         }
     }
 
@@ -7200,7 +7206,9 @@ fn continue_tenure_extend() {
     let mut tenure_block_founds = vec![];
     let mut transfer_tx_included = false;
     let mut last_block_had_extend = false;
-    for block in test_observer::get_blocks() {
+    for pair in test_observer::get_blocks().windows(2) {
+        let prev_block = &pair[0];
+        let block = &pair[1];
         let mut has_extend = false;
         for tx in block["transactions"].as_array().unwrap() {
             let raw_tx = tx["raw_tx"].as_str().unwrap();
@@ -7221,8 +7229,10 @@ fn continue_tenure_extend() {
                         tenure_extends.push(parsed);
                     }
                     TenureChangeCause::BlockFound => {
-                        if last_block_had_extend {
-                            panic!("Expected a Nakamoto block to happen after tenure extend block");
+                        if last_block_had_extend
+                            && prev_block["transactions"].as_array().unwrap().len() <= 1
+                        {
+                            panic!("Expected other transactions to happen after tenure extend");
                         }
                         tenure_block_founds.push(parsed);
                     }
@@ -10492,7 +10502,6 @@ fn clarity_cost_spend_down() {
             .get_stacks_blocks_processed();
         // Pause mining so we can add all our transactions to the mempool at once.
         TEST_MINE_STALL.set(true);
-        let mut submitted_txs = vec![];
         for _nmb_tx in 0..nmb_txs_per_signer {
             for sender_sk in sender_sks.iter() {
                 let sender_nonce = get_and_increment_nonce(sender_sk, &mut sender_nonces);
@@ -10508,9 +10517,7 @@ fn clarity_cost_spend_down() {
                     &[],
                 );
                 match submit_tx_fallible(&http_origin, &contract_tx) {
-                    Ok(txid) => {
-                        submitted_txs.push(txid);
-                    }
+                    Ok(_txid) => {}
                     Err(_e) => {
                         // If we fail to submit a tx, we need to make sure we don't
                         // increment the nonce for this sender, so we don't end up
