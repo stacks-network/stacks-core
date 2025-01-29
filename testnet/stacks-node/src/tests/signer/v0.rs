@@ -11640,19 +11640,14 @@ fn reorg_attempts_activity_timeout_exceeded() {
     .expect("FAIL: Timed out waiting for block proposal rejections of N'");
 
     info!("------------------------- Ensure chain halts -------------------------");
+    // The signer should automatically attempt to mine a new block once the signers eventually tell it to abandon the previous block
+    // It will reject it though because the block proposal timeout is exceeded and its first block proposal arrived AFTER the reorg activity timeout
     assert!(wait_for(30, || {
         let chain_info = get_chain_info(&signer_test.running_nodes.conf);
-        Ok(chain_info.stacks_tip_height > chain_before.stacks_tip_height)
+        assert_eq!(chain_info.stacks_tip_height, chain_before.stacks_tip_height);
+        Ok(false)
     })
     .is_err());
-
-    // The signer should automatically attempt to mine a new block once the signers eventually tell it to abandon the previous block
-    // It will accept reject it though because the block proposal timeout is exceeded and its first block proposal arrived AFTER the reorg activity timeout
-    let chain_after = get_chain_info(&signer_test.running_nodes.conf);
-    assert_eq!(
-        chain_after.stacks_tip_height,
-        block_proposal_n.block.header.chain_length
-    );
     signer_test.shutdown();
 }
 
