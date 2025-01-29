@@ -571,12 +571,11 @@ impl NakamotoTenureDownloaderSet {
 
             let _ = downloader
                 .try_advance_from_chainstate(chainstate)
-                .map_err(|e| {
+                .inspect_err(|e| {
                     warn!(
-                        "Failed to advance downloader in state {} for {}: {:?}",
-                        &downloader.state, &downloader.naddr, &e
+                        "Failed to advance downloader in state {} for {}: {e:?}",
+                        &downloader.state, &downloader.naddr
                     );
-                    e
                 });
 
             debug!(
