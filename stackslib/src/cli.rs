@@ -453,7 +453,7 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
 
     let result = match &parent_stacks_header.anchored_header {
         StacksBlockHeaderTypes::Epoch2(..) => {
-            let sk = StacksPrivateKey::new();
+            let sk = StacksPrivateKey::random();
             let mut tx_auth = TransactionAuth::from_p2pkh(&sk).unwrap();
             tx_auth.set_origin_nonce(0);
 

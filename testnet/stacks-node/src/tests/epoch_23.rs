@@ -46,7 +46,7 @@ fn trait_invocation_behavior() {
     let epoch_2_2 = 235;
     let epoch_2_3 = 241;
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let contract_addr = to_addr(&spender_sk);
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 

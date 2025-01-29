@@ -210,7 +210,7 @@ fn codec_nakamoto_header() {
 
 #[test]
 pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
-    let private_key = StacksPrivateKey::new();
+    let private_key = StacksPrivateKey::random();
     let header = NakamotoBlockHeader {
         version: 1,
         chain_length: 2,
@@ -259,7 +259,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     };
 
     let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-    let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+    let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
     let coinbase_payload =
         TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, Some(proof.clone()));
@@ -589,12 +589,12 @@ pub fn test_load_store_update_nakamoto_blocks() {
         Some(epochs),
     );
 
-    let private_key = StacksPrivateKey::new();
+    let private_key = StacksPrivateKey::random();
     let epoch2_proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-    let epoch2_proof = VRFProof::from_bytes(&epoch2_proof_bytes[..].to_vec()).unwrap();
+    let epoch2_proof = VRFProof::from_bytes(&epoch2_proof_bytes[..]).unwrap();
 
     let nakamoto_proof_bytes = hex_bytes("973c815ac3e81a4aff3243f3d8310d24ab9783acd6caa4dcfab20a3744584b2f966acf08140e1a7e1e685695d51b1b511f4f19260a21887244a6c47f7637b8bdeaf5eafe85c1975bab75bc0668fe8a0b").unwrap();
-    let nakamoto_proof = VRFProof::from_bytes(&nakamoto_proof_bytes[..].to_vec()).unwrap();
+    let nakamoto_proof = VRFProof::from_bytes(&nakamoto_proof_bytes[..]).unwrap();
 
     let coinbase_payload = TransactionPayload::Coinbase(
         CoinbasePayload([0x12; 32]),
@@ -1664,8 +1664,8 @@ pub fn test_load_store_update_nakamoto_blocks() {
 /// * NakamotoBlockHeader::check_shadow_coinbase_tx
 #[test]
 fn test_nakamoto_block_static_verification() {
-    let private_key = StacksPrivateKey::new();
-    let private_key_2 = StacksPrivateKey::new();
+    let private_key = StacksPrivateKey::random();
+    let private_key_2 = StacksPrivateKey::random();
 
     let vrf_privkey = VRFPrivateKey::new();
     let vrf_pubkey = VRFPublicKey::from_private(&vrf_privkey);
@@ -2044,7 +2044,7 @@ fn test_make_miners_stackerdb_config() {
     );
 
     let naka_miner_hash160 = peer.miner.nakamoto_miner_hash160();
-    let miner_keys: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let miner_keys: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let miner_hash160s: Vec<_> = miner_keys
         .iter()
         .map(|miner_privkey| {
@@ -2312,7 +2312,7 @@ fn test_make_miners_stackerdb_config() {
 
 #[test]
 fn parse_vote_for_aggregate_public_key_valid() {
-    let signer_private_key = StacksPrivateKey::new();
+    let signer_private_key = StacksPrivateKey::random();
     let mainnet = false;
     let chainid = CHAIN_ID_TESTNET;
     let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, mainnet);
@@ -2359,7 +2359,7 @@ fn parse_vote_for_aggregate_public_key_valid() {
 
 #[test]
 fn parse_vote_for_aggregate_public_key_invalid() {
-    let signer_private_key = StacksPrivateKey::new();
+    let signer_private_key = StacksPrivateKey::random();
     let mainnet = false;
     let chainid = CHAIN_ID_TESTNET;
     let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, mainnet);
@@ -2542,7 +2542,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
 
 #[test]
 fn valid_vote_transaction() {
-    let signer_private_key = StacksPrivateKey::new();
+    let signer_private_key = StacksPrivateKey::random();
     let mainnet = false;
     let chainid = CHAIN_ID_TESTNET;
     let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, mainnet);
@@ -2592,7 +2592,7 @@ fn valid_vote_transaction() {
 
 #[test]
 fn valid_vote_transaction_malformed_transactions() {
-    let signer_private_key = StacksPrivateKey::new();
+    let signer_private_key = StacksPrivateKey::random();
     let mainnet = false;
     let chainid = CHAIN_ID_TESTNET;
     let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, mainnet);
@@ -2825,8 +2825,8 @@ fn valid_vote_transaction_malformed_transactions() {
 
 #[test]
 fn filter_one_transaction_per_signer_multiple_addresses() {
-    let signer_private_key_1 = StacksPrivateKey::new();
-    let signer_private_key_2 = StacksPrivateKey::new();
+    let signer_private_key_1 = StacksPrivateKey::random();
+    let signer_private_key_2 = StacksPrivateKey::random();
     let mainnet = false;
     let chainid = CHAIN_ID_TESTNET;
     let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, mainnet);
@@ -2954,7 +2954,7 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
 
 #[test]
 fn filter_one_transaction_per_signer_duplicate_nonces() {
-    let signer_private_key = StacksPrivateKey::new();
+    let signer_private_key = StacksPrivateKey::random();
     let mainnet = false;
     let chainid = CHAIN_ID_TESTNET;
     let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, mainnet);
@@ -3074,9 +3074,9 @@ pub mod nakamoto_block_signatures {
     // Test that signatures succeed with exactly 70% of the votes
     pub fn test_exactly_enough_votes() {
         let signers = [
-            (Secp256k1PrivateKey::default(), 35),
-            (Secp256k1PrivateKey::default(), 35),
-            (Secp256k1PrivateKey::default(), 30),
+            (Secp256k1PrivateKey::random(), 35),
+            (Secp256k1PrivateKey::random(), 35),
+            (Secp256k1PrivateKey::random(), 30),
         ];
         let reward_set = make_reward_set(&signers);
 
@@ -3101,9 +3101,9 @@ pub mod nakamoto_block_signatures {
     /// Test that signatures fail with just under 70% of the votes
     pub fn test_just_not_enough_votes() {
         let signers = [
-            (Secp256k1PrivateKey::default(), 3500),
-            (Secp256k1PrivateKey::default(), 3499),
-            (Secp256k1PrivateKey::default(), 3001),
+            (Secp256k1PrivateKey::random(), 3500),
+            (Secp256k1PrivateKey::random(), 3499),
+            (Secp256k1PrivateKey::random(), 3001),
         ];
         let reward_set = make_reward_set(&signers);
 
@@ -3132,9 +3132,9 @@ pub mod nakamoto_block_signatures {
     /// Base success case - 3 signers of equal weight, all signing the block
     pub fn test_nakamoto_block_verify_signatures() {
         let signers = [
-            Secp256k1PrivateKey::default(),
-            Secp256k1PrivateKey::default(),
-            Secp256k1PrivateKey::default(),
+            Secp256k1PrivateKey::random(),
+            Secp256k1PrivateKey::random(),
+            Secp256k1PrivateKey::random(),
         ];
 
         let reward_set =
@@ -3162,9 +3162,9 @@ pub mod nakamoto_block_signatures {
     /// Fully signed block, but not in order
     fn test_out_of_order_signer_signatures() {
         let signers = [
-            (Secp256k1PrivateKey::default(), 100),
-            (Secp256k1PrivateKey::default(), 100),
-            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
         ];
         let reward_set = make_reward_set(&signers);
 
@@ -3193,9 +3193,9 @@ pub mod nakamoto_block_signatures {
     // Test with 3 equal signers, and only two sign
     fn test_insufficient_signatures() {
         let signers = [
-            (Secp256k1PrivateKey::default(), 100),
-            (Secp256k1PrivateKey::default(), 100),
-            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
         ];
         let reward_set = make_reward_set(&signers);
 
@@ -3225,10 +3225,10 @@ pub mod nakamoto_block_signatures {
     // and the block is valid
     fn test_single_signature_threshold() {
         let signers = [
-            (Secp256k1PrivateKey::default(), 75),
-            (Secp256k1PrivateKey::default(), 10),
-            (Secp256k1PrivateKey::default(), 5),
-            (Secp256k1PrivateKey::default(), 10),
+            (Secp256k1PrivateKey::random(), 75),
+            (Secp256k1PrivateKey::random(), 10),
+            (Secp256k1PrivateKey::random(), 5),
+            (Secp256k1PrivateKey::random(), 10),
         ];
         let reward_set = make_reward_set(&signers);
 
@@ -3252,7 +3252,7 @@ pub mod nakamoto_block_signatures {
     #[test]
     // Test with a signature that didn't come from the signer set
     fn test_invalid_signer() {
-        let signers = [(Secp256k1PrivateKey::default(), 100)];
+        let signers = [(Secp256k1PrivateKey::random(), 100)];
 
         let reward_set = make_reward_set(&signers);
 
@@ -3266,7 +3266,7 @@ pub mod nakamoto_block_signatures {
             .map(|(s, _)| s.sign(&message).expect("Failed to sign block sighash"))
             .collect::<Vec<_>>();
 
-        let invalid_signature = Secp256k1PrivateKey::default()
+        let invalid_signature = Secp256k1PrivateKey::random()
             .sign(&message)
             .expect("Failed to sign block sighash");
 
@@ -3286,9 +3286,9 @@ pub mod nakamoto_block_signatures {
     #[test]
     fn test_duplicate_signatures() {
         let signers = [
-            (Secp256k1PrivateKey::default(), 100),
-            (Secp256k1PrivateKey::default(), 100),
-            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
         ];
         let reward_set = make_reward_set(&signers);
 
@@ -3326,10 +3326,10 @@ pub mod nakamoto_block_signatures {
     // Test where a signature used a different message
     fn test_signature_invalid_message() {
         let signers = [
-            (Secp256k1PrivateKey::default(), 100),
-            (Secp256k1PrivateKey::default(), 100),
-            (Secp256k1PrivateKey::default(), 100),
-            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
         ];
 
         let reward_set = make_reward_set(&signers);
@@ -3367,10 +3367,10 @@ pub mod nakamoto_block_signatures {
     // Test where a signature is not recoverable
     fn test_unrecoverable_signature() {
         let signers = [
-            (Secp256k1PrivateKey::default(), 100),
-            (Secp256k1PrivateKey::default(), 100),
-            (Secp256k1PrivateKey::default(), 100),
-            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
         ];
 
         let reward_set = make_reward_set(&signers);

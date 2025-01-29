@@ -442,16 +442,10 @@ impl AttachmentsBatchStateContext {
                         .iter()
                         .position(|page| page.index == page_index);
 
-                    let has_attachment = match index {
-                        Some(index) => match response.pages[index]
-                            .inventory
-                            .get(position_in_page as usize)
-                        {
-                            Some(result) if *result == 1 => true,
-                            _ => false,
-                        },
-                        None => false,
-                    };
+                    let has_attachment = index
+                        .and_then(|i| response.pages[i].inventory.get(position_in_page as usize))
+                        .map(|result| *result == 1)
+                        .unwrap_or(false);
 
                     if !has_attachment {
                         debug!(
