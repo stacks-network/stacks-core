@@ -223,26 +223,22 @@ pub trait NeighborWalkDB {
         // favor neighbors with older last-contact times
         let next_neighbors_res = self
             .get_fresh_random_neighbors(network, (NUM_NEIGHBORS as u64) * 2)
-            .map_err(|e| {
+            .inspect_err(|e| {
                 debug!(
-                    "{:?}: Failed to load fresh initial walk neighbors: {:?}",
+                    "{:?}: Failed to load fresh initial walk neighbors: {e:?}",
                     network.get_local_peer(),
-                    &e
                 );
-                e
             });
 
         let db_neighbors = if let Ok(neighbors) = next_neighbors_res {
             neighbors
         } else {
             let any_neighbors = Self::pick_walk_neighbors(network, (NUM_NEIGHBORS as u64) * 2, 0)
-                .map_err(|e| {
+                .inspect_err(|e| {
                 info!(
-                    "{:?}: Failed to load any initial walk neighbors: {:?}",
+                    "{:?}: Failed to load any initial walk neighbors: {e:?}",
                     network.get_local_peer(),
-                    &e
                 );
-                e
             })?;
 
             any_neighbors
