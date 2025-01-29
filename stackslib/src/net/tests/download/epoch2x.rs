@@ -216,10 +216,10 @@ fn test_get_block_availability() {
     })
 }
 
-fn get_blocks_inventory(peer: &mut TestPeer, start_height: u64, end_height: u64) -> BlocksInvData {
+fn get_blocks_inventory(peer: &TestPeer, start_height: u64, end_height: u64) -> BlocksInvData {
     let block_hashes = {
         let num_headers = end_height - start_height;
-        let ic = peer.sortdb.as_mut().unwrap().index_conn();
+        let ic = peer.sortdb.as_ref().unwrap().index_conn();
         let tip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
         let ancestor = SortitionDB::get_ancestor_snapshot(&ic, end_height, &tip.sortition_id)
             .unwrap()
@@ -233,7 +233,7 @@ fn get_blocks_inventory(peer: &mut TestPeer, start_height: u64, end_height: u64)
     };
 
     let inv = peer
-        .chainstate()
+        .chainstate_ref()
         .get_blocks_inventory(&block_hashes)
         .unwrap();
     inv
@@ -471,11 +471,7 @@ where
 
     info!("Completed walk round {} step(s)", round);
 
-    let mut peer_invs = vec![];
     for peer in peers.iter_mut() {
-        let peer_inv = get_blocks_inventory(peer, 0, num_burn_blocks);
-        peer_invs.push(peer_inv);
-
         let availability = get_peer_availability(
             peer,
             first_stacks_block_height - first_sortition_height,

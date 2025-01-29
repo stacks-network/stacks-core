@@ -4896,16 +4896,12 @@ impl SortitionDB {
         let qry = "SELECT * FROM snapshots WHERE sortition_id = ?1";
         let args = [&sortition_id];
         query_row_panic(conn, qry, &args, || {
-            format!(
-                "FATAL: multiple block snapshots for the same block {}",
-                sortition_id
-            )
+            format!("FATAL: multiple block snapshots for the same block {sortition_id}")
         })
-        .map(|x| {
+        .inspect(|x| {
             if x.is_none() {
-                test_debug!("No snapshot with sortition ID {}", sortition_id);
+                test_debug!("No snapshot with sortition ID {sortition_id}");
             }
-            x
         })
     }
 

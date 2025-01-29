@@ -281,8 +281,6 @@ where
         ],
     );
 
-    let mut sortition_winners = vec![];
-
     let first_snapshot = SortitionDB::get_first_block_snapshot(burn_node.sortdb.conn()).unwrap();
     let mut fork = TestBurnchainFork::new(
         first_snapshot.block_height,
@@ -414,8 +412,6 @@ where
             &fork_snapshot.consensus_hash,
             chain_tip.anchored_header.as_stacks_epoch2().unwrap(),
         ));
-
-        sortition_winners.push(miner_1.origin_address().unwrap());
 
         let mut next_miner_trace = TestMinerTracePoint::new();
         next_miner_trace.add(
@@ -634,7 +630,6 @@ where
                 &fork_snapshot.consensus_hash,
                 &stacks_block_1.header
             ));
-            sortition_winners.push(miner_1.origin_address().unwrap());
 
             next_miner_trace.add(
                 miner_1.id,
@@ -656,7 +651,6 @@ where
                 &fork_snapshot.consensus_hash,
                 &stacks_block_2.header
             ));
-            sortition_winners.push(miner_2.origin_address().unwrap());
 
             next_miner_trace.add(
                 miner_2.id,
@@ -737,8 +731,6 @@ where
             miner_2.origin_address().unwrap(),
         ],
     );
-
-    let mut sortition_winners = vec![];
 
     let first_snapshot = SortitionDB::get_first_block_snapshot(burn_node.sortdb.conn()).unwrap();
     let mut fork = TestBurnchainFork::new(
@@ -963,7 +955,6 @@ where
                 &fork_snapshot.consensus_hash,
                 &stacks_block_1.header
             ));
-            sortition_winners.push(miner_1.origin_address().unwrap());
         } else {
             test_debug!(
                 "\n\nMiner 2 ({}) won sortition\n",
@@ -976,7 +967,6 @@ where
                 &fork_snapshot.consensus_hash,
                 &stacks_block_2.header
             ));
-            sortition_winners.push(miner_2.origin_address().unwrap());
         }
 
         // add both blocks to the miner trace, because in this test runner, there will be _two_
@@ -1002,8 +992,6 @@ where
 
     test_debug!("\n\nMiner 1 and Miner 2 now separate\n\n");
 
-    let mut sortition_winners_1 = sortition_winners.clone();
-    let mut sortition_winners_2 = sortition_winners.clone();
     let snapshot_at_fork = {
         let ic = burn_node.sortdb.index_conn();
         let tip = fork.get_tip(&ic);
@@ -1250,7 +1238,6 @@ where
                 &fork_snapshot.consensus_hash,
                 &stacks_block_1.header
             ));
-            sortition_winners_1.push(miner_1.origin_address().unwrap());
         } else {
             test_debug!(
                 "\n\nMiner 2 ({}) won sortition\n",
@@ -1263,7 +1250,6 @@ where
                 &fork_snapshot.consensus_hash,
                 &stacks_block_2.header
             ));
-            sortition_winners_2.push(miner_2.origin_address().unwrap());
         }
 
         // each miner produced a block; just one of them got accepted

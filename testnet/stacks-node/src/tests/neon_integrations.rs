@@ -8461,8 +8461,6 @@ fn atlas_stress_integration_test() {
         "Did not mine namespace preorder or reveal"
     );
 
-    let mut all_zonefiles = vec![];
-
     // make a _ton_ of name-imports
     for i in 0..batches {
         let account_before = get_account(&http_origin, &to_addr(&user_1));
@@ -8473,8 +8471,6 @@ fn atlas_stress_integration_test() {
             //                             (zonefile-hash (buff 20)))
             let zonefile_hex = format!("facade00{:04x}{:04x}{:04x}", batch_size * i + j, i, j);
             let hashed_zonefile = Hash160::from_data(&hex_bytes(&zonefile_hex).unwrap());
-
-            all_zonefiles.push(zonefile_hex.clone());
 
             let tx_3 = make_contract_call(
                 &user_1,
@@ -8658,8 +8654,6 @@ fn atlas_stress_integration_test() {
             let zonefile_hex = format!("facade01{j:04x}");
             let hashed_zonefile = Hash160::from_data(&hex_bytes(&zonefile_hex).unwrap());
 
-            all_zonefiles.push(zonefile_hex.clone());
-
             let tx_6 = make_contract_call(
                 &users[batches * batch_size + j],
                 1,
@@ -8722,8 +8716,6 @@ fn atlas_stress_integration_test() {
             let zonefile_hex = format!("facade02{j:04x}");
             let hashed_zonefile = Hash160::from_data(&hex_bytes(&zonefile_hex).unwrap());
 
-            all_zonefiles.push(zonefile_hex.clone());
-
             let tx_7 = make_contract_call(
                 &users[batches * batch_size + j],
                 2,
@@ -8784,8 +8776,6 @@ fn atlas_stress_integration_test() {
             let name = format!("janedoe{j}");
             let zonefile_hex = format!("facade03{j:04x}");
             let hashed_zonefile = Hash160::from_data(&hex_bytes(&zonefile_hex).unwrap());
-
-            all_zonefiles.push(zonefile_hex.clone());
 
             let tx_8 = make_contract_call(
                 &users[batches * batch_size + j],

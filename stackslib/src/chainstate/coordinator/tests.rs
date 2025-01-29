@@ -2251,7 +2251,6 @@ fn test_sortition_with_reward_set() {
     let mut started_first_reward_cycle = false;
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
-    let mut anchor_blocks = vec![];
 
     // split up the vrf keys and committers so that we have some that will be mining "correctly"
     //   and some that will be producing bad outputs
@@ -2425,10 +2424,6 @@ fn test_sortition_with_reward_set() {
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             started_first_reward_cycle = true;
-            // store the anchor block for this sortition for later checking
-            let ic = sort_db.index_handle_at_tip();
-            let bhh = ic.get_last_anchor_block_hash().unwrap().unwrap();
-            anchor_blocks.push(bhh);
         }
 
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
@@ -2523,7 +2518,6 @@ fn test_sortition_with_burner_reward_set() {
     let mut started_first_reward_cycle = false;
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
-    let mut anchor_blocks = vec![];
 
     // split up the vrf keys and committers so that we have some that will be mining "correctly"
     //   and some that will be producing bad outputs
@@ -2671,10 +2665,6 @@ fn test_sortition_with_burner_reward_set() {
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             started_first_reward_cycle = true;
-            // store the anchor block for this sortition for later checking
-            let ic = sort_db.index_handle_at_tip();
-            let bhh = ic.get_last_anchor_block_hash().unwrap().unwrap();
-            anchor_blocks.push(bhh);
         }
 
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
@@ -2787,7 +2777,6 @@ fn test_pox_btc_ops() {
     let mut started_first_reward_cycle = false;
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
-    let mut anchor_blocks = vec![];
 
     // track the reward set consumption
     let mut reward_cycle_count = 0;
@@ -2955,10 +2944,6 @@ fn test_pox_btc_ops() {
         if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             if new_burnchain_tip.block_height < sunset_ht {
                 started_first_reward_cycle = true;
-                // store the anchor block for this sortition for later checking
-                let ic = sort_db.index_handle_at_tip();
-                let bhh = ic.get_last_anchor_block_hash().unwrap().unwrap();
-                anchor_blocks.push(bhh);
             } else {
                 // store the anchor block for this sortition for later checking
                 let ic = sort_db.index_handle_at_tip();
@@ -3079,7 +3064,6 @@ fn test_stx_transfer_btc_ops() {
     let mut started_first_reward_cycle = false;
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
-    let mut anchor_blocks = vec![];
 
     // track the reward set consumption
     let mut reward_recipients = HashSet::new();
@@ -3302,10 +3286,6 @@ fn test_stx_transfer_btc_ops() {
         if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             if new_burnchain_tip.block_height < sunset_ht {
                 started_first_reward_cycle = true;
-                // store the anchor block for this sortition for later checking
-                let ic = sort_db.index_handle_at_tip();
-                let bhh = ic.get_last_anchor_block_hash().unwrap().unwrap();
-                anchor_blocks.push(bhh);
             } else {
                 // store the anchor block for this sortition for later checking
                 let ic = sort_db.index_handle_at_tip();
@@ -5286,7 +5266,6 @@ fn test_sortition_with_sunset() {
     let mut started_first_reward_cycle = false;
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
-    let mut anchor_blocks = vec![];
 
     // split up the vrf keys and committers so that we have some that will be mining "correctly"
     //   and some that will be producing bad outputs
@@ -5470,10 +5449,6 @@ fn test_sortition_with_sunset() {
         if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             if new_burnchain_tip.block_height < sunset_ht {
                 started_first_reward_cycle = true;
-                // store the anchor block for this sortition for later checking
-                let ic = sort_db.index_handle_at_tip();
-                let bhh = ic.get_last_anchor_block_hash().unwrap().unwrap();
-                anchor_blocks.push(bhh);
             } else {
                 // store the anchor block for this sortition for later checking
                 let ic = sort_db.index_handle_at_tip();
@@ -5599,7 +5574,6 @@ fn test_sortition_with_sunset_and_epoch_switch() {
     let mut started_first_reward_cycle = false;
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
-    let mut anchor_blocks = vec![];
 
     // split up the vrf keys and committers so that we have some that will be mining "correctly"
     //   and some that will be producing bad outputs
@@ -5811,10 +5785,6 @@ fn test_sortition_with_sunset_and_epoch_switch() {
         if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             if new_burnchain_tip.block_height < sunset_ht {
                 started_first_reward_cycle = true;
-                // store the anchor block for this sortition for later checking
-                let ic = sort_db.index_handle_at_tip();
-                let bhh = ic.get_last_anchor_block_hash().unwrap().unwrap();
-                anchor_blocks.push(bhh);
             } else {
                 // store the anchor block for this sortition for later checking
                 let ic = sort_db.index_handle_at_tip();
@@ -6462,7 +6432,6 @@ fn test_pox_fork_out_of_order() {
     let mut sortition_ids_diverged = false;
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
-    let mut anchor_blocks = vec![];
 
     // setup:
     //  2 forks: 0 - 1 - 2 - 3 - 4 - 5 - 11 - 12 - 13 - 14 - 15
@@ -6543,8 +6512,6 @@ fn test_pox_fork_out_of_order() {
                 .unwrap()
                 .block_height
             );
-
-            anchor_blocks.push(bhh);
         }
 
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();

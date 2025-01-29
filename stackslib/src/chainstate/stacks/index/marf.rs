@@ -440,13 +440,12 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
 
         if new_extension {
             self.set_block_heights(chain_tip, next_chain_tip, block_height)
-                .map_err(|e| {
+                .inspect_err(|_e| {
                     self.open_chain_tip.take();
-                    e
                 })?;
         }
 
-        debug!("Opened {} to {}", chain_tip, next_chain_tip);
+        debug!("Opened {chain_tip} to {next_chain_tip}");
         Ok(())
     }
 
@@ -932,9 +931,8 @@ impl<T: MarfTrieId> MARF<T> {
         let mut cursor = TrieCursor::new(path, storage.root_trieptr());
 
         // walk to insertion point
-        let mut node = Trie::read_root_nohash(storage).map_err(|e| {
-            test_debug!("Failed to read root of {:?}: {:?}", block_hash, &e);
-            e
+        let mut node = Trie::read_root_nohash(storage).inspect_err(|_e| {
+            test_debug!("Failed to read root of {block_hash:?}: {_e:?}");
         })?;
 
         for _ in 0..(cursor.path.len() + 1) {
@@ -956,7 +954,7 @@ impl<T: MarfTrieId> MARF<T> {
                                 ));
                             }
 
-                            trace!("Cursor reached leaf {:?}", &node);
+                            trace!("Cursor reached leaf {node:?}");
                             storage.bench_mut().marf_walk_from_finish();
                             return Ok((cursor, node));
                         }
@@ -1170,13 +1168,9 @@ impl<T: MarfTrieId> MARF<T> {
         // restore
         storage
             .open_block_maybe_id(&cur_block_hash, cur_block_id)
-            .map_err(|e| {
-                warn!(
-                    "Failed to re-open {} {:?}: {:?}",
-                    &cur_block_hash, cur_block_id, &e
-                );
-                warn!("Result of failed path lookup '{}': {:?}", path, &result);
-                e
+            .inspect_err(|e| {
+                warn!("Failed to re-open {cur_block_hash} {cur_block_id:?}: {e:?}");
+                warn!("Result of failed path lookup '{path}': {result:?}");
             })?;
 
         result.map(|option_result| option_result.map(|leaf| leaf.data))
@@ -1201,13 +1195,9 @@ impl<T: MarfTrieId> MARF<T> {
         // restore
         storage
             .open_block_maybe_id(&cur_block_hash, cur_block_id)
-            .map_err(|e| {
-                warn!(
-                    "Failed to re-open {} {:?}: {:?}",
-                    &cur_block_hash, cur_block_id, &e
-                );
-                warn!("Result of failed key lookup '{}': {:?}", key, &result);
-                e
+            .inspect_err(|e| {
+                warn!("Failed to re-open {cur_block_hash} {cur_block_id:?}: {e:?}");
+                warn!("Result of failed key lookup '{key}': {result:?}");
             })?;
 
         result.map(|option_result| option_result.map(|leaf| leaf.data))
@@ -1230,13 +1220,9 @@ impl<T: MarfTrieId> MARF<T> {
         // restore
         storage
             .open_block_maybe_id(&cur_block_hash, cur_block_id)
-            .map_err(|e| {
-                warn!(
-                    "Failed to re-open {} {:?}: {:?}",
-                    &cur_block_hash, cur_block_id, &e
-                );
-                warn!("Result of failed hash lookup '{}': {:?}", path, &result);
-                e
+            .inspect_err(|e| {
+                warn!("Failed to re-open {cur_block_hash} {cur_block_id:?}: {e:?}");
+                warn!("Result of failed hash lookup '{path}': {result:?}");
             })?;
 
         result.map(|option_result| option_result.map(|leaf| leaf.data))
