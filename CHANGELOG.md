@@ -10,6 +10,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Changed
 
 - Miner will include other transactions in blocks with tenure extend transactions (#5760)
+- Various logging improvements
 
 ## [3.1.0.0.4]
 
