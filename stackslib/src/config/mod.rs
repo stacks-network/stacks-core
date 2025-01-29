@@ -16,7 +16,7 @@
 
 pub mod chain_data;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -35,8 +35,6 @@ use stacks_common::types::Address;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
-
-use std::collections::BTreeMap;
 
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::bitcoin::BitcoinNetworkType;

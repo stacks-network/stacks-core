@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::{BTreeMap, HashMap};
+use std::ops::Bound::Included;
 use std::sync::atomic::AtomicBool;
 #[cfg(test)]
 use std::sync::LazyLock;
@@ -38,8 +40,6 @@ use stacks::util::secp256k1::MessageSignature;
 use stacks::util_lib::boot::boot_code_id;
 #[cfg(test)]
 use stacks_common::util::tests::TestFlag;
-use std::collections::{BTreeMap, HashMap};
-use std::ops::Bound::Included;
 
 use super::stackerdb_listener::StackerDBListenerComms;
 use super::Error as NakamotoNodeError;
