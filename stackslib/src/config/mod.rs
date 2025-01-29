@@ -2201,8 +2201,7 @@ impl Default for MinerConfig {
                 rejections_timeouts_default_map.insert(0, Duration::from_secs(600));
                 rejections_timeouts_default_map.insert(10, Duration::from_secs(300));
                 rejections_timeouts_default_map.insert(20, Duration::from_secs(150));
-                rejections_timeouts_default_map.insert(30, Duration::from_secs(60));
-                rejections_timeouts_default_map.insert(31, Duration::from_secs(0));
+                rejections_timeouts_default_map.insert(30, Duration::from_secs(0));
                 rejections_timeouts_default_map
             },
         }
