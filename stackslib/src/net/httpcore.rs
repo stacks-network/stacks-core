@@ -1272,9 +1272,8 @@ impl StacksHttp {
             return Err(NetError::InvalidState);
         }
         if let Some(reply) = self.reply.as_mut() {
-            match reply.stream.consume_data(fd).map_err(|e| {
+            match reply.stream.consume_data(fd).inspect_err(|_e| {
                 self.reset();
-                e
             })? {
                 (Some((byte_vec, bytes_total)), sz) => {
                     // done receiving
@@ -1488,11 +1487,11 @@ impl ProtocolFamily for StacksHttp {
                 }
 
                 // message of unknown length.  Buffer up and maybe we can parse it.
-                let (message_bytes_opt, num_read) =
-                    self.consume_data(http_response_preamble, fd).map_err(|e| {
-                        self.reset();
-                        e
-                    })?;
+                let (message_bytes_opt, num_read) = self
+                    .consume_data(http_response_preamble, fd)
+                    .inspect_err(|_e| {
+                    self.reset();
+                })?;
 
                 match message_bytes_opt {
                     Some((message_bytes, total_bytes_consumed)) => {

@@ -1131,16 +1131,6 @@ mod test {
             StacksEpochId::latest(),
         );
 
-        // remove all coinbases
-        let mut txs_anchored = vec![];
-
-        for tx in all_txs.iter() {
-            if let TransactionPayload::Coinbase(..) = tx.payload {
-                continue;
-            }
-            txs_anchored.push(tx);
-        }
-
         // make microblocks with 3 transactions each (or fewer)
         for i in 0..(all_txs.len() / 3) {
             let txs = vec![

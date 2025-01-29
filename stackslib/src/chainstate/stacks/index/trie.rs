@@ -217,22 +217,19 @@ impl Trie {
             // ptr is a backptr -- find the block
             let back_block_hash = storage
                 .get_block_from_local_id(ptr.back_block())
-                .map_err(|e| {
+                .inspect_err(|_e| {
                     test_debug!("Failed to get block from local ID {}", ptr.back_block());
-                    e
                 })?
                 .clone();
 
             storage
                 .open_block_known_id(&back_block_hash, ptr.back_block())
-                .map_err(|e| {
+                .inspect_err(|_e| {
                     test_debug!(
-                        "Failed to open block {} with id {}: {:?}",
+                        "Failed to open block {} with id {}: {_e:?}",
                         &back_block_hash,
                         ptr.back_block(),
-                        &e
                     );
-                    e
                 })?;
 
             let backptr = ptr.from_backptr();
