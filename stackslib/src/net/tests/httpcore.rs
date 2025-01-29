@@ -731,12 +731,9 @@ fn test_http_response_type_codec() {
             .unwrap();
 
         http.set_response_handler(request_verb, request_path);
-        let (mut preamble, offset) = match http.read_preamble(&bytes) {
-            Ok((p, o)) => (p, o),
-            Err(e) => {
-                panic!("first 4096 bytes:\n{bytes:?}\nerror: {e:?}");
-            }
-        };
+        let (mut preamble, offset) = http
+            .read_preamble(&bytes)
+            .unwrap_or_else(|e| panic!("first 4096 bytes:\n{bytes:?}\nerror: {e:?}"));
 
         test_debug!(
             "{request_verb} {request_path}: read preamble of {offset} bytes\n{preamble:?}\n",

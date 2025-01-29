@@ -1620,35 +1620,26 @@ mod test {
         let mut drained = false;
         let mut total_bytes = 0;
         while !drained {
-            match shared_state.lock() {
-                Ok(ref mut conn) => {
-                    // in the foreground, get the messages
-                    let nr = match conn.recv_data(&mut read) {
-                        Ok(cnt) => {
-                            if cnt == 0 {
-                                thread::yield_now();
-                            }
-
-                            cnt
-                        }
-                        Err(e) => {
-                            if let net_error::PermanentlyDrained = e {
-                                drained = true;
-                                0
-                            } else {
-                                panic!("{e:?}");
-                            }
-                        }
-                    };
-
-                    if nr > 0 {
-                        test_debug!("Received {nr} bytes");
-                        total_bytes += nr;
+            let mut conn = shared_state.lock().unwrap_or_else(|e| panic!("{e:?}"));
+            // in the foreground, get the messages
+            let nr = match conn.recv_data(&mut read) {
+                Ok(cnt) => {
+                    if cnt == 0 {
+                        thread::yield_now();
                     }
+
+                    cnt
                 }
-                Err(e) => {
-                    panic!("{e:?}");
+                Err(net_error::PermanentlyDrained) => {
+                    drained = true;
+                    0
                 }
+                Err(e) => panic!("{e:?}"),
+            };
+
+            if nr > 0 {
+                test_debug!("Received {nr} bytes");
+                total_bytes += nr;
             }
         }
 
@@ -1783,14 +1774,11 @@ mod test {
                     // in the foreground, get the messages
                     let nr = match conn.recv_data(&mut read) {
                         Ok(cnt) => cnt,
-                        Err(e) => {
-                            if let net_error::PermanentlyDrained = e {
-                                drained = true;
-                                0
-                            } else {
-                                panic!("{e:?}");
-                            }
+                        Err(net_error::PermanentlyDrained) => {
+                            drained = true;
+                            0
                         }
+                        Err(e) => panic!("{e:?}"),
                     };
 
                     if nr > 0 {

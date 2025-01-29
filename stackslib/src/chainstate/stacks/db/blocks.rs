@@ -9913,7 +9913,7 @@ pub mod test {
             {
                 let mut debug_reader = LogReader::from_reader(&mut mblock_ptr);
                 let next_mblock = StacksMicroblock::consensus_deserialize(&mut debug_reader)
-                    .map_err(|e| {
+                    .unwrap_or_else(|e| {
                         panic!(
                             "Failed to decode microblock {}: {e:?}\nBytes consumed:\n{}",
                             mblocks.len(),
@@ -9924,8 +9924,7 @@ pub mod test {
                                 .collect::<Vec<_>>()
                                 .join("\n")
                         );
-                    })
-                    .unwrap();
+                    });
                 mblocks.push(next_mblock);
             }
             if mblock_ptr.is_empty() {
