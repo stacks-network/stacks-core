@@ -353,7 +353,7 @@ fn test_stackerdb_insert_query_chunks() {
 
     let tx = db.tx_begin(db_config.clone()).unwrap();
 
-    let pks: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let pks: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let addrs: Vec<_> = pks
         .iter()
         .map(|pk| {
@@ -506,7 +506,7 @@ fn test_reconfigure_stackerdb() {
 
     let tx = db.tx_begin(db_config).unwrap();
 
-    let pks: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let pks: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let addrs: Vec<_> = pks
         .iter()
         .map(|pk| {
@@ -567,7 +567,7 @@ fn test_reconfigure_stackerdb() {
     }
 
     let tx = db.tx_begin(StackerDBConfig::noop()).unwrap();
-    let new_pks: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let new_pks: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let reconfigured_pks = vec![
         // first five slots are unchanged
         pks[0], pks[1], pks[2], pks[3], pks[4],
@@ -648,7 +648,7 @@ fn test_reconfigure_stackerdb() {
     }
 
     // reconfigure with fewer slots
-    let new_pks: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let new_pks: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let reconfigured_pks = vec![
         // first five slots are unchanged
         pks[0], pks[1], pks[2], pks[3], pks[4],

@@ -88,10 +88,10 @@ fn fix_to_pox_contract() {
     let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let increase_by = 10_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
-    let spender_2_sk = StacksPrivateKey::new();
+    let spender_2_sk = StacksPrivateKey::random();
     let spender_2_addr: PrincipalData = to_addr(&spender_2_sk).into();
 
     let mut initial_balances = vec![];
@@ -695,11 +695,11 @@ fn verify_auto_unlock_behavior() {
     let first_stacked_incr = 40_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let small_stacked = 17_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_stx_addr: StacksAddress = to_addr(&spender_sk);
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
-    let spender_2_sk = StacksPrivateKey::new();
+    let spender_2_sk = StacksPrivateKey::random();
     let spender_2_stx_addr: StacksAddress = to_addr(&spender_2_sk);
     let spender_2_addr: PrincipalData = to_addr(&spender_2_sk).into();
 
