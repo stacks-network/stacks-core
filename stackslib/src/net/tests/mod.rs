@@ -515,7 +515,7 @@ impl NakamotoBootPlan {
             .config
             .test_stackers
             .clone()
-            .unwrap_or(vec![])
+            .unwrap_or_default()
             .iter()
             .map(|test_stacker| {
                 let pox_addr = test_stacker
@@ -675,7 +675,6 @@ impl NakamotoBootPlan {
 
         let mut all_blocks = vec![];
         let mut malleablized_block_ids = HashSet::new();
-        let mut consensus_hashes = vec![];
         let mut last_tenure_change: Option<TenureChangePayload> = None;
         let mut blocks_since_last_tenure = 0;
 
@@ -757,7 +756,6 @@ impl NakamotoBootPlan {
                         });
 
                     peer.refresh_burnchain_view();
-                    consensus_hashes.push(next_consensus_hash);
 
                     let blocks: Vec<NakamotoBlock> = blocks_and_sizes
                         .into_iter()
@@ -858,7 +856,6 @@ impl NakamotoBootPlan {
                         });
                     peer.refresh_burnchain_view();
 
-                    consensus_hashes.push(consensus_hash);
                     let blocks: Vec<NakamotoBlock> = blocks_and_sizes
                         .into_iter()
                         .map(|(block, _, _)| block)
@@ -954,14 +951,13 @@ impl NakamotoBootPlan {
 
                     // each transaction was mined in the same order as described in the boot plan,
                     // and it succeeded.
-                    let mut burn_receipts = vec![];
                     let mut stacks_receipts = vec![];
                     for receipt in observed_block.receipts.iter() {
                         match &receipt.transaction {
                             TransactionOrigin::Stacks(..) => {
                                 stacks_receipts.push(receipt);
                             }
-                            TransactionOrigin::Burn(..) => burn_receipts.push(receipt),
+                            TransactionOrigin::Burn(..) => {}
                         }
                     }
 
@@ -1216,16 +1212,16 @@ fn test_network_result_update() {
         &BurnchainHeaderHash([0x22; 32]),
         StacksMessageType::Ping(PingData { nonce: 2 }),
     );
-    msg2.sign(2, &StacksPrivateKey::new()).unwrap();
+    msg2.sign(2, &StacksPrivateKey::random()).unwrap();
 
-    let pkey_1 = StacksPrivateKey::new();
-    let pkey_2 = StacksPrivateKey::new();
+    let pkey_1 = StacksPrivateKey::random();
+    let pkey_2 = StacksPrivateKey::random();
 
-    let pushed_pkey_1 = StacksPrivateKey::new();
-    let pushed_pkey_2 = StacksPrivateKey::new();
+    let pushed_pkey_1 = StacksPrivateKey::random();
+    let pushed_pkey_2 = StacksPrivateKey::random();
 
-    let uploaded_pkey_1 = StacksPrivateKey::new();
-    let uploaded_pkey_2 = StacksPrivateKey::new();
+    let uploaded_pkey_1 = StacksPrivateKey::random();
+    let uploaded_pkey_2 = StacksPrivateKey::random();
 
     let blk1 = make_empty_coinbase_block(&pkey_1);
     let blk2 = make_empty_coinbase_block(&pkey_2);

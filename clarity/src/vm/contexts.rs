@@ -2140,8 +2140,8 @@ mod test {
         //  not simply rollback the tx and squelch the error as includable.
         let e = env
             .stx_transfer(
-                &PrincipalData::try_from(u1).unwrap(),
-                &PrincipalData::try_from(u2).unwrap(),
+                &PrincipalData::from(u1),
+                &PrincipalData::from(u2),
                 1000,
                 &BuffData::empty(),
             )

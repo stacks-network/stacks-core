@@ -138,7 +138,7 @@ fn test_stream_mempool_txs() {
 
     let mut mempool_tx = mempool.tx_begin().unwrap();
     for i in 0..10 {
-        let pk = StacksPrivateKey::new();
+        let pk = StacksPrivateKey::random();
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
@@ -351,7 +351,7 @@ fn test_decode_tx_stream() {
     let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
     let mut txs = vec![];
     for _i in 0..10 {
-        let pk = StacksPrivateKey::new();
+        let pk = StacksPrivateKey::random();
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,

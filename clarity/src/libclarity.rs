@@ -60,8 +60,7 @@ pub mod boot_util {
     pub fn boot_code_id(name: &str, mainnet: bool) -> QualifiedContractIdentifier {
         let addr = boot_code_addr(mainnet);
         QualifiedContractIdentifier::new(
-            addr.try_into()
-                .expect("FATAL: boot contract addr is not a legal principal"),
+            addr.into(),
             ContractName::try_from(name.to_string())
                 .expect("FATAL: boot contract name is not a legal ContractName"),
         )

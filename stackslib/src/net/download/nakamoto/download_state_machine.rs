@@ -759,7 +759,7 @@ impl NakamotoDownloadStateMachine {
                     inventories.iter(),
                 )
             })
-            .unwrap_or(HashMap::new());
+            .unwrap_or_default();
 
         let mut available = Self::find_available_tenures(
             self.reward_cycle,
@@ -783,7 +783,7 @@ impl NakamotoDownloadStateMachine {
                     inventories.iter(),
                 )
             })
-            .unwrap_or(HashMap::new());
+            .unwrap_or_default();
 
         let mut tenure_block_ids = {
             debug!(
@@ -822,7 +822,7 @@ impl NakamotoDownloadStateMachine {
                         &available,
                     )
                 })
-                .unwrap_or(VecDeque::new());
+                .unwrap_or_default();
 
             let schedule = Self::make_ibd_download_schedule(
                 self.nakamoto_start_height,
@@ -843,7 +843,7 @@ impl NakamotoDownloadStateMachine {
                         &available,
                     )
                 })
-                .unwrap_or(VecDeque::new());
+                .unwrap_or_default();
 
             let schedule = Self::make_rarest_first_download_schedule(
                 self.nakamoto_start_height,
@@ -1186,12 +1186,11 @@ impl NakamotoDownloadStateMachine {
 
             let _ = downloader
                 .try_advance_from_chainstate(chainstate)
-                .map_err(|e| {
+                .inspect_err(|e| {
                     warn!(
-                        "Failed to advance downloader in state {} for {}: {:?}",
-                        &downloader.state, &downloader.naddr, &e
-                    );
-                    e
+                        "Failed to advance downloader in state {} for {}: {e:?}",
+                        &downloader.state, &downloader.naddr
+                    )
                 });
 
             debug!(
@@ -1257,13 +1256,11 @@ impl NakamotoDownloadStateMachine {
             {
                 if let Some(highest_complete_tenure_downloader) = downloader
                     .make_highest_complete_tenure_downloader()
-                    .map_err(|e| {
+                    .inspect_err(|e| {
                         warn!(
-                            "Failed to make highest complete tenure downloader for {:?}: {:?}",
-                            &downloader.unconfirmed_tenure_id(),
-                            &e
-                        );
-                        e
+                            "Failed to make highest complete tenure downloader for {:?}: {e:?}",
+                            &downloader.unconfirmed_tenure_id()
+                        )
                     })
                     .ok()
                 {

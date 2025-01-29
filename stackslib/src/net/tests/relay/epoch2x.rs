@@ -1944,7 +1944,7 @@ fn test_get_blocks_and_microblocks_peers_broadcast() {
         let sent_txs = RefCell::new(vec![]);
         let done = RefCell::new(false);
         let num_peers = 3;
-        let privk = StacksPrivateKey::new();
+        let privk = StacksPrivateKey::random();
 
         let peers = run_get_blocks_and_microblocks(
             "test_get_blocks_and_microblocks_peers_broadcast",
@@ -2642,9 +2642,9 @@ pub fn make_contract_tx(
 
 #[test]
 fn test_static_problematic_tests() {
-    let spender_sk_1 = StacksPrivateKey::new();
-    let spender_sk_2 = StacksPrivateKey::new();
-    let spender_sk_3 = StacksPrivateKey::new();
+    let spender_sk_1 = StacksPrivateKey::random();
+    let spender_sk_2 = StacksPrivateKey::random();
+    let spender_sk_3 = StacksPrivateKey::random();
 
     let edge_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) - 1;
     let tx_edge_body_start = "{ a : ".repeat(edge_repeat_factor as usize);
@@ -2814,7 +2814,7 @@ fn process_new_blocks_rejects_problematic_asts() {
     let tip =
         SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
-    let mblock_privk = StacksPrivateKey::new();
+    let mblock_privk = StacksPrivateKey::random();
 
     // make one tenure with a valid block, but problematic microblocks
     let (burn_ops, block, microblocks) = peer.make_tenure(
