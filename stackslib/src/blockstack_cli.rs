@@ -48,7 +48,6 @@ use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
 use stacks_common::address::{b58, AddressHashMode};
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec};
 use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::util::cargo_workspace;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::retry::LogReader;
 
@@ -579,7 +578,7 @@ fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<S
         return Err(CliError::Message(format!("USAGE:\n {}", GENERATE_USAGE)));
     }
 
-    let sk = StacksPrivateKey::new();
+    let sk = StacksPrivateKey::random();
     let pk = StacksPublicKey::from_private(&sk);
     let version = match version {
         TransactionVersion::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
@@ -897,6 +896,8 @@ fn main_handler(mut argv: Vec<String>) -> Result<String, CliError> {
 
 #[cfg(test)]
 mod test {
+    use stacks_common::util::cargo_workspace;
+
     use super::*;
 
     #[test]
@@ -1157,7 +1158,7 @@ mod test {
                 .contains("Failed to decode hex")
         );
 
-        let sk = StacksPrivateKey::new();
+        let sk = StacksPrivateKey::random();
         let s = format!(
             "{}",
             sign_transaction_single_sig_standard("01zz", &sk).unwrap_err()

@@ -420,12 +420,12 @@ mod test {
             client.try_recv().unwrap();
 
             for name in names.iter() {
-                if resolved_addrs.contains_key(&name.to_string()) {
+                if resolved_addrs.contains_key(*name) {
                     continue;
                 }
                 match client.poll_lookup(name, 80).unwrap() {
                     Some(addrs) => {
-                        test_debug!("name {} addrs: {:?}", name, &addrs);
+                        test_debug!("name {name} addrs: {addrs:?}");
                         resolved_addrs.insert(name.to_string(), addrs);
                         break;
                     }

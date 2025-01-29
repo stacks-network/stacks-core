@@ -7,9 +7,13 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+### Changed
+
+- Miner will include other transactions in blocks with tenure extend transactions (#5760)
+
 ### Fixed
 
-- Miners who restart their nodes immediately before a winning tenure now correctly detect that 
+- Miners who restart their nodes immediately before a winning tenure now correctly detect that
   they won the tenure after their nodes restart ([#5750](https://github.com/stacks-network/stacks-core/issues/5750)).
 
 ## [3.1.0.0.4]

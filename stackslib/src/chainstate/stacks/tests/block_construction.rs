@@ -187,7 +187,6 @@ fn test_build_anchored_blocks_stx_transfers_single() {
     let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
     let mut sender_nonce = 0;
 
-    let mut last_block = None;
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
         let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
@@ -271,8 +270,6 @@ fn test_build_anchored_blocks_stx_transfers_single() {
             },
         );
 
-        last_block = Some(stacks_block.clone());
-
         peer.next_burnchain_block(burn_ops.clone());
         peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
@@ -324,7 +321,6 @@ fn test_build_anchored_blocks_empty_with_builder_timeout() {
     let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
     let mut sender_nonce = 0;
 
-    let mut last_block = None;
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
         let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
@@ -412,8 +408,6 @@ fn test_build_anchored_blocks_empty_with_builder_timeout() {
             },
         );
 
-        last_block = Some(stacks_block.clone());
-
         peer.next_burnchain_block(burn_ops.clone());
         peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
@@ -431,7 +425,7 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
     let num_blocks = 10;
 
     for _ in 0..num_blocks {
-        let privk = StacksPrivateKey::new();
+        let privk = StacksPrivateKey::random();
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -462,7 +456,6 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
     let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
     let mut sender_nonce = 0;
 
-    let mut last_block = None;
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
         let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
@@ -574,8 +567,6 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
             },
         );
 
-        last_block = Some(stacks_block.clone());
-
         peer.next_burnchain_block(burn_ops.clone());
         peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
@@ -649,7 +640,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
 
     let mut mblock_privks = vec![];
     for _ in 0..num_blocks {
-        let mblock_privk = StacksPrivateKey::new();
+        let mblock_privk = StacksPrivateKey::random();
         mblock_privks.push(mblock_privk);
     }
 
@@ -885,7 +876,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
 
     let mut mblock_privks = vec![];
     for _ in 0..num_blocks {
-        let mblock_privk = StacksPrivateKey::new();
+        let mblock_privk = StacksPrivateKey::random();
         mblock_privks.push(mblock_privk);
     }
 
@@ -1152,7 +1143,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
 /// to consider an origin's "next" transaction immediately. Prior behavior would
 /// only do so after processing any other origin's transactions.
 fn test_build_anchored_blocks_incrementing_nonces() {
-    let private_keys: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let private_keys: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let addresses: Vec<_> = private_keys
         .iter()
         .map(|sk| {
@@ -1304,7 +1295,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
     let mut initial_balances = vec![];
     let num_blocks = 10;
     for i in 0..num_blocks {
-        let pk = StacksPrivateKey::new();
+        let pk = StacksPrivateKey::random();
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -1369,7 +1360,6 @@ fn test_build_anchored_blocks_skip_too_expensive() {
     let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
     let mut sender_nonce = 0;
 
-    let mut last_block = None;
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
         let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
@@ -1508,8 +1498,6 @@ fn test_build_anchored_blocks_skip_too_expensive() {
                 (anchored_block.0, vec![])
             },
         );
-
-        last_block = Some(stacks_block.clone());
 
         peer.next_burnchain_block(burn_ops.clone());
         peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
@@ -1756,7 +1744,7 @@ fn test_build_anchored_blocks_multiple_chaintips() {
     let num_blocks = 10;
 
     for _ in 0..num_blocks {
-        let privk = StacksPrivateKey::new();
+        let privk = StacksPrivateKey::random();
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -1788,7 +1776,6 @@ fn test_build_anchored_blocks_multiple_chaintips() {
         sn.block_height
     };
 
-    let mut last_block = None;
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
         let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
@@ -1883,8 +1870,6 @@ fn test_build_anchored_blocks_multiple_chaintips() {
             },
         );
 
-        last_block = Some(stacks_block.clone());
-
         peer.next_burnchain_block(burn_ops.clone());
         peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
@@ -1903,7 +1888,7 @@ fn test_build_anchored_blocks_empty_chaintips() {
     let num_blocks = 10;
 
     for _ in 0..num_blocks {
-        let privk = StacksPrivateKey::new();
+        let privk = StacksPrivateKey::random();
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -1930,7 +1915,6 @@ fn test_build_anchored_blocks_empty_chaintips() {
         sn.block_height
     };
 
-    let mut last_block = None;
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
         let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
@@ -2019,8 +2003,6 @@ fn test_build_anchored_blocks_empty_chaintips() {
             },
         );
 
-        last_block = Some(stacks_block.clone());
-
         peer.next_burnchain_block(burn_ops.clone());
         peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
@@ -2046,7 +2028,7 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
     let num_blocks = 3;
 
     for _ in 0..num_blocks {
-        let privk = StacksPrivateKey::new();
+        let privk = StacksPrivateKey::random();
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -2073,7 +2055,6 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
         sn.block_height
     };
 
-    let mut last_block = None;
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
         let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
@@ -2197,8 +2178,6 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
             },
         );
 
-        last_block = Some(stacks_block.clone());
-
         peer.next_burnchain_block(burn_ops.clone());
         peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
@@ -2229,7 +2208,6 @@ fn test_build_anchored_blocks_invalid() {
 
     let mut last_block: Option<StacksBlock> = None;
     let mut last_valid_block: Option<StacksBlock> = None;
-    let mut last_tip: Option<BlockSnapshot> = None;
     let mut last_parent: Option<StacksBlock> = None;
     let mut last_parent_tip: Option<StacksHeaderInfo> = None;
 
@@ -2260,8 +2238,6 @@ fn test_build_anchored_blocks_invalid() {
         } else if tenure_id == bad_block_tenure + 1 {
             tip = resume_tip.clone().unwrap();
         }
-
-        last_tip = Some(tip.clone());
 
         let (mut burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
             let parent_opt =
@@ -2411,7 +2387,7 @@ fn test_build_anchored_blocks_bad_nonces() {
     let num_blocks = 10;
 
     for _ in 0..num_blocks {
-        let privk = StacksPrivateKey::new();
+        let privk = StacksPrivateKey::random();
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -2438,7 +2414,6 @@ fn test_build_anchored_blocks_bad_nonces() {
         sn.block_height
     };
 
-    let mut last_block = None;
     for tenure_id in 0..num_blocks {
         eprintln!("Start tenure {:?}", tenure_id);
         // send transactions to the mempool
@@ -2634,8 +2609,6 @@ fn test_build_anchored_blocks_bad_nonces() {
             },
         );
 
-        last_block = Some(stacks_block.clone());
-
         peer.next_burnchain_block(burn_ops.clone());
         peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
@@ -2659,8 +2632,8 @@ fn test_build_microblock_stream_forks() {
     let initial_balance = 100000000;
 
     for _ in 0..num_blocks {
-        let privk = StacksPrivateKey::new();
-        let mblock_privk = StacksPrivateKey::new();
+        let privk = StacksPrivateKey::random();
+        let mblock_privk = StacksPrivateKey::random();
 
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -2693,7 +2666,6 @@ fn test_build_microblock_stream_forks() {
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
     let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
 
-    let mut last_block = None;
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
         let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
@@ -2904,8 +2876,6 @@ fn test_build_microblock_stream_forks() {
             },
         );
 
-        last_block = Some(stacks_block.clone());
-
         peer.next_burnchain_block(burn_ops.clone());
         peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
     }
@@ -2959,8 +2929,8 @@ fn test_build_microblock_stream_forks_with_descendants() {
     let initial_balance = 100000000;
 
     for _ in 0..num_blocks {
-        let privk = StacksPrivateKey::new();
-        let mblock_privk = StacksPrivateKey::new();
+        let privk = StacksPrivateKey::random();
+        let mblock_privk = StacksPrivateKey::random();
 
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -3487,15 +3457,7 @@ fn test_contract_call_across_clarity_versions() {
 
     let num_blocks = 10;
     let mut anchored_sender_nonce = 0;
-
-    let mut mblock_privks = vec![];
-    for _ in 0..num_blocks {
-        let mblock_privk = StacksPrivateKey::new();
-        mblock_privks.push(mblock_privk);
-    }
-
     let mut peer = TestPeer::new(peer_config);
-
     let chainstate_path = peer.chainstate_path.clone();
 
     let first_stacks_block_height = {
@@ -3993,7 +3955,7 @@ fn test_is_tx_problematic() {
     let mut initial_balances = vec![];
     let num_blocks = 10;
     for i in 0..num_blocks {
-        let pk = StacksPrivateKey::new();
+        let pk = StacksPrivateKey::random();
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -4487,7 +4449,7 @@ fn test_is_tx_problematic() {
 fn mempool_incorporate_pox_unlocks() {
     let mut initial_balances = vec![];
     let total_balance = 10_000_000_000;
-    let pk = StacksPrivateKey::new();
+    let pk = StacksPrivateKey::random();
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -4560,7 +4522,6 @@ fn mempool_incorporate_pox_unlocks() {
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
     let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
 
-    let mut last_block = None;
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
         let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
@@ -4713,11 +4674,6 @@ fn mempool_incorporate_pox_unlocks() {
 
         let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
         peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-
-        last_block = Some(StacksBlockHeader::make_index_block_hash(
-            &consensus_hash,
-            &stacks_block.block_hash(),
-        ));
     }
 }
 
@@ -4757,7 +4713,6 @@ fn test_fee_order_mismatch_nonce_order() {
     let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
     let sender_nonce = 0;
 
-    let mut last_block = None;
     // send transactions to the mempool
     let tip =
         SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn()).unwrap();
@@ -4846,8 +4801,6 @@ fn test_fee_order_mismatch_nonce_order() {
         },
     );
 
-    last_block = Some(stacks_block.clone());
-
     peer.next_burnchain_block(burn_ops);
     peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
@@ -4912,7 +4865,7 @@ fn paramaterized_mempool_walk_test(
 ) {
     let key_address_pairs: Vec<(Secp256k1PrivateKey, StacksAddress)> = (0..num_users)
         .map(|_user_index| {
-            let privk = StacksPrivateKey::new();
+            let privk = StacksPrivateKey::random();
             let addr = StacksAddress::from_public_keys(
                 C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
                 &AddressHashMode::SerializeP2PKH,

@@ -227,7 +227,7 @@ impl BitcoinIndexer {
 
         // instantiate headers DB
         let _ = SpvClient::new(
-            &working_dir_path.to_str().unwrap().to_string(),
+            working_dir_path.to_str().unwrap(),
             0,
             None,
             BitcoinNetworkType::Regtest,
@@ -236,7 +236,7 @@ impl BitcoinIndexer {
         )
         .expect(&format!(
             "Failed to open {:?}",
-            &working_dir_path.to_str().unwrap().to_string()
+            working_dir_path.to_str().unwrap()
         ));
 
         BitcoinIndexer {
@@ -627,12 +627,8 @@ impl BitcoinIndexer {
         )?;
 
         // what's the last header we have from the canonical history?
-        let canonical_end_block = orig_spv_client.get_headers_height().map_err(|e| {
-            error!(
-                "Failed to get the last block from {}",
-                canonical_headers_path
-            );
-            e
+        let canonical_end_block = orig_spv_client.get_headers_height().inspect_err(|_e| {
+            error!("Failed to get the last block from {canonical_headers_path}");
         })?;
 
         // bootstrap reorg client
@@ -694,13 +690,12 @@ impl BitcoinIndexer {
 
             let reorg_headers = reorg_spv_client
                 .read_block_headers(start_block, start_block + REORG_BATCH_SIZE)
-                .map_err(|e| {
+                .inspect_err(|_e| {
                     error!(
                         "Failed to read reorg Bitcoin headers from {} to {}",
                         start_block,
                         start_block + REORG_BATCH_SIZE
                     );
-                    e
                 })?;
 
             if reorg_headers.is_empty() {
@@ -724,13 +719,12 @@ impl BitcoinIndexer {
             // got reorg headers.  Find the equivalent headers in our canonical history
             let canonical_headers = orig_spv_client
                 .read_block_headers(start_block, start_block + REORG_BATCH_SIZE)
-                .map_err(|e| {
+                .inspect_err(|_e| {
                     error!(
                         "Failed to read canonical headers from {} to {}",
                         start_block,
                         start_block + REORG_BATCH_SIZE
                     );
-                    e
                 })?;
 
             assert!(

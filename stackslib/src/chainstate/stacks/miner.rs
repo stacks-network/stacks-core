@@ -1520,7 +1520,7 @@ impl StacksBlockBuilder {
                 &EMPTY_MICROBLOCK_PARENT_HASH,
                 &Sha512Trunc256Sum([0u8; 32]),
             ), // will be updated
-            miner_privkey: StacksPrivateKey::new(), // caller should overwrite this, or refrain from mining microblocks
+            miner_privkey: StacksPrivateKey::random(), // caller should overwrite this, or refrain from mining microblocks
             miner_payouts: None,
             miner_id,
         }
@@ -2258,7 +2258,13 @@ impl StacksBlockBuilder {
         // nakamoto miner tenure start heuristic:
         //  mine an empty block so you can start your tenure quickly!
         if let Some(tx) = initial_txs.first() {
-            if matches!(&tx.payload, TransactionPayload::TenureChange(_)) {
+            if matches!(
+                &tx.payload,
+                TransactionPayload::TenureChange(TenureChangePayload {
+                    cause: TenureChangeCause::BlockFound,
+                    ..
+                })
+            ) {
                 info!("Nakamoto miner heuristic: during tenure change blocks, produce a fast short block to begin tenure");
                 return Ok((false, tx_events));
             }

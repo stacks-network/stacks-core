@@ -1579,9 +1579,8 @@ impl BurnchainConfigFile {
                 .unwrap_or(default_burnchain_config.fault_injection_burnchain_block_delay),
             max_unspent_utxos: self
                 .max_unspent_utxos
-                .map(|val| {
+                .inspect(|&val| {
                     assert!(val <= 1024, "Value for max_unspent_utxos should be <= 1024");
-                    val
                 })
                 .or(default_burnchain_config.max_unspent_utxos),
         };
@@ -2061,7 +2060,7 @@ impl NodeConfig {
         let sockaddr = deny_node.to_socket_addrs().unwrap().next().unwrap();
         let neighbor = NodeConfig::default_neighbor(
             sockaddr,
-            Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
+            Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random()),
             chain_id,
             peer_version,
         );

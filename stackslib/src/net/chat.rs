@@ -962,10 +962,9 @@ impl ConversationP2P {
             reply_message,
             request_preamble.seq,
         )?;
-        let reply_handle = self.relay_signed_message(reply).map_err(|e| {
-            debug!("Unable to reply a {}: {:?}", _msgtype, &e);
-            e
-        })?;
+        let reply_handle = self
+            .relay_signed_message(reply)
+            .inspect_err(|e| debug!("Unable to reply a {_msgtype}: {e:?}"))?;
 
         Ok(reply_handle)
     }
@@ -981,10 +980,9 @@ impl ConversationP2P {
         let _msgtype = forward_message.get_message_name().to_owned();
         let fwd =
             self.sign_relay_message(local_peer, burnchain_view, relay_hints, forward_message)?;
-        let fwd_handle = self.relay_signed_message(fwd).map_err(|e| {
-            debug!("Unable to forward a {}: {:?}", _msgtype, &e);
-            e
-        })?;
+        let fwd_handle = self
+            .relay_signed_message(fwd)
+            .inspect_err(|e| debug!("Unable to forward a {_msgtype}: {e:?}"))?;
 
         Ok(fwd_handle)
     }
@@ -1475,13 +1473,9 @@ impl ConversationP2P {
             neighbors: neighbor_addrs,
         });
         let reply = self.sign_reply(chain_view, &local_peer.private_key, payload, preamble.seq)?;
-        let reply_handle = self.relay_signed_message(reply).map_err(|e| {
-            debug!(
-                "Outbox to {:?} is full; cannot reply to GetNeighbors",
-                &self
-            );
-            e
-        })?;
+        let reply_handle = self
+            .relay_signed_message(reply)
+            .inspect_err(|_e| debug!("Outbox to {self:?} is full; cannot reply to GetNeighbors"))?;
 
         Ok(reply_handle)
     }
@@ -1747,12 +1741,8 @@ impl ConversationP2P {
             &network.stacks_tip.block_hash,
             reward_cycle,
         )?;
-        let nakamoto_inv = NakamotoInvData::try_from(&bitvec_bools).map_err(|e| {
-            warn!(
-                "Failed to create a NakamotoInv response to {:?}: {:?}",
-                get_nakamoto_inv, &e
-            );
-            e
+        let nakamoto_inv = NakamotoInvData::try_from(&bitvec_bools).inspect_err(|e| {
+            warn!("Failed to create a NakamotoInv response to {get_nakamoto_inv:?}: {e:?}")
         })?;
 
         debug!(
@@ -4474,7 +4464,7 @@ mod test {
         let old_peer_1_pubkey = Secp256k1PublicKey::from_private(&old_peer_1_privkey);
 
         // peer 1 updates their private key
-        local_peer_1.private_key = Secp256k1PrivateKey::new();
+        local_peer_1.private_key = Secp256k1PrivateKey::random();
 
         // peer 1 re-handshakes
         // convo_1 sends a handshake to convo_2
@@ -5058,7 +5048,7 @@ mod test {
             );
 
             // regenerate keys and expiries in peer 1
-            let new_privkey = Secp256k1PrivateKey::new();
+            let new_privkey = Secp256k1PrivateKey::random();
             {
                 let tx = peerdb_1.tx_begin().unwrap();
                 PeerDB::set_local_private_key(&tx, &new_privkey, (12350 + i) as u64).unwrap();
@@ -7045,7 +7035,7 @@ mod test {
 
         // mock a second local peer with a different private key
         let mut local_peer_2 = local_peer_1.clone();
-        local_peer_2.private_key = Secp256k1PrivateKey::new();
+        local_peer_2.private_key = Secp256k1PrivateKey::random();
 
         // NOTE: payload can be anything since we only look at premable length here
         let payload = StacksMessageType::Nack(NackData { error_code: 123 });
@@ -7174,7 +7164,7 @@ mod test {
 
         // mock a second local peer with a different private key
         let mut local_peer_2 = local_peer_1.clone();
-        local_peer_2.private_key = Secp256k1PrivateKey::new();
+        local_peer_2.private_key = Secp256k1PrivateKey::random();
 
         // NOTE: payload can be anything since we only look at premable length here
         let payload = StacksMessageType::Nack(NackData { error_code: 123 });
@@ -7303,7 +7293,7 @@ mod test {
 
         // mock a second local peer with a different private key
         let mut local_peer_2 = local_peer_1.clone();
-        local_peer_2.private_key = Secp256k1PrivateKey::new();
+        local_peer_2.private_key = Secp256k1PrivateKey::random();
 
         // NOTE: payload can be anything since we only look at premable length here
         let payload = StacksMessageType::Nack(NackData { error_code: 123 });
@@ -7432,7 +7422,7 @@ mod test {
 
         // mock a second local peer with a different private key
         let mut local_peer_2 = local_peer_1.clone();
-        local_peer_2.private_key = Secp256k1PrivateKey::new();
+        local_peer_2.private_key = Secp256k1PrivateKey::random();
 
         // NOTE: payload can be anything since we only look at premable length here
         let payload = StacksMessageType::Nack(NackData { error_code: 123 });
