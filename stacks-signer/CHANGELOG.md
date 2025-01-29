@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [Unreleased]
+
+## Added
+
+- Introduced the `reorg_attempts_activity_timeout_ms` configuration option for signers which is used to determine the length of time after the last block of a tenure is confirmed that an incoming miner's attempts to reorg it are considered valid miner activity. 
+
+### Changed
+
+- Signers no longer view any block proposal by a miner in their DB as indicative of valid miner activity.
+
 ## [3.1.0.0.4.0]
 
 ## Added
