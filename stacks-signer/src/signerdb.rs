@@ -774,7 +774,8 @@ impl SignerDb {
 
     /// Return whether there was signed block in a tenure (identified by its consensus hash)
     pub fn has_signed_block_in_tenure(&self, tenure: &ConsensusHash) -> Result<bool, DBError> {
-        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ? AND signed_over = 1 DESC LIMIT 1";
+        let query =
+            "SELECT block_info FROM blocks WHERE consensus_hash = ? AND signed_over = 1 LIMIT 1";
         let result: Option<String> = query_row(&self.db, query, [tenure])?;
 
         Ok(result.is_some())
@@ -1971,6 +1972,7 @@ mod tests {
         assert!(db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
         assert!(!db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
 
+        block_info.block.header.consensus_hash = consensus_hash_2;
         block_info.block.header.chain_length = 2;
         block_info.signed_over = false;
 
@@ -1978,6 +1980,13 @@ mod tests {
 
         assert!(db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
         assert!(!db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
+
+        block_info.signed_over = true;
+
+        db.insert_block(&block_info).unwrap();
+
+        assert!(db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
     }
 
     #[test]
