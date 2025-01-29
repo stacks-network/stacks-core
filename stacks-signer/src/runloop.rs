@@ -544,7 +544,8 @@ mod tests {
         let weight = 10;
         let mut signer_entries = Vec::with_capacity(nmb_signers);
         for _ in 0..nmb_signers {
-            let key = StacksPublicKey::from_private(&StacksPrivateKey::new()).to_bytes_compressed();
+            let key =
+                StacksPublicKey::from_private(&StacksPrivateKey::random()).to_bytes_compressed();
             let mut signing_key = [0u8; 33];
             signing_key.copy_from_slice(&key);
             signer_entries.push(NakamotoSignerEntry {

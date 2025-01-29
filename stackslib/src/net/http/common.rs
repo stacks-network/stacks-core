@@ -46,11 +46,7 @@ pub enum HttpReservedHeader {
 
 impl HttpReservedHeader {
     pub fn is_reserved(header: &str) -> bool {
-        let hdr = header.to_string();
-        match hdr.as_str() {
-            "content-length" | "content-type" | "host" => true,
-            _ => false,
-        }
+        matches!(header, "content-length" | "content-type" | "host")
     }
 
     pub fn try_from_str(header: &str, value: &str) -> Option<HttpReservedHeader> {

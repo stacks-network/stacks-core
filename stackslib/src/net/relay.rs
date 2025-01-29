@@ -949,14 +949,12 @@ impl Relayer {
         if chainstate
             .nakamoto_blocks_db()
             .has_nakamoto_block_with_index_hash(&block.header.block_id())
-            .map_err(|e| {
+            .inspect_err(|e| {
                 warn!(
-                    "Failed to determine if we have Nakamoto block {}/{}: {:?}",
+                    "Failed to determine if we have Nakamoto block {}/{}: {e:?}",
                     &block.header.consensus_hash,
-                    &block.header.block_hash(),
-                    &e
+                    &block.header.block_hash()
                 );
-                e
             })?
         {
             if force_broadcast {
@@ -2605,8 +2603,8 @@ impl Relayer {
     ) {
         // have the p2p thread tell our neighbors about newly-discovered blocks
         let new_block_chs = new_blocks.keys().cloned().collect();
-        let available = Relayer::load_blocks_available_data(sortdb, new_block_chs)
-            .unwrap_or(BlocksAvailableMap::new());
+        let available =
+            Relayer::load_blocks_available_data(sortdb, new_block_chs).unwrap_or_default();
         if !available.is_empty() {
             debug!("{:?}: Blocks available: {}", &_local_peer, available.len());
             if let Err(e) = self.p2p.advertize_blocks(available, new_blocks) {
@@ -2616,8 +2614,8 @@ impl Relayer {
 
         // have the p2p thread tell our neighbors about newly-discovered confirmed microblock streams
         let new_mblock_chs = new_confirmed_microblocks.keys().cloned().collect();
-        let mblocks_available = Relayer::load_blocks_available_data(sortdb, new_mblock_chs)
-            .unwrap_or(BlocksAvailableMap::new());
+        let mblocks_available =
+            Relayer::load_blocks_available_data(sortdb, new_mblock_chs).unwrap_or_default();
         if !mblocks_available.is_empty() {
             debug!(
                 "{:?}: Confirmed microblock streams available: {}",
@@ -2926,7 +2924,7 @@ impl Relayer {
             mempool,
             event_observer.map(|obs| obs.as_mempool_event_dispatcher()),
         )
-        .unwrap_or(vec![]);
+        .unwrap_or_default();
 
         if !new_txs.is_empty() {
             debug!(
@@ -3135,21 +3133,22 @@ impl PeerNetwork {
                 Ok(m) => m,
                 Err(e) => {
                     warn!(
-                        "{:?}: Failed to sign for {:?}: {:?}",
-                        &self.local_peer, recipient, &e
+                        "{:?}: Failed to sign for {recipient:?}: {e:?}",
+                        &self.local_peer
                     );
                     continue;
                 }
             };
 
             // absorb errors
-            let _ = self.relay_signed_message(recipient, message).map_err(|e| {
-                warn!(
-                    "{:?}: Failed to announce {} entries to {:?}: {:?}",
-                    &self.local_peer, num_blocks, recipient, &e
-                );
-                e
-            });
+            let _ = self
+                .relay_signed_message(recipient, message)
+                .inspect_err(|e| {
+                    warn!(
+                        "{:?}: Failed to announce {num_blocks} entries to {recipient:?}: {e:?}",
+                        &self.local_peer
+                    );
+                });
         }
     }
 
@@ -3170,26 +3169,27 @@ impl PeerNetwork {
             Ok(m) => m,
             Err(e) => {
                 warn!(
-                    "{:?}: Failed to sign for {:?}: {:?}",
-                    &self.local_peer, recipient, &e
+                    "{:?}: Failed to sign for {recipient:?}: {e:?}",
+                    &self.local_peer
                 );
                 return;
             }
         };
 
         debug!(
-            "{:?}: Push block {}/{} to {:?}",
-            &self.local_peer, &ch, &blk_hash, recipient
+            "{:?}: Push block {ch}/{blk_hash} to {recipient:?}",
+            &self.local_peer
         );
 
         // absorb errors
-        let _ = self.relay_signed_message(recipient, message).map_err(|e| {
-            warn!(
-                "{:?}: Failed to push block {}/{} to {:?}: {:?}",
-                &self.local_peer, &ch, &blk_hash, recipient, &e
-            );
-            e
-        });
+        let _ = self
+            .relay_signed_message(recipient, message)
+            .inspect_err(|e| {
+                warn!(
+                    "{:?}: Failed to push block {ch}/{blk_hash} to {recipient:?}: {e:?}",
+                    &self.local_peer
+                )
+            });
     }
 
     /// Try to push a confirmed microblock stream to a peer.
@@ -3210,26 +3210,27 @@ impl PeerNetwork {
                 Ok(m) => m,
                 Err(e) => {
                     warn!(
-                        "{:?}: Failed to sign for {:?}: {:?}",
-                        &self.local_peer, recipient, &e
+                        "{:?}: Failed to sign for {recipient:?}: {e:?}",
+                        &self.local_peer
                     );
                     return;
                 }
             };
 
         debug!(
-            "{:?}: Push microblocks for {} to {:?}",
-            &self.local_peer, &idx_bhh, recipient
+            "{:?}: Push microblocks for {idx_bhh} to {recipient:?}",
+            &self.local_peer
         );
 
         // absorb errors
-        let _ = self.relay_signed_message(recipient, message).map_err(|e| {
-            warn!(
-                "{:?}: Failed to push microblocks for {} to {:?}: {:?}",
-                &self.local_peer, &idx_bhh, recipient, &e
-            );
-            e
-        });
+        let _ = self
+            .relay_signed_message(recipient, message)
+            .inspect_err(|e| {
+                warn!(
+                    "{:?}: Failed to push microblocks for {idx_bhh} to {recipient:?}: {e:?}",
+                    &self.local_peer
+                );
+            });
     }
 
     /// Announce blocks that we have to an outbound peer that doesn't have them.
