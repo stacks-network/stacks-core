@@ -97,6 +97,7 @@ pub struct RunningNodes {
     pub nakamoto_blocks_signer_pushed: RunLoopCounter,
     pub nakamoto_miner_directives: Arc<AtomicU64>,
     pub nakamoto_test_skip_commit_op: TestFlag<bool>,
+    pub counters: Counters,
     pub coord_channel: Arc<Mutex<CoordinatorChannels>>,
     pub conf: NeonConfig,
 }
@@ -947,6 +948,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
         naka_signer_pushed_blocks,
         ..
     } = run_loop.counters();
+    let counters = run_loop.counters();
 
     let coord_channel = run_loop.coordinator_channels();
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
@@ -984,6 +986,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
         nakamoto_test_skip_commit_op,
         nakamoto_miner_directives: naka_miner_directives.0,
         coord_channel,
+        counters,
         conf: naka_conf,
     }
 }
