@@ -227,7 +227,7 @@ impl BitcoinIndexer {
 
         // instantiate headers DB
         let _ = SpvClient::new(
-            &working_dir_path.to_str().unwrap().to_string(),
+            working_dir_path.to_str().unwrap(),
             0,
             None,
             BitcoinNetworkType::Regtest,
@@ -236,7 +236,7 @@ impl BitcoinIndexer {
         )
         .expect(&format!(
             "Failed to open {:?}",
-            &working_dir_path.to_str().unwrap().to_string()
+            working_dir_path.to_str().unwrap()
         ));
 
         BitcoinIndexer {

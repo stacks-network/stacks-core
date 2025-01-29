@@ -147,7 +147,11 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                     "Number of private keys does not match number of signers"
                 )
             })
-            .unwrap_or_else(|| (0..num_signers).map(|_| StacksPrivateKey::new()).collect());
+            .unwrap_or_else(|| {
+                (0..num_signers)
+                    .map(|_| StacksPrivateKey::random())
+                    .collect()
+            });
 
         let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
 
@@ -729,7 +733,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     pub fn get_latest_block_response(&self, slot_id: u32) -> BlockResponse {
         let mut stackerdb = StackerDB::new(
             &self.running_nodes.conf.node.rpc_bind,
-            StacksPrivateKey::new(), // We are just reading so don't care what the key is
+            StacksPrivateKey::random(), // We are just reading so don't care what the key is
             false,
             self.get_current_reward_cycle(),
             SignerSlotID(0), // We are just reading so again, don't care about index.

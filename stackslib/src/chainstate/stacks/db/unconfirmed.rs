@@ -663,7 +663,7 @@ mod test {
 
     #[test]
     fn test_unconfirmed_refresh_one_microblock_stx_transfer() {
-        let privk = StacksPrivateKey::new();
+        let privk = StacksPrivateKey::random();
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -691,7 +691,7 @@ mod test {
 
         let mut last_block: Option<StacksBlock> = None;
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
 
@@ -900,7 +900,7 @@ mod test {
 
     #[test]
     fn test_unconfirmed_refresh_10_microblocks_10_stx_transfers() {
-        let privk = StacksPrivateKey::new();
+        let privk = StacksPrivateKey::random();
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -928,7 +928,7 @@ mod test {
 
         let mut last_block: Option<StacksBlock> = None;
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
 
@@ -1147,7 +1147,7 @@ mod test {
 
     #[test]
     fn test_unconfirmed_refresh_invalid_microblock() {
-        let privk = StacksPrivateKey::new();
+        let privk = StacksPrivateKey::random();
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -1187,7 +1187,7 @@ mod test {
         let mut recv_balance = 0;
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
 

@@ -4473,7 +4473,7 @@ mod test {
         let old_peer_1_pubkey = Secp256k1PublicKey::from_private(&old_peer_1_privkey);
 
         // peer 1 updates their private key
-        local_peer_1.private_key = Secp256k1PrivateKey::new();
+        local_peer_1.private_key = Secp256k1PrivateKey::random();
 
         // peer 1 re-handshakes
         // convo_1 sends a handshake to convo_2
@@ -5057,7 +5057,7 @@ mod test {
             );
 
             // regenerate keys and expiries in peer 1
-            let new_privkey = Secp256k1PrivateKey::new();
+            let new_privkey = Secp256k1PrivateKey::random();
             {
                 let tx = peerdb_1.tx_begin().unwrap();
                 PeerDB::set_local_private_key(&tx, &new_privkey, (12350 + i) as u64).unwrap();
@@ -7044,7 +7044,7 @@ mod test {
 
         // mock a second local peer with a different private key
         let mut local_peer_2 = local_peer_1.clone();
-        local_peer_2.private_key = Secp256k1PrivateKey::new();
+        local_peer_2.private_key = Secp256k1PrivateKey::random();
 
         // NOTE: payload can be anything since we only look at premable length here
         let payload = StacksMessageType::Nack(NackData { error_code: 123 });
@@ -7173,7 +7173,7 @@ mod test {
 
         // mock a second local peer with a different private key
         let mut local_peer_2 = local_peer_1.clone();
-        local_peer_2.private_key = Secp256k1PrivateKey::new();
+        local_peer_2.private_key = Secp256k1PrivateKey::random();
 
         // NOTE: payload can be anything since we only look at premable length here
         let payload = StacksMessageType::Nack(NackData { error_code: 123 });
@@ -7302,7 +7302,7 @@ mod test {
 
         // mock a second local peer with a different private key
         let mut local_peer_2 = local_peer_1.clone();
-        local_peer_2.private_key = Secp256k1PrivateKey::new();
+        local_peer_2.private_key = Secp256k1PrivateKey::random();
 
         // NOTE: payload can be anything since we only look at premable length here
         let payload = StacksMessageType::Nack(NackData { error_code: 123 });
@@ -7431,7 +7431,7 @@ mod test {
 
         // mock a second local peer with a different private key
         let mut local_peer_2 = local_peer_1.clone();
-        local_peer_2.private_key = Secp256k1PrivateKey::new();
+        local_peer_2.private_key = Secp256k1PrivateKey::random();
 
         // NOTE: payload can be anything since we only look at premable length here
         let payload = StacksMessageType::Nack(NackData { error_code: 123 });

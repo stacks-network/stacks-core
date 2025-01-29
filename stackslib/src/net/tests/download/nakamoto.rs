@@ -144,7 +144,7 @@ impl NakamotoStagingBlocksConnRef<'_> {
 #[test]
 fn test_nakamoto_tenure_downloader() {
     let ch = ConsensusHash([0x11; 20]);
-    let private_key = StacksPrivateKey::new();
+    let private_key = StacksPrivateKey::random();
     let mut test_signers = TestSigners::new(vec![]);
 
     let reward_set = test_signers.synthesize_reward_set();
@@ -173,7 +173,7 @@ fn test_nakamoto_tenure_downloader() {
         pubkey_hash: Hash160([0x02; 20]),
     };
     let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-    let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+    let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
     let coinbase_payload =
         TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, Some(proof));
@@ -2145,7 +2145,7 @@ fn test_nakamoto_download_run_2_peers() {
     for height in 25..tip.block_height {
         let ops = peer
             .get_burnchain_block_ops_at_height(height + 1)
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
         let sn = {
             let ih = peer.sortdb().index_handle(tip.sortition_id);
             let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
@@ -2252,7 +2252,7 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
     for height in 25..tip.block_height {
         let ops = peer
             .get_burnchain_block_ops_at_height(height + 1)
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
         let sn = {
             let ih = peer.sortdb().index_handle(tip.sortition_id);
             let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
@@ -2324,7 +2324,7 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
 /// tenure _T + 1_.  The unconfirmed downloader should be able to handle this case.
 #[test]
 fn test_nakamoto_microfork_download_run_2_peers() {
-    let sender_key = StacksPrivateKey::new();
+    let sender_key = StacksPrivateKey::random();
     let sender_addr = to_addr(&sender_key);
     let initial_balances = vec![(sender_addr.to_account_principal(), 1000000000)];
 
@@ -2432,7 +2432,7 @@ fn test_nakamoto_microfork_download_run_2_peers() {
     for height in 25..tip.block_height {
         let ops = peer
             .get_burnchain_block_ops_at_height(height + 1)
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
         let sn = {
             let ih = peer.sortdb().index_handle(tip.sortition_id);
             let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
@@ -2505,7 +2505,7 @@ fn test_nakamoto_microfork_download_run_2_peers() {
 #[test]
 fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
     let observer = TestEventObserver::new();
-    let sender_key = StacksPrivateKey::new();
+    let sender_key = StacksPrivateKey::random();
     let sender_addr = to_addr(&sender_key);
     let initial_balances = vec![(sender_addr.to_account_principal(), 1000000000)];
     let bitvecs = vec![vec![true, true, false, false]];
@@ -2607,7 +2607,7 @@ fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
     for height in 25..tip.block_height {
         let ops = peer
             .get_burnchain_block_ops_at_height(height + 1)
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
         let sn = {
             let ih = peer.sortdb().index_handle(tip.sortition_id);
             let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
@@ -2685,7 +2685,7 @@ fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
 #[test]
 fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
     let observer = TestEventObserver::new();
-    let sender_key = StacksPrivateKey::new();
+    let sender_key = StacksPrivateKey::random();
     let sender_addr = to_addr(&sender_key);
     let initial_balances = vec![(sender_addr.to_account_principal(), 1000000000)];
     let bitvecs = vec![vec![true, true]];
@@ -2809,7 +2809,7 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
     for height in 25..tip.block_height {
         let ops = peer
             .get_burnchain_block_ops_at_height(height + 1)
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
         let sn = {
             let ih = peer.sortdb().index_handle(tip.sortition_id);
             let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
@@ -2888,7 +2888,7 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
 #[test]
 fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
     let observer = TestEventObserver::new();
-    let sender_key = StacksPrivateKey::new();
+    let sender_key = StacksPrivateKey::random();
     let sender_addr = to_addr(&sender_key);
     let initial_balances = vec![(sender_addr.to_account_principal(), 1000000000)];
     let bitvecs = vec![vec![true, true]];
@@ -3014,7 +3014,7 @@ fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
     for height in 25..tip.block_height {
         let ops = peer
             .get_burnchain_block_ops_at_height(height + 1)
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
         let sn = {
             let ih = peer.sortdb().index_handle(tip.sortition_id);
             let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();

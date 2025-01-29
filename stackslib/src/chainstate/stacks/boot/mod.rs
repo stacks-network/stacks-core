@@ -1609,7 +1609,7 @@ pub mod test {
     }
 
     fn rand_addr() -> StacksAddress {
-        key_to_stacks_addr(&StacksPrivateKey::new())
+        key_to_stacks_addr(&StacksPrivateKey::random())
     }
 
     pub fn key_to_stacks_addr(key: &StacksPrivateKey) -> StacksAddress {
@@ -2819,7 +2819,7 @@ pub mod test {
         let mut missed_initial_blocks = 0;
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
@@ -2946,7 +2946,7 @@ pub mod test {
                     assert_eq!(bob_balance, 4000);
                 }
             }
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
@@ -3013,7 +3013,7 @@ pub mod test {
         let alice = keys.pop().unwrap();
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
@@ -3130,7 +3130,7 @@ pub mod test {
         let alice = keys.pop().unwrap();
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
@@ -3241,7 +3241,7 @@ pub mod test {
         let mut alice_reward_cycle = 0;
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
@@ -3452,7 +3452,7 @@ pub mod test {
         let mut rewarded = false;
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
@@ -3713,7 +3713,7 @@ pub mod test {
         let mut alice_reward_cycle = 0;
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
@@ -3981,7 +3981,7 @@ pub mod test {
         let mut first_reward_cycle = 0;
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
@@ -4197,7 +4197,7 @@ pub mod test {
         let mut first_reward_cycle = 0;
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
@@ -4408,7 +4408,7 @@ pub mod test {
         let mut alice_reward_cycle = 0;
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
@@ -4657,7 +4657,7 @@ pub mod test {
         let mut test_after_second_reward_cycle = false;
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
@@ -5179,7 +5179,7 @@ pub mod test {
         let mut test_between_reward_cycles = false;
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
@@ -5625,7 +5625,7 @@ pub mod test {
         let mut alice_reward_cycle = 0;
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =

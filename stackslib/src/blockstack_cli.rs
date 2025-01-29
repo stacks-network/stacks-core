@@ -578,7 +578,7 @@ fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<S
         return Err(CliError::Message(format!("USAGE:\n {}", GENERATE_USAGE)));
     }
 
-    let sk = StacksPrivateKey::new();
+    let sk = StacksPrivateKey::random();
     let pk = StacksPublicKey::from_private(&sk);
     let version = match version {
         TransactionVersion::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
@@ -1152,7 +1152,7 @@ mod test {
                 .contains("Failed to decode hex")
         );
 
-        let sk = StacksPrivateKey::new();
+        let sk = StacksPrivateKey::random();
         let s = format!(
             "{}",
             sign_transaction_single_sig_standard("01zz", &sk).unwrap_err()

@@ -1279,11 +1279,7 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(if let op_error::BlockCommitBadOutputs = err {
-            true
-        } else {
-            false
-        });
+        assert!(matches!(err, op_error::BlockCommitBadOutputs));
 
         // should succeed in epoch 2.1 -- can be PoX in 2.1
         let _op = LeaderBlockCommitOp::parse_from_tx(

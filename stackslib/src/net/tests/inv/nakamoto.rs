@@ -60,7 +60,7 @@ pub fn peer_get_nakamoto_invs<'a>(
     mut peer: TestPeer<'a>,
     reward_cycles: &[u64],
 ) -> (TestPeer<'a>, Vec<StacksMessageType>) {
-    let privk = StacksPrivateKey::new();
+    let privk = StacksPrivateKey::random();
     let mut convo = peer.make_client_convo();
     let client_peer = peer.make_client_local_peer(privk);
     let peer_addr = peer.p2p_socketaddr();
@@ -126,16 +126,12 @@ pub fn peer_get_nakamoto_invs<'a>(
             loop {
                 // read back the message
                 let msg: StacksMessage = read_next(&mut tcp_socket).unwrap();
-                let is_inv_reply = if let StacksMessageType::NakamotoInv(..) = &msg.payload {
-                    true
-                } else {
-                    false
-                };
-                if is_inv_reply {
+
+                if matches!(&msg.payload, StacksMessageType::NakamotoInv(..)) {
                     replies.push(msg.payload);
                     break;
                 } else {
-                    debug!("Got spurious meessage {:?}", &msg);
+                    debug!("Got spurious meessage {msg:?}");
                 }
             }
         }
@@ -1122,7 +1118,7 @@ fn test_nakamoto_inv_sync_across_epoch_change() {
 
 #[test]
 fn test_nakamoto_make_tenure_inv_in_forks() {
-    let sender_key = StacksPrivateKey::new();
+    let sender_key = StacksPrivateKey::random();
     let sender_addr = to_addr(&sender_key);
     let initial_balances = vec![(sender_addr.to_account_principal(), 1000000000)];
 
@@ -1739,7 +1735,7 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
 
 #[test]
 fn test_nakamoto_make_tenure_inv_in_many_reward_cycles() {
-    let sender_key = StacksPrivateKey::new();
+    let sender_key = StacksPrivateKey::random();
     let sender_addr = to_addr(&sender_key);
     let initial_balances = vec![(sender_addr.to_account_principal(), 1000000000)];
 
@@ -2187,7 +2183,7 @@ fn test_nakamoto_make_tenure_inv_in_many_reward_cycles() {
 
 #[test]
 fn test_nakamoto_make_tenure_inv_from_old_tips() {
-    let sender_key = StacksPrivateKey::new();
+    let sender_key = StacksPrivateKey::random();
     let sender_addr = to_addr(&sender_key);
     let initial_balances = vec![(sender_addr.to_account_principal(), 1000000000)];
 
@@ -2362,7 +2358,7 @@ fn test_nakamoto_make_tenure_inv_from_old_tips() {
 #[test]
 fn test_nakamoto_invs_shadow_blocks() {
     let observer = TestEventObserver::new();
-    let sender_key = StacksPrivateKey::new();
+    let sender_key = StacksPrivateKey::random();
     let sender_addr = to_addr(&sender_key);
     let initial_balances = vec![(sender_addr.to_account_principal(), 1000000000)];
     let mut bitvecs = vec![vec![

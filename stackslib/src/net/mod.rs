@@ -2622,7 +2622,7 @@ pub mod test {
                 network_id: 0x80000000,
                 peer_version: 0x01020304,
                 current_block: start_block + (burnchain.consensus_hash_lifetime + 1) as u64,
-                private_key: Secp256k1PrivateKey::new(),
+                private_key: Secp256k1PrivateKey::random(),
                 private_key_expire: start_block + conn_opts.private_key_lifetime,
                 initial_neighbors: vec![],
                 asn4_entries: vec![],

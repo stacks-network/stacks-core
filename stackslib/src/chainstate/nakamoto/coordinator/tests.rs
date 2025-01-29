@@ -236,7 +236,7 @@ pub fn make_replay_peer<'a>(peer: &mut TestPeer<'a>) -> TestPeer<'a> {
     replay_config.http_port = 0;
     replay_config.test_stackers = peer.config.test_stackers.clone();
 
-    let test_stackers = replay_config.test_stackers.clone().unwrap_or(vec![]);
+    let test_stackers = replay_config.test_stackers.clone().unwrap_or_default();
     let mut test_signers = replay_config.test_signers.clone().unwrap();
     let mut replay_peer = TestPeer::new(replay_config);
     let observer = TestEventObserver::new();

@@ -4248,10 +4248,7 @@ fn trie_cursor_walk_full() {
 
     let (ptr, node, hash) = fields_opt.unwrap();
     assert_eq!(ptr, node_ptrs[31]);
-    assert_eq!(
-        node,
-        TrieNodeType::Leaf(TrieLeaf::new(&[], &[31u8; 40].to_vec()))
-    );
+    assert_eq!(node, TrieNodeType::Leaf(TrieLeaf::new(&[], &[31u8; 40])));
     assert_eq!(hash, hashes[31]);
 
     // cursor's last-visited node points at the penultimate node (the last node4),

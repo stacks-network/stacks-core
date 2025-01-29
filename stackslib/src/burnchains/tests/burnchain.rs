@@ -710,7 +710,7 @@ fn test_burn_snapshot_sequence() {
         let pubkey_hex = vrf_pubkey.to_hex();
         leader_public_keys.push(pubkey_hex);
 
-        let bitcoin_privkey = Secp256k1PrivateKey::new();
+        let bitcoin_privkey = Secp256k1PrivateKey::random();
         let bitcoin_publickey = BitcoinPublicKey::from_private(&bitcoin_privkey);
 
         leader_bitcoin_public_keys.push(to_hex(&bitcoin_publickey.to_bytes()));

@@ -1253,17 +1253,11 @@ impl TransactionAuth {
     }
 
     pub fn is_standard(&self) -> bool {
-        match *self {
-            TransactionAuth::Standard(_) => true,
-            _ => false,
-        }
+        matches!(self, TransactionAuth::Standard(_))
     }
 
     pub fn is_sponsored(&self) -> bool {
-        match *self {
-            TransactionAuth::Sponsored(_, _) => true,
-            _ => false,
-        }
+        matches!(self, TransactionAuth::Sponsored(..))
     }
 
     /// When beginning to sign a sponsored transaction, the origin account will not commit to any

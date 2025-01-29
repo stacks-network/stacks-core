@@ -396,27 +396,15 @@ impl SegwitBitcoinAddress {
     }
 
     pub fn is_p2wpkh(&self) -> bool {
-        if let SegwitBitcoinAddress::P2WPKH(..) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, SegwitBitcoinAddress::P2WPKH(..))
     }
 
     pub fn is_p2wsh(&self) -> bool {
-        if let SegwitBitcoinAddress::P2WSH(..) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, SegwitBitcoinAddress::P2WSH(..))
     }
 
     pub fn is_p2tr(&self) -> bool {
-        if let SegwitBitcoinAddress::P2TR(..) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, SegwitBitcoinAddress::P2TR(..))
     }
 }
 

@@ -59,13 +59,13 @@ fn disable_pox() {
     let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let increase_by = 10_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
-    let spender_2_sk = StacksPrivateKey::new();
+    let spender_2_sk = StacksPrivateKey::random();
     let spender_2_addr: PrincipalData = to_addr(&spender_2_sk).into();
 
-    let spender_3_sk = StacksPrivateKey::new();
+    let spender_3_sk = StacksPrivateKey::random();
     let spender_3_addr: PrincipalData = to_addr(&spender_3_sk).into();
 
     let mut initial_balances = vec![];
@@ -580,13 +580,13 @@ fn pox_2_unlock_all() {
 
     let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
-    let spender_2_sk = StacksPrivateKey::new();
+    let spender_2_sk = StacksPrivateKey::random();
     let spender_2_addr: PrincipalData = to_addr(&spender_2_sk).into();
 
-    let spender_3_sk = StacksPrivateKey::new();
+    let spender_3_sk = StacksPrivateKey::random();
     let spender_3_addr: PrincipalData = to_addr(&spender_3_sk).into();
 
     let mut initial_balances = vec![];
@@ -1268,9 +1268,9 @@ fn test_pox_reorg_one_flap() {
     epochs.truncate_after(StacksEpochId::Epoch22);
     conf_template.burnchain.epochs = Some(epochs);
 
-    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
-    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
     let balances: Vec<_> = privks
         .iter()
@@ -1301,7 +1301,7 @@ fn test_pox_reorg_one_flap() {
     let mut miner_status = vec![];
 
     for i in 0..num_miners {
-        let seed = StacksPrivateKey::new().to_bytes();
+        let seed = StacksPrivateKey::random().to_bytes();
         let (mut conf, _) = neon_integration_test_conf_with_seed(seed);
 
         conf.initial_balances.clear();

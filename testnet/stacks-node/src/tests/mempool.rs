@@ -60,7 +60,7 @@ pub fn make_bad_stacks_transfer(
 
     let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
 
-    tx_signer.sign_origin(&StacksPrivateKey::new()).unwrap();
+    tx_signer.sign_origin(&StacksPrivateKey::random()).unwrap();
 
     let mut buf = vec![];
     tx_signer

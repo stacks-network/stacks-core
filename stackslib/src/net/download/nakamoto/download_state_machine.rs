@@ -759,7 +759,7 @@ impl NakamotoDownloadStateMachine {
                     inventories.iter(),
                 )
             })
-            .unwrap_or(HashMap::new());
+            .unwrap_or_default();
 
         let mut available = Self::find_available_tenures(
             self.reward_cycle,
@@ -783,7 +783,7 @@ impl NakamotoDownloadStateMachine {
                     inventories.iter(),
                 )
             })
-            .unwrap_or(HashMap::new());
+            .unwrap_or_default();
 
         let mut tenure_block_ids = {
             debug!(
@@ -822,7 +822,7 @@ impl NakamotoDownloadStateMachine {
                         &available,
                     )
                 })
-                .unwrap_or(VecDeque::new());
+                .unwrap_or_default();
 
             let schedule = Self::make_ibd_download_schedule(
                 self.nakamoto_start_height,
@@ -843,7 +843,7 @@ impl NakamotoDownloadStateMachine {
                         &available,
                     )
                 })
-                .unwrap_or(VecDeque::new());
+                .unwrap_or_default();
 
             let schedule = Self::make_rarest_first_download_schedule(
                 self.nakamoto_start_height,

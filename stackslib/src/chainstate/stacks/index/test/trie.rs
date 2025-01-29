@@ -172,7 +172,7 @@ fn trie_cursor_try_attach_leaf() {
                 assert!(leaf_opt.is_some());
 
                 let leaf = leaf_opt.unwrap();
-                assert_eq!(leaf, TrieLeaf::new(&path[i + 1..].to_vec(), &[i as u8; 40]));
+                assert_eq!(leaf, TrieLeaf::new(&path[i + 1..], &[i as u8; 40]));
 
                 // without a MARF commit, merkle tests will fail in deferred mode
                 if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {

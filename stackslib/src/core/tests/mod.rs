@@ -1762,7 +1762,7 @@ fn test_add_txs_bloom_filter() {
         let bf = mempool.get_txid_bloom_filter().unwrap();
         let mut mempool_tx = mempool.tx_begin().unwrap();
         for i in 0..128 {
-            let pk = StacksPrivateKey::new();
+            let pk = StacksPrivateKey::random();
             let mut tx = StacksTransaction {
                 version: TransactionVersion::Testnet,
                 chain_id: 0x80000000,
@@ -1868,7 +1868,7 @@ fn test_txtags() {
 
         let mut mempool_tx = mempool.tx_begin().unwrap();
         for i in 0..128 {
-            let pk = StacksPrivateKey::new();
+            let pk = StacksPrivateKey::random();
             let mut tx = StacksTransaction {
                 version: TransactionVersion::Testnet,
                 chain_id: 0x80000000,
@@ -1960,7 +1960,7 @@ fn test_make_mempool_sync_data() {
         for i in 0..((MAX_BLOOM_COUNTER_TXS + 128) as usize) {
             let mut mempool_tx = mempool.tx_begin().unwrap();
             for j in 0..128 {
-                let pk = StacksPrivateKey::new();
+                let pk = StacksPrivateKey::random();
                 let mut tx = StacksTransaction {
                     version: TransactionVersion::Testnet,
                     chain_id: 0x80000000,
@@ -2133,7 +2133,7 @@ fn test_find_next_missing_transactions() {
 
     let mut mempool_tx = mempool.tx_begin().unwrap();
     for i in 0..(2 * MAX_BLOOM_COUNTER_TXS) {
-        let pk = StacksPrivateKey::new();
+        let pk = StacksPrivateKey::random();
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
@@ -2400,7 +2400,7 @@ fn test_drop_and_blacklist_txs_by_time() {
 
     let mut mempool_tx = mempool.tx_begin().unwrap();
     for i in 0..10 {
-        let pk = StacksPrivateKey::new();
+        let pk = StacksPrivateKey::random();
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
@@ -2517,7 +2517,7 @@ fn test_drop_and_blacklist_txs_by_size() {
 
     let mut mempool_tx = mempool.tx_begin().unwrap();
     for i in 0..10 {
-        let pk = StacksPrivateKey::new();
+        let pk = StacksPrivateKey::random();
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
@@ -2627,7 +2627,7 @@ fn test_filter_txs_by_type() {
 
     let mut mempool_tx = mempool.tx_begin().unwrap();
     for i in 0..10 {
-        let pk = StacksPrivateKey::new();
+        let pk = StacksPrivateKey::random();
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
