@@ -97,7 +97,8 @@ const DEFAULT_TENURE_COST_LIMIT_PER_BLOCK_PERCENTAGE: u8 = 25;
 const DEFAULT_TENURE_EXTEND_POLL_SECS: u64 = 1;
 
 // This should be greater than the signers' timeout. This is used for issuing fallback tenure extends
-const DEFAULT_TENURE_TIMEOUT_SECS: u64 = 420;
+const DEFAULT_TENURE_TIMEOUT_SECS: u64 = 180;
+const DEFAULT_TENURE_EXTEND_COST_THRESHOLD: u64 = 50;
 
 static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
     LazyLock::new(|| ConnectionOptions {
@@ -2155,6 +2156,8 @@ pub struct MinerConfig {
     pub tenure_extend_poll_secs: Duration,
     /// Duration to wait before attempting to issue a tenure extend
     pub tenure_timeout: Duration,
+    /// Percentage of block budget that must be used before attempting a time-based tenure extend
+    pub tenure_extend_cost_threshold: u64,
 }
 
 impl Default for MinerConfig {
@@ -2193,6 +2196,7 @@ impl Default for MinerConfig {
             ),
             tenure_extend_poll_secs: Duration::from_secs(DEFAULT_TENURE_EXTEND_POLL_SECS),
             tenure_timeout: Duration::from_secs(DEFAULT_TENURE_TIMEOUT_SECS),
+            tenure_extend_cost_threshold: DEFAULT_TENURE_EXTEND_COST_THRESHOLD,
         }
     }
 }
@@ -2589,6 +2593,7 @@ pub struct MinerConfigFile {
     pub tenure_cost_limit_per_block_percentage: Option<u8>,
     pub tenure_extend_poll_secs: Option<u64>,
     pub tenure_timeout_secs: Option<u64>,
+    pub tenure_extend_cost_threshold: Option<u64>,
 }
 
 impl MinerConfigFile {
@@ -2731,6 +2736,7 @@ impl MinerConfigFile {
             tenure_cost_limit_per_block_percentage,
             tenure_extend_poll_secs: self.tenure_extend_poll_secs.map(Duration::from_secs).unwrap_or(miner_default_config.tenure_extend_poll_secs),
             tenure_timeout: self.tenure_timeout_secs.map(Duration::from_secs).unwrap_or(miner_default_config.tenure_timeout),
+            tenure_extend_cost_threshold: self.tenure_extend_cost_threshold.unwrap_or(miner_default_config.tenure_extend_cost_threshold),
         })
     }
 }

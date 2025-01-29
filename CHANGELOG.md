@@ -7,9 +7,14 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+### Added
+
+- Miner config option `tenure_extend_cost_threshold` to specify the percentage of the tenure budget that must be spent before a time-based tenure extend is attempted
+
 ### Changed
 
 - Miner will include other transactions in blocks with tenure extend transactions (#5760)
+- Miner will not issue a tenure extend until at least half of the block budget has been spent (#5757)
 
 ## [3.1.0.0.4]
 
