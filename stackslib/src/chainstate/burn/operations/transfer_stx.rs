@@ -48,13 +48,13 @@ struct ParsedData {
 impl TransferStxOp {
     #[cfg(test)]
     pub fn new(
-        sender: &StacksAddress,
-        recipient: &StacksAddress,
+        sender: StacksAddress,
+        recipient: StacksAddress,
         transfered_ustx: u128,
     ) -> TransferStxOp {
         TransferStxOp {
-            sender: sender.clone(),
-            recipient: recipient.clone(),
+            sender,
+            recipient,
             transfered_ustx,
             memo: vec![],
             // to be filled in
@@ -128,11 +128,11 @@ impl TransferStxOp {
     pub fn from_tx(
         block_header: &BurnchainBlockHeader,
         tx: &BurnchainTransaction,
-        sender: &StacksAddress,
+        sender: StacksAddress,
     ) -> Result<TransferStxOp, op_error> {
         TransferStxOp::parse_from_tx(
             block_header.block_height,
-            &block_header.block_hash,
+            block_header.block_hash,
             tx,
             sender,
         )
@@ -141,9 +141,9 @@ impl TransferStxOp {
     /// parse a TransferStxOp
     pub fn parse_from_tx(
         block_height: u64,
-        block_hash: &BurnchainHeaderHash,
+        block_hash: BurnchainHeaderHash,
         tx: &BurnchainTransaction,
-        sender: &StacksAddress,
+        sender: StacksAddress,
     ) -> Result<TransferStxOp, op_error> {
         // can't be too careful...
         let num_outputs = tx.num_recipients();
@@ -194,14 +194,14 @@ impl TransferStxOp {
             })?;
 
         Ok(TransferStxOp {
-            sender: sender.clone(),
+            sender,
             recipient: output,
             transfered_ustx: data.transfered_ustx,
             memo: data.memo,
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
             block_height,
-            burn_header_hash: block_hash.clone(),
+            burn_header_hash: block_hash,
         })
     }
 }
@@ -307,9 +307,9 @@ mod tests {
         let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let op = TransferStxOp::parse_from_tx(
             16843022,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             &BurnchainTransaction::Bitcoin(tx.clone()),
-            &sender,
+            sender,
         )
         .unwrap();
 

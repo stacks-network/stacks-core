@@ -376,7 +376,7 @@ impl PeerNetwork {
             None
         };
 
-        let inv = chainstate.get_blocks_inventory(&[(consensus_hash.clone(), block_hash_opt)])?;
+        let inv = chainstate.get_blocks_inventory(&[(*consensus_hash, block_hash_opt)])?;
         if is_microblock {
             // checking for microblock absence
             Ok(inv.microblocks_bitvec[0] == 0)

@@ -124,7 +124,7 @@ impl SortitionHandleTx<'_> {
         initial_mining_bonus_ustx: u128,
     ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
         let this_block_height = block_header.block_height;
-        let this_block_hash = block_header.block_hash.clone();
+        let this_block_hash = block_header.block_hash;
 
         // make the burn distribution, and in doing so, identify the user burns that we'll keep
         let state_transition = BurnchainStateTransition::from_block_ops(self, burnchain, parent_snapshot, this_block_ops, missed_commits)
@@ -145,7 +145,7 @@ impl SortitionHandleTx<'_> {
             mainnet,
             self,
             burnchain,
-            &next_sortition_id,
+            next_sortition_id,
             &next_pox,
             parent_snapshot,
             block_header,
@@ -421,7 +421,7 @@ mod tests {
             treatment: vec![],
         };
 
-        let mut burnchain = Burnchain::default_unittest(100, &first_burn_hash);
+        let mut burnchain = Burnchain::default_unittest(100, first_burn_hash);
         burnchain.initial_reward_start_block = 90;
         let mut db = SortitionDB::connect_test(100, &first_burn_hash).unwrap();
 

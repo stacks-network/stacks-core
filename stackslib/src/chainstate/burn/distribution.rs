@@ -210,12 +210,12 @@ impl BurnSamplePoint {
             //   in the current block
             let mut cur_commits_map: HashMap<_, _> = cur_commits
                 .into_iter()
-                .map(|commit| (commit.txid.clone(), commit))
+                .map(|commit| (commit.txid, commit))
                 .collect();
             // build a map from txid -> missed block commit for the current block
             let mut cur_missed_map: HashMap<_, _> = cur_missed
                 .into_iter()
-                .map(|missed| (missed.txid.clone(), missed))
+                .map(|missed| (missed.txid, missed))
                 .collect();
 
             // find the UTXO index that each last linked_commit must have spent in order to be
@@ -521,7 +521,7 @@ mod tests {
             memo: vec![],
             burn_fee,
             input: (input_txid, 3),
-            apparent_sender: BurnchainSigner::new_p2pkh(&StacksPublicKey::new()),
+            apparent_sender: BurnchainSigner::new_p2pkh(StacksPublicKey::new()),
             commit_outs: vec![],
             sunset_burn: 0,
             txid,

@@ -170,7 +170,7 @@ fn microblocks_disabled() {
         0,
         500,
         conf.burnchain.chain_id,
-        &spender_2_addr,
+        spender_2_addr.clone(),
         500,
     );
     submit_tx(&http_origin, &tx);
@@ -216,7 +216,7 @@ fn microblocks_disabled() {
         1,
         500,
         conf.burnchain.chain_id,
-        &spender_2_addr,
+        spender_2_addr,
         500,
     );
     submit_tx(&http_origin, &tx);

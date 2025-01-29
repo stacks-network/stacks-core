@@ -806,9 +806,8 @@ impl<'a> ClarityBlockConnection<'a, '_> {
     /// Get the boot code account
     fn get_boot_code_account(&mut self) -> Result<StacksAccount, Error> {
         let boot_code_address = boot_code_addr(self.mainnet);
-        let boot_code_nonce = self.with_clarity_db_readonly(|db| {
-            db.get_account_nonce(&boot_code_address.clone().into())
-        })?;
+        let boot_code_nonce =
+            self.with_clarity_db_readonly(|db| db.get_account_nonce(&boot_code_address.into()))?;
 
         let boot_code_account = boot_code_acc(boot_code_address, boot_code_nonce);
         Ok(boot_code_account)
@@ -853,10 +852,9 @@ impl<'a> ClarityBlockConnection<'a, '_> {
             );
 
             let boot_code_address = boot_code_addr(self.mainnet);
-            let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
+            let boot_code_auth = boot_code_tx_auth(boot_code_address);
 
-            let costs_2_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth, payload);
+            let costs_2_contract_tx = StacksTransaction::new(tx_version, boot_code_auth, payload);
 
             let initialization_receipt = self.as_transaction(|tx_conn| {
                 // bump the epoch in the Clarity DB
@@ -934,10 +932,10 @@ impl<'a> ClarityBlockConnection<'a, '_> {
 
             let boot_code_address = boot_code_addr(mainnet);
 
-            let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
+            let boot_code_auth = boot_code_tx_auth(boot_code_address);
 
             let boot_code_nonce = self.with_clarity_db_readonly(|db| {
-                db.get_account_nonce(&boot_code_address.clone().into())
+                db.get_account_nonce(&boot_code_address.into())
                     .expect("FATAL: Failed to boot account nonce")
             });
 
@@ -967,7 +965,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
             );
 
             let pox_2_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+                StacksTransaction::new(tx_version, boot_code_auth.clone(), payload);
 
             // upgrade epoch before starting transaction-processing, since .pox-2 needs clarity2
             // features
@@ -1040,8 +1038,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                 None,
             );
 
-            let costs_3_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth, payload);
+            let costs_3_contract_tx = StacksTransaction::new(tx_version, boot_code_auth, payload);
 
             let costs_3_initialization_receipt = self.as_transaction(|tx_conn| {
                 // bump the epoch in the Clarity DB
@@ -1190,10 +1187,10 @@ impl<'a> ClarityBlockConnection<'a, '_> {
 
             let boot_code_address = boot_code_addr(mainnet);
 
-            let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
+            let boot_code_auth = boot_code_tx_auth(boot_code_address);
 
             let boot_code_nonce = self.with_clarity_db_readonly(|db| {
-                db.get_account_nonce(&boot_code_address.clone().into())
+                db.get_account_nonce(&boot_code_address.into())
                     .expect("FATAL: Failed to boot account nonce")
             });
 
@@ -1221,8 +1218,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                 Some(ClarityVersion::Clarity2),
             );
 
-            let pox_3_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth, payload);
+            let pox_3_contract_tx = StacksTransaction::new(tx_version, boot_code_auth, payload);
 
             let pox_3_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
@@ -1336,10 +1332,10 @@ impl<'a> ClarityBlockConnection<'a, '_> {
             );
 
             let boot_code_address = boot_code_addr(mainnet);
-            let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
+            let boot_code_auth = boot_code_tx_auth(boot_code_address);
 
             let pox_4_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+                StacksTransaction::new(tx_version, boot_code_auth.clone(), payload);
 
             let pox_4_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
@@ -1397,7 +1393,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
             );
 
             let signers_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+                StacksTransaction::new(tx_version, boot_code_auth.clone(), payload);
 
             let signers_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
@@ -1443,7 +1439,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                     );
 
                     let signers_contract_tx =
-                        StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+                        StacksTransaction::new(tx_version, boot_code_auth.clone(), payload);
 
                     let signers_db_receipt = self.as_transaction(|tx_conn| {
                         // initialize with a synthetic transaction
@@ -1482,8 +1478,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                 Some(ClarityVersion::Clarity2),
             );
 
-            let signers_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth, payload);
+            let signers_contract_tx = StacksTransaction::new(tx_version, boot_code_auth, payload);
 
             let signers_voting_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction

@@ -9,7 +9,7 @@ use clarity::vm::analysis::contract_interface_builder::{
 use clarity::vm::analysis::mem_type_check;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{
-    QualifiedContractIdentifier, ResponseData, StacksAddressExtensions, TupleData,
+    PrincipalData, QualifiedContractIdentifier, ResponseData, StacksAddressExtensions, TupleData,
 };
 use clarity::vm::{ClarityVersion, Value};
 use lazy_static::lazy_static;
@@ -341,7 +341,7 @@ fn integration_test_get_info() {
                     round - 1,
                     10,
                     CHAIN_ID_TESTNET,
-                    &StacksAddress::from_string(ADDR_4).unwrap().into(),
+                    StacksAddress::from_string(ADDR_4).unwrap().into(),
                     100,
                 );
                 tenure
@@ -812,7 +812,7 @@ fn integration_test_get_info() {
                     round,
                     200,
                     CHAIN_ID_TESTNET,
-                    &StacksAddress::from_string(ADDR_4).unwrap().into(),
+                    StacksAddress::from_string(ADDR_4).unwrap().into(),
                     123);
 
                 let res: String = client.post(&path)
@@ -846,7 +846,7 @@ fn integration_test_get_info() {
                 // tx_xfer_invalid is 180 bytes long
                 // bad nonce
                 let tx_xfer_invalid = make_stacks_transfer(&spender_sk, round + 30, 200, CHAIN_ID_TESTNET,
-                                                           &StacksAddress::from_string(ADDR_4).unwrap().into(), 456);
+                                                           StacksAddress::from_string(ADDR_4).unwrap().into(), 456);
 
                 let tx_xfer_invalid_tx = StacksTransaction::consensus_deserialize(&mut &tx_xfer_invalid[..]).unwrap();
 
@@ -1131,7 +1131,7 @@ fn contract_stx_transfer() {
                     0,
                     10,
                     CHAIN_ID_TESTNET,
-                    &contract_identifier.into(),
+                    contract_identifier.into(),
                     1000,
                 );
                 tenure
@@ -1226,7 +1226,7 @@ fn contract_stx_transfer() {
                         1 + i,
                         200,
                         CHAIN_ID_TESTNET,
-                        &contract_identifier.clone().into(),
+                        contract_identifier.clone().into(),
                         1000,
                     );
                     let xfer_to_contract =
@@ -1252,7 +1252,7 @@ fn contract_stx_transfer() {
                     3,
                     190,
                     CHAIN_ID_TESTNET,
-                    &contract_identifier.into(),
+                    contract_identifier.into(),
                     1000,
                 );
                 let xfer_to_contract =
@@ -1485,7 +1485,7 @@ fn mine_transactions_out_of_order() {
                     1,
                     10,
                     CHAIN_ID_TESTNET,
-                    &contract_identifier.into(),
+                    contract_identifier.into(),
                     1000,
                 );
                 tenure
@@ -1522,7 +1522,7 @@ fn mine_transactions_out_of_order() {
                     3,
                     10,
                     CHAIN_ID_TESTNET,
-                    &contract_identifier.into(),
+                    contract_identifier.into(),
                     1000,
                 );
                 tenure
@@ -1543,7 +1543,7 @@ fn mine_transactions_out_of_order() {
                     0,
                     10,
                     CHAIN_ID_TESTNET,
-                    &contract_identifier.into(),
+                    contract_identifier.into(),
                     1000,
                 );
                 tenure
@@ -1750,7 +1750,7 @@ fn bad_contract_tx_rollback() {
                     0,
                     10,
                     CHAIN_ID_TESTNET,
-                    &contract_identifier.into(),
+                    contract_identifier.into(),
                     1000,
                 );
                 let (consensus_hash, block_hash) = (
@@ -1772,7 +1772,7 @@ fn bad_contract_tx_rollback() {
             } else if round == 2 {
                 // block-height = 3
                 let xfer_to_contract =
-                    make_stacks_transfer(&sk_3, 1, 10, CHAIN_ID_TESTNET, &addr_2.into(), 1000);
+                    make_stacks_transfer(&sk_3, 1, 10, CHAIN_ID_TESTNET, addr_2.into(), 1000);
                 let (consensus_hash, block_hash) = (
                     &tenure.parent_block.metadata.consensus_hash,
                     &tenure.parent_block.metadata.anchored_header.block_hash(),
@@ -1792,7 +1792,7 @@ fn bad_contract_tx_rollback() {
 
                 // doesn't consistently get mined by the StacksBlockBuilder, because order matters!
                 let xfer_to_contract =
-                    make_stacks_transfer(&sk_3, 2, 10, CHAIN_ID_TESTNET, &addr_2.into(), 3000);
+                    make_stacks_transfer(&sk_3, 2, 10, CHAIN_ID_TESTNET, addr_2.into(), 3000);
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -2241,7 +2241,7 @@ fn mempool_errors() {
             let spender_sk = StacksPrivateKey::from_hex(SK_3).unwrap();
             let spender_addr = to_addr(&spender_sk);
 
-            let send_to = StacksAddress::from_string(ADDR_4).unwrap().into();
+            let send_to: PrincipalData = StacksAddress::from_string(ADDR_4).unwrap().into();
 
             if round == 1 {
                 // let's submit an invalid transaction!
@@ -2251,7 +2251,7 @@ fn mempool_errors() {
                     30, // bad nonce -- too much chaining
                     200,
                     CHAIN_ID_TESTNET,
-                    &send_to,
+                    send_to.clone(),
                     456,
                 );
                 let tx_xfer_invalid_tx =
@@ -2293,7 +2293,7 @@ fn mempool_errors() {
                     0,
                     1, // bad fee
                     CHAIN_ID_TESTNET,
-                    &send_to,
+                    send_to.clone(),
                     456,
                 );
                 let tx_xfer_invalid_tx =
@@ -2327,7 +2327,7 @@ fn mempool_errors() {
                     1,
                     2000, // not enough funds!
                     CHAIN_ID_TESTNET,
-                    &send_to,
+                    send_to.clone(),
                     456,
                 );
                 let tx_xfer_invalid_tx =
@@ -2372,7 +2372,7 @@ fn mempool_errors() {
                     1,
                     2000,
                     CHAIN_ID_TESTNET,
-                    &send_to,
+                    send_to,
                     1000,
                 );
                 let tx_xfer_invalid_tx =

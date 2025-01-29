@@ -113,7 +113,7 @@ fn test_get_block_availability() {
             let sn =
                 SortitionDB::get_canonical_burn_chain_tip(peer_2.sortdb.as_ref().unwrap().conn())
                     .unwrap();
-            block_data.push((sn.consensus_hash.clone(), stacks_block, microblocks));
+            block_data.push((sn.consensus_hash, stacks_block, microblocks));
         }
 
         let num_burn_blocks = {
@@ -357,7 +357,7 @@ where
                         let tip_sort_id =
                             SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
                         let sortdb_reader =
-                            SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
+                            SortitionHandleConn::open_reader(&ic, tip_sort_id).unwrap();
                         sortdb_reader.get_pox_id().unwrap()
                     };
 
@@ -550,11 +550,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain() {
                         peers[1].sortdb.as_ref().unwrap().conn(),
                     )
                     .unwrap();
-                    block_data.push((
-                        sn.consensus_hash.clone(),
-                        Some(stacks_block),
-                        Some(microblocks),
-                    ));
+                    block_data.push((sn.consensus_hash, Some(stacks_block), Some(microblocks)));
                 }
                 block_data
             },
@@ -736,7 +732,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain_100_blocks() {
                     };
 
                     let parent_header_hash = parent_tip.anchored_header.block_hash();
-                    let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                    let parent_consensus_hash = parent_tip.consensus_hash;
                     let parent_index_hash = StacksBlockHeader::make_index_block_hash(
                         &parent_consensus_hash,
                         &parent_header_hash,
@@ -831,11 +827,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain_100_blocks() {
                         peers[1].sortdb.as_ref().unwrap().conn(),
                     )
                     .unwrap();
-                    block_data.push((
-                        sn.consensus_hash.clone(),
-                        Some(stacks_block),
-                        Some(microblocks),
-                    ));
+                    block_data.push((sn.consensus_hash, Some(stacks_block), Some(microblocks)));
                 }
                 block_data
             },
@@ -922,11 +914,7 @@ pub fn test_get_blocks_and_microblocks_5_peers_star() {
                         peers[0].sortdb.as_ref().unwrap().conn(),
                     )
                     .unwrap();
-                    block_data.push((
-                        sn.consensus_hash.clone(),
-                        Some(stacks_block),
-                        Some(microblocks),
-                    ));
+                    block_data.push((sn.consensus_hash, Some(stacks_block), Some(microblocks)));
                 }
                 block_data
             },
@@ -996,11 +984,7 @@ pub fn test_get_blocks_and_microblocks_5_peers_line() {
                         peers[0].sortdb.as_ref().unwrap().conn(),
                     )
                     .unwrap();
-                    block_data.push((
-                        sn.consensus_hash.clone(),
-                        Some(stacks_block),
-                        Some(microblocks),
-                    ));
+                    block_data.push((sn.consensus_hash, Some(stacks_block), Some(microblocks)));
                 }
                 block_data
             },
@@ -1078,11 +1062,7 @@ pub fn test_get_blocks_and_microblocks_overwhelmed_connections() {
                         peers[0].sortdb.as_ref().unwrap().conn(),
                     )
                     .unwrap();
-                    block_data.push((
-                        sn.consensus_hash.clone(),
-                        Some(stacks_block),
-                        Some(microblocks),
-                    ));
+                    block_data.push((sn.consensus_hash, Some(stacks_block), Some(microblocks)));
                 }
                 block_data
             },
@@ -1157,11 +1137,7 @@ pub fn test_get_blocks_and_microblocks_overwhelmed_sockets() {
                         peers[0].sortdb.as_ref().unwrap().conn(),
                     )
                     .unwrap();
-                    block_data.push((
-                        sn.consensus_hash.clone(),
-                        Some(stacks_block),
-                        Some(microblocks),
-                    ));
+                    block_data.push((sn.consensus_hash, Some(stacks_block), Some(microblocks)));
                 }
                 block_data
             },
@@ -1242,11 +1218,7 @@ pub fn test_get_blocks_and_microblocks_ban_url() {
                     peers[1].sortdb.as_ref().unwrap().conn(),
                 )
                 .unwrap();
-                block_data.push((
-                    sn.consensus_hash.clone(),
-                    Some(stacks_block),
-                    Some(microblocks),
-                ));
+                block_data.push((sn.consensus_hash, Some(stacks_block), Some(microblocks)));
             }
             block_data
         },
@@ -1374,11 +1346,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_multiple_microblock_desc
                         microblock_stream = microblocks.clone();
                         first_block_height = sn.block_height as u32;
 
-                        block_data.push((
-                            sn.consensus_hash.clone(),
-                            Some(stacks_block),
-                            Some(microblocks),
-                        ));
+                        block_data.push((sn.consensus_hash, Some(stacks_block), Some(microblocks)));
                     } else {
                         test_debug!("Build child block {}", i);
                         let tip = SortitionDB::get_canonical_burn_chain_tip(
@@ -1461,11 +1429,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_multiple_microblock_desc
                         )
                         .unwrap();
 
-                        block_data.push((
-                            sn.consensus_hash.clone(),
-                            Some(stacks_block),
-                            Some(vec![]),
-                        ));
+                        block_data.push((sn.consensus_hash, Some(stacks_block), Some(vec![])));
                     }
                 }
                 block_data

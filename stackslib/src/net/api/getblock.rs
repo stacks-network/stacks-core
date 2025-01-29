@@ -72,7 +72,7 @@ impl StacksBlockStream {
         let blocks_path = chainstate.blocks_path.clone();
 
         Ok(StacksBlockStream {
-            index_block_hash: block.clone(),
+            index_block_hash: *block,
             offset: 0,
             total_bytes: 0,
             blocks_path,

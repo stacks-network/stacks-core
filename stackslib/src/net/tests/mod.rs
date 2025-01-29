@@ -261,7 +261,7 @@ impl NakamotoBootPlan {
             let mut node = peer.stacks_node.take().unwrap();
 
             let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
-            let mut sort_handle = sortdb.index_handle(&sort_tip);
+            let mut sort_handle = sortdb.index_handle(sort_tip);
 
             let mut possible_chain_tips = HashSet::new();
 
@@ -358,7 +358,7 @@ impl NakamotoBootPlan {
     ) -> (TestPeer<'_>, Vec<TestPeer<'_>>) {
         let mut peer_config = TestPeerConfig::new(&self.test_name, 0, 0);
         peer_config.network_id = self.network_id;
-        peer_config.private_key = self.private_key.clone();
+        peer_config.private_key = self.private_key;
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -443,7 +443,7 @@ impl NakamotoBootPlan {
         let mut other_peer_nonces = vec![0; other_peers.len()];
         let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&self.private_key));
         let default_pox_addr =
-            PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes().clone());
+            PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, *addr.bytes());
 
         let mut sortition_height = peer.get_burn_block_height();
         debug!("\n\n======================");
@@ -731,8 +731,8 @@ impl NakamotoBootPlan {
                                     assert!(!transactions.is_empty());
                                     if let Some(last_block) = last_block_opt {
                                         let tenure_extension = tenure_change.extend(
-                                            next_consensus_hash.clone(),
-                                            last_block.clone(),
+                                            next_consensus_hash,
+                                            last_block,
                                             blocks_since_last_tenure
                                         );
                                         let tenure_extension_tx =
@@ -791,8 +791,8 @@ impl NakamotoBootPlan {
                     let (burn_ht, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
                     let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
-                    tenure_change.tenure_consensus_hash = consensus_hash.clone();
-                    tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+                    tenure_change.tenure_consensus_hash = consensus_hash;
+                    tenure_change.burn_view_consensus_hash = consensus_hash;
 
                     last_tenure_change = Some(tenure_change.clone());
 
@@ -832,8 +832,8 @@ impl NakamotoBootPlan {
                                     assert!(!transactions.is_empty());
                                     if let Some(last_block) = last_block_opt {
                                         let tenure_extension = tenure_change.extend(
-                                            consensus_hash.clone(),
-                                            last_block.clone(),
+                                            consensus_hash,
+                                            last_block,
                                             blocks_since_last_tenure // blocks_so_far.len() as u32,
                                         );
                                         let tenure_extension_tx =
@@ -1201,9 +1201,9 @@ fn test_network_result_update() {
         1,
         1,
         1,
-        &BurnchainHeaderHash([0x11; 32]),
+        BurnchainHeaderHash([0x11; 32]),
         1,
-        &BurnchainHeaderHash([0x11; 32]),
+        BurnchainHeaderHash([0x11; 32]),
         StacksMessageType::Ping(PingData { nonce: 1 }),
     );
 
@@ -1211,9 +1211,9 @@ fn test_network_result_update() {
         2,
         2,
         2,
-        &BurnchainHeaderHash([0x22; 32]),
+        BurnchainHeaderHash([0x22; 32]),
         2,
-        &BurnchainHeaderHash([0x22; 32]),
+        BurnchainHeaderHash([0x22; 32]),
         StacksMessageType::Ping(PingData { nonce: 2 }),
     );
     msg2.sign(2, &StacksPrivateKey::new()).unwrap();

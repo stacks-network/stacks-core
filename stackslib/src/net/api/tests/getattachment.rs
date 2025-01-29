@@ -36,7 +36,7 @@ use crate::net::{Attachment, ProtocolFamily, TipRequest};
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let request = StacksHttpRequest::new_getattachment(addr.into(), Hash160([0x11; 20]));
     let bytes = request.try_serialize().unwrap();
@@ -79,7 +79,7 @@ fn test_try_make_response() {
     let mut requests = vec![];
 
     // query existing attachment
-    let request = StacksHttpRequest::new_getattachment(addr.into(), attachment_hash.clone());
+    let request = StacksHttpRequest::new_getattachment(addr.into(), attachment_hash);
     requests.push(request);
 
     // query non-existant

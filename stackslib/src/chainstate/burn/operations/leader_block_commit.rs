@@ -92,13 +92,13 @@ pub static BURN_BLOCK_MINED_AT_MODULUS: u64 = 5;
 impl LeaderBlockCommitOp {
     #[cfg(test)]
     pub fn initial(
-        block_header_hash: &BlockHeaderHash,
+        block_header_hash: BlockHeaderHash,
         block_height: u64,
-        new_seed: &VRFSeed,
+        new_seed: VRFSeed,
         paired_key: &LeaderKeyRegisterOp,
         burn_fee: u64,
-        input: &(Txid, u32),
-        apparent_sender: &BurnchainSigner,
+        input: (Txid, u32),
+        apparent_sender: BurnchainSigner,
     ) -> LeaderBlockCommitOp {
         LeaderBlockCommitOp {
             sunset_burn: 0,
@@ -111,17 +111,17 @@ impl LeaderBlockCommitOp {
                     .expect("FATAL: unreachable: 5 is not a u8")
                     - 1
             },
-            new_seed: new_seed.clone(),
+            new_seed,
             key_block_ptr: paired_key.block_height as u32,
             key_vtxindex: paired_key.vtxindex as u16,
             parent_block_ptr: 0,
             parent_vtxindex: 0,
             memo: vec![0x00],
             burn_fee,
-            input: input.clone(),
-            block_header_hash: block_header_hash.clone(),
+            input,
+            block_header_hash,
             commit_outs: vec![],
-            apparent_sender: apparent_sender.clone(),
+            apparent_sender,
 
             // to be filled in
             txid: Txid([0u8; 32]),
@@ -133,30 +133,30 @@ impl LeaderBlockCommitOp {
 
     #[cfg(test)]
     pub fn new(
-        block_header_hash: &BlockHeaderHash,
+        block_header_hash: BlockHeaderHash,
         block_height: u64,
-        new_seed: &VRFSeed,
+        new_seed: VRFSeed,
         parent_block_height: u32,
         parent_vtxindex: u16,
         key_block_ptr: u32,
         key_vtxindex: u16,
         burn_fee: u64,
-        input: &(Txid, u32),
-        apparent_sender: &BurnchainSigner,
+        input: (Txid, u32),
+        apparent_sender: BurnchainSigner,
     ) -> LeaderBlockCommitOp {
         LeaderBlockCommitOp {
             sunset_burn: 0,
-            new_seed: new_seed.clone(),
+            new_seed: new_seed,
             key_block_ptr,
             key_vtxindex,
             parent_block_ptr: parent_block_height,
             parent_vtxindex,
             memo: vec![],
             burn_fee,
-            input: input.clone(),
-            block_header_hash: block_header_hash.clone(),
+            input,
+            block_header_hash,
             commit_outs: vec![],
-            apparent_sender: apparent_sender.clone(),
+            apparent_sender,
 
             // to be filled in
             txid: Txid([0u8; 32]),
@@ -199,7 +199,7 @@ impl LeaderBlockCommitOp {
     /// In Nakamoto, the block header hash is actually the index block hash of the first Nakamoto
     /// block of the last tenure (the "tenure id"). This helper obtains it.
     pub fn last_tenure_id(&self) -> StacksBlockId {
-        StacksBlockId(self.block_header_hash.0.clone())
+        StacksBlockId(self.block_header_hash.0)
     }
 
     pub fn parse_data(data: &[u8]) -> Option<ParsedData> {
@@ -262,7 +262,7 @@ impl LeaderBlockCommitOp {
         LeaderBlockCommitOp::parse_from_tx(
             burnchain,
             block_header.block_height,
-            &block_header.block_hash,
+            block_header.block_hash,
             epoch_id,
             tx,
         )
@@ -277,7 +277,7 @@ impl LeaderBlockCommitOp {
     pub fn parse_from_tx(
         burnchain: &Burnchain,
         block_height: u64,
-        block_hash: &BurnchainHeaderHash,
+        block_hash: BurnchainHeaderHash,
         epoch_id: StacksEpochId,
         tx: &BurnchainTransaction,
     ) -> Result<LeaderBlockCommitOp, op_error> {
@@ -432,10 +432,9 @@ impl LeaderBlockCommitOp {
             (commit_outs, sunset_burn, burn_fee, apparent_sender)
         };
 
-        let input = tx
+        let input = *tx
             .get_input_tx_ref(0)
-            .expect("UNREACHABLE: checked that inputs > 0")
-            .clone();
+            .expect("UNREACHABLE: checked that inputs > 0");
 
         Ok(LeaderBlockCommitOp {
             block_header_hash: data.block_header_hash,
@@ -457,7 +456,7 @@ impl LeaderBlockCommitOp {
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
             block_height,
-            burn_header_hash: block_hash.clone(),
+            burn_header_hash: block_hash,
         })
     }
 
@@ -890,7 +889,7 @@ impl LeaderBlockCommitOp {
         tx: &mut SortitionHandleTx,
         miss_distance: u64,
     ) -> Result<SortitionId, op_error> {
-        let tx_tip = tx.context.chain_tip.clone();
+        let tx_tip = tx.context.chain_tip;
         let intended_sortition = match epoch_id {
             StacksEpochId::Epoch21
             | StacksEpochId::Epoch22
@@ -967,7 +966,7 @@ impl LeaderBlockCommitOp {
         let leader_key_block_height = u64::from(self.key_block_ptr);
         let parent_block_height = u64::from(self.parent_block_ptr);
 
-        let tx_tip = tx.context.chain_tip.clone();
+        let tx_tip = tx.context.chain_tip;
         let apparent_sender_repr = format!("{}", &self.apparent_sender);
 
         /////////////////////////////////////////////////////////////////////////////////////
@@ -1118,8 +1117,8 @@ impl LeaderBlockCommitOp {
             let intended_sortition =
                 self.check_intended_sortition(epoch.epoch_id, burnchain, tx, miss_distance)?;
             let missed_data = MissedBlockCommit {
-                input: self.input.clone(),
-                txid: self.txid.clone(),
+                input: self.input,
+                txid: self.txid,
                 intended_sortition,
             };
 
@@ -1274,7 +1273,7 @@ mod tests {
         let err = LeaderBlockCommitOp::parse_from_tx(
             &burnchain,
             16843022,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch2_05,
             &tx,
         )
@@ -1290,7 +1289,7 @@ mod tests {
         let _op = LeaderBlockCommitOp::parse_from_tx(
             &burnchain,
             16843022,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch21,
             &tx,
         )
@@ -1345,7 +1344,7 @@ mod tests {
         let op = LeaderBlockCommitOp::parse_from_tx(
             &burnchain,
             16843022,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch2_05,
             &tx,
         )
@@ -1359,7 +1358,7 @@ mod tests {
         let op = LeaderBlockCommitOp::parse_from_tx(
             &burnchain,
             16843022,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch21,
             &tx,
         )
@@ -1422,7 +1421,7 @@ mod tests {
         let op = LeaderBlockCommitOp::parse_from_tx(
             &burnchain,
             16843019,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch2_05,
             &tx,
         )
@@ -1477,7 +1476,7 @@ mod tests {
         match LeaderBlockCommitOp::parse_from_tx(
             &burnchain,
             16843019,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch2_05,
             &tx,
         )
@@ -1553,7 +1552,7 @@ mod tests {
         let op = LeaderBlockCommitOp::parse_from_tx(
             &burnchain,
             16843019,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch2_05,
             &tx,
         )
@@ -1598,7 +1597,7 @@ mod tests {
         match LeaderBlockCommitOp::parse_from_tx(
             &burnchain,
             16843019,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch2_05,
             &tx,
         )
@@ -1651,7 +1650,7 @@ mod tests {
         match LeaderBlockCommitOp::parse_from_tx(
             &burnchain,
             16843019,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch2_05,
             &tx,
         )
@@ -1728,7 +1727,7 @@ mod tests {
         match LeaderBlockCommitOp::parse_from_tx(
             &burnchain,
             16843019,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch2_05,
             &tx,
         )
@@ -1818,8 +1817,8 @@ mod tests {
             let header = match tx_fixture.result {
                 Some(ref op) => BurnchainBlockHeader {
                     block_height: op.block_height,
-                    block_hash: op.burn_header_hash.clone(),
-                    parent_block_hash: op.burn_header_hash.clone(),
+                    block_hash: op.burn_header_hash,
+                    parent_block_hash: op.burn_header_hash,
                     num_txs: 1,
                     timestamp: get_epoch_time_secs(),
                 },
@@ -1924,11 +1923,11 @@ mod tests {
         .unwrap();
 
         let block_header_hashes = [
-            block_122_hash.clone(),
-            block_123_hash.clone(),
-            block_124_hash.clone(),
-            block_125_hash.clone(), // prepare phase
-            block_126_hash.clone(), // prepare phase
+            block_122_hash,
+            block_123_hash,
+            block_124_hash,
+            block_125_hash, // prepare phase
+            block_126_hash, // prepare phase
         ];
 
         let burnchain = Burnchain {
@@ -1943,7 +1942,7 @@ mod tests {
             first_block_height,
             initial_reward_start_block: first_block_height,
             first_block_timestamp: 0,
-            first_block_hash: first_burn_hash.clone(),
+            first_block_hash: first_burn_hash,
         };
 
         let leader_key_1 = LeaderKeyRegisterOp {
@@ -1965,7 +1964,7 @@ mod tests {
             .unwrap(),
             vtxindex: 456,
             block_height: 124,
-            burn_header_hash: block_124_hash.clone(),
+            burn_header_hash: block_124_hash,
         };
 
         let leader_key_2 = LeaderKeyRegisterOp {
@@ -1987,7 +1986,7 @@ mod tests {
             .unwrap(),
             vtxindex: 457,
             block_height: 124,
-            burn_header_hash: block_124_hash.clone(),
+            burn_header_hash: block_124_hash,
         };
 
         // consumes leader_key_1
@@ -2030,7 +2029,7 @@ mod tests {
             vtxindex: 444,
             block_height: 125,
             burn_parent_modulus: (124 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-            burn_header_hash: block_125_hash.clone(),
+            burn_header_hash: block_125_hash,
         };
 
         let mut db = SortitionDB::connect_test_with_epochs(
@@ -2063,10 +2062,10 @@ mod tests {
                     pox_valid: true,
                     block_height: (i + 1 + first_block_height as usize) as u64,
                     burn_header_timestamp: get_epoch_time_secs(),
-                    burn_header_hash: block_header_hashes[i].clone(),
-                    sortition_id: SortitionId(block_header_hashes[i].0.clone()),
-                    parent_sortition_id: prev_snapshot.sortition_id.clone(),
-                    parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
+                    burn_header_hash: block_header_hashes[i],
+                    sortition_id: SortitionId(block_header_hashes[i].0),
+                    parent_sortition_id: prev_snapshot.sortition_id,
+                    parent_burn_header_hash: prev_snapshot.burn_header_hash,
                     consensus_hash: ConsensusHash::from_bytes(&[
                         0,
                         0,
@@ -2136,7 +2135,7 @@ mod tests {
                 prev_snapshot = snapshot_row;
             }
 
-            prev_snapshot.index_root.clone()
+            prev_snapshot.index_root
         };
 
         let mut fixtures = vec![
@@ -2187,7 +2186,7 @@ mod tests {
                     vtxindex: 445,
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-                    burn_header_hash: block_126_hash.clone(),
+                    burn_header_hash: block_126_hash,
                 },
                 res: Ok(()),
             },
@@ -2238,7 +2237,7 @@ mod tests {
                     vtxindex: 445,
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-                    burn_header_hash: block_126_hash.clone(),
+                    burn_header_hash: block_126_hash,
                 },
                 res: Ok(()),
             },
@@ -2289,7 +2288,7 @@ mod tests {
                     vtxindex: 444,
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-                    burn_header_hash: block_126_hash.clone(),
+                    burn_header_hash: block_126_hash,
                 },
                 res: Ok(()),
             },
@@ -2340,7 +2339,7 @@ mod tests {
                     vtxindex: 444,
                     block_height: 126,
                     burn_parent_modulus: (124 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-                    burn_header_hash: block_126_hash.clone(),
+                    burn_header_hash: block_126_hash,
                 },
                 res: Err(op_error::MissedBlockCommit(MissedBlockCommit {
                     input: (Txid([0; 32]), 0),
@@ -2353,7 +2352,7 @@ mod tests {
                     .unwrap(),
                     // miss distance from height 126 was 1, which corresponds to the hash at height
                     // 125 (intended modulus = ((124 % 5) + 1) % 5 = 0, actual = (126 % 5) = 1
-                    intended_sortition: SortitionId(block_125_hash.0.clone()),
+                    intended_sortition: SortitionId(block_125_hash.0),
                 })),
             },
             CheckFixture {
@@ -2403,7 +2402,7 @@ mod tests {
                     vtxindex: 444,
                     block_height: 124,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-                    burn_header_hash: block_126_hash.clone(),
+                    burn_header_hash: block_126_hash,
                 },
                 // miss distance from height 124 was 3, which corresponds to the hash at height
                 // 121 (intended modulus = (((125 % 5) + 1) % 5) = 1, actual modulus = 124 % 5 = 4
@@ -2415,8 +2414,8 @@ mod tests {
             eprintln!("Processing {}", ix);
             let header = BurnchainBlockHeader {
                 block_height: fixture.op.block_height,
-                block_hash: fixture.op.burn_header_hash.clone(),
-                parent_block_hash: fixture.op.burn_header_hash.clone(),
+                block_hash: fixture.op.burn_header_hash,
+                parent_block_hash: fixture.op.burn_header_hash,
                 num_txs: 1,
                 timestamp: get_epoch_time_secs(),
             };
@@ -2462,11 +2461,11 @@ mod tests {
         .unwrap();
 
         let block_header_hashes = [
-            block_122_hash.clone(),
-            block_123_hash.clone(),
-            block_124_hash.clone(),
-            block_125_hash.clone(), // prepare phase
-            block_126_hash.clone(), // prepare phase
+            block_122_hash,
+            block_123_hash,
+            block_124_hash,
+            block_125_hash, // prepare phase
+            block_126_hash, // prepare phase
         ];
 
         let burnchain = Burnchain {
@@ -2481,7 +2480,7 @@ mod tests {
             first_block_height,
             initial_reward_start_block: first_block_height,
             first_block_timestamp: 0,
-            first_block_hash: first_burn_hash.clone(),
+            first_block_hash: first_burn_hash,
         };
 
         let leader_key_1 = LeaderKeyRegisterOp {
@@ -2503,7 +2502,7 @@ mod tests {
             .unwrap(),
             vtxindex: 456,
             block_height: 124,
-            burn_header_hash: block_124_hash.clone(),
+            burn_header_hash: block_124_hash,
         };
 
         let leader_key_2 = LeaderKeyRegisterOp {
@@ -2525,7 +2524,7 @@ mod tests {
             .unwrap(),
             vtxindex: 457,
             block_height: 124,
-            burn_header_hash: block_124_hash.clone(),
+            burn_header_hash: block_124_hash,
         };
 
         // consumes leader_key_1
@@ -2568,7 +2567,7 @@ mod tests {
             vtxindex: 444,
             block_height: 125,
             burn_parent_modulus: (124 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-            burn_header_hash: block_125_hash.clone(),
+            burn_header_hash: block_125_hash,
         };
 
         let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
@@ -2596,10 +2595,10 @@ mod tests {
                     pox_valid: true,
                     block_height: (i + 1 + first_block_height as usize) as u64,
                     burn_header_timestamp: get_epoch_time_secs(),
-                    burn_header_hash: block_header_hashes[i].clone(),
-                    sortition_id: SortitionId(block_header_hashes[i].0.clone()),
-                    parent_sortition_id: prev_snapshot.sortition_id.clone(),
-                    parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
+                    burn_header_hash: block_header_hashes[i],
+                    sortition_id: SortitionId(block_header_hashes[i].0),
+                    parent_sortition_id: prev_snapshot.sortition_id,
+                    parent_burn_header_hash: prev_snapshot.burn_header_hash,
                     consensus_hash: ConsensusHash::from_bytes(&[
                         0,
                         0,
@@ -2669,7 +2668,7 @@ mod tests {
                 prev_snapshot = snapshot_row;
             }
 
-            prev_snapshot.index_root.clone()
+            prev_snapshot.index_root
         };
 
         let block_height = 124;
@@ -2722,7 +2721,7 @@ mod tests {
                     vtxindex: 444,
                     block_height: 80,
                     burn_parent_modulus: (79 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-                    burn_header_hash: block_126_hash.clone(),
+                    burn_header_hash: block_126_hash,
                 },
                 res: Err(op_error::BlockCommitPredatesGenesis),
             },
@@ -2773,7 +2772,7 @@ mod tests {
                     vtxindex: 444,
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-                    burn_header_hash: block_126_hash.clone(),
+                    burn_header_hash: block_126_hash,
                 },
                 res: Err(op_error::BlockCommitNoLeaderKey),
             },
@@ -2824,7 +2823,7 @@ mod tests {
                     vtxindex: 445,
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-                    burn_header_hash: block_126_hash.clone(),
+                    burn_header_hash: block_126_hash,
                 },
                 res: Err(op_error::BlockCommitNoParent),
             },
@@ -2875,7 +2874,7 @@ mod tests {
                     vtxindex: 445,
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-                    burn_header_hash: block_126_hash.clone(),
+                    burn_header_hash: block_126_hash,
                 },
                 res: Err(op_error::BlockCommitNoParent),
             },
@@ -2928,7 +2927,7 @@ mod tests {
                     vtxindex: 445,
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-                    burn_header_hash: block_126_hash.clone(),
+                    burn_header_hash: block_126_hash,
                 },
                 res: Ok(()),
             },
@@ -2979,7 +2978,7 @@ mod tests {
                     vtxindex: 445,
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-                    burn_header_hash: block_126_hash.clone(),
+                    burn_header_hash: block_126_hash,
                 },
                 res: Err(op_error::BlockCommitBadInput),
             },
@@ -3030,7 +3029,7 @@ mod tests {
                     vtxindex: 445,
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-                    burn_header_hash: block_126_hash.clone(),
+                    burn_header_hash: block_126_hash,
                 },
                 res: Ok(()),
             },
@@ -3081,7 +3080,7 @@ mod tests {
                     vtxindex: 445,
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-                    burn_header_hash: block_126_hash.clone(),
+                    burn_header_hash: block_126_hash,
                 },
                 res: Ok(()),
             },
@@ -3132,7 +3131,7 @@ mod tests {
                     vtxindex: 444,
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-                    burn_header_hash: block_126_hash.clone(),
+                    burn_header_hash: block_126_hash,
                 },
                 res: Ok(()),
             },
@@ -3142,8 +3141,8 @@ mod tests {
             eprintln!("Processing {}", ix);
             let header = BurnchainBlockHeader {
                 block_height: fixture.op.block_height,
-                block_hash: fixture.op.burn_header_hash.clone(),
-                parent_block_hash: fixture.op.burn_header_hash.clone(),
+                block_hash: fixture.op.burn_header_hash,
+                parent_block_hash: fixture.op.burn_header_hash,
                 num_txs: 1,
                 timestamp: get_epoch_time_secs(),
             };
@@ -3262,17 +3261,17 @@ mod tests {
         let burn_addr_0 = PoxAddress::Standard(StacksAddress::burn_address(false), None);
         let burn_addr_1 = PoxAddress::Standard(StacksAddress::burn_address(true), None);
         let rs_pox_addrs = RewardSetInfo {
-            anchor_block: anchor_block_hash.clone(),
+            anchor_block: anchor_block_hash,
             recipients: vec![(reward_addrs(0), 0), (reward_addrs(1), 1)],
             allow_nakamoto_punishment: true,
         };
         let rs_pox_addrs_0b = RewardSetInfo {
-            anchor_block: anchor_block_hash.clone(),
+            anchor_block: anchor_block_hash,
             recipients: vec![(reward_addrs(0), 0), (burn_addr_0.clone(), 5)],
             allow_nakamoto_punishment: true,
         };
         let rs_pox_addrs_1b = RewardSetInfo {
-            anchor_block: anchor_block_hash.clone(),
+            anchor_block: anchor_block_hash,
             recipients: vec![(reward_addrs(1), 1), (burn_addr_1.clone(), 5)],
             allow_nakamoto_punishment: true,
         };
@@ -3488,7 +3487,7 @@ mod tests {
             first_block_height,
             initial_reward_start_block: first_block_height,
             first_block_timestamp: 0,
-            first_block_hash: first_burn_hash.clone(),
+            first_block_hash: first_burn_hash,
         };
 
         let epoch_2_05_start = 125;
@@ -3852,7 +3851,7 @@ mod tests {
             for op in all_leader_key_ops.iter() {
                 if op.block_height == i + 1 {
                     let mut block_op = op.clone();
-                    block_op.burn_header_hash = next_hash.clone();
+                    block_op.burn_header_hash = next_hash;
                     block_ops.push(BlockstackOperationType::LeaderKeyRegister(block_op));
                 }
             }

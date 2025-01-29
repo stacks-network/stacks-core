@@ -185,7 +185,7 @@ impl BurnchainStateTransition {
                 BlockstackOperationType::LeaderBlockCommit(ref op) => {
                     // we don't yet know which block commits are going to be accepted until we have
                     // the burn distribution, so just account for them for now.
-                    all_block_commits.insert(op.txid.clone(), op.clone());
+                    all_block_commits.insert(op.txid, op.clone());
                     block_commits.push(op.clone());
                 }
                 BlockstackOperationType::VoteForAggregateKey(_) => {
@@ -243,7 +243,7 @@ impl BurnchainStateTransition {
                 {
                     commits_at_sortition.push(missed);
                 } else {
-                    missed_commits_map.insert(missed.intended_sortition.clone(), vec![missed]);
+                    missed_commits_map.insert(missed.intended_sortition, vec![missed]);
                 }
             }
 
@@ -382,8 +382,8 @@ impl BurnchainSigner {
     }
 
     #[cfg(any(test, feature = "testing"))]
-    pub fn new_p2pkh(pubk: &StacksPublicKey) -> BurnchainSigner {
-        BurnchainSigner::mock_parts(AddressHashMode::SerializeP2PKH, 1, vec![pubk.clone()])
+    pub fn new_p2pkh(pubk: StacksPublicKey) -> BurnchainSigner {
+        BurnchainSigner::mock_parts(AddressHashMode::SerializeP2PKH, 1, vec![pubk])
     }
 }
 
@@ -409,13 +409,13 @@ impl BurnchainBlock {
 
     pub fn block_hash(&self) -> BurnchainHeaderHash {
         match *self {
-            BurnchainBlock::Bitcoin(ref data) => data.block_hash.clone(),
+            BurnchainBlock::Bitcoin(ref data) => data.block_hash,
         }
     }
 
     pub fn parent_block_hash(&self) -> BurnchainHeaderHash {
         match *self {
-            BurnchainBlock::Bitcoin(ref data) => data.parent_block_hash.clone(),
+            BurnchainBlock::Bitcoin(ref data) => data.parent_block_hash,
         }
     }
 
@@ -439,8 +439,8 @@ impl BurnchainBlock {
         match *self {
             BurnchainBlock::Bitcoin(ref data) => BurnchainBlockHeader {
                 block_height: data.block_height,
-                block_hash: data.block_hash.clone(),
-                parent_block_hash: data.parent_block_hash.clone(),
+                block_hash: data.block_hash,
+                parent_block_hash: data.parent_block_hash,
                 num_txs: data.txs.len() as u64,
                 timestamp: data.timestamp,
             },
@@ -626,7 +626,7 @@ impl Burnchain {
     #[cfg(test)]
     pub fn default_unittest(
         first_block_height: u64,
-        first_block_hash: &BurnchainHeaderHash,
+        first_block_hash: BurnchainHeaderHash,
     ) -> Burnchain {
         use rand::rngs::ThreadRng;
         use rand::{thread_rng, RngCore};
@@ -639,7 +639,7 @@ impl Burnchain {
         let mut ret = Burnchain::new(&tmp_path, "bitcoin", "mainnet").unwrap();
         ret.first_block_height = first_block_height;
         ret.initial_reward_start_block = first_block_height;
-        ret.first_block_hash = first_block_hash.clone();
+        ret.first_block_hash = first_block_hash;
         ret
     }
 
@@ -854,8 +854,7 @@ impl Burnchain {
                     None => burnchain_db.find_burnchain_op(indexer, pre_stx_txid),
                 };
                 if let Some(BlockstackOperationType::PreStx(pre_stx)) = pre_stx_tx {
-                    let sender = &pre_stx.output;
-                    match TransferStxOp::from_tx(block_header, burn_tx, sender) {
+                    match TransferStxOp::from_tx(block_header, burn_tx, pre_stx.output) {
                         Ok(op) => Some(BlockstackOperationType::TransferStx(op)),
                         Err(e) => {
                             warn!(
@@ -883,12 +882,11 @@ impl Burnchain {
                     None => burnchain_db.find_burnchain_op(indexer, pre_stx_txid),
                 };
                 if let Some(BlockstackOperationType::PreStx(pre_stack_stx)) = pre_stx_tx {
-                    let sender = &pre_stack_stx.output;
                     match StackStxOp::from_tx(
                         block_header,
                         epoch_id,
                         burn_tx,
-                        sender,
+                        pre_stack_stx.output,
                         burnchain.pox_constants.sunset_end,
                     ) {
                         Ok(op) => Some(BlockstackOperationType::StackStx(op)),
@@ -918,8 +916,7 @@ impl Burnchain {
                     None => burnchain_db.find_burnchain_op(indexer, pre_stx_txid),
                 };
                 if let Some(BlockstackOperationType::PreStx(pre_stx)) = pre_stx_tx {
-                    let sender = &pre_stx.output;
-                    match DelegateStxOp::from_tx(block_header, burn_tx, sender) {
+                    match DelegateStxOp::from_tx(block_header, burn_tx, pre_stx.output) {
                         Ok(op) => Some(BlockstackOperationType::DelegateStx(op)),
                         Err(e) => {
                             warn!(
@@ -947,8 +944,7 @@ impl Burnchain {
                     None => burnchain_db.find_burnchain_op(indexer, pre_stx_txid),
                 };
                 if let Some(BlockstackOperationType::PreStx(pre_stx)) = pre_stx_tx {
-                    let sender = &pre_stx.output;
-                    match VoteForAggregateKeyOp::from_tx(block_header, burn_tx, sender) {
+                    match VoteForAggregateKeyOp::from_tx(block_header, burn_tx, pre_stx.output) {
                         Ok(op) => Some(BlockstackOperationType::VoteForAggregateKey(op)),
                         Err(e) => {
                             warn!(
@@ -1125,7 +1121,7 @@ impl Burnchain {
             &header,
             blockstack_txs,
             burnchain,
-            &sortition_tip,
+            sortition_tip,
             None,
             |_, _| {},
         )

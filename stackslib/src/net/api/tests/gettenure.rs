@@ -49,7 +49,7 @@ use crate::util_lib::db::DBConn;
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let request =
         StacksHttpRequest::new_get_nakamoto_tenure(addr.into(), StacksBlockId([0x11; 32]), None);
@@ -87,14 +87,13 @@ fn test_try_make_response() {
     let test_observer = TestEventObserver::new();
     let rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
 
-    let nakamoto_chain_tip = rpc_test.canonical_tip.clone();
-    let consensus_hash = rpc_test.consensus_hash.clone();
+    let nakamoto_chain_tip = rpc_test.canonical_tip;
+    let consensus_hash = rpc_test.consensus_hash;
 
     let mut requests = vec![];
 
     // query existing tenure
-    let request =
-        StacksHttpRequest::new_get_nakamoto_tenure(addr.into(), nakamoto_chain_tip.clone(), None);
+    let request = StacksHttpRequest::new_get_nakamoto_tenure(addr.into(), nakamoto_chain_tip, None);
     requests.push(request);
 
     // TODO: mid-tenure?
@@ -144,7 +143,7 @@ fn test_stream_nakamoto_tenure() {
     let nakamoto_tip = {
         let sortdb = peer.sortdb.take().unwrap();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-        let ih = sortdb.index_handle(&tip.sortition_id);
+        let ih = sortdb.index_handle(tip.sortition_id);
         let nakamoto_tip = ih.get_nakamoto_tip().unwrap().unwrap();
         peer.sortdb = Some(sortdb);
         nakamoto_tip
@@ -167,9 +166,9 @@ fn test_stream_nakamoto_tenure() {
 
     let mut stream = NakamotoTenureStream::new(
         peer.chainstate(),
-        nakamoto_tip_block_id.clone(),
-        nakamoto_header.consensus_hash.clone(),
-        nakamoto_header.parent_block_id.clone(),
+        nakamoto_tip_block_id,
+        nakamoto_header.consensus_hash,
+        nakamoto_header.parent_block_id,
         None,
     )
     .unwrap();

@@ -216,7 +216,7 @@ impl BlockMinerThread {
         burn_election_block: BlockSnapshot,
         burn_block: BlockSnapshot,
         parent_tenure_id: StacksBlockId,
-        burn_tip_at_start: &ConsensusHash,
+        burn_tip_at_start: ConsensusHash,
         reason: MinerReason,
     ) -> BlockMinerThread {
         BlockMinerThread {
@@ -234,7 +234,7 @@ impl BlockMinerThread {
             reason,
             p2p_handle: rt.get_p2p_handle(),
             signer_set_cache: None,
-            burn_tip_at_start: burn_tip_at_start.clone(),
+            burn_tip_at_start,
             tenure_change_time: Instant::now(),
             abort_flag: Arc::new(AtomicBool::new(false)),
         }
@@ -1190,7 +1190,7 @@ impl BlockMinerThread {
                 .map_err(|_| NakamotoNodeError::UnexpectedChainState)?,
             &mut mem_pool,
             &parent_block_info.stacks_parent_header,
-            &self.burn_election_block.consensus_hash,
+            self.burn_election_block.consensus_hash,
             self.burn_block.total_burn,
             tenure_start_info,
             self.config

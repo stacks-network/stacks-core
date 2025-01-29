@@ -63,7 +63,7 @@ impl RunLoop {
         // Sync and update node with this new block.
         let (burnchain_tip, _) = burnchain.sync(None)?;
         self.node.process_burnchain_state(&burnchain_tip); // todo(ludo): should return genesis?
-        let mut chain_tip = ChainTip::genesis(&BurnchainHeaderHash::zero(), 0, 0);
+        let mut chain_tip = ChainTip::genesis(BurnchainHeaderHash::zero(), 0, 0);
 
         self.node.spawn_peer_server();
 
@@ -89,7 +89,7 @@ impl RunLoop {
         let artifacts_from_1st_tenure = match first_tenure.run(
             &burnchain
                 .sortdb_ref()
-                .index_handle(&burnchain_tip.block_snapshot.sortition_id),
+                .index_handle(burnchain_tip.block_snapshot.sortition_id),
         ) {
             Some(res) => res,
             None => panic!("Error while running 1st tenure"),
@@ -138,7 +138,7 @@ impl RunLoop {
             &mut self.node.chain_state,
             &burnchain
                 .sortdb_ref()
-                .index_handle(&burnchain_tip.block_snapshot.sortition_id),
+                .index_handle(burnchain_tip.block_snapshot.sortition_id),
         );
 
         // If the node we're looping on won the sortition, initialize and configure the next tenure
@@ -165,7 +165,7 @@ impl RunLoop {
                     tenure.run(
                         &burnchain
                             .sortdb_ref()
-                            .index_handle(&burnchain_tip.block_snapshot.sortition_id),
+                            .index_handle(burnchain_tip.block_snapshot.sortition_id),
                     )
                 }
                 None => None,
@@ -219,7 +219,7 @@ impl RunLoop {
                         &mut self.node.chain_state,
                         &burnchain
                             .sortdb_ref()
-                            .index_handle(&burnchain_tip.block_snapshot.sortition_id),
+                            .index_handle(burnchain_tip.block_snapshot.sortition_id),
                     );
                 }
             };

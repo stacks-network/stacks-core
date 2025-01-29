@@ -1561,7 +1561,7 @@ impl BlockMinerThread {
             let burnchain_params = burnchain_params_from_config(&self.config.burnchain);
 
             let chain_tip = ChainTip::genesis(
-                &burnchain_params.first_block_hash,
+                burnchain_params.first_block_hash,
                 burnchain_params.first_block_height,
                 burnchain_params.first_block_timestamp.into(),
             );
@@ -1925,7 +1925,7 @@ impl BlockMinerThread {
             return config_file_burn_fee_cap;
         };
         let tip = if let Some(at_burn_block) = at_burn_block.as_ref() {
-            let ih = sortdb.index_handle(&tip.sortition_id);
+            let ih = sortdb.index_handle(tip.sortition_id);
             let Ok(Some(ancestor_tip)) = ih.get_block_snapshot_by_height(*at_burn_block) else {
                 warn!("Failed to load ancestor tip at burn height {at_burn_block}");
                 return config_file_burn_fee_cap;
@@ -2338,7 +2338,7 @@ impl BlockMinerThread {
         }
 
         // find out which slot we're in. If we are not the latest sortition winner, we should not be sending anymore messages anyway
-        let ih = burn_db.index_handle(&self.burn_block.sortition_id);
+        let ih = burn_db.index_handle(self.burn_block.sortition_id);
         let last_winner_snapshot = ih
             .get_last_snapshot_with_sortition(self.burn_block.block_height)
             .map_err(|e| e.to_string())?;
@@ -2536,7 +2536,7 @@ impl BlockMinerThread {
         }
         let (anchored_block, _, _) = match StacksBlockBuilder::build_anchored_block(
             &chain_state,
-            &burn_db.index_handle(&burn_tip.sortition_id),
+            &burn_db.index_handle(burn_tip.sortition_id),
             &mut mem_pool,
             &parent_block_info.stacks_parent_header,
             parent_block_info.parent_block_total_burn,
@@ -2566,7 +2566,7 @@ impl BlockMinerThread {
                 // try again
                 match StacksBlockBuilder::build_anchored_block(
                     &chain_state,
-                    &burn_db.index_handle(&burn_tip.sortition_id),
+                    &burn_db.index_handle(burn_tip.sortition_id),
                     &mut mem_pool,
                     &parent_block_info.stacks_parent_header,
                     parent_block_info.parent_block_total_burn,
@@ -4270,7 +4270,7 @@ impl ParentStacksBlockInfo {
             let principal = miner_address.into();
             let account = chain_state
                 .with_read_only_clarity_tx(
-                    &burn_db.index_handle(&burn_chain_tip.sortition_id),
+                    &burn_db.index_handle(burn_chain_tip.sortition_id),
                     &StacksBlockHeader::make_index_block_hash(mine_tip_ch, mine_tip_bh),
                     |conn| StacksChainState::get_account(conn, &principal),
                 )

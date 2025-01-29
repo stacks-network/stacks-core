@@ -390,7 +390,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                 .expect("BUG: authenticated conversation without public key");
 
             let nk = convo.to_neighbor_key();
-            let empty_neighbor = Neighbor::empty(&nk, &pubkey, 0);
+            let empty_neighbor = Neighbor::empty(nk.clone(), pubkey, 0);
             let w = NeighborWalk::new(
                 db,
                 comms,
@@ -461,7 +461,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         db.check_neighbor_denied(network, &nk)?;
 
         // (this will be ignored by the neighbor walk)
-        let empty_neighbor = Neighbor::empty(&nk, &pingback_peer.pubkey, 0);
+        let empty_neighbor = Neighbor::empty(nk.clone(), pingback_peer.pubkey, 0);
 
         let mut w = NeighborWalk::new(
             db,
@@ -700,7 +700,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                 "{}: outbound neighbor gave private IP address {:?}; assuming it meant {:?}",
                 local_peer_str, &neighbor_from_handshake.addr, &self.cur_neighbor.addr
             );
-            neighbor_from_handshake.addr.addrbytes = self.cur_neighbor.addr.addrbytes.clone();
+            neighbor_from_handshake.addr.addrbytes = self.cur_neighbor.addr.addrbytes;
             neighbor_from_handshake.addr.port = self.cur_neighbor.addr.port;
         }
 
@@ -787,7 +787,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
             "Received HandshakeAccept.";
             "local_peer" => ?network.get_local_peer(),
             "walk_type" => if self.walk_outbound { "outbound" } else { "inbound"},
-            "neighbor" => ?message.to_neighbor_key(&data.handshake.addrbytes, data.handshake.port),
+            "neighbor" => ?message.to_neighbor_key(data.handshake.addrbytes, data.handshake.port),
             "handshake_data" => ?data.handshake,
             "stackerdb_data" => ?db_data
         );
@@ -1652,11 +1652,11 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
             // if we got back a HandshakeAccept, and it's on the same chain as us, we're good!
             let (data, db_data) = match message.payload {
                 StacksMessageType::HandshakeAccept(ref data) => {
-                    debug!("{:?}: received HandshakeAccept from peer {:?}; now known to be routable from us", network.get_local_peer(), &message.to_neighbor_key(&data.handshake.addrbytes, data.handshake.port));
+                    debug!("{:?}: received HandshakeAccept from peer {:?}; now known to be routable from us", network.get_local_peer(), &message.to_neighbor_key(data.handshake.addrbytes, data.handshake.port));
                     (data, None)
                 }
                 StacksMessageType::StackerDBHandshakeAccept(ref data, ref db_data) => {
-                    debug!("{:?}: received StackerDBHandshakeAccept from peer {:?}; now known to be routable from us", network.get_local_peer(), &message.to_neighbor_key(&data.handshake.addrbytes, data.handshake.port));
+                    debug!("{:?}: received StackerDBHandshakeAccept from peer {:?}; now known to be routable from us", network.get_local_peer(), &message.to_neighbor_key(data.handshake.addrbytes, data.handshake.port));
                     (data, Some(db_data))
                 }
                 _ => {
@@ -1671,7 +1671,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                 }
             };
 
-            let peer_nk = message.to_neighbor_key(&data.handshake.addrbytes, data.handshake.port);
+            let peer_nk = message.to_neighbor_key(data.handshake.addrbytes, data.handshake.port);
             if !Self::check_handshake_pubkey_hash(&peer_nk, data, &naddr) {
                 continue;
             }

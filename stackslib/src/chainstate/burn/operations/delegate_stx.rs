@@ -21,11 +21,11 @@ impl DelegateStxOp {
     pub fn from_tx(
         block_header: &BurnchainBlockHeader,
         tx: &BurnchainTransaction,
-        sender: &StacksAddress,
+        sender: StacksAddress,
     ) -> Result<DelegateStxOp, op_error> {
         DelegateStxOp::parse_from_tx(
             block_header.block_height,
-            &block_header.block_hash,
+            block_header.block_hash,
             tx,
             sender,
         )
@@ -121,9 +121,9 @@ impl DelegateStxOp {
 
     pub fn parse_from_tx(
         block_height: u64,
-        block_hash: &BurnchainHeaderHash,
+        block_hash: BurnchainHeaderHash,
         tx: &BurnchainTransaction,
-        sender: &StacksAddress,
+        sender: StacksAddress,
     ) -> Result<DelegateStxOp, op_error> {
         let outputs = tx.get_recipients();
 
@@ -192,7 +192,7 @@ impl DelegateStxOp {
         };
 
         Ok(DelegateStxOp {
-            sender: sender.clone(),
+            sender,
             reward_addr,
             delegate_to,
             delegated_ustx: data.delegated_ustx,
@@ -200,7 +200,7 @@ impl DelegateStxOp {
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
             block_height,
-            burn_header_hash: block_hash.clone(),
+            burn_header_hash: block_hash,
         })
     }
 
@@ -334,9 +334,9 @@ mod tests {
         let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let op = DelegateStxOp::parse_from_tx(
             16843022,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             &BurnchainTransaction::Bitcoin(tx.clone()),
-            &sender,
+            sender,
         )
         .unwrap();
 
@@ -405,9 +405,9 @@ mod tests {
         let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let op = DelegateStxOp::parse_from_tx(
             16843022,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             &BurnchainTransaction::Bitcoin(tx),
-            &sender,
+            sender,
         )
         .unwrap();
 
@@ -452,9 +452,9 @@ mod tests {
         let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let err = DelegateStxOp::parse_from_tx(
             16843022,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             &BurnchainTransaction::Bitcoin(tx),
-            &sender,
+            sender,
         )
         .unwrap_err();
         assert!(match err {
@@ -491,9 +491,9 @@ mod tests {
         let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let err = DelegateStxOp::parse_from_tx(
             16843022,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             &BurnchainTransaction::Bitcoin(tx),
-            &sender,
+            sender,
         )
         .unwrap_err();
         assert!(match err {
@@ -534,9 +534,9 @@ mod tests {
         let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let err = DelegateStxOp::parse_from_tx(
             16843022,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             &BurnchainTransaction::Bitcoin(tx),
-            &sender,
+            sender,
         )
         .unwrap_err();
 
@@ -570,9 +570,9 @@ mod tests {
         let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let err = DelegateStxOp::parse_from_tx(
             16843022,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             &BurnchainTransaction::Bitcoin(tx),
-            &sender,
+            sender,
         )
         .unwrap_err();
 
@@ -639,9 +639,9 @@ mod tests {
         let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let op = DelegateStxOp::parse_from_tx(
             16843022,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             &BurnchainTransaction::Bitcoin(tx.clone()),
-            &sender,
+            sender,
         )
         .unwrap();
 

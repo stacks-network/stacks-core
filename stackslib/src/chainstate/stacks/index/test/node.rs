@@ -3844,7 +3844,7 @@ fn read_write_node4() {
         .unwrap();
 
     let hash = TrieHash::from_data(&[0u8; 32]);
-    let wres = trie_io.write_nodetype(0, &TrieNodeType::Node4(node4.clone()), hash.clone());
+    let wres = trie_io.write_nodetype(0, &TrieNodeType::Node4(node4.clone()), hash);
     assert!(wres.is_ok());
 
     let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Node4 as u8, 0, 0));
@@ -3874,7 +3874,7 @@ fn read_write_node16() {
         .unwrap();
 
     let hash = TrieHash::from_data(&[0u8; 32]);
-    let wres = trie_io.write_nodetype(0, &TrieNodeType::Node16(node16.clone()), hash.clone());
+    let wres = trie_io.write_nodetype(0, &TrieNodeType::Node16(node16.clone()), hash);
     assert!(wres.is_ok());
 
     let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Node16 as u8, 0, 0));
@@ -3904,7 +3904,7 @@ fn read_write_node48() {
         .unwrap();
 
     let hash = TrieHash::from_data(&[0u8; 32]);
-    let wres = trie_io.write_nodetype(0, &node48.as_trie_node_type(), hash.clone());
+    let wres = trie_io.write_nodetype(0, &node48.as_trie_node_type(), hash);
     assert!(wres.is_ok());
 
     let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Node48 as u8, 0, 0));
@@ -3934,7 +3934,7 @@ fn read_write_node256() {
         .extend_to_block(&BlockHeaderHash([0u8; 32]))
         .unwrap();
 
-    let wres = trie_io.write_nodetype(0, &node256.as_trie_node_type(), hash.clone());
+    let wres = trie_io.write_nodetype(0, &node256.as_trie_node_type(), hash);
     assert!(wres.is_ok());
 
     let root_ptr = trie_io.root_ptr();
@@ -3964,7 +3964,7 @@ fn read_write_leaf() {
         .unwrap();
 
     let hash = TrieHash::from_data(&[0u8; 32]);
-    let wres = trie_io.write_nodetype(0, &TrieNodeType::Leaf(leaf.clone()), hash.clone());
+    let wres = trie_io.write_nodetype(0, &TrieNodeType::Leaf(leaf.clone()), hash);
     assert!(wres.is_ok());
 
     let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Leaf as u8, 0, 0));
@@ -3997,7 +3997,7 @@ fn read_write_node4_hashes() {
         );
         let child_hash = get_leaf_hash(&child);
 
-        child_hashes.push(child_hash.clone());
+        child_hashes.push(child_hash);
 
         let ptr = trie_io.last_ptr().unwrap();
         trie_io.write_node(ptr, &child, child_hash).unwrap();
@@ -4041,7 +4041,7 @@ fn read_write_node16_hashes() {
         );
         let child_hash = get_leaf_hash(&child);
 
-        child_hashes.push(child_hash.clone());
+        child_hashes.push(child_hash);
 
         let ptr = trie_io.last_ptr().unwrap();
         trie_io.write_node(ptr, &child, child_hash).unwrap();
@@ -4087,7 +4087,7 @@ fn read_write_node48_hashes() {
         );
         let child_hash = get_leaf_hash(&child);
 
-        child_hashes.push(child_hash.clone());
+        child_hashes.push(child_hash);
 
         let ptr = trie_io.last_ptr().unwrap();
         trie_io.write_node(ptr, &child, child_hash).unwrap();
@@ -4133,7 +4133,7 @@ fn read_write_node256_hashes() {
         );
         let child_hash = get_leaf_hash(&child);
 
-        child_hashes.push(child_hash.clone());
+        child_hashes.push(child_hash);
 
         let ptr = trie_io.last_ptr().unwrap();
         trie_io.write_node(ptr, &child, child_hash).unwrap();
@@ -4214,10 +4214,7 @@ fn trie_cursor_walk_full() {
     assert_eq!(node_ptrs[node_ptrs.len() - 1].id, TrieNodeID::Leaf as u8);
 
     // walk down the trie
-    let mut c = TrieCursor::new(
-        &TrieHash::from_bytes(&path).unwrap(),
-        trie_io.root_trieptr(),
-    );
+    let mut c = TrieCursor::new(TrieHash::from_bytes(&path).unwrap(), trie_io.root_trieptr());
     let mut walk_point = nodes[0].clone();
 
     for i in 0..31 {
@@ -4312,10 +4309,7 @@ fn trie_cursor_walk_1() {
     assert_eq!(node_ptrs[node_ptrs.len() - 1].id, TrieNodeID::Leaf as u8);
 
     // walk down the trie
-    let mut c = TrieCursor::new(
-        &TrieHash::from_bytes(&path).unwrap(),
-        trie_io.root_trieptr(),
-    );
+    let mut c = TrieCursor::new(TrieHash::from_bytes(&path).unwrap(), trie_io.root_trieptr());
     let mut walk_point = nodes[0].clone();
 
     for i in 0..15 {
@@ -4402,10 +4396,7 @@ fn trie_cursor_walk_2() {
     assert_eq!(node_ptrs[node_ptrs.len() - 1].id, TrieNodeID::Leaf as u8);
 
     // walk down the trie
-    let mut c = TrieCursor::new(
-        &TrieHash::from_bytes(&path).unwrap(),
-        trie_io.root_trieptr(),
-    );
+    let mut c = TrieCursor::new(TrieHash::from_bytes(&path).unwrap(), trie_io.root_trieptr());
     let mut walk_point = nodes[0].clone();
 
     for i in 0..10 {
@@ -4489,10 +4480,7 @@ fn trie_cursor_walk_3() {
     assert_eq!(node_ptrs[node_ptrs.len() - 1].id, TrieNodeID::Leaf as u8);
 
     // walk down the trie
-    let mut c = TrieCursor::new(
-        &TrieHash::from_bytes(&path).unwrap(),
-        trie_io.root_trieptr(),
-    );
+    let mut c = TrieCursor::new(TrieHash::from_bytes(&path).unwrap(), trie_io.root_trieptr());
     let mut walk_point = nodes[0].clone();
 
     for i in 0..7 {
@@ -4578,10 +4566,7 @@ fn trie_cursor_walk_4() {
     assert_eq!(node_ptrs[node_ptrs.len() - 1].id, TrieNodeID::Leaf as u8);
 
     // walk down the trie
-    let mut c = TrieCursor::new(
-        &TrieHash::from_bytes(&path).unwrap(),
-        trie_io.root_trieptr(),
-    );
+    let mut c = TrieCursor::new(TrieHash::from_bytes(&path).unwrap(), trie_io.root_trieptr());
     let mut walk_point = nodes[0].clone();
 
     for i in 0..6 {
@@ -4663,10 +4648,7 @@ fn trie_cursor_walk_5() {
     assert_eq!(node_ptrs[node_ptrs.len() - 1].id, TrieNodeID::Leaf as u8);
 
     // walk down the trie
-    let mut c = TrieCursor::new(
-        &TrieHash::from_bytes(&path).unwrap(),
-        trie_io.root_trieptr(),
-    );
+    let mut c = TrieCursor::new(TrieHash::from_bytes(&path).unwrap(), trie_io.root_trieptr());
     let mut walk_point = nodes[0].clone();
 
     for i in 0..5 {
@@ -4747,10 +4729,7 @@ fn trie_cursor_walk_6() {
     assert_eq!(node_ptrs[node_ptrs.len() - 1].id, TrieNodeID::Leaf as u8);
 
     // walk down the trie
-    let mut c = TrieCursor::new(
-        &TrieHash::from_bytes(&path).unwrap(),
-        trie_io.root_trieptr(),
-    );
+    let mut c = TrieCursor::new(TrieHash::from_bytes(&path).unwrap(), trie_io.root_trieptr());
     let mut walk_point = nodes[0].clone();
 
     for i in 0..4 {
@@ -4832,10 +4811,7 @@ fn trie_cursor_walk_10() {
     assert_eq!(node_ptrs[node_ptrs.len() - 1].id, TrieNodeID::Leaf as u8);
 
     // walk down the trie
-    let mut c = TrieCursor::new(
-        &TrieHash::from_bytes(&path).unwrap(),
-        trie_io.root_trieptr(),
-    );
+    let mut c = TrieCursor::new(TrieHash::from_bytes(&path).unwrap(), trie_io.root_trieptr());
     let mut walk_point = nodes[0].clone();
 
     for i in 0..2 {
@@ -4924,10 +4900,7 @@ fn trie_cursor_walk_20() {
     assert_eq!(node_ptrs[node_ptrs.len() - 1].id, TrieNodeID::Leaf as u8);
 
     // walk down the trie
-    let mut c = TrieCursor::new(
-        &TrieHash::from_bytes(&path).unwrap(),
-        trie_io.root_trieptr(),
-    );
+    let mut c = TrieCursor::new(TrieHash::from_bytes(&path).unwrap(), trie_io.root_trieptr());
     let mut walk_point = nodes[0].clone();
 
     for i in 0..1 {
@@ -5015,10 +4988,7 @@ fn trie_cursor_walk_32() {
     assert_eq!(node_ptrs[node_ptrs.len() - 1].id, TrieNodeID::Leaf as u8);
 
     // walk down the trie
-    let mut c = TrieCursor::new(
-        &TrieHash::from_bytes(&path).unwrap(),
-        trie_io.root_trieptr(),
-    );
+    let mut c = TrieCursor::new(TrieHash::from_bytes(&path).unwrap(), trie_io.root_trieptr());
     let walk_point = nodes[0].clone();
 
     // walk to the leaf

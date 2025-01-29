@@ -178,7 +178,7 @@ impl LocalPeer {
 
     pub fn to_neighbor_addr(&self) -> NeighborAddress {
         NeighborAddress {
-            addrbytes: self.addrbytes.clone(),
+            addrbytes: self.addrbytes,
             port: self.port,
             public_key_hash: Hash160::from_node_public_key(&StacksPublicKey::from_private(
                 &self.private_key,
@@ -188,10 +188,10 @@ impl LocalPeer {
 
     /// Best-effort attempt to calculate a publicly-routable neighbor address for local peer
     pub fn to_public_neighbor_addr(&self) -> NeighborAddress {
-        if let Some((peer_addr, peer_port)) = self.public_ip_address.as_ref() {
+        if let Some((peer_addr, peer_port)) = self.public_ip_address {
             NeighborAddress {
-                addrbytes: peer_addr.clone(),
-                port: *peer_port,
+                addrbytes: peer_addr,
+                port: peer_port,
                 public_key_hash: Hash160::from_node_public_key(&StacksPublicKey::from_private(
                     &self.private_key,
                 )),
@@ -942,7 +942,7 @@ impl PeerDB {
                     *cur_peer = peer;
                 }
             } else {
-                grouped_by_public_key.insert(peer.public_key.clone(), peer);
+                grouped_by_public_key.insert(peer.public_key, peer);
             }
         }
         Ok(grouped_by_public_key.into_values().collect())
@@ -1238,11 +1238,11 @@ impl PeerDB {
             let nk = NeighborKey {
                 peer_version: 0,
                 network_id,
-                addrbytes: peer_addr.clone(),
+                addrbytes: *peer_addr,
                 port: peer_port,
             };
             let empty_key = StacksPublicKey::from_private(&StacksPrivateKey::new());
-            let mut empty_neighbor = Neighbor::empty(&nk, &empty_key, 0);
+            let mut empty_neighbor = Neighbor::empty(nk.clone(), empty_key, 0);
 
             empty_neighbor.allowed = allow_deadline;
 
@@ -1284,11 +1284,11 @@ impl PeerDB {
             let nk = NeighborKey {
                 peer_version: 0,
                 network_id,
-                addrbytes: peer_addr.clone(),
+                addrbytes: *peer_addr,
                 port: peer_port,
             };
             let empty_key = StacksPublicKey::from_private(&StacksPrivateKey::new());
-            let mut empty_neighbor = Neighbor::empty(&nk, &empty_key, 0);
+            let mut empty_neighbor = Neighbor::empty(nk.clone(), empty_key, 0);
 
             empty_neighbor.denied = deny_deadline as i64;
 
@@ -2318,7 +2318,7 @@ mod test {
             true,
             0x9abcdef0,
             12345,
-            Some(key1.clone()),
+            Some(key1),
             i64::MAX as u64,
             PeerAddress::from_ipv4(127, 0, 0, 1),
             12345,
@@ -2519,7 +2519,7 @@ mod test {
             true,
             0x9abcdef0,
             12345,
-            Some(key1.clone()),
+            Some(key1),
             i64::MAX as u64,
             PeerAddress::from_ipv4(127, 0, 0, 1),
             12345,
@@ -3519,7 +3519,7 @@ mod test {
             true,
             0x80000000,
             0,
-            Some(key1.clone()),
+            Some(key1),
             i64::MAX as u64,
             PeerAddress::from_ipv4(127, 0, 0, 1),
             12345,
@@ -3557,7 +3557,7 @@ mod test {
             true,
             0x80000000,
             0,
-            Some(key2.clone()),
+            Some(key2),
             i64::MAX as u64,
             PeerAddress::from_ipv4(127, 0, 0, 1),
             12345,
@@ -3586,7 +3586,7 @@ mod test {
             true,
             0x80000000,
             0,
-            Some(key1.clone()),
+            Some(key1),
             i64::MAX as u64,
             PeerAddress::from_ipv4(127, 0, 0, 1),
             12345,
@@ -3612,7 +3612,7 @@ mod test {
             true,
             0x80000000,
             0,
-            Some(key.clone()),
+            Some(key),
             i64::MAX as u64,
             PeerAddress::from_ipv4(127, 0, 0, 1),
             12345,
@@ -3671,12 +3671,12 @@ mod test {
         let tx = db.tx_begin().unwrap();
 
         for private in private_addrbytes.iter() {
-            neighbor.addr.addrbytes = private.clone();
+            neighbor.addr.addrbytes = *private;
             neighbor.public_key = Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new());
             assert!(PeerDB::try_insert_peer(&tx, &neighbor, &[]).unwrap());
         }
         for public in public_addrbytes.iter() {
-            neighbor.addr.addrbytes = public.clone();
+            neighbor.addr.addrbytes = *public;
             neighbor.public_key = Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new());
             assert!(PeerDB::try_insert_peer(&tx, &neighbor, &[]).unwrap());
         }
@@ -3759,7 +3759,7 @@ mod test {
             true,
             0x80000000,
             0,
-            Some(key.clone()),
+            Some(key),
             i64::MAX as u64,
             PeerAddress::from_ipv4(127, 0, 0, 1),
             12345,

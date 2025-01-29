@@ -116,9 +116,9 @@ impl RPCRequestHandler for RPCNakamotoTenureInfoRequestHandler {
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let info = node.with_node_state(|network, _sortdb, _chainstate, _mempool, _rpc_args| {
             RPCGetTenureInfo {
-                consensus_hash: network.stacks_tip.consensus_hash.clone(),
-                tenure_start_block_id: network.tenure_start_block_id.clone(),
-                parent_consensus_hash: network.parent_stacks_tip.consensus_hash.clone(),
+                consensus_hash: network.stacks_tip.consensus_hash,
+                tenure_start_block_id: network.tenure_start_block_id,
+                parent_consensus_hash: network.parent_stacks_tip.consensus_hash,
                 parent_tenure_start_block_id: StacksBlockId::new(
                     &network.parent_stacks_tip.consensus_hash,
                     &network.parent_stacks_tip.block_hash,

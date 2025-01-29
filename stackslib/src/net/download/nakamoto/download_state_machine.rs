@@ -229,7 +229,7 @@ impl NakamotoDownloadStateMachine {
         );
 
         // find all sortitions in this reward cycle
-        let ih = sortdb.index_handle(&tip.sortition_id);
+        let ih = sortdb.index_handle(tip.sortition_id);
         let mut new_tenures =
             Self::load_wanted_tenures(&ih, first_block_height, last_block_height)?;
         wanted_tenures.append(&mut new_tenures);
@@ -291,7 +291,7 @@ impl NakamotoDownloadStateMachine {
             return Ok(vec![]);
         }
 
-        let ih = sortdb.index_handle(&tip.sortition_id);
+        let ih = sortdb.index_handle(tip.sortition_id);
         let wanted_tenures = Self::load_wanted_tenures(&ih, first_block_height, last_block_height)?;
 
         debug!(
@@ -566,7 +566,7 @@ impl NakamotoDownloadStateMachine {
     ) -> HashMap<ConsensusHash, Vec<NeighborAddress>> {
         let mut available: HashMap<ConsensusHash, Vec<NeighborAddress>> = HashMap::new();
         for wt in wanted_tenures.iter() {
-            available.insert(wt.tenure_id_consensus_hash.clone(), vec![]);
+            available.insert(wt.tenure_id_consensus_hash, vec![]);
         }
 
         while let Some((naddr, inv)) = inventory_iter.next() {
@@ -602,7 +602,7 @@ impl NakamotoDownloadStateMachine {
                 if let Some(neighbor_list) = available.get_mut(ch) {
                     neighbor_list.push(naddr.clone());
                 } else {
-                    available.insert(ch.clone(), vec![naddr.clone()]);
+                    available.insert(*ch, vec![naddr.clone()]);
                 }
             }
         }
@@ -657,7 +657,7 @@ impl NakamotoDownloadStateMachine {
             if !available.contains_key(&wt.tenure_id_consensus_hash) {
                 continue;
             }
-            schedule.push_back(wt.tenure_id_consensus_hash.clone());
+            schedule.push_back(wt.tenure_id_consensus_hash);
         }
         schedule
     }
@@ -681,7 +681,7 @@ impl NakamotoDownloadStateMachine {
             let Some(neighbors) = available.get(&wt.tenure_id_consensus_hash) else {
                 continue;
             };
-            schedule.push((neighbors.len(), wt.tenure_id_consensus_hash.clone()));
+            schedule.push((neighbors.len(), wt.tenure_id_consensus_hash));
         }
 
         // order by fewest neighbors first
@@ -907,7 +907,7 @@ impl NakamotoDownloadStateMachine {
             if available_count == 0 {
                 continue;
             }
-            highest_available.push((*ch).clone());
+            highest_available.push(**ch);
             if highest_available.len() == 2 {
                 break;
             }
@@ -1063,10 +1063,8 @@ impl NakamotoDownloadStateMachine {
                 return true;
             }
 
-            let unconfirmed_tenure_download = NakamotoUnconfirmedTenureDownloader::new(
-                naddr.clone(),
-                highest_processed_block_id.clone(),
-            );
+            let unconfirmed_tenure_download =
+                NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), highest_processed_block_id);
 
             debug!("Request unconfirmed tenure state from neighbor {}", &naddr);
             downloaders.insert(naddr.clone(), unconfirmed_tenure_download);
@@ -1162,7 +1160,7 @@ impl NakamotoDownloadStateMachine {
 
             for (_, downloader) in downloaders.iter_mut() {
                 downloader.set_highest_processed_block(
-                    highest_processed_block_id.clone(),
+                    highest_processed_block_id,
                     highest_processed_block_height,
                 );
             }
@@ -1392,7 +1390,7 @@ impl NakamotoDownloadStateMachine {
                     block_map.insert(block_id, block);
                 } else {
                     let mut block_map = HashMap::new();
-                    let ch = block.header.consensus_hash.clone();
+                    let ch = block.header.consensus_hash;
                     block_map.insert(block_id, block);
                     coalesced_blocks.insert(ch, block_map);
                 }

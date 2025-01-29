@@ -664,7 +664,7 @@ pub fn read_parent_block_commits<B: BurnchainHeaderReader>(
                             parent_opdata.block_height,
                             parent_opdata.vtxindex
                         );
-                        parents.insert(parent_opdata.txid.clone(), parent_opdata);
+                        parents.insert(parent_opdata.txid, parent_opdata);
                         found = true;
                     }
                 }

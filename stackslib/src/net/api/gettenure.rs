@@ -139,7 +139,7 @@ impl NakamotoTenureStream {
 
         self.block_stream.reset(
             parent_nakamoto_header.block_id(),
-            parent_nakamoto_header.parent_block_id.clone(),
+            parent_nakamoto_header.parent_block_id,
         )?;
         Ok(true)
     }
@@ -233,9 +233,9 @@ impl RPCRequestHandler for RPCNakamotoTenureRequestHandler {
                 NakamotoTenureStream::new(
                     chainstate,
                     block_id,
-                    nakamoto_header.consensus_hash.clone(),
-                    nakamoto_header.parent_block_id.clone(),
-                    self.last_block_id.clone(),
+                    nakamoto_header.consensus_hash,
+                    nakamoto_header.parent_block_id,
+                    self.last_block_id,
                 )
             });
 

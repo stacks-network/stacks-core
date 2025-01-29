@@ -328,7 +328,7 @@ impl HttpResponsePreamble {
                 return Some(format!("{}", &self.content_type));
             }
             "content-length" => {
-                return self.content_length.clone().map(|cl| format!("{}", &cl));
+                return self.content_length.map(|cl| format!("{cl}"));
             }
             _ => {
                 return self.headers.get(&hdr).cloned();

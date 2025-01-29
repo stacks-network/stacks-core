@@ -268,7 +268,7 @@ impl From<&UnconfirmedState> for MicroblockMinerRuntime {
             prev_microblock_header: unconfirmed.last_mblock.clone(),
             considered: Some(considered),
             num_mined: 0,
-            tip: unconfirmed.confirmed_chain_tip.clone(),
+            tip: unconfirmed.confirmed_chain_tip,
 
             disable_bytes_check: unconfirmed.disable_bytes_check,
             disable_cost_check: unconfirmed.disable_cost_check,
@@ -885,7 +885,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 .ok_or(Error::MicroblockStreamTooLongError)?
         } else {
             // .prev_block is the hash of the parent anchored block
-            StacksMicroblockHeader::first_unsigned(parent_anchor_block_hash, &tx_merkle_root)
+            StacksMicroblockHeader::first_unsigned(*parent_anchor_block_hash, tx_merkle_root)
         };
 
         if ast_rules != ASTRules::Typical {
@@ -1287,7 +1287,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                             mempool_tx.metadata.len,
                             bytes_so_far,
                             &block_limit_hit,
-                            self.ast_rules.clone(),
+                            self.ast_rules,
                         ) {
                             Ok(tx_result) => {
                                 let result_event = tx_result.convert_to_event();
@@ -1487,9 +1487,9 @@ impl Drop for StacksMicroblockBuilder<'_> {
 impl StacksBlockBuilder {
     fn from_parent_pubkey_hash(
         miner_id: usize,
-        parent_chain_tip: &StacksHeaderInfo,
-        total_work: &StacksWorkScore,
-        proof: &VRFProof,
+        parent_chain_tip: StacksHeaderInfo,
+        total_work: StacksWorkScore,
+        proof: VRFProof,
         pubkh: Hash160,
     ) -> StacksBlockBuilder {
         let header = StacksBlockHeader::from_parent_empty(
@@ -1497,7 +1497,7 @@ impl StacksBlockBuilder {
             parent_chain_tip.microblock_tail.as_ref(),
             total_work,
             proof,
-            &pubkh,
+            pubkh,
         );
 
         let mut header_bytes = vec![];
@@ -1506,8 +1506,14 @@ impl StacksBlockBuilder {
             .expect("FATAL: failed to serialize to vec");
         let bytes_so_far = u64::try_from(header_bytes.len()).expect("header bytes exceeds 2^64");
 
+        let parent_microblock_hash = parent_chain_tip
+            .microblock_tail
+            .as_ref()
+            .map(|hdr| hdr.block_hash());
+
+        let parent_consensus_hash = parent_chain_tip.consensus_hash;
         StacksBlockBuilder {
-            chain_tip: parent_chain_tip.clone(),
+            chain_tip: parent_chain_tip,
             txs: vec![],
             micro_txs: vec![],
             total_anchored_fees: 0,
@@ -1515,16 +1521,13 @@ impl StacksBlockBuilder {
             total_streamed_fees: 0,
             bytes_so_far,
             anchored_done: false,
-            parent_consensus_hash: parent_chain_tip.consensus_hash.clone(),
-            parent_header_hash: header.parent_block.clone(),
+            parent_consensus_hash,
+            parent_header_hash: header.parent_block,
             header,
-            parent_microblock_hash: parent_chain_tip
-                .microblock_tail
-                .as_ref()
-                .map(|hdr| hdr.block_hash()),
+            parent_microblock_hash,
             prev_microblock_header: StacksMicroblockHeader::first_unsigned(
-                &EMPTY_MICROBLOCK_PARENT_HASH,
-                &Sha512Trunc256Sum([0u8; 32]),
+                EMPTY_MICROBLOCK_PARENT_HASH,
+                Sha512Trunc256Sum([0u8; 32]),
             ), // will be updated
             miner_privkey: StacksPrivateKey::new(), // caller should overwrite this, or refrain from mining microblocks
             miner_payouts: None,
@@ -1534,12 +1537,12 @@ impl StacksBlockBuilder {
 
     pub fn from_parent(
         miner_id: usize,
-        parent_chain_tip: &StacksHeaderInfo,
-        total_work: &StacksWorkScore,
-        proof: &VRFProof,
-        microblock_privkey: &StacksPrivateKey,
+        parent_chain_tip: StacksHeaderInfo,
+        total_work: StacksWorkScore,
+        proof: VRFProof,
+        microblock_privkey: StacksPrivateKey,
     ) -> StacksBlockBuilder {
-        let mut pubk = StacksPublicKey::from_private(microblock_privkey);
+        let mut pubk = StacksPublicKey::from_private(&microblock_privkey);
         pubk.set_compressed(true);
         let pubkh = Hash160::from_node_public_key(&pubk);
 
@@ -1550,17 +1553,17 @@ impl StacksBlockBuilder {
             proof,
             pubkh,
         );
-        builder.miner_privkey = microblock_privkey.clone();
+        builder.miner_privkey = microblock_privkey;
         builder
     }
 
     fn first_pubkey_hash(
         miner_id: usize,
-        genesis_consensus_hash: &ConsensusHash,
-        genesis_burn_header_hash: &BurnchainHeaderHash,
+        genesis_consensus_hash: ConsensusHash,
+        genesis_burn_header_hash: BurnchainHeaderHash,
         genesis_burn_header_height: u32,
         genesis_burn_header_timestamp: u64,
-        proof: &VRFProof,
+        proof: VRFProof,
         pubkh: Hash160,
     ) -> StacksBlockBuilder {
         let genesis_chain_tip = StacksHeaderInfo {
@@ -1568,8 +1571,8 @@ impl StacksBlockBuilder {
             microblock_tail: None,
             stacks_block_height: 0,
             index_root: TrieHash([0u8; 32]),
-            consensus_hash: genesis_consensus_hash.clone(),
-            burn_header_hash: genesis_burn_header_hash.clone(),
+            consensus_hash: genesis_consensus_hash,
+            burn_header_hash: genesis_burn_header_hash,
             burn_header_timestamp: genesis_burn_header_timestamp,
             burn_header_height: genesis_burn_header_height,
             anchored_block_size: 0,
@@ -1578,25 +1581,25 @@ impl StacksBlockBuilder {
 
         let mut builder = StacksBlockBuilder::from_parent_pubkey_hash(
             miner_id,
-            &genesis_chain_tip,
-            &StacksWorkScore::initial(),
+            genesis_chain_tip,
+            StacksWorkScore::initial(),
             proof,
             pubkh,
         );
-        builder.header.parent_block = EMPTY_MICROBLOCK_PARENT_HASH.clone();
+        builder.header.parent_block = EMPTY_MICROBLOCK_PARENT_HASH;
         builder
     }
 
     pub fn first(
         miner_id: usize,
-        genesis_consensus_hash: &ConsensusHash,
-        genesis_burn_header_hash: &BurnchainHeaderHash,
+        genesis_consensus_hash: ConsensusHash,
+        genesis_burn_header_hash: BurnchainHeaderHash,
         genesis_burn_header_height: u32,
         genesis_burn_header_timestamp: u64,
-        proof: &VRFProof,
-        microblock_privkey: &StacksPrivateKey,
+        proof: VRFProof,
+        microblock_privkey: StacksPrivateKey,
     ) -> StacksBlockBuilder {
-        let mut pubk = StacksPublicKey::from_private(microblock_privkey);
+        let mut pubk = StacksPublicKey::from_private(&microblock_privkey);
         pubk.set_compressed(true);
         let pubkh = Hash160::from_node_public_key(&pubk);
 
@@ -1609,22 +1612,22 @@ impl StacksBlockBuilder {
             proof,
             pubkh,
         );
-        builder.miner_privkey = microblock_privkey.clone();
+        builder.miner_privkey = microblock_privkey;
         builder
     }
 
     /// Assign the block parent
-    pub fn set_parent_block(&mut self, parent_block_hash: &BlockHeaderHash) {
-        self.header.parent_block = parent_block_hash.clone();
+    pub fn set_parent_block(&mut self, parent_block_hash: BlockHeaderHash) {
+        self.header.parent_block = parent_block_hash;
     }
 
     /// Assign the anchored block's parent microblock (used for testing orphaning)
     pub fn set_parent_microblock(
         &mut self,
-        parent_mblock_hash: &BlockHeaderHash,
+        parent_mblock_hash: BlockHeaderHash,
         parent_mblock_seq: u16,
     ) {
-        self.header.parent_microblock = parent_mblock_hash.clone();
+        self.header.parent_microblock = parent_mblock_hash;
         self.header.parent_microblock_sequence = parent_mblock_seq;
     }
 
@@ -1727,8 +1730,8 @@ impl StacksBlockBuilder {
         };
 
         self.prev_microblock_header = StacksMicroblockHeader::first_unsigned(
-            &block.block_hash(),
-            &Sha512Trunc256Sum([0u8; 32]),
+            block.block_hash(),
+            Sha512Trunc256Sum([0u8; 32]),
         );
 
         self.prev_microblock_header.prev_block = block.block_hash();
@@ -1786,8 +1789,8 @@ impl StacksBlockBuilder {
             if self.prev_microblock_header.tx_merkle_root == Sha512Trunc256Sum([0u8; 32]) {
                 // .prev_block is the hash of the parent anchored block
                 StacksMicroblockHeader::first_unsigned(
-                    &self.prev_microblock_header.prev_block,
-                    &tx_merkle_root,
+                    self.prev_microblock_header.prev_block,
+                    tx_merkle_root,
                 )
             } else {
                 StacksMicroblockHeader::from_parent_unsigned(
@@ -1835,7 +1838,7 @@ impl StacksBlockBuilder {
                 chainstate.db(),
                 parent_consensus_hash,
                 parent_header_hash,
-                microblock_parent_hash,
+                *microblock_parent_hash,
             )?
             .ok_or(Error::NoSuchBlockError)?;
 
@@ -1958,11 +1961,11 @@ impl StacksBlockBuilder {
         );
 
         if parent_microblocks.is_empty() {
-            self.set_parent_microblock(&EMPTY_MICROBLOCK_PARENT_HASH, 0);
+            self.set_parent_microblock(EMPTY_MICROBLOCK_PARENT_HASH, 0);
         } else {
             let num_mblocks = parent_microblocks.len();
             let last_mblock_hdr = parent_microblocks[num_mblocks - 1].header.clone();
-            self.set_parent_microblock(&last_mblock_hdr.block_hash(), last_mblock_hdr.sequence);
+            self.set_parent_microblock(last_mblock_hdr.block_hash(), last_mblock_hdr.sequence);
         };
 
         let mainnet = chainstate.config().mainnet;
@@ -2029,8 +2032,8 @@ impl StacksBlockBuilder {
 
     /// Finish up mining an epoch's transactions
     pub fn epoch_finish(self, tx: ClarityTx) -> Result<ExecutionCost, Error> {
-        let new_consensus_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
-        let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
+        let new_consensus_hash = MINER_BLOCK_CONSENSUS_HASH;
+        let new_block_hash = MINER_BLOCK_HEADER_HASH;
 
         let index_block_hash =
             StacksBlockHeader::make_index_block_hash(&new_consensus_hash, &new_block_hash);
@@ -2086,7 +2089,7 @@ impl StacksBlockBuilder {
         let ast_rules = miner_epoch_info.ast_rules;
         let (mut epoch_tx, _) = builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
         for tx in txs.into_iter() {
-            match builder.try_mine_tx(&mut epoch_tx, &tx, ast_rules.clone()) {
+            match builder.try_mine_tx(&mut epoch_tx, &tx, ast_rules) {
                 Ok(_) => {
                     debug!("Included {}", &tx.txid());
                 }
@@ -2157,11 +2160,11 @@ impl StacksBlockBuilder {
             };
             StacksBlockBuilder::first_pubkey_hash(
                 0,
-                &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &first_block_hash,
+                FIRST_BURNCHAIN_CONSENSUS_HASH,
+                first_block_hash,
                 u32::try_from(first_block_height).expect("FATAL: first block is over 2^32"),
                 u64::try_from(first_block_ts).expect("FATAL: first block timestamp is over 2^64"),
-                &proof,
+                proof,
                 pubkey_hash,
             )
         } else {
@@ -2176,9 +2179,9 @@ impl StacksBlockBuilder {
 
             StacksBlockBuilder::from_parent_pubkey_hash(
                 0,
-                stacks_parent_header,
-                &new_work,
-                &proof,
+                stacks_parent_header.clone(),
+                new_work,
+                proof,
                 pubkey_hash,
             )
         };
@@ -2199,13 +2202,13 @@ impl StacksBlockBuilder {
         let builder = if stacks_parent_header.consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
             StacksBlockBuilder::first_pubkey_hash(
                 0,
-                &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &burnchain.first_block_hash,
+                FIRST_BURNCHAIN_CONSENSUS_HASH,
+                burnchain.first_block_hash,
                 u32::try_from(burnchain.first_block_height)
                     .expect("first regtest bitcoin block is over 2^32"),
                 u64::try_from(burnchain.first_block_timestamp)
                     .expect("first regtest bitcoin block timestamp is over 2^64"),
-                &proof,
+                proof,
                 pubkey_hash,
             )
         } else {
@@ -2220,9 +2223,9 @@ impl StacksBlockBuilder {
 
             StacksBlockBuilder::from_parent_pubkey_hash(
                 0,
-                stacks_parent_header,
-                &new_work,
-                &proof,
+                stacks_parent_header.clone(),
+                new_work,
+                proof,
                 pubkey_hash,
             )
         };
@@ -2256,7 +2259,7 @@ impl StacksBlockBuilder {
         for initial_tx in initial_txs.iter() {
             tx_events.push(
                 builder
-                    .try_mine_tx(epoch_tx, initial_tx, ast_rules.clone())?
+                    .try_mine_tx(epoch_tx, initial_tx, ast_rules)?
                     .convert_to_event(),
             );
         }
@@ -2588,7 +2591,7 @@ impl StacksBlockBuilder {
         }
 
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
-            parent_stacks_header.consensus_hash.clone(),
+            parent_stacks_header.consensus_hash,
             parent_stacks_header.anchored_header.block_hash(),
             parent_stacks_header.stacks_block_height,
         );

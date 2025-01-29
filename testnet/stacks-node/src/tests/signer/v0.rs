@@ -128,7 +128,7 @@ impl SignerTest<SpawnedSigner> {
         for stacker_sk in self.signer_stacks_private_keys.iter() {
             let pox_addr = PoxAddress::from_legacy(
                 AddressHashMode::SerializeP2PKH,
-                tests::to_addr(stacker_sk).bytes().clone(),
+                *tests::to_addr(stacker_sk).bytes(),
             );
             let pox_addr_tuple: clarity::vm::Value =
                 pox_addr.clone().as_clarity_tuple().unwrap().into();
@@ -1203,7 +1203,7 @@ fn forked_tenure_testing(
             sender_nonce,
             send_fee,
             naka_conf.burnchain.chain_id,
-            &recipient,
+            recipient,
             send_amt,
         );
         let tx = submit_tx(&http_origin, &transfer_tx);
@@ -2314,7 +2314,7 @@ fn end_of_tenure() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -2429,7 +2429,7 @@ fn retry_on_rejection() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient.clone(),
         send_amt,
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
@@ -2469,7 +2469,7 @@ fn retry_on_rejection() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -2577,7 +2577,7 @@ fn signers_broadcast_signed_blocks() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -2916,7 +2916,7 @@ fn stx_transfers_dont_effect_idle_timeout() {
                 sender_nonce,
                 send_fee,
                 naka_conf.burnchain.chain_id,
-                &recipient,
+                recipient.clone(),
                 send_amt,
             );
             submit_tx(&http_origin, &transfer_tx);
@@ -3098,7 +3098,7 @@ fn idle_tenure_extend_active_mining() {
                     sender_nonce,
                     send_fee,
                     naka_conf.burnchain.chain_id,
-                    &recipient,
+                    recipient.clone(),
                     send_amt,
                 );
                 submit_tx(&http_origin, &transfer_tx);
@@ -3194,7 +3194,7 @@ fn idle_tenure_extend_active_mining() {
                 sender_nonce,
                 send_fee,
                 naka_conf.burnchain.chain_id,
-                &recipient,
+                recipient.clone(),
                 send_amt,
             );
             submit_tx(&http_origin, &transfer_tx);
@@ -3319,7 +3319,7 @@ fn empty_sortition() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -3522,7 +3522,7 @@ fn empty_sortition_before_approval() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -3679,7 +3679,7 @@ fn empty_sortition_before_proposal() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -4175,7 +4175,7 @@ fn signer_set_rollover() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient.clone(),
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -4205,7 +4205,7 @@ fn signer_set_rollover() {
     for stacker_sk in new_signer_private_keys.iter() {
         let pox_addr = PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            tests::to_addr(stacker_sk).bytes().clone(),
+            *tests::to_addr(stacker_sk).bytes(),
         );
         let pox_addr_tuple: clarity::vm::Value =
             pox_addr.clone().as_clarity_tuple().unwrap().into();
@@ -4302,7 +4302,7 @@ fn signer_set_rollover() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -4381,7 +4381,7 @@ fn min_gap_between_blocks() {
             interim_block_ix, // same as the sender nonce
             send_fee,
             signer_test.running_nodes.conf.burnchain.chain_id,
-            &recipient,
+            recipient.clone(),
             send_amt,
         );
         submit_tx(&http_origin, &transfer_tx);
@@ -4736,7 +4736,7 @@ fn multiple_miners_with_nakamoto_blocks() {
                 sender_nonce,
                 send_fee,
                 signer_test.running_nodes.conf.burnchain.chain_id,
-                &recipient,
+                recipient.clone(),
                 send_amt,
             );
             sender_nonce += 1;
@@ -5175,7 +5175,7 @@ fn partial_tenure_fork() {
                 sender_nonce,
                 send_fee,
                 signer_test.running_nodes.conf.burnchain.chain_id,
-                &recipient,
+                recipient.clone(),
                 send_amt,
             );
             // This may fail if the forking miner wins too many tenures and this account's
@@ -5338,7 +5338,7 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient.clone(),
         send_amt,
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
@@ -5386,7 +5386,7 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient.clone(),
         send_amt,
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
@@ -5417,7 +5417,7 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
@@ -5523,7 +5523,7 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient.clone(),
         send_amt,
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
@@ -5580,7 +5580,7 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient.clone(),
         send_amt,
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
@@ -5639,7 +5639,7 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
@@ -5747,7 +5747,7 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient.clone(),
         send_amt,
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
@@ -5803,7 +5803,7 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
@@ -5965,7 +5965,7 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient.clone(),
         send_amt,
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
@@ -6020,7 +6020,7 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
@@ -6188,7 +6188,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient.clone(),
         send_amt,
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
@@ -6240,7 +6240,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient.clone(),
         send_amt,
     );
     sender_nonce += 1;
@@ -6384,7 +6384,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
 
@@ -6861,7 +6861,7 @@ fn continue_after_fast_block_no_sortition() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -7097,7 +7097,7 @@ fn continue_after_tenure_extend() {
             sender_nonce,
             send_fee,
             signer_test.running_nodes.conf.burnchain.chain_id,
-            &recipient,
+            recipient.clone(),
             send_amt,
         );
         submit_tx(&http_origin, &transfer_tx);
@@ -7419,7 +7419,7 @@ fn multiple_miners_with_custom_chain_id() {
                 sender_nonce,
                 send_fee,
                 signer_test.running_nodes.conf.burnchain.chain_id,
-                &recipient,
+                recipient.clone(),
                 send_amt,
             );
             sender_nonce += 1;
@@ -7676,7 +7676,7 @@ fn block_validation_response_timeout() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -7852,7 +7852,7 @@ fn block_validation_pending_table() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -8013,7 +8013,7 @@ fn new_tenure_while_validating_previous_scenario() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -8355,7 +8355,7 @@ fn tenure_extend_after_failed_miner() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient.clone(),
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -8458,7 +8458,7 @@ fn tenure_extend_after_failed_miner() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -8733,7 +8733,7 @@ fn tenure_extend_after_bad_commit() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient.clone(),
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -8896,7 +8896,7 @@ fn tenure_extend_after_bad_commit() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -9209,7 +9209,7 @@ fn tenure_extend_after_2_bad_commits() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient.clone(),
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -9376,7 +9376,7 @@ fn tenure_extend_after_2_bad_commits() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient.clone(),
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -9462,7 +9462,7 @@ fn tenure_extend_after_2_bad_commits() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -9721,7 +9721,7 @@ fn global_acceptance_depends_on_block_announcement() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient.clone(),
         send_amt,
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
@@ -9780,7 +9780,7 @@ fn global_acceptance_depends_on_block_announcement() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
@@ -10160,7 +10160,7 @@ fn no_reorg_due_to_successive_block_validation_ok() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -10512,7 +10512,7 @@ fn incoming_signers_ignore_block_proposals() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -10683,7 +10683,7 @@ fn outgoing_signers_ignore_block_proposals() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -10935,7 +10935,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
     // Stack the new signer
     let pox_addr = PoxAddress::from_legacy(
         AddressHashMode::SerializeP2PKH,
-        tests::to_addr(&new_signer_private_key).bytes().clone(),
+        *tests::to_addr(&new_signer_private_key).bytes(),
     );
     let pox_addr_tuple: clarity::vm::Value = pox_addr.as_clarity_tuple().unwrap().into();
     let signature = make_pox_4_signer_key_signature(
@@ -11064,7 +11064,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
         0,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
@@ -11096,7 +11096,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
     let forced_signer = &signer_test.signer_stacks_private_keys[ignoring_signers.len()];
     let mut stackerdb = StackerDB::new(
         &signer_test.running_nodes.conf.node.rpc_bind,
-        forced_signer.clone(),
+        *forced_signer,
         false,
         old_reward_cycle,
         signer_test
@@ -11262,7 +11262,7 @@ fn rejected_blocks_count_towards_miner_validity() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -11395,7 +11395,7 @@ fn fast_sortition() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient.clone(),
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -11425,7 +11425,7 @@ fn fast_sortition() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -12321,7 +12321,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient.clone(),
         send_amt,
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
@@ -12359,7 +12359,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient.clone(),
         send_amt,
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
@@ -12382,7 +12382,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     assert_eq!(get_chain_info(&conf).stacks_tip_height, block_n_height + 3);
 
     let last_block = get_last_observed_block();
-    let block_n3_hash = last_block.block_hash.clone();
+    let block_n3_hash = last_block.block_hash;
     assert_eq!(last_block.block_height, block_n_height + 3);
 
     info!("------------------------- Miner 1 Wins the Next Tenure, Mines N+1' -------------------------");
@@ -12403,7 +12403,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     .expect("Timed out waiting for Miner 1 to Mine Block N+1'");
 
     let last_block = get_last_observed_block();
-    let block_n1_prime_hash = last_block.block_hash.clone();
+    let block_n1_prime_hash = last_block.block_hash;
     assert_eq!(last_block.block_height, block_n_height + 1);
     assert_eq!(last_block.parent_block_hash, block_n_hash);
 
@@ -12436,7 +12436,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
         sender_nonce,
         send_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     let tx = submit_tx(&http_origin, &transfer_tx);

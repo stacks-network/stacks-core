@@ -225,12 +225,12 @@ impl TenureStartEnd {
             };
 
             let tenure_start_end = TenureStartEnd::new(
-                wt.tenure_id_consensus_hash.clone(),
+                wt.tenure_id_consensus_hash,
                 wt.burn_height,
-                wt_start.tenure_id_consensus_hash.clone(),
-                wt_start.winning_block_id.clone(),
-                wt_end.tenure_id_consensus_hash.clone(),
-                wt_end.winning_block_id.clone(),
+                wt_start.tenure_id_consensus_hash,
+                wt_start.winning_block_id,
+                wt_end.tenure_id_consensus_hash,
+                wt_end.winning_block_id,
                 rc,
                 rc,
                 wt.processed,
@@ -241,8 +241,8 @@ impl TenureStartEnd {
                 wanted_tenures.len(),
                 &tenure_start_end
             );
-            last_tenure_ch = Some(wt.tenure_id_consensus_hash.clone());
-            tenure_block_ids.insert(wt.tenure_id_consensus_hash.clone(), tenure_start_end);
+            last_tenure_ch = Some(wt.tenure_id_consensus_hash);
+            tenure_block_ids.insert(wt.tenure_id_consensus_hash, tenure_start_end);
         }
 
         let Some(next_wanted_tenures) = next_wanted_tenures else {
@@ -336,12 +336,12 @@ impl TenureStartEnd {
             };
 
             let mut tenure_start_end = TenureStartEnd::new(
-                wt.tenure_id_consensus_hash.clone(),
+                wt.tenure_id_consensus_hash,
                 wt.burn_height,
-                wt_start.tenure_id_consensus_hash.clone(),
-                wt_start.winning_block_id.clone(),
-                wt_end.tenure_id_consensus_hash.clone(),
-                wt_end.winning_block_id.clone(),
+                wt_start.tenure_id_consensus_hash,
+                wt_start.winning_block_id,
+                wt_end.tenure_id_consensus_hash,
+                wt_end.winning_block_id,
                 rc,
                 pox_constants
                     .block_height_to_reward_cycle(first_burn_height, wt_start.burn_height)
@@ -360,7 +360,7 @@ impl TenureStartEnd {
                 next_wanted_tenures.len(),
                 &tenure_start_end
             );
-            tenure_block_ids.insert(wt.tenure_id_consensus_hash.clone(), tenure_start_end);
+            tenure_block_ids.insert(wt.tenure_id_consensus_hash, tenure_start_end);
         }
 
         Some(tenure_block_ids)

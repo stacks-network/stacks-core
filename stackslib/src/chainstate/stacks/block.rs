@@ -90,8 +90,8 @@ impl StacksBlockHeader {
             version: 0,
             total_work: StacksWorkScore::genesis(),
             proof: VRFProof::empty(),
-            parent_block: BOOT_BLOCK_HASH.clone(),
-            parent_microblock: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            parent_block: BOOT_BLOCK_HASH,
+            parent_microblock: EMPTY_MICROBLOCK_PARENT_HASH,
             parent_microblock_sequence: 0,
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
@@ -112,7 +112,7 @@ impl StacksBlockHeader {
     pub fn block_hash(&self) -> BlockHeaderHash {
         if self.total_work.work == 0 {
             // this is the boot block
-            return FIRST_STACKS_BLOCK_HASH.clone();
+            return FIRST_STACKS_BLOCK_HASH;
         }
         let mut buf = vec![];
         self.consensus_serialize(&mut buf)
@@ -140,44 +140,44 @@ impl StacksBlockHeader {
     pub fn from_parent(
         parent_header_hash: BlockHeaderHash,
         parent_microblock_header: Option<&StacksMicroblockHeader>,
-        total_work: &StacksWorkScore,
-        proof: &VRFProof,
-        tx_merkle_root: &Sha512Trunc256Sum,
-        state_index_root: &TrieHash,
-        microblock_pubkey_hash: &Hash160,
+        total_work: StacksWorkScore,
+        proof: VRFProof,
+        tx_merkle_root: Sha512Trunc256Sum,
+        state_index_root: TrieHash,
+        microblock_pubkey_hash: Hash160,
     ) -> StacksBlockHeader {
         let (parent_microblock, parent_microblock_sequence) = match parent_microblock_header {
             Some(header) => (header.block_hash(), header.sequence),
-            None => (EMPTY_MICROBLOCK_PARENT_HASH.clone(), 0),
+            None => (EMPTY_MICROBLOCK_PARENT_HASH, 0),
         };
 
         StacksBlockHeader {
             version: STACKS_BLOCK_VERSION,
-            total_work: total_work.clone(),
-            proof: proof.clone(),
+            total_work: total_work,
+            proof: proof,
             parent_block: parent_header_hash,
             parent_microblock,
             parent_microblock_sequence,
-            tx_merkle_root: tx_merkle_root.clone(),
-            state_index_root: state_index_root.clone(),
-            microblock_pubkey_hash: microblock_pubkey_hash.clone(),
+            tx_merkle_root,
+            state_index_root,
+            microblock_pubkey_hash,
         }
     }
 
     pub fn from_parent_empty(
         parent_header: &StacksBlockHeaderTypes,
         parent_microblock_header: Option<&StacksMicroblockHeader>,
-        work_delta: &StacksWorkScore,
-        proof: &VRFProof,
-        microblock_pubkey_hash: &Hash160,
+        work_delta: StacksWorkScore,
+        proof: VRFProof,
+        microblock_pubkey_hash: Hash160,
     ) -> StacksBlockHeader {
         StacksBlockHeader::from_parent(
             parent_header.block_hash(),
             parent_microblock_header,
             work_delta,
             proof,
-            &Sha512Trunc256Sum([0u8; 32]),
-            &TrieHash([0u8; 32]),
+            Sha512Trunc256Sum([0u8; 32]),
+            TrieHash([0u8; 32]),
             microblock_pubkey_hash,
         )
     }
@@ -383,10 +383,10 @@ impl StacksBlock {
         parent_header: &StacksBlockHeader,
         parent_microblock_header: &StacksMicroblockHeader,
         txs: Vec<StacksTransaction>,
-        work_delta: &StacksWorkScore,
-        proof: &VRFProof,
-        state_index_root: &TrieHash,
-        microblock_pubkey_hash: &Hash160,
+        work_delta: StacksWorkScore,
+        proof: VRFProof,
+        state_index_root: TrieHash,
+        microblock_pubkey_hash: Hash160,
     ) -> StacksBlock {
         let txids: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
@@ -396,7 +396,7 @@ impl StacksBlock {
             Some(parent_microblock_header),
             work_delta,
             proof,
-            &tx_merkle_root,
+            tx_merkle_root,
             state_index_root,
             microblock_pubkey_hash,
         );
@@ -772,22 +772,22 @@ impl StacksMicroblockHeader {
     /// Create the first microblock header in a microblock stream.
     /// The header will not be signed
     pub fn first_unsigned(
-        parent_block_hash: &BlockHeaderHash,
-        tx_merkle_root: &Sha512Trunc256Sum,
+        parent_block_hash: BlockHeaderHash,
+        tx_merkle_root: Sha512Trunc256Sum,
     ) -> StacksMicroblockHeader {
         StacksMicroblockHeader {
             version: 0,
             sequence: 0,
-            prev_block: parent_block_hash.clone(),
-            tx_merkle_root: tx_merkle_root.clone(),
+            prev_block: parent_block_hash,
+            tx_merkle_root,
             signature: MessageSignature::empty(),
         }
     }
 
     /// Create the first microblock header in a microblock stream for an empty microblock stream.
     /// The header will not be signed
-    pub fn first_empty_unsigned(parent_block_hash: &BlockHeaderHash) -> StacksMicroblockHeader {
-        StacksMicroblockHeader::first_unsigned(parent_block_hash, &Sha512Trunc256Sum([0u8; 32]))
+    pub fn first_empty_unsigned(parent_block_hash: BlockHeaderHash) -> StacksMicroblockHeader {
+        StacksMicroblockHeader::first_unsigned(parent_block_hash, Sha512Trunc256Sum([0u8; 32]))
     }
 
     /// Create an unsigned microblock header from its parent
@@ -807,7 +807,7 @@ impl StacksMicroblockHeader {
             version: 0,
             sequence: next_sequence,
             prev_block: parent_header.block_hash(),
-            tx_merkle_root: tx_merkle_root.clone(),
+            tx_merkle_root: *tx_merkle_root,
             signature: MessageSignature::empty(),
         })
     }
@@ -874,13 +874,13 @@ impl StacksMessageCodec for StacksMicroblock {
 
 impl StacksMicroblock {
     pub fn first_unsigned(
-        parent_block_hash: &BlockHeaderHash,
+        parent_block_hash: BlockHeaderHash,
         txs: Vec<StacksTransaction>,
     ) -> StacksMicroblock {
         let txids: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
-        let header = StacksMicroblockHeader::first_unsigned(parent_block_hash, &tx_merkle_root);
+        let header = StacksMicroblockHeader::first_unsigned(parent_block_hash, tx_merkle_root);
         StacksMicroblock { header, txs }
     }
 
@@ -991,7 +991,7 @@ mod test {
                 work: 456,
             },
             proof,
-            parent_block: FIRST_STACKS_BLOCK_HASH.clone(),
+            parent_block: FIRST_STACKS_BLOCK_HASH,
             parent_microblock: BlockHeaderHash([1u8; 32]),
             parent_microblock_sequence: 3,
             tx_merkle_root: Sha512Trunc256Sum([2u8; 32]),
@@ -1035,7 +1035,7 @@ mod test {
         let header = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
             tx_merkle_root: Sha512Trunc256Sum([1u8; 32]),
             signature: MessageSignature([2u8; 65]),
         };
@@ -1167,7 +1167,7 @@ mod test {
             let header = StacksMicroblockHeader {
                 version: 0x12,
                 sequence: 0x34,
-                prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+                prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
                 tx_merkle_root,
                 signature: MessageSignature([
                     0x00, 0x35, 0x44, 0x45, 0xa1, 0xdc, 0x98, 0xa1, 0xbd, 0x27, 0x98, 0x4d, 0xbe,
@@ -1216,7 +1216,7 @@ mod test {
         let mut mblock_header = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             signature: MessageSignature::empty(),
         };
@@ -1237,7 +1237,7 @@ mod test {
         let mut mblock_header = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             signature: MessageSignature::empty(),
         };
@@ -1335,9 +1335,9 @@ mod test {
         };
 
         burn_chain_tip.winning_stacks_block_hash = header.block_hash();
-        burn_chain_tip.winning_block_txid = block_commit.txid.clone();
+        burn_chain_tip.winning_block_txid = block_commit.txid;
 
-        stacks_chain_tip.winning_stacks_block_hash = header.parent_block.clone();
+        stacks_chain_tip.winning_stacks_block_hash = header.parent_block;
         stacks_chain_tip.total_burn = header.total_work.burn;
 
         // should fail due to invalid proof
@@ -1558,7 +1558,7 @@ mod test {
         let header = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             signature: MessageSignature::empty(),
         };
@@ -1755,8 +1755,7 @@ mod test {
 
             if *epoch_id < activation_epoch_id {
                 assert!(!StacksBlock::validate_transactions_static_epoch(
-                    txs,
-                    epoch_id.clone(),
+                    txs, *epoch_id,
                 ));
             } else if deactivation_epoch_id.is_none() || deactivation_epoch_id.unwrap() > *epoch_id
             {
@@ -1821,14 +1820,14 @@ mod test {
         let order_independent_multisig_condition_p2wsh =
             TransactionSpendingCondition::new_multisig_order_independent_p2wsh(
                 2,
-                vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
+                vec![pubk_1, pubk_2, pubk_3],
             )
             .unwrap();
 
         let order_independent_multisig_condition_p2sh =
             TransactionSpendingCondition::new_multisig_order_independent_p2sh(
                 2,
-                vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
+                vec![pubk_1, pubk_2, pubk_3],
             )
             .unwrap();
 

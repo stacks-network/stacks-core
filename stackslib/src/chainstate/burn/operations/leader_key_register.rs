@@ -128,7 +128,7 @@ impl LeaderKeyRegisterOp {
 
     fn parse_from_tx(
         block_height: u64,
-        block_hash: &BurnchainHeaderHash,
+        block_hash: BurnchainHeaderHash,
         tx: &BurnchainTransaction,
     ) -> Result<LeaderKeyRegisterOp, op_error> {
         // can't be too careful...
@@ -164,7 +164,7 @@ impl LeaderKeyRegisterOp {
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
             block_height,
-            burn_header_hash: block_hash.clone(),
+            burn_header_hash: block_hash,
         })
     }
 }
@@ -206,7 +206,7 @@ impl LeaderKeyRegisterOp {
         block_header: &BurnchainBlockHeader,
         tx: &BurnchainTransaction,
     ) -> Result<LeaderKeyRegisterOp, op_error> {
-        LeaderKeyRegisterOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
+        LeaderKeyRegisterOp::parse_from_tx(block_header.block_height, block_header.block_hash, tx)
     }
 
     pub fn check(
@@ -289,7 +289,7 @@ pub mod tests {
                     txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
                     vtxindex,
                     block_height,
-                    burn_header_hash: burn_header_hash.clone(),
+                    burn_header_hash,
                 })
             },
             OpFixture {
@@ -351,8 +351,8 @@ pub mod tests {
             let header = match tx_fixture.result {
                 Some(ref op) => BurnchainBlockHeader {
                     block_height: op.block_height,
-                    block_hash: op.burn_header_hash.clone(),
-                    parent_block_hash: op.burn_header_hash.clone(),
+                    block_hash: op.burn_header_hash,
+                    parent_block_hash: op.burn_header_hash,
                     num_txs: 1,
                     timestamp: get_epoch_time_secs(),
                 },
@@ -452,16 +452,16 @@ pub mod tests {
         .unwrap();
 
         let block_header_hashes = [
-            block_122_hash.clone(),
-            block_123_hash.clone(),
-            block_124_hash.clone(),
-            block_125_hash.clone(),
-            block_126_hash.clone(),
-            block_127_hash.clone(),
-            block_128_hash.clone(),
-            block_129_hash.clone(),
-            block_130_hash.clone(),
-            block_131_hash.clone(),
+            block_122_hash,
+            block_123_hash,
+            block_124_hash,
+            block_125_hash,
+            block_126_hash,
+            block_127_hash,
+            block_128_hash,
+            block_129_hash,
+            block_130_hash,
+            block_131_hash,
         ];
 
         let burnchain = Burnchain {
@@ -475,7 +475,7 @@ pub mod tests {
             stable_confirmations: 7,
             first_block_height,
             initial_reward_start_block: first_block_height,
-            first_block_hash: first_burn_hash.clone(),
+            first_block_hash: first_burn_hash,
             first_block_timestamp: 0,
         };
 
@@ -500,7 +500,7 @@ pub mod tests {
             .unwrap(),
             vtxindex: 456,
             block_height: 123,
-            burn_header_hash: block_123_hash.clone(),
+            burn_header_hash: block_123_hash,
         };
 
         let block_ops = [
@@ -535,10 +535,10 @@ pub mod tests {
                     pox_valid: true,
                     block_height: i + 1 + first_block_height,
                     burn_header_timestamp: get_epoch_time_secs(),
-                    burn_header_hash: block_header_hashes[i as usize].clone(),
-                    sortition_id: SortitionId(block_header_hashes[i as usize].0.clone()),
-                    parent_sortition_id: prev_snapshot.sortition_id.clone(),
-                    parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
+                    burn_header_hash: block_header_hashes[i as usize],
+                    sortition_id: SortitionId(block_header_hashes[i as usize].0),
+                    parent_sortition_id: prev_snapshot.sortition_id,
+                    parent_burn_header_hash: prev_snapshot.burn_header_hash,
                     consensus_hash: ConsensusHash::from_bytes(&[
                         0,
                         0,
@@ -607,7 +607,7 @@ pub mod tests {
                 tx.commit().unwrap();
                 prev_snapshot = snapshot_row;
             }
-            prev_snapshot.index_root.clone()
+            prev_snapshot.index_root
         };
 
         let check_fixtures = vec![
@@ -636,7 +636,7 @@ pub mod tests {
                     .unwrap(),
                     vtxindex: 455,
                     block_height: 123,
-                    burn_header_hash: block_123_hash.clone(),
+                    burn_header_hash: block_123_hash,
                 },
                 res: Err(op_error::LeaderKeyAlreadyRegistered),
             },
@@ -665,7 +665,7 @@ pub mod tests {
                     .unwrap(),
                     vtxindex: 456,
                     block_height: 123,
-                    burn_header_hash: block_123_hash.clone(),
+                    burn_header_hash: block_123_hash,
                 },
                 res: Ok(()),
             },
@@ -674,8 +674,8 @@ pub mod tests {
         for fixture in check_fixtures {
             let header = BurnchainBlockHeader {
                 block_height: fixture.op.block_height,
-                block_hash: fixture.op.burn_header_hash.clone(),
-                parent_block_hash: fixture.op.burn_header_hash.clone(),
+                block_hash: fixture.op.burn_header_hash,
+                parent_block_hash: fixture.op.burn_header_hash,
                 num_txs: 1,
                 timestamp: get_epoch_time_secs(),
             };

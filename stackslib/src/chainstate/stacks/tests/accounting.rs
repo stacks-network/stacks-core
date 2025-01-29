@@ -182,7 +182,7 @@ fn test_bad_microblock_fees_pre_v210() {
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash;
                 let parent_index_hash = StacksBlockHeader::make_index_block_hash(
                     &parent_consensus_hash,
                     &parent_header_hash,
@@ -221,7 +221,7 @@ fn test_bad_microblock_fees_pre_v210() {
                         &privk_anchored,
                         anchored_sender_nonce,
                         fee,
-                        &recipient.to_account_principal(),
+                        recipient.to_account_principal(),
                         1,
                     );
                     anchored_sender_nonce += 1;
@@ -232,15 +232,15 @@ fn test_bad_microblock_fees_pre_v210() {
                 let (parent_mblock_stream, mblock_pubkey_hash) = {
                     if tenure_id > 0 {
                         chainstate
-                            .reload_unconfirmed_state(&sort_ic, parent_index_hash.clone())
+                            .reload_unconfirmed_state(&sort_ic, parent_index_hash)
                             .unwrap();
 
-                        let parent_microblock_privkey = mblock_privks[tenure_id - 1].clone();
+                        let parent_microblock_privkey = mblock_privks[tenure_id - 1];
                         // produce the microblock stream for the parent, which this tenure's anchor
                         // block will confirm.
                         let mut microblock_builder = StacksMicroblockBuilder::new(
-                            parent_header_hash.clone(),
-                            parent_consensus_hash.clone(),
+                            parent_header_hash,
+                            parent_consensus_hash,
                             chainstate,
                             &sort_ic,
                             BlockBuilderSettings::max_value(),
@@ -255,7 +255,7 @@ fn test_bad_microblock_fees_pre_v210() {
                             &privk,
                             acct.nonce,
                             fee,
-                            &recipient.to_account_principal(),
+                            recipient.to_account_principal(),
                             1,
                         );
 
@@ -277,13 +277,13 @@ fn test_bad_microblock_fees_pre_v210() {
                             .unwrap();
                         microblocks.push(mblock);
 
-                        let microblock_privkey = mblock_privks[tenure_id].clone();
+                        let microblock_privkey = mblock_privks[tenure_id];
                         let mblock_pubkey_hash = Hash160::from_node_public_key(
                             &StacksPublicKey::from_private(&microblock_privkey),
                         );
                         (microblocks, mblock_pubkey_hash)
                     } else {
-                        let parent_microblock_privkey = mblock_privks[tenure_id].clone();
+                        let parent_microblock_privkey = mblock_privks[tenure_id];
                         let mblock_pubkey_hash = Hash160::from_node_public_key(
                             &StacksPublicKey::from_private(&parent_microblock_privkey),
                         );
@@ -352,8 +352,8 @@ fn test_bad_microblock_fees_pre_v210() {
     ];
 
     for i in 1..num_blocks {
-        let parent_block_id = block_ids[i - 1].clone();
-        let block_id = block_ids[i].clone();
+        let parent_block_id = block_ids[i - 1];
+        let block_id = block_ids[i];
 
         let matured_reward_opt = StacksChainState::get_matured_miner_payment(
             peer.chainstate().db(),
@@ -505,7 +505,7 @@ fn test_bad_microblock_fees_fix_transition() {
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash;
                 let parent_index_hash = StacksBlockHeader::make_index_block_hash(
                     &parent_consensus_hash,
                     &parent_header_hash,
@@ -544,7 +544,7 @@ fn test_bad_microblock_fees_fix_transition() {
                         &privk_anchored,
                         anchored_sender_nonce,
                         fee,
-                        &recipient.to_account_principal(),
+                        recipient.to_account_principal(),
                         1,
                     );
                     anchored_sender_nonce += 1;
@@ -555,15 +555,15 @@ fn test_bad_microblock_fees_fix_transition() {
                 let (parent_mblock_stream, mblock_pubkey_hash) = {
                     if tenure_id > 0 {
                         chainstate
-                            .reload_unconfirmed_state(&sort_ic, parent_index_hash.clone())
+                            .reload_unconfirmed_state(&sort_ic, parent_index_hash)
                             .unwrap();
 
-                        let parent_microblock_privkey = mblock_privks[tenure_id - 1].clone();
+                        let parent_microblock_privkey = mblock_privks[tenure_id - 1];
                         // produce the microblock stream for the parent, which this tenure's anchor
                         // block will confirm.
                         let mut microblock_builder = StacksMicroblockBuilder::new(
-                            parent_header_hash.clone(),
-                            parent_consensus_hash.clone(),
+                            parent_header_hash,
+                            parent_consensus_hash,
                             chainstate,
                             &sort_ic,
                             BlockBuilderSettings::max_value(),
@@ -578,7 +578,7 @@ fn test_bad_microblock_fees_fix_transition() {
                             &privk,
                             acct.nonce,
                             fee,
-                            &recipient.to_account_principal(),
+                            recipient.to_account_principal(),
                             1,
                         );
 
@@ -600,13 +600,13 @@ fn test_bad_microblock_fees_fix_transition() {
                             .unwrap();
                         microblocks.push(mblock);
 
-                        let microblock_privkey = mblock_privks[tenure_id].clone();
+                        let microblock_privkey = mblock_privks[tenure_id];
                         let mblock_pubkey_hash = Hash160::from_node_public_key(
                             &StacksPublicKey::from_private(&microblock_privkey),
                         );
                         (microblocks, mblock_pubkey_hash)
                     } else {
-                        let parent_microblock_privkey = mblock_privks[tenure_id].clone();
+                        let parent_microblock_privkey = mblock_privks[tenure_id];
                         let mblock_pubkey_hash = Hash160::from_node_public_key(
                             &StacksPublicKey::from_private(&parent_microblock_privkey),
                         );
@@ -675,8 +675,8 @@ fn test_bad_microblock_fees_fix_transition() {
     ];
 
     for i in 1..num_blocks {
-        let parent_block_id = block_ids[i - 1].clone();
-        let block_id = block_ids[i].clone();
+        let parent_block_id = block_ids[i - 1];
+        let block_id = block_ids[i];
 
         let matured_reward_opt = StacksChainState::get_matured_miner_payment(
             peer.chainstate().db(),
@@ -861,7 +861,7 @@ fn test_get_block_info_v210() {
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash;
                 let parent_index_hash = StacksBlockHeader::make_index_block_hash(
                     &parent_consensus_hash,
                     &parent_header_hash,
@@ -900,7 +900,7 @@ fn test_get_block_info_v210() {
                         &privk_anchored,
                         anchored_sender_nonce,
                         fee,
-                        &recipient.to_account_principal(),
+                        recipient.to_account_principal(),
                         1,
                     );
                     anchored_sender_nonce += 1;
@@ -911,15 +911,15 @@ fn test_get_block_info_v210() {
                 let (parent_mblock_stream, mblock_pubkey_hash) = {
                     if tenure_id > 0 {
                         chainstate
-                            .reload_unconfirmed_state(&sort_ic, parent_index_hash.clone())
+                            .reload_unconfirmed_state(&sort_ic, parent_index_hash)
                             .unwrap();
 
-                        let parent_microblock_privkey = mblock_privks[tenure_id - 1].clone();
+                        let parent_microblock_privkey = mblock_privks[tenure_id - 1];
                         // produce the microblock stream for the parent, which this tenure's anchor
                         // block will confirm.
                         let mut microblock_builder = StacksMicroblockBuilder::new(
-                            parent_header_hash.clone(),
-                            parent_consensus_hash.clone(),
+                            parent_header_hash,
+                            parent_consensus_hash,
                             chainstate,
                             &sort_ic,
                             BlockBuilderSettings::max_value(),
@@ -934,7 +934,7 @@ fn test_get_block_info_v210() {
                             &privk,
                             acct.nonce,
                             fee,
-                            &recipient.to_account_principal(),
+                            recipient.to_account_principal(),
                             1,
                         );
 
@@ -956,13 +956,13 @@ fn test_get_block_info_v210() {
                             .unwrap();
                         microblocks.push(mblock);
 
-                        let microblock_privkey = mblock_privks[tenure_id].clone();
+                        let microblock_privkey = mblock_privks[tenure_id];
                         let mblock_pubkey_hash = Hash160::from_node_public_key(
                             &StacksPublicKey::from_private(&microblock_privkey),
                         );
                         (microblocks, mblock_pubkey_hash)
                     } else {
-                        let parent_microblock_privkey = mblock_privks[tenure_id].clone();
+                        let parent_microblock_privkey = mblock_privks[tenure_id];
                         let mblock_pubkey_hash = Hash160::from_node_public_key(
                             &StacksPublicKey::from_private(&parent_microblock_privkey),
                         );
@@ -1233,7 +1233,7 @@ fn test_get_block_info_v210_no_microblocks() {
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash;
                 let parent_index_hash = StacksBlockHeader::make_index_block_hash(
                     &parent_consensus_hash,
                     &parent_header_hash,
@@ -1272,7 +1272,7 @@ fn test_get_block_info_v210_no_microblocks() {
                         &privk_anchored,
                         anchored_sender_nonce,
                         fee,
-                        &recipient.to_account_principal(),
+                        recipient.to_account_principal(),
                         1,
                     );
                     anchored_sender_nonce += 1;
@@ -1280,7 +1280,7 @@ fn test_get_block_info_v210_no_microblocks() {
                 }
 
                 let mblock_pubkey_hash = {
-                    let parent_microblock_privkey = mblock_privks[tenure_id].clone();
+                    let parent_microblock_privkey = mblock_privks[tenure_id];
                     let mblock_pubkey_hash = Hash160::from_node_public_key(
                         &StacksPublicKey::from_private(&parent_microblock_privkey),
                     );
@@ -1560,7 +1560,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                 };
 
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_consensus_hash = parent_tip.consensus_hash;
                 let parent_index_hash = StacksBlockHeader::make_index_block_hash(
                     &parent_consensus_hash,
                     &parent_header_hash,
@@ -1669,7 +1669,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                         &privk_anchored,
                         anchored_sender_nonce,
                         fee,
-                        &recipient.to_account_principal(),
+                        recipient.to_account_principal(),
                         1,
                     );
                     anchored_sender_nonce += 1;
@@ -1680,15 +1680,15 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                 let (parent_mblock_stream, mblock_pubkey_hash) = {
                     if tenure_id > 0 {
                         chainstate
-                            .reload_unconfirmed_state(&sort_ic, parent_index_hash.clone())
+                            .reload_unconfirmed_state(&sort_ic, parent_index_hash)
                             .unwrap();
 
-                        let parent_microblock_privkey = mblock_privks[tenure_id - 1].clone();
+                        let parent_microblock_privkey = mblock_privks[tenure_id - 1];
                         // produce the microblock stream for the parent, which this tenure's anchor
                         // block will confirm.
                         let mut microblock_builder = StacksMicroblockBuilder::new(
-                            parent_header_hash.clone(),
-                            parent_consensus_hash.clone(),
+                            parent_header_hash,
+                            parent_consensus_hash,
                             chainstate,
                             &sort_ic,
                             BlockBuilderSettings::max_value(),
@@ -1703,7 +1703,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                             &privk,
                             acct.nonce,
                             fee,
-                            &recipient.to_account_principal(),
+                            recipient.to_account_principal(),
                             1,
                         );
 
@@ -1725,13 +1725,13 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                             .unwrap();
                         microblocks.push(mblock);
 
-                        let microblock_privkey = mblock_privks[tenure_id].clone();
+                        let microblock_privkey = mblock_privks[tenure_id];
                         let mblock_pubkey_hash = Hash160::from_node_public_key(
                             &StacksPublicKey::from_private(&microblock_privkey),
                         );
                         (microblocks, mblock_pubkey_hash)
                     } else {
-                        let parent_microblock_privkey = mblock_privks[tenure_id].clone();
+                        let parent_microblock_privkey = mblock_privks[tenure_id];
                         let mblock_pubkey_hash = Hash160::from_node_public_key(
                             &StacksPublicKey::from_private(&parent_microblock_privkey),
                         );

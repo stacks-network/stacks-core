@@ -472,7 +472,7 @@ impl PeerNetwork {
             0,
             SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0),
         );
-        let pub_ip = connection_opts.public_ip_address.clone();
+        let pub_ip = connection_opts.public_ip_address;
         let pub_ip_learned = pub_ip.is_none();
         local_peer.public_ip_address.clone_from(&pub_ip);
 
@@ -484,7 +484,7 @@ impl PeerNetwork {
         }
 
         let first_block_height = burnchain.first_block_height;
-        let first_burn_header_hash = burnchain.first_block_hash.clone();
+        let first_burn_header_hash = burnchain.first_block_hash;
         let first_burn_header_ts = burnchain.first_block_timestamp;
 
         let mut stacker_db_configs = HashMap::new();
@@ -1316,7 +1316,7 @@ impl PeerNetwork {
 
         let mut relay_pubkhs = HashSet::new();
         for rhint in relay_hints {
-            relay_pubkhs.insert(rhint.peer.public_key_hash.clone());
+            relay_pubkhs.insert(rhint.peer.public_key_hash);
         }
 
         // don't send a message to anyone who sent this message to us
@@ -1367,7 +1367,7 @@ impl PeerNetwork {
         outbound_sample.append(&mut inbound_sample);
         let ret = self.coalesce_neighbors(outbound_sample);
 
-        debug!("All recipients (out of {}): {:?}", ret.len(), &ret);
+        debug!("All recipients (out of {}): {ret:?}", ret.len());
         Ok(ret)
     }
 
@@ -1800,7 +1800,7 @@ impl PeerNetwork {
         // appropriately, so it's okay for us to use self.peer_version and
         // self.local_peer.network_id here for the remote peer's neighbor key.
         let (pubkey_opt, neighbor_key) = match neighbor_opt {
-            Some(neighbor) => (Some(neighbor.public_key.clone()), neighbor.addr),
+            Some(neighbor) => (Some(neighbor.public_key), neighbor.addr),
             None => (
                 None,
                 NeighborKey::from_socketaddr(
@@ -2779,7 +2779,7 @@ impl PeerNetwork {
                         self.public_ip_retries = 0;
 
                         // if our IP address changed, then disconnect witih everyone
-                        let old_ip = self.local_peer.public_ip_address.clone();
+                        let old_ip = self.local_peer.public_ip_address;
                         self.local_peer.public_ip_address =
                             Some((data.addrbytes, self.bind_nk.port));
 
@@ -3159,7 +3159,7 @@ impl PeerNetwork {
                 chainstate.db(),
                 &block_info.parent_consensus_hash,
                 &block_info.parent_anchored_block_hash,
-                &block_info.parent_microblock_hash,
+                block_info.parent_microblock_hash,
             ) {
                 Ok(Some(mblocks)) => mblocks,
                 Ok(None) => {
@@ -3423,7 +3423,7 @@ impl PeerNetwork {
                                             }
                                         } else {
                                             push_set.insert(
-                                                index_block_hash.clone(),
+                                                index_block_hash,
                                                 get_epoch_time_secs() + network.connection_opts.antientropy_retry,
                                             );
                                         }
@@ -3502,7 +3502,7 @@ impl PeerNetwork {
                         continue;
                     }
                     let microblocks_data = MicroblocksData {
-                        index_anchor_block: anchor_block_id.clone(),
+                        index_anchor_block: anchor_block_id,
                         microblocks,
                     };
 
@@ -4201,7 +4201,7 @@ impl PeerNetwork {
 
         let parent_block_id = match tenure_start_header.anchored_header {
             StacksBlockHeaderTypes::Nakamoto(ref nakamoto_header) => {
-                nakamoto_header.parent_block_id.clone()
+                nakamoto_header.parent_block_id
             }
             StacksBlockHeaderTypes::Epoch2(..) => StacksChainState::get_parent_block_id(
                 chainstate.db(),
@@ -4325,7 +4325,7 @@ impl PeerNetwork {
             // epoch 2
             // NOTE: + 1 needed because the sortition db indexes anchor blocks at index height 1,
             // not 0
-            let ih = sortdb.index_handle(&tip_sn.sortition_id);
+            let ih = sortdb.index_handle(tip_sn.sortition_id);
             let rc_start_height = self.burnchain.nakamoto_first_block_of_cycle(rc) + 1;
             let Some(ancestor_sort_id) =
                 get_ancestor_sort_id(&ih, rc_start_height, &tip_sn.sortition_id)?
@@ -4339,7 +4339,7 @@ impl PeerNetwork {
                 );
                 return Ok(false);
             };
-            let ancestor_ih = sortdb.index_handle(&ancestor_sort_id);
+            let ancestor_ih = sortdb.index_handle(ancestor_sort_id);
             let anchor_hash_opt = ancestor_ih.get_last_anchor_block_hash()?;
 
             if let Some(cached_rc_info) = self.current_reward_sets.get(&rc) {
@@ -4347,7 +4347,7 @@ impl PeerNetwork {
                     // careful -- the sortition DB stores a StacksBlockId's value (the tenure-start
                     // StacksBlockId) as a BlockHeaderHash, since that's what it was designed to
                     // deal with in the pre-Nakamoto days
-                    if cached_rc_info.anchor_block_id() == StacksBlockId(anchor_hash.0.clone())
+                    if cached_rc_info.anchor_block_id() == StacksBlockId(anchor_hash.0)
                         || cached_rc_info.anchor_block_hash == *anchor_hash
                     {
                         // cached reward set data is still valid
@@ -4517,7 +4517,7 @@ impl PeerNetwork {
                 )? {
                 header.index_block_hash()
             } else {
-                new_stacks_tip_block_id.clone()
+                new_stacks_tip_block_id
             };
             let parent_tip = match self.get_parent_stacks_tip(chainstate, &new_stacks_tip_block_id)
             {
@@ -4529,8 +4529,8 @@ impl PeerNetwork {
                         &new_stacks_tip_block_id, &stacks_tip_ch, &stacks_tip_bhh
                     );
                     StacksTipInfo {
-                        consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-                        block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
+                        consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH,
+                        block_hash: FIRST_STACKS_BLOCK_HASH,
                         height: 0,
                         coinbase_height: 0,
                         is_nakamoto: false,
@@ -4541,10 +4541,7 @@ impl PeerNetwork {
             };
             (parent_tip, tenure_start_block_id)
         } else {
-            (
-                self.parent_stacks_tip.clone(),
-                self.tenure_start_block_id.clone(),
-            )
+            (self.parent_stacks_tip.clone(), self.tenure_start_block_id)
         };
 
         if burnchain_tip_changed || stacks_tip_changed {
@@ -4632,12 +4629,12 @@ impl PeerNetwork {
                 self.sortition_tip_affirmation_map =
                     SortitionDB::find_sortition_tip_affirmation_map(
                         sortdb,
-                        &canonical_sn.sortition_id,
+                        canonical_sn.sortition_id,
                     )?;
             }
 
             // update last anchor data
-            let ih = sortdb.index_handle(&canonical_sn.sortition_id);
+            let ih = sortdb.index_handle(canonical_sn.sortition_id);
             self.last_anchor_block_hash = ih
                 .get_last_selected_anchor_block_hash()?
                 .unwrap_or(BlockHeaderHash([0x00; 32]));
@@ -4998,10 +4995,7 @@ impl PeerNetwork {
         {
             (header.consensus_hash, header.anchored_header.block_hash())
         } else {
-            (
-                FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-                FIRST_STACKS_BLOCK_HASH.clone(),
-            )
+            (FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH)
         };
 
         let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
@@ -5086,7 +5080,7 @@ impl PeerNetwork {
         // this point, the heights and consensus hashes are not equal.  We only need to check that
         // last_sort_tip is an ancestor of sort_tip
 
-        let ih = sortdb.index_handle(&sort_tip.sortition_id);
+        let ih = sortdb.index_handle(sort_tip.sortition_id);
         let Ok(Some(ancestor_sn)) = ih.get_block_snapshot_by_height(last_sort_tip.block_height)
         else {
             // no such ancestor, so it's a reorg
@@ -5149,7 +5143,7 @@ impl PeerNetwork {
         // this point, the heights and block IDs are not equal.  We only need to check that
         // last_stacks_tip is an ancestor of stacks_tip
 
-        let mut cursor = stacks_tip.clone();
+        let mut cursor = *stacks_tip;
         for _ in last_stacks_tip_height..stacks_tip_height {
             let Ok(Some(parent_id)) =
                 NakamotoChainState::get_nakamoto_parent_block_id(chainstate.db(), &cursor)
@@ -5183,7 +5177,7 @@ impl PeerNetwork {
         let convo_strs: Vec<_> = self
             .peers
             .values()
-            .map(|convo| format!("{:?}", &convo))
+            .map(|convo| format!("{convo:?}"))
             .collect();
 
         debug!(
@@ -5262,7 +5256,7 @@ impl PeerNetwork {
             self.chain_view.burn_block_height,
             self.stacks_tip.coinbase_height,
             self.stacks_tip.height,
-            self.chain_view.rc_consensus_hash.clone(),
+            self.chain_view.rc_consensus_hash,
             self.get_stacker_db_configs_owned(),
         );
 
@@ -5402,7 +5396,7 @@ mod test {
             initial_reward_start_block: 50,
             first_block_height: 50,
             first_block_timestamp: 0,
-            first_block_hash: first_burn_hash.clone(),
+            first_block_hash: first_burn_hash,
         };
 
         let mut burnchain_view = BurnchainView {
@@ -5529,9 +5523,9 @@ mod test {
                 peer_1.network.peer_version,
                 peer_1.network.local_peer.network_id,
                 peer_1.network.chain_view.burn_block_height,
-                &peer_1.network.chain_view.burn_block_hash,
+                peer_1.network.chain_view.burn_block_hash,
                 peer_1.network.chain_view.burn_stable_block_height,
-                &peer_1.network.chain_view.burn_stable_block_hash,
+                peer_1.network.chain_view.burn_stable_block_hash,
                 StacksMessageType::Ping(PingData::new()),
             );
             ping.sign(0x12345678, &peer_1.local_peer().private_key)

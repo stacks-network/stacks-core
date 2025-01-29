@@ -35,7 +35,7 @@ use crate::net::{ProtocolFamily, TipRequest};
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let request = StacksHttpRequest::new_gettransaction_unconfirmed(addr.into(), Txid([0x11; 32]));
     let bytes = request.try_serialize().unwrap();
@@ -72,16 +72,14 @@ fn test_try_make_response() {
     let mut requests = vec![];
 
     // get mempool txn
-    let request = StacksHttpRequest::new_gettransaction_unconfirmed(
-        addr.into(),
-        rpc_test.mempool_txids[0].clone(),
-    );
+    let request =
+        StacksHttpRequest::new_gettransaction_unconfirmed(addr.into(), rpc_test.mempool_txids[0]);
     requests.push(request);
 
     // get microblock txn
     let request = StacksHttpRequest::new_gettransaction_unconfirmed(
         addr.into(),
-        rpc_test.microblock_txids[0].clone(),
+        rpc_test.microblock_txids[0],
     );
     requests.push(request);
 

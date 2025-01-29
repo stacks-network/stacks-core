@@ -143,8 +143,8 @@ impl UnconfirmedState {
         let clarity_instance = ClarityInstance::new(self.mainnet, self.chain_id, marf);
 
         Ok(UnconfirmedState {
-            confirmed_chain_tip: self.confirmed_chain_tip.clone(),
-            unconfirmed_chain_tip: self.unconfirmed_chain_tip.clone(),
+            confirmed_chain_tip: self.confirmed_chain_tip,
+            unconfirmed_chain_tip: self.unconfirmed_chain_tip,
             clarity_inst: clarity_instance,
             mined_txs: self.mined_txs.clone(),
             cost_so_far: self.cost_so_far.clone(),
@@ -781,13 +781,13 @@ mod test {
                     .index_handle_at_block(peer.chainstate(), &canonical_tip)
                     .unwrap();
                 peer.chainstate()
-                    .reload_unconfirmed_state(&sort_iconn, canonical_tip.clone())
+                    .reload_unconfirmed_state(&sort_iconn, canonical_tip)
                     .unwrap();
 
                 let microblock = {
                     let mut microblock_builder = StacksMicroblockBuilder::new(
                         stacks_block.block_hash(),
-                        consensus_hash.clone(),
+                        consensus_hash,
                         peer.chainstate(),
                         &sort_iconn,
                         BlockBuilderSettings::max_value(),
@@ -805,7 +805,7 @@ mod test {
                         TransactionVersion::Testnet,
                         auth.clone(),
                         TransactionPayload::TokenTransfer(
-                            recv_addr.clone().into(),
+                            recv_addr.into(),
                             1,
                             TokenTransferMemo([0u8; 34]),
                         ),
@@ -856,7 +856,7 @@ mod test {
                 .index_handle_at_block(peer.chainstate(), &canonical_tip)
                 .unwrap();
             peer.chainstate()
-                .reload_unconfirmed_state(&iconn, canonical_tip.clone())
+                .reload_unconfirmed_state(&iconn, canonical_tip)
                 .unwrap();
 
             let recv_balance = peer
@@ -1018,12 +1018,12 @@ mod test {
                     .index_handle_at_block(peer.chainstate(), &canonical_tip)
                     .unwrap();
                 peer.chainstate()
-                    .reload_unconfirmed_state(&sort_iconn, canonical_tip.clone())
+                    .reload_unconfirmed_state(&sort_iconn, canonical_tip)
                     .unwrap();
 
                 let mut microblock_builder = StacksMicroblockBuilder::new(
                     stacks_block.block_hash(),
-                    consensus_hash.clone(),
+                    consensus_hash,
                     peer.chainstate(),
                     &sort_iconn,
                     BlockBuilderSettings::max_value(),
@@ -1044,7 +1044,7 @@ mod test {
                             TransactionVersion::Testnet,
                             auth.clone(),
                             TransactionPayload::TokenTransfer(
-                                recv_addr.clone().into(),
+                                recv_addr.into(),
                                 1,
                                 TokenTransferMemo([0u8; 34]),
                             ),
@@ -1092,7 +1092,7 @@ mod test {
                 // process microblock stream to generate unconfirmed state
                 let sortdb = peer.sortdb.take().unwrap();
                 peer.chainstate()
-                    .reload_unconfirmed_state(&sortdb.index_handle_at_tip(), canonical_tip.clone())
+                    .reload_unconfirmed_state(&sortdb.index_handle_at_tip(), canonical_tip)
                     .unwrap();
 
                 let recv_balance = peer
@@ -1257,7 +1257,7 @@ mod test {
                                 TransactionVersion::Testnet,
                                 auth,
                                 TransactionPayload::TokenTransfer(
-                                    recv_addr.clone().into(),
+                                    recv_addr.into(),
                                     1,
                                     TokenTransferMemo([0u8; 34]),
                                 ),
@@ -1335,7 +1335,7 @@ mod test {
                             TransactionVersion::Testnet,
                             auth.clone(),
                             TransactionPayload::TokenTransfer(
-                                recv_addr.clone().into(),
+                                recv_addr.into(),
                                 1,
                                 TokenTransferMemo([0u8; 34]),
                             ),
@@ -1405,7 +1405,7 @@ mod test {
             .index_handle_at_block(peer.chainstate(), &canonical_tip)
             .unwrap();
         peer.chainstate()
-            .reload_unconfirmed_state(&iconn, canonical_tip.clone())
+            .reload_unconfirmed_state(&iconn, canonical_tip)
             .unwrap();
 
         let db_recv_balance = peer

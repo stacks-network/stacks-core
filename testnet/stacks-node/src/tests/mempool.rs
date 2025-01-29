@@ -43,11 +43,10 @@ pub fn make_bad_stacks_transfer(
     sender: &StacksPrivateKey,
     nonce: u64,
     tx_fee: u64,
-    recipient: &PrincipalData,
+    recipient: PrincipalData,
     amount: u64,
 ) -> Vec<u8> {
-    let payload =
-        TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
+    let payload = TransactionPayload::TokenTransfer(recipient, amount, TokenTransferMemo([0; 34]));
 
     let mut spending_condition =
         TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(sender))
@@ -225,7 +224,7 @@ fn mempool_setup_chainstate() {
             let contract_addr = to_addr(&contract_sk);
 
             let other_sk = StacksPrivateKey::from_hex(SK_2).unwrap();
-            let other_addr = to_addr(&other_sk).into();
+            let other_addr: PrincipalData = to_addr(&other_sk).into();
 
             let chainstate_path = { CHAINSTATE_PATH.lock().unwrap().clone().unwrap() };
 
@@ -291,8 +290,14 @@ fn mempool_setup_chainstate() {
                     )
                     .unwrap();
 
-                let tx_bytes =
-                    make_stacks_transfer(&contract_sk, 5, 200, CHAIN_ID_TESTNET, &other_addr, 1000);
+                let tx_bytes = make_stacks_transfer(
+                    &contract_sk,
+                    5,
+                    200,
+                    CHAIN_ID_TESTNET,
+                    other_addr.clone(),
+                    1000,
+                );
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 chain_state
@@ -306,7 +311,8 @@ fn mempool_setup_chainstate() {
                     .unwrap();
 
                 // bad signature
-                let tx_bytes = make_bad_stacks_transfer(&contract_sk, 5, 200, &other_addr, 1000);
+                let tx_bytes =
+                    make_bad_stacks_transfer(&contract_sk, 5, 200, other_addr.clone(), 1000);
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
@@ -370,7 +376,7 @@ fn mempool_setup_chainstate() {
                 .into();
 
                 let tx_bytes =
-                    make_stacks_transfer(&contract_sk, 5, 200, CHAIN_ID_TESTNET, &bad_addr, 1000);
+                    make_stacks_transfer(&contract_sk, 5, 200, CHAIN_ID_TESTNET, bad_addr, 1000);
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
@@ -385,8 +391,14 @@ fn mempool_setup_chainstate() {
                 assert!(matches!(e, MemPoolRejection::BadAddressVersionByte));
 
                 // bad fees
-                let tx_bytes =
-                    make_stacks_transfer(&contract_sk, 5, 0, CHAIN_ID_TESTNET, &other_addr, 1000);
+                let tx_bytes = make_stacks_transfer(
+                    &contract_sk,
+                    5,
+                    0,
+                    CHAIN_ID_TESTNET,
+                    other_addr.clone(),
+                    1000,
+                );
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
@@ -402,8 +414,14 @@ fn mempool_setup_chainstate() {
                 assert!(matches!(e, MemPoolRejection::FeeTooLow(0, _)));
 
                 // bad nonce
-                let tx_bytes =
-                    make_stacks_transfer(&contract_sk, 0, 200, CHAIN_ID_TESTNET, &other_addr, 1000);
+                let tx_bytes = make_stacks_transfer(
+                    &contract_sk,
+                    0,
+                    200,
+                    CHAIN_ID_TESTNET,
+                    other_addr.clone(),
+                    1000,
+                );
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
@@ -424,7 +442,7 @@ fn mempool_setup_chainstate() {
                     5,
                     110000,
                     CHAIN_ID_TESTNET,
-                    &other_addr,
+                    other_addr.clone(),
                     1000,
                 );
                 let tx =
@@ -448,7 +466,7 @@ fn mempool_setup_chainstate() {
                     5,
                     300,
                     CHAIN_ID_TESTNET,
-                    &contract_princ,
+                    contract_princ.clone(),
                     1000,
                 );
                 let tx =
@@ -482,7 +500,7 @@ fn mempool_setup_chainstate() {
                     5,
                     300,
                     CHAIN_ID_TESTNET,
-                    &mainnet_princ,
+                    mainnet_princ,
                     1000,
                 );
                 let tx =
@@ -530,8 +548,14 @@ fn mempool_setup_chainstate() {
                 assert!(matches!(e, MemPoolRejection::BadTransactionVersion));
 
                 // send amount must be positive
-                let tx_bytes =
-                    make_stacks_transfer(&contract_sk, 5, 300, CHAIN_ID_TESTNET, &other_addr, 0);
+                let tx_bytes = make_stacks_transfer(
+                    &contract_sk,
+                    5,
+                    300,
+                    CHAIN_ID_TESTNET,
+                    other_addr.clone(),
+                    0,
+                );
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
                 let e = chain_state
@@ -552,7 +576,7 @@ fn mempool_setup_chainstate() {
                     5,
                     110000,
                     CHAIN_ID_TESTNET,
-                    &other_addr,
+                    other_addr.clone(),
                     1000,
                 );
                 let tx =
@@ -574,7 +598,7 @@ fn mempool_setup_chainstate() {
                     5,
                     99700,
                     CHAIN_ID_TESTNET,
-                    &other_addr,
+                    other_addr.clone(),
                     1000,
                 );
                 let tx =

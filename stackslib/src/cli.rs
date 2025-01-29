@@ -446,7 +446,7 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
             .unwrap_or_else(|e| panic!("Error looking up chain tip: {e}"))
             .expect("No chain tip found");
 
-    let burn_dbconn = sort_db.index_handle(&chain_tip.sortition_id);
+    let burn_dbconn = sort_db.index_handle(chain_tip.sortition_id);
 
     let mut settings = BlockBuilderSettings::limited();
     settings.max_miner_time_ms = max_time;
@@ -496,7 +496,7 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
                 &mut mempool_db,
                 &parent_stacks_header,
                 // tenure ID consensus hash of this block
-                &parent_stacks_header.consensus_hash,
+                parent_stacks_header.consensus_hash,
                 // the burn so far on the burnchain (i.e. from the last burnchain block)
                 chain_tip.total_burn,
                 NakamotoTenureInfo::default(),
@@ -718,7 +718,7 @@ fn replay_block(
         block_hash,
         &parent_block_hash,
         &parent_header_info.consensus_hash,
-        parent_microblock_hash,
+        *parent_microblock_hash,
         parent_microblock_seq,
     )
     .unwrap() else {
@@ -768,7 +768,7 @@ fn replay_block(
     )
     .unwrap();
     let (last_microblock_hash, last_microblock_seq) = match next_microblocks.len() {
-        0 => (EMPTY_MICROBLOCK_PARENT_HASH.clone(), 0),
+        0 => (EMPTY_MICROBLOCK_PARENT_HASH, 0),
         _ => {
             let l = next_microblocks.len();
             (
@@ -1000,7 +1000,7 @@ fn replay_block_nakamoto(
         }
         tenure_change.burn_view_consensus_hash
     } else {
-        parent_header_info.burn_view.clone().ok_or_else(|| {
+        parent_header_info.burn_view.ok_or_else(|| {
                 warn!(
                     "Cannot process Nakamoto block: parent block does not have a burnchain view and current block has no tenure tx";
                     "consensus_hash" => %block.header.consensus_hash,
@@ -1066,7 +1066,7 @@ fn replay_block_nakamoto(
     // to access `stacks_chain_state` again.  In the `Ok(..)` case, it's instead sufficient so
     // simply commit the block before beginning the second transaction to mark it processed.
 
-    let mut burn_view_handle = sort_db.index_handle(&burnchain_view_sn.sortition_id);
+    let mut burn_view_handle = sort_db.index_handle(burnchain_view_sn.sortition_id);
     let (ok_opt, err_opt) = match NakamotoChainState::append_block(
         &mut chainstate_tx,
         clarity_instance,

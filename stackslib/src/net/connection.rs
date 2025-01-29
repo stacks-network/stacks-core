@@ -1481,7 +1481,7 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
     /// Get a copy of the public key
     pub fn get_public_key(&self) -> Option<Secp256k1PublicKey> {
         match self.inbox.public_key {
-            Some(pubk) => Some(pubk.clone()),
+            Some(pubk) => Some(pubk),
             None => None,
         }
     }
@@ -1868,9 +1868,9 @@ mod test {
             0x12345678,
             0x9abcdef0,
             12345,
-            &BurnchainHeaderHash([0x11; 32]),
+            BurnchainHeaderHash([0x11; 32]),
             12339,
-            &BurnchainHeaderHash([0x22; 32]),
+            BurnchainHeaderHash([0x22; 32]),
             StacksMessageType::Ping(PingData { nonce }),
         );
         let privkey = Secp256k1PrivateKey::new();
@@ -1913,9 +1913,9 @@ mod test {
             0x12345678,
             0x9abcdef0,
             12345,
-            &BurnchainHeaderHash([0x11; 32]),
+            BurnchainHeaderHash([0x11; 32]),
             12339,
-            &BurnchainHeaderHash([0x22; 32]),
+            BurnchainHeaderHash([0x22; 32]),
             StacksMessageType::Ping(PingData { nonce: 0x01020304 }),
         );
 
@@ -2054,7 +2054,7 @@ mod test {
                 ]),
                 port: 12345,
             },
-            public_key: pubkey.clone(),
+            public_key: pubkey,
             expire_block: 23456,
             last_contact_time: 1552509642,
             allowed: -1,
@@ -2080,9 +2080,9 @@ mod test {
                 0x12345678,
                 0x9abcdef0,
                 12345 + i,
-                &BurnchainHeaderHash([0x11; 32]),
+                BurnchainHeaderHash([0x11; 32]),
                 12339 + i,
-                &BurnchainHeaderHash([0x22; 32]),
+                BurnchainHeaderHash([0x22; 32]),
                 StacksMessageType::Ping(PingData { nonce: 0x01020304 }),
             );
 
@@ -2152,7 +2152,7 @@ mod test {
                     ]),
                     port: 12345,
                 },
-                public_key: pubkey.clone(),
+                public_key: pubkey,
                 expire_block: 23456,
                 last_contact_time: 1552509642,
                 allowed: -1,
@@ -2179,9 +2179,9 @@ mod test {
                     0x12345678,
                     0x9abcdef0,
                     12345 + i,
-                    &BurnchainHeaderHash([0x11; 32]),
+                    BurnchainHeaderHash([0x11; 32]),
                     12339 + i,
-                    &BurnchainHeaderHash([0x22; 32]),
+                    BurnchainHeaderHash([0x22; 32]),
                     StacksMessageType::Ping(PingData {
                         nonce: (0x01020304 + i) as u32,
                     }),
@@ -2267,7 +2267,7 @@ mod test {
                 ]),
                 port: 12345,
             },
-            public_key: pubkey.clone(),
+            public_key: pubkey,
             expire_block: 23456,
             last_contact_time: 1552509642,
             allowed: -1,
@@ -2293,9 +2293,9 @@ mod test {
                 0x12345678,
                 0x9abcdef0,
                 12345 + i,
-                &BurnchainHeaderHash([0x11; 32]),
+                BurnchainHeaderHash([0x11; 32]),
                 12339 + i,
-                &BurnchainHeaderHash([0x22; 32]),
+                BurnchainHeaderHash([0x22; 32]),
                 StacksMessageType::Ping(PingData {
                     nonce: (0x01020304 + i) as u32,
                 }),

@@ -183,11 +183,11 @@ impl TenureForkingInfo {
             }
         };
         Ok(TenureForkingInfo {
-            burn_block_hash: sn.burn_header_hash.clone(),
+            burn_block_hash: sn.burn_header_hash,
             burn_block_height: sn.block_height,
-            sortition_id: sn.sortition_id.clone(),
-            parent_sortition_id: sn.parent_sortition_id.clone(),
-            consensus_hash: sn.consensus_hash.clone(),
+            sortition_id: sn.sortition_id,
+            parent_sortition_id: sn.parent_sortition_id,
+            consensus_hash: sn.consensus_hash,
             was_sortition: sn.sortition,
             first_block_mined,
         })
@@ -211,11 +211,9 @@ impl RPCRequestHandler for GetTenuresForkInfo {
         let result = node.with_node_state(|network, sortdb, chainstate, _mempool, _rpc_args| {
             let start_from = self
                 .stop_sortition
-                .clone()
                 .ok_or_else(|| ChainError::NoSuchBlockError)?;
             let recurse_end = self
                 .start_sortition
-                .clone()
                 .ok_or_else(|| ChainError::NoSuchBlockError)?;
             let recurse_end_snapshot =
                 SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &recurse_end)?

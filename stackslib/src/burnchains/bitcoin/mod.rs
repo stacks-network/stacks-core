@@ -230,15 +230,15 @@ pub struct BitcoinBlock {
 impl BitcoinBlock {
     pub fn new(
         height: u64,
-        hash: &BurnchainHeaderHash,
-        parent: &BurnchainHeaderHash,
+        hash: BurnchainHeaderHash,
+        parent: BurnchainHeaderHash,
         txs: Vec<BitcoinTransaction>,
         timestamp: u64,
     ) -> BitcoinBlock {
         BitcoinBlock {
             block_height: height,
-            block_hash: hash.clone(),
-            parent_block_hash: parent.clone(),
+            block_hash: hash,
+            parent_block_hash: parent,
             txs,
             timestamp,
         }

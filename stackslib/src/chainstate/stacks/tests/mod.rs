@@ -541,9 +541,9 @@ impl TestStacksNode {
         return None;
     }
 
-    pub fn get_miner_balance(clarity_tx: &mut ClarityTx, addr: &StacksAddress) -> u128 {
+    pub fn get_miner_balance(clarity_tx: &mut ClarityTx, addr: StacksAddress) -> u128 {
         clarity_tx.with_clarity_db_readonly(|db| {
-            db.get_account_stx_balance(&StandardPrincipalData::from(addr.clone()).into())
+            db.get_account_stx_balance(&StandardPrincipalData::from(addr).into())
                 .unwrap()
                 .amount_unlocked()
         })
@@ -589,7 +589,7 @@ impl TestStacksNode {
             block_commit_op.parent_vtxindex
         );
         self.commit_ops.insert(
-            block_commit_op.block_header_hash.clone(),
+            block_commit_op.block_header_hash,
             self.anchored_blocks.len() - 1,
         );
         block_commit_op
@@ -629,12 +629,12 @@ impl TestStacksNode {
                 // first stacks block
                 let builder = StacksBlockBuilder::first(
                     miner.id,
-                    &burn_block.parent_snapshot.consensus_hash,
-                    &burn_block.parent_snapshot.burn_header_hash,
+                    burn_block.parent_snapshot.consensus_hash,
+                    burn_block.parent_snapshot.burn_header_hash,
                     burn_block.parent_snapshot.block_height as u32,
                     burn_block.parent_snapshot.burn_header_timestamp,
-                    &proof,
-                    &miner.next_microblock_privkey(),
+                    proof,
+                    miner.next_microblock_privkey(),
                 );
                 (builder, None)
             }
@@ -683,10 +683,10 @@ impl TestStacksNode {
                 );
                 let builder = StacksBlockBuilder::from_parent(
                     miner.id,
-                    &parent_chain_tip,
-                    &new_work,
-                    &proof,
-                    &miner.next_microblock_privkey(),
+                    parent_chain_tip,
+                    new_work,
+                    proof,
+                    miner.next_microblock_privkey(),
                 );
                 (builder, Some(parent_stacks_block_snapshot))
             }
@@ -738,7 +738,7 @@ pub fn preprocess_stacks_block_data(
         Some(parent_commit) => {
             let db_handle = SortitionHandleConn::open_reader(
                 &ic,
-                &SortitionId::stubbed(&block_commit_op.burn_header_hash),
+                SortitionId::stubbed(&block_commit_op.burn_header_hash),
             )
             .unwrap();
             let sn = db_handle
@@ -753,7 +753,7 @@ pub fn preprocess_stacks_block_data(
             assert_eq!(block_commit_op.parent_vtxindex, 0);
             assert!(stacks_block.header.is_first_mined());
 
-            FIRST_BURNCHAIN_CONSENSUS_HASH.clone()
+            FIRST_BURNCHAIN_CONSENSUS_HASH
         }
     };
 
@@ -850,14 +850,14 @@ pub fn check_mining_reward(
                 &reward.block_hash,
             );
             if reward.coinbase > 0 {
-                block_rewards.insert(ibh.clone(), reward.clone());
+                block_rewards.insert(ibh, reward.clone());
             }
             if let MinerPaymentTxFees::Epoch2 { streamed, .. } = &reward.tx_fees {
                 if *streamed > 0 {
-                    stream_rewards.insert(ibh.clone(), reward.clone());
+                    stream_rewards.insert(ibh, reward.clone());
                 }
             }
-            heights.insert(ibh.clone(), i);
+            heights.insert(ibh, i);
             confirmed.insert((
                 StacksBlockHeader::make_index_block_hash(
                     &reward.parent_consensus_hash,
@@ -945,7 +945,7 @@ pub fn check_mining_reward(
         }
     }
 
-    let amount = TestStacksNode::get_miner_balance(clarity_tx, &miner.origin_address().unwrap());
+    let amount = TestStacksNode::get_miner_balance(clarity_tx, miner.origin_address().unwrap());
     if amount == 0 {
         test_debug!(
             "Miner {} '{}' has no mature funds in this fork",
@@ -1123,7 +1123,7 @@ pub fn make_contract_call(
         TransactionVersion::Testnet,
         miner.as_transaction_auth().unwrap(),
         TransactionPayload::new_contract_call(
-            addr.clone(),
+            addr,
             &format!("hello-world-{burnchain_height}-{stacks_block_height}"),
             "set-bar",
             vec![Value::Int(arg1), Value::Int(arg2)],
@@ -1160,7 +1160,7 @@ pub fn make_token_transfer(
     let mut tx_stx_transfer = StacksTransaction::new(
         TransactionVersion::Testnet,
         miner.as_transaction_auth().unwrap(),
-        TransactionPayload::TokenTransfer((*recipient).clone().into(), amount, (*memo).clone()),
+        TransactionPayload::TokenTransfer((*recipient).into(), amount, *memo),
     );
 
     tx_stx_transfer.chain_id = miner.chain_id;
@@ -1292,11 +1292,10 @@ pub fn make_stacks_transfer_order_independent_p2sh(
     num_sigs: usize,
     nonce: u64,
     tx_fee: u64,
-    recipient: &PrincipalData,
+    recipient: PrincipalData,
     amount: u64,
 ) -> StacksTransaction {
-    let payload =
-        TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
+    let payload = TransactionPayload::TokenTransfer(recipient, amount, TokenTransferMemo([0; 34]));
     sign_tx_order_independent_p2sh(payload, privks, num_sigs, nonce, tx_fee)
 }
 
@@ -1305,11 +1304,10 @@ pub fn make_stacks_transfer_order_independent_p2wsh(
     num_sigs: usize,
     nonce: u64,
     tx_fee: u64,
-    recipient: &PrincipalData,
+    recipient: PrincipalData,
     amount: u64,
 ) -> StacksTransaction {
-    let payload =
-        TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
+    let payload = TransactionPayload::TokenTransfer(recipient, amount, TokenTransferMemo([0; 34]));
     sign_tx_order_independent_p2wsh(payload, privks, num_sigs, nonce, tx_fee)
 }
 
@@ -1317,7 +1315,7 @@ pub fn make_user_contract_call(
     sender: &StacksPrivateKey,
     nonce: u64,
     tx_fee: u64,
-    contract_addr: &StacksAddress,
+    contract_addr: StacksAddress,
     contract_name: &str,
     contract_function: &str,
     args: Vec<Value>,
@@ -1326,7 +1324,7 @@ pub fn make_user_contract_call(
         TransactionVersion::Testnet,
         TransactionAuth::from_p2pkh(sender).unwrap(),
         TransactionPayload::new_contract_call(
-            contract_addr.clone(),
+            contract_addr,
             contract_name,
             contract_function,
             args,
@@ -1349,11 +1347,10 @@ pub fn make_user_stacks_transfer(
     sender: &StacksPrivateKey,
     nonce: u64,
     tx_fee: u64,
-    recipient: &PrincipalData,
+    recipient: PrincipalData,
     amount: u64,
 ) -> StacksTransaction {
-    let payload =
-        TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
+    let payload = TransactionPayload::TokenTransfer(recipient, amount, TokenTransferMemo([0; 34]));
     sign_standard_singlesig_tx(payload, sender, nonce, tx_fee)
 }
 

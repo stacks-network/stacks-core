@@ -975,8 +975,8 @@ impl NakamotoBlockHeader {
             version: 0,
             chain_length: 0,
             burn_spent: 0,
-            consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            parent_block_id: StacksBlockId(BOOT_BLOCK_HASH.0.clone()),
+            consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH,
+            parent_block_id: StacksBlockId(BOOT_BLOCK_HASH.0),
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             timestamp: get_epoch_time_secs(),
@@ -1832,7 +1832,7 @@ impl NakamotoChainState {
             }
             tenure_change.burn_view_consensus_hash
         } else {
-            parent_header_info.burn_view.clone().ok_or_else(|| {
+            parent_header_info.burn_view.ok_or_else(|| {
                 warn!(
                     "Cannot process Nakamoto block: parent block does not have a burnchain view and current block has no tenure tx";
                     "consensus_hash" => %next_ready_block.header.consensus_hash,
@@ -2036,7 +2036,7 @@ impl NakamotoChainState {
         // to access `stacks_chain_state` again.  In the `Ok(..)` case, it's instead sufficient so
         // simply commit the block before beginning the second transaction to mark it processed.
 
-        let mut burn_view_handle = sort_db.index_handle(&burnchain_view_sn.sortition_id);
+        let mut burn_view_handle = sort_db.index_handle(burnchain_view_sn.sortition_id);
         let (ok_opt, err_opt) = match NakamotoChainState::append_block(
             &mut chainstate_tx,
             clarity_instance,
@@ -3286,7 +3286,7 @@ impl NakamotoChainState {
             new_tip.chain_length
         );
 
-        let parent_hash = new_tip.parent_block_id.clone();
+        let parent_hash = new_tip.parent_block_id;
         let index_block_hash = new_tip.block_id();
 
         let mut marf_keys = vec![];
@@ -3336,7 +3336,7 @@ impl NakamotoChainState {
 
             // record last block-found tenure
             let block_found_tenure_id = NakamotoTenureEventId {
-                burn_view_consensus_hash: tenure_change_tx.burn_view_consensus_hash.clone(),
+                burn_view_consensus_hash: tenure_change_tx.burn_view_consensus_hash,
                 block_id: new_tip.block_id(),
             };
 
@@ -3349,7 +3349,7 @@ impl NakamotoChainState {
         if let Some(tenure_tx) = new_block.get_tenure_tx_payload() {
             // either a block-found or a tenure-extend, but we have a new tenure ID in this fork
             let tenure_id = NakamotoTenureEventId {
-                burn_view_consensus_hash: tenure_tx.burn_view_consensus_hash.clone(),
+                burn_view_consensus_hash: tenure_tx.burn_view_consensus_hash,
                 block_id: new_tip.block_id(),
             };
 
@@ -3380,12 +3380,12 @@ impl NakamotoChainState {
             microblock_tail: None,
             index_root: root_hash,
             stacks_block_height: new_tip.chain_length,
-            consensus_hash: new_tip.consensus_hash.clone(),
-            burn_header_hash: new_burn_header_hash.clone(),
+            consensus_hash: new_tip.consensus_hash,
+            burn_header_hash: *new_burn_header_hash,
             burn_header_height: new_burnchain_height,
             burn_header_timestamp: new_burnchain_timestamp,
             anchored_block_size: block_size,
-            burn_view: Some(burn_view.clone()),
+            burn_view: Some(*burn_view),
         };
 
         let tenure_fees = block_fees
@@ -3556,7 +3556,7 @@ impl NakamotoChainState {
         search_window: u64,
     ) -> Result<HashSet<Txid>, ChainstateError> {
         let tip = StacksBlockId::new(tip_consensus_hash, tip_block_hash);
-        let mut cursor = tip_consensus_hash.clone();
+        let mut cursor = *tip_consensus_hash;
         let mut ret = HashSet::new();
         for _ in 0..search_window {
             let Some(tenure_start_block_id) = conn.get_tenure_start_block_id(&tip, &cursor)? else {
@@ -3621,7 +3621,7 @@ impl NakamotoChainState {
         );
         let ancestor_burnchain_header_hashes = SortitionDB::get_ancestor_burnchain_header_hashes(
             sortdb_conn,
-            burn_tip,
+            *burn_tip,
             search_window.into(),
         )?;
         let processed_burnchain_txids =
@@ -3747,7 +3747,7 @@ impl NakamotoChainState {
         block_bitvec: &BitVec<4000>,
         active_reward_set: &RewardSet,
     ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> {
-        let burn_header_hash = tenure_block_snapshot.burn_header_hash.clone();
+        let burn_header_hash = tenure_block_snapshot.burn_header_hash;
         let burn_header_height =
             u32::try_from(tenure_block_snapshot.block_height).map_err(|_| {
                 ChainstateError::InvalidStacksBlock(
@@ -4286,13 +4286,10 @@ impl NakamotoChainState {
 
         // check that this block attaches to the `parent_chain_tip`
         let (parent_ch, parent_block_hash) = if block.is_first_mined() {
-            (
-                FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-                FIRST_STACKS_BLOCK_HASH.clone(),
-            )
+            (FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH)
         } else {
             (
-                parent_chain_tip.consensus_hash.clone(),
+                parent_chain_tip.consensus_hash,
                 parent_chain_tip.anchored_header.block_hash(),
             )
         };
@@ -4748,7 +4745,7 @@ impl NakamotoChainState {
         sortdb: &SortitionDB,
         tip: &BlockSnapshot,
     ) -> Result<(StackerDBConfig, MinersDBInformation), ChainstateError> {
-        let ih = sortdb.index_handle(&tip.sortition_id);
+        let ih = sortdb.index_handle(tip.sortition_id);
         let last_winner_snapshot = ih.get_last_snapshot_with_sortition(tip.block_height)?;
         let parent_winner_snapshot = ih.get_last_snapshot_with_sortition(
             last_winner_snapshot.block_height.saturating_sub(1),
@@ -4929,7 +4926,7 @@ impl NakamotoChainState {
             buf
         });
         let boot_code_address = boot_code_addr(config.mainnet);
-        let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
+        let boot_code_auth = boot_code_tx_auth(boot_code_address);
         let unlock_tx = StacksTransaction::new(
             version,
             boot_code_auth,

@@ -89,8 +89,8 @@ fn test_mempool_sync_2_peers() {
     let addr =
         StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0xff; 20])).unwrap();
 
-    let stacks_tip_ch = peer_1.network.stacks_tip.consensus_hash.clone();
-    let stacks_tip_bhh = peer_1.network.stacks_tip.block_hash.clone();
+    let stacks_tip_ch = peer_1.network.stacks_tip.consensus_hash;
+    let stacks_tip_bhh = peer_1.network.stacks_tip.block_hash;
 
     // old transactions
     let num_txs = 10;
@@ -124,7 +124,7 @@ fn test_mempool_sync_2_peers() {
         let tx_bytes = tx.serialize_to_vec();
         let origin_addr = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
         let tx_fee = tx.get_tx_fee();
 
@@ -137,7 +137,7 @@ fn test_mempool_sync_2_peers() {
             &stacks_tip_ch,
             &stacks_tip_bhh,
             true,
-            txid.clone(),
+            txid,
             tx_bytes,
             tx_fee,
             (num_blocks / 2) as u64,
@@ -171,8 +171,8 @@ fn test_mempool_sync_2_peers() {
         sn.block_height + 1
     };
 
-    let stacks_tip_ch = peer_1.network.stacks_tip.consensus_hash.clone();
-    let stacks_tip_bhh = peer_1.network.stacks_tip.block_hash.clone();
+    let stacks_tip_ch = peer_1.network.stacks_tip.consensus_hash;
+    let stacks_tip_bhh = peer_1.network.stacks_tip.block_hash;
 
     let mut txs = HashMap::new();
     let mut peer_1_mempool = peer_1.mempool.take().unwrap();
@@ -204,7 +204,7 @@ fn test_mempool_sync_2_peers() {
         let tx_bytes = tx.serialize_to_vec();
         let origin_addr = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
         let tx_fee = tx.get_tx_fee();
 
@@ -217,7 +217,7 @@ fn test_mempool_sync_2_peers() {
             &stacks_tip_ch,
             &stacks_tip_bhh,
             true,
-            txid.clone(),
+            txid,
             tx_bytes,
             tx_fee,
             num_blocks as u64,
@@ -355,8 +355,8 @@ fn test_mempool_sync_2_peers_paginated() {
     let addr =
         StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0xff; 20])).unwrap();
 
-    let stacks_tip_ch = peer_1.network.stacks_tip.consensus_hash.clone();
-    let stacks_tip_bhh = peer_1.network.stacks_tip.block_hash.clone();
+    let stacks_tip_ch = peer_1.network.stacks_tip.consensus_hash;
+    let stacks_tip_bhh = peer_1.network.stacks_tip.block_hash;
 
     // fill peer 1 with lots of transactions
     let mut txs = HashMap::new();
@@ -389,7 +389,7 @@ fn test_mempool_sync_2_peers_paginated() {
         let tx_bytes = tx.serialize_to_vec();
         let origin_addr = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
         let tx_fee = tx.get_tx_fee();
 
@@ -402,7 +402,7 @@ fn test_mempool_sync_2_peers_paginated() {
             &stacks_tip_ch,
             &stacks_tip_bhh,
             true,
-            txid.clone(),
+            txid,
             tx_bytes,
             tx_fee,
             num_blocks,
@@ -544,8 +544,8 @@ fn test_mempool_sync_2_peers_blacklisted() {
     let addr =
         StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0xff; 20])).unwrap();
 
-    let stacks_tip_ch = peer_1.network.stacks_tip.consensus_hash.clone();
-    let stacks_tip_bhh = peer_1.network.stacks_tip.block_hash.clone();
+    let stacks_tip_ch = peer_1.network.stacks_tip.consensus_hash;
+    let stacks_tip_bhh = peer_1.network.stacks_tip.block_hash;
 
     // fill peer 1 with lots of transactions
     let mut txs = HashMap::new();
@@ -579,7 +579,7 @@ fn test_mempool_sync_2_peers_blacklisted() {
         let tx_bytes = tx.serialize_to_vec();
         let origin_addr = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
         let tx_fee = tx.get_tx_fee();
 
@@ -592,7 +592,7 @@ fn test_mempool_sync_2_peers_blacklisted() {
             &stacks_tip_ch,
             &stacks_tip_bhh,
             true,
-            txid.clone(),
+            txid,
             tx_bytes,
             tx_fee,
             num_blocks,
@@ -753,8 +753,8 @@ fn test_mempool_sync_2_peers_problematic() {
     let addr =
         StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0xff; 20])).unwrap();
 
-    let stacks_tip_ch = peer_1.network.stacks_tip.consensus_hash.clone();
-    let stacks_tip_bhh = peer_1.network.stacks_tip.block_hash.clone();
+    let stacks_tip_ch = peer_1.network.stacks_tip.consensus_hash;
+    let stacks_tip_bhh = peer_1.network.stacks_tip.block_hash;
 
     // fill peer 1 with lots of transactions
     let mut txs = HashMap::new();
@@ -780,7 +780,7 @@ fn test_mempool_sync_2_peers_problematic() {
         let tx_bytes = tx.serialize_to_vec();
         let origin_addr = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
         let tx_fee = tx.get_tx_fee();
 
@@ -793,7 +793,7 @@ fn test_mempool_sync_2_peers_problematic() {
             &stacks_tip_ch,
             &stacks_tip_bhh,
             true,
-            txid.clone(),
+            txid,
             tx_bytes,
             tx_fee,
             num_blocks,
@@ -946,8 +946,8 @@ pub fn test_mempool_storage_nakamoto() {
         let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
         let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
-        tenure_change.tenure_consensus_hash = consensus_hash.clone();
-        tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+        tenure_change.tenure_consensus_hash = consensus_hash;
+        tenure_change.burn_view_consensus_hash = consensus_hash;
 
         let tenure_change_tx = peer
             .miner
@@ -1138,8 +1138,8 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
     let addr =
         StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0xff; 20])).unwrap();
 
-    let stacks_tip_ch = peer_1.network.stacks_tip.consensus_hash.clone();
-    let stacks_tip_bhh = peer_1.network.stacks_tip.block_hash.clone();
+    let stacks_tip_ch = peer_1.network.stacks_tip.consensus_hash;
+    let stacks_tip_bhh = peer_1.network.stacks_tip.block_hash;
 
     // find coinbase height
     let coinbase_height = NakamotoChainState::get_coinbase_height(
@@ -1180,7 +1180,7 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
         let tx_bytes = tx.serialize_to_vec();
         let origin_addr = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
         let tx_fee = tx.get_tx_fee();
 
@@ -1193,7 +1193,7 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
             &stacks_tip_ch,
             &stacks_tip_bhh,
             true,
-            txid.clone(),
+            txid,
             tx_bytes,
             tx_fee,
             coinbase_height,

@@ -260,11 +260,11 @@ impl<'a> TestRPC<'a> {
         )
         .unwrap();
 
-        let mut peer_1_config = TestPeerConfig::new(&format!("{}-peer1", test_name), 0, 0);
-        let mut peer_2_config = TestPeerConfig::new(&format!("{}-peer2", test_name), 0, 0);
+        let mut peer_1_config = TestPeerConfig::new(&format!("{test_name}-peer1"), 0, 0);
+        let mut peer_2_config = TestPeerConfig::new(&format!("{test_name}-peer2"), 0, 0);
 
-        peer_1_config.private_key = privk1.clone();
-        peer_2_config.private_key = privk2.clone();
+        peer_1_config.private_key = privk1;
+        peer_2_config.private_key = privk2;
 
         peer_1_config.connection_opts.read_only_call_limit = ExecutionCost {
             write_length: 0,
@@ -288,11 +288,11 @@ impl<'a> TestRPC<'a> {
 
         // stacker DBs get initialized thru reconfiguration when the above block gets processed
         peer_1_config.add_stacker_db(
-            QualifiedContractIdentifier::new(addr1.clone().into(), "hello-world".into()),
+            QualifiedContractIdentifier::new(addr1.into(), "hello-world".into()),
             StackerDBConfig::noop(),
         );
         peer_2_config.add_stacker_db(
-            QualifiedContractIdentifier::new(addr1.clone().into(), "hello-world".into()),
+            QualifiedContractIdentifier::new(addr1.into(), "hello-world".into()),
             StackerDBConfig::noop(),
         );
 
@@ -353,7 +353,7 @@ impl<'a> TestRPC<'a> {
         let mut tx_cc = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&privk1).unwrap(),
-            TransactionPayload::new_contract_call(addr1.clone(), "hello-world", "add-unit", vec![])
+            TransactionPayload::new_contract_call(addr1, "hello-world", "add-unit", vec![])
                 .unwrap(),
         );
 
@@ -407,7 +407,7 @@ impl<'a> TestRPC<'a> {
                 &tx,
                 &neighbor,
                 &[QualifiedContractIdentifier::new(
-                    addr1.clone().into(),
+                    addr1.into(),
                     "hello-world".into(),
                 )],
             )
@@ -492,7 +492,7 @@ impl<'a> TestRPC<'a> {
                 let sort_iconn = sortdb.index_handle_at_tip();
                 let mut microblock_builder = StacksMicroblockBuilder::new(
                     stacks_block.block_hash(),
-                    consensus_hash.clone(),
+                    consensus_hash,
                     peer_1.chainstate(),
                     &sort_iconn,
                     BlockBuilderSettings::max_value(),
@@ -542,11 +542,11 @@ impl<'a> TestRPC<'a> {
             let sortdb2 = peer_2.sortdb.take().unwrap();
             peer_1
                 .chainstate()
-                .reload_unconfirmed_state(&sortdb1.index_handle_at_tip(), canonical_tip.clone())
+                .reload_unconfirmed_state(&sortdb1.index_handle_at_tip(), canonical_tip)
                 .unwrap();
             peer_2
                 .chainstate()
-                .reload_unconfirmed_state(&sortdb2.index_handle_at_tip(), canonical_tip.clone())
+                .reload_unconfirmed_state(&sortdb2.index_handle_at_tip(), canonical_tip)
                 .unwrap();
             peer_1.sortdb = Some(sortdb1);
             peer_2.sortdb = Some(sortdb2);
@@ -593,7 +593,7 @@ impl<'a> TestRPC<'a> {
             let tx_bytes = tx.serialize_to_vec();
             let origin_addr = tx.origin_address();
             let origin_nonce = tx.get_origin_nonce();
-            let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+            let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
             let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
             let tx_fee = tx.get_tx_fee();
 
@@ -605,7 +605,7 @@ impl<'a> TestRPC<'a> {
                     &consensus_hash,
                     &stacks_block.block_hash(),
                     true,
-                    txid.clone(),
+                    txid,
                     tx_bytes,
                     tx_fee,
                     stacks_block.header.total_work.work,
@@ -662,7 +662,7 @@ impl<'a> TestRPC<'a> {
             content_hash: attachment.hash(),
             attachment_index: 123,
             stacks_block_height: 1,
-            index_block_hash: canonical_tip.clone(),
+            index_block_hash: canonical_tip,
             metadata: "000102030405".to_string(),
             contract_id: QualifiedContractIdentifier::parse("ST000000000000000000002AMW42H.bns")
                 .unwrap(),
@@ -910,8 +910,8 @@ impl<'a> TestRPC<'a> {
         assert_eq!(nakamoto_tip, other_nakamoto_tip);
 
         TestRPC {
-            privk1: peer.config.private_key.clone(),
-            privk2: other_peer.config.private_key.clone(),
+            privk1: peer.config.private_key,
+            privk2: other_peer.config.private_key,
             peer_1: peer,
             peer_2: other_peer,
             peer_1_indexer,
@@ -919,7 +919,7 @@ impl<'a> TestRPC<'a> {
             convo_1,
             convo_2,
             canonical_tip: nakamoto_tip.index_block_hash(),
-            consensus_hash: nakamoto_tip.consensus_hash.clone(),
+            consensus_hash: nakamoto_tip.consensus_hash,
             tip_hash: nakamoto_tip.anchored_header.block_hash(),
             tip_height: nakamoto_tip.stacks_block_height,
             microblock_tip_hash: BlockHeaderHash([0x00; 32]),
@@ -1140,8 +1140,8 @@ fn prefixed_opt_hex_serialization() {
         ]),
     ];
 
-    for test in tests_32b.iter() {
-        let inp = test.clone().map(BurnchainHeaderHash);
+    for test in tests_32b.into_iter() {
+        let inp = test.map(BurnchainHeaderHash);
         let mut out_buff = Vec::new();
         let mut serializer = serde_json::Serializer::new(&mut out_buff);
         prefix_opt_hex::serialize(&inp, &mut serializer).unwrap();
@@ -1204,8 +1204,8 @@ fn prefixed_hex_serialization() {
         ],
     ];
 
-    for test in tests_32b.iter() {
-        let inp = BurnchainHeaderHash(test.clone());
+    for test in tests_32b.into_iter() {
+        let inp = BurnchainHeaderHash(test);
         let mut out_buff = Vec::new();
         let mut serializer = serde_json::Serializer::new(&mut out_buff);
         prefix_hex::serialize(&inp, &mut serializer).unwrap();

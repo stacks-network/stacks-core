@@ -392,7 +392,7 @@ impl Txid {
     /// Create a Txid from the tx hash bytes used in bitcoin.
     /// This just reverses the inner bytes of the input.
     pub fn from_bitcoin_tx_hash(tx_hash: &Sha256dHash) -> Txid {
-        let mut txid_bytes = tx_hash.0.clone();
+        let mut txid_bytes = tx_hash.0;
         txid_bytes.reverse();
         Self(txid_bytes)
     }
@@ -476,16 +476,14 @@ impl TransactionAuthField {
 
     pub fn as_public_key(&self) -> Option<StacksPublicKey> {
         match *self {
-            TransactionAuthField::PublicKey(ref pubk) => Some(pubk.clone()),
+            TransactionAuthField::PublicKey(pubk) => Some(pubk),
             _ => None,
         }
     }
 
     pub fn as_signature(&self) -> Option<(TransactionPublicKeyEncoding, MessageSignature)> {
         match *self {
-            TransactionAuthField::Signature(ref key_fmt, ref sig) => {
-                Some((key_fmt.clone(), sig.clone()))
-            }
+            TransactionAuthField::Signature(key_fmt, sig) => Some((key_fmt, sig)),
             _ => None,
         }
     }
@@ -493,7 +491,7 @@ impl TransactionAuthField {
     // TODO: enforce u8; 32
     pub fn get_public_key(&self, sighash_bytes: &[u8]) -> Result<StacksPublicKey, net_error> {
         match *self {
-            TransactionAuthField::PublicKey(ref pubk) => Ok(pubk.clone()),
+            TransactionAuthField::PublicKey(pubk) => Ok(pubk),
             TransactionAuthField::Signature(ref key_fmt, ref sig) => {
                 let mut pubk = StacksPublicKey::recover_to_pubkey(sighash_bytes, sig)
                     .map_err(|e| net_error::VerifyingError(e.to_string()))?;
@@ -669,7 +667,7 @@ pub struct TransactionContractCall {
 
 impl TransactionContractCall {
     pub fn contract_identifier(&self) -> QualifiedContractIdentifier {
-        let standard_principal = StandardPrincipalData::from(self.address.clone());
+        let standard_principal = StandardPrincipalData::from(self.address);
         QualifiedContractIdentifier::new(standard_principal, self.contract_name.clone())
     }
 }
@@ -776,13 +774,13 @@ impl TenureChangePayload {
         num_blocks_so_far: u32,
     ) -> Self {
         TenureChangePayload {
-            tenure_consensus_hash: self.tenure_consensus_hash.clone(),
-            prev_tenure_consensus_hash: self.tenure_consensus_hash.clone(),
+            tenure_consensus_hash: self.tenure_consensus_hash,
+            prev_tenure_consensus_hash: self.tenure_consensus_hash,
             burn_view_consensus_hash,
             previous_tenure_end: last_tenure_block_id,
             previous_tenure_blocks: num_blocks_so_far,
             cause: TenureChangeCause::Extended,
-            pubkey_hash: self.pubkey_hash.clone(),
+            pubkey_hash: self.pubkey_hash,
         }
     }
 }
@@ -952,11 +950,11 @@ impl PostConditionPrincipal {
         match *self {
             PostConditionPrincipal::Origin => origin_principal.clone(),
             PostConditionPrincipal::Standard(ref addr) => {
-                PrincipalData::Standard(StandardPrincipalData::from(addr.clone()))
+                PrincipalData::Standard(StandardPrincipalData::from(*addr))
             }
             PostConditionPrincipal::Contract(ref addr, ref contract_name) => {
                 PrincipalData::Contract(QualifiedContractIdentifier::new(
-                    StandardPrincipalData::from(addr.clone()),
+                    StandardPrincipalData::from(*addr),
                     contract_name.clone(),
                 ))
             }
@@ -1133,7 +1131,7 @@ pub mod test {
         let hello_contract_name = "hello-contract-name";
         let hello_contract_body = "hello contract code body";
         let asset_info = AssetInfo {
-            contract_address: addr.clone(),
+            contract_address: addr,
             contract_name: contract_name.clone(),
             asset_name: asset_name.clone(),
         };
@@ -1141,7 +1139,7 @@ pub mod test {
         let mblock_header_1 = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
             tx_merkle_root: Sha512Trunc256Sum([1u8; 32]),
             signature: MessageSignature([2u8; 65]),
         };
@@ -1149,7 +1147,7 @@ pub mod test {
         let mblock_header_2 = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
             tx_merkle_root: Sha512Trunc256Sum([2u8; 32]),
             signature: MessageSignature([3u8; 65]),
         };
@@ -1290,7 +1288,7 @@ pub mod test {
                 vec![TransactionPostCondition::Fungible(
                     tx_pcp.clone(),
                     AssetInfo {
-                        contract_address: addr.clone(),
+                        contract_address: addr,
                         contract_name: contract_name.clone(),
                         asset_name: asset_name.clone(),
                     },
@@ -1300,7 +1298,7 @@ pub mod test {
                 vec![TransactionPostCondition::Nonfungible(
                     tx_pcp.clone(),
                     AssetInfo {
-                        contract_address: addr.clone(),
+                        contract_address: addr,
                         contract_name: contract_name.clone(),
                         asset_name: asset_name.clone(),
                     },
@@ -1316,7 +1314,7 @@ pub mod test {
                     TransactionPostCondition::Fungible(
                         tx_pcp.clone(),
                         AssetInfo {
-                            contract_address: addr.clone(),
+                            contract_address: addr,
                             contract_name: contract_name.clone(),
                             asset_name: asset_name.clone(),
                         },
@@ -1333,7 +1331,7 @@ pub mod test {
                     TransactionPostCondition::Nonfungible(
                         tx_pcp.clone(),
                         AssetInfo {
-                            contract_address: addr.clone(),
+                            contract_address: addr,
                             contract_name: contract_name.clone(),
                             asset_name: asset_name.clone(),
                         },
@@ -1345,7 +1343,7 @@ pub mod test {
                     TransactionPostCondition::Fungible(
                         tx_pcp.clone(),
                         AssetInfo {
-                            contract_address: addr.clone(),
+                            contract_address: addr,
                             contract_name: contract_name.clone(),
                             asset_name: asset_name.clone(),
                         },
@@ -1355,7 +1353,7 @@ pub mod test {
                     TransactionPostCondition::Nonfungible(
                         tx_pcp.clone(),
                         AssetInfo {
-                            contract_address: addr.clone(),
+                            contract_address: addr,
                             contract_name: contract_name.clone(),
                             asset_name: asset_name.clone(),
                         },
@@ -1372,7 +1370,7 @@ pub mod test {
                     TransactionPostCondition::Nonfungible(
                         tx_pcp.clone(),
                         AssetInfo {
-                            contract_address: addr.clone(),
+                            contract_address: addr,
                             contract_name: contract_name.clone(),
                             asset_name: asset_name.clone(),
                         },
@@ -1382,7 +1380,7 @@ pub mod test {
                     TransactionPostCondition::Fungible(
                         tx_pcp.clone(),
                         AssetInfo {
-                            contract_address: addr.clone(),
+                            contract_address: addr,
                             contract_name: contract_name.clone(),
                             asset_name: asset_name.clone(),
                         },
@@ -1514,11 +1512,11 @@ pub mod test {
                     let auth = tx_auth.clone();
 
                     let tx = StacksTransaction {
-                        version: (*version).clone(),
+                        version: *version,
                         chain_id,
                         auth,
-                        anchor_mode: (*anchor_mode).clone(),
-                        post_condition_mode: (*post_condition_mode).clone(),
+                        anchor_mode: *anchor_mode,
+                        post_condition_mode: *post_condition_mode,
                         post_conditions: tx_post_condition.clone(),
                         payload: tx_payload.clone(),
                     };
@@ -1660,7 +1658,7 @@ pub mod test {
             version: 0x00,
             chain_length: 107,
             burn_spent: 25000,
-            consensus_hash: MINER_BLOCK_CONSENSUS_HASH.clone(),
+            consensus_hash: MINER_BLOCK_CONSENSUS_HASH,
             parent_block_id: StacksBlockId::from_bytes(&[0x11; 32]).unwrap(),
             tx_merkle_root,
             state_index_root: TrieHash::from_hex(

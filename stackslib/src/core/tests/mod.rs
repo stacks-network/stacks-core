@@ -100,7 +100,7 @@ pub fn make_block(
             burn: 1,
         },
         proof: VRFProof::empty(),
-        parent_block: parent.1.clone(),
+        parent_block: parent.1,
         parent_microblock: BlockHeaderHash([0; 32]),
         parent_microblock_sequence: 0,
         tx_merkle_root: Sha512Trunc256Sum::empty(),
@@ -125,7 +125,7 @@ pub fn make_block(
         microblock_tail: None,
         index_root: TrieHash::from_empty_data(),
         stacks_block_height: block_height,
-        consensus_hash: block_consensus.clone(),
+        consensus_hash: block_consensus,
         burn_header_hash: BurnchainHeaderHash([0; 32]),
         burn_header_height: burn_height as u32,
         burn_header_timestamp: 0,
@@ -176,10 +176,7 @@ fn mempool_walk_over_fork() {
     let b_1 = make_block(
         &mut chainstate,
         ConsensusHash([0x1; 20]),
-        &(
-            FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            FIRST_STACKS_BLOCK_HASH.clone(),
-        ),
+        &(FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH),
         1,
         1,
     );
@@ -570,10 +567,7 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
     let b_1 = make_block(
         &mut chainstate,
         ConsensusHash([0x1; 20]),
-        &(
-            FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            FIRST_STACKS_BLOCK_HASH.clone(),
-        ),
+        &(FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH),
         1,
         1,
     );
@@ -764,10 +758,7 @@ fn test_iterate_candidates_skipped_transaction() {
     let b_1 = make_block(
         &mut chainstate,
         ConsensusHash([0x1; 20]),
-        &(
-            FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            FIRST_STACKS_BLOCK_HASH.clone(),
-        ),
+        &(FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH),
         1,
         1,
     );
@@ -877,10 +868,7 @@ fn test_iterate_candidates_processing_error_transaction() {
     let b_1 = make_block(
         &mut chainstate,
         ConsensusHash([0x1; 20]),
-        &(
-            FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            FIRST_STACKS_BLOCK_HASH.clone(),
-        ),
+        &(FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH),
         1,
         1,
     );
@@ -992,10 +980,7 @@ fn test_iterate_candidates_problematic_transaction() {
     let b_1 = make_block(
         &mut chainstate,
         ConsensusHash([0x1; 20]),
-        &(
-            FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            FIRST_STACKS_BLOCK_HASH.clone(),
-        ),
+        &(FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH),
         1,
         1,
     );
@@ -1107,10 +1092,7 @@ fn test_iterate_candidates_concurrent_write_lock() {
     let b_1 = make_block(
         &mut chainstate,
         ConsensusHash([0x1; 20]),
-        &(
-            FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            FIRST_STACKS_BLOCK_HASH.clone(),
-        ),
+        &(FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH),
         1,
         1,
     );
@@ -1142,13 +1124,13 @@ fn test_iterate_candidates_concurrent_write_lock() {
         if let Some(nonce) = expected_addr_nonces.get_mut(&origin_address) {
             *nonce = cmp::max(*nonce, origin_nonce);
         } else {
-            expected_addr_nonces.insert(origin_address.clone(), origin_nonce);
+            expected_addr_nonces.insert(origin_address, origin_nonce);
         }
 
         if let Some(nonce) = expected_addr_nonces.get_mut(&sponsor_address) {
             *nonce = cmp::max(*nonce, sponsor_nonce);
         } else {
-            expected_addr_nonces.insert(sponsor_address.clone(), sponsor_nonce);
+            expected_addr_nonces.insert(sponsor_address, sponsor_nonce);
         }
 
         tx.set_tx_fee(100);
@@ -1265,10 +1247,7 @@ fn mempool_do_not_replace_tx() {
     let b_1 = make_block(
         &mut chainstate,
         ConsensusHash([0x1; 20]),
-        &(
-            FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            FIRST_STACKS_BLOCK_HASH.clone(),
-        ),
+        &(FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH),
         1,
         1,
     );
@@ -1330,7 +1309,7 @@ fn mempool_do_not_replace_tx() {
 
     assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
 
-    let prior_txid = txid.clone();
+    let prior_txid = txid;
 
     // now, let's try inserting again, with a lower fee, but at a different block hash
     tx.set_tx_fee(100);
@@ -1804,7 +1783,7 @@ fn test_add_txs_bloom_filter() {
             let tx_bytes = tx.serialize_to_vec();
             let origin_addr = tx.origin_address();
             let origin_nonce = tx.get_origin_nonce();
-            let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+            let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
             let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
             let tx_fee = tx.get_tx_fee();
 
@@ -1910,7 +1889,7 @@ fn test_txtags() {
             let tx_bytes = tx.serialize_to_vec();
             let origin_addr = tx.origin_address();
             let origin_nonce = tx.get_origin_nonce();
-            let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+            let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
             let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
             let tx_fee = tx.get_tx_fee();
 
@@ -2002,7 +1981,7 @@ fn test_make_mempool_sync_data() {
                 let tx_bytes = tx.serialize_to_vec();
                 let origin_addr = tx.origin_address();
                 let origin_nonce = tx.get_origin_nonce();
-                let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+                let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
                 let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
                 let tx_fee = tx.get_tx_fee();
 
@@ -2013,7 +1992,7 @@ fn test_make_mempool_sync_data() {
                     &ConsensusHash([0x1 + (block_height as u8); 20]),
                     &BlockHeaderHash([0x2 + (block_height as u8); 32]),
                     false, // don't resolve the above chain tip since it doesn't exist
-                    txid.clone(),
+                    txid,
                     tx_bytes,
                     tx_fee,
                     block_height as u64,
@@ -2067,7 +2046,7 @@ fn test_make_mempool_sync_data() {
                         if bf.contains_raw(&txid.0) {
                             in_bf += 1;
                         }
-                        recent_set.insert(txid.clone());
+                        recent_set.insert(*txid);
                     }
 
                     eprintln!("in bloom filter: {}", in_bf);
@@ -2175,7 +2154,7 @@ fn test_find_next_missing_transactions() {
         let tx_bytes = tx.serialize_to_vec();
         let origin_addr = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
         let tx_fee = tx.get_tx_fee();
 
@@ -2186,7 +2165,7 @@ fn test_find_next_missing_transactions() {
             &ConsensusHash([0x1 + (block_height as u8); 20]),
             &BlockHeaderHash([0x2 + (block_height as u8); 32]),
             false, // don't resolve the above chain tip since it doesn't exist
-            txid.clone(),
+            txid,
             tx_bytes,
             tx_fee,
             block_height,
@@ -2205,7 +2184,7 @@ fn test_find_next_missing_transactions() {
 
     let mut txid_set = HashSet::new();
     for txid in txids.iter() {
-        txid_set.insert(txid.clone());
+        txid_set.insert(*txid);
     }
 
     eprintln!("Find next missing transactions");
@@ -2332,7 +2311,7 @@ fn test_find_next_missing_transactions() {
         }
 
         last_txid = mempool
-            .get_randomized_txid(&txs.last().clone().unwrap().txid())
+            .get_randomized_txid(&txs.last().unwrap().txid())
             .unwrap()
             .unwrap();
 
@@ -2371,7 +2350,7 @@ fn test_find_next_missing_transactions() {
         }
 
         last_txid = mempool
-            .get_randomized_txid(&txs.last().clone().unwrap().txid())
+            .get_randomized_txid(&txs.last().unwrap().txid())
             .unwrap()
             .unwrap();
 
@@ -2442,7 +2421,7 @@ fn test_drop_and_blacklist_txs_by_time() {
         let tx_bytes = tx.serialize_to_vec();
         let origin_addr = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
         let tx_fee = tx.get_tx_fee();
 
@@ -2453,7 +2432,7 @@ fn test_drop_and_blacklist_txs_by_time() {
             &ConsensusHash([0x1 + (block_height as u8); 20]),
             &BlockHeaderHash([0x2 + (block_height as u8); 32]),
             false, // don't resolve the above chain tip since it doesn't exist
-            txid.clone(),
+            txid,
             tx_bytes,
             tx_fee,
             block_height as u64,
@@ -2465,7 +2444,7 @@ fn test_drop_and_blacklist_txs_by_time() {
         )
         .unwrap();
 
-        eprintln!("Added {} {}", i, &txid);
+        eprintln!("Added {i} {txid}");
         txs.push(tx);
     }
     mempool_tx.commit().unwrap();
@@ -2559,7 +2538,7 @@ fn test_drop_and_blacklist_txs_by_size() {
         let tx_bytes = tx.serialize_to_vec();
         let origin_addr = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
         let tx_fee = tx.get_tx_fee();
 
@@ -2570,7 +2549,7 @@ fn test_drop_and_blacklist_txs_by_size() {
             &ConsensusHash([0x1 + (block_height as u8); 20]),
             &BlockHeaderHash([0x2 + (block_height as u8); 32]),
             false, // don't resolve the above chain tip since it doesn't exist
-            txid.clone(),
+            txid,
             tx_bytes,
             tx_fee,
             block_height as u64,
@@ -2640,10 +2619,7 @@ fn test_filter_txs_by_type() {
     let b_1 = make_block(
         &mut chainstate,
         ConsensusHash([0x1; 20]),
-        &(
-            FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            FIRST_STACKS_BLOCK_HASH.clone(),
-        ),
+        &(FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH),
         1,
         1,
     );
@@ -2672,7 +2648,7 @@ fn test_filter_txs_by_type() {
         let tx_bytes = tx.serialize_to_vec();
         let origin_addr = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
         let tx_fee = tx.get_tx_fee();
 
@@ -2685,7 +2661,7 @@ fn test_filter_txs_by_type() {
             &b_2.0,
             &b_2.1,
             true,
-            txid.clone(),
+            txid,
             tx_bytes,
             tx_fee,
             block_height as u64,

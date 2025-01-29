@@ -121,7 +121,7 @@ impl TestStacker {
         let signing_key = StacksPrivateKey::from_seed(signing_key_seed.as_slice());
         let stackers = (0..num_keys)
             .map(|index| TestStacker {
-                signer_private_key: signing_key.clone(),
+                signer_private_key: signing_key,
                 stacker_private_key: StacksPrivateKey::from_seed(&index.to_be_bytes()),
                 amount: Self::DEFAULT_STACKER_AMOUNT,
                 pox_addr: None,
@@ -149,10 +149,10 @@ impl TestStacker {
                 let pox_key = StacksPrivateKey::from_seed(&[*key_seed, *key_seed]);
                 let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&pox_key));
                 let pox_addr =
-                    PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes().clone());
+                    PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, *addr.bytes());
 
                 TestStacker {
-                    signer_private_key: signing_key.clone(),
+                    signer_private_key: signing_key,
                     stacker_private_key: StacksPrivateKey::from_seed(&index.to_be_bytes()),
                     amount: Self::DEFAULT_STACKER_AMOUNT,
                     pox_addr: Some(pox_addr),
@@ -189,7 +189,7 @@ impl TestBurnchainBlock {
         vrf_seed: VRFSeed,
         parent_is_shadow_block: bool,
     ) -> LeaderBlockCommitOp {
-        let tenure_id_as_block_hash = BlockHeaderHash(last_tenure_id.0.clone());
+        let tenure_id_as_block_hash = BlockHeaderHash(last_tenure_id.0);
         self.inner_add_block_commit(
             ic,
             miner,
@@ -207,7 +207,7 @@ impl TestBurnchainBlock {
 
 impl TestMiner {
     pub fn nakamoto_miner_key(&self) -> StacksPrivateKey {
-        self.privks[0].clone()
+        self.privks[0]
     }
 
     pub fn nakamoto_miner_hash160(&self) -> Hash160 {
@@ -432,11 +432,11 @@ impl TestStacksNode {
             // self.nakamoto_blocks that doesn't exist.  The caller needs to follow this call with a
             // call to self.add_nakamoto_tenure_blocks()
             self.nakamoto_commit_ops
-                .insert(last_tenure_id.clone(), self.nakamoto_blocks.len());
+                .insert(*last_tenure_id, self.nakamoto_blocks.len());
         } else {
             // this extends the last tenure
             self.nakamoto_commit_ops
-                .insert(last_tenure_id.clone(), self.nakamoto_blocks.len() - 1);
+                .insert(*last_tenure_id, self.nakamoto_blocks.len() - 1);
         }
         block_commit_op
     }
@@ -607,8 +607,8 @@ impl TestStacksNode {
         // the canonical tip unless overridden
         let (previous_tenure_end, previous_tenure_consensus_hash, previous_tenure_blocks) =
             if let Some(nakamoto_parent_tenure) = parent_nakamoto_tenure.as_ref() {
-                let start_block = nakamoto_parent_tenure.first().clone().unwrap();
-                let end_block = nakamoto_parent_tenure.last().clone().unwrap();
+                let start_block = nakamoto_parent_tenure.first().unwrap();
+                let end_block = nakamoto_parent_tenure.last().unwrap();
                 let tenure_len =
                     end_block.header.chain_length + 1 - start_block.header.chain_length;
                 (
@@ -643,11 +643,7 @@ impl TestStacksNode {
                         "Tenure length of epoch2 tenure {} is {}; tipped at {}",
                         &parent_block_snapshot.consensus_hash, 1, &last_tenure_id
                     );
-                    (
-                        last_tenure_id,
-                        parent_block_snapshot.consensus_hash.clone(),
-                        1,
-                    )
+                    (last_tenure_id, parent_block_snapshot.consensus_hash, 1)
                 }
             };
 
@@ -751,7 +747,7 @@ impl TestStacksNode {
             let mut parent_id_opt = None;
             for tx in txs.iter() {
                 if let TransactionPayload::TenureChange(payload) = &tx.payload {
-                    parent_id_opt = Some(payload.previous_tenure_end.clone());
+                    parent_id_opt = Some(payload.previous_tenure_end);
                 }
             }
 
@@ -804,7 +800,7 @@ impl TestStacksNode {
             let mut builder = if let Some(parent_tip) = parent_tip_opt {
                 NakamotoBlockBuilder::new(
                     &parent_tip,
-                    tenure_id_consensus_hash,
+                    *tenure_id_consensus_hash,
                     burn_tip.total_burn,
                     if block_count == 0 && tenure_change.is_some() {
                         tenure_change.as_ref()
@@ -891,7 +887,7 @@ impl TestStacksNode {
             );
 
             let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
-            let mut sort_handle = sortdb.index_handle(&sort_tip);
+            let mut sort_handle = sortdb.index_handle(sort_tip);
             let stacks_tip = sort_handle
                 .get_nakamoto_tip_block_id()?
                 .ok_or_else(|| ChainstateError::NoSuchBlockError)?;
@@ -1156,7 +1152,7 @@ impl TestPeer<'_> {
                 )
             } else {
                 // must be a genesis block (testing only!)
-                StacksBlockId(BOOT_BLOCK_HASH.0.clone())
+                StacksBlockId(BOOT_BLOCK_HASH.0)
             };
             (last_tenure_id, parent_opt, None)
         }
@@ -1216,7 +1212,7 @@ impl TestPeer<'_> {
             };
 
         let last_key = if let Some((ch, parent_tenure_start_block_id)) =
-            parent_consensus_hash_and_tenure_start_id_opt.clone()
+            parent_consensus_hash_and_tenure_start_id_opt
         {
             // it's possible that the parent was a shadow block.
             // if so, find the highest non-shadow ancestor's block-commit, so we can
@@ -1289,7 +1285,7 @@ impl TestPeer<'_> {
         );
 
         // patch up block-commit -- these blocks all mine off of genesis
-        if last_tenure_id == StacksBlockId(BOOT_BLOCK_HASH.0.clone()) {
+        if last_tenure_id == StacksBlockId(BOOT_BLOCK_HASH.0) {
             block_commit_op.parent_block_ptr = 0;
             block_commit_op.parent_vtxindex = 0;
         }
@@ -1623,7 +1619,7 @@ impl TestPeer<'_> {
 
         node.add_nakamoto_tenure_blocks(blocks.clone());
         for block in blocks.iter() {
-            let mut sort_handle = sortdb.index_handle(&tip);
+            let mut sort_handle = sortdb.index_handle(tip);
             let block_id = block.block_id();
             debug!("Process Nakamoto block {} ({:?}", &block_id, &block.header);
             let accepted = Relayer::process_new_nakamoto_block(
@@ -1738,11 +1734,11 @@ impl TestPeer<'_> {
     /// Load up all blocks from the given block back to the last tenure-change block-found tx
     fn load_nakamoto_tenure(
         chainstate: &StacksChainState,
-        tip_block_id: &StacksBlockId,
+        tip_block_id: StacksBlockId,
     ) -> Vec<NakamotoBlock> {
         // count up the number of blocks between `tip_block_id` and its ancestral tenure-change
         let mut ancestors = vec![];
-        let mut cursor = tip_block_id.clone();
+        let mut cursor = tip_block_id;
         loop {
             let block = chainstate
                 .nakamoto_blocks_db()
@@ -1750,7 +1746,7 @@ impl TestPeer<'_> {
                 .unwrap()
                 .unwrap()
                 .0;
-            cursor = block.header.parent_block_id.clone();
+            cursor = block.header.parent_block_id;
             let is_tenure_change = block.get_tenure_change_tx_payload().is_some();
             ancestors.push(block);
 
@@ -2118,7 +2114,7 @@ impl TestPeer<'_> {
 
         // get_nakamoto_tenure_length
         // compare the DB to the block's ancestors
-        let ancestors = Self::load_nakamoto_tenure(chainstate, &block.block_id());
+        let ancestors = Self::load_nakamoto_tenure(chainstate, block.block_id());
         assert!(!ancestors.is_empty());
         assert_eq!(
             ancestors.len(),
@@ -2251,7 +2247,7 @@ impl TestPeer<'_> {
 
             // this fails if we change any tenure-identifying fields
             let mut bad_tenure_tx = tenure_tx.clone();
-            bad_tenure_tx.tenure_consensus_hash = invalid_tenure_sn.consensus_hash.clone();
+            bad_tenure_tx.tenure_consensus_hash = invalid_tenure_sn.consensus_hash;
             assert!(NakamotoChainState::check_nakamoto_tenure(
                 &mut chainstate.index_conn(),
                 &mut sortdb.index_handle_at_tip(),
@@ -2262,7 +2258,7 @@ impl TestPeer<'_> {
             .is_none());
 
             let mut bad_tenure_tx = tenure_tx.clone();
-            bad_tenure_tx.prev_tenure_consensus_hash = invalid_tenure_sn.consensus_hash.clone();
+            bad_tenure_tx.prev_tenure_consensus_hash = invalid_tenure_sn.consensus_hash;
             assert!(NakamotoChainState::check_nakamoto_tenure(
                 &mut chainstate.index_conn(),
                 &mut sortdb.index_handle_at_tip(),
@@ -2273,7 +2269,7 @@ impl TestPeer<'_> {
             .is_none());
 
             let mut bad_tenure_tx = tenure_tx.clone();
-            bad_tenure_tx.burn_view_consensus_hash = invalid_tenure_sn.consensus_hash.clone();
+            bad_tenure_tx.burn_view_consensus_hash = invalid_tenure_sn.consensus_hash;
             assert!(NakamotoChainState::check_nakamoto_tenure(
                 &mut chainstate.index_conn(),
                 &mut sortdb.index_handle_at_tip(),
@@ -2285,7 +2281,7 @@ impl TestPeer<'_> {
 
             let mut bad_tenure_tx = tenure_tx.clone();
             bad_tenure_tx.previous_tenure_end =
-                StacksBlockId(prev_tenure_sn.winning_stacks_block_hash.clone().0);
+                StacksBlockId(prev_tenure_sn.winning_stacks_block_hash.0);
             assert!(NakamotoChainState::check_nakamoto_tenure(
                 &mut chainstate.index_conn(),
                 &mut sortdb.index_handle_at_tip(),

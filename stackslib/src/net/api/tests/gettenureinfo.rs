@@ -38,7 +38,7 @@ use crate::net::{ProtocolFamily, TipRequest};
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let request = StacksHttpRequest::new_get_nakamoto_tenure_info(addr.into());
 
@@ -65,8 +65,8 @@ fn test_try_make_response() {
     let test_observer = TestEventObserver::new();
     let rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
 
-    let nakamoto_chain_tip = rpc_test.canonical_tip.clone();
-    let consensus_hash = rpc_test.consensus_hash.clone();
+    let nakamoto_chain_tip = rpc_test.canonical_tip;
+    let consensus_hash = rpc_test.consensus_hash;
 
     let mut requests = vec![];
 

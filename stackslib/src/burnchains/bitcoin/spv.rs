@@ -1413,8 +1413,7 @@ mod test {
 
         {
             let mut tx = spv_client.tx_begin().unwrap();
-            SpvClient::insert_block_header(&mut tx, first_regtest_header.header.clone(), 1)
-                .unwrap();
+            SpvClient::insert_block_header(&mut tx, first_regtest_header.header, 1).unwrap();
             tx.commit().unwrap();
         }
 

@@ -87,7 +87,7 @@ impl StacksHeaderStream {
         let blocks_path = chainstate.blocks_path.clone();
 
         Ok(StacksHeaderStream {
-            index_block_hash: tip.clone(),
+            index_block_hash: *tip,
             offset: 0,
             total_bytes: 0,
             num_headers,

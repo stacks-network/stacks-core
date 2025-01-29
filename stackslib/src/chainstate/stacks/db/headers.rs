@@ -355,10 +355,10 @@ impl StacksChainState {
     ///     * Nth ancestor of index_block_hash
     pub fn get_ancestor_index_hashes(
         conn: &Connection,
-        index_block_hash: &StacksBlockId,
+        index_block_hash: StacksBlockId,
         count: u64,
     ) -> Result<Vec<StacksBlockId>, Error> {
-        let mut ret = vec![index_block_hash.clone()];
+        let mut ret = vec![index_block_hash];
         for _i in 0..count {
             let parent_index_block_hash = {
                 let cur_index_block_hash = ret.last().expect("FATAL: empty list of ancestors");

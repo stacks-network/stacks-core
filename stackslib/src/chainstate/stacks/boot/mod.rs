@@ -153,10 +153,10 @@ fn make_testnet_cost_voting() -> String {
         )
 }
 
-pub fn make_contract_id(addr: &StacksAddress, name: &str) -> QualifiedContractIdentifier {
+pub fn make_contract_id(addr: StacksAddress, name: String) -> QualifiedContractIdentifier {
     QualifiedContractIdentifier::new(
-        StandardPrincipalData::from(addr.clone()),
-        ContractName::try_from(name.to_string()).unwrap(),
+        StandardPrincipalData::from(addr),
+        ContractName::try_from(name).unwrap(),
     )
 }
 
@@ -743,12 +743,11 @@ impl StacksChainState {
         for entry in entries.iter() {
             let signing_key = entry
                 .signer
-                .clone()
                 .expect("BUG: signing keys should all be set in reward-sets with any signing keys");
             if let Some(existing_entry) = signer_set.get_mut(&signing_key) {
                 *existing_entry += entry.amount_stacked;
             } else {
-                signer_set.insert(signing_key.clone(), entry.amount_stacked);
+                signer_set.insert(signing_key, entry.amount_stacked);
             };
         }
 
@@ -1697,17 +1696,17 @@ pub mod test {
         value
     }
 
-    fn contract_id(addr: &StacksAddress, name: &str) -> QualifiedContractIdentifier {
+    fn contract_id(addr: StacksAddress, name: String) -> QualifiedContractIdentifier {
         QualifiedContractIdentifier::new(
-            StandardPrincipalData::from(addr.clone()),
-            ContractName::try_from(name.to_string()).unwrap(),
+            StandardPrincipalData::from(addr),
+            ContractName::try_from(name).unwrap(),
         )
     }
 
     fn eval_contract_at_tip(
         peer: &mut TestPeer,
-        addr: &StacksAddress,
-        name: &str,
+        addr: StacksAddress,
+        name: String,
         expr: &str,
     ) -> Value {
         let sortdb = peer.sortdb.take().unwrap();
@@ -1751,7 +1750,7 @@ pub mod test {
         let data = if let Some(d) = value_opt.expect_optional().unwrap() {
             d
         } else {
-            warn!("get_stacker_info: No PoX info for {}", addr);
+            warn!("get_stacker_info: No PoX info for {addr}");
             return None;
         };
 
@@ -2373,7 +2372,7 @@ pub mod test {
     pub fn make_pox_4_delegate_stack_increase(
         key: &StacksPrivateKey,
         nonce: u64,
-        stacker: &PrincipalData,
+        stacker: PrincipalData,
         pox_addr: PoxAddress,
         amount: u128,
     ) -> StacksTransaction {
@@ -2382,7 +2381,7 @@ pub mod test {
             POX_4_NAME,
             "delegate-stack-increase",
             vec![
-                Value::Principal(stacker.clone()),
+                Value::Principal(stacker),
                 Value::Tuple(pox_addr.as_clarity_tuple().unwrap()),
                 Value::UInt(amount),
             ],
@@ -2599,7 +2598,7 @@ pub mod test {
 
         let bad_lock_period_short = generator(
             amount,
-            make_pox_addr(AddressHashMode::SerializeP2PKH, addr_bytes.clone()),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, addr_bytes),
             0,
             nonce,
         );
@@ -2608,7 +2607,7 @@ pub mod test {
 
         let bad_lock_period_long = generator(
             amount,
-            make_pox_addr(AddressHashMode::SerializeP2PKH, addr_bytes.clone()),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, addr_bytes),
             13,
             nonce,
         );
@@ -2617,7 +2616,7 @@ pub mod test {
 
         let bad_amount = generator(
             0,
-            make_pox_addr(AddressHashMode::SerializeP2PKH, addr_bytes.clone()),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, addr_bytes),
             1,
             nonce,
         );
@@ -2690,7 +2689,7 @@ pub mod test {
     fn make_pox_lockup_contract_call(
         key: &StacksPrivateKey,
         nonce: u64,
-        contract_addr: &StacksAddress,
+        contract_addr: StacksAddress,
         name: &str,
         amount: u128,
         addr_version: AddressHashMode,
@@ -2698,7 +2697,7 @@ pub mod test {
         lock_period: u128,
     ) -> StacksTransaction {
         let payload = TransactionPayload::new_contract_call(
-            contract_addr.clone(),
+            contract_addr,
             name,
             "do-contract-lockup",
             vec![
@@ -2715,12 +2714,12 @@ pub mod test {
     fn make_pox_withdraw_stx_contract_call(
         key: &StacksPrivateKey,
         nonce: u64,
-        contract_addr: &StacksAddress,
+        contract_addr: StacksAddress,
         name: &str,
         amount: u128,
     ) -> StacksTransaction {
         let payload = TransactionPayload::new_contract_call(
-            contract_addr.clone(),
+            contract_addr,
             name,
             "withdraw-stx",
             vec![Value::UInt(amount)],
@@ -2807,7 +2806,7 @@ pub mod test {
     fn test_liquid_ustx() {
         let mut burnchain = Burnchain::default_unittest(
             0,
-            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+            BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
         );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
@@ -2837,7 +2836,7 @@ pub mod test {
                     let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
 
                     if tip.total_burn > 0 && missed_initial_blocks == 0 {
-                        eprintln!("Missed initial blocks: {}", missed_initial_blocks);
+                        eprintln!("Missed initial blocks: {missed_initial_blocks}");
                         missed_initial_blocks = tip.block_height;
                     }
 
@@ -2885,7 +2884,7 @@ pub mod test {
     fn test_lockups() {
         let burnchain = Burnchain::default_unittest(
             0,
-            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+            BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
         );
         let mut peer_config = TestPeerConfig::new(function_name!(), 2000, 2001);
         let alice = StacksAddress::from_string("STVK1K405H6SK9NKJAP32GHYHDJ98MMNP8Y6Z9N0").unwrap();
@@ -2964,7 +2963,7 @@ pub mod test {
                     let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
 
                     if tip.total_burn > 0 && missed_initial_blocks == 0 {
-                        eprintln!("Missed initial blocks: {}", missed_initial_blocks);
+                        eprintln!("Missed initial blocks: {missed_initial_blocks}");
                         missed_initial_blocks = tip.block_height;
                     }
 
@@ -3001,7 +3000,7 @@ pub mod test {
     fn test_hook_special_contract_call() {
         let mut burnchain = Burnchain::default_unittest(
             0,
-            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+            BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
         );
         burnchain.pox_constants.reward_cycle_length = 3;
         burnchain.pox_constants.prepare_length = 1;
@@ -3052,7 +3051,7 @@ pub mod test {
 
                     // the above tx _should_ error, because alice hasn't authorized that contract to stack
                     //   try again with auth -> deauth -> auth
-                    let alice_contract: Value = contract_id(&key_to_stacks_addr(&alice), "nested-stacker").into();
+                    let alice_contract: Value = contract_id(key_to_stacks_addr(&alice), "nested-stacker".into()).into();
 
                     let alice_allowance = make_pox_contract_call(&alice, 3, "allow-contract-caller", vec![alice_contract.clone(), Value::none()]);
                     let alice_disallowance = make_pox_contract_call(&alice, 4, "disallow-contract-caller", vec![alice_contract.clone()]);
@@ -3116,7 +3115,7 @@ pub mod test {
     fn test_liquid_ustx_burns() {
         let mut burnchain = Burnchain::default_unittest(
             0,
-            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+            BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
         );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
@@ -3225,7 +3224,7 @@ pub mod test {
     fn test_pox_lockup_single_tx_sender() {
         let mut burnchain = Burnchain::default_unittest(
             0,
-            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+            BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
         );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
@@ -3437,7 +3436,7 @@ pub mod test {
     fn test_pox_lockup_single_tx_sender_100() {
         let mut burnchain = Burnchain::default_unittest(
             0,
-            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+            BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
         );
         burnchain.pox_constants.reward_cycle_length = 4; // 4 reward slots
         burnchain.pox_constants.prepare_length = 2;
@@ -3697,7 +3696,7 @@ pub mod test {
     fn test_pox_lockup_contract() {
         let mut burnchain = Burnchain::default_unittest(
             0,
-            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+            BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
         );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
@@ -3741,7 +3740,7 @@ pub mod test {
                         let alice_stack = make_pox_lockup_contract_call(
                             &alice,
                             0,
-                            &key_to_stacks_addr(&bob),
+                            key_to_stacks_addr(&bob),
                             "do-lockup",
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
@@ -3879,7 +3878,8 @@ pub mod test {
                         let (amount_ustx, pox_addr, lock_period, first_reward_cycle) =
                             get_stacker_info(
                                 &mut peer,
-                                &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                                &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into())
+                                    .into(),
                             )
                             .unwrap();
                         eprintln!("\nContract: {} uSTX stacked for {} cycle(s); addr is {:?}; first reward cycle is {}\n", amount_ustx, lock_period, &pox_addr, first_reward_cycle);
@@ -3905,14 +3905,14 @@ pub mod test {
                         // contract's address's tokens are locked
                         let contract_balance = get_balance(
                             &mut peer,
-                            &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                            &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
                         );
                         assert_eq!(contract_balance, 0);
 
                         // Lock-up is consistent with stacker state
                         let contract_account = get_account(
                             &mut peer,
-                            &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                            &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
                         );
                         assert_eq!(contract_account.stx_balance.amount_unlocked(), 0);
                         assert_eq!(
@@ -3929,7 +3929,7 @@ pub mod test {
                         // no longer locked
                         let contract_balance = get_balance(
                             &mut peer,
-                            &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                            &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
                         );
                         assert_eq!(contract_balance, 1024 * POX_THRESHOLD_STEPS_USTX);
 
@@ -3938,7 +3938,7 @@ pub mod test {
                         // Lock-up is lazy -- state has not been updated
                         let contract_account = get_account(
                             &mut peer,
-                            &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                            &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
                         );
                         assert_eq!(contract_account.stx_balance.amount_unlocked(), 0);
                         assert_eq!(
@@ -3964,7 +3964,7 @@ pub mod test {
     fn test_pox_lockup_multi_tx_sender() {
         let mut burnchain = Burnchain::default_unittest(
             0,
-            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+            BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
         );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
@@ -4180,7 +4180,7 @@ pub mod test {
     fn test_pox_lockup_no_double_stacking() {
         let mut burnchain = Burnchain::default_unittest(
             0,
-            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+            BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
         );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
@@ -4224,13 +4224,13 @@ pub mod test {
 
                     // let's make some allowances for contract-calls through smart contracts
                     //   so that the tests in tenure_id == 3 don't just fail on permission checks
-                    let alice_test = contract_id(&key_to_stacks_addr(&alice), "alice-test").into();
+                    let alice_test = contract_id(key_to_stacks_addr(&alice), "alice-test".into()).into();
                     let alice_allowance = make_pox_contract_call(&alice, 2, "allow-contract-caller", vec![alice_test, Value::none()]);
 
-                    let bob_test = contract_id(&key_to_stacks_addr(&bob), "bob-test").into();
+                    let bob_test = contract_id(key_to_stacks_addr(&bob), "bob-test".into()).into();
                     let bob_allowance = make_pox_contract_call(&bob, 0, "allow-contract-caller", vec![bob_test, Value::none()]);
 
-                    let charlie_test = contract_id(&key_to_stacks_addr(&charlie), "charlie-test").into();
+                    let charlie_test = contract_id(key_to_stacks_addr(&charlie), "charlie-test".into()).into();
                     let charlie_allowance = make_pox_contract_call(&charlie, 0, "allow-contract-caller", vec![charlie_test, Value::none()]);
 
                     block_txs.push(alice_allowance);
@@ -4331,26 +4331,25 @@ pub mod test {
                     .unwrap() as u128;
 
                 eprintln!(
-                    "\nalice reward cycle: {}\ncur reward cycle: {}\n",
-                    first_reward_cycle, cur_reward_cycle
+                    "\nalice reward cycle: {first_reward_cycle}\ncur reward cycle: {cur_reward_cycle}\n"
                 );
             } else if tenure_id == 2 {
                 let alice_test_result = eval_contract_at_tip(
                     &mut peer,
-                    &key_to_stacks_addr(&alice),
-                    "alice-test",
+                    key_to_stacks_addr(&alice),
+                    "alice-test".into(),
                     "(var-get test-run)",
                 );
                 let bob_test_result = eval_contract_at_tip(
                     &mut peer,
-                    &key_to_stacks_addr(&bob),
-                    "bob-test",
+                    key_to_stacks_addr(&bob),
+                    "bob-test".into(),
                     "(var-get test-run)",
                 );
                 let charlie_test_result = eval_contract_at_tip(
                     &mut peer,
-                    &key_to_stacks_addr(&charlie),
-                    "charlie-test",
+                    key_to_stacks_addr(&charlie),
+                    "charlie-test".into(),
                     "(var-get test-run)",
                 );
 
@@ -4360,26 +4359,25 @@ pub mod test {
 
                 let alice_test_result = eval_contract_at_tip(
                     &mut peer,
-                    &key_to_stacks_addr(&alice),
-                    "alice-test",
+                    key_to_stacks_addr(&alice),
+                    "alice-test".into(),
                     "(var-get test-result)",
                 );
                 let bob_test_result = eval_contract_at_tip(
                     &mut peer,
-                    &key_to_stacks_addr(&bob),
-                    "bob-test",
+                    key_to_stacks_addr(&bob),
+                    "bob-test".into(),
                     "(var-get test-result)",
                 );
                 let charlie_test_result = eval_contract_at_tip(
                     &mut peer,
-                    &key_to_stacks_addr(&charlie),
-                    "charlie-test",
+                    key_to_stacks_addr(&charlie),
+                    "charlie-test".into(),
                     "(var-get test-result)",
                 );
 
                 eprintln!(
-                    "\nalice: {:?}, bob: {:?}, charlie: {:?}\n",
-                    &alice_test_result, &bob_test_result, &charlie_test_result
+                    "\nalice: {alice_test_result:?}, bob: {bob_test_result:?}, charlie: {charlie_test_result:?}\n"
                 );
 
                 assert_eq!(bob_test_result, Value::Int(-1));
@@ -4393,7 +4391,7 @@ pub mod test {
     fn test_pox_lockup_single_tx_sender_unlock() {
         let mut burnchain = Burnchain::default_unittest(
             0,
-            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+            BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
         );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
@@ -4634,7 +4632,7 @@ pub mod test {
     fn test_pox_lockup_unlock_relock() {
         let mut burnchain = Burnchain::default_unittest(
             0,
-            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+            BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
         );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
@@ -4698,7 +4696,7 @@ pub mod test {
                         let charlie_stack = make_pox_lockup_contract_call(
                             &charlie,
                             0,
-                            &key_to_stacks_addr(&bob),
+                            key_to_stacks_addr(&bob),
                             "do-lockup",
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
@@ -4710,7 +4708,7 @@ pub mod test {
                         let charlie_withdraw = make_pox_withdraw_stx_contract_call(
                             &charlie,
                             1,
-                            &key_to_stacks_addr(&bob),
+                            key_to_stacks_addr(&bob),
                             "do-lockup",
                             1024 * POX_THRESHOLD_STEPS_USTX,
                         );
@@ -4732,7 +4730,7 @@ pub mod test {
                         let charlie_stack = make_pox_lockup_contract_call(
                             &charlie,
                             2,
-                            &key_to_stacks_addr(&bob),
+                            key_to_stacks_addr(&bob),
                             "do-lockup",
                             512 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
@@ -4776,7 +4774,7 @@ pub mod test {
             let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
             let charlie_contract_balance = get_balance(
                 &mut peer,
-                &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
             );
             let charlie_balance = get_balance(&mut peer, &key_to_stacks_addr(&charlie).into());
 
@@ -4890,7 +4888,7 @@ pub mod test {
                     let (amount_ustx, pox_addr, lock_period, first_pox_reward_cycle) =
                         get_stacker_info(
                             &mut peer,
-                            &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                            &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
                         )
                         .unwrap();
                     eprintln!("\nCharlie: {} uSTX stacked for {} cycle(s); addr is {:?}; first reward cycle is {}\n", amount_ustx, lock_period, &pox_addr, first_reward_cycle);
@@ -4941,7 +4939,7 @@ pub mod test {
                     // Lock-up is consistent with stacker state
                     let charlie_account = get_account(
                         &mut peer,
-                        &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                        &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
                     );
                     assert_eq!(charlie_account.stx_balance.amount_unlocked(), 0);
                     assert_eq!(
@@ -4968,7 +4966,7 @@ pub mod test {
                     );
                     assert!(get_stacker_info(
                         &mut peer,
-                        &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                        &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
                     )
                     .is_none());
 
@@ -4995,7 +4993,7 @@ pub mod test {
                     // Unlock is lazy
                     let charlie_account = get_account(
                         &mut peer,
-                        &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                        &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
                     );
                     assert_eq!(charlie_account.stx_balance.amount_unlocked(), 0);
                     assert_eq!(charlie_account.stx_balance.amount_locked(), 0);
@@ -5017,7 +5015,7 @@ pub mod test {
                     let (amount_ustx, pox_addr, lock_period, first_pox_reward_cycle) =
                         get_stacker_info(
                             &mut peer,
-                            &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                            &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
                         )
                         .unwrap();
                     eprintln!("\nCharlie: {} uSTX stacked for {} cycle(s); addr is {:?}; second reward cycle is {}\n", amount_ustx, lock_period, &pox_addr, second_reward_cycle);
@@ -5073,7 +5071,7 @@ pub mod test {
                     // Lock-up is consistent with stacker state
                     let charlie_account = get_account(
                         &mut peer,
-                        &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                        &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
                     );
                     assert_eq!(charlie_account.stx_balance.amount_unlocked(), 0);
                     assert_eq!(
@@ -5101,7 +5099,7 @@ pub mod test {
                     );
                     assert!(get_stacker_info(
                         &mut peer,
-                        &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                        &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
                     )
                     .is_none());
 
@@ -5131,7 +5129,7 @@ pub mod test {
                     // Unlock is lazy
                     let charlie_account = get_account(
                         &mut peer,
-                        &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                        &make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
                     );
                     assert_eq!(charlie_account.stx_balance.amount_unlocked(), 0);
                     assert_eq!(
@@ -5159,7 +5157,7 @@ pub mod test {
     fn test_pox_lockup_unlock_on_spend() {
         let mut burnchain = Burnchain::default_unittest(
             0,
-            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+            BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
         );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
@@ -5252,7 +5250,7 @@ pub mod test {
                         let alice_stack = make_pox_lockup_contract_call(
                             &alice,
                             1,
-                            &key_to_stacks_addr(&bob),
+                            key_to_stacks_addr(&bob),
                             "do-lockup",
                             512 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2SH,
@@ -5316,7 +5314,7 @@ pub mod test {
                         let alice_withdraw_tx = make_pox_withdraw_stx_contract_call(
                             &alice,
                             4,
-                            &key_to_stacks_addr(&bob),
+                            key_to_stacks_addr(&bob),
                             "do-lockup",
                             1,
                         );
@@ -5360,7 +5358,7 @@ pub mod test {
                 key_to_stacks_addr(&bob).into(),
                 key_to_stacks_addr(&charlie).into(),
                 key_to_stacks_addr(&danielle).into(),
-                make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
+                make_contract_id(key_to_stacks_addr(&bob), "do-lockup".into()).into(),
             ];
 
             let expected_pox_addrs: Vec<(u8, Hash160)> = vec![
@@ -5478,7 +5476,7 @@ pub mod test {
                 // alice did _NOT_ spend
                 assert!(get_contract(
                     &mut peer,
-                    &make_contract_id(&key_to_stacks_addr(&alice), "alice-try-spend"),
+                    &make_contract_id(key_to_stacks_addr(&alice), "alice-try-spend".into()),
                 )
                 .is_none());
             }
@@ -5606,7 +5604,7 @@ pub mod test {
     fn test_pox_lockup_reject() {
         let mut burnchain = Burnchain::default_unittest(
             0,
-            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+            BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
         );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
@@ -5659,7 +5657,7 @@ pub mod test {
 
                     // allowance for the contract-caller
                     // this _should_ be included in the block
-                    let charlie_contract: Value = contract_id(&key_to_stacks_addr(&charlie), "charlie-try-stack").into();
+                    let charlie_contract: Value = contract_id(key_to_stacks_addr(&charlie), "charlie-try-stack".into()).into();
                     let charlie_allowance = make_pox_contract_call(&charlie, 1, "allow-contract-caller",
                                                                    vec![charlie_contract, Value::none()]);
                     block_txs.push(charlie_allowance);
@@ -5787,8 +5785,8 @@ pub mod test {
                     // charlie's contract did NOT materialize
                     let result = eval_contract_at_tip(
                         &mut peer,
-                        &key_to_stacks_addr(&charlie),
-                        "charlie-try-stack",
+                        key_to_stacks_addr(&charlie),
+                        "charlie-try-stack".into(),
                         "(var-get test-passed)",
                     )
                     .expect_bool()
@@ -5796,8 +5794,8 @@ pub mod test {
                     assert!(result, "charlie-try-stack test should be `true`");
                     let result = eval_contract_at_tip(
                         &mut peer,
-                        &key_to_stacks_addr(&charlie),
-                        "charlie-try-reject",
+                        key_to_stacks_addr(&charlie),
+                        "charlie-try-reject".into(),
                         "(var-get test-passed)",
                     )
                     .expect_bool()
@@ -5805,8 +5803,8 @@ pub mod test {
                     assert!(result, "charlie-try-reject test should be `true`");
                     let result = eval_contract_at_tip(
                         &mut peer,
-                        &key_to_stacks_addr(&alice),
-                        "alice-try-reject",
+                        key_to_stacks_addr(&alice),
+                        "alice-try-reject".into(),
                         "(var-get test-passed)",
                     )
                     .expect_bool()
@@ -5832,7 +5830,7 @@ pub mod test {
 
                     let (amount_ustx, pox_addr, lock_period, first_reward_cycle) =
                         get_stacker_info(&mut peer, &key_to_stacks_addr(&alice).into()).unwrap();
-                    eprintln!("\nAlice: {} uSTX stacked for {} cycle(s); addr is {:?}; first reward cycle is {}\n", amount_ustx, lock_period, &pox_addr, first_reward_cycle);
+                    eprintln!("\nAlice: {amount_ustx} uSTX stacked for {lock_period} cycle(s); addr is {pox_addr:?}; first reward cycle is {first_reward_cycle}\n");
 
                     if cur_reward_cycle == alice_reward_cycle {
                         assert_eq!(

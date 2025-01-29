@@ -86,8 +86,8 @@ impl<T: MarfTrieId> TrieCacheState<T> {
         trieptr: &TriePtr,
     ) -> Option<(TrieNodeType, TrieHash)> {
         match (
-            self.load_node(block_id, trieptr),
-            self.load_node_hash(block_id, trieptr),
+            self.load_node(block_id, *trieptr),
+            self.load_node_hash(block_id, *trieptr),
         ) {
             (Some(node), Some(hash)) => Some((node, hash)),
             _ => None,
@@ -95,16 +95,16 @@ impl<T: MarfTrieId> TrieCacheState<T> {
     }
 
     /// Obtain a possibly-cached node
-    pub fn load_node(&self, block_id: u32, trieptr: &TriePtr) -> Option<TrieNodeType> {
+    pub fn load_node(&self, block_id: u32, trieptr: TriePtr) -> Option<TrieNodeType> {
         self.node_cache
-            .get(&TrieNodeAddr(block_id, trieptr.clone()))
+            .get(&TrieNodeAddr(block_id, trieptr))
             .cloned()
     }
 
     /// Obtain a possibly-cached node hash
-    pub fn load_node_hash(&self, block_id: u32, trieptr: &TriePtr) -> Option<TrieHash> {
+    pub fn load_node_hash(&self, block_id: u32, trieptr: TriePtr) -> Option<TrieHash> {
         self.hash_cache
-            .get(&TrieNodeAddr(block_id, trieptr.clone()))
+            .get(&TrieNodeAddr(block_id, trieptr))
             .cloned()
     }
 
@@ -116,7 +116,7 @@ impl<T: MarfTrieId> TrieCacheState<T> {
         node: TrieNodeType,
         hash: TrieHash,
     ) {
-        self.store_node(block_id, trieptr.clone(), node);
+        self.store_node(block_id, trieptr, node);
         self.store_node_hash(block_id, trieptr, hash)
     }
 
@@ -217,7 +217,7 @@ impl<T: MarfTrieId> TrieCache<T> {
         if let TrieCache::Noop(_) = self {
             None
         } else {
-            self.state_mut().load_node(block_id, trieptr)
+            self.state_mut().load_node(block_id, *trieptr)
         }
     }
 
@@ -240,7 +240,7 @@ impl<T: MarfTrieId> TrieCache<T> {
         if let TrieCache::Noop(_) = self {
             None
         } else {
-            self.state_mut().load_node_hash(block_id, trieptr)
+            self.state_mut().load_node_hash(block_id, *trieptr)
         }
     }
 
@@ -415,13 +415,13 @@ pub mod test {
                 for b in (0..block_data.len()).step_by(batch_size) {
                     let batch = &block_data[b..cmp::min(block_data.len(), b + batch_size)];
                     let keys: Vec<_> = batch.iter().map(|(k, _)| k.clone()).collect();
-                    let values = batch.iter().map(|(_, v)| v.clone()).collect();
+                    let values = batch.iter().map(|(_, v)| *v).collect();
                     marf.insert_batch(&keys, values).unwrap();
                 }
             } else {
                 for (key, value) in block_data.iter() {
                     let path = TrieHash::from_key(key);
-                    let leaf = TrieLeaf::from_value(&[], value.clone());
+                    let leaf = TrieLeaf::from_value(&[], *value);
                     marf.insert_raw(path, leaf).unwrap();
                 }
             }
@@ -444,7 +444,7 @@ pub mod test {
             test_debug!("Read block {}", i);
             for (key, value) in block_data.iter() {
                 let path = TrieHash::from_key(key);
-                let marf_leaf = TrieLeaf::from_value(&[], value.clone());
+                let marf_leaf = TrieLeaf::from_value(&[], *value);
 
                 let read_time = SystemTime::now();
                 let leaf = MARF::get_path(

@@ -59,9 +59,9 @@ impl Preamble {
         peer_version: u32,
         network_id: u32,
         block_height: u64,
-        burn_block_hash: &BurnchainHeaderHash,
+        burn_block_hash: BurnchainHeaderHash,
         stable_block_height: u64,
-        stable_burn_block_hash: &BurnchainHeaderHash,
+        stable_burn_block_hash: BurnchainHeaderHash,
         payload_len: u32,
     ) -> Preamble {
         Preamble {
@@ -69,9 +69,9 @@ impl Preamble {
             network_id,
             seq: 0,
             burn_block_height: block_height,
-            burn_block_hash: burn_block_hash.clone(),
+            burn_block_hash,
             burn_stable_block_height: stable_block_height,
-            burn_stable_block_hash: stable_burn_block_hash.clone(),
+            burn_stable_block_hash: stable_burn_block_hash,
             additional_data: 0,
             signature: MessageSignature::empty(),
             payload_len,
@@ -89,7 +89,7 @@ impl Preamble {
         let mut sha2 = Sha512_256::new();
 
         // serialize the premable with a blank signature
-        let old_signature = self.signature.clone();
+        let old_signature = self.signature;
         self.signature = MessageSignature::empty();
 
         let mut preamble_bits = vec![];
@@ -120,7 +120,7 @@ impl Preamble {
         let mut sha2 = Sha512_256::new();
 
         // serialize the preamble with a blank signature
-        let sig_bits = self.signature.clone();
+        let sig_bits = self.signature;
         self.signature = MessageSignature::empty();
 
         let mut preamble_bits = vec![];
@@ -525,7 +525,7 @@ impl StacksMessageCodec for BlocksData {
                 ));
             }
 
-            present.insert(consensus_hash.clone());
+            present.insert(consensus_hash);
         }
 
         Ok(BlocksData { blocks })
@@ -557,7 +557,7 @@ impl StacksMessageCodec for MicroblocksData {
 impl NeighborAddress {
     pub fn from_neighbor(n: &Neighbor) -> NeighborAddress {
         NeighborAddress {
-            addrbytes: n.addr.addrbytes.clone(),
+            addrbytes: n.addr.addrbytes,
             port: n.addr.port,
             public_key_hash: Hash160::from_node_public_key(&n.public_key),
         }
@@ -602,8 +602,8 @@ impl StacksMessageCodec for NeighborsData {
 impl HandshakeData {
     pub fn from_local_peer(local_peer: &LocalPeer) -> HandshakeData {
         let (addrbytes, port) = match local_peer.public_ip_address {
-            Some((ref public_addrbytes, ref port)) => (public_addrbytes.clone(), *port),
-            None => (local_peer.addrbytes.clone(), local_peer.port),
+            Some((public_addrbytes, port)) => (public_addrbytes, port),
+            None => (local_peer.addrbytes, local_peer.port),
         };
 
         // transmit the empty string if our data URL compels us to bind to the anynet address
@@ -1034,7 +1034,7 @@ impl StacksMessageType {
                 "Blocks({:?})",
                 m.blocks
                     .iter()
-                    .map(|BlocksDatum(ch, blk)| (ch.clone(), blk.block_hash()))
+                    .map(|BlocksDatum(ch, blk)| (*ch, blk.block_hash()))
                     .collect::<Vec<(ConsensusHash, BlockHeaderHash)>>()
             ),
             StacksMessageType::Microblocks(ref m) => format!(
@@ -1366,9 +1366,9 @@ impl StacksMessage {
         peer_version: u32,
         network_id: u32,
         block_height: u64,
-        burn_header_hash: &BurnchainHeaderHash,
+        burn_header_hash: BurnchainHeaderHash,
         stable_block_height: u64,
-        stable_burn_header_hash: &BurnchainHeaderHash,
+        stable_burn_header_hash: BurnchainHeaderHash,
         message: StacksMessageType,
     ) -> StacksMessage {
         let preamble = Preamble::new(
@@ -1398,19 +1398,19 @@ impl StacksMessage {
             peer_version,
             network_id,
             chain_view.burn_block_height,
-            &chain_view.burn_block_hash,
+            chain_view.burn_block_hash,
             chain_view.burn_stable_block_height,
-            &chain_view.burn_stable_block_hash,
+            chain_view.burn_stable_block_hash,
             message,
         )
     }
 
     /// represent as neighbor key
-    pub fn to_neighbor_key(&self, addrbytes: &PeerAddress, port: u16) -> NeighborKey {
+    pub fn to_neighbor_key(&self, addrbytes: PeerAddress, port: u16) -> NeighborKey {
         NeighborKey {
             peer_version: self.preamble.peer_version,
             network_id: self.preamble.network_id,
-            addrbytes: addrbytes.clone(),
+            addrbytes: addrbytes,
             port,
         }
     }
@@ -2784,9 +2784,9 @@ pub mod test {
             PEER_VERSION_TESTNET,
             0x9abcdef0,
             12345,
-            &BurnchainHeaderHash([0x11; 32]),
+            BurnchainHeaderHash([0x11; 32]),
             12339,
-            &BurnchainHeaderHash([0x22; 32]),
+            BurnchainHeaderHash([0x22; 32]),
             StacksMessageType::Ping(PingData { nonce: 0x01020304 }),
         );
 

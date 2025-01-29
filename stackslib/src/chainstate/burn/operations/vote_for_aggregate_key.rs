@@ -43,11 +43,11 @@ impl VoteForAggregateKeyOp {
     pub fn from_tx(
         block_header: &BurnchainBlockHeader,
         tx: &BurnchainTransaction,
-        sender: &StacksAddress,
+        sender: StacksAddress,
     ) -> Result<VoteForAggregateKeyOp, op_error> {
         VoteForAggregateKeyOp::parse_from_tx(
             block_header.block_height,
-            &block_header.block_hash,
+            block_header.block_hash,
             tx,
             sender,
         )
@@ -131,9 +131,9 @@ impl VoteForAggregateKeyOp {
 
     pub fn parse_from_tx(
         block_height: u64,
-        block_hash: &BurnchainHeaderHash,
+        block_hash: BurnchainHeaderHash,
         tx: &BurnchainTransaction,
-        sender: &StacksAddress,
+        sender: StacksAddress,
     ) -> Result<VoteForAggregateKeyOp, op_error> {
         let outputs = tx.get_recipients();
 
@@ -159,7 +159,7 @@ impl VoteForAggregateKeyOp {
         let signer_key = VoteForAggregateKeyOp::get_sender_pubkey(tx)?;
 
         Ok(VoteForAggregateKeyOp {
-            sender: sender.clone(),
+            sender,
             signer_index: data.signer_index,
             aggregate_key: data.aggregate_key,
             round: data.round,
@@ -168,7 +168,7 @@ impl VoteForAggregateKeyOp {
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
             block_height,
-            burn_header_hash: block_hash.clone(),
+            burn_header_hash: block_hash,
         })
     }
 
@@ -271,9 +271,9 @@ mod tests {
         let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let vote_op = VoteForAggregateKeyOp::parse_from_tx(
             1000,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             &BurnchainTransaction::Bitcoin(tx),
-            &sender,
+            sender,
         )
         .expect("Failed to parse vote tx");
 
@@ -324,9 +324,9 @@ mod tests {
         let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let vote_op = VoteForAggregateKeyOp::parse_from_tx(
             1000,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             &BurnchainTransaction::Bitcoin(tx),
-            &sender,
+            sender,
         )
         .expect("Failed to parse vote tx");
 
@@ -366,9 +366,9 @@ mod tests {
         let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let vote_op = VoteForAggregateKeyOp::parse_from_tx(
             1000,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             &BurnchainTransaction::Bitcoin(tx),
-            &sender,
+            sender,
         )
         .expect("Failed to parse vote tx");
 

@@ -46,7 +46,7 @@ use crate::util_lib::db::DBConn;
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let request = StacksHttpRequest::new_getmicroblocks_unconfirmed(
         addr.into(),
@@ -114,7 +114,7 @@ fn test_try_make_response() {
 
     // get the unconfirmed stream starting at the 5th microblock
     let request =
-        StacksHttpRequest::new_getmicroblocks_unconfirmed(addr.into(), index_block_hash.clone(), 5);
+        StacksHttpRequest::new_getmicroblocks_unconfirmed(addr.into(), index_block_hash, 5);
     requests.push(request);
 
     // get an unconfirmed stream for a non-existant block

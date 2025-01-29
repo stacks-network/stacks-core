@@ -54,7 +54,7 @@ fn new_attachment_instance_from(
     block_height: u64,
 ) -> AttachmentInstance {
     AttachmentInstance {
-        content_hash: attachment.hash().clone(),
+        content_hash: attachment.hash(),
         attachment_index,
         stacks_block_height: block_height,
         index_block_hash: StacksBlockId([block_height as u8; 32]),
@@ -91,7 +91,7 @@ fn new_peers(peers: Vec<(&str, u32, u32)>) -> HashMap<UrlString, ReliabilityRepo
 #[cfg(test)]
 fn new_attachment_request(
     sources: Vec<(&str, u32, u32)>,
-    content_hash: &Hash160,
+    content_hash: Hash160,
     block_height: u64,
 ) -> AttachmentRequest {
     let sources = {
@@ -104,7 +104,7 @@ fn new_attachment_request(
     };
     AttachmentRequest {
         sources,
-        content_hash: content_hash.clone(),
+        content_hash,
         stacks_block_height: block_height,
         canonical_stacks_tip_height: Some(block_height),
     }
@@ -177,7 +177,7 @@ fn test_attachment_instance_parsing() {
     let attachment_instance_1 = AttachmentInstance::try_new_from_value(
         &value_1,
         &contract_id,
-        index_block_hash.clone(),
+        index_block_hash,
         stacks_block_height,
         Txid([0; 32]),
         Some(stacks_block_height),
@@ -204,7 +204,7 @@ fn test_attachment_instance_parsing() {
     let attachment_instance_2 = AttachmentInstance::try_new_from_value(
         &value_2,
         &contract_id,
-        index_block_hash.clone(),
+        index_block_hash,
         stacks_block_height,
         Txid([0; 32]),
         Some(stacks_block_height),
@@ -231,7 +231,7 @@ fn test_attachment_instance_parsing() {
     let attachment_instance_3 = AttachmentInstance::try_new_from_value(
         &value_3,
         &contract_id,
-        index_block_hash.clone(),
+        index_block_hash,
         stacks_block_height,
         Txid([0; 32]),
         Some(stacks_block_height),
@@ -289,7 +289,7 @@ fn test_attachment_instance_parsing() {
         assert!(AttachmentInstance::try_new_from_value(
             value,
             &contract_id,
-            index_block_hash.clone(),
+            index_block_hash,
             stacks_block_height,
             Txid([0; 32]),
             Some(stacks_block_height)
@@ -428,7 +428,7 @@ fn test_attachment_requests_ordering() {
             ("http://localhost:20443", 2, 2),
             ("http://localhost:40443", 0, 1),
         ],
-        &attachment_1.hash(),
+        attachment_1.hash(),
         10,
     );
 
@@ -438,19 +438,19 @@ fn test_attachment_requests_ordering() {
             ("http://localhost:40443", 0, 1),
             ("http://localhost:30443", 0, 1),
         ],
-        &attachment_2.hash(),
+        attachment_2.hash(),
         10,
     );
 
     let attachment_3_request = new_attachment_request(
         vec![("http://localhost:30443", 0, 1)],
-        &attachment_3.hash(),
+        attachment_3.hash(),
         10,
     );
 
     let attachment_4_request = new_attachment_request(
         vec![("http://localhost:50443", 4, 4)],
-        &attachment_4.hash(),
+        attachment_4.hash(),
         10,
     );
 

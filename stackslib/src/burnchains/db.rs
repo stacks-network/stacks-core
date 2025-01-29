@@ -917,8 +917,8 @@ impl BurnchainDBTransaction<'_> {
         for op in block_ops.iter() {
             if let BlockstackOperationType::LeaderBlockCommit(ref opdata) = op {
                 let bcm = BlockCommitMetadata {
-                    burn_block_hash: block_header.block_hash.clone(),
-                    txid: opdata.txid.clone(),
+                    burn_block_hash: block_header.block_hash,
+                    txid: opdata.txid,
                     block_height: opdata.block_height,
                     vtxindex: opdata.vtxindex,
                     // NOTE: these fields are filled in by the subsequent call.
@@ -1048,7 +1048,7 @@ impl BurnchainDB {
 
             let first_block_header = BurnchainBlockHeader {
                 block_height: burnchain.first_block_height,
-                block_hash: burnchain.first_block_hash.clone(),
+                block_hash: burnchain.first_block_hash,
                 timestamp: burnchain.first_block_timestamp.into(),
                 num_txs: 0,
                 parent_block_hash: BurnchainHeaderHash::sentinel(),
@@ -1066,8 +1066,8 @@ impl BurnchainDB {
                 burnchain.first_block_timestamp as u64,
             );
             let first_snapshot_commit_metadata = BlockCommitMetadata {
-                burn_block_hash: first_snapshot.burn_header_hash.clone(),
-                txid: first_snapshot.winning_block_txid.clone(),
+                burn_block_hash: first_snapshot.burn_header_hash,
+                txid: first_snapshot.winning_block_txid,
                 block_height: first_snapshot.block_height,
                 vtxindex: 0,
                 affirmation_id: 0,
@@ -1153,7 +1153,7 @@ impl BurnchainDB {
         let block_ops_qry = "SELECT DISTINCT * FROM burnchain_db_block_ops WHERE block_hash = ?";
 
         let block_header = query_row(conn, block_header_qry, params![block])?
-            .ok_or_else(|| BurnchainError::UnknownBlock(block.clone()))?;
+            .ok_or_else(|| BurnchainError::UnknownBlock(*block))?;
         let block_ops = query_rows(conn, block_ops_qry, params![block])?;
 
         Ok(BurnchainBlockData {
@@ -1236,7 +1236,7 @@ impl BurnchainDB {
             );
             if let Some(classified_tx) = result {
                 if let BlockstackOperationType::PreStx(pre_stx_op) = classified_tx {
-                    pre_stx_ops.insert(pre_stx_op.txid.clone(), pre_stx_op);
+                    pre_stx_ops.insert(pre_stx_op.txid, pre_stx_op);
                 } else {
                     ops.push(classified_tx);
                 }
@@ -1675,8 +1675,8 @@ impl BurnchainDB {
             if let Some(metadata) =
                 BurnchainDB::get_canonical_anchor_block_commit_metadata(conn, indexer, rc)?
             {
-                let bhh = metadata.burn_block_hash.clone();
-                let txid = metadata.txid.clone();
+                let bhh = metadata.burn_block_hash;
+                let txid = metadata.txid;
                 let commit = BurnchainDB::get_block_commit(conn, &bhh, &txid)?
                     .expect("FATAL: have block-commit metadata but not block-commit");
                 let present = unconfirmed_oracle(commit, metadata);

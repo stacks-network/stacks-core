@@ -694,7 +694,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
@@ -1154,7 +1154,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
@@ -1447,7 +1447,7 @@ fn delegate_stack_increase() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
@@ -1482,11 +1482,11 @@ fn delegate_stack_increase() {
 
     let alice = keys.pop().unwrap();
     let alice_address = key_to_stacks_addr(&alice);
-    let alice_principal = PrincipalData::from(alice_address.clone());
+    let alice_principal = PrincipalData::from(alice_address);
     let bob = keys.pop().unwrap();
     let bob_address = key_to_stacks_addr(&bob);
-    let bob_principal = PrincipalData::from(bob_address.clone());
-    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes().clone());
+    let bob_principal = PrincipalData::from(bob_address);
+    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, *bob_address.bytes());
     let mut alice_nonce = 0;
     let mut bob_nonce = 0;
 
@@ -1803,7 +1803,7 @@ fn stack_increase() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
@@ -1838,7 +1838,7 @@ fn stack_increase() {
 
     let alice = keys.pop().unwrap();
     let alice_address = key_to_stacks_addr(&alice);
-    let alice_principal = PrincipalData::from(alice_address.clone());
+    let alice_principal = PrincipalData::from(alice_address);
     let mut alice_nonce = 0;
 
     let mut coinbase_nonce = 0;
@@ -2050,7 +2050,7 @@ fn test_lock_period_invariant_extend_transition() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
@@ -2212,7 +2212,7 @@ fn test_pox_extend_transition_pox_2() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
@@ -2655,7 +2655,7 @@ fn test_delegate_extend_transition_pox_2() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
@@ -2789,7 +2789,7 @@ fn test_delegate_extend_transition_pox_2() {
         "delegate-stx",
         vec![
             Value::UInt(LOCKUP_AMT),
-            PrincipalData::from(charlie_address.clone()).into(),
+            PrincipalData::from(charlie_address).into(),
             Value::none(),
             Value::none(),
         ],
@@ -2800,12 +2800,9 @@ fn test_delegate_extend_transition_pox_2() {
         0,
         "delegate-stack-stx",
         vec![
-            PrincipalData::from(alice_address.clone()).into(),
+            PrincipalData::from(alice_address).into(),
             Value::UInt(LOCKUP_AMT),
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
             Value::UInt(tip.block_height as u128),
             Value::UInt(4),
         ],
@@ -2817,10 +2814,7 @@ fn test_delegate_extend_transition_pox_2() {
         1,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
             Value::UInt(EXPECTED_ALICE_FIRST_REWARD_CYCLE),
         ],
     );
@@ -2830,10 +2824,7 @@ fn test_delegate_extend_transition_pox_2() {
         2,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
             Value::UInt(EXPECTED_ALICE_FIRST_REWARD_CYCLE + 1),
         ],
     );
@@ -2843,10 +2834,7 @@ fn test_delegate_extend_transition_pox_2() {
         3,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
             Value::UInt(EXPECTED_ALICE_FIRST_REWARD_CYCLE + 2),
         ],
     );
@@ -2856,10 +2844,7 @@ fn test_delegate_extend_transition_pox_2() {
         4,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
             Value::UInt(EXPECTED_ALICE_FIRST_REWARD_CYCLE + 3),
         ],
     );
@@ -2937,7 +2922,7 @@ fn test_delegate_extend_transition_pox_2() {
         "delegate-stx",
         vec![
             Value::UInt(2048 * POX_THRESHOLD_STEPS_USTX),
-            PrincipalData::from(charlie_address.clone()).into(),
+            PrincipalData::from(charlie_address).into(),
             Value::none(),
             Value::none(),
         ],
@@ -2949,7 +2934,7 @@ fn test_delegate_extend_transition_pox_2() {
         "delegate-stx",
         vec![
             Value::UInt(2048 * POX_THRESHOLD_STEPS_USTX),
-            PrincipalData::from(charlie_address.clone()).into(),
+            PrincipalData::from(charlie_address).into(),
             Value::none(),
             Value::none(),
         ],
@@ -2960,12 +2945,9 @@ fn test_delegate_extend_transition_pox_2() {
         5,
         "delegate-stack-stx",
         vec![
-            PrincipalData::from(bob_address.clone()).into(),
+            PrincipalData::from(bob_address).into(),
             Value::UInt(LOCKUP_AMT),
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
             Value::UInt(tip.block_height as u128),
             Value::UInt(3),
         ],
@@ -2977,11 +2959,8 @@ fn test_delegate_extend_transition_pox_2() {
         6,
         "delegate-stack-extend",
         vec![
-            PrincipalData::from(alice_address.clone()).into(),
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            PrincipalData::from(alice_address).into(),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
             Value::UInt(6),
         ],
     );
@@ -2994,10 +2973,7 @@ fn test_delegate_extend_transition_pox_2() {
         7,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
             Value::UInt(first_v2_cycle as u128),
         ],
     );
@@ -3007,10 +2983,7 @@ fn test_delegate_extend_transition_pox_2() {
         8,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
             Value::UInt(first_v2_cycle as u128 + 1),
         ],
     );
@@ -3020,10 +2993,7 @@ fn test_delegate_extend_transition_pox_2() {
         9,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
             Value::UInt(first_v2_cycle as u128 + 2),
         ],
     );
@@ -3044,8 +3014,8 @@ fn test_delegate_extend_transition_pox_2() {
         &mut coinbase_nonce,
     );
     alice_rewards_to_v2_start_checks(tip_index_block, &mut peer);
-    let alice_principal = alice_address.clone().into();
-    let bob_principal = bob_address.clone().into();
+    let alice_principal = alice_address.into();
+    let bob_principal = bob_address.into();
     let StackingStateCheckData {
         first_cycle: alice_first_cycle,
         lock_period: alice_lock_period,
@@ -3086,11 +3056,8 @@ fn test_delegate_extend_transition_pox_2() {
         10,
         "delegate-stack-extend",
         vec![
-            PrincipalData::from(bob_address.clone()).into(),
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            PrincipalData::from(bob_address).into(),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
             Value::UInt(1),
         ],
     );
@@ -3100,10 +3067,7 @@ fn test_delegate_extend_transition_pox_2() {
         11,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
             Value::UInt(first_v2_cycle as u128 + 3),
         ],
     );
@@ -3168,11 +3132,8 @@ fn test_delegate_extend_transition_pox_2() {
         12,
         "delegate-stack-extend",
         vec![
-            PrincipalData::from(bob_address.clone()).into(),
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            PrincipalData::from(bob_address).into(),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
             Value::UInt(1),
         ],
     );
@@ -3408,7 +3369,7 @@ fn test_pox_2_getters() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
@@ -3470,7 +3431,7 @@ fn test_pox_2_getters() {
         "delegate-stx",
         vec![
             Value::UInt(LOCKUP_AMT),
-            PrincipalData::from(charlie_address.clone()).into(),
+            PrincipalData::from(charlie_address).into(),
             Value::none(),
             Value::none(),
         ],
@@ -3482,12 +3443,9 @@ fn test_pox_2_getters() {
         0,
         "delegate-stack-stx",
         vec![
-            PrincipalData::from(bob_address.clone()).into(),
+            PrincipalData::from(bob_address).into(),
             Value::UInt(LOCKUP_AMT),
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
             Value::UInt(tip.block_height as u128),
             Value::UInt(4),
         ],
@@ -3498,10 +3456,7 @@ fn test_pox_2_getters() {
         1,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
             Value::UInt(cur_reward_cycle as u128),
         ],
     );
@@ -3511,10 +3466,7 @@ fn test_pox_2_getters() {
         2,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
             Value::UInt(cur_reward_cycle as u128 + 1),
         ],
     );
@@ -3524,10 +3476,7 @@ fn test_pox_2_getters() {
         3,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
             Value::UInt(cur_reward_cycle as u128 + 2),
         ],
     );
@@ -3702,7 +3651,7 @@ fn test_pox_2_getters() {
 fn test_get_pox_addrs() {
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 4; // 4 reward slots
     burnchain.pox_constants.prepare_length = 2;
@@ -3973,7 +3922,7 @@ fn test_get_pox_addrs() {
 fn test_stack_with_segwit() {
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 4; // 4 reward slots
     burnchain.pox_constants.prepare_length = 2;
@@ -4288,7 +4237,7 @@ fn test_pox_2_delegate_stx_addr_validation() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
@@ -4341,11 +4290,11 @@ fn test_pox_2_delegate_stx_addr_validation() {
         "delegate-stx",
         vec![
             Value::UInt(LOCKUP_AMT),
-            PrincipalData::from(charlie_address.clone()).into(),
+            PrincipalData::from(charlie_address).into(),
             Value::none(),
             Value::some(make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                alice_address.bytes().clone(),
+                *alice_address.bytes(),
             ))
             .unwrap(),
         ],
@@ -4374,7 +4323,7 @@ fn test_pox_2_delegate_stx_addr_validation() {
         "delegate-stx",
         vec![
             Value::UInt(LOCKUP_AMT),
-            PrincipalData::from(charlie_address.clone()).into(),
+            PrincipalData::from(charlie_address).into(),
             Value::none(),
             Value::some(bob_bad_pox_addr).unwrap(),
         ],
@@ -4449,10 +4398,7 @@ fn test_pox_2_delegate_stx_addr_validation() {
 
     assert_eq!(
         alice_pox_addr,
-        make_pox_addr(
-            AddressHashMode::SerializeP2PKH,
-            alice_address.bytes().clone(),
-        )
+        make_pox_addr(AddressHashMode::SerializeP2PKH, *alice_address.bytes(),)
     );
 }
 
@@ -4473,7 +4419,7 @@ fn stack_aggregation_increase() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
@@ -4508,21 +4454,18 @@ fn stack_aggregation_increase() {
 
     let alice = keys.pop().unwrap();
     let alice_address = key_to_stacks_addr(&alice);
-    let alice_principal = PrincipalData::from(alice_address.clone());
+    let alice_principal = PrincipalData::from(alice_address);
     let bob = keys.pop().unwrap();
     let bob_address = key_to_stacks_addr(&bob);
-    let bob_principal = PrincipalData::from(bob_address.clone());
-    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes().clone());
+    let bob_principal = PrincipalData::from(bob_address);
+    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, *bob_address.bytes());
     let charlie = keys.pop().unwrap();
     let charlie_address = key_to_stacks_addr(&charlie);
-    let charlie_pox_addr = make_pox_addr(
-        AddressHashMode::SerializeP2PKH,
-        charlie_address.bytes().clone(),
-    );
+    let charlie_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes());
     let dan = keys.pop().unwrap();
     let dan_address = key_to_stacks_addr(&dan);
-    let dan_principal = PrincipalData::from(dan_address.clone());
-    let dan_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, dan_address.bytes().clone());
+    let dan_principal = PrincipalData::from(dan_address);
+    let dan_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, *dan_address.bytes());
     let alice_nonce = 0;
     let mut bob_nonce = 0;
     let mut charlie_nonce = 0;
@@ -4576,7 +4519,7 @@ fn stack_aggregation_increase() {
         &dan,
         dan_nonce,
         dan_stack_amount,
-        PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, dan_address.bytes().clone()),
+        PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, *dan_address.bytes()),
         12,
         tip.block_height,
     );
@@ -4923,7 +4866,7 @@ fn stack_in_both_pox1_and_pox2() {
 
     let mut burnchain = Burnchain::default_unittest(
         0,
-        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
@@ -4938,7 +4881,7 @@ fn stack_in_both_pox1_and_pox2() {
 
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    eprintln!("First v2 cycle = {}", first_v2_cycle);
+    eprintln!("First v2 cycle = {first_v2_cycle}");
 
     let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
 
@@ -4958,14 +4901,11 @@ fn stack_in_both_pox1_and_pox2() {
 
     let alice = keys.pop().unwrap();
     let alice_address = key_to_stacks_addr(&alice);
-    let alice_pox_addr = make_pox_addr(
-        AddressHashMode::SerializeP2PKH,
-        alice_address.bytes().clone(),
-    );
+    let alice_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, *alice_address.bytes());
 
     let bob = keys.pop().unwrap();
     let bob_address = key_to_stacks_addr(&bob);
-    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes().clone());
+    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, *bob_address.bytes());
 
     let mut alice_nonce = 0;
     let mut bob_nonce = 0;

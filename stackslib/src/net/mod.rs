@@ -809,7 +809,7 @@ impl<'a> StacksNodeState<'a> {
                         }
                     }
                 }
-                TipRequest::SpecificTip(tip) => Ok(tip.clone()),
+                TipRequest::SpecificTip(tip) => Ok(tip),
                 TipRequest::UseLatestAnchoredTip => {
                     match NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb) {
                         Ok(Some(tip)) => Ok(StacksBlockId::new(
@@ -1386,7 +1386,7 @@ impl NeighborKey {
         NeighborKey {
             peer_version,
             network_id,
-            addrbytes: na.addrbytes.clone(),
+            addrbytes: na.addrbytes,
             port: na.port,
         }
     }
@@ -1725,7 +1725,7 @@ impl NetworkResult {
             .values()
             .map(|msgs| {
                 msgs.iter()
-                    .map(|msg| msg.preamble.signature.clone())
+                    .map(|msg| msg.preamble.signature)
                     .collect::<HashSet<_>>()
             })
             .fold(HashSet::new(), |mut acc, next| {
@@ -1958,7 +1958,7 @@ impl NetworkResult {
                 (
                     (
                         chunk.contract_id.clone(),
-                        chunk.rc_consensus_hash.clone(),
+                        chunk.rc_consensus_hash,
                         chunk.chunk_data.slot_id,
                     ),
                     chunk.chunk_data.slot_version,
@@ -1979,7 +1979,7 @@ impl NetworkResult {
             }
             if let Some(version) = newer_stackerdb_chunk_versions.get(&(
                 push_chunk.contract_id.clone(),
-                push_chunk.rc_consensus_hash.clone(),
+                push_chunk.rc_consensus_hash,
                 push_chunk.chunk_data.slot_id,
             )) {
                 let retain = push_chunk.chunk_data.slot_version > *version;
@@ -2008,7 +2008,7 @@ impl NetworkResult {
             }
             if let Some(version) = newer_stackerdb_chunk_versions.get(&(
                 push_chunk.contract_id.clone(),
-                push_chunk.rc_consensus_hash.clone(),
+                push_chunk.rc_consensus_hash,
                 push_chunk.chunk_data.slot_id,
             )) {
                 let retain = push_chunk.chunk_data.slot_version > *version;
@@ -2378,7 +2378,7 @@ pub mod test {
             }
             match self.read_error {
                 Some(ref e) => {
-                    return Err(io::Error::from((*e).clone()));
+                    return Err(io::Error::from(*e));
                 }
                 None => {}
             }
@@ -2405,7 +2405,7 @@ pub mod test {
             }
             match self.write_error {
                 Some(ref e) => {
-                    return Err(io::Error::from((*e).clone()));
+                    return Err(io::Error::from(*e));
                 }
                 None => {}
             }
@@ -2537,7 +2537,7 @@ pub mod test {
                 block: block.clone(),
                 metadata: metadata.clone(),
                 receipts: receipts.to_owned(),
-                parent: parent.clone(),
+                parent: *parent,
                 winner_txid,
                 matured_rewards: matured_rewards.to_owned(),
                 matured_rewards_info: matured_rewards_info.cloned(),
@@ -2606,7 +2606,7 @@ pub mod test {
             let start_block = 0;
             let mut burnchain = Burnchain::default_unittest(
                 start_block,
-                &BurnchainHeaderHash::from_hex(BITCOIN_GENESIS_BLOCK_HASH_REGTEST).unwrap(),
+                BurnchainHeaderHash::from_hex(BITCOIN_GENESIS_BLOCK_HASH_REGTEST).unwrap(),
             );
 
             burnchain.pox_constants = PoxConstants::test_20_no_sunset();
@@ -3058,8 +3058,8 @@ pub mod test {
                 let prev_snapshot = SortitionDB::get_first_block_snapshot(sortdb.conn()).unwrap();
                 let mut fork = TestBurnchainFork::new(
                     prev_snapshot.block_height,
-                    &prev_snapshot.burn_header_hash,
-                    &prev_snapshot.index_root,
+                    prev_snapshot.burn_header_hash,
+                    prev_snapshot.index_root,
                     0,
                 );
                 for i in prev_snapshot.block_height..config.current_block {
@@ -3469,7 +3469,7 @@ pub mod test {
         pub fn get_sortition_at_height(&self, height: u64) -> Option<BlockSnapshot> {
             let sortdb = self.sortdb.as_ref().unwrap();
             let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-            let sort_handle = sortdb.index_handle(&tip.sortition_id);
+            let sort_handle = sortdb.index_handle(tip.sortition_id);
             sort_handle.get_block_snapshot_by_height(height).unwrap()
         }
 
@@ -3490,7 +3490,7 @@ pub mod test {
         ) -> Option<Vec<BlockstackOperationType>> {
             let sortdb = self.sortdb.as_ref().unwrap();
             let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-            let sort_handle = sortdb.index_handle(&tip.sortition_id);
+            let sort_handle = sortdb.index_handle(tip.sortition_id);
             let Some(sn) = sort_handle.get_block_snapshot_by_height(height).unwrap() else {
                 return None;
             };
@@ -3560,7 +3560,7 @@ pub mod test {
             for op in blockstack_ops.iter_mut() {
                 match op {
                     BlockstackOperationType::LeaderKeyRegister(ref mut data) => {
-                        data.consensus_hash = (*ch).clone();
+                        data.consensus_hash = *ch;
                     }
                     _ => {}
                 }
@@ -3572,7 +3572,7 @@ pub mod test {
             bhh: &BurnchainHeaderHash,
         ) {
             for op in blockstack_ops.iter_mut() {
-                op.set_burn_header_hash(bhh.clone());
+                op.set_burn_header_hash(*bhh);
             }
         }
 
@@ -3595,7 +3595,7 @@ pub mod test {
                 .unwrap()
                 .unwrap();
 
-            test_debug!("parent hdr ({}): {:?}", &tip_block_height, &parent_hdr);
+            test_debug!("parent hdr ({tip_block_height}): {parent_hdr:?}");
             assert_eq!(&parent_hdr.block_hash, tip_block_hash);
 
             let now = BURNCHAIN_TEST_BLOCK_TIME;
@@ -3619,8 +3619,8 @@ pub mod test {
 
             let block_header = BurnchainBlockHeader {
                 block_height: tip_block_height + 1,
-                block_hash: block_header_hash.clone(),
-                parent_block_hash: parent_hdr.block_hash.clone(),
+                block_hash: block_header_hash,
+                parent_block_hash: parent_hdr.block_hash,
                 num_txs: num_ops,
                 timestamp: now,
             };
@@ -3739,7 +3739,7 @@ pub mod test {
             let pox_id = {
                 let ic = sortdb.index_conn();
                 let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
-                let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
+                let sortdb_reader = SortitionHandleConn::open_reader(&ic, tip_sort_id).unwrap();
                 sortdb_reader.get_pox_id().unwrap()
             };
 
@@ -3785,7 +3785,7 @@ pub mod test {
                 };
 
                 let parent_sn = {
-                    let db_handle = sortdb.index_handle(&sn.sortition_id);
+                    let db_handle = sortdb.index_handle(sn.sortition_id);
                     let parent_sn = db_handle
                         .get_block_snapshot(&sn.parent_burn_header_hash)
                         .unwrap();
@@ -3808,8 +3808,7 @@ pub mod test {
                     let ic = sortdb.index_conn();
                     let tip_sort_id =
                         SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
-                    let sortdb_reader =
-                        SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
+                    let sortdb_reader = SortitionHandleConn::open_reader(&ic, tip_sort_id).unwrap();
                     sortdb_reader.get_pox_id().unwrap()
                 };
                 test_debug!(
@@ -3836,7 +3835,7 @@ pub mod test {
             let sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
             let res = {
-                let anchor_block_hash = microblocks[0].header.prev_block.clone();
+                let anchor_block_hash = microblocks[0].header.prev_block;
                 let sn = {
                     let ic = sortdb.index_conn();
                     let tip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
@@ -3899,7 +3898,7 @@ pub mod test {
             let pox_id = {
                 let ic = sortdb.index_conn();
                 let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
-                let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
+                let sortdb_reader = SortitionHandleConn::open_reader(&ic, tip_sort_id).unwrap();
                 sortdb_reader.get_pox_id().unwrap()
             };
             test_debug!(
@@ -3933,7 +3932,7 @@ pub mod test {
             let pox_id = {
                 let ic = sortdb.index_conn();
                 let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
-                let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id)?;
+                let sortdb_reader = SortitionHandleConn::open_reader(&ic, tip_sort_id)?;
                 sortdb_reader.get_pox_id()?;
             };
             test_debug!(
@@ -3994,7 +3993,7 @@ pub mod test {
             let pox_id = {
                 let ic = sortdb.index_conn();
                 let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
-                let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
+                let sortdb_reader = SortitionHandleConn::open_reader(&ic, tip_sort_id).unwrap();
                 sortdb_reader.get_pox_id().unwrap()
             };
 
@@ -4194,7 +4193,7 @@ pub mod test {
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
                             chainstate,
-                            &sortdb.index_handle(&tip.sortition_id),
+                            &sortdb.index_handle(tip.sortition_id),
                             block_txs,
                         )
                         .unwrap();
@@ -4579,10 +4578,7 @@ pub mod test {
                 .filter(|sn| sn.block_height + 1 < epoch_3.start_height)
                 .collect();
 
-            let epoch2_chs: HashSet<_> = epoch2_sns
-                .iter()
-                .map(|sn| sn.consensus_hash.clone())
-                .collect();
+            let epoch2_chs: HashSet<_> = epoch2_sns.iter().map(|sn| sn.consensus_hash).collect();
 
             let expected_epoch2_chain_tips: Vec<_> = all_chain_tips
                 .clone()

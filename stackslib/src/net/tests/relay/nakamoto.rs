@@ -226,7 +226,7 @@ impl SeedNode {
             // pass along to the follower
             if comms
                 .data_sender
-                .send(SeedData::BurnOps(burn_ops.clone(), consensus_hash.clone()))
+                .send(SeedData::BurnOps(burn_ops.clone(), consensus_hash))
                 .is_err()
             {
                 warn!("Follower disconnected");
@@ -235,8 +235,8 @@ impl SeedNode {
 
             let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
-            tenure_change.tenure_consensus_hash = consensus_hash.clone();
-            tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+            tenure_change.tenure_consensus_hash = consensus_hash;
+            tenure_change.burn_view_consensus_hash = consensus_hash;
 
             let tenure_change_tx = peer
                 .miner
@@ -409,9 +409,9 @@ fn test_buffer_data_message() {
         1,
         1,
         1,
-        &BurnchainHeaderHash([0x01; 32]),
+        BurnchainHeaderHash([0x01; 32]),
         7,
-        &BurnchainHeaderHash([0x07; 32]),
+        BurnchainHeaderHash([0x07; 32]),
         StacksMessageType::BlocksAvailable(BlocksAvailableData {
             available: vec![
                 (ConsensusHash([0x11; 20]), BurnchainHeaderHash([0x22; 32])),
@@ -424,9 +424,9 @@ fn test_buffer_data_message() {
         1,
         1,
         1,
-        &BurnchainHeaderHash([0x01; 32]),
+        BurnchainHeaderHash([0x01; 32]),
         7,
-        &BurnchainHeaderHash([0x07; 32]),
+        BurnchainHeaderHash([0x07; 32]),
         StacksMessageType::MicroblocksAvailable(BlocksAvailableData {
             available: vec![
                 (ConsensusHash([0x11; 20]), BurnchainHeaderHash([0x22; 32])),
@@ -439,9 +439,9 @@ fn test_buffer_data_message() {
         1,
         1,
         1,
-        &BurnchainHeaderHash([0x01; 32]),
+        BurnchainHeaderHash([0x01; 32]),
         7,
-        &BurnchainHeaderHash([0x07; 32]),
+        BurnchainHeaderHash([0x07; 32]),
         StacksMessageType::Blocks(BlocksData {
             blocks: vec![BlocksDatum(
                 ConsensusHash([0x11; 20]),
@@ -453,9 +453,9 @@ fn test_buffer_data_message() {
         1,
         1,
         1,
-        &BurnchainHeaderHash([0x01; 32]),
+        BurnchainHeaderHash([0x01; 32]),
         7,
-        &BurnchainHeaderHash([0x07; 32]),
+        BurnchainHeaderHash([0x07; 32]),
         StacksMessageType::Microblocks(MicroblocksData {
             index_anchor_block: StacksBlockId([0x55; 32]),
             microblocks: vec![make_codec_test_microblock(10)],
@@ -465,9 +465,9 @@ fn test_buffer_data_message() {
         1,
         1,
         1,
-        &BurnchainHeaderHash([0x01; 32]),
+        BurnchainHeaderHash([0x01; 32]),
         7,
-        &BurnchainHeaderHash([0x07; 32]),
+        BurnchainHeaderHash([0x07; 32]),
         StacksMessageType::NakamotoBlocks(NakamotoBlocksData {
             blocks: vec![nakamoto_block],
         }),
@@ -476,9 +476,9 @@ fn test_buffer_data_message() {
         1,
         1,
         1,
-        &BurnchainHeaderHash([0x01; 32]),
+        BurnchainHeaderHash([0x01; 32]),
         7,
-        &BurnchainHeaderHash([0x07; 32]),
+        BurnchainHeaderHash([0x07; 32]),
         StacksMessageType::StackerDBPushChunk(StackerDBPushChunkData {
             contract_id: QualifiedContractIdentifier::parse(
                 "ST000000000000000000002AMW42H.signers-1-4",

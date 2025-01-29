@@ -233,7 +233,7 @@ fn affirmation_map_find_inv_search() {
 }
 
 pub fn make_simple_key_register(
-    burn_header_hash: &BurnchainHeaderHash,
+    burn_header_hash: BurnchainHeaderHash,
     block_height: u64,
     vtxindex: u32,
 ) -> LeaderKeyRegisterOp {
@@ -251,7 +251,7 @@ pub fn make_simple_key_register(
         txid: next_txid(),
         vtxindex,
         block_height,
-        burn_header_hash: burn_header_hash.clone(),
+        burn_header_hash,
     }
 }
 
@@ -303,8 +303,8 @@ pub fn make_reward_cycle_with_vote(
             block_hash: next_burn_header_hash(),
             parent_block_hash: parent_block_header
                 .as_ref()
-                .map(|blk| blk.block_hash.clone())
-                .unwrap_or(first_block_header.block_hash.clone()),
+                .map(|blk| blk.block_hash)
+                .unwrap_or(first_block_header.block_hash),
             num_txs: parent_commits.len() as u64,
             timestamp: i as u64,
         };
@@ -312,7 +312,7 @@ pub fn make_reward_cycle_with_vote(
         let ops = if current_header == first_block_header {
             // first-ever block -- add only the leader key
             let mut key_insert = key.clone();
-            key_insert.burn_header_hash = block_header.block_hash.clone();
+            key_insert.burn_header_hash = block_header.block_hash;
 
             test_debug!(
                 "Insert key-register in {}: {},{},{} in block {}",
@@ -493,7 +493,7 @@ fn test_read_prepare_phase_commits() {
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = make_test_pox(10, 5, 3, 3);
     burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_hash = first_bhh;
     burnchain.first_block_timestamp = first_timestamp;
 
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -509,7 +509,7 @@ fn test_read_prepare_phase_commits() {
     );
 
     let mut headers = vec![first_block_header.clone()];
-    let key_register = make_simple_key_register(&first_block_header.block_hash, 0, 1);
+    let key_register = make_simple_key_register(first_block_header.block_hash, 0, 1);
     let (next_headers, commits) = make_simple_reward_cycle(
         &mut burnchain_db,
         &burnchain,
@@ -559,7 +559,7 @@ fn test_parent_block_commits() {
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = make_test_pox(10, 5, 3, 3);
     burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_hash = first_bhh;
     burnchain.first_block_timestamp = first_timestamp;
 
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -567,7 +567,7 @@ fn test_parent_block_commits() {
     let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
 
     let mut headers = vec![first_block_header.clone()];
-    let key_register = make_simple_key_register(&first_block_header.block_hash, 0, 1);
+    let key_register = make_simple_key_register(first_block_header.block_hash, 0, 1);
 
     // first reward cycle is all (linear) commits, so it must elect an anchor block
     let (next_headers, commits) = make_simple_reward_cycle(
@@ -650,7 +650,7 @@ fn test_filter_orphan_block_commits() {
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = make_test_pox(5, 3, 3, 3);
     burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_hash = first_bhh;
     burnchain.first_block_timestamp = first_timestamp;
 
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -658,7 +658,7 @@ fn test_filter_orphan_block_commits() {
     let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
 
     let mut headers = vec![first_block_header.clone()];
-    let key_register = make_simple_key_register(&first_block_header.block_hash, 0, 1);
+    let key_register = make_simple_key_register(first_block_header.block_hash, 0, 1);
 
     // first reward cycle is all (linear) commits, so it must elect an anchor block
     let (next_headers, commits) = make_simple_reward_cycle(
@@ -710,7 +710,7 @@ fn test_filter_missed_block_commits() {
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = make_test_pox(5, 3, 3, 3);
     burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_hash = first_bhh;
     burnchain.first_block_timestamp = first_timestamp;
 
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -718,7 +718,7 @@ fn test_filter_missed_block_commits() {
     let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
 
     let mut headers = vec![first_block_header.clone()];
-    let key_register = make_simple_key_register(&first_block_header.block_hash, 0, 1);
+    let key_register = make_simple_key_register(first_block_header.block_hash, 0, 1);
 
     // first reward cycle is all (linear) commits, so it must elect an anchor block
     let (next_headers, commits) = make_simple_reward_cycle(
@@ -770,7 +770,7 @@ fn test_find_heaviest_block_commit() {
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = make_test_pox(5, 3, 2, 3);
     burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_hash = first_bhh;
     burnchain.first_block_timestamp = first_timestamp;
 
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -778,7 +778,7 @@ fn test_find_heaviest_block_commit() {
     let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
 
     let mut headers = vec![first_block_header.clone()];
-    let key_register = make_simple_key_register(&first_block_header.block_hash, 0, 1);
+    let key_register = make_simple_key_register(first_block_header.block_hash, 0, 1);
 
     // first reward cycle is all (linear) commits, so it must elect an anchor block
     let (next_headers, commits) = make_simple_reward_cycle(
@@ -982,7 +982,7 @@ fn test_find_heaviest_parent_commit_many_commits() {
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = make_test_pox(5, 3, 2, 3);
     burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_hash = first_bhh;
     burnchain.first_block_timestamp = first_timestamp;
 
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -990,7 +990,7 @@ fn test_find_heaviest_parent_commit_many_commits() {
     let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
 
     let mut headers = vec![first_block_header.clone()];
-    let key_register = make_simple_key_register(&first_block_header.block_hash, 0, 1);
+    let key_register = make_simple_key_register(first_block_header.block_hash, 0, 1);
 
     let (next_headers, commits) = make_reward_cycle(
         &mut burnchain_db,
@@ -1234,7 +1234,7 @@ fn test_update_pox_affirmation_maps_3_forks() {
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = make_test_pox(10, 5, 3, 3);
     burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_hash = first_bhh;
     burnchain.first_block_timestamp = first_timestamp;
 
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -1242,7 +1242,7 @@ fn test_update_pox_affirmation_maps_3_forks() {
     let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
 
     let mut headers = vec![first_block_header.clone()];
-    let key_register = make_simple_key_register(&first_block_header.block_hash, 0, 1);
+    let key_register = make_simple_key_register(first_block_header.block_hash, 0, 1);
 
     // first reward cycle is all (linear) commits, so it must elect an anchor block
     let (next_headers, commits_0) = make_reward_cycle(
@@ -1483,7 +1483,7 @@ fn test_update_pox_affirmation_maps_unique_anchor_block() {
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = make_test_pox(10, 5, 3, 3);
     burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_hash = first_bhh;
     burnchain.first_block_timestamp = first_timestamp;
 
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -1491,7 +1491,7 @@ fn test_update_pox_affirmation_maps_unique_anchor_block() {
     let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
 
     let mut headers = vec![first_block_header.clone()];
-    let key_register = make_simple_key_register(&first_block_header.block_hash, 0, 1);
+    let key_register = make_simple_key_register(first_block_header.block_hash, 0, 1);
 
     // first reward cycle is all (linear) commits, so it must elect an anchor block
     let (next_headers, commits_0) = make_reward_cycle(
@@ -1587,8 +1587,8 @@ fn test_update_pox_affirmation_maps_unique_anchor_block() {
             block_hash: next_burn_header_hash(),
             parent_block_hash: headers
                 .last()
-                .map(|blk| blk.block_hash.clone())
-                .unwrap_or(first_bhh.clone()),
+                .map(|blk| blk.block_hash)
+                .unwrap_or(first_bhh),
             num_txs: cmts.len() as u64,
             timestamp: (i + commits_0.len()) as u64,
         };
@@ -1600,7 +1600,7 @@ fn test_update_pox_affirmation_maps_unique_anchor_block() {
                 cmt.parent_vtxindex = anchor_block_0.vtxindex as u16;
                 cmt.burn_parent_modulus =
                     ((cmt.block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8;
-                cmt.burn_header_hash = block_header.block_hash.clone();
+                cmt.burn_header_hash = block_header.block_hash;
                 cmt.block_header_hash = next_block_hash();
             }
         }
@@ -1675,7 +1675,7 @@ fn test_update_pox_affirmation_maps_absent() {
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = make_test_pox(10, 5, 3, 3);
     burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_hash = first_bhh;
     burnchain.first_block_timestamp = first_timestamp;
 
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -1683,7 +1683,7 @@ fn test_update_pox_affirmation_maps_absent() {
     let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
 
     let mut headers = vec![first_block_header.clone()];
-    let key_register = make_simple_key_register(&first_block_header.block_hash, 0, 1);
+    let key_register = make_simple_key_register(first_block_header.block_hash, 0, 1);
 
     // make two histories -- one with an anchor block, and one without.
     let (next_headers, commits_0) = make_reward_cycle(
@@ -2137,7 +2137,7 @@ fn test_update_pox_affirmation_maps_nothing() {
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = make_test_pox(10, 5, 3, 3);
     burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_hash = first_bhh;
     burnchain.first_block_timestamp = first_timestamp;
 
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -2145,7 +2145,7 @@ fn test_update_pox_affirmation_maps_nothing() {
     let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
 
     let mut headers = vec![first_block_header.clone()];
-    let key_register = make_simple_key_register(&first_block_header.block_hash, 0, 1);
+    let key_register = make_simple_key_register(first_block_header.block_hash, 0, 1);
 
     // first reward cycle is all (linear) commits, so it must elect an anchor block
     let (next_headers, commits_0) = make_reward_cycle(
@@ -2403,7 +2403,7 @@ fn test_update_pox_affirmation_fork_2_cycles() {
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = make_test_pox(5, 2, 2, 25);
     burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_hash = first_bhh;
     burnchain.first_block_timestamp = first_timestamp;
 
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -2411,7 +2411,7 @@ fn test_update_pox_affirmation_fork_2_cycles() {
     let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
 
     let mut headers = vec![first_block_header.clone()];
-    let key_register = make_simple_key_register(&first_block_header.block_hash, 0, 1);
+    let key_register = make_simple_key_register(first_block_header.block_hash, 0, 1);
 
     // first reward cycle is all (linear) commits, so it must elect an anchor block
     let (next_headers, commits_0) = make_reward_cycle(
@@ -2694,7 +2694,7 @@ fn test_update_pox_affirmation_fork_duel() {
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = make_test_pox(5, 2, 2, 25);
     burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_hash = first_bhh;
     burnchain.first_block_timestamp = first_timestamp;
 
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -2702,7 +2702,7 @@ fn test_update_pox_affirmation_fork_duel() {
     let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
 
     let mut headers = vec![first_block_header.clone()];
-    let key_register = make_simple_key_register(&first_block_header.block_hash, 0, 1);
+    let key_register = make_simple_key_register(first_block_header.block_hash, 0, 1);
 
     // first reward cycle is all (linear) commits, so it must elect an anchor block
     let (next_headers, commits_0) = make_reward_cycle(

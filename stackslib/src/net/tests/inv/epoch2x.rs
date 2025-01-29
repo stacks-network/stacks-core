@@ -546,8 +546,8 @@ fn test_sync_inv_set_blocks_microblocks_available() {
 
             let block_header = BurnchainBlockHeader {
                 block_height: header_height,
-                block_hash: block_header_hash.clone(),
-                parent_block_hash: parent_hdr.block_hash.clone(),
+                block_hash: block_header_hash,
+                parent_block_hash: parent_hdr.block_hash,
                 num_txs: 0,
                 timestamp: now,
             };
@@ -1155,31 +1155,11 @@ fn test_sync_inv_diagnose_nack() {
     };
 
     burnchain_view.make_test_data();
-    let ch_12345 = burnchain_view
-        .last_burn_block_hashes
-        .get(&12345)
-        .unwrap()
-        .clone();
-    let ch_12340 = burnchain_view
-        .last_burn_block_hashes
-        .get(&12340)
-        .unwrap()
-        .clone();
-    let ch_12341 = burnchain_view
-        .last_burn_block_hashes
-        .get(&12341)
-        .unwrap()
-        .clone();
-    let ch_12339 = burnchain_view
-        .last_burn_block_hashes
-        .get(&12339)
-        .unwrap()
-        .clone();
-    let ch_12334 = burnchain_view
-        .last_burn_block_hashes
-        .get(&12334)
-        .unwrap()
-        .clone();
+    let ch_12345 = *burnchain_view.last_burn_block_hashes.get(&12345).unwrap();
+    let ch_12340 = *burnchain_view.last_burn_block_hashes.get(&12340).unwrap();
+    let ch_12341 = *burnchain_view.last_burn_block_hashes.get(&12341).unwrap();
+    let ch_12339 = *burnchain_view.last_burn_block_hashes.get(&12339).unwrap();
+    let ch_12334 = *burnchain_view.last_burn_block_hashes.get(&12334).unwrap();
 
     // should be stable; but got nacked (so this would be inappropriate)
     assert_eq!(
@@ -1868,7 +1848,7 @@ fn test_sync_inv_2_peers_different_pox_vectors() {
                 SortitionDB::get_canonical_sortition_tip(peer_1.sortdb.as_ref().unwrap().conn())
                     .unwrap();
             let ic = peer_1.sortdb.as_ref().unwrap().index_conn();
-            let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
+            let sortdb_reader = SortitionHandleConn::open_reader(&ic, tip_sort_id).unwrap();
             sortdb_reader.get_pox_id().unwrap()
         };
 
@@ -1877,7 +1857,7 @@ fn test_sync_inv_2_peers_different_pox_vectors() {
                 SortitionDB::get_canonical_sortition_tip(peer_2.sortdb.as_ref().unwrap().conn())
                     .unwrap();
             let ic = peer_2.sortdb.as_ref().unwrap().index_conn();
-            let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
+            let sortdb_reader = SortitionHandleConn::open_reader(&ic, tip_sort_id).unwrap();
             sortdb_reader.get_pox_id().unwrap()
         };
 
@@ -1980,7 +1960,7 @@ fn test_sync_inv_2_peers_different_pox_vectors() {
                 SortitionDB::get_canonical_sortition_tip(peer_1.sortdb.as_ref().unwrap().conn())
                     .unwrap();
             let ic = peer_1.sortdb.as_ref().unwrap().index_conn();
-            let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
+            let sortdb_reader = SortitionHandleConn::open_reader(&ic, tip_sort_id).unwrap();
             sortdb_reader.get_pox_id().unwrap()
         };
 
@@ -1989,7 +1969,7 @@ fn test_sync_inv_2_peers_different_pox_vectors() {
                 SortitionDB::get_canonical_sortition_tip(peer_2.sortdb.as_ref().unwrap().conn())
                     .unwrap();
             let ic = peer_2.sortdb.as_ref().unwrap().index_conn();
-            let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
+            let sortdb_reader = SortitionHandleConn::open_reader(&ic, tip_sort_id).unwrap();
             sortdb_reader.get_pox_id().unwrap()
         };
 
@@ -2003,8 +1983,8 @@ fn test_sync_inv_2_peers_different_pox_vectors() {
             .unwrap()
             .inv
             .clone();
-        test_debug!("peer 1's view of peer 2: {:?}", &peer_2_inv);
-        test_debug!("peer 1's PoX bit vector is {:?}", &peer_1_pox_id);
+        test_debug!("peer 1's view of peer 2: {peer_2_inv:?}");
+        test_debug!("peer 1's PoX bit vector is {peer_1_pox_id:?}");
 
         let peer_1_inv = peer_2
             .network
@@ -2016,8 +1996,8 @@ fn test_sync_inv_2_peers_different_pox_vectors() {
             .unwrap()
             .inv
             .clone();
-        test_debug!("peer 2's view of peer 1: {:?}", &peer_1_inv);
-        test_debug!("peer 2's PoX bit vector is {:?}", &peer_2_pox_id);
+        test_debug!("peer 2's view of peer 1: {peer_1_inv:?}");
+        test_debug!("peer 2's PoX bit vector is {peer_2_pox_id:?}");
 
         // nodes only learn about the prefix of their PoX bit vectors that they agree on
         assert_eq!(peer_2_inv.num_sortitions, reward_cycle_length * 9 + 1);

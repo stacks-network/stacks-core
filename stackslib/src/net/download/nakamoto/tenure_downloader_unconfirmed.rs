@@ -221,7 +221,7 @@ impl NakamotoUnconfirmedTenureDownloader {
             NetError::DBError(DBError::NotFoundError)
         })?;
 
-        let ih = sortdb.index_handle(&local_sort_tip.sortition_id);
+        let ih = sortdb.index_handle(local_sort_tip.sortition_id);
         let ancestor_local_tenure_sn = ih
             .get_block_snapshot_by_height(local_tenure_sn.block_height)?
             .ok_or_else(|| {
@@ -357,7 +357,7 @@ impl NakamotoUnconfirmedTenureDownloader {
 
         if chainstate
             .nakamoto_blocks_db()
-            .has_nakamoto_block_with_index_hash(&remote_tenure_tip.tenure_start_block_id.clone())?
+            .has_nakamoto_block_with_index_hash(&remote_tenure_tip.tenure_start_block_id)?
         {
             // proceed to get unconfirmed blocks. We already have the tenure-start block.
             let unconfirmed_tenure_start_block = chainstate
@@ -373,12 +373,12 @@ impl NakamotoUnconfirmedTenureDownloader {
                 .0;
             self.unconfirmed_tenure_start_block = Some(unconfirmed_tenure_start_block);
             self.state = NakamotoUnconfirmedDownloadState::GetUnconfirmedTenureBlocks(
-                remote_tenure_tip.tip_block_id.clone(),
+                remote_tenure_tip.tip_block_id,
             );
         } else {
             // get the tenure-start block first
             self.state = NakamotoUnconfirmedDownloadState::GetTenureStartBlock(
-                remote_tenure_tip.tenure_start_block_id.clone(),
+                remote_tenure_tip.tenure_start_block_id,
             );
         }
 
@@ -449,9 +449,8 @@ impl NakamotoUnconfirmedTenureDownloader {
         }
 
         self.unconfirmed_tenure_start_block = Some(unconfirmed_tenure_start_block);
-        self.state = NakamotoUnconfirmedDownloadState::GetUnconfirmedTenureBlocks(
-            tenure_tip.tip_block_id.clone(),
-        );
+        self.state =
+            NakamotoUnconfirmedDownloadState::GetUnconfirmedTenureBlocks(tenure_tip.tip_block_id);
         Ok(())
     }
 
@@ -619,7 +618,7 @@ impl NakamotoUnconfirmedTenureDownloader {
             warn!("Invalid state: no blocks (infallible -- got empty vec)");
             return Err(NetError::InvalidState);
         };
-        let next_block_id = earliest_block.header.parent_block_id.clone();
+        let next_block_id = earliest_block.header.parent_block_id;
 
         debug!(
             "Will resume fetching unconfirmed tenure blocks starting at {}",
@@ -734,11 +733,11 @@ impl NakamotoUnconfirmedTenureDownloader {
             &tenure_tip.parent_consensus_hash, &self.naddr,
         );
         let ntd = NakamotoTenureDownloader::new(
-            tenure_tip.parent_consensus_hash.clone(),
-            tenure_tip.consensus_hash.clone(),
-            tenure_tip.parent_tenure_start_block_id.clone(),
-            tenure_tip.consensus_hash.clone(),
-            tenure_tip.tenure_start_block_id.clone(),
+            tenure_tip.parent_consensus_hash,
+            tenure_tip.consensus_hash,
+            tenure_tip.parent_tenure_start_block_id,
+            tenure_tip.consensus_hash,
+            tenure_tip.tenure_start_block_id,
             self.naddr.clone(),
             confirmed_signer_keys.clone(),
             unconfirmed_signer_keys.clone(),
@@ -760,15 +759,14 @@ impl NakamotoUnconfirmedTenureDownloader {
             }
             NakamotoUnconfirmedDownloadState::GetTenureStartBlock(block_id) => {
                 return Some(StacksHttpRequest::new_get_nakamoto_block(
-                    peerhost,
-                    block_id.clone(),
+                    peerhost, *block_id,
                 ));
             }
             NakamotoUnconfirmedDownloadState::GetUnconfirmedTenureBlocks(tip_block_id) => {
                 return Some(StacksHttpRequest::new_get_nakamoto_tenure(
                     peerhost,
-                    tip_block_id.clone(),
-                    self.highest_processed_block_id.clone(),
+                    *tip_block_id,
+                    self.highest_processed_block_id,
                 ));
             }
             NakamotoUnconfirmedDownloadState::Done => {

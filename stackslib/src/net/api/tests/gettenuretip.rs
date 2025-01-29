@@ -39,7 +39,7 @@ use crate::net::{ProtocolFamily, TipRequest};
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let request = StacksHttpRequest::new_get_tenure_tip(addr.into(), &ConsensusHash([0x01; 20]));
 
@@ -73,28 +73,26 @@ fn test_try_make_response() {
     let test_observer = TestEventObserver::new();
     let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
 
-    let nakamoto_chain_tip = rpc_test.canonical_tip.clone();
-    let consensus_hash = rpc_test.consensus_hash.clone();
+    let nakamoto_chain_tip = rpc_test.canonical_tip;
+    let consensus_hash = rpc_test.consensus_hash;
 
     let mut requests = vec![];
 
     // query existing, non-empty Nakamoto tenure
-    let request = StacksHttpRequest::new_get_tenure_tip(addr.clone().into(), &consensus_hash);
+    let request = StacksHttpRequest::new_get_tenure_tip(addr.into(), &consensus_hash);
     requests.push(request);
 
     // query existing epoch2 tenure
     let all_sortitions = rpc_test.peer_1.sortdb().get_all_snapshots().unwrap();
     assert!(all_sortitions.len() > 30);
     assert!(all_sortitions[30].sortition);
-    let epoch2_consensus_hash = all_sortitions[30].consensus_hash.clone();
+    let epoch2_consensus_hash = all_sortitions[30].consensus_hash;
 
-    let request =
-        StacksHttpRequest::new_get_tenure_tip(addr.clone().into(), &epoch2_consensus_hash);
+    let request = StacksHttpRequest::new_get_tenure_tip(addr.into(), &epoch2_consensus_hash);
     requests.push(request);
 
     // query non-existant tenure
-    let request =
-        StacksHttpRequest::new_get_tenure_tip(addr.clone().into(), &ConsensusHash([0x01; 20]));
+    let request = StacksHttpRequest::new_get_tenure_tip(addr.into(), &ConsensusHash([0x01; 20]));
     requests.push(request);
 
     let mut responses = rpc_test.run(requests);

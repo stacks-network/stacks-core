@@ -388,7 +388,7 @@ impl BlockstackOperationType {
     }
 
     pub fn txid(&self) -> Txid {
-        self.txid_ref().clone()
+        *self.txid_ref()
     }
 
     pub fn txid_ref(&self) -> &Txid {
@@ -429,13 +429,13 @@ impl BlockstackOperationType {
 
     pub fn burn_header_hash(&self) -> BurnchainHeaderHash {
         match *self {
-            BlockstackOperationType::LeaderKeyRegister(ref data) => data.burn_header_hash.clone(),
-            BlockstackOperationType::LeaderBlockCommit(ref data) => data.burn_header_hash.clone(),
-            BlockstackOperationType::StackStx(ref data) => data.burn_header_hash.clone(),
-            BlockstackOperationType::PreStx(ref data) => data.burn_header_hash.clone(),
-            BlockstackOperationType::TransferStx(ref data) => data.burn_header_hash.clone(),
-            BlockstackOperationType::DelegateStx(ref data) => data.burn_header_hash.clone(),
-            BlockstackOperationType::VoteForAggregateKey(ref data) => data.burn_header_hash.clone(),
+            BlockstackOperationType::LeaderKeyRegister(ref data) => data.burn_header_hash,
+            BlockstackOperationType::LeaderBlockCommit(ref data) => data.burn_header_hash,
+            BlockstackOperationType::StackStx(ref data) => data.burn_header_hash,
+            BlockstackOperationType::PreStx(ref data) => data.burn_header_hash,
+            BlockstackOperationType::TransferStx(ref data) => data.burn_header_hash,
+            BlockstackOperationType::DelegateStx(ref data) => data.burn_header_hash,
+            BlockstackOperationType::VoteForAggregateKey(ref data) => data.burn_header_hash,
         }
     }
 

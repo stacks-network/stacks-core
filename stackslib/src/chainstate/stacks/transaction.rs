@@ -78,7 +78,7 @@ impl StacksMessageCodec for TransactionContractCall {
 impl TransactionContractCall {
     pub fn to_clarity_contract_id(&self) -> QualifiedContractIdentifier {
         QualifiedContractIdentifier::new(
-            StandardPrincipalData::from(self.address.clone()),
+            StandardPrincipalData::from(self.address),
             self.contract_name.clone(),
         )
     }
@@ -883,11 +883,11 @@ impl StacksTransaction {
     ) -> Result<(), net_error> {
         match condition {
             TransactionSpendingCondition::Multisig(ref mut cond) => {
-                cond.push_public_key(pubkey.clone());
+                cond.push_public_key(*pubkey);
                 Ok(())
             }
             TransactionSpendingCondition::OrderIndependentMultisig(ref mut cond) => {
-                cond.push_public_key(pubkey.clone());
+                cond.push_public_key(*pubkey);
                 Ok(())
             }
             _ => Err(net_error::SigningError(
@@ -1843,7 +1843,7 @@ mod test {
         let mut corrupt_tx_payload = signed_tx.clone();
         corrupt_tx_payload.payload = match corrupt_tx_payload.payload {
             TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) => {
-                TransactionPayload::TokenTransfer(addr.clone(), amount + 1, memo.clone())
+                TransactionPayload::TokenTransfer(addr.clone(), amount + 1, *memo)
             }
             TransactionPayload::ContractCall(_) => TransactionPayload::SmartContract(
                 TransactionSmartContract {
@@ -1869,7 +1869,7 @@ mod test {
                 TransactionPayload::PoisonMicroblock(corrupt_h1, corrupt_h2)
             }
             TransactionPayload::Coinbase(ref buf, ref recipient_opt, ref vrf_proof_opt) => {
-                let mut corrupt_buf_bytes = buf.as_bytes().clone();
+                let mut corrupt_buf_bytes = *buf.as_bytes();
                 corrupt_buf_bytes[0] = (((corrupt_buf_bytes[0] as u16) + 1) % 256) as u8;
 
                 let corrupt_buf = CoinbasePayload(corrupt_buf_bytes);
@@ -1880,7 +1880,7 @@ mod test {
                 )
             }
             TransactionPayload::TenureChange(ref tc) => {
-                let mut hash = tc.pubkey_hash.as_bytes().clone();
+                let mut hash = *tc.pubkey_hash.as_bytes();
                 hash[8] ^= 0x04; // Flip one bit
                 let corrupt_tc = TenureChangePayload {
                     pubkey_hash: hash.into(),
@@ -2468,7 +2468,7 @@ mod test {
         let header_1 = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
             tx_merkle_root: Sha512Trunc256Sum([1u8; 32]),
             signature: MessageSignature([2u8; 65]),
         };
@@ -2476,7 +2476,7 @@ mod test {
         let header_2 = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
             tx_merkle_root: Sha512Trunc256Sum([2u8; 32]),
             signature: MessageSignature([3u8; 65]),
         };
@@ -3484,7 +3484,7 @@ mod test {
         contract_name_bytes.extend_from_slice(contract_name.to_string().as_str().as_bytes());
 
         let asset_info = AssetInfo {
-            contract_address: addr.clone(),
+            contract_address: addr,
             contract_name,
             asset_name,
         };
@@ -3527,7 +3527,7 @@ mod test {
             let fungible_pc = TransactionPostCondition::Fungible(
                 tx_pcp.clone(),
                 AssetInfo {
-                    contract_address: addr.clone(),
+                    contract_address: addr,
                     contract_name: contract_name.clone(),
                     asset_name: asset_name.clone(),
                 },
@@ -3538,7 +3538,7 @@ mod test {
             let nonfungible_pc = TransactionPostCondition::Nonfungible(
                 tx_pcp.clone(),
                 AssetInfo {
-                    contract_address: addr.clone(),
+                    contract_address: addr,
                     contract_name: contract_name.clone(),
                     asset_name: asset_name.clone(),
                 },
@@ -3571,7 +3571,7 @@ mod test {
                 .unwrap();
             tx_pcp.consensus_serialize(&mut fungible_pc_bytes).unwrap();
             AssetInfo {
-                contract_address: addr.clone(),
+                contract_address: addr,
                 contract_name: contract_name.clone(),
                 asset_name: asset_name.clone(),
             }
@@ -3599,7 +3599,7 @@ mod test {
                 .consensus_serialize(&mut nonfungible_pc_bytes)
                 .unwrap();
             AssetInfo {
-                contract_address: addr.clone(),
+                contract_address: addr,
                 contract_name: contract_name.clone(),
                 asset_name: asset_name.clone(),
             }
@@ -3656,7 +3656,7 @@ mod test {
             .unwrap();
         fungible_pc_bytes_bad_condition.append(&mut vec![PostConditionPrincipalID::Origin as u8]);
         AssetInfo {
-            contract_address: addr.clone(),
+            contract_address: addr,
             contract_name: contract_name.clone(),
             asset_name: asset_name.clone(),
         }
@@ -3683,7 +3683,7 @@ mod test {
         nonfungible_pc_bytes_bad_condition
             .append(&mut vec![PostConditionPrincipalID::Origin as u8]);
         AssetInfo {
-            contract_address: addr.clone(),
+            contract_address: addr,
             contract_name: contract_name.clone(),
             asset_name: asset_name.clone(),
         }
@@ -3737,7 +3737,7 @@ mod test {
             .unwrap();
         fungible_pc_bytes_bad_principal.append(&mut vec![0xff]);
         AssetInfo {
-            contract_address: addr.clone(),
+            contract_address: addr,
             contract_name: contract_name.clone(),
             asset_name: asset_name.clone(),
         }
@@ -3763,7 +3763,7 @@ mod test {
             .unwrap();
         nonfungible_pc_bytes_bad_principal.append(&mut vec![0xff]);
         AssetInfo {
-            contract_address: addr.clone(),
+            contract_address: addr,
             contract_name,
             asset_name,
         }
@@ -3831,7 +3831,7 @@ mod test {
         let header_1 = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
             tx_merkle_root: Sha512Trunc256Sum([1u8; 32]),
             signature: MessageSignature([2u8; 65]),
         };
@@ -3839,7 +3839,7 @@ mod test {
         let header_2 = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
-            prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
+            prev_block: EMPTY_MICROBLOCK_PARENT_HASH,
             tx_merkle_root: Sha512Trunc256Sum([2u8; 32]),
             signature: MessageSignature([3u8; 65]),
         };
@@ -3857,7 +3857,7 @@ mod test {
         let contract_addr = StacksAddress::new(2, Hash160([0xfe; 20])).unwrap();
 
         let asset_info = AssetInfo {
-            contract_address: contract_addr.clone(),
+            contract_address: contract_addr,
             contract_name,
             asset_name,
         };
@@ -3868,7 +3868,7 @@ mod test {
             TransactionVersion::Mainnet,
             auth.clone(),
             TransactionPayload::new_contract_call(
-                stx_address.clone(),
+                stx_address,
                 "hello",
                 "world",
                 vec![Value::Int(1)],
@@ -3893,7 +3893,7 @@ mod test {
             TransactionVersion::Mainnet,
             auth.clone(),
             TransactionPayload::TokenTransfer(
-                stx_address.clone().into(),
+                stx_address.into(),
                 123,
                 TokenTransferMemo([0u8; 34]),
             ),
@@ -4531,11 +4531,8 @@ mod test {
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
         let origin_auth = TransactionAuth::Standard(
-            TransactionSpendingCondition::new_multisig_p2sh(
-                2,
-                vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
-            )
-            .unwrap(),
+            TransactionSpendingCondition::new_multisig_p2sh(2, vec![pubk_1, pubk_2, pubk_3])
+                .unwrap(),
         );
 
         let origin_address = origin_auth.origin().address_mainnet();
@@ -4638,11 +4635,9 @@ mod test {
             .unwrap(),
         );
 
-        let real_sponsor = TransactionSpendingCondition::new_multisig_p2sh(
-            2,
-            vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
-        )
-        .unwrap();
+        let real_sponsor =
+            TransactionSpendingCondition::new_multisig_p2sh(2, vec![pubk_1, pubk_2, pubk_3])
+                .unwrap();
 
         let origin_address = auth.origin().address_mainnet();
         let sponsor_address = real_sponsor.address_mainnet();
@@ -4768,11 +4763,8 @@ mod test {
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
         let auth = TransactionAuth::Standard(
-            TransactionSpendingCondition::new_multisig_p2sh(
-                2,
-                vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
-            )
-            .unwrap(),
+            TransactionSpendingCondition::new_multisig_p2sh(2, vec![pubk_1, pubk_2, pubk_3])
+                .unwrap(),
         );
 
         let origin_address = auth.origin().address_mainnet();
@@ -4880,11 +4872,9 @@ mod test {
             .unwrap(),
         );
 
-        let real_sponsor = TransactionSpendingCondition::new_multisig_p2sh(
-            2,
-            vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
-        )
-        .unwrap();
+        let real_sponsor =
+            TransactionSpendingCondition::new_multisig_p2sh(2, vec![pubk_1, pubk_2, pubk_3])
+                .unwrap();
 
         let origin_address = auth.origin().address_mainnet();
         let sponsor_address = real_sponsor.address_mainnet();
@@ -5009,11 +4999,8 @@ mod test {
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
         let origin_auth = TransactionAuth::Standard(
-            TransactionSpendingCondition::new_multisig_p2sh(
-                2,
-                vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
-            )
-            .unwrap(),
+            TransactionSpendingCondition::new_multisig_p2sh(2, vec![pubk_1, pubk_2, pubk_3])
+                .unwrap(),
         );
 
         let origin_address = origin_auth.origin().address_mainnet();
@@ -5117,11 +5104,9 @@ mod test {
             .unwrap(),
         );
 
-        let real_sponsor = TransactionSpendingCondition::new_multisig_p2sh(
-            2,
-            vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
-        )
-        .unwrap();
+        let real_sponsor =
+            TransactionSpendingCondition::new_multisig_p2sh(2, vec![pubk_1, pubk_2, pubk_3])
+                .unwrap();
 
         let origin_address = auth.origin().address_mainnet();
         let sponsor_address = real_sponsor.address_mainnet();
@@ -5426,11 +5411,8 @@ mod test {
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
         let origin_auth = TransactionAuth::Standard(
-            TransactionSpendingCondition::new_multisig_p2wsh(
-                2,
-                vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
-            )
-            .unwrap(),
+            TransactionSpendingCondition::new_multisig_p2wsh(2, vec![pubk_1, pubk_2, pubk_3])
+                .unwrap(),
         );
 
         let origin_address = origin_auth.origin().address_mainnet();
@@ -5535,11 +5517,9 @@ mod test {
             .unwrap(),
         );
 
-        let real_sponsor = TransactionSpendingCondition::new_multisig_p2wsh(
-            2,
-            vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
-        )
-        .unwrap();
+        let real_sponsor =
+            TransactionSpendingCondition::new_multisig_p2wsh(2, vec![pubk_1, pubk_2, pubk_3])
+                .unwrap();
 
         let origin_address = auth.origin().address_mainnet();
         let sponsor_address = real_sponsor.address_mainnet();
@@ -5668,7 +5648,7 @@ mod test {
         let origin_auth = TransactionAuth::Standard(
             TransactionSpendingCondition::new_multisig_order_independent_p2sh(
                 2,
-                vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
+                vec![pubk_1, pubk_2, pubk_3],
             )
             .unwrap(),
         );
@@ -5756,7 +5736,7 @@ mod test {
         let origin_auth = TransactionAuth::Standard(
             TransactionSpendingCondition::new_multisig_order_independent_p2sh(
                 2,
-                vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
+                vec![pubk_1, pubk_2, pubk_3],
             )
             .unwrap(),
         );
@@ -5867,7 +5847,7 @@ mod test {
 
         let real_sponsor = TransactionSpendingCondition::new_multisig_order_independent_p2sh(
             2,
-            vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
+            vec![pubk_1, pubk_2, pubk_3],
         )
         .unwrap();
 
@@ -6005,7 +5985,7 @@ mod test {
         let origin_auth = TransactionAuth::Standard(
             TransactionSpendingCondition::new_multisig_order_independent_p2sh(
                 2,
-                vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
+                vec![pubk_1, pubk_2, pubk_3],
             )
             .unwrap(),
         );
@@ -6112,7 +6092,7 @@ mod test {
 
         let real_sponsor = TransactionSpendingCondition::new_multisig_order_independent_p2sh(
             2,
-            vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
+            vec![pubk_1, pubk_2, pubk_3],
         )
         .unwrap();
 
@@ -6250,7 +6230,7 @@ mod test {
         let origin_auth = TransactionAuth::Standard(
             TransactionSpendingCondition::new_multisig_order_independent_p2sh(
                 2,
-                vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
+                vec![pubk_1, pubk_2, pubk_3],
             )
             .unwrap(),
         );
@@ -6371,15 +6351,7 @@ mod test {
             TransactionSpendingCondition::new_multisig_order_independent_p2sh(
                 3,
                 vec![
-                    pubk_1.clone(),
-                    pubk_2.clone(),
-                    pubk_3.clone(),
-                    pubk_4.clone(),
-                    pubk_5.clone(),
-                    pubk_6.clone(),
-                    pubk_7.clone(),
-                    pubk_8.clone(),
-                    pubk_9.clone(),
+                    pubk_1, pubk_2, pubk_3, pubk_4, pubk_5, pubk_6, pubk_7, pubk_8, pubk_9,
                 ],
             )
             .unwrap(),
@@ -6511,7 +6483,7 @@ mod test {
 
         let real_sponsor = TransactionSpendingCondition::new_multisig_order_independent_p2sh(
             2,
-            vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
+            vec![pubk_1, pubk_2, pubk_3],
         )
         .unwrap();
 
@@ -6676,13 +6648,7 @@ mod test {
 
         let real_sponsor = TransactionSpendingCondition::new_multisig_order_independent_p2sh(
             5,
-            vec![
-                pubk_1.clone(),
-                pubk_2.clone(),
-                pubk_3.clone(),
-                pubk_4.clone(),
-                pubk_5.clone(),
-            ],
+            vec![pubk_1, pubk_2, pubk_3, pubk_4, pubk_5],
         )
         .unwrap();
 
@@ -6847,7 +6813,7 @@ mod test {
         let origin_auth = TransactionAuth::Standard(
             TransactionSpendingCondition::new_multisig_order_independent_p2wsh(
                 2,
-                vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
+                vec![pubk_1, pubk_2, pubk_3],
             )
             .unwrap(),
         );
@@ -6953,14 +6919,7 @@ mod test {
         let origin_auth = TransactionAuth::Standard(
             TransactionSpendingCondition::new_multisig_order_independent_p2wsh(
                 4,
-                vec![
-                    pubk_1.clone(),
-                    pubk_2.clone(),
-                    pubk_3.clone(),
-                    pubk_4.clone(),
-                    pubk_5.clone(),
-                    pubk_6.clone(),
-                ],
+                vec![pubk_1, pubk_2, pubk_3, pubk_4, pubk_5, pubk_6],
             )
             .unwrap(),
         );
@@ -7089,7 +7048,7 @@ mod test {
 
         let real_sponsor = TransactionSpendingCondition::new_multisig_order_independent_p2wsh(
             2,
-            vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
+            vec![pubk_1, pubk_2, pubk_3],
         )
         .unwrap();
 
@@ -7265,15 +7224,7 @@ mod test {
 
         let real_sponsor = TransactionSpendingCondition::new_multisig_order_independent_p2wsh(
             2,
-            vec![
-                pubk_1.clone(),
-                pubk_2.clone(),
-                pubk_3.clone(),
-                pubk_4.clone(),
-                pubk_5.clone(),
-                pubk_6.clone(),
-                pubk_7.clone(),
-            ],
+            vec![pubk_1, pubk_2, pubk_3, pubk_4, pubk_5, pubk_6, pubk_7],
         )
         .unwrap();
 
@@ -7422,17 +7373,14 @@ mod test {
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
         let origin_auth = TransactionAuth::Standard(
-            TransactionSpendingCondition::new_multisig_p2sh(
-                2,
-                vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
-            )
-            .unwrap(),
+            TransactionSpendingCondition::new_multisig_p2sh(2, vec![pubk_1, pubk_2, pubk_3])
+                .unwrap(),
         );
 
         let order_independent_origin_auth = TransactionAuth::Standard(
             TransactionSpendingCondition::new_multisig_order_independent_p2sh(
                 2,
-                vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
+                vec![pubk_1, pubk_2, pubk_3],
             )
             .unwrap(),
         );
@@ -7573,17 +7521,14 @@ mod test {
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
         let origin_auth = TransactionAuth::Standard(
-            TransactionSpendingCondition::new_multisig_p2sh(
-                2,
-                vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
-            )
-            .unwrap(),
+            TransactionSpendingCondition::new_multisig_p2sh(2, vec![pubk_1, pubk_2, pubk_3])
+                .unwrap(),
         );
 
         let order_independent_origin_auth = TransactionAuth::Standard(
             TransactionSpendingCondition::new_multisig_order_independent_p2sh(
                 2,
-                vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
+                vec![pubk_1, pubk_2, pubk_3],
             )
             .unwrap(),
         );
@@ -7732,17 +7677,14 @@ mod test {
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
         let origin_auth = TransactionAuth::Standard(
-            TransactionSpendingCondition::new_multisig_p2wsh(
-                2,
-                vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
-            )
-            .unwrap(),
+            TransactionSpendingCondition::new_multisig_p2wsh(2, vec![pubk_1, pubk_2, pubk_3])
+                .unwrap(),
         );
 
         let order_independent_origin_auth = TransactionAuth::Standard(
             TransactionSpendingCondition::new_multisig_order_independent_p2wsh(
                 2,
-                vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
+                vec![pubk_1, pubk_2, pubk_3],
             )
             .unwrap(),
         );
@@ -7905,16 +7847,14 @@ mod test {
             .unwrap(),
         );
 
-        let real_sponsor = TransactionSpendingCondition::new_multisig_p2sh(
-            2,
-            vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
-        )
-        .unwrap();
+        let real_sponsor =
+            TransactionSpendingCondition::new_multisig_p2sh(2, vec![pubk_1, pubk_2, pubk_3])
+                .unwrap();
 
         let real_order_independent_sponsor =
             TransactionSpendingCondition::new_multisig_order_independent_p2sh(
                 2,
-                vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
+                vec![pubk_1, pubk_2, pubk_3],
             )
             .unwrap();
 
@@ -8156,14 +8096,14 @@ mod test {
 
         let real_sponsor = TransactionSpendingCondition::new_multisig_order_independent_p2sh(
             2,
-            vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
+            vec![pubk_1, pubk_2, pubk_3],
         )
         .unwrap();
 
         let real_order_independent_sponsor =
             TransactionSpendingCondition::new_multisig_order_independent_p2sh(
                 2,
-                vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
+                vec![pubk_1, pubk_2, pubk_3],
             )
             .unwrap();
 
@@ -8412,16 +8352,14 @@ mod test {
             .unwrap(),
         );
 
-        let real_sponsor = TransactionSpendingCondition::new_multisig_p2wsh(
-            2,
-            vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
-        )
-        .unwrap();
+        let real_sponsor =
+            TransactionSpendingCondition::new_multisig_p2wsh(2, vec![pubk_1, pubk_2, pubk_3])
+                .unwrap();
 
         let real_order_independent_sponsor =
             TransactionSpendingCondition::new_multisig_order_independent_p2wsh(
                 2,
-                vec![pubk_1.clone(), pubk_2.clone(), pubk_3.clone()],
+                vec![pubk_1, pubk_2, pubk_3],
             )
             .unwrap();
 

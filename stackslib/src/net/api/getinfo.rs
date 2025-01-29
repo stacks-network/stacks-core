@@ -107,7 +107,7 @@ impl RPCPeerInfoData {
         network: &PeerNetwork,
         chainstate: &StacksChainState,
         exit_at_block_height: Option<u64>,
-        genesis_chainstate_hash: &Sha256Sum,
+        genesis_chainstate_hash: Sha256Sum,
         coinbase_height: u64,
         ibd: bool,
     ) -> RPCPeerInfoData {
@@ -121,7 +121,7 @@ impl RPCPeerInfoData {
             Some(ref unconfirmed) => {
                 if unconfirmed.num_mined_txs() > 0 {
                     (
-                        Some(unconfirmed.unconfirmed_chain_tip.clone()),
+                        Some(unconfirmed.unconfirmed_chain_tip),
                         Some(unconfirmed.last_mblock_seq),
                     )
                 } else {
@@ -139,21 +139,21 @@ impl RPCPeerInfoData {
 
         RPCPeerInfoData {
             peer_version: network.burnchain.peer_version,
-            pox_consensus: network.burnchain_tip.consensus_hash.clone(),
+            pox_consensus: network.burnchain_tip.consensus_hash,
             burn_block_height: network.chain_view.burn_block_height,
-            stable_pox_consensus: network.chain_view_stable_consensus_hash.clone(),
+            stable_pox_consensus: network.chain_view_stable_consensus_hash,
             stable_burn_block_height: network.chain_view.burn_stable_block_height,
             server_version,
             network_id: network.local_peer.network_id,
             parent_network_id: network.local_peer.parent_network_id,
             stacks_tip_height: network.stacks_tip.height,
-            stacks_tip: network.stacks_tip.block_hash.clone(),
-            stacks_tip_consensus_hash: network.stacks_tip.consensus_hash.clone(),
+            stacks_tip: network.stacks_tip.block_hash,
+            stacks_tip_consensus_hash: network.stacks_tip.consensus_hash,
             unanchored_tip: unconfirmed_tip,
             unanchored_seq: unconfirmed_seq,
             exit_at_block_height,
             is_fully_synced,
-            genesis_chainstate_hash: genesis_chainstate_hash.clone(),
+            genesis_chainstate_hash,
             node_public_key: Some(public_key_buf),
             node_public_key_hash: Some(public_key_hash),
             affirmations: Some(RPCAffirmationData {
@@ -163,8 +163,8 @@ impl RPCPeerInfoData {
                 tentative_best: network.tentative_best_affirmation_map.clone(),
             }),
             last_pox_anchor: Some(RPCLastPoxAnchorData {
-                anchor_block_hash: network.last_anchor_block_hash.clone(),
-                anchor_block_txid: network.last_anchor_block_txid.clone(),
+                anchor_block_hash: network.last_anchor_block_hash,
+                anchor_block_txid: network.last_anchor_block_txid,
             }),
             stackerdbs: Some(
                 stackerdb_contract_ids
@@ -229,8 +229,8 @@ impl RPCRequestHandler for RPCPeerInfoRequestHandler {
                 Ok(RPCPeerInfoData::from_network(
                     network,
                     chainstate,
-                    rpc_args.exit_at_block_height.clone(),
-                    &rpc_args.genesis_chainstate_hash,
+                    rpc_args.exit_at_block_height,
+                    rpc_args.genesis_chainstate_hash,
                     coinbase_height,
                     ibd,
                 ))

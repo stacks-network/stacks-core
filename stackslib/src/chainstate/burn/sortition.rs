@@ -85,7 +85,7 @@ impl BlockSnapshot {
     ) -> BlockSnapshot {
         BlockSnapshot {
             block_height: first_block_height,
-            burn_header_hash: first_burn_header_hash.clone(),
+            burn_header_hash: *first_burn_header_hash,
             burn_header_timestamp: first_burn_header_timestamp,
             parent_burn_header_hash: BurnchainHeaderHash::sentinel(),
             consensus_hash: ConsensusHash([0u8; 20]),
@@ -94,15 +94,15 @@ impl BlockSnapshot {
             sortition: true,
             sortition_hash: SortitionHash::initial(),
             winning_block_txid: Txid([0u8; 32]),
-            winning_stacks_block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
+            winning_stacks_block_hash: FIRST_STACKS_BLOCK_HASH,
             index_root: TrieHash::from_empty_data(),
             num_sortitions: 0,
             stacks_block_accepted: false,
             stacks_block_height: 0,
             arrival_index: 0,
             canonical_stacks_tip_height: 0,
-            canonical_stacks_tip_hash: FIRST_STACKS_BLOCK_HASH.clone(),
-            canonical_stacks_tip_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+            canonical_stacks_tip_hash: FIRST_STACKS_BLOCK_HASH,
+            canonical_stacks_tip_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH,
             // Initial snapshot sets sortition_id = burn_header_hash,
             //  we shouldn't need to update this to use PoxId::initial(),
             //  but if we do, we need to update a lot of test cases.
@@ -223,19 +223,19 @@ impl BlockSnapshot {
     /// Make the snapshot struct for the case where _no sortition_ takes place
     fn make_snapshot_no_sortition(
         sort_tx: &mut SortitionHandleTx,
-        sortition_id: &SortitionId,
+        sortition_id: SortitionId,
         pox_id: &PoxId,
         parent_snapshot: &BlockSnapshot,
         block_header: &BurnchainBlockHeader,
         first_block_height: u64,
         burn_total: u64,
-        sortition_hash: &SortitionHash,
+        sortition_hash: SortitionHash,
         txids: &[Txid],
         accumulated_coinbase_ustx: u128,
     ) -> Result<BlockSnapshot, db_error> {
         let block_height = block_header.block_height;
-        let block_hash = block_header.block_hash.clone();
-        let parent_block_hash = block_header.parent_block_hash.clone();
+        let block_hash = block_header.block_hash;
+        let parent_block_hash = block_header.parent_block_hash;
 
         let non_winning_block_txid = Txid::from_bytes(&[0u8; 32]).unwrap();
         let non_winning_block_hash = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
@@ -262,7 +262,7 @@ impl BlockSnapshot {
             ops_hash,
             total_burn: burn_total,
             sortition: false,
-            sortition_hash: sortition_hash.clone(),
+            sortition_hash,
             winning_block_txid: non_winning_block_txid,
             winning_stacks_block_hash: non_winning_block_hash,
             index_root: TrieHash::from_empty_data(), // will be overwritten
@@ -271,12 +271,11 @@ impl BlockSnapshot {
             stacks_block_height: 0,
             arrival_index: 0,
             canonical_stacks_tip_height: parent_snapshot.canonical_stacks_tip_height,
-            canonical_stacks_tip_hash: parent_snapshot.canonical_stacks_tip_hash.clone(),
+            canonical_stacks_tip_hash: parent_snapshot.canonical_stacks_tip_hash,
             canonical_stacks_tip_consensus_hash: parent_snapshot
-                .canonical_stacks_tip_consensus_hash
-                .clone(),
-            sortition_id: sortition_id.clone(),
-            parent_sortition_id: parent_snapshot.sortition_id.clone(),
+                .canonical_stacks_tip_consensus_hash,
+            sortition_id,
+            parent_sortition_id: parent_snapshot.sortition_id,
             pox_valid: true,
             accumulated_coinbase_ustx,
             miner_pk_hash: None,
@@ -438,7 +437,7 @@ impl BlockSnapshot {
         null_winner.block_header_hash = {
             // make the block header hash different, to render it different from the winner.
             // Just flip the block header bits.
-            let mut bhh_bytes = null_winner.block_header_hash.0.clone();
+            let mut bhh_bytes = null_winner.block_header_hash.0;
             for byte in bhh_bytes.iter_mut() {
                 *byte = !*byte;
             }
@@ -501,7 +500,7 @@ impl BlockSnapshot {
         mainnet: bool,
         sort_tx: &mut SortitionHandleTx,
         burnchain: &Burnchain,
-        my_sortition_id: &SortitionId,
+        my_sortition_id: SortitionId,
         my_pox_id: &PoxId,
         parent_snapshot: &BlockSnapshot,
         block_header: &BurnchainBlockHeader,
@@ -536,7 +535,7 @@ impl BlockSnapshot {
         mainnet: bool,
         sort_tx: &mut SortitionHandleTx,
         burnchain: &Burnchain,
-        my_sortition_id: &SortitionId,
+        my_sortition_id: SortitionId,
         my_pox_id: &PoxId,
         parent_snapshot: &BlockSnapshot,
         block_header: &BurnchainBlockHeader,
@@ -551,11 +550,11 @@ impl BlockSnapshot {
         assert_eq!(parent_snapshot.block_height + 1, block_header.block_height);
 
         let block_height = block_header.block_height;
-        let block_hash = block_header.block_hash.clone();
-        let parent_block_hash = block_header.parent_block_hash.clone();
+        let block_hash = block_header.block_hash;
+        let parent_block_hash = block_header.parent_block_hash;
         let first_block_height = burnchain.first_block_height;
 
-        let last_sortition_hash = parent_snapshot.sortition_hash.clone();
+        let last_sortition_hash = parent_snapshot.sortition_hash;
         let last_burn_total = parent_snapshot.total_burn;
 
         let accumulated_coinbase_ustx = if parent_snapshot.total_burn == 0 {
@@ -586,7 +585,7 @@ impl BlockSnapshot {
                 block_header,
                 first_block_height,
                 last_burn_total,
-                &next_sortition_hash,
+                next_sortition_hash,
                 &state_transition.txids(),
                 accumulated_coinbase_ustx,
             )
@@ -700,7 +699,7 @@ impl BlockSnapshot {
                 block_header,
                 first_block_height,
                 last_burn_total,
-                &next_sortition_hash,
+                next_sortition_hash,
                 &state_transition.txids(),
                 accumulated_coinbase_ustx,
             );
@@ -751,12 +750,11 @@ impl BlockSnapshot {
             stacks_block_height: 0,
             arrival_index: 0,
             canonical_stacks_tip_height: parent_snapshot.canonical_stacks_tip_height,
-            canonical_stacks_tip_hash: parent_snapshot.canonical_stacks_tip_hash.clone(),
+            canonical_stacks_tip_hash: parent_snapshot.canonical_stacks_tip_hash,
             canonical_stacks_tip_consensus_hash: parent_snapshot
-                .canonical_stacks_tip_consensus_hash
-                .clone(),
-            sortition_id: my_sortition_id.clone(),
-            parent_sortition_id: parent_snapshot.sortition_id.clone(),
+                .canonical_stacks_tip_consensus_hash,
+            sortition_id: my_sortition_id,
+            parent_sortition_id: parent_snapshot.sortition_id,
             pox_valid: true,
             accumulated_coinbase_ustx,
             miner_pk_hash,
@@ -785,7 +783,7 @@ mod test {
     fn test_make_snapshot(
         sort_tx: &mut SortitionHandleTx,
         burnchain: &Burnchain,
-        my_sortition_id: &SortitionId,
+        my_sortition_id: SortitionId,
         my_pox_id: &PoxId,
         parent_snapshot: &BlockSnapshot,
         block_header: &BurnchainBlockHeader,
@@ -824,7 +822,7 @@ mod test {
             first_block_timestamp: 0,
             first_block_height,
             initial_reward_start_block: first_block_height,
-            first_block_hash: first_burn_hash.clone(),
+            first_block_hash: first_burn_hash,
         };
 
         let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
@@ -835,7 +833,7 @@ mod test {
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0x01, 0x24,
             ]),
-            parent_block_hash: first_burn_hash.clone(),
+            parent_block_hash: first_burn_hash,
             num_txs: 0,
             timestamp: get_epoch_time_secs(),
         };
@@ -849,7 +847,7 @@ mod test {
             let sn = test_make_snapshot(
                 &mut ic,
                 &burnchain,
-                &sort_id,
+                sort_id,
                 &pox_id,
                 &initial_snapshot,
                 &empty_block_header,
@@ -881,14 +879,14 @@ mod test {
             ]),
             frequency: 10,
             candidate: LeaderBlockCommitOp::initial(
-                &BlockHeaderHash([1u8; 32]),
+                BlockHeaderHash([1u8; 32]),
                 first_block_height + 1,
-                &VRFSeed::initial(),
+                VRFSeed::initial(),
                 &key,
                 0,
-                &(Txid([0; 32]), 0),
-                &BurnchainSigner::new_p2pkh(
-                    &StacksPublicKey::from_hex(
+                (Txid([0; 32]), 0),
+                BurnchainSigner::new_p2pkh(
+                    StacksPublicKey::from_hex(
                         "03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77",
                     )
                     .unwrap(),
@@ -903,7 +901,7 @@ mod test {
             let sn = test_make_snapshot(
                 &mut ic,
                 &burnchain,
-                &sort_id,
+                sort_id,
                 &pox_id,
                 &initial_snapshot,
                 &empty_block_header,
@@ -1072,8 +1070,8 @@ mod test {
 
         let mut prev_block_header = BurnchainBlockHeader {
             block_height: first_block_height,
-            block_hash: first_burn_hash.clone(),
-            parent_block_hash: parent_first_burn_hash.clone(),
+            block_hash: first_burn_hash,
+            parent_block_hash: parent_first_burn_hash,
             num_txs: 0,
             timestamp: 12345,
         };
@@ -1090,7 +1088,7 @@ mod test {
             first_block_timestamp: 0,
             first_block_height,
             initial_reward_start_block: first_block_height,
-            first_block_hash: first_burn_hash.clone(),
+            first_block_hash: first_burn_hash,
         };
 
         let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
@@ -1099,7 +1097,7 @@ mod test {
             let header = BurnchainBlockHeader {
                 block_height: prev_block_header.block_height + 1,
                 block_hash: BurnchainHeaderHash([i; 32]),
-                parent_block_hash: prev_block_header.block_hash.clone(),
+                parent_block_hash: prev_block_header.block_hash,
                 num_txs: 0,
                 timestamp: prev_block_header.timestamp + u64::from(i) + 1,
             };
@@ -1124,14 +1122,14 @@ mod test {
                 vtxindex: 0,
                 block_height: header.block_height,
                 burn_parent_modulus: i % BURN_BLOCK_MINED_AT_MODULUS as u8,
-                burn_header_hash: header.block_hash.clone(),
+                burn_header_hash: header.block_hash,
                 treatment: vec![],
             };
 
             let tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
             test_append_snapshot_with_winner(
                 &mut db,
-                header.block_hash.clone(),
+                header.block_hash,
                 &[BlockstackOperationType::LeaderBlockCommit(
                     commit_winner.clone(),
                 )],

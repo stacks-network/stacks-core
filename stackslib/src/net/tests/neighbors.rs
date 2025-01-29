@@ -129,12 +129,7 @@ fn test_step_walk_1_neighbor_plain() {
         // peer 1 learned and confirmed its public IP address from peer 2
         assert!(peer_1.network.get_local_peer().public_ip_address.is_some());
         assert_eq!(
-            peer_1
-                .network
-                .get_local_peer()
-                .public_ip_address
-                .clone()
-                .unwrap(),
+            peer_1.network.get_local_peer().public_ip_address.unwrap(),
             (
                 PeerAddress::from_socketaddr(&"127.0.0.1:1".parse::<SocketAddr>().unwrap()),
                 peer_1.config.server_port,

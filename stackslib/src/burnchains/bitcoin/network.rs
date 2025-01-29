@@ -360,7 +360,7 @@ impl BitcoinIndexer {
             .iter()
             .map(|h| btc_message_blockdata::Inventory {
                 inv_type: btc_message_blockdata::InvType::Block,
-                hash: h.clone(),
+                hash: *h,
             })
             .collect();
 

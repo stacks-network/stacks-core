@@ -45,7 +45,7 @@ use crate::util_lib::db::DBConn;
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let request = StacksHttpRequest::new_getblock(addr.into(), StacksBlockId([0x11; 32]));
     let bytes = request.try_serialize().unwrap();
@@ -80,13 +80,13 @@ fn test_try_make_response() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
 
     let rpc_test = TestRPC::setup(function_name!());
-    let stacks_chain_tip = rpc_test.canonical_tip.clone();
-    let consensus_hash = rpc_test.consensus_hash.clone();
+    let stacks_chain_tip = rpc_test.canonical_tip;
+    let consensus_hash = rpc_test.consensus_hash;
 
     let mut requests = vec![];
 
     // query existing block
-    let request = StacksHttpRequest::new_getblock(addr.into(), stacks_chain_tip.clone());
+    let request = StacksHttpRequest::new_getblock(addr.into(), stacks_chain_tip);
     requests.push(request);
 
     // query non-existant block

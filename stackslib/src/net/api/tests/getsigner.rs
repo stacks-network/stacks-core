@@ -47,7 +47,7 @@ fn make_preamble(query: &str) -> HttpRequestPreamble {
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let http = StacksHttp::new(addr, &ConnectionOptions::default());
     let private_key = StacksPrivateKey::new();
     let signer_pubkey = StacksPublicKey::from_private(&private_key);
     let signer_pubkey_hex = signer_pubkey.to_hex();
@@ -111,7 +111,7 @@ fn test_try_make_response() {
     let random_private_key = StacksPrivateKey::new();
     let random_public_key = StacksPublicKey::from_private(&random_private_key);
 
-    let nakamoto_chain_tip = rpc_test.canonical_tip.clone();
+    let nakamoto_chain_tip = rpc_test.canonical_tip;
 
     let mut requests = vec![];
 

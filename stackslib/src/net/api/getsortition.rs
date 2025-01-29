@@ -165,7 +165,7 @@ impl GetSortitionHandler {
             .is_shadow_tenure(&sortition_sn.consensus_hash)?;
         let (miner_pk_hash160, stacks_parent_ch, committed_block_hash, last_sortition_ch) =
             if !sortition_sn.sortition && !is_shadow {
-                let handle = sortdb.index_handle(&sortition_sn.sortition_id);
+                let handle = sortdb.index_handle(sortition_sn.sortition_id);
                 let last_sortition =
                     handle.get_last_snapshot_with_sortition(sortition_sn.block_height)?;
                 (None, None, None, Some(last_sortition.consensus_hash))
@@ -186,7 +186,7 @@ impl GetSortitionHandler {
 
                 (
                     Some(Hash160([0x00; 20])),
-                    Some(parent_tenure_ch.clone()),
+                    Some(parent_tenure_ch),
                     Some(BlockHeaderHash(
                         parent_tenure_start_header.index_block_hash().0,
                     )),
@@ -202,7 +202,7 @@ impl GetSortitionHandler {
                             );
                             ChainError::NoSuchBlockError
                         })?;
-                let handle = sortdb.index_handle(&sortition_sn.sortition_id);
+                let handle = sortdb.index_handle(sortition_sn.sortition_id);
                 let stacks_parent_sn = handle
                     .get_block_snapshot_by_height(block_commit.parent_block_ptr.into())?
                     .ok_or_else(|| {
@@ -222,7 +222,7 @@ impl GetSortitionHandler {
                 let sortitions_incremented_by_1 =
                     sortition_sn.num_sortitions == stacks_parent_sn.num_sortitions + 1;
                 let last_sortition_ch = if sortitions_incremented_by_1 {
-                    stacks_parent_sn.consensus_hash.clone()
+                    stacks_parent_sn.consensus_hash
                 } else {
                     // we actually need to perform the marf lookup
                     let last_sortition = handle.get_last_snapshot_with_sortition(
@@ -232,7 +232,7 @@ impl GetSortitionHandler {
                 };
 
                 (
-                    sortition_sn.miner_pk_hash.clone(),
+                    sortition_sn.miner_pk_hash,
                     Some(stacks_parent_sn.consensus_hash),
                     Some(block_commit.block_header_hash),
                     Some(last_sortition_ch),
@@ -369,7 +369,7 @@ impl RPCRequestHandler for GetSortitionHandler {
             }
         };
 
-        let last_sortition_ch = block.last_sortition_ch.clone();
+        let last_sortition_ch = block.last_sortition_ch;
         let mut info_list = vec![block];
         if self.query == QuerySpecifier::LatestAndLast {
             // if latest **and** last are requested, lookup the sortition info for last_sortition_ch

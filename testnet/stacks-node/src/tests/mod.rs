@@ -424,11 +424,10 @@ pub fn make_stacks_transfer(
     nonce: u64,
     tx_fee: u64,
     chain_id: u32,
-    recipient: &PrincipalData,
+    recipient: PrincipalData,
     amount: u64,
 ) -> Vec<u8> {
-    let payload =
-        TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
+    let payload = TransactionPayload::TokenTransfer(recipient, amount, TokenTransferMemo([0; 34]));
     serialize_sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id)
 }
 
@@ -440,11 +439,10 @@ pub fn make_sponsored_stacks_transfer_on_testnet(
     payer_nonce: u64,
     tx_fee: u64,
     chain_id: u32,
-    recipient: &PrincipalData,
+    recipient: PrincipalData,
     amount: u64,
 ) -> Vec<u8> {
-    let payload =
-        TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
+    let payload = TransactionPayload::TokenTransfer(recipient, amount, TokenTransferMemo([0; 34]));
     serialize_sign_sponsored_sig_tx_anchor_mode_version(
         payload,
         sender,
@@ -463,11 +461,10 @@ pub fn make_stacks_transfer_mblock_only(
     nonce: u64,
     tx_fee: u64,
     chain_id: u32,
-    recipient: &PrincipalData,
+    recipient: PrincipalData,
     amount: u64,
 ) -> Vec<u8> {
-    let payload =
-        TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
+    let payload = TransactionPayload::TokenTransfer(recipient, amount, TokenTransferMemo([0; 34]));
     serialize_sign_standard_single_sig_tx_anchor_mode(
         payload,
         sender,

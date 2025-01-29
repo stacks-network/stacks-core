@@ -594,9 +594,7 @@ impl RelayerThread {
             // we won the last non-empty sortition. Has there been a BlockFound issued for it?
             // This would be true if the stacks tip's tenure is at or descends from this snapshot.
             // If there has _not_ been a BlockFound, then we should issue one.
-            let ih = self
-                .sortdb
-                .index_handle(&last_winning_snapshot.sortition_id);
+            let ih = self.sortdb.index_handle(last_winning_snapshot.sortition_id);
             let need_blockfound = if stacks_tip_sn.block_height > last_winning_snapshot.block_height
             {
                 // stacks tip is ahead of this snapshot, so no BlockFound can be issued.
@@ -657,7 +655,7 @@ impl RelayerThread {
                 self.tenure_extend_timeout = Some(Instant::now());
                 return Some(MinerDirective::BeginTenure {
                     parent_tenure_start: StacksBlockId(
-                        last_winning_snapshot.winning_stacks_block_hash.clone().0,
+                        last_winning_snapshot.winning_stacks_block_hash.0,
                     ),
                     burnchain_tip: sn,
                     election_block: last_winning_snapshot,
@@ -1087,7 +1085,7 @@ impl RelayerThread {
             burn_election_block,
             burn_tip,
             parent_tenure_id,
-            burn_tip_at_start,
+            *burn_tip_at_start,
             reason,
         );
         Ok(miner_thread_state)
@@ -1203,7 +1201,7 @@ impl RelayerThread {
         sortdb: &SortitionDB,
         sort_tip: &BlockSnapshot,
     ) -> Result<BlockSnapshot, NakamotoNodeError> {
-        let ih = sortdb.index_handle(&sort_tip.sortition_id);
+        let ih = sortdb.index_handle(sort_tip.sortition_id);
         Ok(ih.get_last_snapshot_with_sortition(sort_tip.block_height)?)
     }
 
@@ -1226,7 +1224,7 @@ impl RelayerThread {
         // check that this commit's parent tenure ID is on the history tipped at
         // `stacks_tip_id`
         let mut ic = chain_state.index_conn();
-        let parent_tenure_id = StacksBlockId(sn.winning_stacks_block_hash.clone().0);
+        let parent_tenure_id = StacksBlockId(sn.winning_stacks_block_hash.0);
         let height_opt = ic.get_ancestor_block_height(&parent_tenure_id, stacks_tip_id)?;
         if height_opt.is_none() {
             // parent_tenure_id is not an ancestor of stacks_tip_id
@@ -1432,7 +1430,7 @@ impl RelayerThread {
         let Some(canonical_stacks_tip_election_snapshot) = Self::can_continue_tenure(
             &self.sortdb,
             &mut self.chainstate,
-            new_burn_view.clone(),
+            new_burn_view,
             mining_pkh_opt,
         )?
         else {
@@ -1452,11 +1450,11 @@ impl RelayerThread {
             StacksBlockId::new(&canonical_stacks_tip_ch, &canonical_stacks_tip_bh);
 
         let reason = MinerReason::Extended {
-            burn_view_consensus_hash: new_burn_view.clone(),
+            burn_view_consensus_hash: new_burn_view,
         };
 
         if let Err(e) = self.start_new_tenure(
-            canonical_stacks_tip.clone(),
+            canonical_stacks_tip,
             canonical_stacks_tip_election_snapshot.clone(),
             burn_tip.clone(),
             reason.clone(),
@@ -1799,7 +1797,7 @@ impl RelayerThread {
             }
         }
 
-        if let Err(e) = self.continue_tenure(sn.consensus_hash.clone()) {
+        if let Err(e) = self.continue_tenure(sn.consensus_hash) {
             warn!(
                 "Relayer: failed to continue tenure for burn view {}: {e:?}",
                 &sn.consensus_hash

@@ -59,7 +59,7 @@ use crate::net::{ProtocolFamily, TipRequest};
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let block = make_codec_test_nakamoto_block(StacksEpochId::Epoch30, &StacksPrivateKey::new());
     let proposal = NakamotoBlockProposal {
@@ -280,7 +280,7 @@ fn test_try_make_response() {
 
         let mut builder = NakamotoBlockBuilder::new(
             &parent_stacks_header,
-            &parent_stacks_header.consensus_hash,
+            parent_stacks_header.consensus_hash,
             26000,
             None,
             None,

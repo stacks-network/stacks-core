@@ -332,9 +332,9 @@ pub struct TrieCursor<T: MarfTrieId> {
 }
 
 impl<T: MarfTrieId> TrieCursor<T> {
-    pub fn new(path: &TrieHash, root_ptr: TriePtr) -> TrieCursor<T> {
+    pub fn new(path: TrieHash, root_ptr: TriePtr) -> TrieCursor<T> {
         TrieCursor {
-            path: path.clone(),
+            path,
             index: 0,
             node_path_index: 0,
             nodes: vec![],
@@ -373,7 +373,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
     pub fn ptr(&self) -> TriePtr {
         // should always be true by construction
         assert!(!self.node_ptrs.is_empty());
-        self.node_ptrs[self.node_ptrs.len() - 1].clone()
+        self.node_ptrs[self.node_ptrs.len() - 1]
     }
 
     /// last node visited.
@@ -510,7 +510,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
         self.block_hashes.pop();
 
         self.nodes.push(node.clone());
-        self.node_ptrs.push(ptr.clone());
+        self.node_ptrs.push(*ptr);
         self.block_hashes.push(hash.clone());
 
         self.last_error = None;
@@ -570,7 +570,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
             &block_hash
         );
 
-        self.node_ptrs.push(ptr.clone());
+        self.node_ptrs.push(*ptr);
         self.block_hashes.push(block_hash);
 
         self.last_error = None;
@@ -730,7 +730,7 @@ impl TrieNode48 {
         let mut ptrs = [TriePtr::default(); 48];
         let mut indexes = [-1i8; 256];
         for i in 0..16 {
-            ptrs[i] = node16.ptrs[i].clone();
+            ptrs[i] = node16.ptrs[i];
             indexes[ptrs[i].chr() as usize] = i as i8;
         }
         TrieNode48 {
@@ -777,7 +777,7 @@ impl TrieNode256 {
         let mut ptrs = [TriePtr::default(); 256];
         for i in 0..4 {
             let c = node4.ptrs[i].chr();
-            ptrs[c as usize] = node4.ptrs[i].clone();
+            ptrs[c as usize] = node4.ptrs[i];
         }
         TrieNode256 {
             path: node4.path.clone(),
@@ -790,7 +790,7 @@ impl TrieNode256 {
         let mut ptrs = [TriePtr::default(); 256];
         for i in 0..48 {
             let c = node48.ptrs[i].chr();
-            ptrs[c as usize] = node48.ptrs[i].clone();
+            ptrs[c as usize] = node48.ptrs[i];
         }
         TrieNode256 {
             path: node48.path.clone(),
@@ -814,7 +814,7 @@ impl TrieNode for TrieNode4 {
     fn walk(&self, chr: u8) -> Option<TriePtr> {
         for i in 0..4 {
             if self.ptrs[i].id() != TrieNodeID::Empty as u8 && self.ptrs[i].chr() == chr {
-                return Some(self.ptrs[i].clone());
+                return Some(self.ptrs[i]);
             }
         }
         return None;
@@ -838,7 +838,7 @@ impl TrieNode for TrieNode4 {
 
         for i in 0..4 {
             if self.ptrs[i].id() == TrieNodeID::Empty as u8 {
-                self.ptrs[i] = ptr.clone();
+                self.ptrs[i] = *ptr;
                 return true;
             }
         }
@@ -848,7 +848,7 @@ impl TrieNode for TrieNode4 {
     fn replace(&mut self, ptr: &TriePtr) -> bool {
         for i in 0..4 {
             if self.ptrs[i].id() != TrieNodeID::Empty as u8 && self.ptrs[i].chr() == ptr.chr() {
-                self.ptrs[i] = ptr.clone();
+                self.ptrs[i] = *ptr;
                 return true;
             }
         }
@@ -883,7 +883,7 @@ impl TrieNode for TrieNode16 {
     fn walk(&self, chr: u8) -> Option<TriePtr> {
         for i in 0..16 {
             if self.ptrs[i].id != TrieNodeID::Empty as u8 && self.ptrs[i].chr == chr {
-                return Some(self.ptrs[i].clone());
+                return Some(self.ptrs[i]);
             }
         }
         return None;
@@ -908,7 +908,7 @@ impl TrieNode for TrieNode16 {
 
         for i in 0..16 {
             if self.ptrs[i].id() == TrieNodeID::Empty as u8 {
-                self.ptrs[i] = ptr.clone();
+                self.ptrs[i] = *ptr;
                 return true;
             }
         }
@@ -918,7 +918,7 @@ impl TrieNode for TrieNode16 {
     fn replace(&mut self, ptr: &TriePtr) -> bool {
         for i in 0..16 {
             if self.ptrs[i].id() != TrieNodeID::Empty as u8 && self.ptrs[i].chr() == ptr.chr() {
-                self.ptrs[i] = ptr.clone();
+                self.ptrs[i] = *ptr;
                 return true;
             }
         }
@@ -954,7 +954,7 @@ impl TrieNode for TrieNode48 {
     fn walk(&self, chr: u8) -> Option<TriePtr> {
         let idx = self.indexes[chr as usize];
         if idx >= 0 && idx < 48 && self.ptrs[idx as usize].id() != TrieNodeID::Empty as u8 {
-            return Some(self.ptrs[idx as usize].clone());
+            return Some(self.ptrs[idx as usize]);
         }
         return None;
     }
@@ -1045,7 +1045,7 @@ impl TrieNode for TrieNode48 {
         for i in 0..48 {
             if self.ptrs[i].id() == TrieNodeID::Empty as u8 {
                 self.indexes[c as usize] = i as i8;
-                self.ptrs[i] = ptr.clone();
+                self.ptrs[i] = *ptr;
                 return true;
             }
         }
@@ -1055,7 +1055,7 @@ impl TrieNode for TrieNode48 {
     fn replace(&mut self, ptr: &TriePtr) -> bool {
         let i = self.indexes[ptr.chr() as usize];
         if i >= 0 {
-            self.ptrs[i as usize] = ptr.clone();
+            self.ptrs[i as usize] = *ptr;
             return true;
         } else {
             return false;
@@ -1089,7 +1089,7 @@ impl TrieNode for TrieNode256 {
 
     fn walk(&self, chr: u8) -> Option<TriePtr> {
         if self.ptrs[chr as usize].id() != TrieNodeID::Empty as u8 {
-            return Some(self.ptrs[chr as usize].clone());
+            return Some(self.ptrs[chr as usize]);
         }
         return None;
     }
@@ -1111,14 +1111,14 @@ impl TrieNode for TrieNode256 {
             return true;
         }
         let c = ptr.chr() as usize;
-        self.ptrs[c] = ptr.clone();
+        self.ptrs[c] = *ptr;
         return true;
     }
 
     fn replace(&mut self, ptr: &TriePtr) -> bool {
         let c = ptr.chr() as usize;
         if self.ptrs[c].id() != TrieNodeID::Empty as u8 && self.ptrs[c].chr() == ptr.chr() {
-            self.ptrs[c] = ptr.clone();
+            self.ptrs[c] = *ptr;
             return true;
         } else {
             return false;

@@ -2735,7 +2735,7 @@ fn stack_stx_burn_op_test() {
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb_conn).unwrap();
 
     let ancestor_burnchain_header_hashes =
-        SortitionDB::get_ancestor_burnchain_header_hashes(sortdb.conn(), &tip.burn_header_hash, 6)
+        SortitionDB::get_ancestor_burnchain_header_hashes(sortdb.conn(), tip.burn_header_hash, 6)
             .unwrap();
 
     let mut all_stacking_burn_ops = vec![];
@@ -3164,11 +3164,11 @@ fn bitcoind_resubmission_test() {
             0,
             100,
             conf.burnchain.chain_id,
-            &PrincipalData::from(StacksAddress::burn_address(false)),
+            PrincipalData::from(StacksAddress::burn_address(false)),
             1000,
         );
         let mut garbage_block = StacksMicroblock::first_unsigned(
-            &chain_tip.1,
+            chain_tip.1,
             vec![StacksTransaction::consensus_deserialize(&mut garbage_tx.as_slice()).unwrap()],
         );
         garbage_block.header.prev_block = BlockHeaderHash([3; 32]);
@@ -3509,7 +3509,7 @@ fn microblock_fork_poison_integration_test() {
         0,
         1000,
         conf.burnchain.chain_id,
-        &recipient.into(),
+        recipient.into(),
         1000,
     );
     let unconfirmed_tx =
@@ -3519,7 +3519,7 @@ fn microblock_fork_poison_integration_test() {
         0,
         1000,
         conf.burnchain.chain_id,
-        &recipient.into(),
+        recipient.into(),
         1500,
     );
     let second_unconfirmed_tx =
@@ -3752,7 +3752,7 @@ fn microblock_integration_test() {
         0,
         1000,
         conf.burnchain.chain_id,
-        &recipient.into(),
+        recipient.into(),
         1000,
     );
     submit_tx(&http_origin, &tx);
@@ -3789,7 +3789,7 @@ fn microblock_integration_test() {
         1,
         1000,
         conf.burnchain.chain_id,
-        &recipient.into(),
+        recipient.into(),
         1000,
     );
     let unconfirmed_tx =
@@ -3799,7 +3799,7 @@ fn microblock_integration_test() {
         0,
         1000,
         conf.burnchain.chain_id,
-        &recipient.into(),
+        recipient.into(),
         1500,
     );
     let second_unconfirmed_tx =
@@ -4118,7 +4118,7 @@ fn microblock_integration_test() {
             next_nonce,
             1000,
             conf.burnchain.chain_id,
-            &recipient.into(),
+            recipient.into(),
             1000,
         );
 
@@ -4217,7 +4217,7 @@ fn filter_low_fee_tx_integration_test() {
                     0,
                     1000 + (ix as u64),
                     conf.burnchain.chain_id,
-                    &recipient.into(),
+                    recipient.into(),
                     1000,
                 )
             } else {
@@ -4227,7 +4227,7 @@ fn filter_low_fee_tx_integration_test() {
                     0,
                     2000 + (ix as u64),
                     conf.burnchain.chain_id,
-                    &recipient.into(),
+                    recipient.into(),
                     1000,
                 )
             }
@@ -4317,7 +4317,7 @@ fn filter_long_runtime_tx_integration_test() {
                 0,
                 1000 + (ix as u64),
                 conf.burnchain.chain_id,
-                &recipient.into(),
+                recipient.into(),
                 1000,
             )
         })
@@ -5559,7 +5559,7 @@ fn block_replay_integration_test() {
         0,
         1000,
         conf.burnchain.chain_id,
-        &recipient.into(),
+        recipient.into(),
         1000,
     );
     submit_tx(&http_origin, &tx);
@@ -6283,7 +6283,7 @@ fn block_limit_hit_integration_test() {
         0,
         180,
         conf.burnchain.chain_id,
-        &PrincipalData::from(addr),
+        PrincipalData::from(addr),
         100,
     );
 
@@ -6537,7 +6537,7 @@ fn microblock_limit_hit_integration_test() {
         0,
         180,
         conf.burnchain.chain_id,
-        &PrincipalData::from(addr),
+        PrincipalData::from(addr),
         100,
     );
 
@@ -9257,7 +9257,7 @@ fn use_latest_tip_integration_test() {
         0,
         1000,
         conf.burnchain.chain_id,
-        &recipient.into(),
+        recipient.into(),
         1000,
     );
 

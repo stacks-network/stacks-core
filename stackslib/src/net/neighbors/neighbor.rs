@@ -31,10 +31,10 @@ use crate::util_lib::db::{DBConn, DBTx};
 
 /// Walk-specific helper functions for neighbors
 impl Neighbor {
-    pub fn empty(key: &NeighborKey, pubk: &Secp256k1PublicKey, expire_block: u64) -> Neighbor {
+    pub fn empty(key: NeighborKey, pubk: Secp256k1PublicKey, expire_block: u64) -> Neighbor {
         Neighbor {
-            addr: key.clone(),
-            public_key: pubk.clone(),
+            addr: key,
+            public_key: pubk,
             expire_block,
             last_contact_time: 0,
             allowed: 0,

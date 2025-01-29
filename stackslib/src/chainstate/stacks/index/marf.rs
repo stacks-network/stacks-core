@@ -734,7 +734,7 @@ impl<T: MarfTrieId> MARF<T> {
         storage.open_block_maybe_id(&cur_block_hash, cur_block_id)?;
         let child_disk_ptr = storage.last_ptr()?;
         let child_ptr = TriePtr::new(child_ptr.id(), chr, child_disk_ptr);
-        storage.write_nodetype(child_disk_ptr, &child_node, child_hash.clone())?;
+        storage.write_nodetype(child_disk_ptr, &child_node, child_hash)?;
 
         trace!(
             "Copied child 0x{:02x} to {:?}: ptr={:?} child={:?}",
@@ -825,7 +825,7 @@ impl<T: MarfTrieId> MARF<T> {
         let block_id = storage.get_block_identifier(block_hash);
         MARF::extend_trie(storage, block_hash)?;
 
-        let mut cursor = TrieCursor::new(path, storage.root_trieptr());
+        let mut cursor = TrieCursor::new(*path, storage.root_trieptr());
 
         // walk to insertion point
         let mut node = Trie::read_root_nohash(storage)?;
@@ -929,7 +929,7 @@ impl<T: MarfTrieId> MARF<T> {
     ) -> Result<(TrieCursor<T>, TrieNodeType), Error> {
         storage.open_block(block_hash)?;
 
-        let mut cursor = TrieCursor::new(path, storage.root_trieptr());
+        let mut cursor = TrieCursor::new(*path, storage.root_trieptr());
 
         // walk to insertion point
         let mut node = Trie::read_root_nohash(storage).map_err(|e| {
@@ -1358,7 +1358,7 @@ impl<T: MarfTrieId> MARF<T> {
             .enumerate()
             .zip(values[0..last].iter())
             .try_for_each(|((index, key), value)| {
-                let marf_leaf = TrieLeaf::from_value(&[], value.clone());
+                let marf_leaf = TrieLeaf::from_value(&[], *value);
                 let path = TrieHash::from_key(key);
 
                 if eta_enabled {
@@ -1376,7 +1376,7 @@ impl<T: MarfTrieId> MARF<T> {
 
         if result.is_ok() {
             // last insert updates the root with the skiplist hash
-            let marf_leaf = TrieLeaf::from_value(&[], values[last].clone());
+            let marf_leaf = TrieLeaf::from_value(&[], values[last]);
             let path = TrieHash::from_key(&keys[last]);
             result = MARF::insert_leaf(conn, block_hash, &path, &marf_leaf);
         }

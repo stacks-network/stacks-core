@@ -58,9 +58,9 @@ pub static OUTPUTS_PER_COMMIT: usize = 2;
 
 impl PreStxOp {
     #[cfg(test)]
-    pub fn new(sender: &StacksAddress) -> PreStxOp {
+    pub fn new(sender: StacksAddress) -> PreStxOp {
         PreStxOp {
-            output: sender.clone(),
+            output: sender,
             // to be filled in
             txid: Txid([0u8; 32]),
             vtxindex: 0,
@@ -77,7 +77,7 @@ impl PreStxOp {
     ) -> Result<PreStxOp, op_error> {
         PreStxOp::parse_from_tx(
             block_header.block_height,
-            &block_header.block_hash,
+            block_header.block_hash,
             epoch_id,
             tx,
             pox_sunset_ht,
@@ -88,7 +88,7 @@ impl PreStxOp {
     /// `pox_sunset_ht` is the height at which PoX *disables*
     pub fn parse_from_tx(
         block_height: u64,
-        block_hash: &BurnchainHeaderHash,
+        block_hash: BurnchainHeaderHash,
         epoch_id: StacksEpochId,
         tx: &BurnchainTransaction,
         pox_sunset_ht: u64,
@@ -149,7 +149,7 @@ impl PreStxOp {
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
             block_height,
-            burn_header_hash: block_hash.clone(),
+            burn_header_hash: block_hash,
         })
     }
 }
@@ -157,8 +157,8 @@ impl PreStxOp {
 impl StackStxOp {
     #[cfg(test)]
     pub fn new(
-        sender: &StacksAddress,
-        reward_addr: &PoxAddress,
+        sender: StacksAddress,
+        reward_addr: PoxAddress,
         stacked_ustx: u128,
         num_cycles: u8,
         signer_key: Option<StacksPublicKeyBuffer>,
@@ -166,8 +166,8 @@ impl StackStxOp {
         auth_id: Option<u32>,
     ) -> StackStxOp {
         StackStxOp {
-            sender: sender.clone(),
-            reward_addr: reward_addr.clone(),
+            sender,
+            reward_addr,
             stacked_ustx,
             num_cycles,
             signer_key,
@@ -260,12 +260,12 @@ impl StackStxOp {
         block_header: &BurnchainBlockHeader,
         epoch_id: StacksEpochId,
         tx: &BurnchainTransaction,
-        sender: &StacksAddress,
+        sender: StacksAddress,
         pox_sunset_ht: u64,
     ) -> Result<StackStxOp, op_error> {
         StackStxOp::parse_from_tx(
             block_header.block_height,
-            &block_header.block_hash,
+            block_header.block_hash,
             epoch_id,
             tx,
             sender,
@@ -279,10 +279,10 @@ impl StackStxOp {
     /// `pox_sunset_ht` is the height at which PoX *disables*
     pub fn parse_from_tx(
         block_height: u64,
-        block_hash: &BurnchainHeaderHash,
+        block_hash: BurnchainHeaderHash,
         epoch_id: StacksEpochId,
         tx: &BurnchainTransaction,
-        sender: &StacksAddress,
+        sender: StacksAddress,
         pox_sunset_ht: u64,
     ) -> Result<StackStxOp, op_error> {
         // can't be too careful...
@@ -338,7 +338,7 @@ impl StackStxOp {
         }
 
         Ok(StackStxOp {
-            sender: sender.clone(),
+            sender,
             reward_addr,
             stacked_ustx: data.stacked_ustx,
             num_cycles: data.num_cycles,
@@ -348,7 +348,7 @@ impl StackStxOp {
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
             block_height,
-            burn_header_hash: block_hash.clone(),
+            burn_header_hash: block_hash,
         })
     }
 }
@@ -510,7 +510,7 @@ mod tests {
         let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let op = PreStxOp::parse_from_tx(
             16843022,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch2_05,
             &BurnchainTransaction::Bitcoin(tx.clone()),
             16843023,
@@ -573,7 +573,7 @@ mod tests {
         // pre-2.1 this fails
         let op_err = PreStxOp::parse_from_tx(
             16843022,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch2_05,
             &BurnchainTransaction::Bitcoin(tx.clone()),
             16843022,
@@ -588,7 +588,7 @@ mod tests {
         // post-2.1 this succeeds
         let op = PreStxOp::parse_from_tx(
             16843022,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch21,
             &BurnchainTransaction::Bitcoin(tx.clone()),
             16843022,
@@ -649,10 +649,10 @@ mod tests {
         let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let op = StackStxOp::parse_from_tx(
             16843022,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch2_05,
             &BurnchainTransaction::Bitcoin(tx.clone()),
-            &sender,
+            sender,
             16843023,
         )
         .unwrap();
@@ -720,10 +720,10 @@ mod tests {
         let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let op = StackStxOp::parse_from_tx(
             16843022,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch2_05,
             &BurnchainTransaction::Bitcoin(tx.clone()),
-            &sender,
+            sender,
             16843023,
         )
         .unwrap();
@@ -791,10 +791,10 @@ mod tests {
         // pre-2.1: this fails
         let op_err = StackStxOp::parse_from_tx(
             16843022,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch2_05,
             &BurnchainTransaction::Bitcoin(tx.clone()),
-            &sender,
+            sender,
             16843022,
         )
         .unwrap_err();
@@ -807,10 +807,10 @@ mod tests {
         // post-2.1: this succeeds
         let op = StackStxOp::parse_from_tx(
             16843022,
-            &BurnchainHeaderHash([0; 32]),
+            BurnchainHeaderHash([0; 32]),
             StacksEpochId::Epoch21,
             &BurnchainTransaction::Bitcoin(tx.clone()),
-            &sender,
+            sender,
             16843022,
         )
         .unwrap();

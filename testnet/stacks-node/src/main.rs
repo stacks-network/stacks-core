@@ -124,7 +124,7 @@ fn cli_get_miner_spend(
         SortitionDB::open(&burn_db_path, true, burnchain.pox_constants.clone()).unwrap();
     let tip = if let Some(at_burnchain_height) = at_burnchain_height {
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-        let ih = sortdb.index_handle(&tip.sortition_id);
+        let ih = sortdb.index_handle(tip.sortition_id);
         ih.get_block_snapshot_by_height(at_burnchain_height)
             .unwrap()
             .unwrap()

@@ -37,7 +37,7 @@ use crate::net::{Attachment, ProtocolFamily, TipRequest};
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let mut pages = HashSet::new();
     for i in 0..10 {
@@ -87,18 +87,15 @@ fn test_try_make_response() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
 
     let rpc_test = TestRPC::setup(function_name!());
-    let stacks_chain_tip = rpc_test.canonical_tip.clone();
+    let stacks_chain_tip = rpc_test.canonical_tip;
 
     let mut requests = vec![];
     let mut pages = HashSet::new();
     pages.insert(1);
 
     // query existing attachment
-    let request = StacksHttpRequest::new_getattachmentsinv(
-        addr.into(),
-        stacks_chain_tip.clone(),
-        pages.clone(),
-    );
+    let request =
+        StacksHttpRequest::new_getattachmentsinv(addr.into(), stacks_chain_tip, pages.clone());
     requests.push(request);
 
     // query non-existant block

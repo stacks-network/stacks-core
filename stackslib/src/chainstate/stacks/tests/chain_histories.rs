@@ -101,8 +101,8 @@ where
     let first_snapshot = SortitionDB::get_first_block_snapshot(burn_node.sortdb.conn()).unwrap();
     let mut fork = TestBurnchainFork::new(
         first_snapshot.block_height,
-        &first_snapshot.burn_header_hash,
-        &first_snapshot.index_root,
+        first_snapshot.burn_header_hash,
+        first_snapshot.index_root,
         0,
     );
 
@@ -286,8 +286,8 @@ where
     let first_snapshot = SortitionDB::get_first_block_snapshot(burn_node.sortdb.conn()).unwrap();
     let mut fork = TestBurnchainFork::new(
         first_snapshot.block_height,
-        &first_snapshot.burn_header_hash,
-        &first_snapshot.index_root,
+        first_snapshot.burn_header_hash,
+        first_snapshot.index_root,
         0,
     );
 
@@ -443,7 +443,7 @@ where
             let first_block_height = burn_node.sortdb.first_block_height;
             let ic = burn_node.sortdb.index_conn();
             let chain_tip = fork.get_tip(&ic);
-            ic.as_handle(&chain_tip.sortition_id)
+            ic.as_handle(chain_tip.sortition_id)
                 .get_last_snapshot_with_sortition(first_block_height + (i as u64) + 1)
                 .expect("FATAL: no prior snapshot with sortition")
         };
@@ -740,8 +740,8 @@ where
     let first_snapshot = SortitionDB::get_first_block_snapshot(burn_node.sortdb.conn()).unwrap();
     let mut fork = TestBurnchainFork::new(
         first_snapshot.block_height,
-        &first_snapshot.burn_header_hash,
-        &first_snapshot.index_root,
+        first_snapshot.burn_header_hash,
+        first_snapshot.index_root,
         0,
     );
 
@@ -772,7 +772,7 @@ where
             let first_block_height = burn_node.sortdb.first_block_height;
             let ic = burn_node.sortdb.index_conn();
             let chain_tip = fork.get_tip(&ic);
-            ic.as_handle(&chain_tip.sortition_id)
+            ic.as_handle(chain_tip.sortition_id)
                 .get_last_snapshot_with_sortition(first_block_height + (i as u64) + 1)
                 .expect("FATAL: no prior snapshot with sortition")
         };
@@ -1356,8 +1356,8 @@ where
     let first_snapshot = SortitionDB::get_first_block_snapshot(burn_node.sortdb.conn()).unwrap();
     let mut fork_1 = TestBurnchainFork::new(
         first_snapshot.block_height,
-        &first_snapshot.burn_header_hash,
-        &first_snapshot.index_root,
+        first_snapshot.burn_header_hash,
+        first_snapshot.index_root,
         0,
     );
 
@@ -1388,7 +1388,7 @@ where
             let first_block_height = burn_node.sortdb.first_block_height;
             let ic = burn_node.sortdb.index_conn();
             let chain_tip = fork_1.get_tip(&ic);
-            ic.as_handle(&chain_tip.sortition_id)
+            ic.as_handle(chain_tip.sortition_id)
                 .get_last_snapshot_with_sortition(first_block_height + (i as u64) + 1)
                 .expect("FATAL: no prior snapshot with sortition")
         };
@@ -1632,7 +1632,7 @@ where
             let first_block_height = burn_node.sortdb.first_block_height;
             let ic = burn_node.sortdb.index_conn();
             let chain_tip = fork_1.get_tip(&ic);
-            ic.as_handle(&chain_tip.sortition_id)
+            ic.as_handle(chain_tip.sortition_id)
                 .get_last_snapshot_with_sortition(first_block_height + (i as u64) + 1)
                 .expect("FATAL: no prior snapshot with sortition")
         };
@@ -1641,7 +1641,7 @@ where
             let first_block_height = burn_node.sortdb.first_block_height;
             let ic = burn_node.sortdb.index_conn();
             let chain_tip = fork_2.get_tip(&ic);
-            ic.as_handle(&chain_tip.sortition_id)
+            ic.as_handle(chain_tip.sortition_id)
                 .get_last_snapshot_with_sortition(first_block_height + (i as u64) + 1)
                 .expect("FATAL: no prior snapshot with sortition")
         };
@@ -1914,8 +1914,8 @@ where
     let first_snapshot = SortitionDB::get_first_block_snapshot(burn_node.sortdb.conn()).unwrap();
     let mut fork_1 = TestBurnchainFork::new(
         first_snapshot.block_height,
-        &first_snapshot.burn_header_hash,
-        &first_snapshot.index_root,
+        first_snapshot.burn_header_hash,
+        first_snapshot.index_root,
         0,
     );
 

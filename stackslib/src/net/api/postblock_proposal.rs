@@ -441,8 +441,8 @@ impl NakamotoBlockProposal {
                     reason: "Failed to find sortition for block tenure".to_string(),
                 })?;
 
-        let burn_dbconn: SortitionHandleConn = sortdb.index_handle(&sort_tip.sortition_id);
-        let db_handle = sortdb.index_handle(&sort_tip.sortition_id);
+        let burn_dbconn: SortitionHandleConn = sortdb.index_handle(sort_tip.sortition_id);
+        let db_handle = sortdb.index_handle(sort_tip.sortition_id);
 
         // (For the signer)
         // Verify that the block's tenure is on the canonical sortition history
@@ -529,7 +529,7 @@ impl NakamotoBlockProposal {
 
         let mut builder = NakamotoBlockBuilder::new(
             &parent_stacks_header,
-            &self.block.header.consensus_hash,
+            self.block.header.consensus_hash,
             self.block.header.burn_spent,
             tenure_change,
             coinbase,
@@ -583,7 +583,7 @@ impl NakamotoBlockProposal {
 
         // Clone signatures from block proposal
         // These have already been validated by `validate_nakamoto_block_burnchain()``
-        block.header.miner_signature = self.block.header.miner_signature.clone();
+        block.header.miner_signature = self.block.header.miner_signature;
         block
             .header
             .signer_signature

@@ -641,7 +641,7 @@ impl StacksChainState {
                     let account_principal = principal.to_principal_data(&origin_account.principal);
                     let asset_id = AssetIdentifier {
                         contract_identifier: QualifiedContractIdentifier::new(
-                            StandardPrincipalData::from(asset_info.contract_address.clone()),
+                            StandardPrincipalData::from(asset_info.contract_address),
                             asset_info.contract_name.clone(),
                         ),
                         asset_name: asset_info.asset_name.clone(),
@@ -674,7 +674,7 @@ impl StacksChainState {
                     let account_principal = principal.to_principal_data(&origin_account.principal);
                     let asset_id = AssetIdentifier {
                         contract_identifier: QualifiedContractIdentifier::new(
-                            StandardPrincipalData::from(asset_info.contract_address.clone()),
+                            StandardPrincipalData::from(asset_info.contract_address),
                             asset_info.contract_name.clone(),
                         ),
                         asset_name: asset_info.asset_name.clone(),
@@ -998,7 +998,7 @@ impl StacksChainState {
                         addr,
                         u128::from(*amount),
                         &BuffData {
-                            data: Vec::from(memo.0.clone()),
+                            data: Vec::from(memo.0),
                         },
                     )
                     .map_err(Error::ClarityError)?;
@@ -1721,11 +1721,7 @@ pub mod test {
         let mut tx_stx_transfer = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth,
-            TransactionPayload::TokenTransfer(
-                recv_addr.clone().into(),
-                123,
-                TokenTransferMemo([0u8; 34]),
-            ),
+            TransactionPayload::TokenTransfer(recv_addr.into(), 123, TokenTransferMemo([0u8; 34])),
         );
 
         tx_stx_transfer.chain_id = 0x80000000;
@@ -1854,7 +1850,7 @@ pub mod test {
             &vec![StacksPublicKey::from_private(&privk_sponsor)],
         )
         .unwrap();
-        let recv_addr = addr.clone(); // shouldn't be allowed
+        let recv_addr = addr; // shouldn't be allowed
 
         let auth_sponsored = {
             let auth_origin = TransactionAuth::from_p2pkh(&privk).unwrap();
@@ -1865,18 +1861,14 @@ pub mod test {
         let mut tx_stx_transfer_same_receiver = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
-            TransactionPayload::TokenTransfer(
-                recv_addr.clone().into(),
-                123,
-                TokenTransferMemo([0u8; 34]),
-            ),
+            TransactionPayload::TokenTransfer(recv_addr.into(), 123, TokenTransferMemo([0u8; 34])),
         );
 
         let mut tx_stx_transfer_wrong_network = StacksTransaction::new(
             TransactionVersion::Mainnet,
             auth.clone(),
             TransactionPayload::TokenTransfer(
-                sponsor_addr.clone().into(),
+                sponsor_addr.into(),
                 123,
                 TokenTransferMemo([0u8; 34]),
             ),
@@ -1886,7 +1878,7 @@ pub mod test {
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::TokenTransfer(
-                sponsor_addr.clone().into(),
+                sponsor_addr.into(),
                 123,
                 TokenTransferMemo([0u8; 34]),
             ),
@@ -1896,7 +1888,7 @@ pub mod test {
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::TokenTransfer(
-                sponsor_addr.clone().into(),
+                sponsor_addr.into(),
                 123,
                 TokenTransferMemo([0u8; 34]),
             ),
@@ -1913,11 +1905,7 @@ pub mod test {
         let mut tx_stx_transfer_wrong_nonce = StacksTransaction::new(
             TransactionVersion::Testnet,
             wrong_nonce_auth,
-            TransactionPayload::TokenTransfer(
-                recv_addr.clone().into(),
-                123,
-                TokenTransferMemo([0u8; 34]),
-            ),
+            TransactionPayload::TokenTransfer(recv_addr.into(), 123, TokenTransferMemo([0u8; 34])),
         );
 
         let mut wrong_nonce_auth_sponsored = auth_sponsored;
@@ -1925,11 +1913,7 @@ pub mod test {
         let mut tx_stx_transfer_wrong_nonce_sponsored = StacksTransaction::new(
             TransactionVersion::Testnet,
             wrong_nonce_auth_sponsored,
-            TransactionPayload::TokenTransfer(
-                recv_addr.clone().into(),
-                123,
-                TokenTransferMemo([0u8; 34]),
-            ),
+            TransactionPayload::TokenTransfer(recv_addr.into(), 123, TokenTransferMemo([0u8; 34])),
         );
 
         tx_stx_transfer_same_receiver.chain_id = 0x80000000;
@@ -2057,11 +2041,7 @@ pub mod test {
         let mut tx_stx_transfer = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth,
-            TransactionPayload::TokenTransfer(
-                recv_addr.clone().into(),
-                123,
-                TokenTransferMemo([0u8; 34]),
-            ),
+            TransactionPayload::TokenTransfer(recv_addr.into(), 123, TokenTransferMemo([0u8; 34])),
         );
 
         tx_stx_transfer.chain_id = 0x80000000;
@@ -2170,7 +2150,7 @@ pub mod test {
             );
 
             let contract_id = QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(addr.clone()),
+                StandardPrincipalData::from(addr),
                 ContractName::from("hello-world"),
             );
             let contract_before_res =
@@ -2266,7 +2246,7 @@ pub mod test {
                 let signed_tx = signer.get_tx().unwrap();
 
                 let _contract_id = QualifiedContractIdentifier::new(
-                    StandardPrincipalData::from(addr.clone()),
+                    StandardPrincipalData::from(addr),
                     ContractName::from(contract_name.as_str()),
                 );
 
@@ -2363,7 +2343,7 @@ pub mod test {
                 let signed_tx = signer.get_tx().unwrap();
 
                 let _contract_id = QualifiedContractIdentifier::new(
-                    StandardPrincipalData::from(addr.clone()),
+                    StandardPrincipalData::from(addr),
                     ContractName::from(contract_name),
                 );
 
@@ -2459,7 +2439,7 @@ pub mod test {
                 let signed_tx = signer.get_tx().unwrap();
 
                 let contract_id = QualifiedContractIdentifier::new(
-                    StandardPrincipalData::from(addr.clone()),
+                    StandardPrincipalData::from(addr),
                     ContractName::from(contract_name.as_str()),
                 );
                 let contract_before_res =
@@ -2545,7 +2525,7 @@ pub mod test {
             );
 
             let contract_id = QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(addr.clone()),
+                StandardPrincipalData::from(addr),
                 ContractName::from("hello-world"),
             );
             let contract_before_res =
@@ -2627,7 +2607,7 @@ pub mod test {
             TransactionVersion::Testnet,
             auth_2,
             TransactionPayload::new_contract_call(
-                addr.clone(),
+                addr,
                 "hello-world",
                 "set-bar",
                 vec![Value::Int(6), Value::Int(2)],
@@ -2661,7 +2641,7 @@ pub mod test {
             assert_eq!(account_2.nonce, 0);
 
             let contract_id = QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(addr.clone()),
+                StandardPrincipalData::from(addr),
                 ContractName::from("hello-world"),
             );
             let contract_before_res =
@@ -2754,14 +2734,14 @@ pub mod test {
 
         let contractPrincipalValue =
             Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(addr.clone()),
+                StandardPrincipalData::from(addr),
                 ContractName::from("aip10-arkadiko-update-tvl-liquidation-ratio"),
             )));
         let mut tx_contract_call = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth_2,
             TransactionPayload::new_contract_call(
-                addr.clone(),
+                addr,
                 "hello-world",
                 "save",
                 vec![contractPrincipalValue.clone()],
@@ -2795,7 +2775,7 @@ pub mod test {
             assert_eq!(account_2.nonce, 0);
 
             let contract_id = QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(addr.clone()),
+                StandardPrincipalData::from(addr),
                 ContractName::from("hello-world"),
             );
             let contract_before_res =
@@ -2818,7 +2798,7 @@ pub mod test {
                 StacksChainState::get_data_var(&mut conn, &contract_id, "savedContract").unwrap();
             assert_eq!(
                 var_before_set_res,
-                Some(Value::Principal(PrincipalData::from(addr.clone())))
+                Some(Value::Principal(PrincipalData::from(addr)))
             );
 
             let (fee_2, _) = StacksChainState::process_transaction(
@@ -2893,7 +2873,7 @@ pub mod test {
             );
 
             let contract_id = QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(addr.clone()),
+                StandardPrincipalData::from(addr),
                 ContractName::from("hello-world"),
             );
             let (_fee, _) = StacksChainState::process_transaction(
@@ -2926,7 +2906,7 @@ pub mod test {
                     TransactionVersion::Testnet,
                     auth_2.clone(),
                     TransactionPayload::new_contract_call(
-                        addr.clone(),
+                        addr,
                         contract_name,
                         contract_function,
                         contract_args,
@@ -2985,7 +2965,7 @@ pub mod test {
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let addr = auth.origin().address_testnet();
         let contract_id = QualifiedContractIdentifier::new(
-            StandardPrincipalData::from(addr.clone()),
+            StandardPrincipalData::from(addr),
             ContractName::from("hello-world"),
         );
 
@@ -3041,7 +3021,7 @@ pub mod test {
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let addr = auth.origin().address_testnet();
         let contract_id = QualifiedContractIdentifier::new(
-            StandardPrincipalData::from(addr.clone()),
+            StandardPrincipalData::from(addr),
             ContractName::from("hello-world"),
         );
 
@@ -3070,38 +3050,38 @@ pub mod test {
         // invalid contract-calls
         let contract_calls = vec![
             (
-                addr.clone(),
+                addr,
                 "hello-world",
                 "set-bar-not-a-method",
                 vec![Value::Int(1), Value::Int(1)],
             ), // call into non-existant method
             (
-                addr.clone(),
+                addr,
                 "hello-world-not-a-contract",
                 "set-bar",
                 vec![Value::Int(1), Value::Int(1)],
             ), // call into non-existant contract
             (
-                addr_2.clone(),
+                addr_2,
                 "hello-world",
                 "set-bar",
                 vec![Value::Int(1), Value::Int(1)],
             ), // address does not have a contract
-            (addr.clone(), "hello-world", "set-bar", vec![Value::Int(1)]), // wrong number of args (too few)
+            (addr, "hello-world", "set-bar", vec![Value::Int(1)]), // wrong number of args (too few)
             (
-                addr.clone(),
+                addr,
                 "hello-world",
                 "set-bar",
                 vec![Value::Int(1), Value::Int(1), Value::Int(1)],
             ), // wrong number of args (too many)
             (
-                addr.clone(),
+                addr,
                 "hello-world",
                 "set-bar",
                 vec![Value::buff_from([0xff, 4].to_vec()).unwrap(), Value::Int(1)],
             ), // wrong arg type
             (
-                addr.clone(),
+                addr,
                 "hello-world",
                 "set-bar",
                 vec![Value::UInt(1), Value::Int(1)],
@@ -3133,7 +3113,7 @@ pub mod test {
                     TransactionVersion::Testnet,
                     auth_2.clone(),
                     TransactionPayload::new_contract_call(
-                        contract_addr.clone(),
+                        contract_addr,
                         contract_name,
                         contract_function,
                         contract_args,
@@ -3202,7 +3182,7 @@ pub mod test {
                 TransactionVersion::Testnet,
                 auth_2.clone(),
                 TransactionPayload::new_contract_call(
-                    contract_addr.clone(),
+                    contract_addr,
                     contract_name,
                     contract_function,
                     contract_args,
@@ -3299,7 +3279,7 @@ pub mod test {
             TransactionVersion::Testnet,
             auth_contract_call,
             TransactionPayload::new_contract_call(
-                addr_publisher.clone(),
+                addr_publisher,
                 "hello-world",
                 "set-bar",
                 vec![Value::Int(6), Value::Int(2)],
@@ -3339,7 +3319,7 @@ pub mod test {
             assert_eq!(account_sponsor.nonce, 0);
 
             let contract_id = QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(addr_publisher.clone()),
+                StandardPrincipalData::from(addr_publisher),
                 ContractName::from("hello-world"),
             );
             let contract_before_res =
@@ -3474,19 +3454,19 @@ pub mod test {
         .unwrap();
         let recv_principal = recv_addr.to_account_principal();
         let contract_id = QualifiedContractIdentifier::new(
-            StandardPrincipalData::from(addr_publisher.clone()),
+            StandardPrincipalData::from(addr_publisher),
             contract_name.clone(),
         );
         let _contract_principal = PrincipalData::Contract(contract_id.clone());
 
         let asset_info = AssetInfo {
-            contract_address: addr_publisher.clone(),
+            contract_address: addr_publisher,
             contract_name: contract_name.clone(),
             asset_name: ClarityName::try_from("stackaroos").unwrap(),
         };
 
         let name_asset_info = AssetInfo {
-            contract_address: addr_publisher.clone(),
+            contract_address: addr_publisher,
             contract_name: contract_name.clone(),
             asset_name: ClarityName::try_from("names").unwrap(),
         };
@@ -3519,7 +3499,7 @@ pub mod test {
             TransactionVersion::Testnet,
             auth_origin.clone(),
             TransactionPayload::new_contract_call(
-                addr_publisher.clone(),
+                addr_publisher,
                 "hello-world",
                 "send-stackaroos",
                 vec![Value::Principal(recv_principal.clone())],
@@ -3543,7 +3523,7 @@ pub mod test {
             let mut tx_contract_call_pass = tx_contract_call_stackaroos.clone();
             tx_contract_call_pass.set_origin_nonce(nonce);
             tx_contract_call_pass.add_post_condition(TransactionPostCondition::Fungible(
-                PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()),
+                PostConditionPrincipal::Contract(addr_publisher, contract_name.clone()),
                 asset_info.clone(),
                 *pass_condition,
                 100,
@@ -3564,7 +3544,7 @@ pub mod test {
             let mut tx_contract_call_pass = tx_contract_call_stackaroos.clone();
             tx_contract_call_pass.set_origin_nonce(nonce);
             tx_contract_call_pass.add_post_condition(TransactionPostCondition::Fungible(
-                PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()),
+                PostConditionPrincipal::Contract(addr_publisher, contract_name.clone()),
                 asset_info.clone(),
                 *pass_condition,
                 99,
@@ -3585,7 +3565,7 @@ pub mod test {
             let mut tx_contract_call_pass = tx_contract_call_stackaroos.clone();
             tx_contract_call_pass.set_origin_nonce(nonce);
             tx_contract_call_pass.add_post_condition(TransactionPostCondition::Fungible(
-                PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()),
+                PostConditionPrincipal::Contract(addr_publisher, contract_name.clone()),
                 asset_info.clone(),
                 *pass_condition,
                 101,
@@ -3603,7 +3583,7 @@ pub mod test {
             let mut tx_contract_call_pass = tx_contract_call_stackaroos.clone();
             tx_contract_call_pass.set_origin_nonce(nonce);
             tx_contract_call_pass.add_post_condition(TransactionPostCondition::Fungible(
-                PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()),
+                PostConditionPrincipal::Contract(addr_publisher, contract_name.clone()),
                 asset_info.clone(),
                 FungibleConditionCode::SentEq,
                 100,
@@ -3620,7 +3600,7 @@ pub mod test {
             TransactionVersion::Testnet,
             auth_recv,
             TransactionPayload::new_contract_call(
-                addr_publisher.clone(),
+                addr_publisher,
                 "hello-world",
                 "user-send-stackaroos",
                 vec![Value::Principal(addr_principal.clone())],
@@ -3643,7 +3623,7 @@ pub mod test {
             let mut tx_contract_call_pass = tx_contract_call_user_stackaroos.clone();
             tx_contract_call_pass.set_origin_nonce(recv_nonce);
             tx_contract_call_pass.add_post_condition(TransactionPostCondition::Fungible(
-                PostConditionPrincipal::Standard(recv_addr.clone()),
+                PostConditionPrincipal::Standard(recv_addr),
                 asset_info.clone(),
                 *pass_condition,
                 100,
@@ -3663,7 +3643,7 @@ pub mod test {
             let mut tx_contract_call_pass = tx_contract_call_user_stackaroos.clone();
             tx_contract_call_pass.set_origin_nonce(recv_nonce);
             tx_contract_call_pass.add_post_condition(TransactionPostCondition::Fungible(
-                PostConditionPrincipal::Standard(recv_addr.clone()),
+                PostConditionPrincipal::Standard(recv_addr),
                 asset_info.clone(),
                 *pass_condition,
                 99,
@@ -3683,7 +3663,7 @@ pub mod test {
             let mut tx_contract_call_pass = tx_contract_call_user_stackaroos.clone();
             tx_contract_call_pass.set_origin_nonce(recv_nonce);
             tx_contract_call_pass.add_post_condition(TransactionPostCondition::Fungible(
-                PostConditionPrincipal::Standard(recv_addr.clone()),
+                PostConditionPrincipal::Standard(recv_addr),
                 asset_info.clone(),
                 *pass_condition,
                 101,
@@ -3706,7 +3686,7 @@ pub mod test {
                 TransactionVersion::Testnet,
                 auth_origin.clone(),
                 TransactionPayload::new_contract_call(
-                    addr_publisher.clone(),
+                    addr_publisher,
                     "hello-world",
                     "send-name",
                     vec![name.clone(), Value::Principal(recv_principal.clone())],
@@ -3719,7 +3699,7 @@ pub mod test {
             tx_contract_call_names.set_origin_nonce(nonce);
 
             tx_contract_call_names.add_post_condition(TransactionPostCondition::Nonfungible(
-                PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()),
+                PostConditionPrincipal::Contract(addr_publisher, contract_name.clone()),
                 name_asset_info.clone(),
                 name.clone(),
                 *pass_condition,
@@ -3740,7 +3720,7 @@ pub mod test {
             let mut tx_contract_call_fail = tx_contract_call_stackaroos.clone();
             tx_contract_call_fail.set_origin_nonce(nonce);
             tx_contract_call_fail.add_post_condition(TransactionPostCondition::Fungible(
-                PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()),
+                PostConditionPrincipal::Contract(addr_publisher, contract_name.clone()),
                 asset_info.clone(),
                 *fail_condition,
                 100,
@@ -3761,7 +3741,7 @@ pub mod test {
             let mut tx_contract_call_fail = tx_contract_call_stackaroos.clone();
             tx_contract_call_fail.set_origin_nonce(nonce);
             tx_contract_call_fail.add_post_condition(TransactionPostCondition::Fungible(
-                PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()),
+                PostConditionPrincipal::Contract(addr_publisher, contract_name.clone()),
                 asset_info.clone(),
                 *fail_condition,
                 99,
@@ -3782,7 +3762,7 @@ pub mod test {
             let mut tx_contract_call_fail = tx_contract_call_stackaroos.clone();
             tx_contract_call_fail.set_origin_nonce(nonce);
             tx_contract_call_fail.add_post_condition(TransactionPostCondition::Fungible(
-                PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()),
+                PostConditionPrincipal::Contract(addr_publisher, contract_name.clone()),
                 asset_info.clone(),
                 *fail_condition,
                 101,
@@ -3802,7 +3782,7 @@ pub mod test {
             let mut tx_contract_call_fail = tx_contract_call_user_stackaroos.clone();
             tx_contract_call_fail.set_origin_nonce(recv_nonce);
             tx_contract_call_fail.add_post_condition(TransactionPostCondition::Fungible(
-                PostConditionPrincipal::Standard(recv_addr.clone()),
+                PostConditionPrincipal::Standard(recv_addr),
                 asset_info.clone(),
                 *fail_condition,
                 100,
@@ -3825,7 +3805,7 @@ pub mod test {
                 TransactionVersion::Testnet,
                 auth_origin.clone(),
                 TransactionPayload::new_contract_call(
-                    addr_publisher.clone(),
+                    addr_publisher,
                     "hello-world",
                     "send-name",
                     vec![name.clone(), Value::Principal(recv_principal.clone())],
@@ -3838,7 +3818,7 @@ pub mod test {
             tx_contract_call_names.set_origin_nonce(nonce);
 
             tx_contract_call_names.add_post_condition(TransactionPostCondition::Nonfungible(
-                PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()),
+                PostConditionPrincipal::Contract(addr_publisher, contract_name.clone()),
                 name_asset_info.clone(),
                 name.clone(),
                 *fail_condition,
@@ -4213,19 +4193,19 @@ pub mod test {
         .unwrap();
         let recv_principal = recv_addr.to_account_principal();
         let contract_id = QualifiedContractIdentifier::new(
-            StandardPrincipalData::from(addr_publisher.clone()),
+            StandardPrincipalData::from(addr_publisher),
             contract_name.clone(),
         );
         let _contract_principal = PrincipalData::Contract(contract_id.clone());
 
         let asset_info = AssetInfo {
-            contract_address: addr_publisher.clone(),
+            contract_address: addr_publisher,
             contract_name: contract_name.clone(),
             asset_name: ClarityName::try_from("stackaroos").unwrap(),
         };
 
         let name_asset_info = AssetInfo {
-            contract_address: addr_publisher.clone(),
+            contract_address: addr_publisher,
             contract_name: contract_name.clone(),
             asset_name: ClarityName::try_from("names").unwrap(),
         };
@@ -4271,7 +4251,7 @@ pub mod test {
                 TransactionVersion::Testnet,
                 auth_origin.clone(),
                 TransactionPayload::new_contract_call(
-                    addr_publisher.clone(),
+                    addr_publisher,
                     "hello-world",
                     "send-stackaroos-and-name",
                     vec![name.clone(), Value::Principal(recv_principal.clone())],
@@ -4285,13 +4265,13 @@ pub mod test {
 
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
             tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(
-                PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()),
+                PostConditionPrincipal::Contract(addr_publisher, contract_name.clone()),
                 asset_info.clone(),
                 *pass_condition,
                 100,
             ));
             tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(
-                PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()),
+                PostConditionPrincipal::Contract(addr_publisher, contract_name.clone()),
                 name_asset_info.clone(),
                 name.clone(),
                 NonfungibleConditionCode::Sent,
@@ -4313,7 +4293,7 @@ pub mod test {
                 TransactionVersion::Testnet,
                 auth_origin.clone(),
                 TransactionPayload::new_contract_call(
-                    addr_publisher.clone(),
+                    addr_publisher,
                     "hello-world",
                     "send-stackaroos-and-name",
                     vec![name, Value::Principal(recv_principal.clone())],
@@ -4352,7 +4332,7 @@ pub mod test {
                 TransactionVersion::Testnet,
                 auth_recv.clone(),
                 TransactionPayload::new_contract_call(
-                    addr_publisher.clone(),
+                    addr_publisher,
                     "hello-world",
                     "user-send-stackaroos-and-name",
                     vec![name.clone(), Value::Principal(addr_principal.clone())],
@@ -4366,13 +4346,13 @@ pub mod test {
 
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
             tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(
-                PostConditionPrincipal::Standard(recv_addr.clone()),
+                PostConditionPrincipal::Standard(recv_addr),
                 asset_info.clone(),
                 *pass_condition,
                 100,
             ));
             tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(
-                PostConditionPrincipal::Standard(recv_addr.clone()),
+                PostConditionPrincipal::Standard(recv_addr),
                 name_asset_info.clone(),
                 name.clone(),
                 NonfungibleConditionCode::Sent,
@@ -4403,7 +4383,7 @@ pub mod test {
                 TransactionVersion::Testnet,
                 auth_origin.clone(),
                 TransactionPayload::new_contract_call(
-                    addr_publisher.clone(),
+                    addr_publisher,
                     "hello-world",
                     "send-stackaroos-and-name",
                     vec![name.clone(), Value::Principal(recv_principal.clone())],
@@ -4416,9 +4396,9 @@ pub mod test {
             tx_contract_call_both.set_origin_nonce(nonce);
 
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
-            // tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), asset_info.clone(), *fail_condition, 100));
+            // tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Contract(addr_publisher, contract_name.clone()), asset_info.clone(), *fail_condition, 100));
             tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(
-                PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()),
+                PostConditionPrincipal::Contract(addr_publisher, contract_name.clone()),
                 name_asset_info.clone(),
                 name.clone(),
                 NonfungibleConditionCode::Sent,
@@ -4449,7 +4429,7 @@ pub mod test {
                 TransactionVersion::Testnet,
                 auth_origin.clone(),
                 TransactionPayload::new_contract_call(
-                    addr_publisher.clone(),
+                    addr_publisher,
                     "hello-world",
                     "send-stackaroos-and-name",
                     vec![name.clone(), Value::Principal(recv_principal.clone())],
@@ -4463,12 +4443,12 @@ pub mod test {
 
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
             tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(
-                PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()),
+                PostConditionPrincipal::Contract(addr_publisher, contract_name.clone()),
                 asset_info.clone(),
                 *fail_condition,
                 100,
             ));
-            // tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Sent));
+            // tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Contract(addr_publisher, contract_name.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Sent));
 
             let mut signer = StacksTransactionSigner::new(&tx_contract_call_both);
             signer.sign_origin(&privk_origin).unwrap();
@@ -4494,7 +4474,7 @@ pub mod test {
                 TransactionVersion::Testnet,
                 auth_recv.clone(),
                 TransactionPayload::new_contract_call(
-                    addr_publisher.clone(),
+                    addr_publisher,
                     "hello-world",
                     "user-send-stackaroos-and-name",
                     vec![name.clone(), Value::Principal(addr_principal.clone())],
@@ -4507,9 +4487,9 @@ pub mod test {
             tx_contract_call_both.set_origin_nonce(recv_nonce);
 
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
-            // tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(recv_addr.clone()), asset_info.clone(), *fail_condition, 100));
+            // tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(recv_addr), asset_info.clone(), *fail_condition, 100));
             tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(
-                PostConditionPrincipal::Standard(recv_addr.clone()),
+                PostConditionPrincipal::Standard(recv_addr),
                 name_asset_info.clone(),
                 name.clone(),
                 NonfungibleConditionCode::Sent,
@@ -4541,7 +4521,7 @@ pub mod test {
                 TransactionVersion::Testnet,
                 auth_recv.clone(),
                 TransactionPayload::new_contract_call(
-                    addr_publisher.clone(),
+                    addr_publisher,
                     "hello-world",
                     "user-send-stackaroos-and-name",
                     vec![name.clone(), Value::Principal(addr_principal.clone())],
@@ -4555,12 +4535,12 @@ pub mod test {
 
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
             tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(
-                PostConditionPrincipal::Standard(recv_addr.clone()),
+                PostConditionPrincipal::Standard(recv_addr),
                 asset_info.clone(),
                 *fail_condition,
                 100,
             ));
-            // tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(recv_addr.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Sent));
+            // tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(recv_addr), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Sent));
 
             let mut signer = StacksTransactionSigner::new(&tx_contract_call_both);
             signer.sign_origin(&privk_recipient).unwrap();
@@ -4892,13 +4872,13 @@ pub mod test {
         .unwrap();
         let recv_principal = recv_addr.to_account_principal();
         let contract_id = QualifiedContractIdentifier::new(
-            StandardPrincipalData::from(addr_publisher.clone()),
+            StandardPrincipalData::from(addr_publisher),
             contract_name.clone(),
         );
         let _contract_principal = PrincipalData::Contract(contract_id);
 
         let asset_info = AssetInfo {
-            contract_address: addr_publisher.clone(),
+            contract_address: addr_publisher,
             contract_name,
             asset_name: ClarityName::try_from("connect-token").unwrap(),
         };
@@ -4921,7 +4901,7 @@ pub mod test {
             TransactionVersion::Testnet,
             auth_origin,
             TransactionPayload::new_contract_call(
-                addr_publisher.clone(),
+                addr_publisher,
                 "hello-world",
                 "transfer",
                 vec![Value::Principal(recv_principal), Value::UInt(10)],
@@ -5001,19 +4981,19 @@ pub mod test {
         let contract_addr = StacksAddress::new(1, Hash160([0x01; 20])).unwrap();
 
         let asset_info_1 = AssetInfo {
-            contract_address: contract_addr.clone(),
+            contract_address: contract_addr,
             contract_name: ContractName::try_from("hello-world").unwrap(),
             asset_name: ClarityName::try_from("test-asset-1").unwrap(),
         };
 
         let asset_info_2 = AssetInfo {
-            contract_address: contract_addr.clone(),
+            contract_address: contract_addr,
             contract_name: ContractName::try_from("hello-world").unwrap(),
             asset_name: ClarityName::try_from("test-asset-2").unwrap(),
         };
 
         let asset_info_3 = AssetInfo {
-            contract_address: contract_addr.clone(),
+            contract_address: contract_addr,
             contract_name: ContractName::try_from("hello-world").unwrap(),
             asset_name: ClarityName::try_from("test-asset-3").unwrap(),
         };
@@ -5355,7 +5335,7 @@ pub mod test {
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
+                        PostConditionPrincipal::Standard(recv_addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentEq,
                         0,
@@ -5386,7 +5366,7 @@ pub mod test {
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
+                        PostConditionPrincipal::Standard(recv_addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentLe,
                         0,
@@ -5417,7 +5397,7 @@ pub mod test {
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
+                        PostConditionPrincipal::Standard(recv_addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentGe,
                         0,
@@ -5448,7 +5428,7 @@ pub mod test {
                         1,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
+                        PostConditionPrincipal::Standard(recv_addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentLt,
                         1,
@@ -5479,7 +5459,7 @@ pub mod test {
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
+                        PostConditionPrincipal::Standard(recv_addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentEq,
                         0,
@@ -5498,7 +5478,7 @@ pub mod test {
             (
                 true,
                 vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
+                    PostConditionPrincipal::Standard(addr),
                     asset_info_1.clone(),
                     FungibleConditionCode::SentEq,
                     123,
@@ -5509,7 +5489,7 @@ pub mod test {
             (
                 true,
                 vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
+                    PostConditionPrincipal::Standard(addr),
                     asset_info_1.clone(),
                     FungibleConditionCode::SentLe,
                     123,
@@ -5520,7 +5500,7 @@ pub mod test {
             (
                 true,
                 vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
+                    PostConditionPrincipal::Standard(addr),
                     asset_info_1.clone(),
                     FungibleConditionCode::SentGe,
                     123,
@@ -5531,7 +5511,7 @@ pub mod test {
             (
                 true,
                 vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
+                    PostConditionPrincipal::Standard(addr),
                     asset_info_1.clone(),
                     FungibleConditionCode::SentLt,
                     124,
@@ -5542,7 +5522,7 @@ pub mod test {
             (
                 true,
                 vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
+                    PostConditionPrincipal::Standard(addr),
                     asset_info_1.clone(),
                     FungibleConditionCode::SentGt,
                     122,
@@ -5555,13 +5535,13 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentEq,
                         123,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentEq,
                         123,
@@ -5574,13 +5554,13 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentLe,
                         123,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentLe,
                         123,
@@ -5593,13 +5573,13 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentGe,
                         123,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentGe,
                         123,
@@ -5612,13 +5592,13 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentLt,
                         124,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentLt,
                         124,
@@ -5631,13 +5611,13 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentGt,
                         122,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentGt,
                         122,
@@ -5652,19 +5632,19 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentEq,
                         123,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_3.clone(),
                         FungibleConditionCode::SentEq,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentEq,
                         123,
@@ -5677,19 +5657,19 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentLe,
                         123,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_3.clone(),
                         FungibleConditionCode::SentLe,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentLe,
                         123,
@@ -5702,19 +5682,19 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentGe,
                         123,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_3.clone(),
                         FungibleConditionCode::SentGe,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentGe,
                         123,
@@ -5727,19 +5707,19 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentLt,
                         124,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_3.clone(),
                         FungibleConditionCode::SentLt,
                         1,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentLt,
                         124,
@@ -5752,19 +5732,19 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentGt,
                         122,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_3.clone(),
                         FungibleConditionCode::SentEq,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentGt,
                         122,
@@ -5779,25 +5759,25 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentEq,
                         123,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_3.clone(),
                         FungibleConditionCode::SentEq,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
+                        PostConditionPrincipal::Standard(recv_addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentEq,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentEq,
                         123,
@@ -5810,25 +5790,25 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentLe,
                         123,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_3.clone(),
                         FungibleConditionCode::SentLe,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
+                        PostConditionPrincipal::Standard(recv_addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentLe,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentLe,
                         123,
@@ -5841,25 +5821,25 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentGe,
                         123,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_3.clone(),
                         FungibleConditionCode::SentGe,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
+                        PostConditionPrincipal::Standard(recv_addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentGe,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentGe,
                         123,
@@ -5872,25 +5852,25 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentLt,
                         124,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_3.clone(),
                         FungibleConditionCode::SentLt,
                         1,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
+                        PostConditionPrincipal::Standard(recv_addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentLt,
                         1,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentLt,
                         124,
@@ -5903,25 +5883,25 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentGt,
                         122,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_3.clone(),
                         FungibleConditionCode::SentEq,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
+                        PostConditionPrincipal::Standard(recv_addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentEq,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentGt,
                         122,
@@ -6233,7 +6213,7 @@ pub mod test {
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
+                        PostConditionPrincipal::Standard(recv_addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentEq,
                         0,
@@ -6264,7 +6244,7 @@ pub mod test {
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
+                        PostConditionPrincipal::Standard(recv_addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentLe,
                         0,
@@ -6295,7 +6275,7 @@ pub mod test {
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
+                        PostConditionPrincipal::Standard(recv_addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentGe,
                         0,
@@ -6326,7 +6306,7 @@ pub mod test {
                         1,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
+                        PostConditionPrincipal::Standard(recv_addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentLt,
                         1,
@@ -6357,7 +6337,7 @@ pub mod test {
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
+                        PostConditionPrincipal::Standard(recv_addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentEq,
                         0,
@@ -6376,7 +6356,7 @@ pub mod test {
             (
                 false,
                 vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
+                    PostConditionPrincipal::Standard(addr),
                     asset_info_1.clone(),
                     FungibleConditionCode::SentEq,
                     123,
@@ -6387,7 +6367,7 @@ pub mod test {
             (
                 false,
                 vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
+                    PostConditionPrincipal::Standard(addr),
                     asset_info_1.clone(),
                     FungibleConditionCode::SentLe,
                     123,
@@ -6398,7 +6378,7 @@ pub mod test {
             (
                 false,
                 vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
+                    PostConditionPrincipal::Standard(addr),
                     asset_info_1.clone(),
                     FungibleConditionCode::SentGe,
                     123,
@@ -6409,7 +6389,7 @@ pub mod test {
             (
                 false,
                 vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
+                    PostConditionPrincipal::Standard(addr),
                     asset_info_1.clone(),
                     FungibleConditionCode::SentLt,
                     124,
@@ -6420,7 +6400,7 @@ pub mod test {
             (
                 false,
                 vec![TransactionPostCondition::Fungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
+                    PostConditionPrincipal::Standard(addr),
                     asset_info_1.clone(),
                     FungibleConditionCode::SentGt,
                     122,
@@ -6433,13 +6413,13 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentEq,
                         123,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentEq,
                         123,
@@ -6452,13 +6432,13 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentLe,
                         123,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentLe,
                         123,
@@ -6471,13 +6451,13 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentGe,
                         123,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentGe,
                         123,
@@ -6490,13 +6470,13 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentLt,
                         124,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentLt,
                         124,
@@ -6509,13 +6489,13 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentGt,
                         122,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentGt,
                         122,
@@ -6530,19 +6510,19 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentEq,
                         123,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_3.clone(),
                         FungibleConditionCode::SentEq,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentEq,
                         123,
@@ -6555,19 +6535,19 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentLe,
                         123,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_3.clone(),
                         FungibleConditionCode::SentLe,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentLe,
                         123,
@@ -6580,19 +6560,19 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentGe,
                         123,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_3.clone(),
                         FungibleConditionCode::SentGe,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentGe,
                         123,
@@ -6605,19 +6585,19 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentLt,
                         124,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_3.clone(),
                         FungibleConditionCode::SentLt,
                         1,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentLt,
                         124,
@@ -6630,19 +6610,19 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentGt,
                         122,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_3.clone(),
                         FungibleConditionCode::SentEq,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentGt,
                         122,
@@ -6657,25 +6637,25 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentEq,
                         123,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_3.clone(),
                         FungibleConditionCode::SentEq,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
+                        PostConditionPrincipal::Standard(recv_addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentEq,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentEq,
                         123,
@@ -6688,25 +6668,25 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentLe,
                         123,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_3.clone(),
                         FungibleConditionCode::SentLe,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
+                        PostConditionPrincipal::Standard(recv_addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentLe,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentLe,
                         123,
@@ -6719,25 +6699,25 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentGe,
                         123,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_3.clone(),
                         FungibleConditionCode::SentGe,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
+                        PostConditionPrincipal::Standard(recv_addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentGe,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentGe,
                         123,
@@ -6750,25 +6730,25 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentLt,
                         124,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_3.clone(),
                         FungibleConditionCode::SentLt,
                         1,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
+                        PostConditionPrincipal::Standard(recv_addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentLt,
                         1,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2.clone(),
                         FungibleConditionCode::SentLt,
                         124,
@@ -6781,25 +6761,25 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_1.clone(),
                         FungibleConditionCode::SentGt,
                         122,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_3,
                         FungibleConditionCode::SentEq,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(recv_addr.clone()),
+                        PostConditionPrincipal::Standard(recv_addr),
                         asset_info_1,
                         FungibleConditionCode::SentEq,
                         0,
                     ),
                     TransactionPostCondition::Fungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info_2,
                         FungibleConditionCode::SentGt,
                         122,
@@ -6847,7 +6827,7 @@ pub mod test {
         let contract_addr = StacksAddress::new(1, Hash160([0x01; 20])).unwrap();
 
         let asset_info = AssetInfo {
-            contract_address: contract_addr.clone(),
+            contract_address: contract_addr,
             contract_name: ContractName::try_from("hello-world").unwrap(),
             asset_name: ClarityName::try_from("test-asset").unwrap(),
         };
@@ -6946,7 +6926,7 @@ pub mod test {
             (
                 true,
                 vec![TransactionPostCondition::Nonfungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
+                    PostConditionPrincipal::Standard(addr),
                     asset_info.clone(),
                     Value::Int(1),
                     NonfungibleConditionCode::Sent,
@@ -6957,7 +6937,7 @@ pub mod test {
             (
                 true,
                 vec![TransactionPostCondition::Nonfungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
+                    PostConditionPrincipal::Standard(addr),
                     asset_info.clone(),
                     Value::Int(2),
                     NonfungibleConditionCode::Sent,
@@ -6970,13 +6950,13 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info.clone(),
                         Value::Int(1),
                         NonfungibleConditionCode::Sent,
                     ),
                     TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info.clone(),
                         Value::Int(2),
                         NonfungibleConditionCode::Sent,
@@ -6990,19 +6970,19 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info.clone(),
                         Value::Int(1),
                         NonfungibleConditionCode::Sent,
                     ),
                     TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info.clone(),
                         Value::Int(2),
                         NonfungibleConditionCode::Sent,
                     ),
                     TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info.clone(),
                         Value::Int(3),
                         NonfungibleConditionCode::NotSent,
@@ -7091,7 +7071,7 @@ pub mod test {
             (
                 false,
                 vec![TransactionPostCondition::Nonfungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
+                    PostConditionPrincipal::Standard(addr),
                     asset_info.clone(),
                     Value::Int(1),
                     NonfungibleConditionCode::Sent,
@@ -7102,7 +7082,7 @@ pub mod test {
             (
                 false,
                 vec![TransactionPostCondition::Nonfungible(
-                    PostConditionPrincipal::Standard(addr.clone()),
+                    PostConditionPrincipal::Standard(addr),
                     asset_info.clone(),
                     Value::Int(2),
                     NonfungibleConditionCode::Sent,
@@ -7115,13 +7095,13 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info.clone(),
                         Value::Int(1),
                         NonfungibleConditionCode::Sent,
                     ),
                     TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info.clone(),
                         Value::Int(2),
                         NonfungibleConditionCode::Sent,
@@ -7135,19 +7115,19 @@ pub mod test {
                 true,
                 vec![
                     TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info.clone(),
                         Value::Int(1),
                         NonfungibleConditionCode::Sent,
                     ),
                     TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info.clone(),
                         Value::Int(2),
                         NonfungibleConditionCode::Sent,
                     ),
                     TransactionPostCondition::Nonfungible(
-                        PostConditionPrincipal::Standard(addr.clone()),
+                        PostConditionPrincipal::Standard(addr),
                         asset_info,
                         Value::Int(3),
                         NonfungibleConditionCode::NotSent,
@@ -7273,7 +7253,7 @@ pub mod test {
             (
                 true,
                 vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Standard(addr.clone()),
+                    PostConditionPrincipal::Standard(addr),
                     FungibleConditionCode::SentEq,
                     123,
                 )],
@@ -7283,7 +7263,7 @@ pub mod test {
             (
                 true,
                 vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Standard(addr.clone()),
+                    PostConditionPrincipal::Standard(addr),
                     FungibleConditionCode::SentLe,
                     123,
                 )],
@@ -7293,7 +7273,7 @@ pub mod test {
             (
                 true,
                 vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Standard(addr.clone()),
+                    PostConditionPrincipal::Standard(addr),
                     FungibleConditionCode::SentGe,
                     123,
                 )],
@@ -7303,7 +7283,7 @@ pub mod test {
             (
                 true,
                 vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Standard(addr.clone()),
+                    PostConditionPrincipal::Standard(addr),
                     FungibleConditionCode::SentLt,
                     124,
                 )],
@@ -7313,7 +7293,7 @@ pub mod test {
             (
                 true,
                 vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Standard(addr.clone()),
+                    PostConditionPrincipal::Standard(addr),
                     FungibleConditionCode::SentGt,
                     122,
                 )],
@@ -7325,7 +7305,7 @@ pub mod test {
                 true,
                 vec![TransactionPostCondition::STX(
                     PostConditionPrincipal::Contract(
-                        addr.clone(),
+                        addr,
                         ContractName::try_from("hello-world").unwrap(),
                     ),
                     FungibleConditionCode::SentEq,
@@ -7338,7 +7318,7 @@ pub mod test {
                 true,
                 vec![TransactionPostCondition::STX(
                     PostConditionPrincipal::Contract(
-                        addr.clone(),
+                        addr,
                         ContractName::try_from("hello-world").unwrap(),
                     ),
                     FungibleConditionCode::SentLe,
@@ -7351,7 +7331,7 @@ pub mod test {
                 true,
                 vec![TransactionPostCondition::STX(
                     PostConditionPrincipal::Contract(
-                        addr.clone(),
+                        addr,
                         ContractName::try_from("hello-world").unwrap(),
                     ),
                     FungibleConditionCode::SentGe,
@@ -7364,7 +7344,7 @@ pub mod test {
                 true,
                 vec![TransactionPostCondition::STX(
                     PostConditionPrincipal::Contract(
-                        addr.clone(),
+                        addr,
                         ContractName::try_from("hello-world").unwrap(),
                     ),
                     FungibleConditionCode::SentLt,
@@ -7379,7 +7359,7 @@ pub mod test {
                 vec![
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
-                            addr.clone(),
+                            addr,
                             ContractName::try_from("hello-world").unwrap(),
                         ),
                         FungibleConditionCode::SentEq,
@@ -7399,7 +7379,7 @@ pub mod test {
                 vec![
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
-                            addr.clone(),
+                            addr,
                             ContractName::try_from("hello-world").unwrap(),
                         ),
                         FungibleConditionCode::SentLe,
@@ -7419,7 +7399,7 @@ pub mod test {
                 vec![
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
-                            addr.clone(),
+                            addr,
                             ContractName::try_from("hello-world").unwrap(),
                         ),
                         FungibleConditionCode::SentGe,
@@ -7439,7 +7419,7 @@ pub mod test {
                 vec![
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
-                            addr.clone(),
+                            addr,
                             ContractName::try_from("hello-world").unwrap(),
                         ),
                         FungibleConditionCode::SentLt,
@@ -7568,7 +7548,7 @@ pub mod test {
             (
                 true,
                 vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Standard(addr.clone()),
+                    PostConditionPrincipal::Standard(addr),
                     FungibleConditionCode::SentEq,
                     123,
                 )],
@@ -7578,7 +7558,7 @@ pub mod test {
             (
                 true,
                 vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Standard(addr.clone()),
+                    PostConditionPrincipal::Standard(addr),
                     FungibleConditionCode::SentLe,
                     123,
                 )],
@@ -7588,7 +7568,7 @@ pub mod test {
             (
                 true,
                 vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Standard(addr.clone()),
+                    PostConditionPrincipal::Standard(addr),
                     FungibleConditionCode::SentGe,
                     123,
                 )],
@@ -7598,7 +7578,7 @@ pub mod test {
             (
                 true,
                 vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Standard(addr.clone()),
+                    PostConditionPrincipal::Standard(addr),
                     FungibleConditionCode::SentLt,
                     124,
                 )],
@@ -7608,7 +7588,7 @@ pub mod test {
             (
                 true,
                 vec![TransactionPostCondition::STX(
-                    PostConditionPrincipal::Standard(addr.clone()),
+                    PostConditionPrincipal::Standard(addr),
                     FungibleConditionCode::SentGt,
                     122,
                 )],
@@ -7622,7 +7602,7 @@ pub mod test {
                 vec![
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
-                            addr.clone(),
+                            addr,
                             ContractName::try_from("hello-world").unwrap(),
                         ),
                         FungibleConditionCode::SentEq,
@@ -7642,7 +7622,7 @@ pub mod test {
                 vec![
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
-                            addr.clone(),
+                            addr,
                             ContractName::try_from("hello-world").unwrap(),
                         ),
                         FungibleConditionCode::SentLe,
@@ -7662,7 +7642,7 @@ pub mod test {
                 vec![
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
-                            addr.clone(),
+                            addr,
                             ContractName::try_from("hello-world").unwrap(),
                         ),
                         FungibleConditionCode::SentGe,
@@ -7682,7 +7662,7 @@ pub mod test {
                 vec![
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
-                            addr.clone(),
+                            addr,
                             ContractName::try_from("hello-world").unwrap(),
                         ),
                         FungibleConditionCode::SentLt,
@@ -7703,7 +7683,7 @@ pub mod test {
                 false,
                 vec![TransactionPostCondition::STX(
                     PostConditionPrincipal::Contract(
-                        addr.clone(),
+                        addr,
                         ContractName::try_from("hello-world").unwrap(),
                     ),
                     FungibleConditionCode::SentEq,
@@ -7716,7 +7696,7 @@ pub mod test {
                 false,
                 vec![TransactionPostCondition::STX(
                     PostConditionPrincipal::Contract(
-                        addr.clone(),
+                        addr,
                         ContractName::try_from("hello-world").unwrap(),
                     ),
                     FungibleConditionCode::SentLe,
@@ -7729,7 +7709,7 @@ pub mod test {
                 false,
                 vec![TransactionPostCondition::STX(
                     PostConditionPrincipal::Contract(
-                        addr.clone(),
+                        addr,
                         ContractName::try_from("hello-world").unwrap(),
                     ),
                     FungibleConditionCode::SentGe,
@@ -7742,7 +7722,7 @@ pub mod test {
                 false,
                 vec![TransactionPostCondition::STX(
                     PostConditionPrincipal::Contract(
-                        addr.clone(),
+                        addr,
                         ContractName::try_from("hello-world").unwrap(),
                     ),
                     FungibleConditionCode::SentLt,
@@ -7758,7 +7738,7 @@ pub mod test {
                 vec![
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
-                            addr.clone(),
+                            addr,
                             ContractName::try_from("hello-world").unwrap(),
                         ),
                         FungibleConditionCode::SentEq,
@@ -7778,7 +7758,7 @@ pub mod test {
                 vec![
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
-                            addr.clone(),
+                            addr,
                             ContractName::try_from("hello-world").unwrap(),
                         ),
                         FungibleConditionCode::SentLe,
@@ -7798,7 +7778,7 @@ pub mod test {
                 vec![
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
-                            addr.clone(),
+                            addr,
                             ContractName::try_from("hello-world").unwrap(),
                         ),
                         FungibleConditionCode::SentGe,
@@ -7818,7 +7798,7 @@ pub mod test {
                 vec![
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
-                            addr.clone(),
+                            addr,
                             ContractName::try_from("hello-world").unwrap(),
                         ),
                         FungibleConditionCode::SentLt,
@@ -7839,7 +7819,7 @@ pub mod test {
                 vec![
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
-                            addr.clone(),
+                            addr,
                             ContractName::try_from("hello-world").unwrap(),
                         ),
                         FungibleConditionCode::SentEq,
@@ -7859,7 +7839,7 @@ pub mod test {
                 vec![
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
-                            addr.clone(),
+                            addr,
                             ContractName::try_from("hello-world").unwrap(),
                         ),
                         FungibleConditionCode::SentLe,
@@ -7879,7 +7859,7 @@ pub mod test {
                 vec![
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
-                            addr.clone(),
+                            addr,
                             ContractName::try_from("hello-world").unwrap(),
                         ),
                         FungibleConditionCode::SentGe,
@@ -7899,7 +7879,7 @@ pub mod test {
                 vec![
                     TransactionPostCondition::STX(
                         PostConditionPrincipal::Contract(
-                            addr.clone(),
+                            addr,
                             ContractName::try_from("hello-world").unwrap(),
                         ),
                         FungibleConditionCode::SentLt,
@@ -8012,7 +7992,7 @@ pub mod test {
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let addr = auth.origin().address_testnet();
 
-        let balances = vec![(addr.clone(), 1000000000)];
+        let balances = vec![(addr, 1000000000)];
 
         let mut chainstate =
             instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
@@ -8035,7 +8015,7 @@ pub mod test {
             TransactionVersion::Testnet,
             auth,
             TransactionPayload::new_contract_call(
-                addr.clone(),
+                addr,
                 "hello-world",
                 "send-stx",
                 vec![
@@ -8196,7 +8176,7 @@ pub mod test {
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let addr = auth.origin().address_testnet();
 
-        let balances = vec![(addr.clone(), 1000000000)];
+        let balances = vec![(addr, 1000000000)];
 
         let mut chainstate =
             instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
@@ -8317,7 +8297,7 @@ pub mod test {
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let addr = auth.origin().address_testnet();
 
-        let balances = vec![(addr.clone(), 1000000000)];
+        let balances = vec![(addr, 1000000000)];
 
         let mut chainstate =
             instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
@@ -8403,7 +8383,7 @@ pub mod test {
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let addr = auth.origin().address_testnet();
 
-        let balances = vec![(addr.clone(), 1000000000)];
+        let balances = vec![(addr, 1000000000)];
 
         let mut chainstate =
             instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
@@ -8717,11 +8697,7 @@ pub mod test {
         let token_transfer = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth,
-            TransactionPayload::TokenTransfer(
-                recv_addr.clone().into(),
-                123,
-                TokenTransferMemo([0u8; 34]),
-            ),
+            TransactionPayload::TokenTransfer(recv_addr.into(), 123, TokenTransferMemo([0u8; 34])),
         );
 
         let txs = vec![
@@ -8928,11 +8904,7 @@ pub mod test {
         let token_transfer = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth,
-            TransactionPayload::TokenTransfer(
-                recv_addr.clone().into(),
-                123,
-                TokenTransferMemo([0u8; 34]),
-            ),
+            TransactionPayload::TokenTransfer(recv_addr.into(), 123, TokenTransferMemo([0u8; 34])),
         );
 
         let txs = vec![
@@ -9014,7 +8986,7 @@ pub mod test {
         let auth_recv = TransactionAuth::from_p2pkh(&privk_recv).unwrap();
         let addr_recv = auth_recv.origin().address_testnet();
 
-        let balances = vec![(addr.clone(), 1000000000)];
+        let balances = vec![(addr, 1000000000)];
 
         let mut chainstate =
             instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
@@ -9039,12 +9011,12 @@ pub mod test {
             TransactionVersion::Testnet,
             auth_recv,
             TransactionPayload::new_contract_call(
-                addr.clone(),
+                addr,
                 "faucet",
                 "send-stx",
                 vec![
                     Value::UInt(100000),
-                    Value::Principal(PrincipalData::from(addr_recv.clone())),
+                    Value::Principal(PrincipalData::from(addr_recv)),
                 ],
             )
             .unwrap(),
@@ -9183,7 +9155,7 @@ pub mod test {
 
         let auth_recv = auth_origin.into_sponsored(auth_recv).unwrap();
 
-        let balances = vec![(addr.clone(), 1000000000)];
+        let balances = vec![(addr, 1000000000)];
 
         let mut chainstate =
             instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
@@ -9208,12 +9180,12 @@ pub mod test {
             TransactionVersion::Testnet,
             auth_recv,
             TransactionPayload::new_contract_call(
-                addr.clone(),
+                addr,
                 "faucet",
                 "send-stx",
                 vec![
                     Value::UInt(100000),
-                    Value::Principal(PrincipalData::from(addr_recv.clone())),
+                    Value::Principal(PrincipalData::from(addr_recv)),
                 ],
             )
             .unwrap(),
@@ -9403,7 +9375,7 @@ pub mod test {
             )
             ";
 
-        let balances = vec![(addr.clone(), 1000000000)];
+        let balances = vec![(addr, 1000000000)];
 
         let mut chainstate =
             instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
@@ -9549,7 +9521,7 @@ pub mod test {
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_contract_call(
-                addr.clone(),
+                addr,
                 "trait-checkerror",
                 "test",
                 vec![Value::Principal(PrincipalData::Contract(
@@ -9637,7 +9609,7 @@ pub mod test {
         let signed_runtime_checkerror_cc_contract_tx_clar2 = signer.get_tx().unwrap();
 
         let contract_id = QualifiedContractIdentifier::new(
-            StandardPrincipalData::from(addr.clone()),
+            StandardPrincipalData::from(addr),
             ContractName::from("trait-checkerror"),
         );
 
@@ -10074,7 +10046,7 @@ pub mod test {
             "
         .to_string();
 
-        let balances = vec![(addr.clone(), 1000000000)];
+        let balances = vec![(addr, 1000000000)];
 
         let mut chainstate =
             instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
@@ -10215,7 +10187,7 @@ pub mod test {
             TransactionVersion::Testnet,
             auth,
             TransactionPayload::new_contract_call(
-                addr.clone(),
+                addr,
                 "call-foo",
                 "call-do-it",
                 vec![Value::some(Value::Principal(PrincipalData::Contract(
@@ -10237,7 +10209,7 @@ pub mod test {
         let signed_test_call_foo_tx = signer.get_tx().unwrap();
 
         let contract_id = QualifiedContractIdentifier::new(
-            StandardPrincipalData::from(addr.clone()),
+            StandardPrincipalData::from(addr),
             ContractName::from("trait-checkerror"),
         );
 
@@ -10572,7 +10544,7 @@ pub mod test {
             "
         .to_string();
 
-        let balances = vec![(addr.clone(), 1000000000)];
+        let balances = vec![(addr, 1000000000)];
 
         let mut chainstate =
             instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
@@ -10772,7 +10744,7 @@ pub mod test {
             TransactionVersion::Testnet,
             auth,
             TransactionPayload::new_contract_call(
-                addr.clone(),
+                addr,
                 "call-foo",
                 "call-do-it",
                 vec![Value::Principal(PrincipalData::Contract(
@@ -10793,7 +10765,7 @@ pub mod test {
         let signed_test_call_foo_tx = signer.get_tx().unwrap();
 
         let contract_id = QualifiedContractIdentifier::new(
-            StandardPrincipalData::from(addr.clone()),
+            StandardPrincipalData::from(addr),
             ContractName::from("trait-checkerror"),
         );
 

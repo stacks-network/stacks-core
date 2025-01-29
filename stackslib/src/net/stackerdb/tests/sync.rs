@@ -1161,7 +1161,7 @@ fn inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(push_only: bool,
 
                 if let Ok(res) = res {
                     check_sync_results(&res);
-                    let rc_ch = peers[i].network.get_chain_view().rc_consensus_hash.clone();
+                    let rc_ch = peers[i].network.get_chain_view().rc_consensus_hash;
                     peers[i]
                         .relayer
                         .process_stacker_db_chunks(

@@ -52,7 +52,7 @@ use crate::util_lib::db::DBConn;
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let request = StacksHttpRequest::new_mempool_query(
         addr.into(),
@@ -159,7 +159,7 @@ fn test_stream_mempool_txs() {
         let tx_bytes = tx.serialize_to_vec();
         let origin_addr = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr);
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
         let tx_fee = tx.get_tx_fee();
 
@@ -172,7 +172,7 @@ fn test_stream_mempool_txs() {
             &ConsensusHash([0x1 + (block_height as u8); 20]),
             &BlockHeaderHash([0x2 + (block_height as u8); 32]),
             false, // don't resolve the above chain tip since it doesn't exist
-            txid.clone(),
+            txid,
             tx_bytes,
             tx_fee,
             block_height,

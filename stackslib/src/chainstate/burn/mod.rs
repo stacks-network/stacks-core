@@ -147,7 +147,7 @@ impl SortitionHash {
 
     /// Choose two indices (without replacement) from the range [0, max).
     pub fn choose_two(&self, max: u32) -> Vec<u32> {
-        let mut rng = ChaCha20Rng::from_seed(self.0.clone());
+        let mut rng = ChaCha20Rng::from_seed(self.0);
         if max < 2 {
             return (0..max).collect();
         }
@@ -363,7 +363,7 @@ impl ConsensusHashExtensions for ConsensusHash {
                 .unwrap_or(ConsensusHash::empty());
 
             debug!("Consensus at {}: {}", prev_block, &prev_ch);
-            prev_chs.push(prev_ch.clone());
+            prev_chs.push(prev_ch);
             i += 1;
 
             if block_height < ((1 << i) - 1) {
@@ -444,7 +444,7 @@ mod tests {
         let mut burn_block_hashes = vec![];
         {
             let mut prev_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
-            burn_block_hashes.push(prev_snapshot.sortition_id.clone());
+            burn_block_hashes.push(prev_snapshot.sortition_id);
             for i in 1..256 {
                 let snapshot_row = BlockSnapshot {
                     accumulated_coinbase_ustx: 0,
@@ -460,7 +460,7 @@ mod tests {
                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                         0, 0, 0, 0, 0, 0, i as u8,
                     ]),
-                    parent_sortition_id: prev_snapshot.sortition_id.clone(),
+                    parent_sortition_id: prev_snapshot.sortition_id,
                     parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[
                         0,
                         0,
@@ -539,7 +539,7 @@ mod tests {
                         None,
                     )
                     .unwrap();
-                burn_block_hashes.push(snapshot_row.sortition_id.clone());
+                burn_block_hashes.push(snapshot_row.sortition_id);
                 tx.commit().unwrap();
                 prev_snapshot = snapshot_row;
             }

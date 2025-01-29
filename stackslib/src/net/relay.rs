@@ -1110,7 +1110,7 @@ impl Relayer {
     ) -> Result<Vec<NakamotoBlock>, chainstate_error> {
         let mut accepted = vec![];
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
-        let mut sort_handle = sortdb.index_handle(&tip.sortition_id);
+        let mut sort_handle = sortdb.index_handle(tip.sortition_id);
         for block in blocks {
             let block_id = block.block_id();
             let accept = match Self::process_new_nakamoto_block(
@@ -1151,7 +1151,7 @@ impl Relayer {
         for (anchored_block_hash, (relayers, mblocks_map)) in new_microblocks.into_iter() {
             for (_, mblock) in mblocks_map.into_iter() {
                 if !mblocks_data.contains_key(&anchored_block_hash) {
-                    mblocks_data.insert(anchored_block_hash.clone(), vec![]);
+                    mblocks_data.insert(anchored_block_hash, vec![]);
                 }
 
                 if let Some(mblocks_msgs) = mblocks_data.get_mut(&anchored_block_hash) {
@@ -1175,7 +1175,7 @@ impl Relayer {
                         } else {
                             // allocate the first microblocks message, and add this mblock to it
                             let mblocks_msg = MicroblocksData {
-                                index_anchor_block: anchored_block_hash.clone(),
+                                index_anchor_block: anchored_block_hash,
                                 microblocks: vec![mblock],
                             };
                             mblocks_msgs.push((relayers.clone(), mblocks_msg));
@@ -1185,18 +1185,18 @@ impl Relayer {
                         if let Some(sz) = mblocks_sizes.get_mut(&anchored_block_hash) {
                             *sz += mblock_len
                         } else {
-                            mblocks_sizes.insert(anchored_block_hash.clone(), mblock_len);
+                            mblocks_sizes.insert(anchored_block_hash, mblock_len);
                         }
                     } else {
                         // start a new microblocks message
                         let mblocks_msg = MicroblocksData {
-                            index_anchor_block: anchored_block_hash.clone(),
+                            index_anchor_block: anchored_block_hash,
                             microblocks: vec![mblock],
                         };
                         mblocks_msgs.push((relayers.clone(), mblocks_msg));
 
                         // reset size counter
-                        mblocks_sizes.insert(anchored_block_hash.clone(), mblock_len);
+                        mblocks_sizes.insert(anchored_block_hash, mblock_len);
                     }
                 } else {
                     // shouldn't happen because we inserted into mblocks_data earlier
@@ -1252,7 +1252,7 @@ impl Relayer {
                             consensus_hash,
                             &block.block_hash()
                         );
-                        new_blocks.insert((*consensus_hash).clone(), block.clone());
+                        new_blocks.insert(*consensus_hash, block.clone());
                     } else {
                         debug!(
                             "Rejected downloaded block {}/{}: {:?}",
@@ -1389,7 +1389,7 @@ impl Relayer {
                                     "Accepted block {}/{} from {}",
                                     consensus_hash, &bhh, &neighbor_key
                                 );
-                                new_blocks.insert(consensus_hash.clone(), block.clone());
+                                new_blocks.insert(*consensus_hash, block.clone());
                             } else {
                                 debug!(
                                     "Rejected block {}/{} from {}: {:?}",
@@ -1437,7 +1437,7 @@ impl Relayer {
             if microblock_stream.is_empty() {
                 continue;
             }
-            let anchored_block_hash = microblock_stream[0].header.prev_block.clone();
+            let anchored_block_hash = microblock_stream[0].header.prev_block;
 
             let block_snapshot =
                 match SortitionDB::get_block_snapshot_consensus(sort_ic, consensus_hash) {
@@ -1516,7 +1516,7 @@ impl Relayer {
                 let index_block_hash =
                     StacksBlockHeader::make_index_block_hash(consensus_hash, &anchored_block_hash);
                 ret.insert(
-                    (*consensus_hash).clone(),
+                    *consensus_hash,
                     (index_block_hash, microblock_stream.clone()),
                 );
             }
@@ -1554,7 +1554,7 @@ impl Relayer {
                             continue;
                         }
                     };
-                let index_block_hash = mblock_data.index_anchor_block.clone();
+                let index_block_hash = mblock_data.index_anchor_block;
 
                 let block_snapshot =
                     SortitionDB::get_block_snapshot_consensus(sort_ic, &consensus_hash)?
@@ -1674,10 +1674,8 @@ impl Relayer {
                     } else {
                         let mut mblocks_map = HashMap::new();
                         mblocks_map.insert(mblock.block_hash(), (*mblock).clone());
-                        new_microblocks.insert(
-                            uploaded_mblock.index_anchor_block.clone(),
-                            (vec![], mblocks_map),
-                        );
+                        new_microblocks
+                            .insert(uploaded_mblock.index_anchor_block, (vec![], mblocks_map));
                     }
                 } else {
                     // nope
@@ -1746,7 +1744,7 @@ impl Relayer {
                         "Received pushed Nakamoto block {} from {}",
                         block_id, neighbor_key
                     );
-                    let mut sort_handle = sortdb.index_handle(&tip.sortition_id);
+                    let mut sort_handle = sortdb.index_handle(tip.sortition_id);
                     match Self::process_new_nakamoto_block(
                         burnchain,
                         sortdb,
@@ -2545,7 +2543,7 @@ impl Relayer {
                         }
                         let msg = StacksMessageType::StackerDBPushChunk(StackerDBPushChunkData {
                             contract_id: sc.clone(),
-                            rc_consensus_hash: rc_consensus_hash.clone(),
+                            rc_consensus_hash: *rc_consensus_hash,
                             chunk_data: chunk,
                         });
                         if let Err(e) = self.p2p.broadcast_message(vec![], msg) {
@@ -2727,7 +2725,7 @@ impl Relayer {
         for _i in 0..(n.saturating_sub(1)) {
             let last_sn_parent_sortition_id = ret
                 .last()
-                .map(|sn| sn.parent_sortition_id.clone())
+                .map(|sn| sn.parent_sortition_id)
                 .expect("Infallible -- ret is non-empty");
             let sn = SortitionDB::get_block_snapshot(sortdb.conn(), &last_sn_parent_sortition_id)?
                 .ok_or(db_error::NotFoundError)?;
@@ -2826,7 +2824,7 @@ impl Relayer {
                 );
                 self.recently_sent_nakamoto_blocks.insert(
                     block.block_id(),
-                    (block.header.consensus_hash.clone(), get_epoch_time_ms()),
+                    (block.header.consensus_hash, get_epoch_time_ms()),
                 );
             }
 
@@ -3162,7 +3160,7 @@ impl PeerNetwork {
         block: StacksBlock,
     ) {
         let blk_hash = block.block_hash();
-        let ch = consensus_hash.clone();
+        let ch = consensus_hash;
         let payload = BlocksData {
             blocks: vec![BlocksDatum(consensus_hash, block)],
         };
@@ -3200,7 +3198,7 @@ impl PeerNetwork {
         index_block_hash: StacksBlockId,
         microblocks: Vec<StacksMicroblock>,
     ) {
-        let idx_bhh = index_block_hash.clone();
+        let idx_bhh = index_block_hash;
         let payload = MicroblocksData {
             index_anchor_block: index_block_hash,
             microblocks,
@@ -3254,16 +3252,12 @@ impl PeerNetwork {
 
                         match blocks.get(ch) {
                             Some(block) => {
-                                network.push_block_to_peer(
-                                    recipient,
-                                    (*ch).clone(),
-                                    (*block).clone(),
-                                );
+                                network.push_block_to_peer(recipient, *ch, block.clone());
                             }
                             None => {
                                 network.advertize_to_peer(
                                     recipient,
-                                    &[((*ch).clone(), (*bhh).clone())],
+                                    &[(*ch, *bhh)],
                                     StacksMessageType::BlocksAvailable,
                                 );
                             }
@@ -3298,14 +3292,14 @@ impl PeerNetwork {
                             Some((stacks_block_id, mblocks)) => {
                                 network.push_microblocks_to_peer(
                                     recipient,
-                                    stacks_block_id.clone(),
+                                    *stacks_block_id,
                                     mblocks.clone(),
                                 );
                             }
                             None => {
                                 network.advertize_to_peer(
                                     recipient,
-                                    &[((*ch).clone(), (*bhh).clone())],
+                                    &[(*ch, *bhh)],
                                     StacksMessageType::MicroblocksAvailable,
                                 );
                             }
@@ -3330,7 +3324,7 @@ impl PeerNetwork {
     {
         let mut wanted: Vec<(ConsensusHash, BurnchainHeaderHash)> = vec![];
         for (burn_header_hash, (_, consensus_hash)) in available.iter() {
-            wanted.push(((*consensus_hash).clone(), (*burn_header_hash).clone()));
+            wanted.push((*consensus_hash, *burn_header_hash));
         }
 
         self.advertize_to_peer(recipient, &wanted, msg_builder);

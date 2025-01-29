@@ -183,7 +183,7 @@ impl MinerReward {
             return None;
         }
         Some(MinerReward {
-            address: self.address.clone(),
+            address: self.address,
             recipient: self.recipient.clone(),
             coinbase: self.coinbase,
             tx_fees_anchored: self.tx_fees_anchored,
@@ -232,10 +232,10 @@ impl MinerPaymentSchedule {
         MinerPaymentSchedule {
             address: StacksAddress::burn_address(mainnet),
             recipient: StacksAddress::burn_address(mainnet).to_account_principal(),
-            block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
-            consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            parent_block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
-            parent_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+            block_hash: FIRST_STACKS_BLOCK_HASH,
+            consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH,
+            parent_block_hash: FIRST_STACKS_BLOCK_HASH,
+            parent_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH,
             coinbase: 0,
             tx_fees: MinerPaymentTxFees::Epoch2 {
                 anchored: 0,
@@ -884,7 +884,7 @@ impl StacksChainState {
                         StacksChainState::poison_microblock_commission(coinbase_reward)
                     );
                     (
-                        reporter_address.clone(),
+                        *reporter_address,
                         reporter_address.to_account_principal(),
                         StacksChainState::poison_microblock_commission(coinbase_reward),
                         true,
@@ -962,7 +962,7 @@ impl StacksChainState {
         );
 
         let parent_miner_reward = MinerReward {
-            address: parent.address.clone(),
+            address: parent.address,
             recipient: parent.recipient.clone(),
             coinbase: 0,
             tx_fees_anchored: 0,
@@ -1012,10 +1012,10 @@ impl StacksChainState {
             .expect("BUG: no matured miners despite prior check");
 
         let reward_info = MinerRewardInfo {
-            from_stacks_block_hash: miner.block_hash.clone(),
-            from_block_consensus_hash: miner.consensus_hash.clone(),
-            from_parent_stacks_block_hash: parent_miner.block_hash.clone(),
-            from_parent_block_consensus_hash: parent_miner.consensus_hash.clone(),
+            from_stacks_block_hash: miner.block_hash,
+            from_block_consensus_hash: miner.consensus_hash,
+            from_parent_stacks_block_hash: parent_miner.block_hash,
+            from_parent_block_consensus_hash: parent_miner.consensus_hash,
         };
 
         // what epoch was the parent miner's block evaluated in?
@@ -1095,7 +1095,7 @@ mod test {
     use crate::core::StacksEpochId;
 
     fn make_dummy_miner_payment_schedule(
-        addr: &StacksAddress,
+        addr: StacksAddress,
         coinbase: u128,
         tx_fees_anchored: u128,
         tx_fees_streamed: u128,
@@ -1103,12 +1103,12 @@ mod test {
         sortition_burn: u64,
     ) -> MinerPaymentSchedule {
         MinerPaymentSchedule {
-            address: addr.clone(),
-            recipient: addr.clone().to_account_principal(),
-            block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
-            consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            parent_block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
-            parent_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+            address: addr,
+            recipient: addr.to_account_principal(),
+            block_hash: FIRST_STACKS_BLOCK_HASH,
+            consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH,
+            parent_block_hash: FIRST_STACKS_BLOCK_HASH,
+            parent_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH,
             coinbase,
             tx_fees: MinerPaymentTxFees::Epoch2 {
                 anchored: tx_fees_anchored,
@@ -1123,7 +1123,7 @@ mod test {
     }
 
     fn make_dummy_user_payment_schedule(
-        addr: &StacksAddress,
+        addr: StacksAddress,
         coinbase: u128,
         tx_fees_anchored: u128,
         tx_fees_streamed: u128,
@@ -1170,10 +1170,10 @@ mod test {
         );
         new_tip.burn_header_height = parent_header_info.burn_header_height + 1;
 
-        block_reward.parent_consensus_hash = parent_header_info.consensus_hash.clone();
-        block_reward.parent_block_hash = parent_header_info.anchored_header.block_hash().clone();
+        block_reward.parent_consensus_hash = parent_header_info.consensus_hash;
+        block_reward.parent_block_hash = parent_header_info.anchored_header.block_hash();
         block_reward.block_hash = new_tip.anchored_header.block_hash();
-        block_reward.consensus_hash = new_tip.consensus_hash.clone();
+        block_reward.consensus_hash = new_tip.consensus_hash;
 
         let mut tx = chainstate.index_tx_begin();
         let tip = StacksChainState::advance_tip(
@@ -1214,12 +1214,12 @@ mod test {
         let user_1 =
             StacksAddress::from_string(&"SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0".to_string())
                 .unwrap();
-        let mut miner_reward = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
-        let user_reward = make_dummy_user_payment_schedule(&user_1, 500, 0, 0, 750, 1000, 1);
+        let mut miner_reward = make_dummy_miner_payment_schedule(miner_1, 500, 0, 0, 1000, 1000);
+        let user_reward = make_dummy_user_payment_schedule(user_1, 500, 0, 0, 750, 1000, 1);
 
         // dummy reward
         let mut tip_reward = make_dummy_miner_payment_schedule(
-            &StacksAddress::new(0, Hash160([0u8; 20])).unwrap(),
+            StacksAddress::new(0, Hash160([0u8; 20])).unwrap(),
             0,
             0,
             0,
@@ -1279,7 +1279,7 @@ mod test {
             StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
                 .unwrap();
 
-        let mut miner_reward = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
+        let mut miner_reward = make_dummy_miner_payment_schedule(miner_1, 500, 0, 0, 1000, 1000);
 
         let initial_tip = StacksHeaderInfo::regtest_genesis();
 
@@ -1291,7 +1291,7 @@ mod test {
 
         // dummy reward
         let mut tip_reward = make_dummy_miner_payment_schedule(
-            &StacksAddress::new(0, Hash160([0u8; 20])).unwrap(),
+            StacksAddress::new(0, Hash160([0u8; 20])).unwrap(),
             0,
             0,
             0,
@@ -1325,7 +1325,7 @@ mod test {
             StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
                 .unwrap();
 
-        let mut miner_reward = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
+        let mut miner_reward = make_dummy_miner_payment_schedule(miner_1, 500, 0, 0, 1000, 1000);
         miner_reward.recipient = PrincipalData::Contract(QualifiedContractIdentifier::transient());
 
         let initial_tip = StacksHeaderInfo::regtest_genesis();
@@ -1338,7 +1338,7 @@ mod test {
 
         // dummy reward
         let mut tip_reward = make_dummy_miner_payment_schedule(
-            &StacksAddress::new(0, Hash160([0u8; 20])).unwrap(),
+            StacksAddress::new(0, Hash160([0u8; 20])).unwrap(),
             0,
             0,
             0,
@@ -1370,7 +1370,7 @@ mod test {
         let miner_1 =
             StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
                 .unwrap();
-        let participant = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
+        let participant = make_dummy_miner_payment_schedule(miner_1, 500, 0, 0, 1000, 1000);
 
         let (parent_reward, miner_reward) = StacksChainState::calculate_miner_reward(
             false,
@@ -1400,7 +1400,7 @@ mod test {
         let miner_1 =
             StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
                 .unwrap();
-        let mut participant = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
+        let mut participant = make_dummy_miner_payment_schedule(miner_1, 500, 0, 0, 1000, 1000);
         participant.recipient = PrincipalData::Contract(QualifiedContractIdentifier::transient());
 
         let (parent_reward, miner_reward) = StacksChainState::calculate_miner_reward(
@@ -1443,8 +1443,8 @@ mod test {
             StacksAddress::from_string(&"SP2837ZMC89J40K4YTS64B00M7065C6X46JX6ARG0".to_string())
                 .unwrap();
 
-        let miner = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 250, 1000);
-        let user = make_dummy_user_payment_schedule(&user_1, 500, 0, 0, 750, 1000, 1);
+        let miner = make_dummy_miner_payment_schedule(miner_1, 500, 0, 0, 250, 1000);
+        let user = make_dummy_user_payment_schedule(user_1, 500, 0, 0, 750, 1000, 1);
 
         let (parent_miner_1, reward_miner_1) = StacksChainState::calculate_miner_reward(
             false,
@@ -1492,9 +1492,9 @@ mod test {
             StacksAddress::from_string(&"SP2QDF700V0FWXVNQJJ4XFGBWE6R2Y4APTSFQNBVE".to_string())
                 .unwrap();
 
-        let participant = make_dummy_miner_payment_schedule(&miner_1, 500, 100, 105, 1000, 1000);
+        let participant = make_dummy_miner_payment_schedule(miner_1, 500, 100, 105, 1000, 1000);
         let parent_participant =
-            make_dummy_miner_payment_schedule(&parent_miner_1, 500, 100, 395, 1000, 1000);
+            make_dummy_miner_payment_schedule(parent_miner_1, 500, 100, 395, 1000, 1000);
 
         let (parent_reward, miner_reward) = StacksChainState::calculate_miner_reward(
             false,

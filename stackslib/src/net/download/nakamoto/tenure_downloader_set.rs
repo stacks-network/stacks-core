@@ -77,9 +77,9 @@ pub(crate) struct CompletedTenure {
 impl From<&TenureStartEnd> for CompletedTenure {
     fn from(tse: &TenureStartEnd) -> Self {
         Self {
-            tenure_id: tse.tenure_id_consensus_hash.clone(),
-            start_block: tse.start_block_id.clone(),
-            end_block: tse.end_block_id.clone(),
+            tenure_id: tse.tenure_id_consensus_hash,
+            start_block: tse.start_block_id,
+            end_block: tse.end_block_id,
         }
     }
 }
@@ -140,7 +140,7 @@ impl NakamotoTenureDownloaderSet {
         if let Some(failures) = attempt_failed_tenures.get_mut(ch) {
             *failures = (*failures).saturating_add(1);
         } else {
-            attempt_failed_tenures.insert(ch.clone(), 1);
+            attempt_failed_tenures.insert(*ch, 1);
         }
     }
 
@@ -493,7 +493,7 @@ impl NakamotoTenureDownloaderSet {
 
             let attempt_count = *self.attempted_tenures.get(ch).unwrap_or(&0);
             self.attempted_tenures
-                .insert(ch.clone(), attempt_count.saturating_add(1));
+                .insert(*ch, attempt_count.saturating_add(1));
 
             let attempt_failed_count = *self.attempt_failed_tenures.get(ch).unwrap_or(&0);
 
@@ -512,11 +512,11 @@ impl NakamotoTenureDownloaderSet {
                 "tenure_burn_height" => tenure_info.tenure_id_burn_block_height);
 
             let tenure_download = NakamotoTenureDownloader::new(
-                ch.clone(),
-                tenure_info.start_block_snapshot_consensus_hash.clone(),
-                tenure_info.start_block_id.clone(),
-                tenure_info.end_block_snapshot_consensus_hash.clone(),
-                tenure_info.end_block_id.clone(),
+                *ch,
+                tenure_info.start_block_snapshot_consensus_hash,
+                tenure_info.start_block_id,
+                tenure_info.end_block_snapshot_consensus_hash,
+                tenure_info.end_block_id,
                 naddr.clone(),
                 start_reward_set.clone(),
                 end_reward_set.clone(),
@@ -664,7 +664,7 @@ impl NakamotoTenureDownloaderSet {
                 blocks.len(),
                 &downloader.tenure_id_consensus_hash
             );
-            new_blocks.insert(downloader.tenure_id_consensus_hash.clone(), blocks);
+            new_blocks.insert(downloader.tenure_id_consensus_hash, blocks);
             if downloader.is_done() {
                 info!(
                     "Downloader for tenure {} is finished",

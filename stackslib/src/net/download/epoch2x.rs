@@ -1166,7 +1166,7 @@ impl PeerNetwork {
             chainstate.db(),
             parent_consensus_hash,
             parent_block_hash,
-            &child_header.parent_microblock,
+            child_header.parent_microblock,
         )? {
             Some(_) => {
                 test_debug!(
@@ -1503,11 +1503,11 @@ impl PeerNetwork {
                 let request = BlockRequestKey::new(
                     nk,
                     data_url,
-                    target_consensus_hash.clone(),
-                    target_block_hash.clone(),
-                    target_index_block_hash.clone(),
+                    target_consensus_hash,
+                    target_block_hash,
+                    target_index_block_hash,
                     parent_block_header_opt.clone(),
-                    parent_consensus_hash_opt.clone(),
+                    parent_consensus_hash_opt,
                     (i as u64) + start_sortition_height,
                     if microblocks {
                         BlockRequestKeyKind::ConfirmedMicroblockStream
@@ -1707,8 +1707,7 @@ impl PeerNetwork {
                         }
                         assert_eq!(height, requests.front().as_ref().unwrap().sortition_height);
 
-                        let index_block_hash =
-                            requests.front().as_ref().unwrap().index_block_hash.clone();
+                        let index_block_hash = requests.front().as_ref().unwrap().index_block_hash;
                         if let Some(deadline) = downloader.requested_blocks.get(&index_block_hash) {
                             if now < *deadline {
                                 debug!(
@@ -1774,8 +1773,7 @@ impl PeerNetwork {
                             requests.front().as_ref().unwrap().sortition_height
                         );
 
-                        let index_block_hash =
-                            requests.front().as_ref().unwrap().index_block_hash.clone();
+                        let index_block_hash = requests.front().as_ref().unwrap().index_block_hash;
                         if let Some(deadline) =
                             downloader.requested_microblocks.get(&index_block_hash)
                         {
@@ -1930,7 +1928,7 @@ impl PeerNetwork {
                             let request = requestable.make_request_type(peerhost.clone());
                             match network.connect_or_send_http_request(
                                 requestable.get_url().clone(),
-                                addr.clone(),
+                                *addr,
                                 request,
                             ) {
                                 Ok(handle) => {
@@ -2087,7 +2085,7 @@ impl PeerNetwork {
                     request_key.sortition_height
                 );
                 blocks.push((
-                    request_key.consensus_hash.clone(),
+                    request_key.consensus_hash,
                     block,
                     now.saturating_sub(request_key.download_start),
                 ));

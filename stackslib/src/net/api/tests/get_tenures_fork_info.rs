@@ -43,7 +43,7 @@ fn make_preamble<T: Display, R: Display>(start: &T, stop: &R) -> HttpRequestPrea
 #[test]
 fn test_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let http = StacksHttp::new(addr, &ConnectionOptions::default());
     let mut handler = GetTenuresForkInfo::default();
 
     let tests = vec![

@@ -1555,7 +1555,7 @@ impl BurnchainConfigFile {
             first_burn_block_hash: self
                 .first_burn_block_hash
                 .clone()
-                .or(default_burnchain_config.first_burn_block_hash.clone()),
+                .or(default_burnchain_config.first_burn_block_hash),
             // will be overwritten below
             epochs: default_burnchain_config.epochs,
             ast_precheck_size_height: self.ast_precheck_size_height,

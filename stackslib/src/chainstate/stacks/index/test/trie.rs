@@ -87,7 +87,7 @@ fn trie_cursor_try_attach_leaf() {
 
             // used to short-circuit block-height lookups, so that we don't
             //   mess up these tests expected trie structures.
-            f.test_genesis_block.replace(block_header.clone());
+            f.test_genesis_block.replace(block_header);
 
             let path_segments = vec![
                 (vec![], 0),
@@ -137,7 +137,7 @@ fn trie_cursor_try_attach_leaf() {
                 path[i] = 32;
 
                 let mut c =
-                    TrieCursor::new(&TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+                    TrieCursor::new(TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
                 let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
                 // end of path -- cursor points to the insertion point.
@@ -155,7 +155,7 @@ fn trie_cursor_try_attach_leaf() {
                 assert!(ptr_opt.is_some());
 
                 let ptr = ptr_opt.unwrap();
-                ptrs.push(ptr.clone());
+                ptrs.push(ptr);
 
                 let update_res = Trie::update_root_hash(&mut f, &c);
                 assert!(update_res.is_ok());
@@ -238,13 +238,13 @@ fn trie_cursor_promote_leaf_to_node4() {
 
         // used to short-circuit block-height lookups, so that we don't
         //   mess up these tests expected trie structures.
-        f.test_genesis_block.replace(block_header.clone());
+        f.test_genesis_block.replace(block_header);
 
         let (node, root_hash) = Trie::read_root(&mut f).unwrap();
 
         // add a single leaf
         let mut c = TrieCursor::new(
-            &TrieHash::from_bytes(&[
+            TrieHash::from_bytes(&[
                 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
                 23, 24, 25, 26, 27, 28, 29, 30, 31,
             ])
@@ -309,8 +309,7 @@ fn trie_cursor_promote_leaf_to_node4() {
             ];
             path[i] = 32;
 
-            let mut c =
-                TrieCursor::new(&TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+            let mut c = TrieCursor::new(TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
             let (nodeptr, node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
             // end of path -- cursor points to the insertion point
@@ -403,7 +402,7 @@ fn trie_cursor_promote_node4_to_node16() {
         MARF::format(&mut f, &block_header).unwrap();
         // used to short-circuit block-height lookups, so that we don't
         //   mess up these tests expected trie structures.
-        f.test_genesis_block.replace(block_header.clone());
+        f.test_genesis_block.replace(block_header);
 
         let path_segments = vec![
             (vec![], 0),
@@ -454,7 +453,7 @@ fn trie_cursor_promote_node4_to_node16() {
                 path[k] = j + 32;
 
                 let mut c =
-                    TrieCursor::new(&TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+                    TrieCursor::new(TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
                 let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
                 f.open_block(&block_header).unwrap();
@@ -501,8 +500,7 @@ fn trie_cursor_promote_node4_to_node16() {
             ];
             path[k] = 128;
 
-            let mut c =
-                TrieCursor::new(&TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+            let mut c = TrieCursor::new(TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
             let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
@@ -563,7 +561,7 @@ fn trie_cursor_promote_node16_to_node48() {
         MARF::format(&mut f, &block_header).unwrap();
         // used to short-circuit block-height lookups, so that we don't
         //   mess up these tests expected trie structures.
-        f.test_genesis_block.replace(block_header.clone());
+        f.test_genesis_block.replace(block_header);
 
         let path_segments = vec![
             (vec![], 0),
@@ -614,7 +612,7 @@ fn trie_cursor_promote_node16_to_node48() {
                 path[k] = j + 32;
 
                 let mut c =
-                    TrieCursor::new(&TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+                    TrieCursor::new(TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
                 let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
@@ -663,8 +661,7 @@ fn trie_cursor_promote_node16_to_node48() {
             ];
             path[k] = 128;
 
-            let mut c =
-                TrieCursor::new(&TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+            let mut c = TrieCursor::new(TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
             let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
@@ -721,7 +718,7 @@ fn trie_cursor_promote_node16_to_node48() {
                 path[k] = j + 40;
 
                 let mut c =
-                    TrieCursor::new(&TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+                    TrieCursor::new(TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
                 let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
@@ -770,8 +767,7 @@ fn trie_cursor_promote_node16_to_node48() {
             ];
             path[k] = 129;
 
-            let mut c =
-                TrieCursor::new(&TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+            let mut c = TrieCursor::new(TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
             let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
@@ -833,7 +829,7 @@ fn trie_cursor_promote_node48_to_node256() {
         MARF::format(&mut f, &block_header).unwrap();
         // used to short-circuit block-height lookups, so that we don't
         //   mess up these tests expected trie structures.
-        f.test_genesis_block.replace(block_header.clone());
+        f.test_genesis_block.replace(block_header);
 
         let path_segments = vec![
             (vec![], 0),
@@ -884,7 +880,7 @@ fn trie_cursor_promote_node48_to_node256() {
                 path[k] = j + 32;
 
                 let mut c =
-                    TrieCursor::new(&TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+                    TrieCursor::new(TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
                 let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
@@ -933,8 +929,7 @@ fn trie_cursor_promote_node48_to_node256() {
             ];
             path[k] = 128;
 
-            let mut c =
-                TrieCursor::new(&TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+            let mut c = TrieCursor::new(TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
             let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
@@ -991,7 +986,7 @@ fn trie_cursor_promote_node48_to_node256() {
                 path[k] = j + 40;
 
                 let mut c =
-                    TrieCursor::new(&TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+                    TrieCursor::new(TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
                 let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
@@ -1039,8 +1034,7 @@ fn trie_cursor_promote_node48_to_node256() {
             ];
             path[k] = 129;
 
-            let mut c =
-                TrieCursor::new(&TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+            let mut c = TrieCursor::new(TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
             let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
@@ -1097,7 +1091,7 @@ fn trie_cursor_promote_node48_to_node256() {
                 path[k] = j + 90;
 
                 let mut c =
-                    TrieCursor::new(&TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+                    TrieCursor::new(TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
                 let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
@@ -1146,8 +1140,7 @@ fn trie_cursor_promote_node48_to_node256() {
             ];
             path[k] = 130;
 
-            let mut c =
-                TrieCursor::new(&TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+            let mut c = TrieCursor::new(TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
             let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
@@ -1217,7 +1210,7 @@ fn trie_cursor_splice_leaf_4() {
 
             // used to short-circuit block-height lookups, so that we don't
             //   mess up these tests expected trie structures.
-            f.test_genesis_block.replace(block_header.clone());
+            f.test_genesis_block.replace(block_header);
 
             let path_segments = vec![
                 (vec![0, 1, 2, 3], 4),
@@ -1243,7 +1236,7 @@ fn trie_cursor_splice_leaf_4() {
                 path[5 * k + 2] = 32;
 
                 let mut c =
-                    TrieCursor::new(&TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+                    TrieCursor::new(TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
                 test_debug!("Start splice-insert at {:?}", &c);
                 let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
@@ -1307,7 +1300,7 @@ fn trie_cursor_splice_leaf_2() {
 
             // used to short-circuit block-height lookups, so that we don't
             //   mess up these tests expected trie structures.
-            f.test_genesis_block.replace(block_header.clone());
+            f.test_genesis_block.replace(block_header);
 
             let path_segments = vec![
                 (vec![0, 1], 2),
@@ -1336,7 +1329,7 @@ fn trie_cursor_splice_leaf_2() {
                 path[3 * k + 1] = 32;
 
                 let mut c =
-                    TrieCursor::new(&TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+                    TrieCursor::new(TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
                 test_debug!("Start splice-insert at {:?}", &c);
                 let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);

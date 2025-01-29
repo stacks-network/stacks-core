@@ -99,9 +99,9 @@ impl AtcRational {
     /// Minimum of self and other
     pub fn min(&self, other: &AtcRational) -> Self {
         if self.0 < other.0 {
-            Self(self.0.clone())
+            Self(self.0)
         } else {
-            Self(other.0.clone())
+            Self(other.0)
         }
     }
 

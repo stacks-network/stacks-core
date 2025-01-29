@@ -429,7 +429,7 @@ impl NeighborKey {
         NeighborKey {
             peer_version,
             network_id,
-            addrbytes: handshake_data.addrbytes.clone(),
+            addrbytes: handshake_data.addrbytes,
             port: handshake_data.port,
         }
     }
@@ -505,7 +505,7 @@ impl Neighbor {
                 (ret, true)
             }
             None => {
-                let ret = Neighbor::empty(&addr, &pubk, handshake_data.expire_block_height);
+                let ret = Neighbor::empty(addr.clone(), pubk, handshake_data.expire_block_height);
                 (ret, false)
             }
         };
@@ -621,7 +621,7 @@ impl ConversationP2P {
         NeighborKey {
             peer_version: self.peer_version,
             network_id: self.peer_network_id,
-            addrbytes: self.peer_addrbytes.clone(),
+            addrbytes: self.peer_addrbytes,
             port: self.peer_port,
         }
     }
@@ -630,7 +630,7 @@ impl ConversationP2P {
         NeighborKey {
             peer_version: self.peer_version,
             network_id: self.peer_network_id,
-            addrbytes: self.handshake_addrbytes.clone(),
+            addrbytes: self.handshake_addrbytes,
             port: self.handshake_port,
         }
     }
@@ -643,7 +643,7 @@ impl ConversationP2P {
         };
 
         NeighborAddress {
-            addrbytes: self.peer_addrbytes.clone(),
+            addrbytes: self.peer_addrbytes,
             port: self.peer_port,
             public_key_hash: pubkh,
         }
@@ -657,7 +657,7 @@ impl ConversationP2P {
         };
 
         NeighborAddress {
-            addrbytes: self.handshake_addrbytes.clone(),
+            addrbytes: self.handshake_addrbytes,
             port: self.handshake_port,
             public_key_hash: pubkh,
         }
@@ -692,11 +692,11 @@ impl ConversationP2P {
     }
 
     pub fn get_burnchain_tip_burn_header_hash(&self) -> BurnchainHeaderHash {
-        self.burnchain_tip_burn_header_hash.clone()
+        self.burnchain_tip_burn_header_hash
     }
 
     pub fn get_stable_burnchain_tip_burn_header_hash(&self) -> BurnchainHeaderHash {
-        self.burnchain_stable_tip_burn_header_hash.clone()
+        self.burnchain_stable_tip_burn_header_hash
     }
 
     /// Does the given services bitfield mempool query interface?  It will if it has both
@@ -1150,7 +1150,7 @@ impl ConversationP2P {
         self.peer_network_id = preamble.network_id;
         self.peer_services = handshake_data.services;
         self.peer_expire_block_height = handshake_data.expire_block_height;
-        self.handshake_addrbytes = handshake_data.addrbytes.clone();
+        self.handshake_addrbytes = handshake_data.addrbytes;
         self.handshake_port = handshake_data.port;
         self.data_url = handshake_data.data_url.clone();
 
@@ -1169,7 +1169,7 @@ impl ConversationP2P {
             }
         }
 
-        self.connection.set_public_key(Some(pubk.clone()));
+        self.connection.set_public_key(Some(pubk));
 
         Ok(updated)
     }
@@ -1200,7 +1200,7 @@ impl ConversationP2P {
         monitoring::increment_msg_counter("p2p_nat_punch_request".to_string());
 
         let natpunch_data = NatPunchData {
-            addrbytes: self.peer_addrbytes.clone(),
+            addrbytes: self.peer_addrbytes,
             port: self.peer_port,
             nonce,
         };
@@ -1312,7 +1312,7 @@ impl ConversationP2P {
                 StacksMessageType::StackerDBHandshakeAccept(
                     accept_data,
                     StackerDBHandshakeData {
-                        rc_consensus_hash: network.get_chain_view().rc_consensus_hash.clone(),
+                        rc_consensus_hash: network.get_chain_view().rc_consensus_hash,
                         smart_contracts: if ibd {
                             vec![]
                         } else {
@@ -2054,7 +2054,7 @@ impl ConversationP2P {
             if addrs.contains(&r.peer.public_key_hash) {
                 return false;
             }
-            addrs.insert(r.peer.public_key_hash.clone());
+            addrs.insert(r.peer.public_key_hash);
         }
         true
     }
@@ -2770,13 +2770,12 @@ impl ConversationP2P {
             // update chain view from preamble
             if msg.preamble.burn_block_height > self.burnchain_tip_height {
                 self.burnchain_tip_height = msg.preamble.burn_block_height;
-                self.burnchain_tip_burn_header_hash = msg.preamble.burn_block_hash.clone();
+                self.burnchain_tip_burn_header_hash = msg.preamble.burn_block_hash;
             }
 
             if msg.preamble.burn_stable_block_height > self.burnchain_stable_tip_height {
                 self.burnchain_stable_tip_height = msg.preamble.burn_stable_block_height;
-                self.burnchain_stable_tip_burn_header_hash =
-                    msg.preamble.burn_stable_block_hash.clone();
+                self.burnchain_stable_tip_burn_header_hash = msg.preamble.burn_stable_block_hash;
             }
 
             debug!(
@@ -3176,7 +3175,7 @@ mod test {
         let pox_id = {
             let ic = sortdb.index_conn();
             let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
-            let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
+            let sortdb_reader = SortitionHandleConn::open_reader(&ic, tip_sort_id).unwrap();
             sortdb_reader.get_pox_id().unwrap()
         };
 
@@ -3256,26 +3255,26 @@ mod test {
             big_i_bytes_20.copy_from_slice(&big_i.to_u8_slice()[0..20]);
 
             next_snapshot.block_height += 1;
-            next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash.clone();
+            next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash;
             if i == chain_view.burn_block_height {
-                next_snapshot.burn_header_hash = chain_view.burn_block_hash.clone();
+                next_snapshot.burn_header_hash = chain_view.burn_block_hash;
             } else if i == chain_view.burn_stable_block_height {
-                next_snapshot.burn_header_hash = chain_view.burn_stable_block_hash.clone();
+                next_snapshot.burn_header_hash = chain_view.burn_stable_block_hash;
             } else {
-                next_snapshot.burn_header_hash = BurnchainHeaderHash(big_i_bytes_32.clone());
+                next_snapshot.burn_header_hash = BurnchainHeaderHash(big_i_bytes_32);
             }
 
             next_snapshot.consensus_hash = ConsensusHash(big_i_bytes_20);
-            next_snapshot.sortition_id = SortitionId(big_i_bytes_32.clone());
-            next_snapshot.parent_sortition_id = prev_snapshot.sortition_id.clone();
+            next_snapshot.sortition_id = SortitionId(big_i_bytes_32);
+            next_snapshot.parent_sortition_id = prev_snapshot.sortition_id;
             next_snapshot.ops_hash = OpsHash::from_bytes(&big_i_bytes_32).unwrap();
-            next_snapshot.winning_stacks_block_hash = BlockHeaderHash(big_i_bytes_32.clone());
-            next_snapshot.winning_block_txid = Txid(big_i_bytes_32.clone());
+            next_snapshot.winning_stacks_block_hash = BlockHeaderHash(big_i_bytes_32);
+            next_snapshot.winning_block_txid = Txid(big_i_bytes_32);
             next_snapshot.total_burn += 1;
             next_snapshot.sortition = true;
             next_snapshot.sortition_hash = next_snapshot
                 .sortition_hash
-                .mix_burn_header(&BurnchainHeaderHash(big_i_bytes_32.clone()));
+                .mix_burn_header(&BurnchainHeaderHash(big_i_bytes_32));
             next_snapshot.num_sortitions += 1;
 
             let mut tx = SortitionHandleTx::begin(sortdb, &prev_snapshot.sortition_id).unwrap();
@@ -3349,7 +3348,7 @@ mod test {
             stable_confirmations: 7,
             first_block_height: 12300,
             initial_reward_start_block: 12300,
-            first_block_hash: first_burn_hash.clone(),
+            first_block_hash: first_burn_hash,
             first_block_timestamp: 0,
             pox_constants: PoxConstants::test_default(),
         }
@@ -3374,12 +3373,12 @@ mod test {
                 burn_stable_block_height: 12341,
                 burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
                 last_burn_block_hashes: HashMap::new(),
-                rc_consensus_hash: peer_1_rc_consensus_hash.clone(),
+                rc_consensus_hash: peer_1_rc_consensus_hash,
             };
             chain_view_1.make_test_data();
 
             let mut chain_view_2 = chain_view_1.clone();
-            chain_view_2.rc_consensus_hash = peer_2_rc_consensus_hash.clone();
+            chain_view_2.rc_consensus_hash = peer_2_rc_consensus_hash;
 
             let test_name_1 = format!(
                 "convo_handshake_accept_1-{}-{}-{}-{}",
@@ -4470,7 +4469,7 @@ mod test {
             &Secp256k1PublicKey::from_private(&local_peer_1.private_key)
         );
 
-        let old_peer_1_privkey = local_peer_1.private_key.clone();
+        let old_peer_1_privkey = local_peer_1.private_key;
         let old_peer_1_pubkey = Secp256k1PublicKey::from_private(&old_peer_1_privkey);
 
         // peer 1 updates their private key
@@ -5333,7 +5332,7 @@ mod test {
             let stackerdb_accept_data_1 = StacksMessageType::StackerDBHandshakeAccept(
                 accept_data_1,
                 StackerDBHandshakeData {
-                    rc_consensus_hash: chain_view.rc_consensus_hash.clone(),
+                    rc_consensus_hash: chain_view.rc_consensus_hash,
                     // placeholder sbtc address for now
                     smart_contracts: vec![QualifiedContractIdentifier::parse(
                         "SP000000000000000000002Q6VF78.sbtc",
@@ -6216,11 +6215,11 @@ mod test {
             let ping_data = PingData::new();
 
             let mut chain_view_bad = chain_view.clone();
-            let old = chain_view_bad.burn_block_hash.clone();
+            let old = chain_view_bad.burn_block_hash;
             chain_view_bad.burn_block_hash = BurnchainHeaderHash([0x33; 32]);
             chain_view_bad.last_burn_block_hashes.insert(
                 chain_view_bad.burn_block_height,
-                chain_view_bad.burn_block_hash.clone(),
+                chain_view_bad.burn_block_hash,
             );
 
             let ping_bad = convo_bad
@@ -6254,11 +6253,11 @@ mod test {
             let ping_data = PingData::new();
 
             let mut chain_view_bad = chain_view.clone();
-            let old = chain_view_bad.burn_stable_block_hash.clone();
+            let old = chain_view_bad.burn_stable_block_hash;
             chain_view_bad.burn_stable_block_hash = BurnchainHeaderHash([0x11; 32]);
             chain_view_bad.last_burn_block_hashes.insert(
                 chain_view_bad.burn_stable_block_height,
-                chain_view_bad.burn_stable_block_hash.clone(),
+                chain_view_bad.burn_stable_block_hash,
             );
 
             let ping_bad = convo_bad
@@ -6445,7 +6444,7 @@ mod test {
         // contains localpeer
         let self_sent = vec![RelayData {
             peer: NeighborAddress {
-                addrbytes: local_peer.addrbytes.clone(),
+                addrbytes: local_peer.addrbytes,
                 port: local_peer.port,
                 public_key_hash: Hash160::from_node_public_key(&StacksPublicKey::from_private(
                     &local_peer.private_key,

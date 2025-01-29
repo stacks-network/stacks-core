@@ -187,7 +187,7 @@ pub enum BurnchainTransaction {
 impl BurnchainTransaction {
     pub fn txid(&self) -> Txid {
         match *self {
-            BurnchainTransaction::Bitcoin(ref btc) => btc.txid.clone(),
+            BurnchainTransaction::Bitcoin(ref btc) => btc.txid,
         }
     }
 
@@ -837,9 +837,9 @@ impl BurnchainView {
         let mut ret = HashMap::new();
         for i in oldest_height..self.burn_block_height + 1 {
             if i == self.burn_stable_block_height {
-                ret.insert(i, self.burn_stable_block_hash.clone());
+                ret.insert(i, self.burn_stable_block_hash);
             } else if i == self.burn_block_height {
-                ret.insert(i, self.burn_block_hash.clone());
+                ret.insert(i, self.burn_block_hash);
             } else {
                 let data = {
                     use sha2::{Digest, Sha256};

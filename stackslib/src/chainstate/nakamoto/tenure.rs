@@ -306,10 +306,10 @@ impl NakamotoChainState {
     pub fn make_scheduled_miner_reward(
         mainnet: bool,
         epoch_id: StacksEpochId,
-        parent_block_hash: &BlockHeaderHash,
-        parent_consensus_hash: &ConsensusHash,
-        block_hash: &BlockHeaderHash,
-        block_consensus_hash: &ConsensusHash,
+        parent_block_hash: BlockHeaderHash,
+        parent_consensus_hash: ConsensusHash,
+        block_hash: BlockHeaderHash,
+        block_consensus_hash: ConsensusHash,
         block_height: u64,
         coinbase_tx: &StacksTransaction,
         parent_fees: u128,
@@ -339,10 +339,10 @@ impl NakamotoChainState {
         let miner_reward = MinerPaymentSchedule {
             address: miner_addr,
             recipient,
-            block_hash: block_hash.clone(),
-            consensus_hash: block_consensus_hash.clone(),
-            parent_block_hash: parent_block_hash.clone(),
-            parent_consensus_hash: parent_consensus_hash.clone(),
+            block_hash,
+            consensus_hash: block_consensus_hash,
+            parent_block_hash,
+            parent_consensus_hash,
             coinbase: coinbase_reward_ustx,
             tx_fees: MinerPaymentTxFees::Nakamoto { parent_fees },
             burnchain_commit_burn,
@@ -619,9 +619,9 @@ impl NakamotoChainState {
 
         // synthesize the "last epoch2" tenure info, so we can calculate the first nakamoto tenure
         let last_epoch2_tenure = NakamotoTenureEvent {
-            tenure_id_consensus_hash: parent_header.consensus_hash.clone(),
+            tenure_id_consensus_hash: parent_header.consensus_hash,
             prev_tenure_id_consensus_hash: ConsensusHash([0x00; 20]), // ignored,
-            burn_view_consensus_hash: parent_header.consensus_hash.clone(),
+            burn_view_consensus_hash: parent_header.consensus_hash,
             cause: TenureChangeCause::BlockFound,
             block_hash: epoch2_header_info.block_hash(),
             block_id: StacksBlockId::new(
@@ -1021,10 +1021,10 @@ impl NakamotoChainState {
         Ok(Self::make_scheduled_miner_reward(
             mainnet,
             evaluated_epoch,
-            &parent_tenure_start_header.anchored_header.block_hash(),
-            &parent_tenure_start_header.consensus_hash,
-            &block.header.block_hash(),
-            &block.header.consensus_hash,
+            parent_tenure_start_header.anchored_header.block_hash(),
+            parent_tenure_start_header.consensus_hash,
+            block.header.block_hash(),
+            block.header.consensus_hash,
             block.header.chain_length,
             block
                 .get_coinbase_tx()

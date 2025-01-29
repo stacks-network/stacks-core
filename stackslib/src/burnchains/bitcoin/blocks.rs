@@ -149,7 +149,7 @@ impl BitcoinMessageHandler for BitcoinBlockDownloader {
         match self.cur_request {
             None => panic!("No block header set"),
             Some(ref ipc_header) => {
-                let block_hash = ipc_header.block_header.header.bitcoin_hash().clone();
+                let block_hash = ipc_header.block_header.header.bitcoin_hash();
                 indexer.send_getdata(&[block_hash]).map(|_r| true)
             }
         }
@@ -230,7 +230,7 @@ impl BitcoinBlockParser {
     pub fn new(network_id: BitcoinNetworkType, magic_bytes: MagicBytes) -> BitcoinBlockParser {
         BitcoinBlockParser {
             network_id,
-            magic_bytes: magic_bytes.clone(),
+            magic_bytes,
         }
     }
 

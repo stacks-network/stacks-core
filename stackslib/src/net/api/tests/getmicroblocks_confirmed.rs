@@ -48,7 +48,7 @@ use crate::util_lib::db::DBConn;
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let request =
         StacksHttpRequest::new_getmicroblocks_confirmed(addr.into(), StacksBlockId([0x22; 32]));
@@ -157,10 +157,8 @@ fn test_try_make_response() {
     let mut requests = vec![];
 
     // query existing microblock stream
-    let request = StacksHttpRequest::new_getmicroblocks_confirmed(
-        addr.into(),
-        child_index_block_hash.clone(),
-    );
+    let request =
+        StacksHttpRequest::new_getmicroblocks_confirmed(addr.into(), child_index_block_hash);
     requests.push(request);
 
     // query non-existant microblock stream

@@ -964,7 +964,7 @@ fn pox_2_unlock_all() {
         5,
         tx_fee,
         conf.burnchain.chain_id,
-        &spender_3_addr,
+        spender_3_addr.clone(),
         1_000_000,
     );
 

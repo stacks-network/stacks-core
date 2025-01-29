@@ -412,7 +412,7 @@ impl NakamotoChainState {
             parent_consensus_hash,
             parent_header_hash,
             parent_burn_height,
-            burn_header_hash.clone(),
+            *burn_header_hash,
             burn_header_height,
             new_tenure,
             coinbase_height,
@@ -489,7 +489,7 @@ impl NakamotoBlockBuilder {
 
         let account = chainstate
             .with_read_only_clarity_tx(
-                &sortdb.index_handle(&snapshot.sortition_id),
+                &sortdb.index_handle(snapshot.sortition_id),
                 &tip.index_block_hash(),
                 |clarity_conn| {
                     StacksChainState::get_account(clarity_conn, &addr.to_account_principal())
@@ -660,9 +660,9 @@ impl NakamotoBlockBuilder {
 
         // tenure change payload (BlockFound)
         let tenure_change_payload = TenureChangePayload {
-            tenure_consensus_hash: tenure_id_consensus_hash.clone(),
+            tenure_consensus_hash: tenure_id_consensus_hash,
             prev_tenure_consensus_hash: naka_tip_header.consensus_hash,
-            burn_view_consensus_hash: tenure_id_consensus_hash.clone(),
+            burn_view_consensus_hash: tenure_id_consensus_hash,
             previous_tenure_end: naka_tip_id,
             previous_tenure_blocks: (naka_tip_header.anchored_header.height() + 1
                 - naka_tip_tenure_start_header.anchored_header.height())
@@ -674,7 +674,7 @@ impl NakamotoBlockBuilder {
         // tenure-change tx
         let tenure_change_tx = {
             let mut tx_tenure_change = StacksTransaction::new(
-                tx_version.clone(),
+                tx_version,
                 miner_tx_auth.clone(),
                 TransactionPayload::TenureChange(tenure_change_payload),
             );
@@ -693,7 +693,7 @@ impl NakamotoBlockBuilder {
         // coinbase tx
         let coinbase_tx = {
             let mut tx_coinbase = StacksTransaction::new(
-                tx_version.clone(),
+                tx_version,
                 miner_tx_auth,
                 TransactionPayload::Coinbase(coinbase_payload, Some(recipient), Some(vrf_proof)),
             );
@@ -722,7 +722,7 @@ impl NakamotoBlockBuilder {
         // make a block
         let builder = NakamotoBlockBuilder::new(
             &naka_tip_header,
-            &tenure_id_consensus_hash,
+            tenure_id_consensus_hash,
             burn_tip.total_burn,
             Some(&tenure_change_tx),
             Some(&coinbase_tx),
@@ -735,7 +735,7 @@ impl NakamotoBlockBuilder {
         let (mut shadow_block, _size, _cost) = Self::make_shadow_block_from_txs(
             builder,
             chainstate,
-            &sortdb.index_handle(&burn_tip.sortition_id),
+            &sortdb.index_handle(burn_tip.sortition_id),
             &tenure_id_consensus_hash,
             block_txs,
         )?;
@@ -982,7 +982,7 @@ pub fn shadow_chainstate_repair(
     let mut shadow_blocks = vec![];
     for burn_height in (header_sn.block_height + 1)..sort_tip.block_height {
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())?;
-        let sort_handle = sort_db.index_handle(&sort_tip.sortition_id);
+        let sort_handle = sort_db.index_handle(sort_tip.sortition_id);
         let sn = sort_handle
             .get_block_snapshot_by_height(burn_height)?
             .ok_or_else(|| ChainstateError::InvalidStacksBlock("No sortition at height".into()))?;
@@ -994,7 +994,7 @@ pub fn shadow_chainstate_repair(
         let shadow_block = NakamotoBlockBuilder::make_shadow_tenure(
             chain_state,
             sort_db,
-            chain_tip.clone(),
+            chain_tip,
             sn.consensus_hash,
             vec![],
         )?;

@@ -649,7 +649,7 @@ impl<
 
     /// Get the current reward cycle
     fn get_current_reward_cycle(&self) -> u64 {
-        let canonical_sortition_tip = self.canonical_sortition_tip.clone().unwrap_or_else(|| {
+        let canonical_sortition_tip = self.canonical_sortition_tip.unwrap_or_else(|| {
             panic!("FAIL: checking epoch status, but we don't have a canonical sortition tip")
         });
 
@@ -788,7 +788,7 @@ impl<
     /// DB.
     pub fn handle_new_nakamoto_stacks_block(&mut self) -> Result<Option<BlockHeaderHash>, Error> {
         debug!("Handle new Nakamoto block");
-        let canonical_sortition_tip = self.canonical_sortition_tip.clone().expect(
+        let canonical_sortition_tip = self.canonical_sortition_tip.expect(
             "FAIL: processing a new Stacks block, but don't have a canonical sortition tip",
         );
 
@@ -853,7 +853,7 @@ impl<
                 (
                     nakamoto_header.block_id(),
                     nakamoto_header.chain_length,
-                    nakamoto_header.consensus_hash.clone(),
+                    nakamoto_header.consensus_hash,
                 )
             };
 
@@ -1028,7 +1028,7 @@ impl<
                 current_block.header.block_height
             );
 
-            let parent = current_block.header.parent_block_hash.clone();
+            let parent = current_block.header.parent_block_hash;
             sortitions_to_process.push_front(current_block);
             cursor = parent;
         };
@@ -1052,7 +1052,7 @@ impl<
 
         // Retrieve all the direct ancestors of this block with an unprocessed sortition
         let (mut last_processed_ancestor, sortitions_to_process) =
-            self.find_sortitions_to_process(canonical_burnchain_tip.block_hash.clone())?;
+            self.find_sortitions_to_process(canonical_burnchain_tip.block_hash)?;
         let dbg_burn_header_hashes: Vec<_> = sortitions_to_process
             .iter()
             .map(|block| {
@@ -1113,7 +1113,7 @@ impl<
                 // Here, we're loading a reward set calculated between H and H+99 from H+100, where
                 // H is the start of the prepare phase.  So if we get any reward set from our
                 // canonical tip, it's guaranteed to be the canonical one.
-                let canonical_sortition_tip = self.canonical_sortition_tip.clone().unwrap_or(
+                let canonical_sortition_tip = self.canonical_sortition_tip.unwrap_or(
                     // should be unreachable
                     SortitionDB::get_canonical_burn_chain_tip(self.sortition_db.conn())?
                         .sortition_id,
@@ -1121,7 +1121,7 @@ impl<
 
                 let Some(local_best_nakamoto_tip) = self
                     .sortition_db
-                    .index_handle(&canonical_sortition_tip)
+                    .index_handle(canonical_sortition_tip)
                     .get_nakamoto_tip_block_id()?
                 else {
                     debug!("No Nakamoto blocks processed yet, so no reward cycle known for this next reward cycle");
@@ -1167,7 +1167,7 @@ impl<
                     &header,
                     ops,
                     &self.burnchain,
-                    &last_processed_ancestor,
+                    last_processed_ancestor,
                     reward_cycle_info,
                     |reward_set_info, consensus_hash| {
                         if let Some(dispatcher) = dispatcher_ref {
@@ -1205,7 +1205,7 @@ impl<
             // always bump canonical sortition tip:
             //   if this code path is invoked, the canonical burnchain tip
             //   has moved, so we should move our canonical sortition tip as well.
-            self.canonical_sortition_tip = Some(sortition_id.clone());
+            self.canonical_sortition_tip = Some(sortition_id);
             last_processed_ancestor = sortition_id;
         }
 

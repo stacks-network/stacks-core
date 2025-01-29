@@ -773,7 +773,7 @@ impl RunLoop {
             .expect("FATAL: could not read burnchain DB");
 
         let sortition_tip_affirmation_map =
-            match SortitionDB::find_sortition_tip_affirmation_map(sortdb, &sn.sortition_id) {
+            match SortitionDB::find_sortition_tip_affirmation_map(sortdb, sn.sortition_id) {
                 Ok(am) => am,
                 Err(e) => {
                     warn!("Failed to find sortition affirmation map: {e:?}");
@@ -887,7 +887,7 @@ impl RunLoop {
             .expect("FATAL: could not read sortition DB");
 
         let sortition_tip_affirmation_map =
-            match SortitionDB::find_sortition_tip_affirmation_map(sortdb, &sn.sortition_id) {
+            match SortitionDB::find_sortition_tip_affirmation_map(sortdb, sn.sortition_id) {
                 Ok(am) => am,
                 Err(e) => {
                     warn!("Failed to find sortition affirmation map: {e:?}");

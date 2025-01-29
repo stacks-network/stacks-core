@@ -90,7 +90,7 @@ impl MarfedKV {
     ) -> InterpreterResult<MarfedKV> {
         let marf = MarfedKV::setup_db(path_str, false, marf_opts)?;
         let chain_tip = match miner_tip {
-            Some(miner_tip) => miner_tip.clone(),
+            Some(miner_tip) => *miner_tip,
             None => StacksBlockId::sentinel(),
         };
 
@@ -104,7 +104,7 @@ impl MarfedKV {
     ) -> InterpreterResult<MarfedKV> {
         let marf = MarfedKV::setup_db(path_str, true, marf_opts)?;
         let chain_tip = match miner_tip {
-            Some(miner_tip) => miner_tip.clone(),
+            Some(miner_tip) => *miner_tip,
             None => StacksBlockId::sentinel(),
         };
 
@@ -154,9 +154,9 @@ impl MarfedKV {
                 );
                 panic!()
             });
-            at_block.clone()
+            *at_block
         } else {
-            self.chain_tip.clone()
+            self.chain_tip
         };
         ReadOnlyMarfStore {
             chain_tip,
@@ -176,9 +176,9 @@ impl MarfedKV {
                 );
                 InterpreterError::MarfFailure(Error::NotFoundError.to_string())
             })?;
-            at_block.clone()
+            *at_block
         } else {
-            self.chain_tip.clone()
+            self.chain_tip
         };
         Ok(ReadOnlyMarfStore {
             chain_tip,
@@ -213,10 +213,9 @@ impl MarfedKV {
             )
         });
 
-        let chain_tip = tx
+        let chain_tip = *tx
             .get_open_chain_tip()
-            .expect("ERROR: Failed to get open MARF")
-            .clone();
+            .expect("ERROR: Failed to get open MARF");
 
         WritableMarfStore {
             chain_tip,
@@ -238,10 +237,9 @@ impl MarfedKV {
             )
         });
 
-        let chain_tip = tx
+        let chain_tip = *tx
             .get_open_chain_tip()
-            .expect("ERROR: Failed to get open MARF")
-            .clone();
+            .expect("ERROR: Failed to get open MARF");
 
         WritableMarfStore {
             chain_tip,
@@ -387,7 +385,6 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
             self.marf
                 .get_open_chain_tip()
                 .expect("Attempted to get the open chain tip from an unopened context.")
-                .clone()
                 .to_bytes(),
         )
     }
@@ -581,7 +578,7 @@ impl WritableMarfStore<'_> {
 
     #[cfg(test)]
     pub fn test_commit(self) {
-        let bhh = self.chain_tip.clone();
+        let bhh = self.chain_tip;
         self.commit_to(&bhh).unwrap();
     }
 
@@ -777,10 +774,10 @@ impl ClarityBackingStore for WritableMarfStore<'_> {
     }
 
     fn get_open_chain_tip(&mut self) -> StacksBlockId {
-        self.marf
+        *self
+            .marf
             .get_open_chain_tip()
             .expect("Attempted to get the open chain tip from an unopened context.")
-            .clone()
     }
 
     fn get_open_chain_tip_height(&mut self) -> u32 {

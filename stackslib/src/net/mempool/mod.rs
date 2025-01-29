@@ -175,8 +175,7 @@ impl MempoolSync {
             }
             // already resolved?
             if let Some(sockaddr) = convo.data_ip.as_ref() {
-                mempool_sync_data_url_and_sockaddr =
-                    Some((convo.data_url.clone(), sockaddr.clone()));
+                mempool_sync_data_url_and_sockaddr = Some((convo.data_url.clone(), *sockaddr));
                 break;
             }
             // can we resolve the data URL?
@@ -197,9 +196,7 @@ impl MempoolSync {
         if let Some((url_str, sockaddr)) = mempool_sync_data_url_and_sockaddr {
             // already resolved
             return Ok(Some(MempoolSyncState::SendQuery(
-                url_str,
-                sockaddr,
-                page_id.clone(),
+                url_str, sockaddr, *page_id,
             )));
         } else if let Some(url) = mempool_sync_data_url {
             // will need to resolve
@@ -235,11 +232,7 @@ impl MempoolSync {
 
         // bare IP address?
         if let Some(addr) = PeerNetwork::try_get_url_ip(&url_str)? {
-            return Ok(Some(MempoolSyncState::SendQuery(
-                url_str,
-                addr,
-                page_id.clone(),
-            )));
+            return Ok(Some(MempoolSyncState::SendQuery(url_str, addr, *page_id)));
         } else if let Some(url::Host::Domain(domain)) = url.host() {
             if let Some(ref mut dns_client) = dns_client_opt {
                 // begin DNS query
@@ -257,7 +250,7 @@ impl MempoolSync {
                 return Ok(Some(MempoolSyncState::ResolveURL(
                     url_str,
                     DNSRequest::new(domain.to_string(), port, 0),
-                    page_id.clone(),
+                    *page_id,
                 )));
             } else {
                 // can't proceed -- no DNS client
@@ -339,7 +332,7 @@ impl MempoolSync {
                 .payload_stacks(&sync_data),
         )?;
 
-        let event_id = network.connect_or_send_http_request(url.clone(), addr.clone(), request)?;
+        let event_id = network.connect_or_send_http_request(url.clone(), *addr, request)?;
         return Ok((false, Some(event_id)));
     }
 
@@ -471,7 +464,7 @@ impl MempoolSync {
                         Ok((false, Some(addr))) => {
                             // success! advance
                             self.mempool_state =
-                                MempoolSyncState::SendQuery(url_str.clone(), addr, page_id.clone());
+                                MempoolSyncState::SendQuery(url_str.clone(), addr, *page_id);
                         }
                         Ok((false, None)) => {
                             // try again later
@@ -513,13 +506,12 @@ impl MempoolSync {
                         url,
                         page_id
                     );
-                    match self.mempool_sync_send_query(network, url, addr, mempool, page_id.clone())
-                    {
+                    match self.mempool_sync_send_query(network, url, addr, mempool, *page_id) {
                         Ok((false, Some(event_id))) => {
                             // success! advance
                             debug!("{:?}: Mempool sync query {} for mempool transactions at {} on event {}", &network.get_local_peer(), url, page_id, event_id);
                             self.mempool_state =
-                                MempoolSyncState::RecvResponse(url.clone(), addr.clone(), event_id);
+                                MempoolSyncState::RecvResponse(url.clone(), *addr, event_id);
                         }
                         Ok((false, None)) => {
                             // try again later
@@ -554,7 +546,7 @@ impl MempoolSync {
                                     // get the next page
                                     self.mempool_state = MempoolSyncState::SendQuery(
                                         url.clone(),
-                                        addr.clone(),
+                                        *addr,
                                         next_page_id,
                                     );
                                     false

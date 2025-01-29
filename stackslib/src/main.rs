@@ -109,9 +109,9 @@ impl P2PSession {
             self.peer_info.peer_version,
             self.peer_info.network_id,
             self.peer_info.burn_block_height,
-            &self.burn_block_hash,
+            self.burn_block_hash,
             self.peer_info.stable_burn_block_height,
-            &self.stable_burn_block_hash,
+            self.stable_burn_block_hash,
             payload,
         );
 
@@ -144,14 +144,14 @@ impl P2PSession {
     /// Returns the session handle on success.
     /// Returns error text on failure.
     pub fn begin(peer_addr: SocketAddr, data_port: u16) -> Result<Self, String> {
-        let mut data_addr = peer_addr.clone();
+        let mut data_addr = peer_addr;
         data_addr.set_port(data_port);
 
         // get /v2/info
         let peer_info = send_http_request(
             &format!("{}", data_addr.ip()),
             data_addr.port(),
-            StacksHttpRequest::new_getinfo(PeerHost::from(data_addr.clone()), None)
+            StacksHttpRequest::new_getinfo(PeerHost::from(data_addr), None)
                 .with_header("Connection".to_string(), "close".to_string()),
             Duration::from_secs(60),
         )
@@ -165,7 +165,7 @@ impl P2PSession {
             &format!("{}", data_addr.ip()),
             data_addr.port(),
             StacksHttpRequest::new_get_sortition_consensus(
-                PeerHost::from(data_addr.clone()),
+                PeerHost::from(data_addr),
                 &peer_info.pox_consensus,
             )
             .with_header("Connection".to_string(), "close".to_string()),
@@ -181,7 +181,7 @@ impl P2PSession {
             &format!("{}", data_addr.ip()),
             data_addr.port(),
             StacksHttpRequest::new_get_sortition_consensus(
-                PeerHost::from(data_addr.clone()),
+                PeerHost::from(data_addr),
                 &peer_info.stable_pox_consensus,
             )
             .with_header("Connection".to_string(), "close".to_string()),
@@ -759,7 +759,7 @@ check if the associated microblocks can be downloaded
             .unwrap_or_else(|_| panic!("Failed to open {}", argv[2]));
         let chain_tip = SortitionDB::get_canonical_sortition_tip(sort_db.conn())
             .expect("Failed to get sortition chain tip");
-        let sort_conn = sort_db.index_handle(&chain_tip);
+        let sort_conn = sort_db.index_handle(chain_tip);
 
         let mut results = vec![];
 
@@ -938,8 +938,8 @@ check if the associated microblocks can be downloaded
         let burntip = BurnchainHeaderHash::from_hex(&argv[4]).unwrap();
 
         let conn = Connection::open(path).unwrap();
-        let mut cur_burn = burntip.clone();
-        let mut cur_tip = tip.clone();
+        let mut cur_burn = burntip;
+        let mut cur_tip = tip;
         loop {
             println!("{}, {}", cur_burn, cur_tip);
             let (next_burn, next_tip) = match
@@ -1481,7 +1481,7 @@ check if the associated microblocks can be downloaded
                         &burn_block_header,
                         blockstack_txs,
                         &burnchain,
-                        &sortition_tip.sortition_id,
+                        sortition_tip.sortition_id,
                         None,
                         |_, _| {},
                     )
@@ -1511,7 +1511,7 @@ check if the associated microblocks can be downloaded
                     &new_snapshot.consensus_hash,
                     &new_snapshot.winning_stacks_block_hash,
                 );
-                known_stacks_blocks.insert(stacks_block_id.clone());
+                known_stacks_blocks.insert(stacks_block_id);
 
                 if next_arrival >= stacks_blocks_arrival_order.len() {
                     // all blocks should have been queued up
@@ -1560,7 +1560,7 @@ check if the associated microblocks can be downloaded
                         if next_arrival >= stacks_blocks_arrival_order.len() {
                             break;
                         }
-                        stacks_block_id = stacks_blocks_arrival_order[next_arrival].clone();
+                        stacks_block_id = stacks_blocks_arrival_order[next_arrival];
                     }
                 }
 
@@ -1697,7 +1697,7 @@ simulating a miner.
     loop {
         let parent_block_id = match stacks_header.anchored_header {
             StacksBlockHeaderTypes::Nakamoto(ref nakamoto_header) => {
-                nakamoto_header.parent_block_id.clone()
+                nakamoto_header.parent_block_id
             }
             StacksBlockHeaderTypes::Epoch2(ref epoch2_header) => {
                 let block_info = StacksChainState::load_staging_block(
@@ -1978,7 +1978,7 @@ fn analyze_sortition_mev(argv: Vec<String>) {
                 &burn_block.header,
                 burn_block.ops.clone(),
                 &burnchain,
-                &tip_sort_id,
+                tip_sort_id,
                 rc_info_opt,
                 |_, _| (),
             )
@@ -1993,7 +1993,7 @@ fn analyze_sortition_mev(argv: Vec<String>) {
             true,
             &mut sort_tx,
             &burnchain,
-            &ancestor_sn.sortition_id,
+            ancestor_sn.sortition_id,
             &tip_pox_id,
             &parent_ancestor_sn,
             &burn_block.header,

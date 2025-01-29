@@ -173,9 +173,9 @@ impl InvGenerator {
     pub(crate) fn find_ancestor_processed_tenures(
         &self,
         chainstate: &StacksChainState,
-        tip_block_id: &StacksBlockId,
+        tip_block_id: StacksBlockId,
     ) -> Result<Option<(StacksBlockId, Vec<ConsensusHash>)>, NetError> {
-        let mut cursor = tip_block_id.clone();
+        let mut cursor = tip_block_id;
         let mut chs = vec![];
         let Some(ch) =
             NakamotoChainState::get_block_header_nakamoto_tenure_id(chainstate.db(), &cursor)?
@@ -246,7 +246,7 @@ impl InvGenerator {
             // does it have an ancestor with a table? If so, then move its ancestor's table to this
             // tip. Otherwise, make a new table.
             if let Some((ancestor_tip_id, intermediate_tenures)) =
-                self.find_ancestor_processed_tenures(chainstate, &tip_block_id)?
+                self.find_ancestor_processed_tenures(chainstate, tip_block_id)?
             {
                 // The table removals here are for cache maintenance.
                 //
@@ -276,10 +276,9 @@ impl InvGenerator {
 
                 // Update the table so it is pointed to by the new tip.
                 self.processed_tenures
-                    .insert(tip_block_id.clone(), ancestor_tenures);
+                    .insert(tip_block_id, ancestor_tenures);
             } else {
-                self.processed_tenures
-                    .insert(tip_block_id.clone(), HashMap::new());
+                self.processed_tenures.insert(tip_block_id, HashMap::new());
             }
         }
 
@@ -296,7 +295,7 @@ impl InvGenerator {
             let loaded_info_opt =
                 InvTenureInfo::load(chainstate, &tip_block_id, tenure_id_consensus_hash)?;
 
-            tenure_infos.insert(tenure_id_consensus_hash.clone(), loaded_info_opt.clone());
+            tenure_infos.insert(*tenure_id_consensus_hash, loaded_info_opt.clone());
             self.cache_misses = self.cache_misses.saturating_add(1);
             Ok(loaded_info_opt)
         };
@@ -312,8 +311,7 @@ impl InvGenerator {
     ) -> Result<&InvSortitionInfo, NetError> {
         if !self.sortitions.contains_key(cur_consensus_hash) {
             let loaded_info = InvSortitionInfo::load(sortdb, cur_consensus_hash)?;
-            self.sortitions
-                .insert(cur_consensus_hash.clone(), loaded_info);
+            self.sortitions.insert(*cur_consensus_hash, loaded_info);
         };
 
         Ok(self
@@ -346,7 +344,7 @@ impl InvGenerator {
         reward_cycle: u64,
     ) -> Result<Vec<bool>, NetError> {
         let nakamoto_tip = StacksBlockId::new(nakamoto_tip_ch, nakamoto_tip_bh);
-        let ih = sortdb.index_handle(&tip.sortition_id);
+        let ih = sortdb.index_handle(tip.sortition_id);
 
         // N.B. reward_cycle_to_block_height starts at reward index 1
         let reward_cycle_end_height = sortdb
@@ -765,7 +763,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
             .pox_constants
             .reward_cycle_to_block_height(sortdb.first_block_height, reward_cycle);
         let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
-        let ih = sortdb.index_handle(&sn.sortition_id);
+        let ih = sortdb.index_handle(sn.sortition_id);
         let ch_opt = ih
             .get_block_snapshot_by_height(reward_cycle_start_height)?
             .map(|sn| sn.consensus_hash);
@@ -828,7 +826,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
             return None;
         };
         Some(StacksMessageType::GetNakamotoInv(GetNakamotoInvData {
-            consensus_hash: ch.clone(),
+            consensus_hash: *ch,
         }))
     }
 

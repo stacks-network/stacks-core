@@ -59,7 +59,7 @@ pub struct ChainTip {
 
 impl ChainTip {
     pub fn genesis(
-        first_burnchain_block_hash: &BurnchainHeaderHash,
+        first_burnchain_block_hash: BurnchainHeaderHash,
         first_burnchain_block_height: u64,
         first_burnchain_block_timestamp: u64,
     ) -> ChainTip {
@@ -669,7 +669,7 @@ impl Node {
 
         // Get the stack's chain tip
         let chain_tip = match self.bootstraping_chain {
-            true => ChainTip::genesis(&BurnchainHeaderHash::zero(), 0, 0),
+            true => ChainTip::genesis(BurnchainHeaderHash::zero(), 0, 0),
             false => match &self.chain_tip {
                 Some(chain_tip) => chain_tip.clone(),
                 None => unreachable!(),

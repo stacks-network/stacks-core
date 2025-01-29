@@ -180,15 +180,15 @@ fn produce_burn_block_do_not_set_height<'a, I: Iterator<Item = &'a mut Burnchain
         block_height,
         timestamp,
         num_txs,
-        block_hash: block_hash.clone(),
-        parent_block_hash: par.clone(),
+        block_hash,
+        parent_block_hash: *par,
     };
 
     let mut indexer = BitcoinIndexer::new_unit_test(&burnchain_conf.working_dir);
     indexer.raw_store_header(header.clone()).unwrap();
 
     for op in ops.iter_mut() {
-        op.set_burn_header_hash(block_hash.clone());
+        op.set_burn_header_hash(block_hash);
     }
 
     burnchain_db
@@ -326,7 +326,7 @@ pub fn setup_states_with_epochs(
             let mut registers = vec![];
             for (ix, (sk, miner_sk)) in vrf_keys.iter().zip(committers.iter()).enumerate() {
                 let public_key = VRFPublicKey::from_private(sk);
-                let consensus_hash = first_consensus_hash.clone();
+                let consensus_hash = *first_consensus_hash;
                 let memo = vec![0];
                 let vtxindex = 1 + ix as u32;
                 let block_height = 0;
@@ -661,7 +661,7 @@ fn make_genesis_block_with_recipients(
 
     let iconn = sort_db.index_handle_at_tip();
     let mut miner_epoch_info = builder.pre_epoch_begin(state, &iconn, true).unwrap();
-    let ast_rules = miner_epoch_info.ast_rules.clone();
+    let ast_rules = miner_epoch_info.ast_rules;
     let mut epoch_tx = builder
         .epoch_begin(&iconn, &mut miner_epoch_info)
         .unwrap()
@@ -926,7 +926,7 @@ fn make_stacks_block_with_input(
     )
     .unwrap();
     let mut miner_epoch_info = builder.pre_epoch_begin(state, &iconn, true).unwrap();
-    let ast_rules = miner_epoch_info.ast_rules.clone();
+    let ast_rules = miner_epoch_info.ast_rules;
     let mut epoch_tx = builder
         .epoch_begin(&iconn, &mut miner_epoch_info)
         .unwrap()
@@ -1019,7 +1019,7 @@ fn missed_block_commits_2_05() {
     let rewards = pox_addr_from(&StacksPrivateKey::new());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
-    let initial_balances = vec![(stacker.clone().into(), balance)];
+    let initial_balances = vec![(stacker.into(), balance)];
 
     setup_states_with_epochs(
         &[path],
@@ -1101,7 +1101,7 @@ fn missed_block_commits_2_05() {
                 next_block_recipients.as_ref(),
                 0,
                 false,
-                last_input.as_ref().unwrap().clone(),
+                *last_input.as_ref().unwrap(),
                 None,
                 &[],
             );
@@ -1156,7 +1156,7 @@ fn missed_block_commits_2_05() {
                 next_block_recipients.as_ref(),
                 0,
                 false,
-                last_input.as_ref().unwrap().clone(),
+                *last_input.as_ref().unwrap(),
                 None,
                 &[],
             )
@@ -1261,7 +1261,7 @@ fn missed_block_commits_2_05() {
             let block_hash = block.header.block_hash();
 
             assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
-            stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+            stacks_blocks.push((tip.sortition_id, block.clone()));
 
             preprocess_block(&mut chainstate, &sort_db, &tip, block);
 
@@ -1339,7 +1339,7 @@ fn missed_block_commits_2_1() {
     let rewards = pox_addr_from(&StacksPrivateKey::new());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
-    let initial_balances = vec![(stacker.clone().into(), balance)];
+    let initial_balances = vec![(stacker.into(), balance)];
 
     setup_states_with_epochs(
         &[path],
@@ -1426,7 +1426,7 @@ fn missed_block_commits_2_1() {
                 next_block_recipients.as_ref(),
                 0,
                 false,
-                last_input.as_ref().unwrap().clone(),
+                *last_input.as_ref().unwrap(),
                 None,
                 &[],
             );
@@ -1483,7 +1483,7 @@ fn missed_block_commits_2_1() {
                 next_block_recipients.as_ref(),
                 0,
                 false,
-                last_input.as_ref().unwrap().clone(),
+                *last_input.as_ref().unwrap(),
                 None,
                 &[],
             )
@@ -1609,7 +1609,7 @@ fn missed_block_commits_2_1() {
             let block_hash = block.header.block_hash();
 
             assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
-            stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+            stacks_blocks.push((tip.sortition_id, block.clone()));
 
             preprocess_block(&mut chainstate, &sort_db, &tip, block);
 
@@ -1683,7 +1683,7 @@ fn late_block_commits_2_1() {
     let rewards = pox_addr_from(&StacksPrivateKey::new());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
-    let initial_balances = vec![(stacker.clone().into(), balance)];
+    let initial_balances = vec![(stacker.into(), balance)];
 
     setup_states_with_epochs(
         &[path],
@@ -1767,7 +1767,7 @@ fn late_block_commits_2_1() {
                 next_block_recipients.as_ref(),
                 0,
                 false,
-                last_input.as_ref().unwrap().clone(),
+                *last_input.as_ref().unwrap(),
                 None,
                 &[],
             );
@@ -1824,7 +1824,7 @@ fn late_block_commits_2_1() {
                 next_block_recipients.as_ref(),
                 0,
                 false,
-                last_input.as_ref().unwrap().clone(),
+                *last_input.as_ref().unwrap(),
                 None,
                 &[],
             )
@@ -1951,7 +1951,7 @@ fn late_block_commits_2_1() {
             let block_hash = block.header.block_hash();
 
             assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
-            stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+            stacks_blocks.push((tip.sortition_id, block.clone()));
 
             preprocess_block(&mut chainstate, &sort_db, &tip, block);
 
@@ -2127,7 +2127,7 @@ fn test_simple_setup() {
         let block_hash = block.header.block_hash();
 
         assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
-        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+        stacks_blocks.push((tip.sortition_id, block.clone()));
 
         preprocess_block(&mut chainstate, &sort_db, &tip, block);
 
@@ -2440,7 +2440,7 @@ fn test_sortition_with_reward_set() {
         let block_hash = block.header.block_hash();
 
         assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
-        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+        stacks_blocks.push((tip.sortition_id, block.clone()));
 
         preprocess_block(&mut chainstate, &sort_db, &tip, block);
 
@@ -2686,7 +2686,7 @@ fn test_sortition_with_burner_reward_set() {
         let block_hash = block.header.block_hash();
 
         assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
-        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+        stacks_blocks.push((tip.sortition_id, block.clone()));
 
         preprocess_block(&mut chainstate, &sort_db, &tip, block);
 
@@ -2757,7 +2757,7 @@ fn test_pox_btc_ops() {
     let rewards = pox_addr_from(&StacksPrivateKey::new());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
-    let initial_balances = vec![(stacker.clone().into(), balance)];
+    let initial_balances = vec![(stacker.into(), balance)];
 
     setup_states(
         &[path],
@@ -2877,7 +2877,7 @@ fn test_pox_btc_ops() {
         if ix == 0 {
             // add a pre-stack-stx op
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
-                output: stacker.clone(),
+                output: stacker,
                 txid: next_txid(),
                 vtxindex: 5,
                 block_height: 0,
@@ -2885,7 +2885,7 @@ fn test_pox_btc_ops() {
             }));
         } else if ix == 1 {
             ops.push(BlockstackOperationType::StackStx(StackStxOp {
-                sender: stacker.clone(),
+                sender: stacker,
                 reward_addr: rewards.clone(),
                 stacked_ustx: stacked_amt,
                 num_cycles: 4,
@@ -2911,7 +2911,7 @@ fn test_pox_btc_ops() {
                     |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             (
-                                db.get_account_stx_balance(&stacker.clone().into()).unwrap(),
+                                db.get_account_stx_balance(&stacker.into()).unwrap(),
                                 db.get_current_block_height(),
                             )
                         })
@@ -2978,7 +2978,7 @@ fn test_pox_btc_ops() {
         let block_hash = block.header.block_hash();
 
         assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
-        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+        stacks_blocks.push((tip.sortition_id, block.clone()));
 
         preprocess_block(&mut chainstate, &sort_db, &tip, block);
 
@@ -3049,7 +3049,7 @@ fn test_stx_transfer_btc_ops() {
     let recipient = p2pkh_from(&StacksPrivateKey::new());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let transfer_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
-    let initial_balances = vec![(stacker.clone().into(), balance)];
+    let initial_balances = vec![(stacker.into(), balance)];
 
     setup_states(
         &[path],
@@ -3164,14 +3164,14 @@ fn test_stx_transfer_btc_ops() {
         if ix == 0 {
             // add a pre-stack-stx op
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
-                output: stacker.clone(),
+                output: stacker,
                 txid: next_txid(),
                 vtxindex: 5,
                 block_height: 0,
                 burn_header_hash: BurnchainHeaderHash([0; 32]),
             }));
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
-                output: recipient.clone(),
+                output: recipient,
                 txid: next_txid(),
                 vtxindex: 6,
                 block_height: 0,
@@ -3179,8 +3179,8 @@ fn test_stx_transfer_btc_ops() {
             }));
         } else if ix == 1 {
             ops.push(BlockstackOperationType::TransferStx(TransferStxOp {
-                sender: stacker.clone(),
-                recipient: recipient.clone(),
+                sender: stacker,
+                recipient: recipient,
                 transfered_ustx: transfer_amt,
                 memo: vec![],
                 txid: next_txid(),
@@ -3191,8 +3191,8 @@ fn test_stx_transfer_btc_ops() {
         } else if ix == 2 {
             // shouldn't be accepted -- transfer amount is too large
             ops.push(BlockstackOperationType::TransferStx(TransferStxOp {
-                sender: recipient.clone(),
-                recipient: stacker.clone(),
+                sender: recipient,
+                recipient: stacker,
                 transfered_ustx: transfer_amt + 1,
                 memo: vec![],
                 txid: next_txid(),
@@ -3214,7 +3214,7 @@ fn test_stx_transfer_btc_ops() {
                     |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             (
-                                db.get_account_stx_balance(&stacker.clone().into()).unwrap(),
+                                db.get_account_stx_balance(&stacker.into()).unwrap(),
                                 db.get_current_block_height(),
                             )
                         })
@@ -3229,8 +3229,7 @@ fn test_stx_transfer_btc_ops() {
                     |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             (
-                                db.get_account_stx_balance(&recipient.clone().into())
-                                    .unwrap(),
+                                db.get_account_stx_balance(&recipient.into()).unwrap(),
                                 db.get_current_block_height(),
                             )
                         })
@@ -3325,7 +3324,7 @@ fn test_stx_transfer_btc_ops() {
         let block_hash = block.header.block_hash();
 
         assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
-        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+        stacks_blocks.push((tip.sortition_id, block.clone()));
 
         preprocess_block(&mut chainstate, &sort_db, &tip, block);
 
@@ -3481,10 +3480,7 @@ fn test_delegate_stx_btc_ops() {
     let delegator_addr = p2pkh_from(&StacksPrivateKey::new());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let delegated_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
-    let initial_balances = vec![
-        (first_del.clone().into(), balance),
-        (second_del.clone().into(), balance),
-    ];
+    let initial_balances = vec![(first_del.into(), balance), (second_del.into(), balance)];
 
     setup_states(
         &[path],
@@ -3585,21 +3581,21 @@ fn test_delegate_stx_btc_ops() {
         if ix == 0 {
             // add a pre-stx op
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
-                output: first_del.clone(),
+                output: first_del,
                 txid: next_txid(),
                 vtxindex: 4,
                 block_height: 0,
                 burn_header_hash: BurnchainHeaderHash([0; 32]),
             }));
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
-                output: first_del.clone(),
+                output: first_del,
                 txid: next_txid(),
                 vtxindex: 5,
                 block_height: 0,
                 burn_header_hash: BurnchainHeaderHash([0; 32]),
             }));
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
-                output: second_del.clone(),
+                output: second_del,
                 txid: next_txid(),
                 vtxindex: 6,
                 block_height: 0,
@@ -3609,8 +3605,8 @@ fn test_delegate_stx_btc_ops() {
             // The effects of this operation should never materialize,
             // since this operation was sent before 2.1 is active.
             ops.push(BlockstackOperationType::DelegateStx(DelegateStxOp {
-                sender: first_del.clone(),
-                delegate_to: delegator_addr.clone(),
+                sender: first_del,
+                delegate_to: delegator_addr,
                 reward_addr: None,
                 delegated_ustx: delegated_amt * 3,
                 until_burn_height: None,
@@ -3621,8 +3617,8 @@ fn test_delegate_stx_btc_ops() {
             }));
         } else if ix == 10 {
             ops.push(BlockstackOperationType::DelegateStx(DelegateStxOp {
-                sender: first_del.clone(),
-                delegate_to: delegator_addr.clone(),
+                sender: first_del,
+                delegate_to: delegator_addr,
                 reward_addr: Some((1, reward_addr.clone())),
                 delegated_ustx: delegated_amt,
                 until_burn_height: None,
@@ -3633,8 +3629,8 @@ fn test_delegate_stx_btc_ops() {
             }));
         } else if ix == 20 {
             ops.push(BlockstackOperationType::DelegateStx(DelegateStxOp {
-                sender: second_del.clone(),
-                delegate_to: delegator_addr.clone(),
+                sender: second_del,
+                delegate_to: delegator_addr,
                 reward_addr: None,
                 delegated_ustx: delegated_amt * 2,
                 until_burn_height: None,
@@ -3663,7 +3659,7 @@ fn test_delegate_stx_btc_ops() {
         let block_hash = block.header.block_hash();
 
         assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
-        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+        stacks_blocks.push((tip.sortition_id, block.clone()));
 
         preprocess_block(&mut chainstate, &sort_db, &tip, block);
 
@@ -3787,7 +3783,7 @@ fn test_initial_coinbase_reward_distributions() {
     let rewards = p2pkh_from(&StacksPrivateKey::new());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
-    let initial_balances = vec![(stacker.clone().into(), balance)];
+    let initial_balances = vec![(stacker.into(), balance)];
 
     setup_states(
         &[path],
@@ -3931,7 +3927,7 @@ fn test_initial_coinbase_reward_distributions() {
             let block_hash = block.header.block_hash();
 
             assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
-            stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+            stacks_blocks.push((tip.sortition_id, block.clone()));
 
             preprocess_block(&mut chainstate, &sort_db, &tip, block);
 
@@ -4128,7 +4124,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
         let block_hash = block.header.block_hash();
 
         assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
-        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+        stacks_blocks.push((tip.sortition_id, block.clone()));
 
         preprocess_block(&mut chainstate, &sort_db, &tip, block);
 
@@ -4331,7 +4327,7 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
         let block_hash = block.header.block_hash();
 
         assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
-        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+        stacks_blocks.push((tip.sortition_id, block.clone()));
 
         preprocess_block(&mut chainstate, &sort_db, &tip, block);
 
@@ -4537,7 +4533,7 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
         let block_hash = block.header.block_hash();
 
         assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
-        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+        stacks_blocks.push((tip.sortition_id, block.clone()));
 
         preprocess_block(&mut chainstate, &sort_db, &tip, block);
 
@@ -4659,8 +4655,8 @@ fn atlas_stop_start() {
     let signer_pk = p2pkh_from(&signer_sk);
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
-    let initial_balances = vec![(signer_pk.clone().into(), balance)];
-    let atlas_qci = QualifiedContractIdentifier::new(signer_pk.clone().into(), atlas_name.clone());
+    let initial_balances = vec![(signer_pk.into(), balance)];
+    let atlas_qci = QualifiedContractIdentifier::new(signer_pk.into(), atlas_name.clone());
     // include our simple contract in the atlas config
     let mut atlas_config = AtlasConfig::new(false);
     atlas_config.contracts.insert(atlas_qci);
@@ -4726,7 +4722,7 @@ fn atlas_stop_start() {
                     TransactionVersion::Testnet,
                     TransactionAuth::from_p2pkh(&signer_sk).unwrap(),
                     TransactionPayload::ContractCall(TransactionContractCall {
-                        address: signer_pk.clone(),
+                        address: signer_pk,
                         contract_name: atlas_name.clone(),
                         function_name: "make-attach".into(),
                         function_args: vec![Value::buff_from(vec![ix; 20]).unwrap()],
@@ -4832,7 +4828,7 @@ fn atlas_stop_start() {
         let block_hash = block.header.block_hash();
 
         assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
-        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+        stacks_blocks.push((tip.sortition_id, block.clone()));
 
         preprocess_block(&mut chainstate, &sort_db, &tip, block);
 
@@ -4955,10 +4951,7 @@ fn test_epoch_verify_active_pox_contract() {
     let rewards = pox_addr_from(&StacksPrivateKey::new());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
-    let initial_balances = vec![
-        (stacker.clone().into(), balance),
-        (stacker_2.clone().into(), balance),
-    ];
+    let initial_balances = vec![(stacker.into(), balance), (stacker_2.into(), balance)];
 
     let first_block_ht = burnchain_conf.first_block_height;
     setup_states_with_epochs(
@@ -5066,21 +5059,21 @@ fn test_epoch_verify_active_pox_contract() {
         if ix == 0 {
             // add a pre-stack-stx op
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
-                output: stacker.clone(),
+                output: stacker,
                 txid: next_txid(),
                 vtxindex: 5,
                 block_height: 0,
                 burn_header_hash: BurnchainHeaderHash([0; 32]),
             }));
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
-                output: stacker_2.clone(),
+                output: stacker_2,
                 txid: next_txid(),
                 vtxindex: 6,
                 block_height: 0,
                 burn_header_hash: BurnchainHeaderHash([0; 32]),
             }));
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
-                output: stacker_2.clone(),
+                output: stacker_2,
                 txid: next_txid(),
                 vtxindex: 7,
                 block_height: 0,
@@ -5089,7 +5082,7 @@ fn test_epoch_verify_active_pox_contract() {
         } else if ix == 1 {
             // This operation leads to a lock in the `pox.clar` contract
             ops.push(BlockstackOperationType::StackStx(StackStxOp {
-                sender: stacker.clone(),
+                sender: stacker,
                 reward_addr: rewards.clone(),
                 stacked_ustx: stacked_amt,
                 num_cycles: 1,
@@ -5107,7 +5100,7 @@ fn test_epoch_verify_active_pox_contract() {
             // The active contract is `pox.clar`, since the v1_unlock_height
             // has not been reached.
             ops.push(BlockstackOperationType::StackStx(StackStxOp {
-                sender: stacker_2.clone(),
+                sender: stacker_2,
                 reward_addr: rewards.clone(),
                 stacked_ustx: stacked_amt * 2,
                 num_cycles: 5,
@@ -5123,7 +5116,7 @@ fn test_epoch_verify_active_pox_contract() {
             // This will be sent when the burn_block_height == v1_unlock_height,
             // and leads to a state change in `pox-2.clar`.
             ops.push(BlockstackOperationType::StackStx(StackStxOp {
-                sender: stacker_2.clone(),
+                sender: stacker_2,
                 reward_addr: rewards.clone(),
                 stacked_ustx: stacked_amt * 4,
                 num_cycles: 1,
@@ -5155,7 +5148,7 @@ fn test_epoch_verify_active_pox_contract() {
         let block_hash = block.header.block_hash();
 
         assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
-        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+        stacks_blocks.push((tip.sortition_id, block.clone()));
 
         preprocess_block(&mut chainstate, &sort_db, &tip, block);
 
@@ -5493,7 +5486,7 @@ fn test_sortition_with_sunset() {
         let block_hash = block.header.block_hash();
 
         assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
-        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+        stacks_blocks.push((tip.sortition_id, block.clone()));
 
         preprocess_block(&mut chainstate, &sort_db, &tip, block);
 
@@ -5841,7 +5834,7 @@ fn test_sortition_with_sunset_and_epoch_switch() {
         let block_hash = block.header.block_hash();
 
         assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
-        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+        stacks_blocks.push((tip.sortition_id, block.clone()));
 
         preprocess_block(&mut chainstate, &sort_db, &tip, block);
 
@@ -6101,7 +6094,7 @@ fn test_pox_processable_block_in_different_pox_forks() {
             );
 
             assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
-            stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+            stacks_blocks.push((tip.sortition_id, block.clone()));
 
             preprocess_block(&mut chainstate, &sort_db, &tip, block.clone());
 
@@ -6118,7 +6111,7 @@ fn test_pox_processable_block_in_different_pox_forks() {
 
             assert_eq!(&blinded_tip.winning_stacks_block_hash, &block_hash);
             if ix != 0 {
-                stacks_blocks.push((blinded_tip.sortition_id.clone(), block.clone()));
+                stacks_blocks.push((blinded_tip.sortition_id, block.clone()));
             }
 
             preprocess_block(&mut chainstate_blind, &sort_db_blind, &blinded_tip, block);
@@ -6363,7 +6356,7 @@ fn test_pox_no_anchor_selected() {
         eprintln!("Block hash={}, ix={}", &block_hash, ix);
 
         assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
-        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+        stacks_blocks.push((tip.sortition_id, block.clone()));
 
         preprocess_block(&mut chainstate, &sort_db, &tip, block);
 
@@ -6570,7 +6563,7 @@ fn test_pox_fork_out_of_order() {
         eprintln!("Block hash={}, ix={}", &block_hash, ix);
 
         assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
-        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+        stacks_blocks.push((tip.sortition_id, block.clone()));
 
         preprocess_block(&mut chainstate, &sort_db, &tip, block);
 

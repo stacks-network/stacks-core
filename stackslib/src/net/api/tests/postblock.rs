@@ -36,7 +36,7 @@ use crate::net::{ProtocolFamily, TipRequest};
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let block = make_codec_test_block(3, StacksEpochId::Epoch25);
     let request =
@@ -70,7 +70,7 @@ fn test_try_parse_request() {
     let mut bad_block = block;
     bad_block.txs.clear();
 
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
     let request = StacksHttpRequest::new_post_block(
         addr.into(),
         ConsensusHash([0x11; 20]),
@@ -103,12 +103,12 @@ fn test_try_make_response() {
 
     // post the block
     let request =
-        StacksHttpRequest::new_post_block(addr.into(), next_block.0.clone(), next_block.1.clone());
+        StacksHttpRequest::new_post_block(addr.into(), next_block.0, next_block.1.clone());
     requests.push(request);
 
     // idempotent
     let request =
-        StacksHttpRequest::new_post_block(addr.into(), next_block.0.clone(), next_block.1.clone());
+        StacksHttpRequest::new_post_block(addr.into(), next_block.0, next_block.1.clone());
     requests.push(request);
 
     // fails if the consensus hash is not recognized

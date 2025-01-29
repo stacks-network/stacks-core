@@ -379,7 +379,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
             if node.ptrs()[i].id() == TrieNodeID::Empty as u8 {
                 hashes.push(TrieHash::from_data(&[]));
             } else if node.ptrs()[i].chr() != chr {
-                hashes.push(all_hashes[i].clone());
+                hashes.push(all_hashes[i]);
             }
         }
 
@@ -603,7 +603,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 if i == idx {
                     continue;
                 }
-                trimmed_ancestor_hashes.push(ancestor_hashes[i].clone());
+                trimmed_ancestor_hashes.push(ancestor_hashes[i]);
             }
 
             idx += 1;
@@ -674,7 +674,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
             }
 
             if idx - 1 == (i as i64) {
-                all_hashes.push(hash.clone());
+                all_hashes.push(*hash);
             } else {
                 if hash_idx >= hashes.len() {
                     trace!(
@@ -684,7 +684,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                     );
                     return None;
                 }
-                all_hashes.push(hashes[hash_idx].clone());
+                all_hashes.push(hashes[hash_idx]);
                 hash_idx += 1;
             }
         }
@@ -713,12 +713,12 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                         "Special case for a 0-ancestor node: hash is just the trie hash: {:?}",
                         node_root_hash
                     );
-                    node_root_hash.clone()
+                    *node_root_hash
                 } else {
                     let mut all_hashes = Vec::with_capacity(hashes.len() + 1);
-                    all_hashes.push(node_root_hash.clone());
+                    all_hashes.push(*node_root_hash);
                     for h in hashes {
-                        all_hashes.push(h.clone());
+                        all_hashes.push(*h);
                     }
                     let ret = TrieHash::from_data_array(&all_hashes);
                     trace!(
@@ -741,10 +741,10 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
     /// Verify the tail of a shunt proof, given the backptr root hash.
     /// Calculate the root hash of the next segment proof.
     fn verify_shunt_proof_tail(
-        initial_hash: &TrieHash,
+        initial_hash: TrieHash,
         shunt_proof: &[TrieMerkleProofType<T>],
     ) -> Option<TrieHash> {
-        let mut hash = initial_hash.clone();
+        let mut hash = initial_hash;
 
         // walk subsequent legs of a shunt proof, except for the last (since we need the next
         // segment proof for that)
@@ -792,11 +792,11 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 let mut all_hashes = Vec::with_capacity(hashes.len() + 1);
                 let mut hash_idx = 0;
 
-                all_hashes.push(node_root_hash.clone());
+                all_hashes.push(*node_root_hash);
 
                 for i in 0..hashes.len() + 1 {
                     if *idx - 1 == (i as i64) {
-                        all_hashes.push(penultimate_trie_hash.clone());
+                        all_hashes.push(*penultimate_trie_hash);
                     } else {
                         if hash_idx >= hashes.len() {
                             trace!(
@@ -807,7 +807,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                             return None;
                         }
 
-                        all_hashes.push(hashes[hash_idx].clone());
+                        all_hashes.push(hashes[hash_idx]);
                         hash_idx += 1;
                     }
                 }
@@ -849,10 +849,8 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         let mut prev_chr = starting_chr;
 
         trace!(
-            "make_segment_proof: Trie segment from {:?} starting at {:?}: {:?}",
-            &storage.get_cur_block(),
-            starting_chr,
-            ptrs
+            "make_segment_proof: Trie segment from {:?} starting at {starting_chr:?}: {ptrs:?}",
+            &storage.get_cur_block()
         );
         let mut i = ptrs.len() - 1;
         loop {
@@ -892,12 +890,12 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
 
         for child_ptr in node.ptrs() {
             if child_ptr.id != TrieNodeID::Empty as u8 && child_ptr.chr == chr {
-                all_hashes.push(hash.clone());
+                all_hashes.push(*hash);
             } else if ih >= hashes.len() {
                 trace!("verify_get_hash: {} >= {}", ih, hashes.len());
                 return None;
             } else {
-                all_hashes.push(hashes[ih].clone());
+                all_hashes.push(hashes[ih]);
                 ih += 1;
             }
         }
@@ -914,9 +912,9 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
     /// If so, calculate the root hash of the segment and return it.
     fn verify_segment_proof(
         proof: &[TrieMerkleProofType<T>],
-        node_hash: &TrieHash,
+        node_hash: TrieHash,
     ) -> Option<TrieHash> {
-        let mut hash = node_hash.clone();
+        let mut hash = node_hash;
         for i in 0..proof.len() {
             let hash_opt = match proof[i] {
                 TrieMerkleProofType::Leaf((ref _chr, ref node)) => {
@@ -1126,7 +1124,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         }
 
         let (mut node_hash, node_data) = match proof[0] {
-            TrieMerkleProofType::Leaf((_, ref node)) => (get_leaf_hash(node), node.data.clone()),
+            TrieMerkleProofType::Leaf((_, ref node)) => (get_leaf_hash(node), node.data),
             _ => unreachable!(),
         };
 
@@ -1155,7 +1153,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         }
 
         trace!("verify segment proof in range {}..{}", i, j);
-        let node_root_hash = match TrieMerkleProof::verify_segment_proof(&proof[i..j], &node_hash) {
+        let node_root_hash = match TrieMerkleProof::verify_segment_proof(&proof[i..j], node_hash) {
             Some(h) => h,
             None => {
                 test_debug!("Unable to verify segment proof in range {}...{}", i, j);
@@ -1234,7 +1232,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
 
             trace!("verify segment proof in range {}..{}", i, j);
             let next_node_root_hash =
-                match TrieMerkleProof::verify_segment_proof(&proof[i..j], &node_hash) {
+                match TrieMerkleProof::verify_segment_proof(&proof[i..j], node_hash) {
                     Some(h) => h,
                     None => {
                         test_debug!("Unable to verify segment proof in range {}..{}", i, j);
@@ -1278,7 +1276,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 &proof[i..j]
             );
             let penultimate_trie_hash =
-                match TrieMerkleProof::verify_shunt_proof_tail(&trie_hash, &proof[i..j]) {
+                match TrieMerkleProof::verify_shunt_proof_tail(trie_hash, &proof[i..j]) {
                     Some(h) => h,
                     None => {
                         test_debug!("Unable to verify shunt proof tail");
@@ -1366,7 +1364,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
 
         let mut node_ptr = storage.root_trieptr();
         let (mut node, _) = Trie::read_root(storage)?;
-        let mut cursor = TrieCursor::new(path, storage.root_trieptr());
+        let mut cursor = TrieCursor::new(*path, storage.root_trieptr());
 
         for _ in 0..(cursor.path.len() + 1) {
             match Trie::walk_from(storage, &node, &mut cursor) {

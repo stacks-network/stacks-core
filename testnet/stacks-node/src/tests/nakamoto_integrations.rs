@@ -912,7 +912,7 @@ pub fn boot_to_epoch_3(
     for (stacker_sk, signer_sk) in stacker_sks.iter().zip(signer_sks.iter()) {
         let pox_addr = PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            tests::to_addr(stacker_sk).bytes().clone(),
+            *tests::to_addr(stacker_sk).bytes(),
         );
         let pox_addr_tuple: clarity::vm::Value =
             pox_addr.clone().as_clarity_tuple().unwrap().into();
@@ -1074,7 +1074,7 @@ pub fn boot_to_pre_epoch_3_boundary(
     for (stacker_sk, signer_sk) in stacker_sks.iter().zip(signer_sks.iter()) {
         let pox_addr = PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            tests::to_addr(stacker_sk).bytes().clone(),
+            *tests::to_addr(stacker_sk).bytes(),
         );
         let pox_addr_tuple: clarity::vm::Value =
             pox_addr.clone().as_clarity_tuple().unwrap().into();
@@ -1313,7 +1313,7 @@ pub fn setup_epoch_3_reward_set(
     for (stacker_sk, signer_sk) in stacker_sks.iter().zip(signer_sks.iter()) {
         let pox_addr = PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            tests::to_addr(stacker_sk).bytes().clone(),
+            *tests::to_addr(stacker_sk).bytes(),
         );
         let pox_addr_tuple: clarity::vm::Value =
             pox_addr.clone().as_clarity_tuple().unwrap().into();
@@ -1607,7 +1607,7 @@ fn simple_neon_integration() {
         0,
         send_fee,
         naka_conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     let transfer_tx_hex = format!("0x{}", to_hex(&transfer_tx));
@@ -1883,7 +1883,7 @@ fn flash_blocks_on_epoch_3() {
         0,
         send_fee,
         naka_conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     let transfer_tx_hex = format!("0x{}", to_hex(&transfer_tx));
@@ -2115,7 +2115,7 @@ fn mine_multiple_per_tenure_integration() {
                 sender_nonce,
                 send_fee,
                 naka_conf.burnchain.chain_id,
-                &recipient,
+                recipient.clone(),
                 send_amt,
             );
             submit_tx(&http_origin, &transfer_tx);
@@ -2370,7 +2370,7 @@ fn multiple_miners() {
                 sender_nonce,
                 send_fee,
                 naka_conf.burnchain.chain_id,
-                &recipient,
+                recipient.clone(),
                 send_amt,
             );
             submit_tx(&http_origin, &transfer_tx);
@@ -2560,7 +2560,7 @@ fn correct_burn_outs() {
 
             let pox_addr = PoxAddress::from_legacy(
                 AddressHashMode::SerializeP2PKH,
-                tests::to_addr(account.0).bytes().clone(),
+                *tests::to_addr(account.0).bytes(),
             );
             let pox_addr_tuple: clarity::vm::Value =
                 pox_addr.clone().as_clarity_tuple().unwrap().into();
@@ -2871,7 +2871,7 @@ fn block_proposal_api_endpoint() {
     let privk = conf.miner.mining_key.unwrap();
     let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn())
         .expect("Failed to get sortition tip");
-    let db_handle = sortdb.index_handle(&sort_tip);
+    let db_handle = sortdb.index_handle(sort_tip);
     let snapshot = db_handle
         .get_block_snapshot(&tip.burn_header_hash)
         .expect("Failed to get block snapshot")
@@ -2903,7 +2903,7 @@ fn block_proposal_api_endpoint() {
     let block = {
         let mut builder = NakamotoBlockBuilder::new(
             &tip,
-            &tip.consensus_hash,
+            tip.consensus_hash,
             total_burn,
             tenure_change,
             coinbase,
@@ -2925,7 +2925,7 @@ fn block_proposal_api_endpoint() {
             0,
             100,
             conf.burnchain.chain_id,
-            &to_addr(&account_keys[1]).into(),
+            to_addr(&account_keys[1]).into(),
             10000,
         );
         let tx = StacksTransaction::consensus_deserialize(&mut &tx[..])
@@ -3666,7 +3666,7 @@ fn follower_bootup_simple() {
                 sender_nonce,
                 send_fee,
                 naka_conf.burnchain.chain_id,
-                &recipient,
+                recipient.clone(),
                 send_amt,
             );
             submit_tx(&http_origin, &transfer_tx);
@@ -4188,7 +4188,7 @@ fn follower_bootup_custom_chain_id() {
                 sender_nonce,
                 send_fee,
                 naka_conf.burnchain.chain_id,
-                &recipient,
+                recipient.clone(),
                 send_amt,
             );
             submit_tx(&http_origin, &transfer_tx);
@@ -4772,7 +4772,7 @@ fn burn_ops_integration_test() {
                 sender_nonce,
                 200,
                 naka_conf.burnchain.chain_id,
-                &stacker_addr_1.into(),
+                stacker_addr_1.into(),
                 10000,
             );
             sender_nonce += 1;
@@ -4912,7 +4912,7 @@ fn burn_ops_integration_test() {
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb_conn).unwrap();
 
     let ancestor_burnchain_header_hashes =
-        SortitionDB::get_ancestor_burnchain_header_hashes(sortdb.conn(), &tip.burn_header_hash, 6)
+        SortitionDB::get_ancestor_burnchain_header_hashes(sortdb.conn(), tip.burn_header_hash, 6)
             .unwrap();
 
     let mut all_stacking_burn_ops = vec![];
@@ -5189,7 +5189,7 @@ fn forked_tenure_is_ignored() {
         sender_nonce,
         send_fee,
         naka_conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
@@ -5607,7 +5607,7 @@ fn check_block_heights() {
                 sender_nonce,
                 send_fee,
                 naka_conf.burnchain.chain_id,
-                &recipient,
+                recipient.clone(),
                 send_amt,
             );
             sender_nonce += 1;
@@ -5905,7 +5905,7 @@ fn nakamoto_attempt_time() {
                     sender_nonce,
                     tx_fee,
                     naka_conf.burnchain.chain_id,
-                    &recipient,
+                    recipient.clone(),
                     amount,
                 );
                 sender_nonce += 1;
@@ -6004,7 +6004,7 @@ fn nakamoto_attempt_time() {
                 acct.nonce,
                 tx_fee,
                 naka_conf.burnchain.chain_id,
-                &recipient,
+                recipient.clone(),
                 amount,
             );
             submit_tx(&http_origin, &transfer_tx);
@@ -6561,7 +6561,7 @@ fn signer_chainstate() {
             sender_nonce,
             send_fee,
             naka_conf.burnchain.chain_id,
-            &recipient,
+            recipient.clone(),
             send_amt,
         );
         submit_tx(&http_origin, &transfer_tx);
@@ -7074,7 +7074,7 @@ fn continue_tenure_extend() {
         transfer_nonce,
         send_fee,
         naka_conf.burnchain.chain_id,
-        &recipient,
+        recipient.clone(),
         send_amt,
     );
     let transfer_tx_hex = format!("0x{}", to_hex(&transfer_tx));
@@ -7151,7 +7151,7 @@ fn continue_tenure_extend() {
             transfer_nonce,
             send_fee,
             naka_conf.burnchain.chain_id,
-            &recipient,
+            recipient.clone(),
             send_amt,
         );
         submit_tx(&http_origin, &transfer_tx);
@@ -7618,7 +7618,7 @@ fn check_block_times() {
             sender_nonce,
             send_fee,
             naka_conf.burnchain.chain_id,
-            &recipient,
+            recipient.clone(),
             send_amt,
         );
         sender_nonce += 1;
@@ -7669,7 +7669,7 @@ fn check_block_times() {
             sender_nonce,
             send_fee,
             naka_conf.burnchain.chain_id,
-            &recipient,
+            recipient.clone(),
             send_amt,
         );
         submit_tx(&http_origin, &transfer_tx);
@@ -8163,7 +8163,7 @@ fn check_block_info() {
         sender_nonce,
         send_fee,
         naka_conf.burnchain.chain_id,
-        &recipient,
+        recipient.clone(),
         send_amt,
     );
     sender_nonce += 1;
@@ -8262,7 +8262,7 @@ fn check_block_info() {
         sender_nonce,
         send_fee,
         naka_conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     sender_nonce += 1;
@@ -8624,7 +8624,7 @@ fn check_block_info_rewards() {
         sender_nonce,
         send_fee,
         naka_conf.burnchain.chain_id,
-        &recipient,
+        recipient.clone(),
         send_amt,
     );
     sender_nonce += 1;
@@ -8657,7 +8657,7 @@ fn check_block_info_rewards() {
         sender_nonce,
         send_fee,
         naka_conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -8978,7 +8978,7 @@ fn mock_mining() {
                 sender_nonce,
                 send_fee,
                 naka_conf.burnchain.chain_id,
-                &recipient,
+                recipient.clone(),
                 send_amt,
             );
             submit_tx(&http_origin, &transfer_tx);
@@ -9366,7 +9366,7 @@ fn v3_signer_api_endpoint() {
         sender_nonce,
         send_fee,
         conf.burnchain.chain_id,
-        &recipient,
+        recipient,
         send_amt,
     );
     submit_tx(&http_origin, &transfer_tx);
@@ -9647,7 +9647,7 @@ fn nakamoto_lockup_events() {
             sender_nonce,
             send_fee,
             conf.burnchain.chain_id,
-            &recipient,
+            recipient.clone(),
             send_amt,
         );
         submit_tx(&http_origin, &transfer_tx);
@@ -9844,7 +9844,7 @@ fn skip_mining_long_tx() {
                 i - 1,
                 send_fee,
                 naka_conf.burnchain.chain_id,
-                &recipient,
+                recipient.clone(),
                 send_amt,
             );
             submit_tx(&http_origin, &transfer_tx);
@@ -10037,7 +10037,7 @@ fn test_shadow_recovery() {
             break;
         }
 
-        let header = header.anchored_header.as_stacks_nakamoto().clone().unwrap();
+        let header = header.anchored_header.as_stacks_nakamoto().unwrap();
 
         if header.is_shadow_block() {
             assert!(shadow_ids.contains(&header.block_id()));
@@ -10715,7 +10715,7 @@ fn test_tenure_extend_from_flashblocks() {
     signer_test.boot_to_epoch_3();
 
     let naka_conf = signer_test.running_nodes.conf.clone();
-    let mining_key = naka_conf.miner.mining_key.clone().unwrap();
+    let mining_key = naka_conf.miner.mining_key.unwrap();
     let mining_key_pkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(&mining_key));
 
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
@@ -10896,8 +10896,8 @@ fn test_tenure_extend_from_flashblocks() {
     let canonical_stacks_tip = RelayerThread::can_continue_tenure(
         &sortdb,
         &mut chainstate,
-        sort_tip.consensus_hash.clone(),
-        Some(mining_key_pkh.clone()),
+        sort_tip.consensus_hash,
+        Some(mining_key_pkh),
     )
     .unwrap()
     .unwrap();
@@ -10908,7 +10908,7 @@ fn test_tenure_extend_from_flashblocks() {
     assert!(RelayerThread::can_continue_tenure(
         &sortdb,
         &mut chainstate,
-        sort_tip.consensus_hash.clone(),
+        sort_tip.consensus_hash,
         Some(Hash160([0x11; 20]))
     )
     .unwrap()

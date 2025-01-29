@@ -181,7 +181,7 @@ impl NakamotoTenureDownloader {
             end_signer_keys,
             idle: false,
             state: NakamotoTenureDownloadState::GetTenureStartBlock(
-                tenure_start_block_id.clone(),
+                tenure_start_block_id,
                 get_epoch_time_ms(),
             ),
             tenure_start_block: None,
@@ -252,7 +252,7 @@ impl NakamotoTenureDownloader {
         } else {
             // need to get tenure_end_block.
             self.state = NakamotoTenureDownloadState::GetTenureEndBlock(
-                self.tenure_end_block_id.clone(),
+                self.tenure_end_block_id,
                 get_epoch_time_ms(),
             );
         }
@@ -346,7 +346,7 @@ impl NakamotoTenureDownloader {
         );
         self.tenure_end_block = Some(tenure_end_block.clone());
         self.state = NakamotoTenureDownloadState::GetTenureBlocks(
-            tenure_end_block.header.parent_block_id.clone(),
+            tenure_end_block.header.parent_block_id,
             get_epoch_time_ms(),
         );
         Ok(())
@@ -486,7 +486,7 @@ impl NakamotoTenureDownloader {
         );
         if earliest_block.block_id() != tenure_start_block.block_id() {
             // still have more blocks to download
-            let next_block_id = earliest_block.header.parent_block_id.clone();
+            let next_block_id = earliest_block.header.parent_block_id;
             debug!(
                 "Need more blocks for tenure {} (went from {} to {}, next is {})",
                 &self.tenure_id_consensus_hash,
@@ -528,21 +528,21 @@ impl NakamotoTenureDownloader {
                     "Request tenure-start block {} at {}",
                     &start_block_id, start_request_time
                 );
-                StacksHttpRequest::new_get_nakamoto_block(peerhost, start_block_id.clone())
+                StacksHttpRequest::new_get_nakamoto_block(peerhost, start_block_id)
             }
             NakamotoTenureDownloadState::GetTenureEndBlock(end_block_id, start_request_time) => {
                 debug!(
                     "Request tenure-end block {} at {}",
                     &end_block_id, start_request_time
                 );
-                StacksHttpRequest::new_get_nakamoto_block(peerhost, end_block_id.clone())
+                StacksHttpRequest::new_get_nakamoto_block(peerhost, end_block_id)
             }
             NakamotoTenureDownloadState::GetTenureBlocks(end_block_id, start_request_time) => {
                 debug!(
                     "Downloading tenure ending at {} at {}",
                     &end_block_id, start_request_time
                 );
-                StacksHttpRequest::new_get_nakamoto_tenure(peerhost, end_block_id.clone(), None)
+                StacksHttpRequest::new_get_nakamoto_tenure(peerhost, end_block_id, None)
             }
             NakamotoTenureDownloadState::Done => {
                 // nothing more to do
@@ -605,13 +605,13 @@ impl NakamotoTenureDownloader {
                             break;
                         };
 
-                        let tenure_start_block_id = StacksBlockId(coinbase_payload.0.clone());
+                        let tenure_start_block_id = StacksBlockId(coinbase_payload.0);
 
                         info!(
                             "Tenure {} starts at shadow tenure-start {}, not {}",
                             &self.tenure_id_consensus_hash, &tenure_start_block_id, &start_block_id
                         );
-                        self.tenure_start_block_id = tenure_start_block_id.clone();
+                        self.tenure_start_block_id = tenure_start_block_id;
                         self.state = NakamotoTenureDownloadState::GetTenureStartBlock(
                             tenure_start_block_id,
                             start_request_time,
@@ -679,13 +679,13 @@ impl NakamotoTenureDownloader {
                             break;
                         };
 
-                        let tenure_end_block_id = StacksBlockId(coinbase_payload.0.clone());
+                        let tenure_end_block_id = StacksBlockId(coinbase_payload.0);
 
                         info!(
                             "Tenure {} ends at shadow tenure-start {}, not {}",
                             &self.tenure_id_consensus_hash, &tenure_end_block_id, &end_block_id
                         );
-                        self.tenure_end_block_id = tenure_end_block_id.clone();
+                        self.tenure_end_block_id = tenure_end_block_id;
                         self.state = NakamotoTenureDownloadState::GetTenureEndBlock(
                             tenure_end_block_id,
                             start_request_time,

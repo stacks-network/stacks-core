@@ -212,7 +212,7 @@ impl RPCRequestHandler for RPCGetAttachmentsInvRequestHandler {
         }
 
         let content = GetAttachmentsInvResponse {
-            block_id: index_block_hash.clone(),
+            block_id: index_block_hash,
             pages,
         };
 

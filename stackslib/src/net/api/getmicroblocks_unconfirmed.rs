@@ -87,7 +87,7 @@ impl StacksUnconfirmedMicroblockStream {
         // this is exactly what seq tells us, though.
         Ok(StacksUnconfirmedMicroblockStream {
             microblock_hash: mblock_info.block_hash(),
-            parent_index_block_hash: parent_block_id.clone(),
+            parent_index_block_hash: *parent_block_id,
             seq,
             finished: false,
             next_microblock: mblock_info,

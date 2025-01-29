@@ -293,10 +293,10 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     }
 
     /// Make a chunk inv request
-    pub fn make_getchunkinv(&self, rc_consensus_hash: &ConsensusHash) -> StacksMessageType {
+    pub fn make_getchunkinv(&self, rc_consensus_hash: ConsensusHash) -> StacksMessageType {
         StacksMessageType::StackerDBGetChunkInv(StackerDBGetChunkInvData {
             contract_id: self.smart_contract_id.clone(),
-            rc_consensus_hash: rc_consensus_hash.clone(),
+            rc_consensus_hash,
         })
     }
 
@@ -310,7 +310,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         network: &PeerNetwork,
         local_slot_versions_opt: Option<Vec<u32>>,
     ) -> Result<Vec<(StackerDBGetChunkData, Vec<NeighborAddress>)>, net_error> {
-        let rc_consensus_hash = network.get_chain_view().rc_consensus_hash.clone();
+        let rc_consensus_hash = network.get_chain_view().rc_consensus_hash;
         let local_slot_versions = if let Some(local_slot_versions) = local_slot_versions_opt {
             local_slot_versions
         } else {
@@ -427,7 +427,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         &self,
         network: &PeerNetwork,
     ) -> Result<Vec<(StackerDBPushChunkData, Vec<NeighborAddress>)>, net_error> {
-        let rc_consensus_hash = network.get_chain_view().rc_consensus_hash.clone();
+        let rc_consensus_hash = network.get_chain_view().rc_consensus_hash;
         let local_slot_versions = self.stackerdbs.get_slot_versions(&self.smart_contract_id)?;
 
         let mut need_chunks: HashMap<usize, (StackerDBPushChunkData, Vec<NeighborAddress>)> =
@@ -460,7 +460,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     };
                     local_chunk = Some(StackerDBPushChunkData {
                         contract_id: self.smart_contract_id.clone(),
-                        rc_consensus_hash: rc_consensus_hash.clone(),
+                        rc_consensus_hash: rc_consensus_hash,
                         chunk_data,
                     });
                 }
@@ -674,7 +674,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 continue;
             }
 
-            let chunks_req = self.make_getchunkinv(&network.get_chain_view().rc_consensus_hash);
+            let chunks_req = self.make_getchunkinv(network.get_chain_view().rc_consensus_hash);
             to_send.push((naddr, chunks_req));
         }
 
@@ -902,7 +902,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 &network.get_chain_view().rc_consensus_hash,
                 &naddr,
             );
-            let chunks_req = self.make_getchunkinv(&network.get_chain_view().rc_consensus_hash);
+            let chunks_req = self.make_getchunkinv(network.get_chain_view().rc_consensus_hash);
             if let Err(e) = self.comms.neighbor_send(network, &naddr, chunks_req) {
                 debug!(
                     "{:?}: {}: failed to send StackerDBGetChunkInv to {:?}: {:?}",
@@ -1379,12 +1379,12 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 debug!("{:?}: {}: Resetting and restarting running StackerDB sync due to chain view change", network.get_local_peer(), &self.smart_contract_id);
                 let result = self.reset(Some(network), config);
                 self.state = StackerDBSyncState::ConnectBegin;
-                self.rc_consensus_hash = Some(network.get_chain_view().rc_consensus_hash.clone());
+                self.rc_consensus_hash = Some(network.get_chain_view().rc_consensus_hash);
                 self.wakeup();
                 return Ok(Some(result));
             }
         } else {
-            self.rc_consensus_hash = Some(network.get_chain_view().rc_consensus_hash.clone());
+            self.rc_consensus_hash = Some(network.get_chain_view().rc_consensus_hash);
         }
 
         // throttle to write_freq

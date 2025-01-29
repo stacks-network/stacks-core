@@ -300,13 +300,12 @@ fn make_standard_single_sig_tx(
     version: TransactionVersion,
     chain_id: u32,
     payload: TransactionPayload,
-    publicKey: &StacksPublicKey,
+    publicKey: StacksPublicKey,
     nonce: u64,
     tx_fee: u64,
 ) -> StacksTransaction {
-    let mut spending_condition =
-        TransactionSpendingCondition::new_singlesig_p2pkh(publicKey.clone())
-            .expect("Failed to create p2pkh spending condition from public key.");
+    let mut spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(publicKey)
+        .expect("Failed to create p2pkh spending condition from public key.");
     spending_condition.set_nonce(nonce);
     spending_condition.set_tx_fee(tx_fee);
     let auth = TransactionAuth::Standard(spending_condition);
@@ -406,7 +405,7 @@ fn handle_contract_publish(
         version,
         chain_id,
         payload.into(),
-        &StacksPublicKey::from_private(&sk_publisher),
+        StacksPublicKey::from_private(&sk_publisher),
         nonce,
         tx_fee,
     );
@@ -493,7 +492,7 @@ fn handle_contract_call(
         version,
         chain_id,
         payload.into(),
-        &StacksPublicKey::from_private(&sk_origin),
+        StacksPublicKey::from_private(&sk_origin),
         nonce,
         tx_fee,
     );
@@ -555,7 +554,7 @@ fn handle_token_transfer(
         version,
         chain_id,
         payload,
-        &StacksPublicKey::from_private(&sk_origin),
+        StacksPublicKey::from_private(&sk_origin),
         nonce,
         tx_fee,
     );
@@ -586,13 +585,9 @@ fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<S
         TransactionVersion::Testnet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
     };
 
-    let address = StacksAddress::from_public_keys(
-        version,
-        &AddressHashMode::SerializeP2PKH,
-        1,
-        &vec![pk.clone()],
-    )
-    .expect("Failed to generate address from public key");
+    let address =
+        StacksAddress::from_public_keys(version, &AddressHashMode::SerializeP2PKH, 1, &vec![pk])
+            .expect("Failed to generate address from public key");
     Ok(format!(
         "{{
   \"secretKey\": \"{}\",
@@ -627,7 +622,7 @@ fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String,
         c32_version,
         &AddressHashMode::SerializeP2PKH,
         1,
-        &vec![pk.clone()],
+        &vec![pk],
     )
     .expect("Failed to generate address from public key");
 

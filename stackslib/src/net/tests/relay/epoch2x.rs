@@ -619,11 +619,7 @@ fn test_get_blocks_and_microblocks_3_peers_push_available() {
                         peers[0].sortdb.as_ref().unwrap().conn(),
                     )
                     .unwrap();
-                    block_data.push((
-                        sn.consensus_hash.clone(),
-                        Some(stacks_block),
-                        Some(microblocks),
-                    ));
+                    block_data.push((sn.consensus_hash, Some(stacks_block), Some(microblocks)));
                 }
 
                 assert_eq!(block_data.len(), 5);
@@ -1144,11 +1140,7 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
                         peers[0].sortdb.as_ref().unwrap().conn(),
                     )
                     .unwrap();
-                    block_data.push((
-                        sn.consensus_hash.clone(),
-                        Some(stacks_block),
-                        Some(microblocks),
-                    ));
+                    block_data.push((sn.consensus_hash, Some(stacks_block), Some(microblocks)));
                 }
                 let saved_copy: Vec<(ConsensusHash, StacksBlock, Vec<StacksMicroblock>)> =
                     block_data
@@ -1224,13 +1216,7 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
                         let mut sent_microblocks = sent_microblocks.borrow_mut();
 
                         let pushed_block = if !*sent_blocks {
-                            push_block(
-                                &mut peers[0],
-                                &peer_1_nk,
-                                vec![],
-                                consensus_hash.clone(),
-                                block,
-                            )
+                            push_block(&mut peers[0], &peer_1_nk, vec![], consensus_hash, block)
                         } else {
                             true
                         };
@@ -1457,11 +1443,7 @@ fn test_get_blocks_and_microblocks_upload_blocks_http() {
                         peers[0].sortdb.as_ref().unwrap().conn(),
                     )
                     .unwrap();
-                    block_data.push((
-                        sn.consensus_hash.clone(),
-                        Some(stacks_block),
-                        Some(microblocks),
-                    ));
+                    block_data.push((sn.consensus_hash, Some(stacks_block), Some(microblocks)));
                 }
 
                 assert_eq!(block_data.len(), 5);
@@ -1674,11 +1656,7 @@ fn test_get_blocks_and_microblocks_2_peers_push_transactions() {
                         peers[0].sortdb.as_ref().unwrap().conn(),
                     )
                     .unwrap();
-                    block_data.push((
-                        sn.consensus_hash.clone(),
-                        Some(stacks_block),
-                        Some(microblocks),
-                    ));
+                    block_data.push((sn.consensus_hash, Some(stacks_block), Some(microblocks)));
                 }
                 *blocks_and_microblocks.borrow_mut() = block_data
                     .clone()
@@ -1779,7 +1757,7 @@ fn test_get_blocks_and_microblocks_2_peers_push_transactions() {
                             let mut idx = blocks_idx.borrow_mut();
 
                             let microblocks = block_data[*idx].2.clone();
-                            let microblocks_consensus_hash = block_data[*idx].0.clone();
+                            let microblocks_consensus_hash = block_data[*idx].0;
                             let microblocks_block_hash = block_data[*idx].1.block_hash();
 
                             *idx += 1;
@@ -1788,7 +1766,7 @@ fn test_get_blocks_and_microblocks_2_peers_push_transactions() {
                             }
 
                             let block = block_data[*idx].1.clone();
-                            let block_consensus_hash = block_data[*idx].0.clone();
+                            let block_consensus_hash = block_data[*idx].0;
                             (
                                 (
                                     block_consensus_hash,
@@ -1829,7 +1807,7 @@ fn test_get_blocks_and_microblocks_2_peers_push_transactions() {
                                 &mut peers[0],
                                 &peer_1_nk,
                                 vec![],
-                                block_consensus_hash.clone(),
+                                block_consensus_hash,
                                 block,
                             );
 
@@ -2048,11 +2026,7 @@ fn test_get_blocks_and_microblocks_peers_broadcast() {
                     )
                     .unwrap();
 
-                    block_data.push((
-                        sn.consensus_hash.clone(),
-                        Some(stacks_block),
-                        Some(microblocks),
-                    ));
+                    block_data.push((sn.consensus_hash, Some(stacks_block), Some(microblocks)));
                 }
                 *blocks_and_microblocks.borrow_mut() = block_data
                     .clone()
@@ -2192,7 +2166,7 @@ fn test_get_blocks_and_microblocks_peers_broadcast() {
                         &block.block_hash()
                     );
                     // next block
-                    broadcast_block(&mut peers[0], vec![], consensus_hash.clone(), block);
+                    broadcast_block(&mut peers[0], vec![], consensus_hash, block);
                     broadcast_microblocks(
                         &mut peers[0],
                         vec![],
@@ -2359,11 +2333,7 @@ fn test_get_blocks_and_microblocks_2_peers_antientropy() {
                         peers[0].sortdb.as_ref().unwrap().conn(),
                     )
                     .unwrap();
-                    block_data.push((
-                        sn.consensus_hash.clone(),
-                        Some(stacks_block),
-                        Some(microblocks),
-                    ));
+                    block_data.push((sn.consensus_hash, Some(stacks_block), Some(microblocks)));
                 }
 
                 // cap with an empty sortition, so the antientropy protocol picks up all stacks
@@ -2376,7 +2346,7 @@ fn test_get_blocks_and_microblocks_2_peers_antientropy() {
                     peers[0].sortdb.as_ref().unwrap().conn(),
                 )
                 .unwrap();
-                block_data.push((sn.consensus_hash.clone(), None, None));
+                block_data.push((sn.consensus_hash, None, None));
 
                 block_data
             },
@@ -2488,11 +2458,7 @@ fn test_get_blocks_and_microblocks_2_peers_buffered_messages() {
                         peers[0].sortdb.as_ref().unwrap().conn(),
                     )
                     .unwrap();
-                    block_data.push((
-                        sn.consensus_hash.clone(),
-                        Some(stacks_block),
-                        Some(microblocks),
-                    ));
+                    block_data.push((sn.consensus_hash, Some(stacks_block), Some(microblocks)));
                 }
                 *blocks_and_microblocks.borrow_mut() = block_data.clone()[1..]
                     .to_vec()
@@ -2546,14 +2512,14 @@ fn test_get_blocks_and_microblocks_2_peers_buffered_messages() {
                             &mut peers[0],
                             &peer_1_nk,
                             vec![],
-                            (*all_blocks_and_microblocks)[*pushed_i].0.clone(),
+                            (*all_blocks_and_microblocks)[*pushed_i].0,
                             (*all_blocks_and_microblocks)[*pushed_i].1.clone(),
                         );
                         push_microblocks(
                             &mut peers[0],
                             &peer_1_nk,
                             vec![],
-                            (*all_blocks_and_microblocks)[*pushed_i].0.clone(),
+                            (*all_blocks_and_microblocks)[*pushed_i].0,
                             (*all_blocks_and_microblocks)[*pushed_i].1.block_hash(),
                             (*all_blocks_and_microblocks)[*pushed_i].2.clone(),
                         );
@@ -2846,7 +2812,7 @@ fn process_new_blocks_rejects_problematic_asts() {
             };
 
             let parent_header_hash = parent_tip.anchored_header.block_hash();
-            let parent_consensus_hash = parent_tip.consensus_hash.clone();
+            let parent_consensus_hash = parent_tip.consensus_hash;
             let coinbase_tx = make_coinbase(miner, 0);
 
             let block_builder = StacksBlockBuilder::make_regtest_block_builder(
@@ -2861,7 +2827,7 @@ fn process_new_blocks_rejects_problematic_asts() {
             let block = StacksBlockBuilder::make_anchored_block_from_txs(
                 block_builder,
                 chainstate,
-                &sortdb.index_handle(&tip.sortition_id),
+                &sortdb.index_handle(tip.sortition_id),
                 vec![coinbase_tx],
             )
             .unwrap()
@@ -2906,7 +2872,7 @@ fn process_new_blocks_rejects_problematic_asts() {
             };
 
             let parent_header_hash = parent_tip.anchored_header.block_hash();
-            let parent_consensus_hash = parent_tip.consensus_hash.clone();
+            let parent_consensus_hash = parent_tip.consensus_hash;
             let parent_index_hash = StacksBlockHeader::make_index_block_hash(
                 &parent_consensus_hash,
                 &parent_header_hash,
@@ -2928,7 +2894,7 @@ fn process_new_blocks_rejects_problematic_asts() {
                 StacksBlockBuilder::make_anchored_block_from_txs(
                     block_builder,
                     chainstate,
-                    &sortdb.index_handle(&tip.sortition_id),
+                    &sortdb.index_handle(tip.sortition_id),
                     vec![coinbase_tx.clone(), bad_tx.clone()],
                 )
             {
@@ -2950,7 +2916,7 @@ fn process_new_blocks_rejects_problematic_asts() {
             let bad_block = StacksBlockBuilder::make_anchored_block_from_txs(
                 block_builder,
                 chainstate,
-                &sortdb.index_handle(&tip.sortition_id),
+                &sortdb.index_handle(tip.sortition_id),
                 vec![coinbase_tx],
             )
             .unwrap();
@@ -2968,17 +2934,14 @@ fn process_new_blocks_rejects_problematic_asts() {
             bad_block.header.tx_merkle_root = merkle_tree.root();
 
             chainstate
-                .reload_unconfirmed_state(
-                    &sortdb.index_handle(&tip.sortition_id),
-                    parent_index_hash.clone(),
-                )
+                .reload_unconfirmed_state(&sortdb.index_handle(tip.sortition_id), parent_index_hash)
                 .unwrap();
 
             // make a bad microblock
-            let iconn = &sortdb.index_handle(&tip.sortition_id);
+            let iconn = &sortdb.index_handle(tip.sortition_id);
             let mut microblock_builder = StacksMicroblockBuilder::new(
-                parent_header_hash.clone(),
-                parent_consensus_hash.clone(),
+                parent_header_hash,
+                parent_consensus_hash,
                 chainstate,
                 iconn,
                 BlockBuilderSettings::max_value(),
@@ -2995,7 +2958,7 @@ fn process_new_blocks_rejects_problematic_asts() {
             }
 
             let token_transfer =
-                make_user_stacks_transfer(&privk, 0, 200, &recipient.to_account_principal(), 123);
+                make_user_stacks_transfer(&privk, 0, 200, recipient.to_account_principal(), 123);
             let tt_len = {
                 let mut bytes = vec![];
                 token_transfer.consensus_serialize(&mut bytes).unwrap();
@@ -3057,7 +3020,7 @@ fn process_new_blocks_rejects_problematic_asts() {
             preamble: preamble.clone(),
             relayers: vec![],
             payload: StacksMessageType::Blocks(BlocksData {
-                blocks: vec![BlocksDatum(new_consensus_hash.clone(), bad_block.clone())],
+                blocks: vec![BlocksDatum(new_consensus_hash, bad_block.clone())],
             }),
         },
         StacksMessage {
@@ -3118,10 +3081,10 @@ fn process_new_blocks_rejects_problematic_asts() {
 
     network_result
         .blocks
-        .push((new_consensus_hash.clone(), bad_block.clone(), 123));
+        .push((new_consensus_hash, bad_block.clone(), 123));
     network_result
         .confirmed_microblocks
-        .push((new_consensus_hash.clone(), vec![bad_mblock], 234));
+        .push((new_consensus_hash, vec![bad_mblock], 234));
 
     let mut sortdb = peer.sortdb.take().unwrap();
     let (processed_blocks, processed_mblocks, relay_mblocks, bad_neighbors) =
@@ -3222,7 +3185,7 @@ fn test_block_pay_to_contract_gated_at_v210() {
             };
 
             let parent_header_hash = parent_tip.anchored_header.block_hash();
-            let parent_consensus_hash = parent_tip.consensus_hash.clone();
+            let parent_consensus_hash = parent_tip.consensus_hash;
             let parent_index_hash = StacksBlockHeader::make_index_block_hash(
                 &parent_consensus_hash,
                 &parent_header_hash,
@@ -3254,7 +3217,7 @@ fn test_block_pay_to_contract_gated_at_v210() {
             let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
                 builder,
                 chainstate,
-                &sortdb.index_handle(&tip.sortition_id),
+                &sortdb.index_handle(tip.sortition_id),
                 vec![coinbase_tx],
             )
             .unwrap();
@@ -3398,7 +3361,7 @@ fn test_block_versioned_smart_contract_gated_at_v210() {
             };
 
             let parent_header_hash = parent_tip.anchored_header.block_hash();
-            let parent_consensus_hash = parent_tip.consensus_hash.clone();
+            let parent_consensus_hash = parent_tip.consensus_hash;
             let parent_index_hash = StacksBlockHeader::make_index_block_hash(
                 &parent_consensus_hash,
                 &parent_header_hash,
@@ -3432,7 +3395,7 @@ fn test_block_versioned_smart_contract_gated_at_v210() {
             let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
                 builder,
                 chainstate,
-                &sortdb.index_handle(&tip.sortition_id),
+                &sortdb.index_handle(tip.sortition_id),
                 vec![coinbase_tx, versioned_contract],
             )
             .unwrap();
@@ -3580,7 +3543,7 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
             };
 
             let parent_header_hash = parent_tip.anchored_header.block_hash();
-            let parent_consensus_hash = parent_tip.consensus_hash.clone();
+            let parent_consensus_hash = parent_tip.consensus_hash;
             let parent_index_hash = StacksBlockHeader::make_index_block_hash(
                 &parent_consensus_hash,
                 &parent_header_hash,
@@ -3622,7 +3585,7 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
             let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
                 builder,
                 chainstate,
-                &sortdb.index_handle(&tip.sortition_id),
+                &sortdb.index_handle(tip.sortition_id),
                 vec![coinbase_tx],
             )
             .unwrap();
@@ -3667,7 +3630,7 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
         let versioned_contract_len = versioned_contract.serialize_to_vec().len();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         match node.chainstate.will_admit_mempool_tx(
-            &sortdb.index_handle(&tip.sortition_id),
+            &sortdb.index_handle(tip.sortition_id),
             &consensus_hash,
             &stacks_block.block_hash(),
             &versioned_contract,
@@ -3723,7 +3686,7 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
     let versioned_contract = (*versioned_contract_opt.borrow()).clone().unwrap();
     let versioned_contract_len = versioned_contract.serialize_to_vec().len();
     match node.chainstate.will_admit_mempool_tx(
-        &sortdb.index_handle(&tip.sortition_id),
+        &sortdb.index_handle(tip.sortition_id),
         &consensus_hash,
         &stacks_block.block_hash(),
         &versioned_contract,

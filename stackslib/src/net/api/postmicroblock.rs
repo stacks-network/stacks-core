@@ -174,7 +174,7 @@ impl RPCRequestHandler for RPCPostMicroblockRequestHandler {
                 }
             };
 
-            let sort_handle = sortdb.index_handle(&ch_sn.sortition_id);
+            let sort_handle = sortdb.index_handle(ch_sn.sortition_id);
             let parent_block_snapshot = Relayer::get_parent_stacks_block_snapshot(&sort_handle, consensus_hash, block_hash)
                 .map_err(|e| StacksHttpResponse::new_error(&preamble, &HttpServerError::new(format!("Failed to load parent block for Stacks tip: {:?}", &e))))?;
 

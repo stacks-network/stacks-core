@@ -187,10 +187,10 @@ impl HttpRequestPreamble {
                 return Some(format!("{}", &self.host));
             }
             "content-type" => {
-                return self.content_type.clone().map(|ct| format!("{}", &ct));
+                return self.content_type.map(|ct| format!("{ct}"));
             }
             "content-length" => {
-                return self.content_length.clone().map(|cl| format!("{}", &cl));
+                return self.content_length.map(|cl| format!("{cl}"));
             }
             _ => {
                 return self.headers.get(&hdr).cloned();

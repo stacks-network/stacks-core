@@ -189,7 +189,7 @@ impl NakamotoBlockBuilder {
     ///
     pub fn new(
         parent_stacks_header: &StacksHeaderInfo,
-        tenure_id_consensus_hash: &ConsensusHash,
+        tenure_id_consensus_hash: ConsensusHash,
         total_burn: u64,
         tenure_change: Option<&StacksTransaction>,
         coinbase: Option<&StacksTransaction>,
@@ -225,7 +225,7 @@ impl NakamotoBlockBuilder {
             header: NakamotoBlockHeader::from_parent_empty(
                 next_height,
                 total_burn,
-                tenure_id_consensus_hash.clone(),
+                tenure_id_consensus_hash,
                 parent_stacks_header.index_block_hash(),
                 bitvec_len,
                 parent_stacks_header
@@ -351,15 +351,15 @@ impl NakamotoBlockBuilder {
         let (chain_tip, parent_consensus_hash, parent_header_hash) = match self.parent_header {
             Some(ref header_info) => (
                 header_info.clone(),
-                header_info.consensus_hash.clone(),
+                header_info.consensus_hash,
                 header_info.anchored_header.block_hash(),
             ),
             None => {
                 // parent is genesis (testing only)
                 (
                     StacksHeaderInfo::regtest_genesis(),
-                    FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-                    FIRST_STACKS_BLOCK_HASH.clone(),
+                    FIRST_BURNCHAIN_CONSENSUS_HASH,
+                    FIRST_STACKS_BLOCK_HASH,
                 )
             }
         };
@@ -445,8 +445,8 @@ impl NakamotoBlockBuilder {
     /// Finish up mining an epoch's transactions.
     /// Return the ExecutionCost consumed so far.
     pub fn tenure_finish(self, tx: ClarityTx) -> Result<ExecutionCost, Error> {
-        let new_consensus_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
-        let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
+        let new_consensus_hash = MINER_BLOCK_CONSENSUS_HASH;
+        let new_block_hash = MINER_BLOCK_HEADER_HASH;
 
         let index_block_hash =
             StacksBlockHeader::make_index_block_hash(&new_consensus_hash, &new_block_hash);
@@ -519,7 +519,7 @@ impl NakamotoBlockBuilder {
         // Stacks header we're building off of.
         parent_stacks_header: &StacksHeaderInfo,
         // tenure ID consensus hash of this block
-        tenure_id_consensus_hash: &ConsensusHash,
+        tenure_id_consensus_hash: ConsensusHash,
         // the burn so far on the burnchain (i.e. from the last burnchain block)
         total_burn: u64,
         tenure_info: NakamotoTenureInfo,
@@ -528,7 +528,7 @@ impl NakamotoBlockBuilder {
         signer_bitvec_len: u16,
     ) -> Result<(NakamotoBlock, ExecutionCost, u64, Vec<TransactionEvent>), Error> {
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
-            parent_stacks_header.consensus_hash.clone(),
+            parent_stacks_header.consensus_hash,
             parent_stacks_header.anchored_header.block_hash(),
             parent_stacks_header.stacks_block_height,
         );

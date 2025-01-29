@@ -725,7 +725,7 @@ fn get_first_block_in_tenure<GTS: GetTenureStartId>(
     let consensus_hash = match epoch_opt {
         Some(epoch) => {
             if !epoch.uses_nakamoto_blocks() {
-                return id_bhh.clone().into();
+                return (*id_bhh).into();
             } else {
                 get_stacks_header_column_from_table(
                     conn.conn(),
@@ -744,7 +744,7 @@ fn get_first_block_in_tenure<GTS: GetTenureStartId>(
                 &|r| ConsensusHash::from_row(r).expect("FATAL: malformed consensus_hash"),
                 false,
             ) {
-                return id_bhh.clone().into();
+                return (*id_bhh).into();
             } else {
                 get_stacks_header_column_from_table(
                     conn.conn(),
@@ -883,7 +883,7 @@ impl SortitionDBRef for SortitionHandleTx<'_> {
             .reopen_readonly()
             .expect("BUG: failure trying to get a read-only interface into the sortition db.");
         let mut context = self.context.clone();
-        context.chain_tip = sortition_id.clone();
+        context.chain_tip = *sortition_id;
         let mut handle = SortitionHandleConn::new(&readonly_marf, context);
 
         get_pox_start_cycle_info(&mut handle, parent_stacks_block_burn_ht, cycle_index)
@@ -907,7 +907,7 @@ impl SortitionDBRef for SortitionHandleConn<'_> {
     ) -> Result<Option<PoxStartCycleInfo>, ChainstateError> {
         let readonly_marf = self.index.reopen_readonly()?;
         let mut context = self.context.clone();
-        context.chain_tip = sortition_id.clone();
+        context.chain_tip = *sortition_id;
         let mut handle = SortitionHandleConn::new(&readonly_marf, context);
 
         get_pox_start_cycle_info(&mut handle, parent_stacks_block_burn_ht, cycle_index)
@@ -928,7 +928,7 @@ impl BurnStateDB for SortitionHandleTx<'_> {
     }
 
     fn get_tip_sortition_id(&self) -> Option<SortitionId> {
-        Some(self.context.chain_tip.clone())
+        Some(self.context.chain_tip)
     }
 
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
@@ -949,7 +949,7 @@ impl BurnStateDB for SortitionHandleTx<'_> {
             .reopen_readonly()
             .expect("BUG: failure trying to get a read-only interface into the sortition db.");
         let mut context = self.context.clone();
-        context.chain_tip = sortition_id.clone();
+        context.chain_tip = *sortition_id;
         let db_handle = SortitionHandleConn::new(&readonly_marf, context);
         match db_handle.get_block_snapshot_by_height(height as u64) {
             Ok(Some(x)) => Some(x.burn_header_hash),
@@ -1021,7 +1021,7 @@ impl BurnStateDB for SortitionHandleTx<'_> {
             .reopen_readonly()
             .expect("BUG: failure trying to get a read-only interface into the sortition db.");
         let mut context = self.context.clone();
-        context.chain_tip = sortition_id.clone();
+        context.chain_tip = *sortition_id;
         let db_handle = SortitionHandleConn::new(&readonly_marf, context);
 
         let get_from = match get_ancestor_sort_id(&db_handle, height.into(), sortition_id)

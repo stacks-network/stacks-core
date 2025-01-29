@@ -420,7 +420,7 @@ impl MinerStats {
 
         let tip = if let Some(at_block) = at_block {
             let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
-            let ih = sortdb.index_handle(&tip.sortition_id);
+            let ih = sortdb.index_handle(tip.sortition_id);
             ih.get_block_snapshot_by_height(at_block)?
                 .ok_or(BurnchainError::MissingParentBlock)?
         } else {
@@ -482,7 +482,7 @@ impl MinerStats {
             })
             .collect();
 
-        let mut handle = sortdb.index_handle(&tip.sortition_id);
+        let mut handle = sortdb.index_handle(tip.sortition_id);
         Self::get_burn_distribution(
             &mut handle,
             burnchain,
@@ -500,7 +500,7 @@ impl MinerStats {
     ) -> Result<Vec<(String, LeaderBlockCommitOp)>, DBError> {
         let mut tip = if let Some(at_burn_block) = at_burn_block {
             let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
-            let ih = sortdb.index_handle(&tip.sortition_id);
+            let ih = sortdb.index_handle(tip.sortition_id);
             ih.get_block_snapshot_by_height(at_burn_block)?
                 .ok_or(DBError::NotFoundError)?
         } else {
@@ -556,7 +556,7 @@ pub mod tests {
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
             apparent_sender: BurnchainSigner::new_p2pkh(
-                &StacksPublicKey::from_hex(
+                StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap(),
@@ -589,7 +589,7 @@ pub mod tests {
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
             apparent_sender: BurnchainSigner::new_p2pkh(
-                &StacksPublicKey::from_hex(
+                StacksPublicKey::from_hex(
                     "023616a344700c9455bf0b55cc65e404c7b8f82e815da885398a44f6dc70e64045",
                 )
                 .unwrap(),
@@ -625,7 +625,7 @@ pub mod tests {
             burn_fee: 23456,
             input: (Txid([0; 32]), 0),
             apparent_sender: BurnchainSigner::new_p2pkh(
-                &StacksPublicKey::from_hex(
+                StacksPublicKey::from_hex(
                     "020a9b0a938a2226694fe4f867193cf0b78cd6264e4277fd686468a00a9afdc36d",
                 )
                 .unwrap(),

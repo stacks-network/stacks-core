@@ -62,7 +62,7 @@ pub fn peer_get_nakamoto_invs<'a>(
 ) -> (TestPeer<'a>, Vec<StacksMessageType>) {
     let privk = StacksPrivateKey::new();
     let mut convo = peer.make_client_convo();
-    let client_peer = peer.make_client_local_peer(privk.clone());
+    let client_peer = peer.make_client_local_peer(privk);
     let peer_addr = peer.p2p_socketaddr();
     let chain_view = peer.network.get_chain_view().clone();
 
@@ -172,8 +172,8 @@ fn test_nakamoto_inv_10_tenures_10_sortitions() {
 
     let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
     let sort_db = peer.sortdb.as_mut().unwrap();
-    let stacks_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
-    let stacks_tip_bh = peer.network.stacks_tip.block_hash.clone();
+    let stacks_tip_ch = peer.network.stacks_tip.consensus_hash;
+    let stacks_tip_bh = peer.network.stacks_tip.block_hash;
 
     let mut inv_generator = InvGenerator::new();
     let mut inv_generator_no_cache = InvGenerator::new_no_cache();
@@ -257,8 +257,8 @@ fn test_nakamoto_inv_2_tenures_3_sortitions() {
 
     let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
     let sort_db = peer.sortdb.as_mut().unwrap();
-    let stacks_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
-    let stacks_tip_bh = peer.network.stacks_tip.block_hash.clone();
+    let stacks_tip_ch = peer.network.stacks_tip.consensus_hash;
+    let stacks_tip_bh = peer.network.stacks_tip.block_hash;
 
     let mut inv_generator = InvGenerator::new();
     let mut inv_generator_no_cache = InvGenerator::new_no_cache();
@@ -332,8 +332,8 @@ fn test_nakamoto_inv_10_extended_tenures_10_sortitions() {
 
     let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
     let sort_db = peer.sortdb.as_mut().unwrap();
-    let stacks_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
-    let stacks_tip_bh = peer.network.stacks_tip.block_hash.clone();
+    let stacks_tip_ch = peer.network.stacks_tip.consensus_hash;
+    let stacks_tip_bh = peer.network.stacks_tip.block_hash;
 
     let mut inv_generator = InvGenerator::new();
     let mut inv_generator_no_cache = InvGenerator::new_no_cache();
@@ -1162,13 +1162,13 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
         .block_height_to_reward_cycle(first_burn_block_height, sort_tip.block_height)
         .unwrap();
 
-    let naka_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
-    let naka_tip_bh = peer.network.stacks_tip.block_hash.clone();
+    let naka_tip_ch = peer.network.stacks_tip.consensus_hash;
+    let naka_tip_bh = peer.network.stacks_tip.block_hash;
     let naka_tip = peer.network.stacks_tip.block_id();
-    let first_naka_tip = naka_tip.clone();
+    let first_naka_tip = naka_tip;
     let first_sort_tip = sort_tip.clone();
-    let first_naka_tip_ch = naka_tip_ch.clone();
-    let first_naka_tip_bh = naka_tip_bh.clone();
+    let first_naka_tip_ch = naka_tip_ch;
+    let first_naka_tip_bh = naka_tip_bh;
 
     // find the first block in this tenure
     let naka_tip_header = NakamotoChainState::get_block_header_nakamoto(chainstate.db(), &naka_tip)
@@ -1313,8 +1313,8 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
 
         peer.refresh_burnchain_view();
         let naka_tip = peer.network.stacks_tip.block_id();
-        let naka_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
-        let naka_tip_bh = peer.network.stacks_tip.block_hash.clone();
+        let naka_tip_ch = peer.network.stacks_tip.consensus_hash;
+        let naka_tip_bh = peer.network.stacks_tip.block_hash;
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         let tip_rc = sortdb
             .pox_constants
@@ -1347,8 +1347,8 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
 
     peer.refresh_burnchain_view();
     let naka_tip = peer.network.stacks_tip.block_id();
-    let naka_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
-    let naka_tip_bh = peer.network.stacks_tip.block_hash.clone();
+    let naka_tip_ch = peer.network.stacks_tip.consensus_hash;
+    let naka_tip_bh = peer.network.stacks_tip.block_hash;
 
     //
     // ---------------------- the inv generator can track multiple forks at once ----------------------
@@ -1460,8 +1460,8 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
 
     peer.refresh_burnchain_view();
     let new_naka_tip = peer.network.stacks_tip.block_id();
-    let new_naka_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
-    let new_naka_tip_bh = peer.network.stacks_tip.block_hash.clone();
+    let new_naka_tip_ch = peer.network.stacks_tip.consensus_hash;
+    let new_naka_tip_bh = peer.network.stacks_tip.block_hash;
     let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     let tip_rc = sortdb
         .pox_constants
@@ -1608,8 +1608,8 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
         peer.mine_nakamoto_on(vec![naka_block.clone()]);
     }
     let naka_tip = peer.network.stacks_tip.block_id();
-    let naka_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
-    let naka_tip_bh = peer.network.stacks_tip.block_hash.clone();
+    let naka_tip_ch = peer.network.stacks_tip.consensus_hash;
+    let naka_tip_bh = peer.network.stacks_tip.block_hash;
     let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
 
     // new inv generator with a search depth of 3
@@ -1790,9 +1790,9 @@ fn test_nakamoto_make_tenure_inv_in_many_reward_cycles() {
         .unwrap();
 
     let naka_tip = peer.network.stacks_tip.block_id();
-    let naka_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
-    let naka_tip_bh = peer.network.stacks_tip.block_hash.clone();
-    let first_naka_tip = naka_tip.clone();
+    let naka_tip_ch = peer.network.stacks_tip.consensus_hash;
+    let naka_tip_bh = peer.network.stacks_tip.block_hash;
+    let first_naka_tip = naka_tip;
     let first_sort_tip = sort_tip.clone();
 
     // find the first block in this tenure
@@ -2295,9 +2295,9 @@ fn test_nakamoto_make_tenure_inv_from_old_tips() {
     //
     let naka_tip = peer.network.stacks_tip.block_id();
     let mut ancestor_tips = vec![];
-    let mut cursor = naka_tip.clone();
+    let mut cursor = naka_tip;
     loop {
-        ancestor_tips.push(cursor.clone());
+        ancestor_tips.push(cursor);
         let Some(parent) =
             NakamotoChainState::get_nakamoto_parent_block_id(chainstate.db(), &cursor).unwrap()
         else {

@@ -222,12 +222,12 @@ impl MultisigSpendingCondition {
     }
 
     pub fn address_mainnet(&self) -> StacksAddress {
-        StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_MULTISIG, self.signer.clone())
+        StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_MULTISIG, self.signer)
             .expect("FATAL: infallible: constant is not a valid address byte")
     }
 
     pub fn address_testnet(&self) -> StacksAddress {
-        StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_MULTISIG, self.signer.clone())
+        StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_MULTISIG, self.signer)
             .expect("FATAL: infallible: constant is not a valid address byte")
     }
 
@@ -240,7 +240,7 @@ impl MultisigSpendingCondition {
         cond_code: &TransactionAuthFlags,
     ) -> Result<Txid, net_error> {
         let mut pubkeys = vec![];
-        let mut cur_sighash = initial_sighash.clone();
+        let mut cur_sighash = *initial_sighash;
         let mut num_sigs: u16 = 0;
         let mut have_uncompressed = false;
         for field in self.fields.iter() {
@@ -249,7 +249,7 @@ impl MultisigSpendingCondition {
                     if !pubkey.compressed() {
                         have_uncompressed = true;
                     }
-                    pubkey.clone()
+                    *pubkey
                 }
                 TransactionAuthField::Signature(ref pubkey_encoding, ref sigbuf) => {
                     if *pubkey_encoding == TransactionPublicKeyEncoding::Uncompressed {
@@ -412,12 +412,12 @@ impl OrderIndependentMultisigSpendingCondition {
     }
 
     pub fn address_mainnet(&self) -> StacksAddress {
-        StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_MULTISIG, self.signer.clone())
+        StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_MULTISIG, self.signer)
             .expect("FATAL: infallible: constant address byte is not supported")
     }
 
     pub fn address_testnet(&self) -> StacksAddress {
-        StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_MULTISIG, self.signer.clone())
+        StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_MULTISIG, self.signer)
             .expect("FATAL: infallible: constant address byte is not supported")
     }
 
@@ -438,7 +438,7 @@ impl OrderIndependentMultisigSpendingCondition {
                     if !pubkey.compressed() {
                         have_uncompressed = true;
                     }
-                    pubkey.clone()
+                    *pubkey
                 }
                 TransactionAuthField::Signature(ref pubkey_encoding, ref sigbuf) => {
                     if *pubkey_encoding == TransactionPublicKeyEncoding::Uncompressed {
@@ -493,7 +493,7 @@ impl OrderIndependentMultisigSpendingCondition {
             )));
         }
 
-        Ok(initial_sighash.clone())
+        Ok(*initial_sighash)
     }
 }
 
@@ -503,7 +503,7 @@ impl StacksMessageCodec for SinglesigSpendingCondition {
         write_next(fd, &self.signer)?;
         write_next(fd, &self.nonce)?;
         write_next(fd, &self.tx_fee)?;
-        write_next(fd, &(self.key_encoding.clone() as u8))?;
+        write_next(fd, &(self.key_encoding as u8))?;
         write_next(fd, &self.signature)?;
         Ok(())
     }
@@ -562,13 +562,10 @@ impl SinglesigSpendingCondition {
             return None;
         }
 
-        let ret = self.signature.clone();
+        let ret = self.signature;
         self.signature = MessageSignature::empty();
 
-        return Some(TransactionAuthField::Signature(
-            self.key_encoding.clone(),
-            ret,
-        ));
+        return Some(TransactionAuthField::Signature(self.key_encoding, ret));
     }
 
     pub fn address_mainnet(&self) -> StacksAddress {
@@ -576,7 +573,7 @@ impl SinglesigSpendingCondition {
             SinglesigHashMode::P2PKH => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
             SinglesigHashMode::P2WPKH => C32_ADDRESS_VERSION_MAINNET_MULTISIG,
         };
-        StacksAddress::new(version, self.signer.clone())
+        StacksAddress::new(version, self.signer)
             .expect("FATAL: infallible: supported address constant is not valid")
     }
 
@@ -585,7 +582,7 @@ impl SinglesigSpendingCondition {
             SinglesigHashMode::P2PKH => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             SinglesigHashMode::P2WPKH => C32_ADDRESS_VERSION_TESTNET_MULTISIG,
         };
-        StacksAddress::new(version, self.signer.clone())
+        StacksAddress::new(version, self.signer)
             .expect("FATAL: infallible: supported address constant is not valid")
     }
 
@@ -2281,10 +2278,10 @@ mod test {
         .unwrap();
 
         let keys = [
-            privk.clone(),
-            privk.clone(),
-            privk_uncompressed.clone(),
-            privk_uncompressed.clone(),
+            privk,
+            privk,
+            privk_uncompressed,
+            privk_uncompressed,
         ];
 
         let key_modes = [

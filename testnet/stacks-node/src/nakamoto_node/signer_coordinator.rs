@@ -110,7 +110,7 @@ impl SignerCoordinator {
             stackerdb_comms: listener.get_comms(),
             keep_running,
             listener_thread: None,
-            burn_tip_at_start: burn_tip_at_start.clone(),
+            burn_tip_at_start: *burn_tip_at_start,
         };
 
         // Spawn the signer DB listener thread

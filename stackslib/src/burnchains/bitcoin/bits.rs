@@ -445,13 +445,14 @@ impl BitcoinTxInputStructured {
         input_txid: (Txid, u32),
     ) -> Option<BitcoinTxInputStructured> {
         let instructions = parse_script(script_sig);
-        BitcoinTxInputStructured::from_bitcoin_p2pkh_script_sig(&instructions, input_txid.clone())
-            .or_else(|| {
+        BitcoinTxInputStructured::from_bitcoin_p2pkh_script_sig(&instructions, input_txid).or_else(
+            || {
                 BitcoinTxInputStructured::from_bitcoin_p2sh_multisig_script_sig(
                     &instructions,
                     input_txid,
                 )
-            })
+            },
+        )
     }
 
     /// Parse a script-sig and a witness as either a p2wpkh-over-p2sh or p2wsh-over-p2sh multisig
@@ -465,7 +466,7 @@ impl BitcoinTxInputStructured {
         BitcoinTxInputStructured::from_bitcoin_p2wpkh_p2sh_script_sig(
             &instructions,
             witness,
-            input_txid.clone(),
+            input_txid,
         )
         .or_else(|| {
             BitcoinTxInputStructured::from_bitcoin_p2wsh_p2sh_multisig_script_sig(
@@ -550,7 +551,7 @@ fn to_txid(txin: &BtcTxIn) -> (Txid, u32) {
     // bitcoin-rs library (which stacks_common::deps_common::bitcoin is based on)
     //   operates in a different endian-ness for txids than the rest of
     //   the codebase. so this method reverses the txid bits.
-    let mut bits = txin.previous_output.txid.0.clone();
+    let mut bits = txin.previous_output.txid.0;
     bits.reverse();
     (Txid(bits), txin.previous_output.vout)
 }

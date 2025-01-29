@@ -370,7 +370,7 @@ impl StacksHeaderInfo {
             microblock_tail: None,
             stacks_block_height: 0,
             index_root: TrieHash([0u8; 32]),
-            burn_header_hash: burnchain_params.first_block_hash.clone(),
+            burn_header_hash: burnchain_params.first_block_hash,
             burn_header_height: burnchain_params.first_block_height as u32,
             consensus_hash: ConsensusHash::empty(),
             burn_header_timestamp: 0,
@@ -381,7 +381,7 @@ impl StacksHeaderInfo {
 
     pub fn genesis(
         root_hash: TrieHash,
-        first_burnchain_block_hash: &BurnchainHeaderHash,
+        first_burnchain_block_hash: BurnchainHeaderHash,
         first_burnchain_block_height: u32,
         first_burnchain_block_timestamp: u64,
     ) -> StacksHeaderInfo {
@@ -390,9 +390,9 @@ impl StacksHeaderInfo {
             microblock_tail: None,
             stacks_block_height: 0,
             index_root: root_hash,
-            burn_header_hash: first_burnchain_block_hash.clone(),
+            burn_header_hash: first_burnchain_block_hash,
             burn_header_height: first_burnchain_block_height,
-            consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+            consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH,
             burn_header_timestamp: first_burnchain_block_timestamp,
             anchored_block_size: 0,
             burn_view: None,
@@ -972,7 +972,7 @@ impl ChainStateBootData {
         post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx)>>,
     ) -> ChainStateBootData {
         ChainStateBootData {
-            first_burnchain_block_hash: burnchain.first_block_hash.clone(),
+            first_burnchain_block_hash: burnchain.first_block_hash,
             first_burnchain_block_height: burnchain.first_block_height as u32,
             first_burnchain_block_timestamp: burnchain.first_block_timestamp,
             initial_balances,
@@ -1311,11 +1311,8 @@ impl StacksChainState {
                     None,
                 );
 
-                let boot_code_smart_contract = StacksTransaction::new(
-                    tx_version.clone(),
-                    boot_code_auth.clone(),
-                    smart_contract,
-                );
+                let boot_code_smart_contract =
+                    StacksTransaction::new(tx_version, boot_code_auth.clone(), smart_contract);
 
                 let tx_receipt = clarity_tx.connection().as_transaction(|clarity| {
                     StacksChainState::process_transaction_payload(
@@ -1608,7 +1605,7 @@ impl StacksChainState {
             });
 
             let allocations_tx = StacksTransaction::new(
-                tx_version.clone(),
+                tx_version,
                 boot_code_auth,
                 TransactionPayload::TokenTransfer(
                     PrincipalData::Standard(boot_code_address.into()),
@@ -1711,7 +1708,7 @@ impl StacksChainState {
 
             let first_tip_info = StacksHeaderInfo::genesis(
                 first_root_hash,
-                &boot_data.first_burnchain_block_hash,
+                boot_data.first_burnchain_block_hash,
                 boot_data.first_burnchain_block_height,
                 boot_data.first_burnchain_block_timestamp as u64,
             );
@@ -2520,7 +2517,7 @@ impl StacksChainState {
     /// Only works for epoch 2.x
     pub fn get_burnchain_txids_in_ancestors(
         conn: &Connection,
-        index_block_hash: &StacksBlockId,
+        index_block_hash: StacksBlockId,
         count: u64,
     ) -> Result<HashSet<Txid>, Error> {
         let mut ret = HashSet::new();
@@ -2653,8 +2650,8 @@ impl StacksChainState {
             microblock_tail: microblock_tail_opt,
             index_root: root_hash,
             stacks_block_height: new_tip.total_work.work,
-            consensus_hash: new_consensus_hash.clone(),
-            burn_header_hash: new_burn_header_hash.clone(),
+            consensus_hash: *new_consensus_hash,
+            burn_header_hash: *new_burn_header_hash,
             burn_header_height: new_burnchain_height,
             burn_header_timestamp: new_burnchain_timestamp,
             anchored_block_size: anchor_block_size,

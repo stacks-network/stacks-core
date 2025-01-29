@@ -476,7 +476,7 @@ impl AttachmentsBatchStateContext {
                 // Success, we found at least one inventory including the attachment we're looking for.
                 let request = AttachmentRequest {
                     sources,
-                    content_hash: content_hash.clone(),
+                    content_hash: *content_hash,
                     stacks_block_height: self.attachments_batch.stacks_block_height,
                     canonical_stacks_tip_height: self.attachments_batch.canonical_stacks_tip_height,
                 };
@@ -1018,7 +1018,7 @@ impl AttachmentsInventoryRequest {
         (
             self.contract_id.clone(),
             self.pages.clone(),
-            self.index_block_hash.clone(),
+            self.index_block_hash,
         )
     }
 }
@@ -1159,8 +1159,8 @@ impl AttachmentsBatch {
 
     pub fn track_attachment(&mut self, attachment: &AttachmentInstance) {
         if self.attachments_instances.is_empty() {
-            self.stacks_block_height = attachment.stacks_block_height.clone();
-            self.index_block_hash = attachment.index_block_hash.clone();
+            self.stacks_block_height = attachment.stacks_block_height;
+            self.index_block_hash = attachment.index_block_hash;
             self.canonical_stacks_tip_height = attachment.canonical_stacks_tip_height;
         } else if self.stacks_block_height != attachment.stacks_block_height
             || self.index_block_hash != attachment.index_block_hash
@@ -1180,11 +1180,11 @@ impl AttachmentsBatch {
             Entry::Occupied(missing_attachments) => {
                 missing_attachments
                     .into_mut()
-                    .insert(inner_key, attachment.content_hash.clone());
+                    .insert(inner_key, attachment.content_hash);
             }
             Entry::Vacant(v) => {
                 let mut missing_attachments = HashMap::new();
-                missing_attachments.insert(inner_key, attachment.content_hash.clone());
+                missing_attachments.insert(inner_key, attachment.content_hash);
                 v.insert(missing_attachments);
             }
         };
@@ -1239,7 +1239,7 @@ impl AttachmentsBatch {
             let mut keys = vec![];
             for (k, hash) in missing_attachments.iter() {
                 if hash == content_hash {
-                    keys.push(k.clone());
+                    keys.push(*k);
                 }
             }
             for key in keys {

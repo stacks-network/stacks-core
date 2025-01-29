@@ -264,7 +264,7 @@ pub mod pox4 {
             let pubkey = Secp256k1PublicKey::new();
             let stacks_addr = StacksAddress::p2pkh(false, &pubkey);
             let pubkey = Secp256k1PublicKey::new();
-            let principal = PrincipalData::from(stacks_addr.clone());
+            let principal = PrincipalData::from(stacks_addr);
             let pox_addr = PoxAddress::standard_burn_address(false);
             let reward_cycle: u128 = 1;
             let topic = Pox4SignatureTopic::StackStx;
@@ -295,7 +295,7 @@ pub mod pox4 {
                 max_amount,
                 auth_id,
             );
-            assert_eq!(expected_hash.clone(), result.as_slice());
+            assert_eq!(expected_hash, result.as_slice());
 
             // Test 2: invalid pox address
             let other_pox_address = PoxAddress::from_legacy(
@@ -314,7 +314,7 @@ pub mod pox4 {
                 max_amount,
                 auth_id,
             );
-            assert_ne!(expected_hash.clone(), result.as_slice());
+            assert_ne!(expected_hash, result.as_slice());
 
             // Test 3: invalid reward cycle
             let result = call_get_signer_message_hash(
@@ -327,7 +327,7 @@ pub mod pox4 {
                 max_amount,
                 auth_id,
             );
-            assert_ne!(expected_hash.clone(), result.as_slice());
+            assert_ne!(expected_hash, result.as_slice());
 
             // Test 4: invalid topic
             let result = call_get_signer_message_hash(
@@ -340,7 +340,7 @@ pub mod pox4 {
                 max_amount,
                 auth_id,
             );
-            assert_ne!(expected_hash.clone(), result.as_slice());
+            assert_ne!(expected_hash, result.as_slice());
 
             // Test 5: invalid lock period
             let result = call_get_signer_message_hash(
@@ -353,7 +353,7 @@ pub mod pox4 {
                 max_amount,
                 auth_id,
             );
-            assert_ne!(expected_hash.clone(), result.as_slice());
+            assert_ne!(expected_hash, result.as_slice());
 
             // Test 5: invalid max amount
             let result = call_get_signer_message_hash(
@@ -366,7 +366,7 @@ pub mod pox4 {
                 1010101,
                 auth_id,
             );
-            assert_ne!(expected_hash.clone(), result.as_slice());
+            assert_ne!(expected_hash, result.as_slice());
 
             // Test 6: invalid auth id
             let result = call_get_signer_message_hash(
@@ -379,7 +379,7 @@ pub mod pox4 {
                 max_amount,
                 10101,
             );
-            assert_ne!(expected_hash.clone(), result.as_slice());
+            assert_ne!(expected_hash, result.as_slice());
         }
 
         #[test]

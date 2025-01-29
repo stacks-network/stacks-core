@@ -1165,7 +1165,7 @@ impl<'a> SortitionHandleTx<'a> {
         let handle = SortitionHandleTx::new(
             &mut conn.marf,
             SortitionHandleContext {
-                chain_tip: parent_chain_tip.clone(),
+                chain_tip: *parent_chain_tip,
                 first_block_height: conn.first_block_height,
                 pox_constants: conn.pox_constants.clone(),
                 dryrun: conn.dryrun,
@@ -1271,7 +1271,7 @@ impl<'a> SortitionHandleTx<'a> {
         block_height: u64,
     ) -> Result<Option<ConsensusHash>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
-        let chain_tip = self.context.chain_tip.clone();
+        let chain_tip = self.context.chain_tip;
 
         match SortitionDB::get_ancestor_snapshot_tx(self, block_height, &chain_tip)? {
             Some(sn) => Ok(Some(sn.consensus_hash)),
@@ -1285,7 +1285,7 @@ impl<'a> SortitionHandleTx<'a> {
         &mut self,
         block_hash: &BlockHeaderHash,
     ) -> Result<bool, db_error> {
-        let chain_tip = self.context.chain_tip.clone();
+        let chain_tip = self.context.chain_tip;
         self.get_indexed(&chain_tip, &db_keys::stacks_block_present(block_hash))
             .map(|result| result.is_some())
     }
@@ -1303,7 +1303,7 @@ impl<'a> SortitionHandleTx<'a> {
             &self.context.chain_tip,
             burn_block_height
         );
-        let chain_tip = self.context.chain_tip.clone();
+        let chain_tip = self.context.chain_tip;
 
         let get_from = match get_ancestor_sort_id_tx(self, burn_block_height, &chain_tip)? {
             Some(sortition_id) => sortition_id,
@@ -1345,7 +1345,7 @@ impl<'a> SortitionHandleTx<'a> {
         leader_key: &LeaderKeyRegisterOp,
     ) -> Result<bool, db_error> {
         assert!(leader_key.block_height < BLOCK_HEIGHT_MAX);
-        let chain_tip = self.context.chain_tip.clone();
+        let chain_tip = self.context.chain_tip;
 
         let key_status =
             match self.get_indexed(&chain_tip, &db_keys::vrf_key_status(&leader_key.public_key))? {
@@ -1389,7 +1389,7 @@ impl<'a> SortitionHandleTx<'a> {
     }
 
     pub fn has_VRF_public_key(&mut self, key: &VRFPublicKey) -> Result<bool, db_error> {
-        let chain_tip = self.context.chain_tip.clone();
+        let chain_tip = self.context.chain_tip;
         let key_status = self
             .get_indexed(&chain_tip, &db_keys::vrf_key_status(key))?
             .is_some();
@@ -1404,7 +1404,7 @@ impl<'a> SortitionHandleTx<'a> {
     where
         F: Fn(&ConsensusHash) -> bool,
     {
-        let chain_tip = self.context.chain_tip.clone();
+        let chain_tip = self.context.chain_tip;
         let first_snapshot = SortitionDB::get_first_block_snapshot(self.tx())?;
         let mut last_snapshot =
             SortitionDB::get_block_snapshot(self.tx(), &self.context.chain_tip)?
@@ -1473,7 +1473,7 @@ impl SortitionHandle for SortitionHandleTx<'_> {
         block_height: u64,
     ) -> Result<Option<BlockSnapshot>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
-        let chain_tip = self.context.chain_tip.clone();
+        let chain_tip = self.context.chain_tip;
         SortitionDB::get_ancestor_snapshot_tx(self, block_height, &chain_tip)
     }
 
@@ -1490,7 +1490,7 @@ impl SortitionHandle for SortitionHandleTx<'_> {
     }
 
     fn tip(&self) -> SortitionId {
-        self.context.chain_tip.clone()
+        self.context.chain_tip
     }
 
     fn get_nakamoto_tip(&self) -> Result<Option<(ConsensusHash, BlockHeaderHash, u64)>, db_error> {
@@ -1521,7 +1521,7 @@ impl SortitionHandle for SortitionHandleConn<'_> {
     }
 
     fn tip(&self) -> SortitionId {
-        self.context.chain_tip.clone()
+        self.context.chain_tip
     }
 
     fn get_nakamoto_tip(&self) -> Result<Option<(ConsensusHash, BlockHeaderHash, u64)>, db_error> {
@@ -1619,7 +1619,7 @@ impl SortitionHandleTx<'_> {
                 );
 
                 Ok(Some(RewardSetInfo {
-                    anchor_block: anchor_block.clone(),
+                    anchor_block: *anchor_block,
                     recipients: chosen_recipients
                         .into_iter()
                         .map(|ix| {
@@ -1727,7 +1727,7 @@ impl SortitionHandleTx<'_> {
     }
 
     pub fn get_last_anchor_block_hash(&mut self) -> Result<Option<BlockHeaderHash>, db_error> {
-        let chain_tip = self.context.chain_tip.clone();
+        let chain_tip = self.context.chain_tip;
         let anchor_block_hash = SortitionDB::parse_last_anchor_block_hash(
             self.get_indexed(&chain_tip, db_keys::pox_last_anchor())?,
         );
@@ -1735,7 +1735,7 @@ impl SortitionHandleTx<'_> {
     }
 
     pub fn get_last_anchor_block_txid(&mut self) -> Result<Option<Txid>, db_error> {
-        let chain_tip = self.context.chain_tip.clone();
+        let chain_tip = self.context.chain_tip;
         let anchor_block_txid = SortitionDB::parse_last_anchor_block_txid(
             self.get_indexed(&chain_tip, db_keys::pox_last_anchor_txid())?,
         );
@@ -1743,7 +1743,7 @@ impl SortitionHandleTx<'_> {
     }
 
     pub fn get_sortition_affirmation_map(&mut self) -> Result<AffirmationMap, db_error> {
-        let chain_tip = self.context.chain_tip.clone();
+        let chain_tip = self.context.chain_tip;
         let affirmation_map = match self.get_indexed(&chain_tip, db_keys::pox_affirmation_map())? {
             Some(am_str) => {
                 AffirmationMap::decode(&am_str).expect("FATAL: corrupt affirmation map")
@@ -1756,7 +1756,7 @@ impl SortitionHandleTx<'_> {
     pub fn get_last_selected_anchor_block_hash(
         &mut self,
     ) -> Result<Option<BlockHeaderHash>, db_error> {
-        let chain_tip = self.context.chain_tip.clone();
+        let chain_tip = self.context.chain_tip;
         let anchor_block_hash = SortitionDB::parse_last_anchor_block_hash(
             self.get_indexed(&chain_tip, db_keys::pox_last_selected_anchor())?,
         );
@@ -1764,7 +1764,7 @@ impl SortitionHandleTx<'_> {
     }
 
     pub fn get_last_selected_anchor_block_txid(&mut self) -> Result<Option<Txid>, db_error> {
-        let chain_tip = self.context.chain_tip.clone();
+        let chain_tip = self.context.chain_tip;
         let anchor_block_txid = SortitionDB::parse_last_anchor_block_txid(
             self.get_indexed(&chain_tip, db_keys::pox_last_selected_anchor_txid())?,
         );
@@ -1944,7 +1944,7 @@ impl<'a> SortitionHandleConn<'a> {
             }
         };
 
-        SortitionHandleConn::open_reader(connection, &sn.sortition_id)
+        SortitionHandleConn::open_reader(connection, sn.sortition_id)
     }
 
     pub fn get_reward_set_size_at(&self, sortition_id: &SortitionId) -> Result<u16, db_error> {
@@ -1971,7 +1971,7 @@ impl<'a> SortitionHandleConn<'a> {
     }
 
     pub fn get_sortition_affirmation_map(&self) -> Result<AffirmationMap, db_error> {
-        let chain_tip = self.context.chain_tip.clone();
+        let chain_tip = self.context.chain_tip;
         let affirmation_map = match self.get_indexed(&chain_tip, db_keys::pox_affirmation_map())? {
             Some(am_str) => {
                 AffirmationMap::decode(&am_str).expect("FATAL: corrupt affirmation map")
@@ -2020,11 +2020,11 @@ impl<'a> SortitionHandleConn<'a> {
     /// open a reader handle
     pub fn open_reader(
         connection: &'a SortitionDBConn<'a>,
-        chain_tip: &SortitionId,
+        chain_tip: SortitionId,
     ) -> Result<SortitionHandleConn<'a>, db_error> {
         Ok(SortitionHandleConn {
             context: SortitionHandleContext {
-                chain_tip: chain_tip.clone(),
+                chain_tip,
                 first_block_height: connection.context.first_block_height,
                 pox_constants: connection.context.pox_constants.clone(),
                 dryrun: connection.context.dryrun,
@@ -2516,7 +2516,7 @@ impl<'a> SortitionHandleConn<'a> {
             while cursor.2 > (prepare_begin as u64) {
                 // check if we've already discovered the candidate for this block
                 if let Some(ancestor) = memoized_candidates.get(&cursor.2) {
-                    cursor = ancestor.clone();
+                    cursor = *ancestor;
                 } else {
                     // get the block commit
                     let block_commit = self.get_block_commit_by_txid(&cursor.0, &cursor.1)?.expect(
@@ -2669,12 +2669,12 @@ impl SortitionDB {
         )
     }
 
-    pub fn index_handle<'a>(&'a self, chain_tip: &SortitionId) -> SortitionHandleConn<'a> {
+    pub fn index_handle<'a>(&'a self, chain_tip: SortitionId) -> SortitionHandleConn<'a> {
         SortitionHandleConn::new(
             &self.marf,
             SortitionHandleContext {
                 first_block_height: self.first_block_height,
-                chain_tip: chain_tip.clone(),
+                chain_tip,
                 pox_constants: self.pox_constants.clone(),
                 dryrun: self.dryrun,
             },
@@ -2713,7 +2713,7 @@ impl SortitionDB {
 
         let snapshot = SortitionDB::get_block_snapshot_consensus(self.conn(), &burn_view)?
             .ok_or(db_error::NotFoundError)?;
-        Ok(self.index_handle(&snapshot.sortition_id))
+        Ok(self.index_handle(snapshot.sortition_id))
     }
 
     pub fn tx_handle_begin<'a>(
@@ -2727,7 +2727,7 @@ impl SortitionDB {
             &mut self.marf,
             SortitionHandleContext {
                 first_block_height: self.first_block_height,
-                chain_tip: chain_tip.clone(),
+                chain_tip: *chain_tip,
                 pox_constants: self.pox_constants.clone(),
                 dryrun: self.dryrun,
             },
@@ -2830,7 +2830,7 @@ impl SortitionDB {
             dryrun: false,
             first_block_height,
             pox_constants,
-            first_burn_header_hash: first_burn_hash.clone(),
+            first_burn_header_hash: *first_burn_hash,
         };
 
         if create_flag {
@@ -3520,7 +3520,7 @@ impl SortitionDB {
                 readwrite: true,
                 dryrun: false,
                 first_block_height: migrator.get_burnchain().first_block_height,
-                first_burn_header_hash: migrator.get_burnchain().first_block_hash.clone(),
+                first_burn_header_hash: migrator.get_burnchain().first_block_hash,
                 pox_constants: migrator.get_burnchain().pox_constants.clone(),
             };
             db.check_schema_version_and_update(epochs, Some(migrator))
@@ -3716,12 +3716,12 @@ impl SortitionDBTx<'_> {
 }
 
 impl SortitionDBConn<'_> {
-    pub fn as_handle<'b>(&'b self, chain_tip: &SortitionId) -> SortitionHandleConn<'b> {
+    pub fn as_handle<'b>(&'b self, chain_tip: SortitionId) -> SortitionHandleConn<'b> {
         SortitionHandleConn {
             index: self.index,
             context: SortitionHandleContext {
-                first_block_height: self.context.first_block_height.clone(),
-                chain_tip: chain_tip.clone(),
+                first_block_height: self.context.first_block_height,
+                chain_tip,
                 pox_constants: self.context.pox_constants.clone(),
                 dryrun: self.context.dryrun,
             },
@@ -3755,7 +3755,7 @@ impl SortitionDBConn<'_> {
             "DB corruption: have snapshot with a smaller block height than the first block height"
         );
 
-        let db_handle = self.as_handle(&tip_snapshot.sortition_id);
+        let db_handle = self.as_handle(tip_snapshot.sortition_id);
 
         let headers_count =
             if tip_snapshot.block_height - self.context.first_block_height < num_headers {
@@ -3771,8 +3771,8 @@ impl SortitionDBConn<'_> {
                 cache.get(&ancestor_consensus_hash)
             {
                 // cache hit
-                ret.push((ancestor_consensus_hash, header_hash_opt.clone()));
-                ancestor_consensus_hash = prev_consensus_hash.clone();
+                ret.push((ancestor_consensus_hash, *header_hash_opt));
+                ancestor_consensus_hash = *prev_consensus_hash;
                 continue;
             }
 
@@ -3795,7 +3795,7 @@ impl SortitionDBConn<'_> {
             }
 
             let header_hash_opt = if ancestor_snapshot.sortition {
-                Some(ancestor_snapshot.winning_stacks_block_hash.clone())
+                Some(ancestor_snapshot.winning_stacks_block_hash)
             } else {
                 None
             };
@@ -3805,7 +3805,7 @@ impl SortitionDBConn<'_> {
                 &ancestor_consensus_hash, ancestor_snapshot.block_height, &header_hash_opt
             );
 
-            ret.push((ancestor_snapshot.consensus_hash, header_hash_opt.clone()));
+            ret.push((ancestor_snapshot.consensus_hash, header_hash_opt));
 
             let ancestor_snapshot_parent = SortitionDB::get_block_snapshot(
                 db_handle.conn(),
@@ -4000,7 +4000,7 @@ impl SortitionDB {
     pub fn get_sortition_id(
         &self,
         burnchain_header_hash: &BurnchainHeaderHash,
-        sortition_tip: &SortitionId,
+        sortition_tip: SortitionId,
     ) -> Result<Option<SortitionId>, BurnchainError> {
         let handle = self.index_handle(sortition_tip);
         handle
@@ -4031,12 +4031,12 @@ impl SortitionDB {
     pub fn is_stacks_block_pox_anchor(
         &mut self,
         block: &BlockHeaderHash,
-        sortition_tip: &SortitionId,
+        sortition_tip: SortitionId,
     ) -> Result<Option<BlockHeaderHash>, BurnchainError> {
         let handle = self.index_handle(sortition_tip);
         let expects_block_as_anchor = handle
             .get_tip_indexed(&db_keys::pox_anchor_to_prepare_end(block))?
-            .map(|_| block.clone());
+            .map(|_| *block);
 
         return Ok(expects_block_as_anchor);
     }
@@ -4116,7 +4116,7 @@ impl SortitionDB {
         G: FnMut(&mut SortitionDBTx),
     {
         let mut db_tx = self.tx_begin()?;
-        let mut queue = vec![burn_block.clone()];
+        let mut queue = vec![*burn_block];
 
         while let Some(header) = queue.pop() {
             {
@@ -4185,7 +4185,7 @@ impl SortitionDB {
     ///   or if the anchor is not expected, return None
     pub fn get_prepare_end_for(
         &mut self,
-        sortition_tip: &SortitionId,
+        sortition_tip: SortitionId,
         anchor: &BlockHeaderHash,
     ) -> Result<Option<BlockSnapshot>, BurnchainError> {
         let handle = self.index_handle(sortition_tip);
@@ -4202,7 +4202,7 @@ impl SortitionDB {
     }
 
     /// Get the PoX ID at the particular sortition_tip
-    pub fn get_pox_id(&mut self, sortition_tip: &SortitionId) -> Result<PoxId, BurnchainError> {
+    pub fn get_pox_id(&mut self, sortition_tip: SortitionId) -> Result<PoxId, BurnchainError> {
         let handle = self.index_handle(sortition_tip);
         handle.get_pox_id().map_err(BurnchainError::from)
     }
@@ -4285,7 +4285,7 @@ impl SortitionDB {
         burn_header: &BurnchainBlockHeader,
         ops: Vec<BlockstackOperationType>,
         burnchain: &Burnchain,
-        from_tip: &SortitionId,
+        from_tip: SortitionId,
         next_pox_info: Option<RewardCycleInfo>,
         announce_to: F,
     ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
@@ -4423,7 +4423,7 @@ impl SortitionDB {
 
     pub fn is_stacks_block_in_sortition_set(
         &self,
-        sortition_id: &SortitionId,
+        sortition_id: SortitionId,
         block_to_check: &BlockHeaderHash,
     ) -> Result<bool, BurnchainError> {
         let result = self
@@ -4435,7 +4435,7 @@ impl SortitionDB {
     #[cfg_attr(test, mutants::skip)]
     pub fn latest_stacks_blocks_processed(
         &self,
-        sortition_id: &SortitionId,
+        sortition_id: SortitionId,
     ) -> Result<u64, BurnchainError> {
         let db_handle = self.index_handle(sortition_id);
         SortitionDB::get_max_arrival_index(&db_handle).map_err(BurnchainError::from)
@@ -4490,7 +4490,7 @@ impl SortitionDB {
                 if cursor.block_height > burnchain.first_block_height {
                     match SortitionDB::get_block_snapshot(conn, &cursor.parent_sortition_id) {
                         Ok(Some(new_cursor)) => {
-                            let ret = (cursor.burn_header_hash.clone(), cursor.block_height);
+                            let ret = (cursor.burn_header_hash, cursor.block_height);
 
                             cursor = new_cursor;
                             assert_eq!(cursor.block_height + 1, cur_height);
@@ -4500,21 +4500,20 @@ impl SortitionDB {
                         }
                         _ => {
                             cur_height = cur_height.saturating_sub(1);
-                            (burnchain.first_block_hash.clone(), cur_height)
+                            (burnchain.first_block_hash, cur_height)
                         }
                     }
                 } else {
                     cur_height = cur_height.saturating_sub(1);
-                    (burnchain.first_block_hash.clone(), cur_height)
+                    (burnchain.first_block_hash, cur_height)
                 };
 
             last_burn_block_hashes.insert(ancestor_height, ancestor_hash);
         }
 
-        let burn_stable_block_hash = last_burn_block_hashes
+        let burn_stable_block_hash = *last_burn_block_hashes
             .get(&stable_block_height)
-            .unwrap_or(&burnchain.first_block_hash)
-            .clone();
+            .unwrap_or(&burnchain.first_block_hash);
 
         test_debug!(
             "Chain view: {},{}-{},{},{}",
@@ -4578,7 +4577,7 @@ impl SortitionDB {
     /// Find the affirmation map represented by a given sortition ID.
     pub fn find_sortition_tip_affirmation_map(
         &self,
-        tip_id: &SortitionId,
+        tip_id: SortitionId,
     ) -> Result<AffirmationMap, db_error> {
         let ih = self.index_handle(tip_id);
         let am = ih.get_sortition_affirmation_map()?;
@@ -4691,10 +4690,10 @@ impl SortitionDB {
     /// The returned list always starts with `burn_header_hash`.
     pub fn get_ancestor_burnchain_header_hashes(
         conn: &Connection,
-        burn_header_hash: &BurnchainHeaderHash,
+        burn_header_hash: BurnchainHeaderHash,
         count: u64,
     ) -> Result<Vec<BurnchainHeaderHash>, db_error> {
-        let mut ret = vec![burn_header_hash.clone()];
+        let mut ret = vec![burn_header_hash];
         for _i in 0..count {
             let parent_bhh = match SortitionDB::get_parent_burnchain_header_hash(
                 conn,
@@ -4713,7 +4712,7 @@ impl SortitionDB {
     /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
     pub fn index_handle_at_tip(&self) -> SortitionHandleConn<'_> {
         let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn()).unwrap();
-        self.index_handle(&sortition_id)
+        self.index_handle(sortition_id)
     }
 
     /// Open an index handle at the given consensus hash
@@ -4724,7 +4723,7 @@ impl SortitionDB {
     ) -> Result<SortitionHandleConn<'a>, db_error> {
         let sortition_id = Self::get_sortition_id_by_consensus(self.conn(), ch)?
             .ok_or_else(|| db_error::NotFoundError)?;
-        Ok(self.index_handle(&sortition_id))
+        Ok(self.index_handle(sortition_id))
     }
 
     /// Open a tx handle at the burn chain tip
@@ -4989,7 +4988,7 @@ impl SortitionDB {
                     db_error::NotFoundError
                 })?;
 
-        let handle = self.index_handle(&sort_id_of_start);
+        let handle = self.index_handle(sort_id_of_start);
         Ok(handle.get_reward_set_size_at(&sort_id_of_start)? > 0)
     }
 
@@ -5240,11 +5239,8 @@ impl SortitionDB {
                 if let Some((ref cached_block_opt, _)) = cache.get(cur_consensus_hash) {
                     assert_eq!(cached_block_opt, cur_block_opt);
                 } else {
-                    let prev_consensus_hash = header_data[i - 1].0.clone();
-                    cache.insert(
-                        (*cur_consensus_hash).clone(),
-                        ((*cur_block_opt).clone(), prev_consensus_hash.clone()),
-                    );
+                    let prev_consensus_hash = header_data[i - 1].0;
+                    cache.insert(*cur_consensus_hash, (*cur_block_opt, prev_consensus_hash));
                 }
 
                 i -= 1;
@@ -5424,7 +5420,7 @@ impl SortitionHandleTx<'_> {
         )?;
 
         let mut sn = snapshot.clone();
-        sn.index_root = root_hash.clone();
+        sn.index_root = root_hash;
 
         let cur_epoch =
             SortitionDB::get_stacks_epoch(self, snapshot.block_height)?.unwrap_or_else(|| {
@@ -5560,7 +5556,7 @@ impl SortitionHandleTx<'_> {
     }
 
     pub fn get_pox_id(&mut self) -> Result<PoxId, db_error> {
-        let chain_tip = self.context.chain_tip.clone();
+        let chain_tip = self.context.chain_tip;
         let pox_id = self
             .get_indexed(&chain_tip, db_keys::pox_identifier())?
             .map(|s| s.parse().expect("BUG: Bad PoX identifier stored in DB"))
@@ -6290,7 +6286,7 @@ impl SortitionHandleTx<'_> {
             pox_payout_addrs.push(PoxAddress::standard_burn_address(true));
         }
 
-        self.context.chain_tip = snapshot.sortition_id.clone();
+        self.context.chain_tip = snapshot.sortition_id;
         Ok((root_hash, (pox_payout_addrs, pox_payout)))
     }
 
@@ -6329,7 +6325,7 @@ impl SortitionHandleTx<'_> {
             buff[32..64].copy_from_slice(&tip.sortition_hash.0);
 
             let hashed = Sha512Trunc256Sum::from_data(&buff);
-            hash_tied.push(hashed.clone());
+            hash_tied.push(hashed);
             mapping.insert(hashed, arrival_idx);
         }
 
@@ -6422,8 +6418,8 @@ impl SortitionHandleTx<'_> {
             }
         }
 
-        let mut best_tip_block_bhh = parent_tip.canonical_stacks_tip_hash.clone();
-        let mut best_tip_consensus_hash = parent_tip.canonical_stacks_tip_consensus_hash.clone();
+        let mut best_tip_block_bhh = parent_tip.canonical_stacks_tip_hash;
+        let mut best_tip_consensus_hash = parent_tip.canonical_stacks_tip_consensus_hash;
         let mut best_tip_height = parent_tip.canonical_stacks_tip_height;
         let mut ret = vec![];
 
@@ -6433,7 +6429,7 @@ impl SortitionHandleTx<'_> {
         );
 
         for (consensus_hash, block_bhh, height) in new_block_arrivals.iter() {
-            ret.push((block_bhh.clone(), *height));
+            ret.push((*block_bhh, *height));
 
             // genesis blocks are incomparable -- it doesn't matter which one was "first."
             // everyone else must be higher than the highest known tip to supersede it.
@@ -6449,8 +6445,8 @@ impl SortitionHandleTx<'_> {
                     *height
                 );
 
-                best_tip_block_bhh = block_bhh.clone();
-                best_tip_consensus_hash = consensus_hash.clone();
+                best_tip_block_bhh = *block_bhh;
+                best_tip_consensus_hash = *consensus_hash;
                 best_tip_height = *height;
             }
         }
@@ -6467,8 +6463,7 @@ impl SortitionHandleTx<'_> {
         }
 
         debug!(
-            "Max arrival for child of {} is {} (hash {} height {})",
-            &best_tip_consensus_hash, &max_arrival_index, &best_tip_block_bhh, best_tip_height
+            "Max arrival for child of {best_tip_consensus_hash} is {max_arrival_index} (hash {best_tip_block_bhh} height {best_tip_height})"
         );
 
         Ok((
@@ -6697,7 +6692,7 @@ pub mod tests {
                 readwrite,
                 dryrun: false,
                 first_block_height,
-                first_burn_header_hash: first_burn_hash.clone(),
+                first_burn_header_hash: *first_burn_hash,
                 pox_constants: PoxConstants::test_default(),
             };
 
@@ -6845,7 +6840,7 @@ pub mod tests {
             tip: &SortitionId,
             last_tenure_id: &StacksBlockId,
         ) -> Result<Option<BlockSnapshot>, db_error> {
-            let block_hash = BlockHeaderHash(last_tenure_id.0.clone());
+            let block_hash = BlockHeaderHash(last_tenure_id.0);
             Self::get_block_snapshot_for_winning_stacks_block(ic, tip, &block_hash)
         }
 
@@ -7000,8 +6995,8 @@ pub mod tests {
         let mut tx = SortitionHandleTx::begin(db, &sn.sortition_id).unwrap();
 
         let sn_parent = sn.clone();
-        sn.parent_burn_header_hash = sn.burn_header_hash.clone();
-        sn.parent_sortition_id = sn.sortition_id.clone();
+        sn.parent_burn_header_hash = sn.burn_header_hash;
+        sn.parent_sortition_id = sn.sortition_id;
         sn.burn_header_hash = next_hash;
         sn.block_height += 1;
         sn.num_sortitions += 1;
@@ -7256,7 +7251,7 @@ pub mod tests {
 
         // test get_block_commit()
         {
-            let handle = db.index_handle(&empty_snapshot.sortition_id);
+            let handle = db.index_handle(empty_snapshot.sortition_id);
             let commit = handle
                 .get_block_commit_by_txid(&snapshot_consumed.sortition_id, &block_commit.txid)
                 .unwrap();
@@ -7306,9 +7301,9 @@ pub mod tests {
             let mut tx = SortitionHandleTx::begin(&mut db, &sn.sortition_id).unwrap();
 
             let sn_parent = sn.clone();
-            sn.parent_burn_header_hash = sn.burn_header_hash.clone();
-            sn.sortition_id = SortitionId(next_hash.0.clone());
-            sn.parent_sortition_id = sn_parent.sortition_id.clone();
+            sn.parent_burn_header_hash = sn.burn_header_hash;
+            sn.sortition_id = SortitionId(next_hash.0);
+            sn.parent_sortition_id = sn_parent.sortition_id;
             sn.burn_header_hash = next_hash;
             sn.block_height += 1;
             sn.num_sortitions += 1;
@@ -7406,7 +7401,7 @@ pub mod tests {
                     0, 0, 0, 0, 0, i,
                 ]);
                 let parent_sortition_id = if i == 0 {
-                    last_snapshot.sortition_id.clone()
+                    last_snapshot.sortition_id
                 } else {
                     SortitionId([
                         0,
@@ -7656,7 +7651,7 @@ pub mod tests {
                     0, 0, 0, 0, 0, i as u8,
                 ]);
                 let parent_sortition_id = if i == 0 {
-                    last_snapshot.sortition_id.clone()
+                    last_snapshot.sortition_id
                 } else {
                     SortitionId([
                         0,
@@ -7816,7 +7811,7 @@ pub mod tests {
 
         for i in 0..256 {
             // should succeed within the conn
-            let ic = db.index_handle(&tip.sortition_id);
+            let ic = db.index_handle(tip.sortition_id);
             let expected_ch = ConsensusHash::from_bytes(&[
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, i as u8,
             ])
@@ -7939,9 +7934,9 @@ pub mod tests {
             pox_valid: true,
             block_height: block_height - 2,
             burn_header_timestamp: get_epoch_time_secs(),
-            burn_header_hash: first_burn_hash.clone(),
-            sortition_id: SortitionId(first_burn_hash.0.clone()),
-            parent_sortition_id: SortitionId(first_burn_hash.0.clone()),
+            burn_header_hash: first_burn_hash,
+            sortition_id: SortitionId(first_burn_hash.0),
+            parent_sortition_id: SortitionId(first_burn_hash.0),
             parent_burn_header_hash: BurnchainHeaderHash([0xff; 32]),
             consensus_hash: ConsensusHash::from_hex("0000000000000000000000000000000000000000")
                 .unwrap(),
@@ -8084,12 +8079,12 @@ pub mod tests {
         let chain_tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
 
         let initial_snapshot = {
-            let ic = db.index_handle(&chain_tip.sortition_id);
+            let ic = db.index_handle(chain_tip.sortition_id);
             ic.get_last_snapshot_with_sortition(block_height - 2)
                 .unwrap()
         };
 
-        first_snapshot.index_root = initial_snapshot.index_root.clone();
+        first_snapshot.index_root = initial_snapshot.index_root;
         first_snapshot.burn_header_timestamp = initial_snapshot.burn_header_timestamp;
         assert_eq!(initial_snapshot, first_snapshot);
 
@@ -8113,12 +8108,12 @@ pub mod tests {
         let chain_tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
 
         let mut next_snapshot = {
-            let ic = db.index_handle(&chain_tip.sortition_id);
+            let ic = db.index_handle(chain_tip.sortition_id);
             ic.get_last_snapshot_with_sortition(block_height - 1)
                 .unwrap()
         };
 
-        next_snapshot.index_root = initial_snapshot.index_root.clone();
+        next_snapshot.index_root = initial_snapshot.index_root;
         next_snapshot.burn_header_timestamp = initial_snapshot.burn_header_timestamp;
         assert_eq!(initial_snapshot, next_snapshot);
 
@@ -8142,11 +8137,11 @@ pub mod tests {
         let chain_tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
 
         let next_snapshot_2 = {
-            let ic = db.index_handle(&chain_tip.sortition_id);
+            let ic = db.index_handle(chain_tip.sortition_id);
             ic.get_last_snapshot_with_sortition(block_height).unwrap()
         };
 
-        snapshot_with_sortition.index_root = next_snapshot_2.index_root.clone();
+        snapshot_with_sortition.index_root = next_snapshot_2.index_root;
         snapshot_with_sortition.burn_header_timestamp = next_snapshot_2.burn_header_timestamp;
         assert_eq!(snapshot_with_sortition, next_snapshot_2);
     }
@@ -8228,7 +8223,7 @@ pub mod tests {
 
             next_snapshot.block_height += 1;
             next_snapshot.num_sortitions += 1;
-            next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash.clone();
+            next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash;
             next_snapshot.burn_header_hash = BurnchainHeaderHash([
                 0,
                 0,
@@ -8297,7 +8292,7 @@ pub mod tests {
                 0,
                 i + 1,
             ]);
-            next_snapshot.parent_sortition_id = last_snapshot.sortition_id.clone();
+            next_snapshot.parent_sortition_id = last_snapshot.sortition_id;
             next_snapshot.consensus_hash = ConsensusHash([
                 0,
                 0,
@@ -8437,9 +8432,9 @@ pub mod tests {
 
                 next_snapshot.block_height = initial_block_height + (j - i) as u64;
                 next_snapshot.num_sortitions = initial_num_sortitions + (j - i) as u64;
-                next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash.clone();
-                next_snapshot.sortition_id = SortitionId(block_hash.clone());
-                next_snapshot.parent_sortition_id = last_snapshot.sortition_id.clone();
+                next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash;
+                next_snapshot.sortition_id = SortitionId(block_hash);
+                next_snapshot.parent_sortition_id = last_snapshot.sortition_id;
                 next_snapshot.burn_header_hash = BurnchainHeaderHash(block_hash);
                 next_snapshot.consensus_hash = ConsensusHash([
                     1,
@@ -8523,9 +8518,9 @@ pub mod tests {
 
                 next_snapshot.block_height = last_snapshot.block_height + 1;
                 next_snapshot.num_sortitions = last_snapshot.num_sortitions + 1;
-                next_snapshot.parent_burn_header_hash = last_snapshot.burn_header_hash.clone();
-                next_snapshot.sortition_id = SortitionId(next_block_hash.clone());
-                next_snapshot.parent_sortition_id = last_snapshot.sortition_id.clone();
+                next_snapshot.parent_burn_header_hash = last_snapshot.burn_header_hash;
+                next_snapshot.sortition_id = SortitionId(next_block_hash);
+                next_snapshot.parent_sortition_id = last_snapshot.sortition_id;
                 next_snapshot.burn_header_hash = BurnchainHeaderHash(next_block_hash);
                 next_snapshot.consensus_hash = ConsensusHash([
                     2,
@@ -8584,9 +8579,9 @@ pub mod tests {
 
             next_snapshot.block_height += 1;
             next_snapshot.num_sortitions += 1;
-            next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash.clone();
-            next_snapshot.sortition_id = SortitionId(next_block_hash.clone());
-            next_snapshot.parent_sortition_id = last_snapshot.sortition_id.clone();
+            next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash;
+            next_snapshot.sortition_id = SortitionId(next_block_hash);
+            next_snapshot.parent_sortition_id = last_snapshot.sortition_id;
             next_snapshot.burn_header_hash = BurnchainHeaderHash(next_block_hash);
             next_snapshot.consensus_hash =
                 ConsensusHash(Hash160::from_data(&next_snapshot.consensus_hash.0).0);
@@ -8618,7 +8613,7 @@ pub mod tests {
             assert_eq!(canonical_tip, expected_tip);
 
             verify_fork_integrity(&mut db, &canonical_tip.sortition_id);
-            all_chain_tips.push(canonical_tip.sortition_id.clone());
+            all_chain_tips.push(canonical_tip.sortition_id);
         }
 
         for tip_header_hash in all_chain_tips.iter() {
@@ -8653,7 +8648,7 @@ pub mod tests {
                             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                             0, 0, 0, 0, 0, 0, 0, i as u8,
                         ]),
-                        parent_sortition_id: last_snapshot.sortition_id.clone(),
+                        parent_sortition_id: last_snapshot.sortition_id,
                         parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[
                             (if i == 0 { 0x10 } else { 0 }) as u8,
                             0,
@@ -8730,7 +8725,7 @@ pub mod tests {
                             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                             0, 0, 0, 0, 0, 0, 0, i as u8,
                         ]),
-                        parent_sortition_id: last_snapshot.sortition_id.clone(),
+                        parent_sortition_id: last_snapshot.sortition_id,
                         parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[
                             (if i == 0 { 0x10 } else { 0 }) as u8,
                             0,
@@ -9025,8 +9020,8 @@ pub mod tests {
                 burn_header_timestamp: get_epoch_time_secs(),
                 burn_header_hash: BurnchainHeaderHash([(i as u8) | bit_pattern; 32]),
                 sortition_id: SortitionId([(i as u8) | bit_pattern; 32]),
-                parent_sortition_id: last_snapshot.sortition_id.clone(),
-                parent_burn_header_hash: last_snapshot.burn_header_hash.clone(),
+                parent_sortition_id: last_snapshot.sortition_id,
+                parent_burn_header_hash: last_snapshot.burn_header_hash,
                 consensus_hash: ConsensusHash([((i + 1) as u8) | bit_pattern; 20]),
                 ops_hash: OpsHash([(i as u8) | bit_pattern; 32]),
                 total_burn: 0,
@@ -10315,7 +10310,7 @@ pub mod tests {
                 &first_block_commit_snapshot.sortition_id
             )
             .unwrap(),
-            Some(genesis_commit_snapshot.sortition_id.clone())
+            Some(genesis_commit_snapshot.sortition_id)
         );
         assert_eq!(
             SortitionDB::get_block_commit_parent_sortition_id(
@@ -10324,7 +10319,7 @@ pub mod tests {
                 &second_block_commit_snapshot.sortition_id
             )
             .unwrap(),
-            Some(first_block_commit_snapshot.sortition_id.clone())
+            Some(first_block_commit_snapshot.sortition_id)
         );
         assert_eq!(
             SortitionDB::get_block_commit_parent_sortition_id(
@@ -10333,7 +10328,7 @@ pub mod tests {
                 &third_block_commit_snapshot.sortition_id
             )
             .unwrap(),
-            Some(genesis_commit_snapshot.sortition_id.clone())
+            Some(genesis_commit_snapshot.sortition_id)
         );
 
         assert_eq!(
@@ -10441,7 +10436,7 @@ pub mod tests {
         // typical
         let ancestors = SortitionDB::get_ancestor_burnchain_header_hashes(
             db.conn(),
-            &BurnchainHeaderHash([0x09; 32]),
+            BurnchainHeaderHash([0x09; 32]),
             6,
         )
         .unwrap();
@@ -10461,7 +10456,7 @@ pub mod tests {
         // edge case -- get too many
         let ancestors = SortitionDB::get_ancestor_burnchain_header_hashes(
             db.conn(),
-            &BurnchainHeaderHash([0x09; 32]),
+            BurnchainHeaderHash([0x09; 32]),
             20,
         )
         .unwrap();
@@ -10485,7 +10480,7 @@ pub mod tests {
         // edge case -- get none
         let ancestors = SortitionDB::get_ancestor_burnchain_header_hashes(
             db.conn(),
-            &BurnchainHeaderHash([0x09; 32]),
+            BurnchainHeaderHash([0x09; 32]),
             0,
         )
         .unwrap();
@@ -10494,7 +10489,7 @@ pub mod tests {
         // edge case -- get one that doesn't exist
         let ancestors = SortitionDB::get_ancestor_burnchain_header_hashes(
             db.conn(),
-            &BurnchainHeaderHash([0xfe; 32]),
+            BurnchainHeaderHash([0xfe; 32]),
             0,
         )
         .unwrap();
@@ -10583,7 +10578,7 @@ pub mod tests {
         let first_block_height = first_block_header.block_height;
 
         let mut headers = vec![first_block_header.clone()];
-        let key_register = make_simple_key_register(&first_block_header.block_hash, 0, 1);
+        let key_register = make_simple_key_register(first_block_header.block_hash, 0, 1);
 
         let (next_headers, commits) = make_reward_cycle(
             &mut burnchain_db,
@@ -10617,7 +10612,7 @@ pub mod tests {
             } else {
                 commit_set[0].clone()
             };
-            let burn_header_hash = headers[i + 1].block_hash.clone();
+            let burn_header_hash = headers[i + 1].block_hash;
             let burn_block_height = headers[i + 1].block_height;
 
             Burnchain::process_affirmation_maps(
@@ -10632,7 +10627,7 @@ pub mod tests {
 
         let tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
         {
-            let ic = db.index_handle(&tip.sortition_id);
+            let ic = db.index_handle(tip.sortition_id);
             let anchor_2_05 = ic
                 .get_chosen_pox_anchor(None, &tip.burn_header_hash, &pox_consts)
                 .unwrap()
@@ -10654,17 +10649,17 @@ pub mod tests {
             assert_eq!(
                 anchor_2_05,
                 (
-                    expected_anchor_ch.clone(),
-                    commits[6][0].as_ref().unwrap().block_header_hash.clone(),
-                    commits[6][0].as_ref().unwrap().txid.clone(),
+                    expected_anchor_ch,
+                    commits[6][0].as_ref().unwrap().block_header_hash,
+                    commits[6][0].as_ref().unwrap().txid,
                 )
             );
             assert_eq!(
                 anchor_2_1,
                 (
                     expected_anchor_ch,
-                    commits[6][1].as_ref().unwrap().block_header_hash.clone(),
-                    commits[6][1].as_ref().unwrap().txid.clone(),
+                    commits[6][1].as_ref().unwrap().block_header_hash,
+                    commits[6][1].as_ref().unwrap().txid,
                 )
             );
         }
@@ -10698,7 +10693,7 @@ pub mod tests {
                 txid: Txid([0x01; 32]),
                 vtxindex: 1,
                 block_height,
-                burn_header_hash: first_burn_hash.clone(),
+                burn_header_hash: first_burn_hash,
             }),
             BlockstackOperationType::StackStx(StackStxOp {
                 sender: StacksAddress::new(3, Hash160([3u8; 20])).unwrap(),
@@ -10715,7 +10710,7 @@ pub mod tests {
                 txid: Txid([0x02; 32]),
                 vtxindex: 2,
                 block_height,
-                burn_header_hash: first_burn_hash.clone(),
+                burn_header_hash: first_burn_hash,
             }),
             BlockstackOperationType::DelegateStx(DelegateStxOp {
                 sender: StacksAddress::new(6, Hash160([6u8; 20])).unwrap(),
@@ -10733,7 +10728,7 @@ pub mod tests {
                 txid: Txid([0x04; 32]),
                 vtxindex: 3,
                 block_height,
-                burn_header_hash: first_burn_hash.clone(),
+                burn_header_hash: first_burn_hash,
             }),
             BlockstackOperationType::VoteForAggregateKey(VoteForAggregateKeyOp {
                 sender: StacksAddress::new(6, Hash160([6u8; 20])).unwrap(),
@@ -10746,7 +10741,7 @@ pub mod tests {
                 txid: Txid([0x05; 32]),
                 vtxindex: 4,
                 block_height,
-                burn_header_hash: first_burn_hash.clone(),
+                burn_header_hash: first_burn_hash,
             }),
         ];
 
@@ -10796,7 +10791,7 @@ pub mod tests {
                 txid: Txid([0x01; 32]),
                 vtxindex: 1,
                 block_height,
-                burn_header_hash: fork_burn_hash.clone(),
+                burn_header_hash: fork_burn_hash,
             }),
             BlockstackOperationType::StackStx(StackStxOp {
                 sender: StacksAddress::new(3, Hash160([3u8; 20])).unwrap(),
@@ -10813,7 +10808,7 @@ pub mod tests {
                 txid: Txid([0x02; 32]),
                 vtxindex: 2,
                 block_height,
-                burn_header_hash: fork_burn_hash.clone(),
+                burn_header_hash: fork_burn_hash,
             }),
             BlockstackOperationType::DelegateStx(DelegateStxOp {
                 sender: StacksAddress::new(6, Hash160([6u8; 20])).unwrap(),
@@ -10828,7 +10823,7 @@ pub mod tests {
                 txid: Txid([0x04; 32]),
                 vtxindex: 3,
                 block_height,
-                burn_header_hash: fork_burn_hash.clone(),
+                burn_header_hash: fork_burn_hash,
             }),
             BlockstackOperationType::VoteForAggregateKey(VoteForAggregateKeyOp {
                 sender: StacksAddress::new(6, Hash160([6u8; 20])).unwrap(),
@@ -10841,7 +10836,7 @@ pub mod tests {
                 txid: Txid([0x05; 32]),
                 vtxindex: 4,
                 block_height,
-                burn_header_hash: fork_burn_hash.clone(),
+                burn_header_hash: fork_burn_hash,
             }),
         ];
 
@@ -10986,7 +10981,7 @@ pub mod tests {
         let tip_2 = &fork_snapshots[1];
         assert_ne!(tip, tip_2);
 
-        let ih = db.index_handle(&tip.sortition_id);
+        let ih = db.index_handle(tip.sortition_id);
         for sn in all_snapshots.iter() {
             assert!(ih.has_consensus_hash(&sn.consensus_hash).unwrap());
         }
@@ -10994,7 +10989,7 @@ pub mod tests {
             assert!(!ih.has_consensus_hash(&sn.consensus_hash).unwrap());
         }
 
-        let ih = db.index_handle(&tip_2.sortition_id);
+        let ih = db.index_handle(tip_2.sortition_id);
         for sn in fork_snapshots.iter() {
             assert!(ih.has_consensus_hash(&sn.consensus_hash).unwrap());
         }

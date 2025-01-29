@@ -1382,7 +1382,7 @@ impl PeerNetwork {
         burn_header_hash: &BurnchainHeaderHash,
     ) -> Result<Option<BlockSnapshot>, net_error> {
         let ic = sortdb.index_conn();
-        let sortdb_reader = SortitionHandleConn::open_reader(&ic, &self.tip_sort_id)?;
+        let sortdb_reader = SortitionHandleConn::open_reader(&ic, self.tip_sort_id)?;
         match sortdb_reader.get_block_snapshot(burn_header_hash)? {
             Some(sn) => {
                 if !sn.pox_valid {
@@ -2204,14 +2204,14 @@ impl PeerNetwork {
                 // reloaded burnchain tip disagrees with our last-considered sortition tip
                 let ic = sortdb.index_conn();
                 let sortdb_reader =
-                    SortitionHandleConn::open_reader(&ic, &self.burnchain_tip.sortition_id)?;
+                    SortitionHandleConn::open_reader(&ic, self.burnchain_tip.sortition_id)?;
                 (
-                    self.burnchain_tip.sortition_id.clone(),
+                    self.burnchain_tip.sortition_id,
                     sortdb_reader.get_pox_id()?,
                     true,
                 )
             } else {
-                (self.tip_sort_id.clone(), self.pox_id.clone(), false)
+                (self.tip_sort_id, self.pox_id.clone(), false)
             }
         };
 
@@ -2743,7 +2743,7 @@ impl PeerNetwork {
                 // this is the same address we're bound to
                 continue;
             }
-            if Some((nk.addrbytes.clone(), nk.port)) == self.local_peer.public_ip_address {
+            if Some((nk.addrbytes, nk.port)) == self.local_peer.public_ip_address {
                 // this is a peer at our address
                 continue;
             }

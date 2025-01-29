@@ -98,10 +98,10 @@ impl NakamotoStagingBlocksConnRef<'_> {
     pub fn get_all_blocks_in_tenure(
         &self,
         tenure_id_consensus_hash: &ConsensusHash,
-        tip: &StacksBlockId,
+        tip: StacksBlockId,
     ) -> Result<Vec<NakamotoBlock>, ChainstateError> {
         let mut blocks = vec![];
-        let mut cursor = tip.clone();
+        let mut cursor = tip;
         let qry = "SELECT data FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
         loop {
             let Some(block_data): Option<Vec<u8>> = query_row(self, qry, params![cursor])? else {
@@ -111,7 +111,7 @@ impl NakamotoStagingBlocksConnRef<'_> {
             if &block.header.consensus_hash != tenure_id_consensus_hash {
                 break;
             }
-            cursor = block.header.parent_block_id.clone();
+            cursor = block.header.parent_block_id;
             blocks.push(block);
         }
         blocks.reverse();
@@ -141,7 +141,7 @@ pub fn get_account(
         .unwrap();
     chainstate
         .with_read_only_clarity_tx(
-            &sortdb.index_handle(&snapshot.sortition_id),
+            &sortdb.index_handle(snapshot.sortition_id),
             &tip.index_block_hash(),
             |clarity_conn| {
                 StacksChainState::get_account(clarity_conn, &addr.to_account_principal())
@@ -230,7 +230,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         tenure_consensus_hash: ConsensusHash([0x04; 20]),
         prev_tenure_consensus_hash: ConsensusHash([0x03; 20]),
         burn_view_consensus_hash: ConsensusHash([0x04; 20]),
-        previous_tenure_end: header.parent_block_id.clone(),
+        previous_tenure_end: header.parent_block_id,
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
         pubkey_hash: Hash160([0x02; 20]),
@@ -241,7 +241,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         tenure_consensus_hash: ConsensusHash([0x04; 20]),
         prev_tenure_consensus_hash: ConsensusHash([0x04; 20]),
         burn_view_consensus_hash: ConsensusHash([0x04; 20]),
-        previous_tenure_end: header.parent_block_id.clone(),
+        previous_tenure_end: header.parent_block_id,
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::Extended,
         pubkey_hash: Hash160([0x02; 20]),
@@ -643,7 +643,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         microblock_tail: None,
         stacks_block_height: epoch2_header.total_work.work,
         index_root: TrieHash([0x56; 32]),
-        consensus_hash: epoch2_consensus_hash.clone(),
+        consensus_hash: epoch2_consensus_hash,
         burn_header_hash: BurnchainHeaderHash([0x77; 32]),
         burn_header_height: 100,
         burn_header_timestamp: 1000,
@@ -661,9 +661,9 @@ pub fn test_load_store_update_nakamoto_blocks() {
 
     let tenure_change_payload = TenureChangePayload {
         tenure_consensus_hash: ConsensusHash([0x04; 20]), // same as in nakamoto header
-        prev_tenure_consensus_hash: epoch2_consensus_hash.clone(),
+        prev_tenure_consensus_hash: epoch2_consensus_hash,
         burn_view_consensus_hash: ConsensusHash([0x04; 20]),
-        previous_tenure_end: epoch2_parent_block_id.clone(),
+        previous_tenure_end: epoch2_parent_block_id,
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
         pubkey_hash: Hash160([0x02; 20]),
@@ -753,8 +753,8 @@ pub fn test_load_store_update_nakamoto_blocks() {
         version: 1,
         chain_length: 457,
         burn_spent: 126,
-        consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
-        parent_block_id: epoch2_parent_block_id.clone(),
+        consensus_hash: tenure_change_payload.tenure_consensus_hash,
+        parent_block_id: epoch2_parent_block_id,
         tx_merkle_root: nakamoto_tx_merkle_root,
         state_index_root: TrieHash([0x07; 32]),
         timestamp: 8,
@@ -768,7 +768,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         microblock_tail: None,
         stacks_block_height: nakamoto_header.chain_length,
         index_root: TrieHash([0x67; 32]),
-        consensus_hash: nakamoto_header.consensus_hash.clone(),
+        consensus_hash: nakamoto_header.consensus_hash,
         burn_header_hash: BurnchainHeaderHash([0x88; 32]),
         burn_header_height: 200,
         burn_header_timestamp: 1001,
@@ -799,7 +799,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         version: 1,
         chain_length: 458,
         burn_spent: 127,
-        consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
+        consensus_hash: tenure_change_payload.tenure_consensus_hash,
         parent_block_id: nakamoto_header.block_id(),
         tx_merkle_root: nakamoto_tx_merkle_root_2,
         state_index_root: TrieHash([0x07; 32]),
@@ -814,7 +814,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         microblock_tail: None,
         stacks_block_height: nakamoto_header_2.chain_length,
         index_root: TrieHash([0x67; 32]),
-        consensus_hash: nakamoto_header_2.consensus_hash.clone(),
+        consensus_hash: nakamoto_header_2.consensus_hash,
         burn_header_hash: BurnchainHeaderHash([0x88; 32]),
         burn_header_height: 200,
         burn_header_timestamp: 1001,
@@ -840,7 +840,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         version: 1,
         chain_length: 459,
         burn_spent: 128,
-        consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
+        consensus_hash: tenure_change_payload.tenure_consensus_hash,
         parent_block_id: nakamoto_header_2.block_id(),
         tx_merkle_root: nakamoto_tx_merkle_root_3,
         state_index_root: TrieHash([0x07; 32]),
@@ -855,7 +855,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         microblock_tail: None,
         stacks_block_height: nakamoto_header_2.chain_length,
         index_root: TrieHash([0x67; 32]),
-        consensus_hash: nakamoto_header_2.consensus_hash.clone(),
+        consensus_hash: nakamoto_header_2.consensus_hash,
         burn_header_hash: BurnchainHeaderHash([0x88; 32]),
         burn_header_height: 200,
         burn_header_timestamp: 1001,
@@ -873,7 +873,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         version: 1,
         chain_length: 459,
         burn_spent: 128,
-        consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
+        consensus_hash: tenure_change_payload.tenure_consensus_hash,
         parent_block_id: nakamoto_header_2.block_id(),
         tx_merkle_root: nakamoto_tx_merkle_root_3,
         state_index_root: TrieHash([0x07; 32]),
@@ -888,7 +888,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         microblock_tail: None,
         stacks_block_height: nakamoto_header_2.chain_length,
         index_root: TrieHash([0x67; 32]),
-        consensus_hash: nakamoto_header_2.consensus_hash.clone(),
+        consensus_hash: nakamoto_header_2.consensus_hash,
         burn_header_hash: BurnchainHeaderHash([0x88; 32]),
         burn_header_height: 200,
         burn_header_timestamp: 1001,
@@ -906,7 +906,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         version: 1,
         chain_length: 460,
         burn_spent: 128,
-        consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
+        consensus_hash: tenure_change_payload.tenure_consensus_hash,
         parent_block_id: nakamoto_header_3_weight_2.block_id(),
         tx_merkle_root: nakamoto_tx_merkle_root_4,
         state_index_root: TrieHash([0x71; 32]),
@@ -921,7 +921,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         microblock_tail: None,
         stacks_block_height: nakamoto_header_4.chain_length,
         index_root: TrieHash([0x71; 32]),
-        consensus_hash: nakamoto_header_3_weight_2.consensus_hash.clone(),
+        consensus_hash: nakamoto_header_3_weight_2.consensus_hash,
         burn_header_hash: BurnchainHeaderHash([0x88; 32]),
         burn_header_height: 200,
         burn_header_timestamp: 1001,
@@ -950,9 +950,9 @@ pub fn test_load_store_update_nakamoto_blocks() {
         .unwrap();
 
     let nakamoto_tenure = NakamotoTenureEvent {
-        tenure_id_consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
-        prev_tenure_id_consensus_hash: tenure_change_payload.prev_tenure_consensus_hash.clone(),
-        burn_view_consensus_hash: tenure_change_payload.burn_view_consensus_hash.clone(),
+        tenure_id_consensus_hash: tenure_change_payload.tenure_consensus_hash,
+        prev_tenure_id_consensus_hash: tenure_change_payload.prev_tenure_consensus_hash,
+        burn_view_consensus_hash: tenure_change_payload.burn_view_consensus_hash,
         cause: tenure_change_payload.cause,
         block_hash: nakamoto_block.header.block_hash(),
         block_id: nakamoto_block.header.block_id(),
@@ -1828,7 +1828,7 @@ fn test_nakamoto_block_static_verification() {
         version: 1,
         chain_length: 457,
         burn_spent: 126,
-        consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
+        consensus_hash: tenure_change_payload.tenure_consensus_hash,
         parent_block_id: StacksBlockId([0x03; 32]),
         tx_merkle_root: nakamoto_tx_merkle_root,
         state_index_root: TrieHash([0x07; 32]),
@@ -1848,7 +1848,7 @@ fn test_nakamoto_block_static_verification() {
         version: 1,
         chain_length: 457,
         burn_spent: 126,
-        consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
+        consensus_hash: tenure_change_payload.tenure_consensus_hash,
         parent_block_id: StacksBlockId([0x03; 32]),
         tx_merkle_root: nakamoto_tx_merkle_root_bad_ch,
         state_index_root: TrieHash([0x07; 32]),
@@ -1868,7 +1868,7 @@ fn test_nakamoto_block_static_verification() {
         version: 1,
         chain_length: 457,
         burn_spent: 126,
-        consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
+        consensus_hash: tenure_change_payload.tenure_consensus_hash,
         parent_block_id: StacksBlockId([0x03; 32]),
         tx_merkle_root: nakamoto_tx_merkle_root_bad_miner_sig,
         state_index_root: TrieHash([0x07; 32]),
@@ -1890,7 +1890,7 @@ fn test_nakamoto_block_static_verification() {
         version: 1,
         chain_length: 457,
         burn_spent: 126,
-        consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
+        consensus_hash: tenure_change_payload.tenure_consensus_hash,
         parent_block_id: StacksBlockId([0x03; 32]),
         tx_merkle_root: nakamoto_recipient_tx_merkle_root,
         state_index_root: TrieHash([0x07; 32]),
@@ -1910,7 +1910,7 @@ fn test_nakamoto_block_static_verification() {
         version: 1,
         chain_length: 457,
         burn_spent: 126,
-        consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
+        consensus_hash: tenure_change_payload.tenure_consensus_hash,
         parent_block_id: StacksBlockId([0x03; 32]),
         tx_merkle_root: nakamoto_shadow_recipient_tx_merkle_root,
         state_index_root: TrieHash([0x07; 32]),
@@ -2055,7 +2055,7 @@ fn test_make_miners_stackerdb_config() {
         .collect();
     let miner_addrs: Vec<_> = miner_hash160s
         .iter()
-        .map(|miner_hash160| StacksAddress::new(1, miner_hash160.clone()).unwrap())
+        .map(|miner_hash160| StacksAddress::new(1, *miner_hash160).unwrap())
         .collect();
 
     debug!("miners = {:#?}", &miner_hash160s);
@@ -2074,13 +2074,13 @@ fn test_make_miners_stackerdb_config() {
         let vrf_privkey = VRFPrivateKey::new();
         let vrf_pubkey = VRFPublicKey::from_private(&vrf_privkey);
         let miner = LeaderKeyRegisterOp {
-            consensus_hash: last_snapshot.consensus_hash.clone(),
+            consensus_hash: last_snapshot.consensus_hash,
             public_key: vrf_pubkey,
             memo: miner_hash160.0.to_vec(),
             txid: Txid([id; 32]),
             vtxindex: 1 + (id as u32),
             block_height: last_snapshot.block_height + 1,
-            burn_header_hash: last_snapshot.burn_header_hash.clone(),
+            burn_header_hash: last_snapshot.burn_header_hash,
         };
         miners.push(miner);
     }
@@ -2106,15 +2106,15 @@ fn test_make_miners_stackerdb_config() {
             burn_header_timestamp: get_epoch_time_secs(),
             burn_header_hash: BurnchainHeaderHash([id; 32]),
             sortition_id: SortitionId([id; 32]),
-            parent_sortition_id: last_snapshot.sortition_id.clone(),
-            parent_burn_header_hash: last_snapshot.burn_header_hash.clone(),
+            parent_sortition_id: last_snapshot.sortition_id,
+            parent_burn_header_hash: last_snapshot.burn_header_hash,
             consensus_hash: ConsensusHash([id; 20]),
             ops_hash: OpsHash([id; 32]),
             total_burn: 0,
             sortition,
             sortition_hash: SortitionHash([id; 32]),
-            winning_block_txid: winning_txid.clone(),
-            winning_stacks_block_hash: winning_block_hash.clone(),
+            winning_block_txid: winning_txid,
+            winning_stacks_block_hash: winning_block_hash,
             index_root: TrieHash([0u8; 32]),
             num_sortitions: last_snapshot.num_sortitions + if sortition { 1 } else { 0 },
             stacks_block_accepted: false,
@@ -2148,11 +2148,11 @@ fn test_make_miners_stackerdb_config() {
                 .unwrap()],
             ),
 
-            txid: winning_txid.clone(),
+            txid: winning_txid,
             vtxindex: 1,
             block_height: snapshot.block_height,
             burn_parent_modulus: ((snapshot.block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-            burn_header_hash: snapshot.burn_header_hash.clone(),
+            burn_header_hash: snapshot.burn_header_hash,
             treatment: vec![],
         };
 
@@ -2255,12 +2255,7 @@ fn test_make_miners_stackerdb_config() {
     // miners are "stable" across snapshots
     let miner_hashbytes: Vec<_> = stackerdb_configs
         .iter()
-        .map(|config| {
-            (
-                config.signers[0].0.bytes().clone(),
-                config.signers[1].0.bytes().clone(),
-            )
-        })
+        .map(|config| (*config.signers[0].0.bytes(), *config.signers[1].0.bytes()))
         .collect();
 
     // active miner alternates slots (part of stability)
@@ -2410,7 +2405,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_addr.clone(),
+            address: contract_addr,
             contract_name: "bad-signers-contract-name".into(),
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: valid_function_args.clone(),
@@ -2426,7 +2421,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_addr.clone(),
+            address: contract_addr,
             contract_name: contract_name.clone(),
             function_name: "some-other-function".into(),
             function_args: valid_function_args,
@@ -2442,7 +2437,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_addr.clone(),
+            address: contract_addr,
             contract_name: contract_name.clone(),
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: vec![
@@ -2463,7 +2458,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_addr.clone(),
+            address: contract_addr,
             contract_name: contract_name.clone(),
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: vec![
@@ -2484,7 +2479,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_addr.clone(),
+            address: contract_addr,
             contract_name: contract_name.clone(),
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: vec![
@@ -2505,7 +2500,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_addr.clone(),
+            address: contract_addr,
             contract_name,
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: vec![
@@ -2661,7 +2656,7 @@ fn valid_vote_transaction_malformed_transactions() {
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_addr.clone(),
+            address: contract_addr,
             contract_name: "bad-signers-contract-name".into(),
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: valid_function_args.clone(),
@@ -2677,7 +2672,7 @@ fn valid_vote_transaction_malformed_transactions() {
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_addr.clone(),
+            address: contract_addr,
             contract_name: contract_name.clone(),
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: valid_function_args.clone(),
@@ -2693,7 +2688,7 @@ fn valid_vote_transaction_malformed_transactions() {
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_addr.clone(),
+            address: contract_addr,
             contract_name: contract_name.clone(),
             function_name: "some-other-function".into(),
             function_args: valid_function_args.clone(),
@@ -2709,7 +2704,7 @@ fn valid_vote_transaction_malformed_transactions() {
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_addr.clone(),
+            address: contract_addr,
             contract_name: contract_name.clone(),
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: vec![
@@ -2730,7 +2725,7 @@ fn valid_vote_transaction_malformed_transactions() {
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_addr.clone(),
+            address: contract_addr,
             contract_name: contract_name.clone(),
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: vec![
@@ -2751,7 +2746,7 @@ fn valid_vote_transaction_malformed_transactions() {
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_addr.clone(),
+            address: contract_addr,
             contract_name: contract_name.clone(),
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: vec![
@@ -2772,7 +2767,7 @@ fn valid_vote_transaction_malformed_transactions() {
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_addr.clone(),
+            address: contract_addr,
             contract_name: contract_name.clone(),
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: vec![
@@ -2793,7 +2788,7 @@ fn valid_vote_transaction_malformed_transactions() {
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_addr.clone(),
+            address: contract_addr,
             contract_name: contract_name,
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: valid_function_args,
@@ -2859,7 +2854,7 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_addr.clone(),
+            address: contract_addr,
             contract_name: contract_name.clone(),
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: function_args.clone(),
@@ -2875,7 +2870,7 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_addr.clone(),
+            address: contract_addr,
             contract_name: contract_name.clone(),
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: function_args.clone(),
@@ -2891,7 +2886,7 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_addr.clone(),
+            address: contract_addr,
             contract_name: contract_name.clone(),
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: function_args.clone(),
@@ -2907,7 +2902,7 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_addr.clone(),
+            address: contract_addr,
             contract_name: contract_name.clone(),
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: function_args.clone(),
@@ -2987,7 +2982,7 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_addr.clone(),
+            address: contract_addr,
             contract_name: contract_name.clone(),
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: function_args.clone(),
@@ -3003,7 +2998,7 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_addr.clone(),
+            address: contract_addr,
             contract_name: contract_name.clone(),
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: function_args.clone(),
@@ -3137,8 +3132,7 @@ pub mod nakamoto_block_signatures {
             Secp256k1PrivateKey::default(),
         ];
 
-        let reward_set =
-            make_reward_set(&signers.iter().map(|s| (s.clone(), 100)).collect::<Vec<_>>());
+        let reward_set = make_reward_set(&signers.iter().map(|s| (*s, 100)).collect::<Vec<_>>());
 
         let mut header = NakamotoBlockHeader::empty();
 

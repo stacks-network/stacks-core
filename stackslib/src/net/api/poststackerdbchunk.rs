@@ -304,7 +304,7 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
             let push_chunk_data = StackerDBPushChunkData {
                 contract_id: contract_identifier,
                 rc_consensus_hash: node.with_node_state(|network, _, _, _, _| {
-                    network.get_chain_view().rc_consensus_hash.clone()
+                    network.get_chain_view().rc_consensus_hash
                 }),
                 chunk_data: stackerdb_chunk,
             };

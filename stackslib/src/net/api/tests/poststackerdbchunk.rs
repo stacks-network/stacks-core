@@ -37,7 +37,7 @@ use crate::net::{ProtocolFamily, TipRequest};
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let request = StacksHttpRequest::new_post_stackerdb_chunk(
         addr.into(),
@@ -113,7 +113,7 @@ fn test_try_make_response() {
             .unwrap(),
         slot_metadata.slot_id,
         slot_metadata.slot_version,
-        slot_metadata.signature.clone(),
+        slot_metadata.signature,
         data.to_vec(),
     );
     requests.push(request);
@@ -130,7 +130,7 @@ fn test_try_make_response() {
             .unwrap(),
         slot_metadata.slot_id,
         slot_metadata.slot_version,
-        slot_metadata.signature.clone(),
+        slot_metadata.signature,
         data.to_vec(),
     );
     requests.push(request);
@@ -147,7 +147,7 @@ fn test_try_make_response() {
             .unwrap(),
         slot_metadata.slot_id,
         slot_metadata.slot_version,
-        slot_metadata.signature.clone(),
+        slot_metadata.signature,
         data.to_vec(),
     );
     requests.push(request);
@@ -164,7 +164,7 @@ fn test_try_make_response() {
             .unwrap(),
         slot_metadata.slot_id,
         slot_metadata.slot_version,
-        slot_metadata.signature.clone(),
+        slot_metadata.signature,
         data.to_vec(),
     );
     requests.push(request);
@@ -181,7 +181,7 @@ fn test_try_make_response() {
             .unwrap(),
         slot_metadata.slot_id,
         slot_metadata.slot_version,
-        slot_metadata.signature.clone(),
+        slot_metadata.signature,
         data.to_vec(),
     );
     requests.push(request);
@@ -200,7 +200,7 @@ fn test_try_make_response() {
         .unwrap(),
         slot_metadata.slot_id,
         slot_metadata.slot_version,
-        slot_metadata.signature.clone(),
+        slot_metadata.signature,
         data.to_vec(),
     );
     requests.push(request);

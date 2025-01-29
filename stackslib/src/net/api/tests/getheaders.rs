@@ -46,7 +46,7 @@ use crate::util_lib::db::DBConn;
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let request = StacksHttpRequest::new_getheaders(
         addr.into(),
@@ -89,8 +89,8 @@ fn test_try_make_response() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
 
     let rpc_test = TestRPC::setup(function_name!());
-    let stacks_chain_tip = rpc_test.canonical_tip.clone();
-    let consensus_hash = rpc_test.consensus_hash.clone();
+    let stacks_chain_tip = rpc_test.canonical_tip;
+    let consensus_hash = rpc_test.consensus_hash;
 
     let mut requests = vec![];
 
@@ -108,7 +108,7 @@ fn test_try_make_response() {
     let request = StacksHttpRequest::new_getheaders(
         addr.into(),
         2100,
-        TipRequest::SpecificTip(stacks_chain_tip.clone()),
+        TipRequest::SpecificTip(stacks_chain_tip),
     );
     requests.push(request);
 
