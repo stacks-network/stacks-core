@@ -2749,8 +2749,11 @@ impl MinerConfigFile {
                     for (slice, seconds) in block_rejection_timeout_items.iter() {
                         match slice.parse::<u64>() {
                             Ok(slice_slot) => rejection_timeout_durations.insert(slice_slot, Duration::from_secs(*seconds)),
-                            Err(e) => panic!("block_rejection_timeout_items keys must be unsigned integers: {}", e)
+                            Err(e) => panic!("block_rejection_timeout_steps keys must be unsigned integers: {}", e)
                         };
+                    }
+                    if !rejection_timeout_durations.contains_key(&0) {
+                        panic!("block_rejection_timeout_steps requires a definition for the '0' key/step");
                     }
                     rejection_timeout_durations
                 } else{
