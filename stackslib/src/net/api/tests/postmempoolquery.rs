@@ -398,24 +398,18 @@ fn test_decode_tx_stream() {
     // garbage tx stream
     let garbage_stream = [0xff; 256];
     let err = decode_tx_stream(&mut garbage_stream.as_ref());
-    match err {
-        Err(NetError::ExpectedEndOfStream) => {}
-        x => {
-            error!("did not fail: {:?}", &x);
-            panic!();
-        }
-    }
+    assert!(
+        matches!(err, Err(NetError::ExpectedEndOfStream)),
+        "did not fail with correct error"
+    );
 
     // tx stream that is too short
     let short_stream = [0x33u8; 33];
     let err = decode_tx_stream(&mut short_stream.as_ref());
-    match err {
-        Err(NetError::ExpectedEndOfStream) => {}
-        x => {
-            error!("did not fail: {:?}", &x);
-            panic!();
-        }
-    }
+    assert!(
+        matches!(err, Err(NetError::ExpectedEndOfStream)),
+        "did not fail with correct error"
+    );
 
     // tx stream has a tx, a page ID, and then another tx
     let mut interrupted_stream = vec![];
@@ -424,11 +418,8 @@ fn test_decode_tx_stream() {
     txs[1].consensus_serialize(&mut interrupted_stream).unwrap();
 
     let err = decode_tx_stream(&mut &interrupted_stream[..]);
-    match err {
-        Err(NetError::ExpectedEndOfStream) => {}
-        x => {
-            error!("did not fail: {:?}", &x);
-            panic!();
-        }
-    }
+    assert!(
+        matches!(err, Err(NetError::ExpectedEndOfStream)),
+        "did not fail with correct error"
+    );
 }

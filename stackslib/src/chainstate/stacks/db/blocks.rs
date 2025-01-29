@@ -8866,12 +8866,11 @@ pub mod test {
             assert!(poison_opt.is_some());
 
             let poison = poison_opt.unwrap();
-            if let TransactionPayload::PoisonMicroblock(h1, h2) = poison {
-                assert_eq!(h2, forked_microblocks[num_mblocks / 2].header);
-                assert_eq!(h1, conflicting_microblock.header);
-            } else {
-                panic!();
-            }
+            let TransactionPayload::PoisonMicroblock(h1, h2) = poison else {
+                panic!("Unexpected poison type");
+            };
+            assert_eq!(h2, forked_microblocks[num_mblocks / 2].header);
+            assert_eq!(h1, conflicting_microblock.header);
         }
     }
 

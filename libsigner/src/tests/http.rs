@@ -87,11 +87,10 @@ fn test_decode_http_request_err() {
     for (data, expected_err_type) in tests.iter() {
         let err = decode_http_request(data.as_bytes()).unwrap_err();
         match (err, expected_err_type) {
-            (EventError::Deserialize(..), EventError::Deserialize(..)) => {}
-            (EventError::MalformedRequest(..), EventError::MalformedRequest(..)) => {}
+            (EventError::Deserialize(..), EventError::Deserialize(..))
+            | (EventError::MalformedRequest(..), EventError::MalformedRequest(..)) => {}
             (x, y) => {
-                error!("expected error mismatch: {:?} != {:?}", &y, &x);
-                panic!();
+                panic!("expected error mismatch: {x:?} != {y:?}");
             }
         }
     }
@@ -138,11 +137,10 @@ fn test_decode_http_response_err() {
         let err_type = decode_http_response(data.as_bytes()).unwrap_err();
         match (err_type, expected_err_type) {
             (RPCError::HttpError(x), RPCError::HttpError(y)) => assert_eq!(x, *y),
-            (RPCError::Deserialize(_), RPCError::Deserialize(_)) => {}
-            (RPCError::MalformedResponse(_), RPCError::MalformedResponse(_)) => {}
+            (RPCError::Deserialize(_), RPCError::Deserialize(_))
+            | (RPCError::MalformedResponse(_), RPCError::MalformedResponse(_)) => {}
             (x, y) => {
-                error!("expected error mismatch: {:?} != {:?}", &y, &x);
-                panic!();
+                panic!("expected error mismatch: {y:?} != {x:?}");
             }
         }
     }

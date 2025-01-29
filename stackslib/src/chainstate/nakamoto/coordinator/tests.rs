@@ -977,7 +977,7 @@ fn block_info_tests(use_primary_testnet: bool) {
                     tip_block_id: &StacksBlockId| {
         let contract_id = match version {
             ClarityVersion::Clarity1 => &clar1_contract_id,
-            ClarityVersion::Clarity2 => panic!(),
+            ClarityVersion::Clarity2 => panic!("Clarity2 not supported in this test"),
             ClarityVersion::Clarity3 => &clar3_contract_id,
         };
         peer.with_db_state(|sortdb, chainstate, _, _| {

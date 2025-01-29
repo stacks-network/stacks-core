@@ -3927,7 +3927,7 @@ mod test {
         ) {
             assert_eq!(&msg, "Not a multisig condition");
         } else {
-            panic!();
+            panic!("Expexcted a signing error");
         }
 
         // no change affected
@@ -3947,7 +3947,7 @@ mod test {
                 "Cannot appned a public key to the sponsor of a standard auth condition"
             );
         } else {
-            panic!();
+            panic!("Expected a signing error");
         }
         assert_eq!(txid_before, signed_tx.txid());
     }
@@ -3962,7 +3962,7 @@ mod test {
         ) {
             assert_eq!(&msg, "Not a multisig condition");
         } else {
-            panic!();
+            panic!("Expected a signing error");
         }
         assert_eq!(txid_before, signed_tx.txid());
     }
@@ -3990,17 +3990,16 @@ mod test {
         tx_signer.sign_origin(&privk).unwrap();
         let oversigned_tx = tx_signer.get_tx().unwrap();
 
-        if let Err(net_error::VerifyingError(msg)) = oversigned_tx.verify() {
-            if is_order_independent_multisig(&oversigned_tx) {
-                assert!(
-                    msg.contains("Signer hash does not equal hash of public key(s)"),
-                    "{msg}"
-                )
-            } else {
-                assert_eq!(&msg, "Incorrect number of signatures")
-            }
+        let Err(net_error::VerifyingError(msg)) = oversigned_tx.verify() else {
+            panic!("Expected a verifying error");
+        };
+        if is_order_independent_multisig(&oversigned_tx) {
+            assert!(
+                msg.contains("Signer hash does not equal hash of public key(s)"),
+                "{msg}"
+            )
         } else {
-            panic!();
+            assert_eq!(&msg, "Incorrect number of signatures")
         }
     }
 
@@ -4027,11 +4026,10 @@ mod test {
 
         let oversigned_tx = tx_signer.get_tx().unwrap();
 
-        if let Err(net_error::VerifyingError(msg)) = oversigned_tx.verify() {
-            assert_eq!(&msg, "Uncompressed keys are not allowed in this hash mode");
-        } else {
-            panic!();
-        }
+        let Err(net_error::VerifyingError(msg)) = oversigned_tx.verify() else {
+            panic!("Expected a verifying error");
+        };
+        assert_eq!(&msg, "Uncompressed keys are not allowed in this hash mode");
     }
 
     fn check_oversign_sponsor_multisig(signed_tx: &StacksTransaction) {
@@ -4046,17 +4044,16 @@ mod test {
         tx_signer.sign_sponsor(&privk).unwrap();
         let oversigned_tx = tx_signer.get_tx().unwrap();
 
-        if let Err(net_error::VerifyingError(msg)) = oversigned_tx.verify() {
-            if is_order_independent_multisig(&oversigned_tx) {
-                assert!(
-                    msg.contains("Signer hash does not equal hash of public key(s)"),
-                    "{msg}"
-                )
-            } else {
-                assert_eq!(&msg, "Incorrect number of signatures")
-            }
+        let Err(net_error::VerifyingError(msg)) = oversigned_tx.verify() else {
+            panic!("Expected a verifying error");
+        };
+        if is_order_independent_multisig(&oversigned_tx) {
+            assert!(
+                msg.contains("Signer hash does not equal hash of public key(s)"),
+                "{msg}"
+            )
         } else {
-            panic!();
+            assert_eq!(&msg, "Incorrect number of signatures")
         }
     }
 
@@ -4083,11 +4080,10 @@ mod test {
 
         let oversigned_tx = tx_signer.get_tx().unwrap();
 
-        if let Err(net_error::VerifyingError(msg)) = oversigned_tx.verify() {
-            assert_eq!(&msg, "Uncompressed keys are not allowed in this hash mode");
-        } else {
-            panic!();
-        }
+        let Err(net_error::VerifyingError(msg)) = oversigned_tx.verify() else {
+            panic!("Expected a verifying error");
+        };
+        assert_eq!(&msg, "Uncompressed keys are not allowed in this hash mode");
     }
 
     #[test]
@@ -4145,7 +4141,7 @@ mod test {
                 assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
                 assert_eq!(data.signer, *origin_address.bytes());
             } else {
-                panic!();
+                panic!("Expected a standard singlesig auth condition");
             }
 
             test_signature_and_corruption(&signed_tx, true, false);
@@ -4276,7 +4272,7 @@ mod test {
                 assert_eq!(sponsor_data.signer, *diff_sponsor_address.bytes());
                 // not what the origin would have seen
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&signed_tx, true, false);
@@ -4342,7 +4338,7 @@ mod test {
                 );
                 assert_eq!(data.signer, *origin_address.bytes());
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&signed_tx, true, false);
@@ -4460,7 +4456,7 @@ mod test {
                 );
                 assert_eq!(sponsor_data.signer, *sponsor_address.bytes());
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&signed_tx, true, false);
@@ -4552,7 +4548,7 @@ mod test {
                 );
                 assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
             } else {
-                panic!()
+                panic!("Unexpected auth condition");
             }
             test_signature_and_corruption(&signed_tx, true, false);
         }
@@ -4694,7 +4690,7 @@ mod test {
                 );
                 assert_eq!(sponsor_data.fields[2].as_public_key().unwrap(), pubk_3);
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&signed_tx, true, false);
@@ -4790,7 +4786,7 @@ mod test {
                 );
                 assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&signed_tx, true, false);
@@ -4932,7 +4928,7 @@ mod test {
                 );
                 assert_eq!(sponsor_data.fields[2].as_public_key().unwrap(), pubk_3);
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&signed_tx, true, false);
@@ -5024,7 +5020,7 @@ mod test {
                     TransactionPublicKeyEncoding::Uncompressed
                 );
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&signed_tx, true, false);
@@ -5167,7 +5163,7 @@ mod test {
                     TransactionPublicKeyEncoding::Uncompressed
                 );
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&signed_tx, true, false);
@@ -5230,7 +5226,7 @@ mod test {
                 assert_eq!(data.signer, *origin_address.bytes());
                 assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&signed_tx, true, false);
@@ -5346,7 +5342,7 @@ mod test {
                     TransactionPublicKeyEncoding::Compressed
                 );
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&signed_tx, true, false);
@@ -5439,7 +5435,7 @@ mod test {
                 );
                 assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&signed_tx, true, false);
@@ -5583,7 +5579,7 @@ mod test {
                 );
                 assert_eq!(sponsor_data.fields[2].as_public_key().unwrap(), pubk_3);
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&signed_tx, true, false);
@@ -5672,7 +5668,7 @@ mod test {
                     TransactionPublicKeyEncoding::Compressed
                 );
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&tx, true, false);
@@ -5766,7 +5762,7 @@ mod test {
                     TransactionPublicKeyEncoding::Compressed
                 );
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&tx, true, false);
@@ -5917,7 +5913,7 @@ mod test {
                 );
                 assert_eq!(sponsor_data.fields[2].as_public_key().unwrap(), pubk_3);
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&origin_tx, true, false);
@@ -6008,7 +6004,7 @@ mod test {
                     TransactionPublicKeyEncoding::Uncompressed
                 );
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&tx, true, false);
@@ -6159,7 +6155,7 @@ mod test {
                 );
                 assert_eq!(sponsor_data.fields[2].as_public_key().unwrap(), pubk_3);
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&origin_tx, true, false);
@@ -6250,7 +6246,7 @@ mod test {
                     TransactionPublicKeyEncoding::Compressed
                 );
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&tx, true, false);
@@ -6404,7 +6400,7 @@ mod test {
                     TransactionPublicKeyEncoding::Compressed
                 );
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&tx, true, false);
@@ -6555,7 +6551,7 @@ mod test {
                 );
                 assert_eq!(sponsor_data.fields[1].as_public_key().unwrap(), pubk_2);
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&origin_tx, true, false);
@@ -6750,7 +6746,7 @@ mod test {
                     TransactionPublicKeyEncoding::Compressed
                 );
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&origin_tx, true, false);
@@ -6842,7 +6838,7 @@ mod test {
                     TransactionPublicKeyEncoding::Compressed
                 );
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&tx, true, false);
@@ -6976,7 +6972,7 @@ mod test {
                     TransactionPublicKeyEncoding::Compressed
                 );
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&tx, true, false);
@@ -7128,7 +7124,7 @@ mod test {
                 );
                 assert_eq!(sponsor_data.fields[1].as_public_key().unwrap(), pubk_2);
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&origin_tx, true, false);
@@ -7321,7 +7317,7 @@ mod test {
                 assert_eq!(sponsor_data.fields[4].as_public_key().unwrap(), pubk_5);
                 assert_eq!(sponsor_data.fields[5].as_public_key().unwrap(), pubk_6);
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&origin_tx, true, false);
@@ -7425,7 +7421,7 @@ mod test {
                 );
                 assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&signed_tx, true, false);
@@ -7473,7 +7469,7 @@ mod test {
                     TransactionPublicKeyEncoding::Compressed
                 );
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&order_independent_tx, true, false);
@@ -7582,7 +7578,7 @@ mod test {
                 );
                 assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&signed_tx, true, false);
@@ -7632,7 +7628,7 @@ mod test {
                     TransactionPublicKeyEncoding::Uncompressed
                 );
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&tx, true, false);
@@ -7737,7 +7733,7 @@ mod test {
                 );
                 assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&signed_tx, true, false);
@@ -7788,7 +7784,7 @@ mod test {
                     TransactionPublicKeyEncoding::Compressed
                 );
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&tx, true, false);
@@ -7941,7 +7937,7 @@ mod test {
                 );
                 assert_eq!(sponsor_data.fields[2].as_public_key().unwrap(), pubk_3);
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&signed_tx, true, false);
@@ -8030,7 +8026,7 @@ mod test {
                 );
                 assert_eq!(sponsor_data.fields[2].as_public_key().unwrap(), pubk_3);
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&origin_tx, true, false);
@@ -8193,7 +8189,7 @@ mod test {
                 );
                 assert_eq!(sponsor_data.fields[2].as_public_key().unwrap(), pubk_3);
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&origin_tx, true, false);
@@ -8282,7 +8278,7 @@ mod test {
                 );
                 assert_eq!(sponsor_data.fields[2].as_public_key().unwrap(), pubk_3);
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&origin_tx, true, false);
@@ -8438,7 +8434,7 @@ mod test {
                 );
                 assert_eq!(sponsor_data.fields[2].as_public_key().unwrap(), pubk_3);
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&signed_tx, true, false);
@@ -8528,7 +8524,7 @@ mod test {
                 );
                 assert_eq!(sponsor_data.fields[1].as_public_key().unwrap(), pubk_2);
             } else {
-                panic!();
+                panic!("Unexpected auth condition");
             }
 
             test_signature_and_corruption(&origin_tx, true, false);

@@ -8365,11 +8365,10 @@ pub mod test {
                 ASTRules::PrecheckSize,
             )
             .unwrap_err();
-            if let Error::ClarityError(clarity_error::BadTransaction(msg)) = err {
-                assert!(msg.find("never seen in this fork").is_some());
-            } else {
-                panic!();
-            }
+            let Error::ClarityError(clarity_error::BadTransaction(msg)) = &err else {
+                panic!("Unexpected error type");
+            };
+            assert!(msg.find("never seen in this fork").is_some());
             conn.commit_block();
         }
     }

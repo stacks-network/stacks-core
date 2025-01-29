@@ -279,14 +279,13 @@ fn test_build_anchored_blocks_stx_transfers_single() {
         if tenure_id > 0 {
             // transaction was mined
             assert_eq!(stacks_block.txs.len(), 2);
-            if let TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) =
-                stacks_block.txs[1].payload
-            {
-                assert_eq!(*addr, recipient.to_account_principal());
-                assert_eq!(*amount, 1);
-            } else {
-                panic!();
-            }
+            let TransactionPayload::TokenTransfer(addr, amount, memo) =
+                &stacks_block.txs[1].payload
+            else {
+                panic!("Unexpected payload message type");
+            };
+            assert_eq!(*addr, recipient.to_account_principal());
+            assert_eq!(*amount, 1);
         }
     }
 }
@@ -582,15 +581,12 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
         if tenure_id > 0 {
             // transaction was mined, even though they were staggerred by time
             assert_eq!(stacks_block.txs.len(), 11);
-            for i in 1..11 {
-                if let TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) =
-                    stacks_block.txs[i].payload
-                {
-                    assert_eq!(*addr, recipient.to_account_principal());
-                    assert_eq!(*amount, 1);
-                } else {
-                    panic!();
-                }
+            for tx in stacks_block.txs.iter().skip(1) {
+                let TransactionPayload::TokenTransfer(addr, amount, memo) = &tx.payload else {
+                    panic!("Unexpected payload message type");
+                };
+                assert_eq!(*addr, recipient.to_account_principal());
+                assert_eq!(*amount, 1);
             }
         }
     }

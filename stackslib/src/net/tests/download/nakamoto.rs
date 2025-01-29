@@ -1372,15 +1372,13 @@ fn test_make_tenure_downloaders() {
             assert!(!wanted_tenures[w].processed);
         }
 
-        let Err(NetError::DBError(DBError::NotFoundError)) =
-            NakamotoDownloadStateMachine::load_wanted_tenures(
-                &ih,
-                tip.block_height + 1,
-                tip.block_height + 2,
-            )
-        else {
-            panic!()
-        };
+        let err = NakamotoDownloadStateMachine::load_wanted_tenures(
+            &ih,
+            tip.block_height + 1,
+            tip.block_height + 2,
+        )
+        .unwrap_err();
+        assert!(matches!(err, NetError::DBError(DBError::NotFoundError)));
 
         let wanted_tenures = NakamotoDownloadStateMachine::load_wanted_tenures(
             &ih,
@@ -1421,15 +1419,13 @@ fn test_make_tenure_downloaders() {
             assert!(!wanted_tenures[w].processed);
         }
 
-        let Err(NetError::DBError(DBError::NotFoundError)) =
-            NakamotoDownloadStateMachine::load_wanted_tenures_for_reward_cycle(
-                rc + 1,
-                &tip,
-                peer.sortdb(),
-            )
-        else {
-            panic!()
-        };
+        let err = NakamotoDownloadStateMachine::load_wanted_tenures_for_reward_cycle(
+            rc + 1,
+            &tip,
+            peer.sortdb(),
+        )
+        .unwrap_err();
+        assert!(matches!(err, NetError::DBError(DBError::NotFoundError)));
     }
 
     // test load_wanted_tenures_at_tip

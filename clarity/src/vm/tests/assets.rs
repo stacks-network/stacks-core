@@ -155,24 +155,20 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
     let p3 = execute("'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY");
 
-    let p1_std_principal_data = match p1 {
-        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(PrincipalData::Standard(p1_std_principal_data)) = p1.clone() else {
+        panic!("Expected standard principal data");
     };
 
-    let p1_principal = match p1 {
-        Value::Principal(ref data) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(p1_principal) = p1.clone() else {
+        panic!("Expected principal data");
     };
 
-    let p2_principal = match p2 {
-        Value::Principal(ref data) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(p2_principal) = p2.clone() else {
+        panic!("Expected principal data");
     };
 
-    let p3_principal = match p3 {
-        Value::Principal(ref data) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(p3_principal) = p3.clone() else {
+        panic!("Expected principal data");
     };
 
     let token_contract_id =
@@ -525,19 +521,16 @@ fn test_simple_token_system(
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
 
-    let p1_std_principal_data = match p1 {
-        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(PrincipalData::Standard(p1_std_principal_data)) = p1.clone() else {
+        panic!("Expected standard pincipal data");
     };
 
-    let p1_principal = match p1 {
-        Value::Principal(ref data) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(p1_principal) = p1.clone() else {
+        panic!("Expected principal data");
     };
 
-    let p2_principal = match p2 {
-        Value::Principal(ref data) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(p2_principal) = p2.clone() else {
+        panic!("Expected principal data");
     };
 
     let token_contract_id =
@@ -836,14 +829,12 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
-    let p1_std_principal_data = match p1 {
-        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(PrincipalData::Standard(p1_std_principal_data)) = p1.clone() else {
+        panic!("Expected standard principal data");
     };
 
-    let p1_principal = match p1 {
-        Value::Principal(ref data) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(p1_principal) = p1.clone() else {
+        panic!("Expected principal data");
     };
 
     let token_contract_id =
@@ -939,9 +930,8 @@ fn test_overlapping_nfts(
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
-    let p1_std_principal_data = match p1 {
-        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(PrincipalData::Standard(p1_std_principal_data)) = p1 else {
+        panic!("Expected standard principal data");
     };
 
     let tokens_contract_id =
@@ -991,19 +981,16 @@ fn test_simple_naming_system(
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
 
-    let p1_std_principal_data = match p1 {
-        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(PrincipalData::Standard(p1_std_principal_data)) = p1.clone() else {
+        panic!("Expected standard principal data");
     };
 
-    let p1_principal = match p1 {
-        Value::Principal(ref data) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(p1_principal) = p1.clone() else {
+        panic!("Expected principal data");
     };
 
-    let p2_principal = match p2 {
-        Value::Principal(ref data) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(p2_principal) = p2.clone() else {
+        panic!("Expected principal data");
     };
 
     let placeholder_context =

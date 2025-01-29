@@ -218,7 +218,7 @@ fn trie_cursor_try_attach_leaf() {
                     TrieNodeType::Node256(ref data) => {
                         assert_eq!(count_children(&data.ptrs), 2)
                     }
-                    _ => panic!(),
+                    node_type => panic!("Unexpected node type: {node_type:?}"),
                 };
             }
 
@@ -379,13 +379,12 @@ fn trie_cursor_promote_leaf_to_node4() {
         }
 
         // each ptr must be a node with two children
-        for i in 0..31 {
-            let ptr = &ptrs[i];
+        for ptr in ptrs.iter().take(31) {
             let (node, hash) = f.read_nodetype(ptr).unwrap();
             match node {
                 TrieNodeType::Node4(ref data) => assert_eq!(count_children(&data.ptrs), 2),
                 TrieNodeType::Node256(ref data) => assert_eq!(count_children(&data.ptrs), 2),
-                _ => panic!(),
+                _ => panic!("Unexpected node type"),
             };
         }
 
@@ -539,10 +538,10 @@ fn trie_cursor_promote_node4_to_node16() {
         // each ptr we got should point to a node16 with 5 children
         for ptr in ptrs.iter() {
             let (node, hash) = f.read_nodetype(ptr).unwrap();
-            if let TrieNodeType::Node16(ref data) = node {
+            if let TrieNodeType::Node16(data) = &node {
                 assert_eq!(count_children(&data.ptrs), 5);
             } else {
-                panic!();
+                panic!("Unexpected node type");
             }
         }
 
@@ -701,7 +700,7 @@ fn trie_cursor_promote_node16_to_node48() {
             if let TrieNodeType::Node16(ref data) = node {
                 assert_eq!(count_children(&data.ptrs), 5);
             } else {
-                panic!();
+                panic!("Unexpected node type");
             }
         }
 
@@ -806,7 +805,7 @@ fn trie_cursor_promote_node16_to_node48() {
             if let TrieNodeType::Node48(ref data) = node {
                 assert_eq!(count_children(&data.ptrs), 17);
             } else {
-                panic!();
+                panic!("Unexpected node type");
             }
         }
 
@@ -965,7 +964,7 @@ fn trie_cursor_promote_node48_to_node256() {
             if let TrieNodeType::Node16(ref data) = node {
                 assert_eq!(count_children(&data.ptrs), 5);
             } else {
-                panic!();
+                panic!("Unexpected node type");
             }
         }
 
@@ -1068,7 +1067,7 @@ fn trie_cursor_promote_node48_to_node256() {
             if let TrieNodeType::Node48(ref data) = node {
                 assert_eq!(count_children(&data.ptrs), 17);
             } else {
-                panic!();
+                panic!("Unexpected node type");
             }
         }
 
@@ -1172,7 +1171,7 @@ fn trie_cursor_promote_node48_to_node256() {
             if let TrieNodeType::Node256(ref data) = node {
                 assert_eq!(count_children(&data.ptrs), 49);
             } else {
-                panic!()
+                panic!("Unexpected node type");
             }
         }
 

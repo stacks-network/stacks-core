@@ -763,7 +763,7 @@ fn test_http_response_type_codec() {
             assert!(req.headers.contains_key("date"));
             req.headers.clear();
         } else {
-            panic!();
+            panic!("Unexpected preamble");
         }
 
         assert_eq!(
@@ -935,51 +935,30 @@ fn test_http_parse_proof_tip_query() {
     let tip_req = HttpRequestContents::new()
         .query_string(Some(query_txt))
         .tip_request();
-    if let TipRequest::SpecificTip(tip) = tip_req {
-        assert_eq!(
-            tip,
-            StacksBlockId::from_hex(
-                "7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392"
-            )
-            .unwrap()
-        )
-    } else {
-        panic!();
-    }
+    let block_id =
+        StacksBlockId::from_hex("7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392")
+            .unwrap();
+    assert!(matches!(tip_req, TipRequest::SpecificTip(block_id)));
 
     // last parseable tip is taken
     let query_txt_dup = "tip=7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392&tip=03e26bd68a8722f8b3861e2058edcafde094ad059e152754986c3573306698f1";
     let tip_req = HttpRequestContents::new()
         .query_string(Some(query_txt_dup))
         .tip_request();
-    if let TipRequest::SpecificTip(tip) = tip_req {
-        assert_eq!(
-            tip,
-            StacksBlockId::from_hex(
-                "03e26bd68a8722f8b3861e2058edcafde094ad059e152754986c3573306698f1"
-            )
-            .unwrap()
-        );
-    } else {
-        panic!();
-    }
+    let block_id =
+        StacksBlockId::from_hex("03e26bd68a8722f8b3861e2058edcafde094ad059e152754986c3573306698f1")
+            .unwrap();
+    assert!(matches!(tip_req, TipRequest::SpecificTip(block_id)));
 
     // last parseable tip is taken
     let query_txt_dup = "tip=bad&tip=7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392&tip=03e26bd68a8722f8b3861e2058edcafde094ad059e152754986c3573306698f1";
+    let block_id =
+        StacksBlockId::from_hex("03e26bd68a8722f8b3861e2058edcafde094ad059e152754986c3573306698f1")
+            .unwrap();
     let tip_req = HttpRequestContents::new()
         .query_string(Some(query_txt_dup))
         .tip_request();
-    if let TipRequest::SpecificTip(tip) = tip_req {
-        assert_eq!(
-            tip,
-            StacksBlockId::from_hex(
-                "03e26bd68a8722f8b3861e2058edcafde094ad059e152754986c3573306698f1"
-            )
-            .unwrap()
-        );
-    } else {
-        panic!();
-    }
+    assert!(matches!(tip_req, TipRequest::SpecificTip(block_id)));
 
     // tip can be skipped
     let query_txt_bad = "tip=bad";

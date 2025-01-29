@@ -585,7 +585,10 @@ where
         match (res_1, res_2) {
             (Some(res), None) => {}
             (None, Some(res)) => {}
-            (_, _) => panic!(),
+            (_, _) => panic!(
+                "Exactly one stacks block should have been queued up. Got {} queued block(s)",
+                res_1.is_some() as u8 + res_2.is_some() as u8
+            ),
         }
 
         // process all blocks
@@ -1188,7 +1191,10 @@ where
         match (res_1, res_2) {
             (Some(res), None) => assert!(res),
             (None, Some(res)) => assert!(res),
-            (_, _) => panic!(),
+            (_, _) => panic!(
+                "Exactly one stacks block should be queued up. Got {} queued block(s)",
+                res_1.is_some() as u8 + res_2.is_some() as u8
+            ),
         }
 
         // process all blocks
@@ -2497,7 +2503,7 @@ fn assert_chainstate_blocks_eq(test_name_1: &str, test_name_2: &str) {
             }
             (None, None) => {}
             (_, _) => {
-                panic!();
+                panic!("Expected either both or none of the blocks to be staged");
             }
         }
 
@@ -2507,7 +2513,7 @@ fn assert_chainstate_blocks_eq(test_name_1: &str, test_name_2: &str) {
             }
             (None, None) => {}
             (_, _) => {
-                panic!();
+                panic!("Expected either both or none of the blocks to be staged");
             }
         }
     }
@@ -2544,7 +2550,7 @@ fn assert_chainstate_blocks_eq(test_name_1: &str, test_name_2: &str) {
             }
             (None, None) => {}
             (_, _) => {
-                panic!();
+                panic!("Expected either both or none of the blocks to be staged");
             }
         }
         for j in 0..all_microblocks_1[i].2.len() {
@@ -2570,7 +2576,7 @@ fn assert_chainstate_blocks_eq(test_name_1: &str, test_name_2: &str) {
                 }
                 (None, None) => {}
                 (_, _) => {
-                    panic!();
+                    panic!("Expected either both or none of the blocks to be staged");
                 }
             }
         }

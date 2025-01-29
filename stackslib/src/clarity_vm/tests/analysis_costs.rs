@@ -57,9 +57,8 @@ fn setup_tracked_cost_test(
         .unwrap()
         .unwrap();
 
-    let p1_principal = match p1 {
-        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(PrincipalData::Standard(p1_principal)) = p1.clone() else {
+        panic!("Exepected standard principal data");
     };
 
     let contract_trait = "(define-trait trait-1 (
@@ -203,14 +202,13 @@ fn test_tracked_costs(
         .unwrap()
         .unwrap();
 
-    let p1_principal = match p1 {
-        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(PrincipalData::Standard(p1_principal)) = p1.clone() else {
+        panic!("Exepected standard principal data");
     };
 
     let self_contract_id = QualifiedContractIdentifier::new(
         p1_principal,
-        ContractName::try_from(format!("self-{}", prog_id)).unwrap(),
+        ContractName::try_from(format!("self-{prog_id}")).unwrap(),
     );
 
     let burn_state_db = UnitTestBurnStateDB {

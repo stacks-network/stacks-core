@@ -3872,7 +3872,13 @@ fn test_get_pox_addrs() {
                 assert!(reward_addrs.is_empty());
             }
 
-            eprintln!("\ntenure: {tenure_id}\nreward cycle: {cur_reward_cycle}\nlockup_reward_cycle: {lockup_reward_cycle}\nmin-uSTX: {min_ustx}\naddrs: {reward_addrs:?}\ntotal_liquid_ustx: {total_liquid_ustx}\ntotal-stacked: {total_stacked}\n");
+            eprintln!("tenure: {tenure_id})");
+            eprintln!("reward cycle: {cur_reward_cycle}");
+            eprintln!("lockup_reward_cycle: {lockup_reward_cycle}");
+            eprintln!("min-uSTX: {min_ustx}");
+            eprintln!("addrs: {reward_addrs:?}");
+            eprintln!("ntotal_liquid_ustx: {total_liquid_ustx}");
+            eprintln!("total-stacked: {total_stacked}");
 
             if cur_reward_cycle == lockup_reward_cycle.into() {
                 assert_eq!(reward_addrs.len(), 4);
@@ -4164,7 +4170,13 @@ fn test_stack_with_segwit() {
                 assert!(reward_addrs.is_empty());
             }
 
-            eprintln!("\ntenure: {tenure_id}\nreward cycle: {cur_reward_cycle}\nlockup_reward_cycle: {lockup_reward_cycle}\nmin-uSTX: {min_ustx}\naddrs: {reward_addrs:?}\ntotal_liquid_ustx: {total_liquid_ustx}\ntotal-stacked: {total_stacked}\n");
+            eprintln!("tenure: {tenure_id}");
+            eprintln!("reward cycle: {cur_reward_cycle}");
+            eprintln!("lockup_reward_cycle: {lockup_reward_cycle}");
+            eprintln!("min-uSTX: {min_ustx}");
+            eprintln!("addrs: {reward_addrs:?}");
+            eprintln!("total_liquid_ustx: {total_liquid_ustx}");
+            eprintln!("total-stacked: {total_stacked}");
 
             if cur_reward_cycle == lockup_reward_cycle.into() {
                 assert_eq!(reward_addrs.len(), 4);

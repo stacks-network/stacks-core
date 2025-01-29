@@ -1038,15 +1038,13 @@ impl<T: MarfTrieId> MARF<T> {
         trace!("MARF::get_path({block_hash:?}) {path:?}");
 
         // a NotFoundError _here_ means that a block didn't exist
-        storage.open_block(block_hash).map_err(|e| {
-            test_debug!("Failed to open block {block_hash:?}: {e:?}");
-            e
+        storage.open_block(block_hash).inspect_err(|_e| {
+            test_debug!("Failed to open block {block_hash:?}: {_e:?}");
         })?;
 
         // a NotFoundError _here_ means that the key doesn't exist in this view
-        let (cursor, node) = MARF::walk(storage, block_hash, path).map_err(|e| {
+        let (cursor, node) = MARF::walk(storage, block_hash, path).inspect_err(|e| {
             trace!("Failed to look up key {block_hash:?} {path:?}: {e:?}");
-            e
         })?;
 
         // both of these get caught by get_by_key and turned into Ok(None)
