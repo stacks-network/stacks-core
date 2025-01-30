@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::ops::Bound::Included;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -72,7 +72,7 @@ pub struct SignerCoordinator {
     ///  burn block has arrived since this thread started.
     burn_tip_at_start: ConsensusHash,
     /// The timeout configuration based on the percentage of rejections
-    block_rejection_timeout_steps: HashMap<u32, Duration>,
+    block_rejection_timeout_steps: BTreeMap<u64, Duration>,
 }
 
 impl SignerCoordinator {
@@ -108,6 +108,14 @@ impl SignerCoordinator {
         let miners_contract_id = boot_code_id(MINERS_NAME, is_mainnet);
         let miners_session = StackerDBSession::new(&rpc_socket.to_string(), miners_contract_id);
 
+        // build a BTreeMap of the various timeout steps
+        let mut block_rejection_timeout_steps = BTreeMap::<u64, Duration>::new();
+        for (percentage, duration) in config.miner.block_rejection_timeout_steps.iter() {
+            let rejections_amount =
+                ((f64::from(listener.total_weight) / 100.0) * f64::from(*percentage)) as u64;
+            block_rejection_timeout_steps.insert(rejections_amount, *duration);
+        }
+
         let mut sc = Self {
             message_key,
             is_mainnet,
@@ -118,7 +126,7 @@ impl SignerCoordinator {
             keep_running,
             listener_thread: None,
             burn_tip_at_start: burn_tip_at_start.clone(),
-            block_rejection_timeout_steps: config.miner.block_rejection_timeout_steps.clone(),
+            block_rejection_timeout_steps,
         };
 
         // Spawn the signer DB listener thread
@@ -279,21 +287,12 @@ impl SignerCoordinator {
             }
         }
 
-        // build a BTreeMap of the various timeout steps
-        let mut block_rejection_timeout_steps = BTreeMap::<u64, Duration>::new();
-        for (percentage, duration) in self.block_rejection_timeout_steps.iter() {
-            let rejections_amount =
-                ((f64::from(self.total_weight) / 100.0) * f64::from(*percentage)) as u64;
-            block_rejection_timeout_steps.insert(rejections_amount, *duration);
-        }
-
         self.get_block_status(
             &block.header.signer_signature_hash(),
             &block.block_id(),
             chain_state,
             sortdb,
             counters,
-            &block_rejection_timeout_steps,
         )
     }
 
@@ -309,19 +308,18 @@ impl SignerCoordinator {
         chain_state: &mut StacksChainState,
         sortdb: &SortitionDB,
         counters: &Counters,
-        block_rejection_timeout_steps: &BTreeMap<u64, Duration>,
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
         // the amount of current rejections (used to eventually modify the timeout)
         let mut rejections: u64 = 0;
         // default timeout (the 0 entry must be always present)
-        let mut rejections_timeout =
-            block_rejection_timeout_steps
-                .get(&rejections)
-                .ok_or_else(|| {
-                    NakamotoNodeError::SigningCoordinatorFailure(
-                        "Invalid rejection timeout step function definition".into(),
-                    )
-                })?;
+        let mut rejections_timeout = self
+            .block_rejection_timeout_steps
+            .get(&rejections)
+            .ok_or_else(|| {
+                NakamotoNodeError::SigningCoordinatorFailure(
+                    "Invalid rejection timeout step function definition".into(),
+                )
+            })?;
         // this is used for comparing block_status to identify if it has been changed from the previous event
         let mut block_status_tracker = BlockStatus::default();
 
@@ -397,7 +395,8 @@ impl SignerCoordinator {
 
             if rejections != block_status.total_reject_weight as u64 {
                 rejections = block_status.total_reject_weight as u64;
-                let rejections_timeout_tuple = block_rejection_timeout_steps
+                let rejections_timeout_tuple = self
+                    .block_rejection_timeout_steps
                     .range((Included(0), Included(rejections)))
                     .last()
                     .ok_or_else(|| {
