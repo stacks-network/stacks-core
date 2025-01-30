@@ -76,7 +76,6 @@ use crate::event_dispatcher::{MinedNakamotoBlockEvent, TEST_SKIP_BLOCK_ANNOUNCEM
 use crate::nakamoto_node::miner::{
     TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL,
 };
-use crate::nakamoto_node::signer_coordinator::BLOCK_REJECTIONS_CURRENT_TIMEOUT;
 use crate::nakamoto_node::stackerdb_listener::TEST_IGNORE_SIGNERS;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
@@ -7877,9 +7876,23 @@ fn block_validation_check_rejection_timeout_heuristic() {
         .wait_for_block_rejections(timeout.as_secs(), &[all_signers[19]])
         .unwrap();
 
-    thread::sleep(Duration::from_secs(3));
-
-    assert_eq!(BLOCK_REJECTIONS_CURRENT_TIMEOUT.get().as_secs(), 123);
+    wait_for(60, || {
+        Ok(signer_test
+            .running_nodes
+            .counters
+            .naka_miner_current_rejections
+            .get()
+            >= 1)
+    })
+    .unwrap();
+    assert_eq!(
+        signer_test
+            .running_nodes
+            .counters
+            .naka_miner_current_rejections_timeout_secs
+            .get(),
+        123
+    );
 
     info!("------------------------- Check Rejections-based timeout with 2 rejections -------------------------");
 
@@ -7899,9 +7912,23 @@ fn block_validation_check_rejection_timeout_heuristic() {
         .wait_for_block_rejections(timeout.as_secs(), &[all_signers[18], all_signers[19]])
         .unwrap();
 
-    thread::sleep(Duration::from_secs(3));
-
-    assert_eq!(BLOCK_REJECTIONS_CURRENT_TIMEOUT.get().as_secs(), 20);
+    wait_for(60, || {
+        Ok(signer_test
+            .running_nodes
+            .counters
+            .naka_miner_current_rejections
+            .get()
+            >= 2)
+    })
+    .unwrap();
+    assert_eq!(
+        signer_test
+            .running_nodes
+            .counters
+            .naka_miner_current_rejections_timeout_secs
+            .get(),
+        20
+    );
 
     info!("------------------------- Check Rejections-based timeout with 3 rejections -------------------------");
 
@@ -7924,9 +7951,24 @@ fn block_validation_check_rejection_timeout_heuristic() {
         )
         .unwrap();
 
-    thread::sleep(Duration::from_secs(3));
+    wait_for(60, || {
+        Ok(signer_test
+            .running_nodes
+            .counters
+            .naka_miner_current_rejections
+            .get()
+            >= 3)
+    })
+    .unwrap();
 
-    assert_eq!(BLOCK_REJECTIONS_CURRENT_TIMEOUT.get().as_secs(), 10);
+    assert_eq!(
+        signer_test
+            .running_nodes
+            .counters
+            .naka_miner_current_rejections_timeout_secs
+            .get(),
+        10
+    );
 
     info!("------------------------- Check Rejections-based timeout with 4 rejections -------------------------");
 
@@ -7959,9 +8001,23 @@ fn block_validation_check_rejection_timeout_heuristic() {
         )
         .unwrap();
 
-    thread::sleep(Duration::from_secs(3));
-
-    assert_eq!(BLOCK_REJECTIONS_CURRENT_TIMEOUT.get().as_secs(), 99);
+    wait_for(60, || {
+        Ok(signer_test
+            .running_nodes
+            .counters
+            .naka_miner_current_rejections
+            .get()
+            >= 4)
+    })
+    .unwrap();
+    assert_eq!(
+        signer_test
+            .running_nodes
+            .counters
+            .naka_miner_current_rejections_timeout_secs
+            .get(),
+        99
+    );
 
     // reset reject/ignore
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![]);

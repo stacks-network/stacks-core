@@ -116,6 +116,11 @@ pub struct Counters {
     pub naka_miner_directives: RunLoopCounter,
 
     #[cfg(test)]
+    pub naka_miner_current_rejections: RunLoopCounter,
+    #[cfg(test)]
+    pub naka_miner_current_rejections_timeout_secs: RunLoopCounter,
+
+    #[cfg(test)]
     pub naka_skip_commit_op: TestFlag<bool>,
 }
 
@@ -133,7 +138,7 @@ impl Counters {
     fn inc(_ctr: &RunLoopCounter) {}
 
     #[cfg(test)]
-    fn set(ctr: &RunLoopCounter, value: u64) {
+    pub fn set(ctr: &RunLoopCounter, value: u64) {
         ctr.0.store(value, Ordering::SeqCst);
     }
 

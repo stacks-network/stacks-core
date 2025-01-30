@@ -16,8 +16,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Bound::Included;
 use std::sync::atomic::AtomicBool;
-#[cfg(test)]
-use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -38,8 +36,6 @@ use stacks::types::chainstate::{StacksBlockId, StacksPrivateKey};
 use stacks::util::hash::Sha512Trunc256Sum;
 use stacks::util::secp256k1::MessageSignature;
 use stacks::util_lib::boot::boot_code_id;
-#[cfg(test)]
-use stacks_common::util::tests::TestFlag;
 
 use super::stackerdb_listener::StackerDBListenerComms;
 use super::Error as NakamotoNodeError;
@@ -49,11 +45,6 @@ use crate::nakamoto_node::stackerdb_listener::{
 };
 use crate::neon::Counters;
 use crate::Config;
-
-#[cfg(test)]
-/// Test-only value for storing the current rejection based timeout
-pub static BLOCK_REJECTIONS_CURRENT_TIMEOUT: LazyLock<TestFlag<Duration>> =
-    LazyLock::new(TestFlag::default);
 
 /// The state of the signer database listener, used by the miner thread to
 /// interact with the signer listener.
@@ -410,7 +401,13 @@ impl SignerCoordinator {
                 rejections_timer = Instant::now();
 
                 #[cfg(test)]
-                BLOCK_REJECTIONS_CURRENT_TIMEOUT.set(*rejections_timeout);
+                {
+                    Counters::set(
+                        &counters.naka_miner_current_rejections_timeout_secs,
+                        rejections_timeout.as_secs(),
+                    );
+                    Counters::set(&counters.naka_miner_current_rejections, rejections);
+                }
             }
 
             if block_status

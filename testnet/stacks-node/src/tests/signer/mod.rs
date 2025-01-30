@@ -98,6 +98,7 @@ pub struct RunningNodes {
     pub nakamoto_test_skip_commit_op: TestFlag<bool>,
     pub coord_channel: Arc<Mutex<CoordinatorChannels>>,
     pub conf: NeonConfig,
+    pub counters: Counters,
 }
 
 /// A test harness for running a v0 or v1 signer integration test
@@ -943,6 +944,9 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     } = run_loop.counters();
 
     let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_counters = run_loop.counters();
+
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
 
     // Give the run loop some time to start up!
@@ -978,5 +982,6 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
         nakamoto_miner_directives: naka_miner_directives.0,
         coord_channel,
         conf: naka_conf,
+        counters: run_loop_counters,
     }
 }
