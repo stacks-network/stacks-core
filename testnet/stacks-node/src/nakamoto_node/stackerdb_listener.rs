@@ -376,7 +376,6 @@ impl StackerDBListener {
                             }
                         };
                         block.responded_signers.insert(rejected_pubkey);
-
                         block.total_reject_weight = block
                             .total_reject_weight
                             .checked_add(signer_entry.weight)
