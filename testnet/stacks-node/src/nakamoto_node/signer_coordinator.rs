@@ -279,12 +279,21 @@ impl SignerCoordinator {
             }
         }
 
+        // build a BTreeMap of the various timeout steps
+        let mut block_rejection_timeout_steps = BTreeMap::<u64, Duration>::new();
+        for (percentage, duration) in self.block_rejection_timeout_steps.iter() {
+            let rejections_amount =
+                ((f64::from(self.total_weight) / 100.0) * f64::from(*percentage)) as u64;
+            block_rejection_timeout_steps.insert(rejections_amount, *duration);
+        }
+
         self.get_block_status(
             &block.header.signer_signature_hash(),
             &block.block_id(),
             chain_state,
             sortdb,
             counters,
+            &block_rejection_timeout_steps,
         )
     }
 
@@ -300,15 +309,8 @@ impl SignerCoordinator {
         chain_state: &mut StacksChainState,
         sortdb: &SortitionDB,
         counters: &Counters,
+        block_rejection_timeout_steps: &BTreeMap<u64, Duration>,
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
-        // build a BTreeMap of the various timeout steps
-        let mut block_rejection_timeout_steps = BTreeMap::<u64, Duration>::new();
-        for (percentage, duration) in self.block_rejection_timeout_steps.iter() {
-            let rejections_amount =
-                ((f64::from(self.total_weight) / 100.0) * f64::from(*percentage)) as u64;
-            block_rejection_timeout_steps.insert(rejections_amount, *duration);
-        }
-
         // the amount of current rejections (used to eventually modify the timeout)
         let mut rejections: u64 = 0;
         // default timeout (the 0 entry must be always present)
