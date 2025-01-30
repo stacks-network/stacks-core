@@ -480,32 +480,30 @@ impl StackerDBListenerComms {
 
     /// Get the status for `block` from the Stacker DB listener.
     /// If the block is not found in the map, return an error.
-    /// If the block is found, return it.
+    /// If the block is found, call `condition` to check if the block status
+    /// satisfies the condition.
+    /// If the condition is satisfied, return the block status as
+    ///   `Ok(Some(status))`.
+    /// If the condition is not satisfied, wait for it to be satisfied.
     /// If the timeout is reached, return `Ok(None)`.
-    pub fn wait_for_block_status(
+    pub fn wait_for_block_status<F>(
         &self,
         block_signer_sighash: &Sha512Trunc256Sum,
-        block_status_tracker: &mut BlockStatus,
-        rejections_timer: std::time::Instant,
-        rejections_timeout: Duration,
         timeout: Duration,
-    ) -> Result<Option<BlockStatus>, NakamotoNodeError> {
+        condition: F,
+    ) -> Result<Option<BlockStatus>, NakamotoNodeError>
+    where
+        F: Fn(&BlockStatus) -> bool,
+    {
         let (lock, cvar) = &*self.blocks;
         let blocks = lock.lock().expect("FATAL: failed to lock block status");
 
         let (guard, timeout_result) = cvar
             .wait_timeout_while(blocks, timeout, |map| {
-                if rejections_timer.elapsed() > rejections_timeout {
-                    return true;
-                }
                 let Some(status) = map.get(block_signer_sighash) else {
                     return true;
                 };
-                if status != block_status_tracker {
-                    *block_status_tracker = status.clone();
-                    return false;
-                }
-                return true;
+                condition(status)
             })
             .expect("FATAL: failed to wait on block status cond var");
 

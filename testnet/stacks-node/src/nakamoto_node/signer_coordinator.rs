@@ -331,12 +331,22 @@ impl SignerCoordinator {
             // Based on the amount of rejections, eventually modify the timeout.
             let block_status = match self.stackerdb_comms.wait_for_block_status(
                 block_signer_sighash,
-                &mut block_status_tracker,
-                rejections_timer,
-                *rejections_timeout,
                 EVENT_RECEIVER_POLL,
+                |status| {
+                    if rejections_timer.elapsed() > *rejections_timeout {
+                        return false;
+                    }
+                    if *status != block_status_tracker {
+                        return false;
+                    }
+                    return true;
+                },
             )? {
-                Some(status) => status,
+                Some(status) => {
+                    // keep track of the last status
+                    block_status_tracker = status.clone();
+                    status
+                }
                 None => {
                     // If we just received a timeout, we should check if the burnchain
                     // tip has changed or if we received this signed block already in
