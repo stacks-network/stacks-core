@@ -53,7 +53,7 @@ fn test_mempool_sync_2_peers() {
     peer_2_config.connection_opts.mempool_sync_interval = 1;
 
     let num_txs = 10;
-    let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::new()).collect();
+    let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::random()).collect();
     let addrs: Vec<_> = pks.iter().map(to_addr).collect();
     let initial_balances: Vec<_> = addrs
         .iter()
@@ -61,7 +61,7 @@ fn test_mempool_sync_2_peers() {
         .collect();
 
     peer_1_config.initial_balances = initial_balances.clone();
-    peer_2_config.initial_balances = initial_balances.clone();
+    peer_2_config.initial_balances = initial_balances;
 
     let mut peer_1 = TestPeer::new(peer_1_config);
     let mut peer_2 = TestPeer::new(peer_2_config);
@@ -71,7 +71,7 @@ fn test_mempool_sync_2_peers() {
 
     let num_blocks = 10;
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
+        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
             .unwrap();
         sn.block_height + 1
     };
@@ -86,10 +86,8 @@ fn test_mempool_sync_2_peers() {
         peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
     }
 
-    let addr = StacksAddress {
-        version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-        bytes: Hash160([0xff; 20]),
-    };
+    let addr =
+        StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0xff; 20])).unwrap();
 
     let stacks_tip_ch = peer_1.network.stacks_tip.consensus_hash.clone();
     let stacks_tip_bhh = peer_1.network.stacks_tip.block_hash.clone();
@@ -104,7 +102,7 @@ fn test_mempool_sync_2_peers() {
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
-            auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
+            auth: TransactionAuth::from_p2pkh(pk).unwrap(),
             anchor_mode: TransactionAnchorMode::Any,
             post_condition_mode: TransactionPostConditionMode::Allow,
             post_conditions: vec![],
@@ -118,7 +116,7 @@ fn test_mempool_sync_2_peers() {
         tx.set_origin_nonce(0);
 
         let mut tx_signer = StacksTransactionSigner::new(&tx);
-        tx_signer.sign_origin(&pk).unwrap();
+        tx_signer.sign_origin(pk).unwrap();
 
         let tx = tx_signer.get_tx().unwrap();
 
@@ -184,7 +182,7 @@ fn test_mempool_sync_2_peers() {
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
-            auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
+            auth: TransactionAuth::from_p2pkh(pk).unwrap(),
             anchor_mode: TransactionAnchorMode::Any,
             post_condition_mode: TransactionPostConditionMode::Allow,
             post_conditions: vec![],
@@ -198,7 +196,7 @@ fn test_mempool_sync_2_peers() {
         tx.set_origin_nonce(1);
 
         let mut tx_signer = StacksTransactionSigner::new(&tx);
-        tx_signer.sign_origin(&pk).unwrap();
+        tx_signer.sign_origin(pk).unwrap();
 
         let tx = tx_signer.get_tx().unwrap();
 
@@ -321,7 +319,7 @@ fn test_mempool_sync_2_peers_paginated() {
     peer_2_config.connection_opts.mempool_sync_interval = 1;
 
     let num_txs = 1024;
-    let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::new()).collect();
+    let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::random()).collect();
     let addrs: Vec<_> = pks.iter().map(to_addr).collect();
     let initial_balances: Vec<_> = addrs
         .iter()
@@ -329,7 +327,7 @@ fn test_mempool_sync_2_peers_paginated() {
         .collect();
 
     peer_1_config.initial_balances = initial_balances.clone();
-    peer_2_config.initial_balances = initial_balances.clone();
+    peer_2_config.initial_balances = initial_balances;
 
     let mut peer_1 = TestPeer::new(peer_1_config);
     let mut peer_2 = TestPeer::new(peer_2_config);
@@ -339,7 +337,7 @@ fn test_mempool_sync_2_peers_paginated() {
 
     let num_blocks = 10;
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
+        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
             .unwrap();
         sn.block_height + 1
     };
@@ -354,10 +352,8 @@ fn test_mempool_sync_2_peers_paginated() {
         peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
     }
 
-    let addr = StacksAddress {
-        version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-        bytes: Hash160([0xff; 20]),
-    };
+    let addr =
+        StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0xff; 20])).unwrap();
 
     let stacks_tip_ch = peer_1.network.stacks_tip.consensus_hash.clone();
     let stacks_tip_bhh = peer_1.network.stacks_tip.block_hash.clone();
@@ -371,7 +367,7 @@ fn test_mempool_sync_2_peers_paginated() {
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
-            auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
+            auth: TransactionAuth::from_p2pkh(pk).unwrap(),
             anchor_mode: TransactionAnchorMode::Any,
             post_condition_mode: TransactionPostConditionMode::Allow,
             post_conditions: vec![],
@@ -385,7 +381,7 @@ fn test_mempool_sync_2_peers_paginated() {
         tx.set_origin_nonce(0);
 
         let mut tx_signer = StacksTransactionSigner::new(&tx);
-        tx_signer.sign_origin(&pk).unwrap();
+        tx_signer.sign_origin(pk).unwrap();
 
         let tx = tx_signer.get_tx().unwrap();
 
@@ -512,7 +508,7 @@ fn test_mempool_sync_2_peers_blacklisted() {
     peer_2_config.connection_opts.mempool_sync_interval = 1;
 
     let num_txs = 1024;
-    let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::new()).collect();
+    let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::random()).collect();
     let addrs: Vec<_> = pks.iter().map(to_addr).collect();
     let initial_balances: Vec<_> = addrs
         .iter()
@@ -520,7 +516,7 @@ fn test_mempool_sync_2_peers_blacklisted() {
         .collect();
 
     peer_1_config.initial_balances = initial_balances.clone();
-    peer_2_config.initial_balances = initial_balances.clone();
+    peer_2_config.initial_balances = initial_balances;
 
     let mut peer_1 = TestPeer::new(peer_1_config);
     let mut peer_2 = TestPeer::new(peer_2_config);
@@ -530,7 +526,7 @@ fn test_mempool_sync_2_peers_blacklisted() {
 
     let num_blocks = 10;
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
+        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
             .unwrap();
         sn.block_height + 1
     };
@@ -545,10 +541,8 @@ fn test_mempool_sync_2_peers_blacklisted() {
         peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
     }
 
-    let addr = StacksAddress {
-        version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-        bytes: Hash160([0xff; 20]),
-    };
+    let addr =
+        StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0xff; 20])).unwrap();
 
     let stacks_tip_ch = peer_1.network.stacks_tip.consensus_hash.clone();
     let stacks_tip_bhh = peer_1.network.stacks_tip.block_hash.clone();
@@ -563,7 +557,7 @@ fn test_mempool_sync_2_peers_blacklisted() {
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
-            auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
+            auth: TransactionAuth::from_p2pkh(pk).unwrap(),
             anchor_mode: TransactionAnchorMode::Any,
             post_condition_mode: TransactionPostConditionMode::Allow,
             post_conditions: vec![],
@@ -577,7 +571,7 @@ fn test_mempool_sync_2_peers_blacklisted() {
         tx.set_origin_nonce(0);
 
         let mut tx_signer = StacksTransactionSigner::new(&tx);
-        tx_signer.sign_origin(&pk).unwrap();
+        tx_signer.sign_origin(pk).unwrap();
 
         let tx = tx_signer.get_tx().unwrap();
 
@@ -723,7 +717,7 @@ fn test_mempool_sync_2_peers_problematic() {
     peer_2_config.connection_opts.mempool_sync_interval = 1;
 
     let num_txs = 128;
-    let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::new()).collect();
+    let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::random()).collect();
     let addrs: Vec<_> = pks.iter().map(to_addr).collect();
     let initial_balances: Vec<_> = addrs
         .iter()
@@ -731,7 +725,7 @@ fn test_mempool_sync_2_peers_problematic() {
         .collect();
 
     peer_1_config.initial_balances = initial_balances.clone();
-    peer_2_config.initial_balances = initial_balances.clone();
+    peer_2_config.initial_balances = initial_balances;
 
     let mut peer_1 = TestPeer::new(peer_1_config);
     let mut peer_2 = TestPeer::new(peer_2_config);
@@ -741,7 +735,7 @@ fn test_mempool_sync_2_peers_problematic() {
 
     let num_blocks = 10;
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
+        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
             .unwrap();
         sn.block_height + 1
     };
@@ -756,16 +750,13 @@ fn test_mempool_sync_2_peers_problematic() {
         peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
     }
 
-    let addr = StacksAddress {
-        version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-        bytes: Hash160([0xff; 20]),
-    };
+    let addr =
+        StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0xff; 20])).unwrap();
 
     let stacks_tip_ch = peer_1.network.stacks_tip.consensus_hash.clone();
     let stacks_tip_bhh = peer_1.network.stacks_tip.block_hash.clone();
 
     // fill peer 1 with lots of transactions
-    let mut txs = HashMap::new();
     let mut peer_1_mempool = peer_1.mempool.take().unwrap();
     let mut mempool_tx = peer_1_mempool.tx_begin().unwrap();
     for i in 0..num_txs {
@@ -777,7 +768,7 @@ fn test_mempool_sync_2_peers_problematic() {
         let tx_exceeds_body = format!("{}u1 {}", tx_exceeds_body_start, tx_exceeds_body_end);
 
         let tx = make_contract_tx(
-            &pk,
+            pk,
             0,
             (tx_exceeds_body.len() * 100) as u64,
             "test-exceeds",
@@ -791,8 +782,6 @@ fn test_mempool_sync_2_peers_problematic() {
         let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
         let tx_fee = tx.get_tx_fee();
-
-        txs.insert(tx.txid(), tx.clone());
 
         // should succeed
         MemPoolDB::try_add_tx(
@@ -813,7 +802,7 @@ fn test_mempool_sync_2_peers_problematic() {
         )
         .unwrap();
 
-        eprintln!("Added {} {}", i, &txid);
+        eprintln!("Added {i} {txid}");
     }
     mempool_tx.commit().unwrap();
     peer_1.mempool = Some(peer_1_mempool);
@@ -995,7 +984,7 @@ pub fn test_mempool_storage_nakamoto() {
                         );
                         txs.push(stx_transfer.clone());
                         (*mempool_txs.borrow_mut()).push(stx_transfer.clone());
-                        all_txs.push(stx_transfer.clone());
+                        all_txs.push(stx_transfer);
                     }
                     txs
                 },
@@ -1022,7 +1011,7 @@ pub fn test_mempool_storage_nakamoto() {
                                 &sortdb,
                                 &tip.consensus_hash,
                                 &tip.anchored_header.block_hash(),
-                                &mempool_tx,
+                                mempool_tx,
                                 None,
                                 &epoch.block_limit,
                                 &epoch.epoch_id,
@@ -1097,7 +1086,7 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
         vec![true, true, true, true, true, true, true, true, true, true],
     ];
     let num_txs = 1024;
-    let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::new()).collect();
+    let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::random()).collect();
     let addrs: Vec<_> = pks.iter().map(to_addr).collect();
     let initial_balances: Vec<_> = addrs
         .iter()
@@ -1109,7 +1098,7 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
         &observer,
         10,
         3,
-        bitvecs.clone(),
+        bitvecs,
         1,
         initial_balances,
     );
@@ -1133,28 +1122,18 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
         let _ = peer_1.step_with_ibd(false);
         let _ = peer_2.step_with_ibd(false);
 
-        let event_ids: Vec<usize> = peer_1
-            .network
-            .iter_peer_event_ids()
-            .map(|e_id| *e_id)
-            .collect();
-        let other_event_ids: Vec<usize> = peer_2
-            .network
-            .iter_peer_event_ids()
-            .map(|e_id| *e_id)
-            .collect();
+        let event_ids = peer_1.network.iter_peer_event_ids();
+        let other_event_ids = peer_2.network.iter_peer_event_ids();
 
-        if !event_ids.is_empty() && !other_event_ids.is_empty() {
+        if event_ids.count() > 0 && other_event_ids.count() > 0 {
             break;
         }
     }
 
     debug!("Peers are connected");
 
-    let addr = StacksAddress {
-        version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-        bytes: Hash160([0xff; 20]),
-    };
+    let addr =
+        StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0xff; 20])).unwrap();
 
     let stacks_tip_ch = peer_1.network.stacks_tip.consensus_hash.clone();
     let stacks_tip_bhh = peer_1.network.stacks_tip.block_hash.clone();
@@ -1176,7 +1155,7 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
-            auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
+            auth: TransactionAuth::from_p2pkh(pk).unwrap(),
             anchor_mode: TransactionAnchorMode::Any,
             post_condition_mode: TransactionPostConditionMode::Allow,
             post_conditions: vec![],
@@ -1190,7 +1169,7 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
         tx.set_origin_nonce(0);
 
         let mut tx_signer = StacksTransactionSigner::new(&tx);
-        tx_signer.sign_origin(&pk).unwrap();
+        tx_signer.sign_origin(pk).unwrap();
 
         let tx = tx_signer.get_tx().unwrap();
 

@@ -812,7 +812,7 @@ impl RelayerThread {
         tip_block_ch: &ConsensusHash,
         tip_block_bh: &BlockHeaderHash,
     ) -> Result<LastCommit, NakamotoNodeError> {
-        let tip_block_id = StacksBlockId::new(&tip_block_ch, &tip_block_bh);
+        let tip_block_id = StacksBlockId::new(tip_block_ch, tip_block_bh);
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn())
             .map_err(|_| NakamotoNodeError::SnapshotNotFoundForChainTip)?;
 
@@ -1626,8 +1626,10 @@ impl RelayerThread {
         // update local state
         last_committed.set_txid(&txid);
         self.last_commits.insert(txid);
+        self.globals
+            .counters
+            .bump_naka_submitted_commits(last_committed.burn_tip.block_height);
         self.last_committed = Some(last_committed);
-        self.globals.counters.bump_naka_submitted_commits();
 
         Ok(())
     }

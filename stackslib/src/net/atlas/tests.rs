@@ -71,7 +71,7 @@ fn new_attachments_batch_from(
 ) -> AttachmentsBatch {
     let mut attachments_batch = AttachmentsBatch::new();
     for attachment_instance in attachment_instances.iter() {
-        attachments_batch.track_attachment(&attachment_instance);
+        attachments_batch.track_attachment(attachment_instance);
     }
     for _ in 0..retry_count {
         attachments_batch.bump_retry_count();
@@ -82,7 +82,7 @@ fn new_attachments_batch_from(
 fn new_peers(peers: Vec<(&str, u32, u32)>) -> HashMap<UrlString, ReliabilityReport> {
     let mut new_peers = HashMap::new();
     for (url, req_sent, req_success) in peers {
-        let url = UrlString::try_from(format!("{}", url).as_str()).unwrap();
+        let url = UrlString::try_from(url.to_string().as_str()).unwrap();
         new_peers.insert(url, ReliabilityReport::new(req_sent, req_success));
     }
     new_peers
@@ -97,7 +97,7 @@ fn new_attachment_request(
     let sources = {
         let mut s = HashMap::new();
         for (url, req_sent, req_success) in sources {
-            let url = UrlString::try_from(format!("{}", url)).unwrap();
+            let url = UrlString::try_from(url.to_string()).unwrap();
             s.insert(url, ReliabilityReport::new(req_sent, req_success));
         }
         s
@@ -118,7 +118,7 @@ fn new_attachments_inventory_request(
     req_sent: u32,
     req_success: u32,
 ) -> AttachmentsInventoryRequest {
-    let url = UrlString::try_from(format!("{}", url).as_str()).unwrap();
+    let url = UrlString::try_from(url.to_string().as_str()).unwrap();
 
     AttachmentsInventoryRequest {
         url,
@@ -287,7 +287,7 @@ fn test_attachment_instance_parsing() {
 
     for value in values.iter() {
         assert!(AttachmentInstance::try_new_from_value(
-            &value,
+            value,
             &contract_id,
             index_block_hash.clone(),
             stacks_block_height,
@@ -637,7 +637,7 @@ fn test_downloader_context_attachment_inventories_requests() {
     );
 
     let request = request_queue.pop().unwrap();
-    let request_type = request.make_request_type(localhost.clone());
+    let request_type = request.make_request_type(localhost);
     assert_eq!(&**request.get_url(), "http://localhost:40443");
     debug!("request path = {}", request_type.request_path());
     assert!(
@@ -685,20 +685,15 @@ fn test_downloader_context_attachment_requests() {
     let peer_url_3 = request_3.get_url().clone();
     let request_4 = inventories_requests.pop().unwrap();
     let peer_url_4 = request_4.get_url().clone();
-    let mut responses = HashMap::new();
 
     let response_1 =
         new_attachments_inventory_response(vec![(0, vec![1, 1, 1]), (1, vec![0, 0, 0])]);
-    responses.insert(peer_url_1.clone(), Some(response_1.clone()));
 
     let response_2 =
         new_attachments_inventory_response(vec![(0, vec![1, 1, 1]), (1, vec![0, 0, 0])]);
-    responses.insert(peer_url_2.clone(), Some(response_2.clone()));
 
     let response_3 =
         new_attachments_inventory_response(vec![(0, vec![0, 1, 1]), (1, vec![1, 0, 0])]);
-    responses.insert(peer_url_3.clone(), Some(response_3.clone()));
-    responses.insert(peer_url_4, None);
 
     inventories_results
         .succeeded
@@ -742,7 +737,7 @@ fn test_downloader_context_attachment_requests() {
     assert_eq!(request.get_url(), &peer_url_1);
 
     let request = attachments_requests.pop().unwrap();
-    let request_type = request.make_request_type(localhost.clone());
+    let request_type = request.make_request_type(localhost);
     assert_eq!(request.get_url(), &peer_url_1);
 }
 

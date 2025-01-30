@@ -73,7 +73,7 @@ const USTX_PER_HOLDER: u128 = 1_000_000;
 /// Return the BlockSnapshot for the latest sortition in the provided
 ///  SortitionDB option-reference. Panics on any errors.
 fn get_tip(sortdb: Option<&SortitionDB>) -> BlockSnapshot {
-    SortitionDB::get_canonical_burn_chain_tip(&sortdb.unwrap().conn()).unwrap()
+    SortitionDB::get_canonical_burn_chain_tip(sortdb.unwrap().conn()).unwrap()
 }
 
 /// Get the reward set entries if evaluated at the given StacksBlock
@@ -83,7 +83,7 @@ pub fn get_reward_set_entries_at(
     at_burn_ht: u64,
 ) -> Vec<RawRewardSetEntry> {
     let burnchain = peer.config.burnchain.clone();
-    with_sortdb(peer, |ref mut c, ref sortdb| {
+    with_sortdb(peer, |ref mut c, sortdb| {
         get_reward_set_entries_at_block(c, &burnchain, sortdb, tip, at_burn_ht).unwrap()
     })
 }
@@ -96,7 +96,7 @@ pub fn get_reward_set_entries_index_order_at(
     at_burn_ht: u64,
 ) -> Vec<RawRewardSetEntry> {
     let burnchain = peer.config.burnchain.clone();
-    with_sortdb(peer, |ref mut c, ref sortdb| {
+    with_sortdb(peer, |ref mut c, sortdb| {
         c.get_reward_addresses(&burnchain, sortdb, at_burn_ht, tip)
             .unwrap()
     })
@@ -281,26 +281,22 @@ pub fn check_pox_print_event(
             match inner_tuple.data_map.get(inner_key) {
                 Some(v) => {
                     if v != &inner_val {
-                        wrong.push((
-                            format!("{}", &inner_key),
-                            format!("{}", v),
-                            format!("{}", &inner_val),
-                        ));
+                        wrong.push((inner_key.to_string(), v.to_string(), inner_val.to_string()));
                     }
                 }
                 None => {
-                    missing.push(format!("{}", &inner_key));
+                    missing.push(inner_key.to_string());
                 }
             }
             // assert_eq!(inner_tuple.data_map.get(inner_key), Some(&inner_val));
         }
         if !missing.is_empty() || !wrong.is_empty() {
-            eprintln!("missing:\n{:#?}", &missing);
-            eprintln!("wrong:\n{:#?}", &wrong);
+            eprintln!("missing:\n{missing:#?}");
+            eprintln!("wrong:\n{wrong:#?}");
             assert!(false);
         }
     } else {
-        error!("unexpected event type: {:?}", event);
+        error!("unexpected event type: {event:?}");
         panic!("Unexpected transaction event type.")
     }
 }
@@ -665,7 +661,7 @@ pub fn with_clarity_db_ro<F, R>(peer: &mut TestPeer, tip: &StacksBlockId, todo: 
 where
     F: FnOnce(&mut ClarityDatabase) -> R,
 {
-    with_sortdb(peer, |ref mut c, ref sortdb| {
+    with_sortdb(peer, |ref mut c, sortdb| {
         let headers_db = HeadersDBConn(StacksDBConn::new(&c.state_index, ()));
         let burn_db = sortdb.index_handle_at_tip();
         let mut read_only_clar = c
@@ -721,7 +717,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         "test_simple_pox_lockup_transition_pox_2",
-        Some(epochs.clone()),
+        Some(epochs),
         Some(&observer),
     );
 
@@ -745,7 +741,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
             .block_height_to_reward_cycle(tip_burn_block_height)
             .unwrap() as u128;
         let (min_ustx, reward_addrs, total_stacked) =
-            with_sortdb(&mut peer, |ref mut c, ref sortdb| {
+            with_sortdb(&mut peer, |ref mut c, sortdb| {
                 (
                     c.get_stacking_minimum(sortdb, &tip_index_block).unwrap(),
                     get_reward_addresses_with_par_tip(c, &burnchain, sortdb, &tip_index_block)
@@ -779,7 +775,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
             );
             assert_eq!(
                 (reward_addrs[0].0).hash160(),
-                key_to_stacks_addr(&alice).bytes
+                key_to_stacks_addr(&alice).destruct().1
             );
             assert_eq!(reward_addrs[0].1, 1024 * POX_THRESHOLD_STEPS_USTX);
         } else {
@@ -791,7 +787,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
             );
             assert_eq!(
                 (reward_addrs[0].0).hash160(),
-                key_to_stacks_addr(&bob).bytes
+                key_to_stacks_addr(&bob).destruct().1
             );
             assert_eq!(reward_addrs[0].1, 512 * POX_THRESHOLD_STEPS_USTX);
 
@@ -801,7 +797,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
             );
             assert_eq!(
                 (reward_addrs[1].0).hash160(),
-                key_to_stacks_addr(&alice).bytes
+                key_to_stacks_addr(&alice).destruct().1
             );
             assert_eq!(reward_addrs[1].1, 512 * POX_THRESHOLD_STEPS_USTX);
         }
@@ -832,7 +828,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
         0,
         1024 * POX_THRESHOLD_STEPS_USTX,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).bytes,
+        key_to_stacks_addr(&alice).destruct().1,
         4,
         tip.block_height,
     );
@@ -844,7 +840,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
 
     // check the stacking minimum
     let total_liquid_ustx = get_liquid_ustx(&mut peer);
-    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
         chainstate.get_stacking_minimum(sortdb, &tip_index_block)
     })
     .unwrap();
@@ -854,7 +850,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
     );
 
     // no reward addresses
-    let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+    let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
         get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
     })
     .unwrap();
@@ -920,7 +916,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
         512 * POX_THRESHOLD_STEPS_USTX,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&bob).bytes,
+            key_to_stacks_addr(&bob).destruct().1,
         ),
         6,
         tip.block_height,
@@ -943,7 +939,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
         1,
         512 * POX_THRESHOLD_STEPS_USTX,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&bob).bytes,
+        key_to_stacks_addr(&bob).destruct().1,
         4,
         tip.block_height,
     );
@@ -975,7 +971,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
         512 * POX_THRESHOLD_STEPS_USTX,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&alice).bytes,
+            key_to_stacks_addr(&alice).destruct().1,
         ),
         12,
         tip.block_height,
@@ -1005,7 +1001,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
         2,
         512 * POX_THRESHOLD_STEPS_USTX,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).bytes,
+        key_to_stacks_addr(&alice).destruct().1,
         12,
         tip.block_height,
     );
@@ -1181,8 +1177,8 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
-        &format!("test_simple_pox_2_auto_unlock_{}", alice_first),
-        Some(epochs.clone()),
+        &format!("test_simple_pox_2_auto_unlock_{alice_first}"),
+        Some(epochs),
         Some(&observer),
     );
 
@@ -1214,7 +1210,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         1024 * POX_THRESHOLD_STEPS_USTX,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&alice).bytes,
+            key_to_stacks_addr(&alice).destruct().1,
         ),
         6,
         tip.block_height,
@@ -1226,7 +1222,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         1 * POX_THRESHOLD_STEPS_USTX,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&bob).bytes,
+            key_to_stacks_addr(&bob).destruct().1,
         ),
         6,
         tip.block_height,
@@ -1250,11 +1246,11 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         assert_eq!(reward_set_entries.len(), 2);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            key_to_stacks_addr(&bob).bytes.0.to_vec()
+            key_to_stacks_addr(&bob).bytes().0.to_vec()
         );
         assert_eq!(
             reward_set_entries[1].reward_address.bytes(),
-            key_to_stacks_addr(&alice).bytes.0.to_vec()
+            key_to_stacks_addr(&alice).bytes().0.to_vec()
         );
     }
 
@@ -1289,7 +1285,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         assert_eq!(reward_set_entries.len(), 1);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            key_to_stacks_addr(&alice).bytes.0.to_vec()
+            key_to_stacks_addr(&alice).bytes().0.to_vec()
         );
     }
 
@@ -1466,7 +1462,7 @@ fn delegate_stack_increase() {
 
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    eprintln!("First v2 cycle = {}", first_v2_cycle);
+    eprintln!("First v2 cycle = {first_v2_cycle}");
 
     let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
 
@@ -1474,8 +1470,8 @@ fn delegate_stack_increase() {
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
-        &format!("pox_2_delegate_stack_increase"),
-        Some(epochs.clone()),
+        "pox_2_delegate_stack_increase",
+        Some(epochs),
         Some(&observer),
     );
 
@@ -1490,7 +1486,7 @@ fn delegate_stack_increase() {
     let bob = keys.pop().unwrap();
     let bob_address = key_to_stacks_addr(&bob);
     let bob_principal = PrincipalData::from(bob_address.clone());
-    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes.clone());
+    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes().clone());
     let mut alice_nonce = 0;
     let mut bob_nonce = 0;
 
@@ -1830,8 +1826,8 @@ fn stack_increase() {
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
-        &format!("test_simple_pox_2_increase"),
-        Some(epochs.clone()),
+        "test_simple_pox_2_increase",
+        Some(epochs),
         Some(&observer),
     );
 
@@ -1870,7 +1866,7 @@ fn stack_increase() {
         first_lockup_amt,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&alice).bytes,
+            key_to_stacks_addr(&alice).destruct().1,
         ),
         6,
         tip.block_height,
@@ -1902,7 +1898,7 @@ fn stack_increase() {
         assert_eq!(reward_set_entries.len(), 1);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            key_to_stacks_addr(&alice).bytes.0.to_vec()
+            key_to_stacks_addr(&alice).bytes().0.to_vec()
         );
         assert_eq!(reward_set_entries[0].amount_stacked, first_lockup_amt,);
     }
@@ -1922,7 +1918,7 @@ fn stack_increase() {
         assert_eq!(reward_set_entries.len(), 1);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            key_to_stacks_addr(&alice).bytes.0.to_vec()
+            key_to_stacks_addr(&alice).bytes().0.to_vec()
         );
         assert_eq!(reward_set_entries[0].amount_stacked, first_lockup_amt,);
     }
@@ -1967,7 +1963,7 @@ fn stack_increase() {
         assert_eq!(reward_set_entries.len(), 1);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            key_to_stacks_addr(&alice).bytes.0.to_vec()
+            key_to_stacks_addr(&alice).bytes().0.to_vec()
         );
         assert_eq!(reward_set_entries[0].amount_stacked, first_lockup_amt,);
     }
@@ -1982,7 +1978,7 @@ fn stack_increase() {
         assert_eq!(reward_set_entries.len(), 1);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            key_to_stacks_addr(&alice).bytes.0.to_vec()
+            key_to_stacks_addr(&alice).bytes().0.to_vec()
         );
         assert_eq!(
             reward_set_entries[0].amount_stacked,
@@ -2076,7 +2072,7 @@ fn test_lock_period_invariant_extend_transition() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         "test_lp_invariant_extend_trans",
-        Some(epochs.clone()),
+        Some(epochs),
         Some(&observer),
     );
 
@@ -2115,7 +2111,7 @@ fn test_lock_period_invariant_extend_transition() {
         0,
         ALICE_LOCKUP,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).bytes,
+        key_to_stacks_addr(&alice).destruct().1,
         4,
         tip.block_height,
     );
@@ -2127,7 +2123,7 @@ fn test_lock_period_invariant_extend_transition() {
 
     // check the stacking minimum
     let total_liquid_ustx = get_liquid_ustx(&mut peer);
-    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
         chainstate.get_stacking_minimum(sortdb, &tip_index_block)
     })
     .unwrap();
@@ -2137,7 +2133,7 @@ fn test_lock_period_invariant_extend_transition() {
     );
 
     // no reward addresses
-    let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+    let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
         get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
     })
     .unwrap();
@@ -2181,7 +2177,7 @@ fn test_lock_period_invariant_extend_transition() {
         1,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&alice).bytes,
+            key_to_stacks_addr(&alice).destruct().1,
         ),
         6,
     );
@@ -2238,7 +2234,7 @@ fn test_pox_extend_transition_pox_2() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         "test_pox_extend_transition_pox_2",
-        Some(epochs.clone()),
+        Some(epochs),
         Some(&observer),
     );
 
@@ -2264,7 +2260,7 @@ fn test_pox_extend_transition_pox_2() {
         let cur_reward_cycle = burnchain
             .block_height_to_reward_cycle(tip_burn_block_height)
             .unwrap() as u128;
-        let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, ref sortdb| {
+        let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, sortdb| {
             (
                 c.get_stacking_minimum(sortdb, &tip_index_block).unwrap(),
                 get_reward_addresses_with_par_tip(c, &burnchain, sortdb, &tip_index_block).unwrap(),
@@ -2294,7 +2290,7 @@ fn test_pox_extend_transition_pox_2() {
         );
         assert_eq!(
             (reward_addrs[0].0).hash160(),
-            key_to_stacks_addr(&alice).bytes
+            key_to_stacks_addr(&alice).destruct().1,
         );
         assert_eq!(reward_addrs[0].1, ALICE_LOCKUP);
     };
@@ -2305,7 +2301,7 @@ fn test_pox_extend_transition_pox_2() {
         let cur_reward_cycle = burnchain
             .block_height_to_reward_cycle(tip_burn_block_height)
             .unwrap() as u128;
-        let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, ref sortdb| {
+        let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, sortdb| {
             (
                 c.get_stacking_minimum(sortdb, &tip_index_block).unwrap(),
                 get_reward_addresses_with_par_tip(c, &burnchain, sortdb, &tip_index_block).unwrap(),
@@ -2330,7 +2326,7 @@ fn test_pox_extend_transition_pox_2() {
         );
         assert_eq!(
             (reward_addrs[0].0).hash160(),
-            key_to_stacks_addr(&bob).bytes
+            key_to_stacks_addr(&bob).destruct().1,
         );
         assert_eq!(reward_addrs[0].1, BOB_LOCKUP);
 
@@ -2340,7 +2336,7 @@ fn test_pox_extend_transition_pox_2() {
         );
         assert_eq!(
             (reward_addrs[1].0).hash160(),
-            key_to_stacks_addr(&alice).bytes
+            key_to_stacks_addr(&alice).destruct().1,
         );
         assert_eq!(reward_addrs[1].1, ALICE_LOCKUP);
     };
@@ -2367,7 +2363,7 @@ fn test_pox_extend_transition_pox_2() {
         0,
         ALICE_LOCKUP,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).bytes,
+        key_to_stacks_addr(&alice).destruct().1,
         4,
         tip.block_height,
     );
@@ -2379,7 +2375,7 @@ fn test_pox_extend_transition_pox_2() {
 
     // check the stacking minimum
     let total_liquid_ustx = get_liquid_ustx(&mut peer);
-    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
         chainstate.get_stacking_minimum(sortdb, &tip_index_block)
     })
     .unwrap();
@@ -2389,7 +2385,7 @@ fn test_pox_extend_transition_pox_2() {
     );
 
     // no reward addresses
-    let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+    let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
         get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
     })
     .unwrap();
@@ -2435,7 +2431,7 @@ fn test_pox_extend_transition_pox_2() {
         BOB_LOCKUP,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&bob).bytes,
+            key_to_stacks_addr(&bob).destruct().1,
         ),
         3,
         tip.block_height,
@@ -2447,7 +2443,7 @@ fn test_pox_extend_transition_pox_2() {
         1,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&alice).bytes,
+            key_to_stacks_addr(&alice).destruct().1,
         ),
         6,
     );
@@ -2465,7 +2461,7 @@ fn test_pox_extend_transition_pox_2() {
         1,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&bob).bytes,
+            key_to_stacks_addr(&bob).destruct().1,
         ),
         1,
     );
@@ -2513,7 +2509,7 @@ fn test_pox_extend_transition_pox_2() {
         2,
         512 * POX_THRESHOLD_STEPS_USTX,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).bytes,
+        key_to_stacks_addr(&alice).destruct().1,
         12,
         tip.block_height,
     );
@@ -2681,7 +2677,7 @@ fn test_delegate_extend_transition_pox_2() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         "test_delegate_extend_transition_pox_2",
-        Some(epochs.clone()),
+        Some(epochs),
         Some(&observer),
     );
 
@@ -2711,7 +2707,7 @@ fn test_delegate_extend_transition_pox_2() {
         let cur_reward_cycle = burnchain
             .block_height_to_reward_cycle(tip_burn_block_height)
             .unwrap() as u128;
-        let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, ref sortdb| {
+        let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, sortdb| {
             (
                 c.get_stacking_minimum(sortdb, &tip_index_block).unwrap(),
                 get_reward_addresses_with_par_tip(c, &burnchain, sortdb, &tip_index_block).unwrap(),
@@ -2731,7 +2727,7 @@ fn test_delegate_extend_transition_pox_2() {
             (reward_addrs[0].0).version(),
             AddressHashMode::SerializeP2PKH as u8
         );
-        assert_eq!(&(reward_addrs[0].0).hash160(), &charlie_address.bytes);
+        assert_eq!(&(reward_addrs[0].0).hash160(), charlie_address.bytes());
         // 1 lockup was done between alice's first cycle and the start of v2 cycles
         assert_eq!(reward_addrs[0].1, 1 * LOCKUP_AMT);
     };
@@ -2742,7 +2738,7 @@ fn test_delegate_extend_transition_pox_2() {
         let cur_reward_cycle = burnchain
             .block_height_to_reward_cycle(tip_burn_block_height)
             .unwrap() as u128;
-        let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, ref sortdb| {
+        let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, sortdb| {
             (
                 c.get_stacking_minimum(sortdb, &tip_index_block).unwrap(),
                 get_reward_addresses_with_par_tip(c, &burnchain, sortdb, &tip_index_block).unwrap(),
@@ -2765,7 +2761,7 @@ fn test_delegate_extend_transition_pox_2() {
             (reward_addrs[0].0).version(),
             AddressHashMode::SerializeP2PKH as u8
         );
-        assert_eq!(&(reward_addrs[0].0).hash160(), &charlie_address.bytes);
+        assert_eq!(&(reward_addrs[0].0).hash160(), charlie_address.bytes());
         // 2 lockups were performed in v2 cycles
         assert_eq!(reward_addrs[0].1, 2 * LOCKUP_AMT);
     };
@@ -2808,7 +2804,7 @@ fn test_delegate_extend_transition_pox_2() {
             Value::UInt(LOCKUP_AMT),
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(tip.block_height as u128),
             Value::UInt(4),
@@ -2823,7 +2819,7 @@ fn test_delegate_extend_transition_pox_2() {
         vec![
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(EXPECTED_ALICE_FIRST_REWARD_CYCLE),
         ],
@@ -2836,7 +2832,7 @@ fn test_delegate_extend_transition_pox_2() {
         vec![
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(EXPECTED_ALICE_FIRST_REWARD_CYCLE + 1),
         ],
@@ -2849,7 +2845,7 @@ fn test_delegate_extend_transition_pox_2() {
         vec![
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(EXPECTED_ALICE_FIRST_REWARD_CYCLE + 2),
         ],
@@ -2862,7 +2858,7 @@ fn test_delegate_extend_transition_pox_2() {
         vec![
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(EXPECTED_ALICE_FIRST_REWARD_CYCLE + 3),
         ],
@@ -2885,7 +2881,7 @@ fn test_delegate_extend_transition_pox_2() {
 
     // check the stacking minimum
     let total_liquid_ustx = get_liquid_ustx(&mut peer);
-    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
         chainstate.get_stacking_minimum(sortdb, &tip_index_block)
     })
     .unwrap();
@@ -2895,7 +2891,7 @@ fn test_delegate_extend_transition_pox_2() {
     );
 
     // no reward addresses
-    let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+    let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
         get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
     })
     .unwrap();
@@ -2968,7 +2964,7 @@ fn test_delegate_extend_transition_pox_2() {
             Value::UInt(LOCKUP_AMT),
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(tip.block_height as u128),
             Value::UInt(3),
@@ -2984,7 +2980,7 @@ fn test_delegate_extend_transition_pox_2() {
             PrincipalData::from(alice_address.clone()).into(),
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(6),
         ],
@@ -3000,7 +2996,7 @@ fn test_delegate_extend_transition_pox_2() {
         vec![
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(first_v2_cycle as u128),
         ],
@@ -3013,7 +3009,7 @@ fn test_delegate_extend_transition_pox_2() {
         vec![
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(first_v2_cycle as u128 + 1),
         ],
@@ -3026,7 +3022,7 @@ fn test_delegate_extend_transition_pox_2() {
         vec![
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(first_v2_cycle as u128 + 2),
         ],
@@ -3093,7 +3089,7 @@ fn test_delegate_extend_transition_pox_2() {
             PrincipalData::from(bob_address.clone()).into(),
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(1),
         ],
@@ -3106,7 +3102,7 @@ fn test_delegate_extend_transition_pox_2() {
         vec![
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(first_v2_cycle as u128 + 3),
         ],
@@ -3175,7 +3171,7 @@ fn test_delegate_extend_transition_pox_2() {
             PrincipalData::from(bob_address.clone()).into(),
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(1),
         ],
@@ -3240,7 +3236,7 @@ fn test_delegate_extend_transition_pox_2() {
         2,
         512 * POX_THRESHOLD_STEPS_USTX,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).bytes,
+        key_to_stacks_addr(&alice).destruct().1,
         12,
         tip.block_height,
     );
@@ -3429,12 +3425,8 @@ fn test_pox_2_getters() {
 
     let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
 
-    let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
-        &burnchain,
-        "test-pox-2-getters",
-        Some(epochs.clone()),
-        None,
-    );
+    let (mut peer, mut keys) =
+        instantiate_pox_peer_with_epoch(&burnchain, "test-pox-2-getters", Some(epochs), None);
 
     peer.config.check_pox_invariants =
         Some((EXPECTED_FIRST_V2_CYCLE, EXPECTED_FIRST_V2_CYCLE + 10));
@@ -3465,7 +3457,7 @@ fn test_pox_2_getters() {
         LOCKUP_AMT,
         PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
-            key_to_stacks_addr(&alice).bytes,
+            key_to_stacks_addr(&alice).destruct().1,
         ),
         4,
         tip.block_height,
@@ -3494,7 +3486,7 @@ fn test_pox_2_getters() {
             Value::UInt(LOCKUP_AMT),
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(tip.block_height as u128),
             Value::UInt(4),
@@ -3508,7 +3500,7 @@ fn test_pox_2_getters() {
         vec![
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(cur_reward_cycle as u128),
         ],
@@ -3521,7 +3513,7 @@ fn test_pox_2_getters() {
         vec![
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(cur_reward_cycle as u128 + 1),
         ],
@@ -3534,7 +3526,7 @@ fn test_pox_2_getters() {
         vec![
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes.clone(),
+                charlie_address.bytes().clone(),
             ),
             Value::UInt(cur_reward_cycle as u128 + 2),
         ],
@@ -3582,10 +3574,10 @@ fn test_pox_2_getters() {
     }}", &alice_address,
         &bob_address,
         &bob_address, &format!("{}.hello-world", &charlie_address), cur_reward_cycle + 1,
-        &charlie_address.bytes, cur_reward_cycle + 0, &charlie_address,
-        &charlie_address.bytes, cur_reward_cycle + 1, &charlie_address,
-        &charlie_address.bytes, cur_reward_cycle + 2, &charlie_address,
-        &charlie_address.bytes, cur_reward_cycle + 3, &charlie_address,
+        charlie_address.bytes(), cur_reward_cycle + 0, &charlie_address,
+        charlie_address.bytes(), cur_reward_cycle + 1, &charlie_address,
+        charlie_address.bytes(), cur_reward_cycle + 2, &charlie_address,
+        charlie_address.bytes(), cur_reward_cycle + 3, &charlie_address,
         cur_reward_cycle,
         cur_reward_cycle + 1,
         cur_reward_cycle + 2,
@@ -3721,12 +3713,8 @@ fn test_get_pox_addrs() {
 
     let epochs = StacksEpoch::all(1, 2, 3);
 
-    let (mut peer, keys) = instantiate_pox_peer_with_epoch(
-        &burnchain,
-        "test-get-pox-addrs",
-        Some(epochs.clone()),
-        None,
-    );
+    let (mut peer, keys) =
+        instantiate_pox_peer_with_epoch(&burnchain, "test-get-pox-addrs", Some(epochs), None);
     let num_blocks = 20;
 
     let mut lockup_reward_cycle = 0;
@@ -3736,10 +3724,10 @@ fn test_get_pox_addrs() {
     let mut all_reward_addrs = vec![];
 
     for tenure_id in 0..num_blocks {
-        let microblock_privkey = StacksPrivateKey::new();
+        let microblock_privkey = StacksPrivateKey::random();
         let microblock_pubkeyhash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
             .unwrap();
 
         let cur_reward_cycle = burnchain
@@ -3773,7 +3761,10 @@ fn test_get_pox_addrs() {
                             key,
                             0,
                             1024 * POX_THRESHOLD_STEPS_USTX,
-                            PoxAddress::from_legacy(*hash_mode, key_to_stacks_addr(key).bytes),
+                            PoxAddress::from_legacy(
+                                *hash_mode,
+                                key_to_stacks_addr(key).destruct().1,
+                            ),
                             2,
                             tip.block_height,
                         );
@@ -3857,15 +3848,15 @@ fn test_get_pox_addrs() {
             );
         }
         if tenure_id > 1 {
-            let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 chainstate.get_stacking_minimum(sortdb, &tip_index_block)
             })
             .unwrap();
-            let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
             })
             .unwrap();
-            let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 chainstate.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
             })
             .unwrap();
@@ -3993,12 +3984,8 @@ fn test_stack_with_segwit() {
 
     let epochs = StacksEpoch::all(1, 2, 3);
 
-    let (mut peer, all_keys) = instantiate_pox_peer_with_epoch(
-        &burnchain,
-        "test-stack-with-segwit",
-        Some(epochs.clone()),
-        None,
-    );
+    let (mut peer, all_keys) =
+        instantiate_pox_peer_with_epoch(&burnchain, "test-stack-with-segwit", Some(epochs), None);
     let num_blocks = 20;
 
     let segwit_keys: Vec<_> = all_keys.into_iter().take(4).collect();
@@ -4010,10 +3997,10 @@ fn test_stack_with_segwit() {
     let mut all_reward_addrs = vec![];
 
     for tenure_id in 0..num_blocks {
-        let microblock_privkey = StacksPrivateKey::new();
+        let microblock_privkey = StacksPrivateKey::random();
         let microblock_pubkeyhash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
             .unwrap();
 
         let cur_reward_cycle = burnchain
@@ -4153,15 +4140,15 @@ fn test_stack_with_segwit() {
             );
         }
         if tenure_id > 1 {
-            let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 chainstate.get_stacking_minimum(sortdb, &tip_index_block)
             })
             .unwrap();
-            let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
             })
             .unwrap();
-            let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 chainstate.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
             })
             .unwrap();
@@ -4274,10 +4261,7 @@ fn test_stack_with_segwit() {
         PoxAddress::Addr32(false, PoxAddressType32::P2WSH, [0x02; 32]),
         PoxAddress::Addr32(false, PoxAddressType32::P2TR, [0x03; 32]),
         PoxAddress::Standard(
-            StacksAddress {
-                version: 26,
-                bytes: Hash160([0x04; 20]),
-            },
+            StacksAddress::new(26, Hash160([0x04; 20])).unwrap(),
             Some(AddressHashMode::SerializeP2PKH),
         ),
     ];
@@ -4324,7 +4308,7 @@ fn test_pox_2_delegate_stx_addr_validation() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         "test-pox-2-delegate-stx-addr",
-        Some(epochs.clone()),
+        Some(epochs),
         None,
     );
 
@@ -4361,7 +4345,7 @@ fn test_pox_2_delegate_stx_addr_validation() {
             Value::none(),
             Value::some(make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                alice_address.bytes.clone(),
+                alice_address.bytes().clone(),
             ))
             .unwrap(),
         ],
@@ -4376,7 +4360,7 @@ fn test_pox_2_delegate_stx_addr_validation() {
             (
                 ClarityName::try_from("hashbytes".to_owned()).unwrap(),
                 Value::Sequence(SequenceData::Buffer(BuffData {
-                    data: bob_address.bytes.as_bytes().to_vec(),
+                    data: bob_address.bytes().as_bytes().to_vec(),
                 })),
             ),
         ])
@@ -4465,7 +4449,10 @@ fn test_pox_2_delegate_stx_addr_validation() {
 
     assert_eq!(
         alice_pox_addr,
-        make_pox_addr(AddressHashMode::SerializeP2PKH, alice_address.bytes.clone(),)
+        make_pox_addr(
+            AddressHashMode::SerializeP2PKH,
+            alice_address.bytes().clone(),
+        )
     );
 }
 
@@ -4509,8 +4496,8 @@ fn stack_aggregation_increase() {
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
-        &format!("pox_2_stack_aggregation_increase"),
-        Some(epochs.clone()),
+        "pox_2_stack_aggregation_increase",
+        Some(epochs),
         Some(&observer),
     );
 
@@ -4525,17 +4512,17 @@ fn stack_aggregation_increase() {
     let bob = keys.pop().unwrap();
     let bob_address = key_to_stacks_addr(&bob);
     let bob_principal = PrincipalData::from(bob_address.clone());
-    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes.clone());
+    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes().clone());
     let charlie = keys.pop().unwrap();
     let charlie_address = key_to_stacks_addr(&charlie);
     let charlie_pox_addr = make_pox_addr(
         AddressHashMode::SerializeP2PKH,
-        charlie_address.bytes.clone(),
+        charlie_address.bytes().clone(),
     );
     let dan = keys.pop().unwrap();
     let dan_address = key_to_stacks_addr(&dan);
     let dan_principal = PrincipalData::from(dan_address.clone());
-    let dan_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, dan_address.bytes.clone());
+    let dan_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, dan_address.bytes().clone());
     let alice_nonce = 0;
     let mut bob_nonce = 0;
     let mut charlie_nonce = 0;
@@ -4589,7 +4576,7 @@ fn stack_aggregation_increase() {
         &dan,
         dan_nonce,
         dan_stack_amount,
-        PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, dan_address.bytes.clone()),
+        PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, dan_address.bytes().clone()),
         12,
         tip.block_height,
     );
@@ -4738,7 +4725,7 @@ fn stack_aggregation_increase() {
         charlie_nonce,
         "stack-aggregation-increase",
         vec![
-            charlie_pox_addr.clone(),
+            charlie_pox_addr,
             Value::UInt(cur_reward_cycle as u128),
             Value::UInt(0),
         ],
@@ -4959,8 +4946,8 @@ fn stack_in_both_pox1_and_pox2() {
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
-        &format!("stack_in_both_pox1_and_pox2"),
-        Some(epochs.clone()),
+        "stack_in_both_pox1_and_pox2",
+        Some(epochs),
         Some(&observer),
     );
 
@@ -4971,12 +4958,14 @@ fn stack_in_both_pox1_and_pox2() {
 
     let alice = keys.pop().unwrap();
     let alice_address = key_to_stacks_addr(&alice);
-    let alice_pox_addr =
-        make_pox_addr(AddressHashMode::SerializeP2PKH, alice_address.bytes.clone());
+    let alice_pox_addr = make_pox_addr(
+        AddressHashMode::SerializeP2PKH,
+        alice_address.bytes().clone(),
+    );
 
     let bob = keys.pop().unwrap();
     let bob_address = key_to_stacks_addr(&bob);
-    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes.clone());
+    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes().clone());
 
     let mut alice_nonce = 0;
     let mut bob_nonce = 0;
@@ -5003,7 +4992,7 @@ fn stack_in_both_pox1_and_pox2() {
         alice_nonce,
         alice_first_lock_amount,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).bytes,
+        key_to_stacks_addr(&alice).destruct().1,
         12,
         tip.block_height,
     );
@@ -5037,7 +5026,7 @@ fn stack_in_both_pox1_and_pox2() {
         bob_nonce,
         bob_first_lock_amount,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&bob).bytes,
+        key_to_stacks_addr(&bob).destruct().1,
         12,
         tip.block_height,
     );

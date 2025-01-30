@@ -507,9 +507,7 @@ pub mod tests {
             // 122
             vec![],
             // 123
-            vec![BlockstackOperationType::LeaderKeyRegister(
-                leader_key_1.clone(),
-            )],
+            vec![BlockstackOperationType::LeaderKeyRegister(leader_key_1)],
             // 124
             vec![],
             // 125

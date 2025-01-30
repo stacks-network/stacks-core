@@ -108,6 +108,8 @@ pub struct Counters {
 
     pub naka_submitted_vrfs: RunLoopCounter,
     pub naka_submitted_commits: RunLoopCounter,
+    /// the burn block height when the last commit was submitted
+    pub naka_submitted_commit_last_burn_height: RunLoopCounter,
     pub naka_mined_blocks: RunLoopCounter,
     pub naka_rejected_blocks: RunLoopCounter,
     pub naka_proposed_blocks: RunLoopCounter,
@@ -173,8 +175,12 @@ impl Counters {
         Counters::inc(&self.naka_submitted_vrfs);
     }
 
-    pub fn bump_naka_submitted_commits(&self) {
+    pub fn bump_naka_submitted_commits(&self, committed_height: u64) {
         Counters::inc(&self.naka_submitted_commits);
+        Counters::set(
+            &self.naka_submitted_commit_last_burn_height,
+            committed_height,
+        );
     }
 
     pub fn bump_naka_mined_blocks(&self) {

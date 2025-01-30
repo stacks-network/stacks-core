@@ -88,6 +88,7 @@ pub struct RunningNodes {
     pub run_loop_stopper: Arc<AtomicBool>,
     pub vrfs_submitted: RunLoopCounter,
     pub commits_submitted: RunLoopCounter,
+    pub last_commit_burn_height: RunLoopCounter,
     pub blocks_processed: RunLoopCounter,
     pub sortitions_processed: RunLoopCounter,
     pub nakamoto_blocks_proposed: RunLoopCounter,
@@ -147,7 +148,11 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                     "Number of private keys does not match number of signers"
                 )
             })
-            .unwrap_or_else(|| (0..num_signers).map(|_| StacksPrivateKey::new()).collect());
+            .unwrap_or_else(|| {
+                (0..num_signers)
+                    .map(|_| StacksPrivateKey::random())
+                    .collect()
+            });
 
         let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
 
@@ -729,7 +734,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     pub fn get_latest_block_response(&self, slot_id: u32) -> BlockResponse {
         let mut stackerdb = StackerDB::new(
             &self.running_nodes.conf.node.rpc_bind,
-            StacksPrivateKey::new(), // We are just reading so don't care what the key is
+            StacksPrivateKey::random(), // We are just reading so don't care what the key is
             false,
             self.get_current_reward_cycle(),
             SignerSlotID(0), // We are just reading so again, don't care about index.
@@ -934,6 +939,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
         sortitions_processed,
         naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
+        naka_submitted_commit_last_burn_height: last_commit_burn_height,
         naka_proposed_blocks: naka_blocks_proposed,
         naka_mined_blocks: naka_blocks_mined,
         naka_rejected_blocks: naka_blocks_rejected,
@@ -972,6 +978,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
         run_loop_stopper,
         vrfs_submitted,
         commits_submitted,
+        last_commit_burn_height,
         blocks_processed,
         sortitions_processed,
         nakamoto_blocks_proposed: naka_blocks_proposed,
