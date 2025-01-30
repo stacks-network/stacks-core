@@ -1688,22 +1688,22 @@ fn simple_neon_integration() {
     assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
     assert!(tip.stacks_block_height >= block_height_pre_3_0 + 30);
 
-    // Check that we aren't missing burn blocks
+    // Check that we aren't missing burn blocks (except during the Nakamoto transition)
+    let epoch_3 = &naka_conf.burnchain.epochs.unwrap()[StacksEpochId::Epoch30];
     let bhh = u64::from(tip.burn_header_height);
     let missing = test_observer::get_missing_burn_blocks(220..=bhh).unwrap();
 
-    // This test was flakey because it was sometimes missing burn block 230, which is right at the Nakamoto transition
+    // This test was flaky because it was sometimes missing burn block 230, which is right at the Nakamoto transition
     // So it was possible to miss a burn block during the transition
-    // But I don't it matters at this point since the Nakamoto transition has already happened on mainnet
+    // But I don't think it matters at this point since the Nakamoto transition has already happened on mainnet
     // So just print a warning instead, don't count it as an error
     let missing_is_error: Vec<_> = missing
         .into_iter()
-        .filter(|i| match i {
-            230 => {
-                warn!("Missing burn block {i}");
+        .filter(|&i| {
+            (i != epoch_3.start_height - 1) || {
+                warn!("Missing burn block {} at epoch 3 transition", i);
                 false
             }
-            _ => true,
         })
         .collect();
 
@@ -9885,9 +9885,23 @@ fn skip_mining_long_tx() {
     assert_eq!(sender_2_nonce, 0);
     assert_eq!(sender_1_nonce, 4);
 
-    // Check that we aren't missing burn blocks
+    // Check that we aren't missing burn blocks (except during the Nakamoto transition)
+    let epoch_3 = &naka_conf.burnchain.epochs.unwrap()[StacksEpochId::Epoch30];
     let bhh = u64::from(tip.burn_header_height);
-    test_observer::contains_burn_block_range(220..=bhh).unwrap();
+    let missing = test_observer::get_missing_burn_blocks(220..=bhh).unwrap();
+    let missing_is_error: Vec<_> = missing
+        .into_iter()
+        .filter(|&i| {
+            (i != epoch_3.start_height - 1) || {
+                warn!("Missing burn block {} at epoch 3 transition", i);
+                false
+            }
+        })
+        .collect();
+
+    if !missing_is_error.is_empty() {
+        panic!("Missing the following burn blocks: {missing_is_error:?}");
+    }
 
     check_nakamoto_empty_block_heuristics();
 
