@@ -7899,7 +7899,7 @@ fn block_validation_check_rejection_timeout_heuristic() {
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 20;
     let timeout = Duration::from_secs(30);
-    let sender_sk = Secp256k1PrivateKey::new();
+    let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
