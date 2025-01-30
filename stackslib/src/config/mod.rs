@@ -2156,7 +2156,7 @@ pub struct MinerConfig {
     /// Duration to wait before attempting to issue a tenure extend
     pub tenure_timeout: Duration,
     /// Define the timeout to apply while waiting for signers responses, based on the amount of rejections
-    pub block_rejection_timeout_steps: HashMap<u64, Duration>,
+    pub block_rejection_timeout_steps: HashMap<u32, Duration>,
 }
 
 impl Default for MinerConfig {
@@ -2196,7 +2196,7 @@ impl Default for MinerConfig {
             tenure_extend_poll_secs: Duration::from_secs(DEFAULT_TENURE_EXTEND_POLL_SECS),
             tenure_timeout: Duration::from_secs(DEFAULT_TENURE_TIMEOUT_SECS),
             block_rejection_timeout_steps: {
-                let mut rejections_timeouts_default_map = HashMap::<u64, Duration>::new();
+                let mut rejections_timeouts_default_map = HashMap::<u32, Duration>::new();
                 rejections_timeouts_default_map.insert(0, Duration::from_secs(600));
                 rejections_timeouts_default_map.insert(10, Duration::from_secs(300));
                 rejections_timeouts_default_map.insert(20, Duration::from_secs(150));
@@ -2744,9 +2744,9 @@ impl MinerConfigFile {
             tenure_timeout: self.tenure_timeout_secs.map(Duration::from_secs).unwrap_or(miner_default_config.tenure_timeout),
             block_rejection_timeout_steps: {
                 if let Some(block_rejection_timeout_items) = self.block_rejection_timeout_steps {
-                    let mut rejection_timeout_durations = HashMap::<u64, Duration>::new();
+                    let mut rejection_timeout_durations = HashMap::<u32, Duration>::new();
                     for (slice, seconds) in block_rejection_timeout_items.iter() {
-                        match slice.parse::<u64>() {
+                        match slice.parse::<u32>() {
                             Ok(slice_slot) => rejection_timeout_durations.insert(slice_slot, Duration::from_secs(*seconds)),
                             Err(e) => panic!("block_rejection_timeout_steps keys must be unsigned integers: {}", e)
                         };

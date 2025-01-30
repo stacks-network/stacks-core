@@ -72,7 +72,7 @@ pub struct SignerCoordinator {
     ///  burn block has arrived since this thread started.
     burn_tip_at_start: ConsensusHash,
     /// The timeout configuration based on the percentage of rejections
-    block_rejection_timeout_steps: HashMap<u64, Duration>,
+    block_rejection_timeout_steps: HashMap<u32, Duration>,
 }
 
 impl SignerCoordinator {
@@ -305,21 +305,21 @@ impl SignerCoordinator {
         let mut block_rejection_timeout_steps = BTreeMap::<u64, Duration>::new();
         for (percentage, duration) in self.block_rejection_timeout_steps.iter() {
             let rejections_amount =
-                ((self.total_weight as f64 / 100.0) * *percentage as f64) as u64;
+                ((f64::from(self.total_weight) / 100.0) * f64::from(*percentage)) as u64;
             block_rejection_timeout_steps.insert(rejections_amount, *duration);
         }
 
         // the amount of current rejections (used to eventually modify the timeout)
         let mut rejections: u64 = 0;
         // default timeout (the 0 entry must be always present)
-        let mut rejections_timeout = self
-            .block_rejection_timeout_steps
-            .get(&rejections)
-            .ok_or_else(|| {
-                NakamotoNodeError::SigningCoordinatorFailure(
-                    "Invalid rejection timeout step function definition".into(),
-                )
-            })?;
+        let mut rejections_timeout =
+            block_rejection_timeout_steps
+                .get(&rejections)
+                .ok_or_else(|| {
+                    NakamotoNodeError::SigningCoordinatorFailure(
+                        "Invalid rejection timeout step function definition".into(),
+                    )
+                })?;
         // this is used for comparing block_status to identify if it has been changed from the previous event
         let mut block_status_tracker = BlockStatus::default();
 
