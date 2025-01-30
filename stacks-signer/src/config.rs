@@ -39,6 +39,7 @@ const BLOCK_PROPOSAL_TIMEOUT_MS: u64 = 600_000;
 const BLOCK_PROPOSAL_VALIDATION_TIMEOUT_MS: u64 = 120_000;
 const DEFAULT_FIRST_PROPOSAL_BURN_BLOCK_TIMING_SECS: u64 = 60;
 const DEFAULT_TENURE_LAST_BLOCK_PROPOSAL_TIMEOUT_SECS: u64 = 30;
+const DEFAULT_DRY_RUN: bool = false;
 const TENURE_IDLE_TIMEOUT_SECS: u64 = 120;
 
 #[derive(thiserror::Error, Debug)]
@@ -106,15 +107,36 @@ impl Network {
     }
 }
 
+/// Signer config mode (whether dry-run or real)
+#[derive(Debug, Clone)]
+pub enum SignerConfigMode {
+    /// Dry run operation: signer is not actually registered, the signer
+    ///  will not submit stackerdb messages, etc.
+    DryRun,
+    /// Normal signer operation: if registered, the signer will submit
+    /// stackerdb messages, etc.
+    Normal {
+        /// The signer ID assigned to this signer (may be different from signer_slot_id)
+        signer_id: u32,
+        /// The signer stackerdb slot id (may be different from signer_id)
+        signer_slot_id: SignerSlotID,
+    },
+}
+
+impl std::fmt::Display for SignerConfigMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SignerConfigMode::DryRun => write!(f, "Dry-Run signer"),
+            SignerConfigMode::Normal { signer_id, .. } => write!(f, "signer #{signer_id}"),
+        }
+    }
+}
+
 /// The Configuration info needed for an individual signer per reward cycle
 #[derive(Debug, Clone)]
 pub struct SignerConfig {
     /// The reward cycle of the configuration
     pub reward_cycle: u64,
-    /// The signer ID assigned to this signer (may be different from signer_slot_id)
-    pub signer_id: u32,
-    /// The signer stackerdb slot id (may be different from signer_id)
-    pub signer_slot_id: SignerSlotID,
     /// The registered signers for this reward cycle
     pub signer_entries: SignerEntries,
     /// The signer slot ids of all signers registered for this reward cycle
@@ -141,6 +163,8 @@ pub struct SignerConfig {
     pub tenure_idle_timeout: Duration,
     /// The maximum age of a block proposal in seconds that will be processed by the signer
     pub block_proposal_max_age_secs: u64,
+    /// The running mode for the signer (dry-run or normal)
+    pub signer_mode: SignerConfigMode,
 }
 
 /// The parsed configuration for the signer
@@ -181,6 +205,8 @@ pub struct GlobalConfig {
     pub tenure_idle_timeout: Duration,
     /// The maximum age of a block proposal that will be processed by the signer
     pub block_proposal_max_age_secs: u64,
+    /// Is this signer binary going to be running in dry-run mode?
+    pub dry_run: bool,
 }
 
 /// Internal struct for loading up the config file
@@ -220,6 +246,8 @@ struct RawConfigFile {
     pub tenure_idle_timeout_secs: Option<u64>,
     /// The maximum age of a block proposal (in secs) that will be processed by the signer.
     pub block_proposal_max_age_secs: Option<u64>,
+    /// Is this signer binary going to be running in dry-run mode?
+    pub dry_run: Option<bool>,
 }
 
 impl RawConfigFile {
@@ -321,6 +349,8 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             .block_proposal_max_age_secs
             .unwrap_or(DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS);
 
+        let dry_run = raw_data.dry_run.unwrap_or(DEFAULT_DRY_RUN);
+
         Ok(Self {
             node_host: raw_data.node_host,
             endpoint,
@@ -338,6 +368,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             block_proposal_validation_timeout,
             tenure_idle_timeout,
             block_proposal_max_age_secs,
+            dry_run,
         })
     }
 }
