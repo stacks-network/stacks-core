@@ -1,4 +1,4 @@
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2025 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,20 +15,6 @@
 mod v0;
 
 use std::collections::HashSet;
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -731,7 +717,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
     /// Get the latest block response from the given slot
     pub fn get_latest_block_response(&self, slot_id: u32) -> BlockResponse {
-        let mut stackerdb = StackerDB::new(
+        let mut stackerdb = StackerDB::new_normal(
             &self.running_nodes.conf.node.rpc_bind,
             StacksPrivateKey::random(), // We are just reading so don't care what the key is
             false,
@@ -818,7 +804,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         private_key: &StacksPrivateKey,
         reward_cycle: u64,
     ) {
-        let mut stackerdb = StackerDB::new(
+        let mut stackerdb = StackerDB::new_normal(
             &self.running_nodes.conf.node.rpc_bind,
             private_key.clone(),
             false,
