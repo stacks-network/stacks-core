@@ -410,14 +410,11 @@ impl SignerCoordinator {
                                     "rejections_threshold" => self.total_weight.saturating_sub(self.weight_threshold));
                 rejections_timer = Instant::now();
 
-                #[cfg(test)]
-                {
-                    Counters::set(
-                        &counters.naka_miner_current_rejections_timeout_secs,
-                        rejections_timeout.as_secs(),
-                    );
-                    Counters::set(&counters.naka_miner_current_rejections, rejections);
-                }
+                Counters::set(
+                    &counters.naka_miner_current_rejections_timeout_secs,
+                    rejections_timeout.as_secs(),
+                );
+                Counters::set(&counters.naka_miner_current_rejections, rejections);
             }
 
             if block_status

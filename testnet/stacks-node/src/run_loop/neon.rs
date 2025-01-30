@@ -117,9 +117,7 @@ pub struct Counters {
     pub naka_signer_pushed_blocks: RunLoopCounter,
     pub naka_miner_directives: RunLoopCounter,
 
-    #[cfg(test)]
     pub naka_miner_current_rejections: RunLoopCounter,
-    #[cfg(test)]
     pub naka_miner_current_rejections_timeout_secs: RunLoopCounter,
 
     #[cfg(test)]
@@ -145,7 +143,7 @@ impl Counters {
     }
 
     #[cfg(not(test))]
-    fn set(_ctr: &RunLoopCounter, _value: u64) {}
+    pub fn set(_ctr: &RunLoopCounter, _value: u64) {}
 
     pub fn bump_blocks_processed(&self) {
         Counters::inc(&self.blocks_processed);
