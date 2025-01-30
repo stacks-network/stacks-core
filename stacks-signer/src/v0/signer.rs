@@ -819,31 +819,32 @@ impl Signer {
             .remove_pending_block_validation(&signer_sig_hash)
             .unwrap_or_else(|e| warn!("{self}: Failed to remove pending block validation: {e:?}"));
 
-        let Some(response) = block_response else {
-            return;
-        };
-        // Submit a proposal response to the .signers contract for miners
-        info!(
-            "{self}: Broadcasting a block response to stacks node: {response:?}";
-        );
-        let accepted = matches!(response, BlockResponse::Accepted(..));
-        match self
-            .stackerdb
-            .send_message_with_retry::<SignerMessage>(response.into())
-        {
-            Ok(_) => {
-                crate::monitoring::actions::increment_block_responses_sent(accepted);
-                if let Ok(Some(block_info)) = self
-                    .signer_db
-                    .block_lookup(&block_validate_response.signer_signature_hash())
-                {
-                    crate::monitoring::actions::record_block_response_latency(&block_info.block);
+        if let Some(response) = block_response {
+            // Submit a proposal response to the .signers contract for miners
+            info!(
+                "{self}: Broadcasting a block response to stacks node: {response:?}";
+            );
+            let accepted = matches!(response, BlockResponse::Accepted(..));
+            match self
+                .stackerdb
+                .send_message_with_retry::<SignerMessage>(response.into())
+            {
+                Ok(_) => {
+                    crate::monitoring::actions::increment_block_responses_sent(accepted);
+                    if let Ok(Some(block_info)) = self
+                        .signer_db
+                        .block_lookup(&block_validate_response.signer_signature_hash())
+                    {
+                        crate::monitoring::actions::record_block_response_latency(
+                            &block_info.block,
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
                 }
             }
-            Err(e) => {
-                warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
-            }
-        }
+        };
 
         // Check if there is a pending block validation that we need to submit to the node
         match self.signer_db.get_and_remove_pending_block_validation() {
