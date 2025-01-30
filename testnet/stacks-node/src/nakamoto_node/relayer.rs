@@ -1639,7 +1639,7 @@ impl RelayerThread {
         self.last_commits.insert(txid);
         self.globals
             .counters
-            .bump_naka_submitted_commits(last_committed.burn_tip.block_height);
+            .bump_naka_submitted_commits(last_committed.burn_tip.block_height, tip_height);
         self.last_committed = Some(last_committed);
 
         Ok(())

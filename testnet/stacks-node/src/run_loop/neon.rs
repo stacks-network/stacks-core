@@ -116,6 +116,7 @@ pub struct Counters {
     pub naka_mined_tenures: RunLoopCounter,
     pub naka_signer_pushed_blocks: RunLoopCounter,
     pub naka_miner_directives: RunLoopCounter,
+    pub naka_submitted_commit_last_stacks_tip: RunLoopCounter,
 
     #[cfg(test)]
     pub naka_skip_commit_op: TestFlag<bool>,
@@ -170,11 +171,19 @@ impl Counters {
         Counters::inc(&self.naka_submitted_vrfs);
     }
 
-    pub fn bump_naka_submitted_commits(&self, committed_height: u64) {
+    pub fn bump_naka_submitted_commits(
+        &self,
+        committed_burn_height: u64,
+        committed_stacks_height: u64,
+    ) {
         Counters::inc(&self.naka_submitted_commits);
         Counters::set(
             &self.naka_submitted_commit_last_burn_height,
-            committed_height,
+            committed_burn_height,
+        );
+        Counters::set(
+            &self.naka_submitted_commit_last_stacks_tip,
+            committed_stacks_height,
         );
     }
 
