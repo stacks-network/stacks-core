@@ -234,7 +234,7 @@ impl BitcoinIndexer {
             true,
             false,
         )
-        .unwrap_or_else(|_| panic!("Failed to open {:?}", working_dir_path.to_str().unwrap()));
+        .unwrap_or_else(|_| panic!("Failed to open {working_dir_path:?}"));
 
         BitcoinIndexer {
             config: BitcoinIndexerConfig::default_regtest(
