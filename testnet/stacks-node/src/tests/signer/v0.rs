@@ -11546,9 +11546,39 @@ fn reorg_attempts_activity_timeout_exceeded() {
         block_proposal
     };
 
+    let wait_for_block_rejections = |hash: Sha512Trunc256Sum| {
+        wait_for(30, || {
+            let stackerdb_events = test_observer::get_stackerdb_chunks();
+            let block_rejections = stackerdb_events
+                .into_iter()
+                .flat_map(|chunk| chunk.modified_slots)
+                .filter_map(|chunk| {
+                    let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                        .expect("Failed to deserialize SignerMessage");
+                    match message {
+                        SignerMessage::BlockResponse(BlockResponse::Rejected(rejection)) => {
+                            if rejection.signer_signature_hash == hash {
+                                assert_eq!(
+                                    rejection.reason_code,
+                                    RejectCode::SortitionViewMismatch
+                                );
+                                Some(rejection)
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    }
+                })
+                .collect::<Vec<_>>();
+            Ok(block_rejections.len() >= num_signers * 3 / 10)
+        })
+    };
+
     info!("------------------------- Test Mine Block N -------------------------");
     let chain_before = get_chain_info(&signer_test.running_nodes.conf);
     // Stall validation so signers will be unable to process the tenure change block for Tenure B.
+    // And so the incoming miner proposes a block N' (the reorging block).
     TEST_VALIDATE_STALL.set(true);
     test_observer::clear();
     // submit a tx so that the miner will mine an extra block
@@ -11573,7 +11603,7 @@ fn reorg_attempts_activity_timeout_exceeded() {
         .running_nodes
         .commits_submitted
         .load(Ordering::SeqCst);
-
+    let chain_before = get_chain_info(&signer_test.running_nodes.conf);
     next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
         60,
@@ -11582,67 +11612,74 @@ fn reorg_attempts_activity_timeout_exceeded() {
                 .running_nodes
                 .commits_submitted
                 .load(Ordering::SeqCst);
-            Ok(commits_count > commits_before)
+            let chain_info = get_chain_info(&signer_test.running_nodes.conf);
+            Ok(commits_count > commits_before
+                && chain_info.burn_block_height > chain_before.burn_block_height)
         },
     )
     .unwrap();
 
-    std::thread::sleep(reorg_attempts_activity_timeout.add(Duration::from_secs(1)));
+    info!("------------------------- Wait for block N' to arrive late  -------------------------");
     test_observer::clear();
-    TEST_BROADCAST_STALL.set(false);
-    let block_proposal_n_prime =
-        wait_for_block_proposal().expect("Failed to get block proposal N'");
-    std::thread::sleep(block_proposal_timeout.add(Duration::from_secs(1)));
-
-    assert_ne!(block_proposal_n, block_proposal_n_prime);
-    let chain_before = get_chain_info(&signer_test.running_nodes.conf);
+    // Allow block N validation to finish.
     TEST_VALIDATE_STALL.set(false);
-
     wait_for(30, || {
         let chain_info = get_chain_info(&signer_test.running_nodes.conf);
         Ok(chain_info.stacks_tip_height > chain_before.stacks_tip_height)
     })
-    .expect("Timed out waiting for stacks tip to advance to block N");
-
+    .expect("Tiemd out waiting for stacks tip to advance to block N");
     let chain_after = get_chain_info(&signer_test.running_nodes.conf);
+    TEST_VALIDATE_STALL.set(true);
+    // Allow incoming mine to propose block N'
+    // Make sure to wait the reorg_attempts_activity_timeout AFTER the block is globally signed over
+    // as this is the point where signers start considering from.
+    std::thread::sleep(reorg_attempts_activity_timeout.add(Duration::from_secs(1)));
+    TEST_BROADCAST_STALL.set(false);
+    let block_proposal_n_prime =
+        wait_for_block_proposal().expect("Failed to get block proposal N'");
+    assert_eq!(
+        block_proposal_n_prime.block.header.chain_length,
+        chain_after.stacks_tip_height
+    );
+    // Make sure that no subsequent proposal arrives before the block_proposal_timeout is exceeded
+    TEST_BROADCAST_STALL.set(true);
+    TEST_VALIDATE_STALL.set(false);
+    // We only need to wait the difference between the two timeouts now since we already slept for a min of reorg_attempts_activity_timeout + 1
+    std::thread::sleep(block_proposal_timeout.saturating_sub(reorg_attempts_activity_timeout));
+    assert_ne!(block_proposal_n, block_proposal_n_prime);
     assert_eq!(
         chain_after.stacks_tip_height,
         block_proposal_n.block.header.chain_length
     );
-
     let chain_before = chain_after;
+
     info!("------------------------- Wait for Block N' Rejection -------------------------");
+    wait_for_block_rejections(block_proposal_n_prime.block.header.signer_signature_hash())
+        .expect("FAIL: Timed out waiting for block proposal rejections of N'");
+
+    info!("------------------------- Wait for Block N+1 Proposal -------------------------");
+    test_observer::clear();
+    TEST_BROADCAST_STALL.set(false);
     wait_for(30, || {
-        let stackerdb_events = test_observer::get_stackerdb_chunks();
-        let block_rejections = stackerdb_events
-            .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-            .filter_map(|chunk| {
-                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                    .expect("Failed to deserialize SignerMessage");
-                match message {
-                    SignerMessage::BlockResponse(BlockResponse::Rejected(rejection)) => {
-                        if rejection.signer_signature_hash
-                            == block_proposal_n_prime.block.header.signer_signature_hash()
-                        {
-                            assert_eq!(rejection.reason_code, RejectCode::SortitionViewMismatch);
-                            Some(rejection)
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                }
-            })
-            .collect::<Vec<_>>();
-        Ok(block_rejections.len() >= num_signers * 3 / 10)
+        let block_proposal_n_1 =
+            wait_for_block_proposal().expect("Failed to get block proposal N+1");
+        Ok(block_proposal_n_1.block.header.chain_length
+            == block_proposal_n.block.header.chain_length + 1)
     })
-    .expect("FAIL: Timed out waiting for block proposal rejections of N'");
+    .expect("Timed out waiting for block N+1 to be proposed");
+
+    info!("------------------------- Wait for Block N+1 Rejection -------------------------");
+    // The miner will automatically reattempt to mine a block N+1 once it sees the stacks tip advance to block N.
+    // N+1 will still be rejected however as the signers will have already marked the miner as invalid since the reorg
+    // block N' arrived AFTER the reorg_attempts_activity_timeout and the subsequent block N+1 arrived AFTER the
+    // block_proposal_timeout.
+    let block_proposal_n_1 = wait_for_block_proposal().expect("Failed to get block proposal N+1'");
+    wait_for_block_rejections(block_proposal_n_1.block.header.signer_signature_hash())
+        .expect("FAIL: Timed out waiting for block proposal rejections of N+1'");
 
     info!("------------------------- Ensure chain halts -------------------------");
-    // The signer should automatically attempt to mine a new block once the signers eventually tell it to abandon the previous block
-    // It will reject it though because the block proposal timeout is exceeded and its first block proposal arrived AFTER the reorg activity timeout
-    assert!(wait_for(30, || {
+    // Just in case, wait again and ensure that the chain is still halted (once marked invalid, the miner can do nothing to satisfy the signers)
+    assert!(wait_for(reorg_attempts_activity_timeout.as_secs(), || {
         let chain_info = get_chain_info(&signer_test.running_nodes.conf);
         assert_eq!(chain_info.stacks_tip_height, chain_before.stacks_tip_height);
         Ok(false)
