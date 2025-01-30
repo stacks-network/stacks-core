@@ -326,7 +326,7 @@ impl SignerCoordinator {
         let mut block_status_tracker = BlockStatus::default();
 
         // this is used to track the start of the waiting cycle
-        let mut rejections_timer = Instant::now();
+        let rejections_timer = Instant::now();
         loop {
             // At every iteration wait for the block_status.
             // Exit when the amount of confirmations/rejections reaches the threshold (or until timeout)
@@ -410,7 +410,6 @@ impl SignerCoordinator {
                                     "rejections" => rejections,
                                     "rejections_timeout" => rejections_timeout.as_secs(),
                                     "rejections_threshold" => self.total_weight.saturating_sub(self.weight_threshold));
-                rejections_timer = Instant::now();
 
                 Counters::set(
                     &counters.naka_miner_current_rejections_timeout_secs,
