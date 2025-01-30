@@ -8353,9 +8353,9 @@ fn test_scenario_three(use_nakamoto: bool) {
     assert_eq!(amount_locked_actual, amount_locked_expected);
 
     // Check Bob signer key
-    let signer_key_expected = Value::buff_from(bob.public_key.to_bytes_compressed());
+    let signer_key_expected = Value::buff_from(bob.public_key.to_bytes_compressed()).unwrap();
     let signer_key_actual = bob_stack_tx_ok.data_map.get("signer-key").unwrap().clone();
-    assert_eq!(signer_key_actual, signer_key_actual);
+    assert_eq!(signer_key_actual, signer_key_expected);
 
     // 5. Check that David can't delegate-stack-stx Eve if delegation expires during lock period
     let eve_delegate_stx_to_david_err = receipts
