@@ -334,10 +334,7 @@ pub fn check_stacking_state_invariants(
     .burn_header_height;
 
     let stacking_state_entry = get_stacking_state_pox(peer, tip, stacker, active_pox_contract)
-        .expect(&format!(
-            "Invariant violated: reward-cycle entry has stacker field set, but not present in stacker-state (pox_contract = {})",
-            active_pox_contract,
-        ))
+        .unwrap_or_else(|| panic!("Invariant violated: reward-cycle entry has stacker field set, but not present in stacker-state (pox_contract = {active_pox_contract})"))
         .expect_tuple().unwrap();
     let first_cycle = stacking_state_entry
         .get("first-reward-cycle")

@@ -439,10 +439,7 @@ impl TestBurnchainBlock {
             // prove on the last-ever sortition's hash to produce the new seed
             let proof = miner
                 .make_proof(&leader_key.public_key, &last_snapshot.sortition_hash)
-                .expect(&format!(
-                    "FATAL: no private key for {}",
-                    leader_key.public_key.to_hex()
-                ));
+                .unwrap_or_else(|| panic!("FATAL: no private key for {:?}", leader_key.public_key));
 
             VRFSeed::from_proof(&proof)
         });
@@ -658,10 +655,12 @@ impl TestBurnchainBlock {
         let parent_hdr = indexer
             .read_burnchain_header(self.block_height.saturating_sub(1))
             .unwrap()
-            .expect(&format!(
-                "BUG: could not read block at height {}",
-                self.block_height.saturating_sub(1)
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "BUG: could not read block at height {}",
+                    self.block_height.saturating_sub(1)
+                )
+            });
 
         let now = BURNCHAIN_TEST_BLOCK_TIME;
         let block_hash = BurnchainHeaderHash::from_bitcoin_hash(

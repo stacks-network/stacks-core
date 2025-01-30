@@ -10265,7 +10265,7 @@ fn test_scenario_five(use_nakamoto: bool) {
     for (idx, (stacker, stacker_lock_period)) in davids_stackers.iter().enumerate() {
         let (pox_address, first_reward_cycle, lock_period, _indices) =
             get_stacker_info_pox_4(&mut peer, &stacker.principal)
-                .expect(format!("Failed to find stacker {}", idx).as_str());
+                .unwrap_or_else(|| panic!("Failed to find stacker {idx}"));
         assert_eq!(first_reward_cycle, reward_cycle);
         assert_eq!(pox_address, david.pox_address);
         assert_eq!(lock_period, *stacker_lock_period);
@@ -10274,7 +10274,7 @@ fn test_scenario_five(use_nakamoto: bool) {
     for (idx, (stacker, stacker_lock_period)) in eves_stackers.iter().enumerate() {
         let (pox_address, first_reward_cycle, lock_period, _indices) =
             get_stacker_info_pox_4(&mut peer, &stacker.principal)
-                .expect(format!("Failed to find stacker {}", idx).as_str());
+                .unwrap_or_else(|| panic!("Failed to find stacker {idx}"));
         assert_eq!(first_reward_cycle, reward_cycle);
         assert_eq!(pox_address, eve.pox_address);
         assert_eq!(lock_period, *stacker_lock_period);
