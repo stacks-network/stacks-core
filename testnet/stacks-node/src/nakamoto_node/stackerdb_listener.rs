@@ -50,7 +50,7 @@ pub static TEST_IGNORE_SIGNERS: LazyLock<TestFlag<bool>> = LazyLock::new(TestFla
 /// waking up to check timeouts?
 pub static EVENT_RECEIVER_POLL: Duration = Duration::from_millis(500);
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct BlockStatus {
     pub responded_signers: HashSet<StacksPublicKey>,
     pub gathered_signatures: BTreeMap<u32, MessageSignature>,
