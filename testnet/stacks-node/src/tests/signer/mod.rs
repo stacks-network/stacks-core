@@ -1,4 +1,4 @@
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2025 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,20 +15,6 @@
 mod v0;
 
 use std::collections::HashSet;
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -97,6 +83,7 @@ pub struct RunningNodes {
     pub nakamoto_blocks_signer_pushed: RunLoopCounter,
     pub nakamoto_miner_directives: Arc<AtomicU64>,
     pub nakamoto_test_skip_commit_op: TestFlag<bool>,
+    pub counters: Counters,
     pub coord_channel: Arc<Mutex<CoordinatorChannels>>,
     pub conf: NeonConfig,
 }
@@ -731,7 +718,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
     /// Get the latest block response from the given slot
     pub fn get_latest_block_response(&self, slot_id: u32) -> BlockResponse {
-        let mut stackerdb = StackerDB::new(
+        let mut stackerdb = StackerDB::new_normal(
             &self.running_nodes.conf.node.rpc_bind,
             StacksPrivateKey::random(), // We are just reading so don't care what the key is
             false,
@@ -818,7 +805,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         private_key: &StacksPrivateKey,
         reward_cycle: u64,
     ) {
-        let mut stackerdb = StackerDB::new(
+        let mut stackerdb = StackerDB::new_normal(
             &self.running_nodes.conf.node.rpc_bind,
             private_key.clone(),
             false,
@@ -947,6 +934,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
         naka_signer_pushed_blocks,
         ..
     } = run_loop.counters();
+    let counters = run_loop.counters();
 
     let coord_channel = run_loop.coordinator_channels();
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
@@ -984,6 +972,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
         nakamoto_test_skip_commit_op,
         nakamoto_miner_directives: naka_miner_directives.0,
         coord_channel,
+        counters,
         conf: naka_conf,
     }
 }

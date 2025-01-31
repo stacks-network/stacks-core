@@ -3436,7 +3436,7 @@ fn empty_sortition() {
 
     info!("------------------------- Test Delayed Block is Rejected  -------------------------");
     let reward_cycle = signer_test.get_current_reward_cycle();
-    let mut stackerdb = StackerDB::new(
+    let mut stackerdb = StackerDB::new_normal(
         &signer_test.running_nodes.conf.node.rpc_bind,
         StacksPrivateKey::random(), // We are just reading so don't care what the key is
         false,
@@ -5040,6 +5040,8 @@ fn partial_tenure_fork() {
         naka_skip_commit_op: rl2_skip_commit_op,
         ..
     } = run_loop_2.counters();
+    let rl2_counters = run_loop_2.counters();
+    let rl1_counters = signer_test.running_nodes.counters.clone();
 
     signer_test.boot_to_epoch_3();
     let run_loop_2_thread = thread::Builder::new()
@@ -5110,35 +5112,37 @@ fn partial_tenure_fork() {
     rl1_skip_commit_op.set(true);
     rl2_skip_commit_op.set(true);
 
-    let mined_before_1 = blocks_mined1.load(Ordering::SeqCst);
-    let mined_before_2 = blocks_mined2.load(Ordering::SeqCst);
-    let commits_before_1 = commits_1.load(Ordering::SeqCst);
-    let commits_before_2 = commits_2.load(Ordering::SeqCst);
+    let info_before = get_chain_info(&conf);
 
     // Mine the first block
     next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
         180,
         || {
-            let mined_1 = blocks_mined1.load(Ordering::SeqCst);
-            let mined_2 = blocks_mined2.load(Ordering::SeqCst);
-
-            Ok(mined_1 > mined_before_1 || mined_2 > mined_before_2)
+            let info_1 = get_chain_info(&conf);
+            Ok(info_1.stacks_tip_height > info_before.stacks_tip_height)
         },
     )
     .expect("Timed out waiting for new Stacks block to be mined");
 
     info!("-------- Mined first block, wait for block commits --------");
 
+    let info_before = get_chain_info(&conf);
+
     // Unpause block commits and wait for both miners' commits
     rl1_skip_commit_op.set(false);
     rl2_skip_commit_op.set(false);
 
-    // Ensure that both block commits have been sent before continuing
+    // Ensure that both miners' commits point at the stacks tip
     wait_for(60, || {
-        let commits_after_1 = commits_1.load(Ordering::SeqCst);
-        let commits_after_2 = commits_2.load(Ordering::SeqCst);
-        Ok(commits_after_1 > commits_before_1 && commits_after_2 > commits_before_2)
+        let last_committed_1 = rl1_counters
+            .naka_submitted_commit_last_stacks_tip
+            .load(Ordering::SeqCst);
+        let last_committed_2 = rl2_counters
+            .naka_submitted_commit_last_stacks_tip
+            .load(Ordering::SeqCst);
+        Ok(last_committed_1 >= info_before.stacks_tip_height
+            && last_committed_2 >= info_before.stacks_tip_height)
     })
     .expect("Timed out waiting for block commits");
 
@@ -10628,7 +10632,7 @@ fn incoming_signers_ignore_block_proposals() {
     .expect("Timed out waiting for a block to be mined");
 
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
-    let mut stackerdb = StackerDB::new(
+    let mut stackerdb = StackerDB::new_normal(
         &signer_test.running_nodes.conf.node.rpc_bind,
         StacksPrivateKey::random(), // We are just reading so don't care what the key is
         false,
@@ -10803,7 +10807,7 @@ fn outgoing_signers_ignore_block_proposals() {
         .unwrap()
         .signer_signature_hash;
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
-    let mut stackerdb = StackerDB::new(
+    let mut stackerdb = StackerDB::new_normal(
         &signer_test.running_nodes.conf.node.rpc_bind,
         StacksPrivateKey::random(), // We are just reading so don't care what the key is
         false,
@@ -11200,7 +11204,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
 
     // The first 50% of the signers are the ones that are ignoring block proposals and thus haven't sent a signature yet
     let forced_signer = &signer_test.signer_stacks_private_keys[ignoring_signers.len()];
-    let mut stackerdb = StackerDB::new(
+    let mut stackerdb = StackerDB::new_normal(
         &signer_test.running_nodes.conf.node.rpc_bind,
         forced_signer.clone(),
         false,
