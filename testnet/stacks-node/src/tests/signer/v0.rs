@@ -2630,7 +2630,9 @@ fn tenure_extend_after_idle_signers() {
         |config| {
             config.tenure_idle_timeout = idle_timeout;
         },
-        |_| {},
+        |config| {
+            config.miner.tenure_extend_cost_threshold = 0;
+        },
         None,
         None,
     );
@@ -2680,7 +2682,9 @@ fn tenure_extend_with_other_transactions() {
         |config| {
             config.tenure_idle_timeout = idle_timeout;
         },
-        |_| {},
+        |config| {
+            config.miner.tenure_extend_cost_threshold = 0;
+        },
         None,
         None,
     );
@@ -2787,6 +2791,7 @@ fn tenure_extend_after_idle_miner() {
         },
         |config| {
             config.miner.tenure_timeout = miner_idle_timeout;
+            config.miner.tenure_extend_cost_threshold = 0;
         },
         None,
         None,
@@ -2863,6 +2868,7 @@ fn tenure_extend_succeeds_after_rejected_attempt() {
         },
         |config| {
             config.miner.tenure_timeout = miner_idle_timeout;
+            config.miner.tenure_extend_cost_threshold = 0;
         },
         None,
         None,
@@ -2951,7 +2957,9 @@ fn stx_transfers_dont_effect_idle_timeout() {
         |config| {
             config.tenure_idle_timeout = idle_timeout;
         },
-        |_| {},
+        |config| {
+            config.miner.tenure_extend_cost_threshold = 0;
+        },
         None,
         None,
     );
@@ -3085,6 +3093,7 @@ fn idle_tenure_extend_active_mining() {
         |config| {
             // accept all proposals in the node
             config.connection_options.block_proposal_max_age_secs = u64::MAX;
+            config.miner.tenure_extend_cost_threshold = 0;
         },
         None,
         None,
@@ -12594,5 +12603,114 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
         .stop_chains_coordinator();
     run_loop_stopper_2.store(false, Ordering::SeqCst);
     run_loop_2_thread.join().unwrap();
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// This test verifies that a miner will produce a TenureExtend transaction
+/// only after it has reached the cost threshold.
+fn tenure_extend_cost_threshold() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let deployer_sk = Secp256k1PrivateKey::random();
+    let deployer_addr = tests::to_addr(&deployer_sk);
+    let num_txs = 10;
+    let tx_fee = 10000;
+    let deploy_fee = 190200;
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let idle_timeout = Duration::from_secs(10);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(deployer_addr, deploy_fee + tx_fee * num_txs)],
+        |config| {
+            config.tenure_idle_timeout = idle_timeout;
+        },
+        |config| {
+            config.miner.tenure_extend_cost_threshold = 5;
+        },
+        None,
+        None,
+    );
+    let naka_conf = signer_test.running_nodes.conf.clone();
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+
+    signer_test.boot_to_epoch_3();
+
+    info!("---- Nakamoto booted, starting test ----");
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+
+    info!("---- Waiting for a tenure extend ----");
+
+    // Now, wait for a block with a tenure extend
+    wait_for(idle_timeout.as_secs() + 10, || {
+        Ok(last_block_contains_tenure_change_tx(
+            TenureChangeCause::Extended,
+        ))
+    })
+    .expect_err("Received a tenure extend before cost threshold was reached");
+
+    // Now deploy a contract and call it in order to cross the threshold.
+    let contract_src = format!(
+        r#"
+(define-data-var my-var uint u0)
+(define-public (f) (begin {} (ok 1))) (begin (f))
+        "#,
+        ["(var-get my-var)"; 250].join(" ")
+    );
+
+    // First, lets deploy the contract
+    let mut nonce = 0;
+    let contract_tx = make_contract_publish(
+        &deployer_sk,
+        nonce,
+        deploy_fee,
+        naka_conf.burnchain.chain_id,
+        "small-contract",
+        &contract_src,
+    );
+    submit_tx(&http_origin, &contract_tx);
+    nonce += 1;
+
+    // Wait for the contract to be included in a block
+    wait_for(60, || {
+        let account = get_account(&http_origin, &deployer_addr);
+        Ok(account.nonce == nonce)
+    })
+    .expect("Contract not included in block");
+
+    // Ensure the tenure was not extended in that block
+    assert!(!last_block_contains_tenure_change_tx(
+        TenureChangeCause::Extended
+    ));
+
+    // Now, lets call the contract a bunch of times to increase the tenure cost
+    for _ in 0..num_txs {
+        let call_tx = make_contract_call(
+            &deployer_sk,
+            nonce,
+            tx_fee,
+            naka_conf.burnchain.chain_id,
+            &deployer_addr,
+            "small-contract",
+            "f",
+            &[],
+        );
+        submit_tx(&http_origin, &call_tx);
+        nonce += 1;
+    }
+
+    // Now, wait for a block with a tenure extend
+    wait_for(idle_timeout.as_secs() + 10, || {
+        Ok(last_block_contains_tenure_change_tx(
+            TenureChangeCause::Extended,
+        ))
+    })
+    .expect("Timed out waiting for a block with a tenure extend");
+
     signer_test.shutdown();
 }

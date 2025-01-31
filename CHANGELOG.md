@@ -8,15 +8,13 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ## [Unreleased]
 
 ### Added
-- Add `dry_run` configuration option to `stacks-signer` config toml. Dry run mode will
-  run the signer binary as if it were a registered signer. Instead of broadcasting
-  `StackerDB` messages, it logs `INFO` messages. Other interactions with the `stacks-node`
-  behave normally (e.g., submitting validation requests, submitting finished blocks). A
-  dry run signer will error out if the supplied key is actually a registered signer.
+
+- Add miner configuration option `tenure_extend_cost_threshold` to specify the percentage of the tenure budget that must be spent before a time-based tenure extend is attempted
 
 ### Changed
 
 - Miner will include other transactions in blocks with tenure extend transactions (#5760)
+- Miner will not issue a tenure extend until at least half of the block budget has been spent (#5757)
 
 ### Fixed
 

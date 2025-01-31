@@ -379,6 +379,7 @@ pub struct ConnectionOptions {
     /// Units are milliseconds.  A value of 0 means "never".
     pub log_neighbors_freq: u64,
     pub inv_sync_interval: u64,
+    // how many reward cycles of blocks to sync in a non-full inventory sync
     pub inv_reward_cycles: u64,
     pub download_interval: u64,
     pub pingback_timeout: u64,

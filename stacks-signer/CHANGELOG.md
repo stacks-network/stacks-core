@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [Unreleased]
+
+### Added
+
+- Add `dry_run` configuration option to `stacks-signer` config toml. Dry run mode will
+  run the signer binary as if it were a registered signer. Instead of broadcasting
+  `StackerDB` messages, it logs `INFO` messages. Other interactions with the `stacks-node`
+  behave normally (e.g., submitting validation requests, submitting finished blocks). A
+  dry run signer will error out if the supplied key is actually a registered signer.
+
 ## [3.1.0.0.4.0]
 
 ## Added
