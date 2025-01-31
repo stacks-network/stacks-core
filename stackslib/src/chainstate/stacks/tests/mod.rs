@@ -88,8 +88,8 @@ pub fn copy_dir(src_dir: &str, dest_dir: &str) -> Result<(), io::Error> {
 
     while !dir_queue.is_empty() {
         let next_dir = dir_queue.pop_front().unwrap();
-        let next_src_dir = path_join(&src_dir, &next_dir);
-        let next_dest_dir = path_join(&dest_dir, &next_dir);
+        let next_src_dir = path_join(src_dir, &next_dir);
+        let next_dest_dir = path_join(dest_dir, &next_dir);
 
         eprintln!("mkdir {next_dest_dir}");
         fs::create_dir_all(&next_dest_dir)?;
@@ -99,11 +99,11 @@ pub fn copy_dir(src_dir: &str, dest_dir: &str) -> Result<(), io::Error> {
             let path = dirent.path();
             let md = fs::metadata(&path)?;
             if md.is_dir() {
-                let frontier = path_join(&next_dir, &dirent.file_name().to_str().unwrap());
+                let frontier = path_join(&next_dir, dirent.file_name().to_str().unwrap());
                 eprintln!("push {frontier}");
                 dir_queue.push_back(frontier);
             } else {
-                let dest_path = path_join(&next_dest_dir, &dirent.file_name().to_str().unwrap());
+                let dest_path = path_join(&next_dest_dir, dirent.file_name().to_str().unwrap());
                 eprintln!("copy {} to {dest_path}", &path.to_str().unwrap());
                 fs::copy(path, dest_path)?;
             }
@@ -782,7 +782,7 @@ pub fn preprocess_stacks_block_data(
         .preprocess_anchored_block(
             &ic,
             &commit_snapshot.consensus_hash,
-            &stacks_block,
+            stacks_block,
             &parent_block_consensus_hash,
             5,
         )
@@ -839,7 +839,6 @@ pub fn check_mining_reward(
     block_height: u64,
     prev_block_rewards: &[Vec<MinerPaymentSchedule>],
 ) -> bool {
-    let mut block_rewards = HashMap::new();
     let mut stream_rewards = HashMap::new();
     let mut heights = HashMap::new();
     let mut confirmed = HashSet::new();
@@ -849,9 +848,6 @@ pub fn check_mining_reward(
                 &reward.consensus_hash,
                 &reward.block_hash,
             );
-            if reward.coinbase > 0 {
-                block_rewards.insert(ibh.clone(), reward.clone());
-            }
             if let MinerPaymentTxFees::Epoch2 { streamed, .. } = &reward.tx_fees {
                 if *streamed > 0 {
                     stream_rewards.insert(ibh.clone(), reward.clone());
@@ -923,7 +919,7 @@ pub fn check_mining_reward(
             if confirmed_block_height as u64 > block_height - MINER_REWARD_MATURITY {
                 continue;
             }
-            if let Some(ref parent_reward) = stream_rewards.get(&parent_block) {
+            if let Some(parent_reward) = stream_rewards.get(&parent_block) {
                 if parent_reward.address == miner.origin_address().unwrap() {
                     let streamed = match &parent_reward.tx_fees {
                         MinerPaymentTxFees::Epoch2 { streamed, .. } => streamed,
@@ -967,24 +963,11 @@ pub fn get_last_microblock_header(
     miner: &TestMiner,
     parent_block_opt: Option<&StacksBlock>,
 ) -> Option<StacksMicroblockHeader> {
-    let last_microblocks_opt = match parent_block_opt {
-        Some(ref block) => node.get_microblock_stream(&miner, &block.block_hash()),
-        None => None,
-    };
-
-    let last_microblock_header_opt = match last_microblocks_opt {
-        Some(last_microblocks) => {
-            if last_microblocks.is_empty() {
-                None
-            } else {
-                let l = last_microblocks.len() - 1;
-                Some(last_microblocks[l].header.clone())
-            }
-        }
-        None => None,
-    };
-
-    last_microblock_header_opt
+    parent_block_opt
+        .and_then(|block| node.get_microblock_stream(miner, &block.block_hash()))
+        .as_ref()
+        .and_then(|mblock_stream| mblock_stream.last())
+        .map(|mblock| mblock.header.clone())
 }
 
 pub fn get_all_mining_rewards(
@@ -992,17 +975,14 @@ pub fn get_all_mining_rewards(
     tip: &StacksHeaderInfo,
     block_height: u64,
 ) -> Vec<Vec<MinerPaymentSchedule>> {
-    let mut ret = vec![];
     let mut tx = chainstate.index_tx_begin();
 
-    for i in 0..block_height {
-        let block_rewards =
+    (0..block_height)
+        .map(|i| {
             StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, tip, i)
-                .unwrap();
-        ret.push(block_rewards);
-    }
-
-    ret
+                .unwrap()
+        })
+        .collect()
 }
 
 pub fn make_coinbase(miner: &mut TestMiner, burnchain_height: usize) -> StacksTransaction {
@@ -1087,7 +1067,7 @@ pub fn make_smart_contract_with_version(
         miner.as_transaction_auth().unwrap(),
         TransactionPayload::new_smart_contract(
             &format!("hello-world-{burnchain_height}-{stacks_block_height}"),
-            &contract.to_string(),
+            contract,
             version,
         )
         .unwrap(),
@@ -1356,12 +1336,12 @@ pub fn make_user_stacks_transfer(
 ) -> StacksTransaction {
     let payload =
         TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
-    sign_standard_singlesig_tx(payload.into(), sender, nonce, tx_fee)
+    sign_standard_singlesig_tx(payload, sender, nonce, tx_fee)
 }
 
 pub fn make_user_coinbase(sender: &StacksPrivateKey, nonce: u64, tx_fee: u64) -> StacksTransaction {
     let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None, None);
-    sign_standard_singlesig_tx(payload.into(), sender, nonce, tx_fee)
+    sign_standard_singlesig_tx(payload, sender, nonce, tx_fee)
 }
 
 pub fn make_user_poison_microblock(
@@ -1370,7 +1350,7 @@ pub fn make_user_poison_microblock(
     tx_fee: u64,
     payload: TransactionPayload,
 ) -> StacksTransaction {
-    sign_standard_singlesig_tx(payload.into(), sender, nonce, tx_fee)
+    sign_standard_singlesig_tx(payload, sender, nonce, tx_fee)
 }
 
 pub fn sign_standard_singlesig_tx(

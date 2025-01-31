@@ -1,4 +1,4 @@
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2025 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,20 +15,6 @@
 mod v0;
 
 use std::collections::HashSet;
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -37,7 +23,7 @@ use std::time::{Duration, Instant};
 use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;
 use libsigner::v0::messages::{
-    BlockAccepted, BlockResponse, MessageSlotID, PeerInfo, SignerMessage,
+    BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, PeerInfo, SignerMessage,
 };
 use libsigner::{BlockProposal, SignerEntries, SignerEventTrait};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
@@ -88,12 +74,16 @@ pub struct RunningNodes {
     pub run_loop_stopper: Arc<AtomicBool>,
     pub vrfs_submitted: RunLoopCounter,
     pub commits_submitted: RunLoopCounter,
+    pub last_commit_burn_height: RunLoopCounter,
     pub blocks_processed: RunLoopCounter,
+    pub sortitions_processed: RunLoopCounter,
     pub nakamoto_blocks_proposed: RunLoopCounter,
     pub nakamoto_blocks_mined: RunLoopCounter,
     pub nakamoto_blocks_rejected: RunLoopCounter,
     pub nakamoto_blocks_signer_pushed: RunLoopCounter,
+    pub nakamoto_miner_directives: Arc<AtomicU64>,
     pub nakamoto_test_skip_commit_op: TestFlag<bool>,
+    pub counters: Counters,
     pub coord_channel: Arc<Mutex<CoordinatorChannels>>,
     pub conf: NeonConfig,
 }
@@ -127,7 +117,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         )
     }
 
-    fn new_with_config_modifications<F: FnMut(&mut SignerConfig), G: FnMut(&mut NeonConfig)>(
+    pub fn new_with_config_modifications<F: FnMut(&mut SignerConfig), G: FnMut(&mut NeonConfig)>(
         num_signers: usize,
         initial_balances: Vec<(StacksAddress, u64)>,
         mut signer_config_modifier: F,
@@ -144,7 +134,11 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                     "Number of private keys does not match number of signers"
                 )
             })
-            .unwrap_or_else(|| (0..num_signers).map(|_| StacksPrivateKey::new()).collect());
+            .unwrap_or_else(|| {
+                (0..num_signers)
+                    .map(|_| StacksPrivateKey::random())
+                    .collect()
+            });
 
         let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
 
@@ -378,6 +372,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             timeout.as_secs(),
             coord_channels,
             commits_submitted,
+            true,
         )
         .unwrap();
         let t_start = Instant::now();
@@ -694,11 +689,38 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         })
     }
 
+    /// Get all block rejections for a given block
+    pub fn get_block_rejections(
+        &self,
+        signer_signature_hash: &Sha512Trunc256Sum,
+    ) -> Vec<BlockRejection> {
+        let stackerdb_events = test_observer::get_stackerdb_chunks();
+        let block_rejections = stackerdb_events
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+            .filter_map(|chunk| {
+                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                    .expect("Failed to deserialize SignerMessage");
+                match message {
+                    SignerMessage::BlockResponse(BlockResponse::Rejected(rejection)) => {
+                        if rejection.signer_signature_hash == *signer_signature_hash {
+                            Some(rejection)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }
+            })
+            .collect::<Vec<_>>();
+        block_rejections
+    }
+
     /// Get the latest block response from the given slot
     pub fn get_latest_block_response(&self, slot_id: u32) -> BlockResponse {
-        let mut stackerdb = StackerDB::new(
+        let mut stackerdb = StackerDB::new_normal(
             &self.running_nodes.conf.node.rpc_bind,
-            StacksPrivateKey::new(), // We are just reading so don't care what the key is
+            StacksPrivateKey::random(), // We are just reading so don't care what the key is
             false,
             self.get_current_reward_cycle(),
             SignerSlotID(0), // We are just reading so again, don't care about index.
@@ -783,7 +805,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         private_key: &StacksPrivateKey,
         reward_cycle: u64,
     ) {
-        let mut stackerdb = StackerDB::new(
+        let mut stackerdb = StackerDB::new_normal(
             &self.running_nodes.conf.node.rpc_bind,
             private_key.clone(),
             false,
@@ -900,15 +922,19 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
         blocks_processed,
+        sortitions_processed,
         naka_submitted_vrfs: vrfs_submitted,
         naka_submitted_commits: commits_submitted,
+        naka_submitted_commit_last_burn_height: last_commit_burn_height,
         naka_proposed_blocks: naka_blocks_proposed,
         naka_mined_blocks: naka_blocks_mined,
         naka_rejected_blocks: naka_blocks_rejected,
+        naka_miner_directives,
         naka_skip_commit_op: nakamoto_test_skip_commit_op,
         naka_signer_pushed_blocks,
         ..
     } = run_loop.counters();
+    let counters = run_loop.counters();
 
     let coord_channel = run_loop.coordinator_channels();
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
@@ -936,13 +962,17 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
         run_loop_stopper,
         vrfs_submitted,
         commits_submitted,
+        last_commit_burn_height,
         blocks_processed,
+        sortitions_processed,
         nakamoto_blocks_proposed: naka_blocks_proposed,
         nakamoto_blocks_mined: naka_blocks_mined,
         nakamoto_blocks_rejected: naka_blocks_rejected,
         nakamoto_blocks_signer_pushed: naka_signer_pushed_blocks,
         nakamoto_test_skip_commit_op,
+        nakamoto_miner_directives: naka_miner_directives.0,
         coord_channel,
+        counters,
         conf: naka_conf,
     }
 }

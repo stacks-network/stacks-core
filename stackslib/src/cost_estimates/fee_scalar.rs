@@ -85,7 +85,7 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
             Ok(old_estimate) => {
                 // compute the exponential windowing:
                 // estimate = (a/b * old_estimate) + ((1 - a/b) * new_estimate)
-                let prior_component = old_estimate.clone() * self.decay_rate;
+                let prior_component = old_estimate * self.decay_rate;
                 let next_component = new_measure.clone() * (1_f64 - self.decay_rate);
                 let mut next_computed = prior_component + next_component;
 
@@ -180,7 +180,7 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
                                 read_count: 2,
                                 runtime: 4640, // taken from .costs-3
                             },
-                            &block_limit,
+                            block_limit,
                             tx_size,
                         )
                     }
@@ -196,7 +196,7 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
                         // and contibute to the block length limit with their tx_len
                         self.metric.from_cost_and_len(
                             &tx_receipt.execution_cost,
-                            &block_limit,
+                            block_limit,
                             tx_size,
                         )
                     }

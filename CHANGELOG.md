@@ -8,6 +8,38 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ## [3.1.0.0.3]
 
 ### Added
+- Add `dry_run` configuration option to `stacks-signer` config toml. Dry run mode will
+  run the signer binary as if it were a registered signer. Instead of broadcasting
+  `StackerDB` messages, it logs `INFO` messages. Other interactions with the `stacks-node`
+  behave normally (e.g., submitting validation requests, submitting finished blocks). A
+  dry run signer will error out if the supplied key is actually a registered signer.
+
+### Changed
+
+- Miner will include other transactions in blocks with tenure extend transactions (#5760)
+
+### Fixed
+
+- Miners who restart their nodes immediately before a winning tenure now correctly detect that
+  they won the tenure after their nodes restart ([#5750](https://github.com/stacks-network/stacks-core/issues/5750)).
+
+## [3.1.0.0.4]
+
+### Added
+
+- The stacks-node miner now performs accurate tenure-extensions in certain bitcoin block production
+  cases: when a bitcoin block is produced before the previous bitcoin block's Stacks tenure started.
+  Previously, the miner had difficulty restarting their missed tenure and extending into the new
+  bitcoin block, leading to 1-2 bitcoin blocks of missed Stacks block production.
+- The event dispatcher now includes `consensus_hash` in the `/new_block` and `/new_burn_block` payloads. ([#5677](https://github.com/stacks-network/stacks-core/pull/5677))
+
+## Changed
+
+- When a miner reorgs the previous tenure due to a poorly timed block, it can now continue to build blocks on this new chain tip (#5691)
+
+## [3.1.0.0.3]
+
+### Added
 
 - Add `tenure_timeout_secs` to the miner for determining when a time-based tenure extend should be attempted.
 - Added configuration option `block_proposal_max_age_secs` under `[connection_options]` to prevent processing stale block proposals

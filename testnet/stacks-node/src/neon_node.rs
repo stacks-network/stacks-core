@@ -1227,27 +1227,25 @@ impl BlockMinerThread {
 
         // process earlier tips, back to max_depth
         for cur_height in end_height.saturating_sub(max_depth)..end_height {
-            let stacks_tips: Vec<_> = chain_state
+            let stacks_tips = chain_state
                 .get_stacks_chain_tips_at_height(cur_height)
                 .expect("FATAL: could not query chain tips at height")
                 .into_iter()
                 .filter(|candidate| {
                     Self::is_on_canonical_burnchain_fork(candidate, &sortdb_tip_handle)
-                })
-                .collect();
+                });
 
-            for tip in stacks_tips.into_iter() {
+            for tip in stacks_tips {
                 let index_block_hash =
                     StacksBlockId::new(&tip.consensus_hash, &tip.anchored_block_hash);
 
-                if !considered.contains(&index_block_hash) {
+                if considered.insert(index_block_hash) {
                     let burn_height = burn_db
                         .get_consensus_hash_height(&tip.consensus_hash)
                         .expect("FATAL: could not query burnchain block height")
                         .expect("FATAL: no burnchain block height for Stacks tip");
                     let candidate = TipCandidate::new(tip, burn_height);
                     candidates.push(candidate);
-                    considered.insert(index_block_hash);
                 }
             }
         }
@@ -2376,7 +2374,7 @@ impl BlockMinerThread {
         )
         .map_err(|e| {
             warn!("Failed to write mock proposal to stackerdb.");
-            e
+            e.to_string()
         })?;
 
         // Retrieve any MockSignatures from stackerdb
@@ -2396,7 +2394,7 @@ impl BlockMinerThread {
             &burn_db,
             &self.burn_block,
             &stackerdbs,
-            SignerMessage::MockBlock(mock_block.clone()),
+            SignerMessage::MockBlock(mock_block),
             MinerSlotID::BlockPushed, // There is no specific slot for mock miner messages. Let's use BlockPushed for MockBlock since MockProposal uses BlockProposal.
             self.config.is_mainnet(),
             &mut miners_stackerdb,
@@ -2404,7 +2402,7 @@ impl BlockMinerThread {
         )
         .map_err(|e| {
             warn!("Failed to write mock block to stackerdb.");
-            e
+            e.to_string()
         })?;
         Ok(())
     }
@@ -3757,7 +3755,7 @@ impl RelayerThread {
         }
 
         let Some(mut miner_thread_state) =
-            self.create_block_miner(registered_key, last_burn_block.clone(), issue_timestamp_ms)
+            self.create_block_miner(registered_key, last_burn_block, issue_timestamp_ms)
         else {
             return false;
         };

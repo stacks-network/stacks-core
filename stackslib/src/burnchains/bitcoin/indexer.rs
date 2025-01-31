@@ -227,7 +227,7 @@ impl BitcoinIndexer {
 
         // instantiate headers DB
         let _ = SpvClient::new(
-            &working_dir_path.to_str().unwrap().to_string(),
+            working_dir_path.to_str().unwrap(),
             0,
             None,
             BitcoinNetworkType::Regtest,
@@ -236,7 +236,7 @@ impl BitcoinIndexer {
         )
         .expect(&format!(
             "Failed to open {:?}",
-            &working_dir_path.to_str().unwrap().to_string()
+            working_dir_path.to_str().unwrap()
         ));
 
         BitcoinIndexer {
@@ -469,7 +469,7 @@ impl BitcoinIndexer {
         network_id: BitcoinNetworkType,
     ) -> Result<SpvClient, btc_error> {
         SpvClient::new_without_migration(
-            &reorg_headers_path,
+            reorg_headers_path,
             start_block,
             end_block,
             network_id,
@@ -486,7 +486,7 @@ impl BitcoinIndexer {
         network_id: BitcoinNetworkType,
     ) -> Result<SpvClient, btc_error> {
         SpvClient::new(
-            &reorg_headers_path,
+            reorg_headers_path,
             start_block,
             end_block,
             network_id,
@@ -503,13 +503,11 @@ impl BitcoinIndexer {
         start_block: u64,
         remove_old: bool,
     ) -> Result<SpvClient, btc_error> {
-        if remove_old {
-            if PathBuf::from(&reorg_headers_path).exists() {
-                fs::remove_file(&reorg_headers_path).map_err(|e| {
-                    error!("Failed to remove {}", reorg_headers_path);
-                    btc_error::Io(e)
-                })?;
-            }
+        if remove_old && PathBuf::from(&reorg_headers_path).exists() {
+            fs::remove_file(&reorg_headers_path).map_err(|e| {
+                error!("Failed to remove {}", reorg_headers_path);
+                btc_error::Io(e)
+            })?;
         }
 
         // bootstrap reorg client
@@ -629,12 +627,8 @@ impl BitcoinIndexer {
         )?;
 
         // what's the last header we have from the canonical history?
-        let canonical_end_block = orig_spv_client.get_headers_height().map_err(|e| {
-            error!(
-                "Failed to get the last block from {}",
-                canonical_headers_path
-            );
-            e
+        let canonical_end_block = orig_spv_client.get_headers_height().inspect_err(|_e| {
+            error!("Failed to get the last block from {canonical_headers_path}");
         })?;
 
         // bootstrap reorg client
@@ -696,13 +690,12 @@ impl BitcoinIndexer {
 
             let reorg_headers = reorg_spv_client
                 .read_block_headers(start_block, start_block + REORG_BATCH_SIZE)
-                .map_err(|e| {
+                .inspect_err(|_e| {
                     error!(
                         "Failed to read reorg Bitcoin headers from {} to {}",
                         start_block,
                         start_block + REORG_BATCH_SIZE
                     );
-                    e
                 })?;
 
             if reorg_headers.is_empty() {
@@ -726,13 +719,12 @@ impl BitcoinIndexer {
             // got reorg headers.  Find the equivalent headers in our canonical history
             let canonical_headers = orig_spv_client
                 .read_block_headers(start_block, start_block + REORG_BATCH_SIZE)
-                .map_err(|e| {
+                .inspect_err(|_e| {
                     error!(
                         "Failed to read canonical headers from {} to {}",
                         start_block,
                         start_block + REORG_BATCH_SIZE
                     );
-                    e
                 })?;
 
             assert!(
@@ -1100,8 +1092,10 @@ impl BurnchainIndexer for BitcoinIndexer {
         start_height: u64,
         end_height: Option<u64>,
     ) -> Result<u64, burnchain_error> {
-        if end_height.is_some() && end_height <= Some(start_height) {
-            return Ok(end_height.unwrap());
+        if let Some(end_height) = end_height {
+            if end_height <= start_height {
+                return Ok(end_height);
+            }
         }
 
         let new_height = self
@@ -1343,11 +1337,9 @@ mod test {
         let mut spv_client_reorg =
             SpvClient::new(path_2, 0, None, BitcoinNetworkType::Regtest, true, false).unwrap();
 
-        spv_client
-            .insert_block_headers_after(0, headers_1.clone())
-            .unwrap();
+        spv_client.insert_block_headers_after(0, headers_1).unwrap();
         spv_client_reorg
-            .insert_block_headers_after(0, headers_2.clone())
+            .insert_block_headers_after(0, headers_2)
             .unwrap();
 
         spv_client.update_chain_work().unwrap();
@@ -1521,11 +1513,9 @@ mod test {
         let mut spv_client_reorg =
             SpvClient::new(path_2, 0, None, BitcoinNetworkType::Regtest, true, false).unwrap();
 
-        spv_client
-            .insert_block_headers_after(0, headers_1.clone())
-            .unwrap();
+        spv_client.insert_block_headers_after(0, headers_1).unwrap();
         spv_client_reorg
-            .insert_block_headers_after(0, headers_2.clone())
+            .insert_block_headers_after(0, headers_2)
             .unwrap();
 
         assert_eq!(spv_client.read_block_headers(0, 10).unwrap().len(), 4);
@@ -3338,7 +3328,7 @@ mod test {
 
         // put these bad headers into the "main" chain
         spv_client
-            .insert_block_headers_after(40318, bad_headers.clone())
+            .insert_block_headers_after(40318, bad_headers)
             .unwrap();
 
         // *now* calculate main chain work
@@ -3476,7 +3466,7 @@ mod test {
 
         // set up SPV client so we don't have chain work at first
         let mut spv_client = SpvClient::new_without_migration(
-            &db_path,
+            db_path,
             0,
             None,
             BitcoinNetworkType::Regtest,
@@ -3485,9 +3475,7 @@ mod test {
         )
         .unwrap();
 
-        spv_client
-            .test_write_block_headers(0, headers.clone())
-            .unwrap();
+        spv_client.test_write_block_headers(0, headers).unwrap();
         assert_eq!(spv_client.get_highest_header_height().unwrap(), 2);
 
         let mut indexer = BitcoinIndexer::new(
@@ -3518,7 +3506,7 @@ mod test {
 
         let should_keep_running = Arc::new(AtomicBool::new(true));
         let mut indexer = BitcoinIndexer::new(
-            BitcoinIndexerConfig::test_default(db_path.to_string()),
+            BitcoinIndexerConfig::test_default(db_path),
             BitcoinIndexerRuntime::new(BitcoinNetworkType::Mainnet),
             Some(should_keep_running.clone()),
         );

@@ -190,11 +190,14 @@ impl BlockValidateResponse {
 }
 
 #[cfg(any(test, feature = "testing"))]
-fn inject_validation_delay() {
+fn fault_injection_validation_delay() {
     let delay = TEST_VALIDATE_DELAY_DURATION_SECS.get();
     warn!("Sleeping for {} seconds to simulate slow processing", delay);
     thread::sleep(Duration::from_secs(delay));
 }
+
+#[cfg(not(any(test, feature = "testing")))]
+fn fault_injection_validation_delay() {}
 
 /// Represents a block proposed to the `v3/block_proposal` endpoint for validation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -389,8 +392,7 @@ impl NakamotoBlockProposal {
         }
         let start = Instant::now();
 
-        #[cfg(any(test, feature = "testing"))]
-        inject_validation_delay();
+        fault_injection_validation_delay();
 
         let mainnet = self.chain_id == CHAIN_ID_MAINNET;
         if self.chain_id != chainstate.chain_id || mainnet != chainstate.mainnet {
@@ -440,7 +442,7 @@ impl NakamotoBlockProposal {
                 })?;
 
         let burn_dbconn: SortitionHandleConn = sortdb.index_handle(&sort_tip.sortition_id);
-        let mut db_handle = sortdb.index_handle(&sort_tip.sortition_id);
+        let db_handle = sortdb.index_handle(&sort_tip.sortition_id);
 
         // (For the signer)
         // Verify that the block's tenure is on the canonical sortition history
@@ -454,7 +456,7 @@ impl NakamotoBlockProposal {
         // there must be a block-commit for this), or otherwise this block doesn't correspond to
         // any burnchain chainstate.
         let expected_burn_opt =
-            NakamotoChainState::get_expected_burns(&mut db_handle, chainstate.db(), &self.block)?;
+            NakamotoChainState::get_expected_burns(&db_handle, chainstate.db(), &self.block)?;
         if expected_burn_opt.is_none() {
             warn!(
                 "Rejected block proposal";
@@ -543,7 +545,7 @@ impl NakamotoBlockProposal {
             let tx_len = tx.tx_len();
             let tx_result = builder.try_mine_tx_with_len(
                 &mut tenure_tx,
-                &tx,
+                tx,
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
                 ASTRules::PrecheckSize,

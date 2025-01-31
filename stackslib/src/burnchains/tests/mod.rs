@@ -240,14 +240,12 @@ impl TestMiner {
             last_sortition_hash
         );
         match self.vrf_key_map.get(vrf_pubkey) {
-            Some(ref prover_key) => {
-                let proof = VRF::prove(prover_key, &last_sortition_hash.as_bytes().to_vec());
-                let valid =
-                    match VRF::verify(vrf_pubkey, &proof, &last_sortition_hash.as_bytes().to_vec())
-                    {
-                        Ok(v) => v,
-                        Err(e) => false,
-                    };
+            Some(prover_key) => {
+                let proof = VRF::prove(prover_key, last_sortition_hash.as_bytes());
+                let valid = match VRF::verify(vrf_pubkey, &proof, last_sortition_hash.as_bytes()) {
+                    Ok(v) => v,
+                    Err(e) => false,
+                };
                 assert!(valid);
                 Some(proof)
             }
@@ -422,7 +420,7 @@ impl TestBurnchainBlock {
         let pubks = miner
             .privks
             .iter()
-            .map(|ref pk| StacksPublicKey::from_private(pk))
+            .map(StacksPublicKey::from_private)
             .collect();
         let apparent_sender =
             BurnchainSigner::mock_parts(miner.hash_mode.clone(), miner.num_sigs as usize, pubks);
@@ -623,7 +621,7 @@ impl TestBurnchainBlock {
         let blockstack_txs = self.txs.clone();
 
         let burnchain_db =
-            BurnchainDB::connect(&burnchain.get_burnchaindb_path(), &burnchain, true).unwrap();
+            BurnchainDB::connect(&burnchain.get_burnchaindb_path(), burnchain, true).unwrap();
 
         let new_snapshot = sortition_db_handle
             .process_block_txs(
@@ -719,7 +717,7 @@ impl TestBurnchainFork {
             start_height,
             mined: 0,
             tip_header_hash: start_header_hash.clone(),
-            tip_sortition_id: SortitionId::stubbed(&start_header_hash),
+            tip_sortition_id: SortitionId::stubbed(start_header_hash),
             tip_index_root: start_index_root.clone(),
             blocks: vec![],
             pending_blocks: vec![],
@@ -969,7 +967,7 @@ fn mine_10_stacks_blocks_1_fork() {
         );
 
         verify_keys_accepted(&mut node, &prev_keys);
-        verify_commits_accepted(&mut node, &next_block_commits);
+        verify_commits_accepted(&node, &next_block_commits);
 
         prev_keys.clear();
         prev_keys.append(&mut next_prev_keys);
@@ -1017,7 +1015,7 @@ fn mine_10_stacks_blocks_2_forks_disjoint() {
         );
 
         verify_keys_accepted(&mut node, &prev_keys_1);
-        verify_commits_accepted(&mut node, &next_block_commits);
+        verify_commits_accepted(&node, &next_block_commits);
 
         prev_keys_1.clear();
         prev_keys_1.append(&mut next_prev_keys);
@@ -1078,10 +1076,10 @@ fn mine_10_stacks_blocks_2_forks_disjoint() {
         assert!(next_snapshot_1.burn_header_hash != next_snapshot_2.burn_header_hash);
 
         verify_keys_accepted(&mut node, &prev_keys_1);
-        verify_commits_accepted(&mut node, &next_block_commits_1);
+        verify_commits_accepted(&node, &next_block_commits_1);
 
         verify_keys_accepted(&mut node, &prev_keys_2);
-        verify_commits_accepted(&mut node, &next_block_commits_2);
+        verify_commits_accepted(&node, &next_block_commits_2);
 
         prev_keys_1.clear();
         prev_keys_1.append(&mut next_prev_keys_1);
@@ -1132,7 +1130,7 @@ fn mine_10_stacks_blocks_2_forks_disjoint_same_blocks() {
         );
 
         verify_keys_accepted(&mut node, &prev_keys_1);
-        verify_commits_accepted(&mut node, &next_block_commits);
+        verify_commits_accepted(&node, &next_block_commits);
 
         prev_keys_1.clear();
         prev_keys_1.append(&mut next_prev_keys);
@@ -1205,10 +1203,10 @@ fn mine_10_stacks_blocks_2_forks_disjoint_same_blocks() {
         }
 
         verify_keys_accepted(&mut node, &prev_keys_1);
-        verify_commits_accepted(&mut node, &next_block_commits_1);
+        verify_commits_accepted(&node, &next_block_commits_1);
 
         verify_keys_accepted(&mut node, &prev_keys_2);
-        verify_commits_accepted(&mut node, &next_block_commits_2);
+        verify_commits_accepted(&node, &next_block_commits_2);
 
         prev_keys_1.clear();
         prev_keys_1.append(&mut next_prev_keys_1);

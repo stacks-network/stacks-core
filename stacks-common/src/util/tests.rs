@@ -94,6 +94,6 @@ impl<T: Default + Clone> TestFlag<T> {
     /// assert_eq!(test_flag.get(), 123);
     /// ```
     pub fn get(&self) -> T {
-        self.0.lock().unwrap().clone().unwrap_or_default().clone()
+        self.0.lock().unwrap().clone().unwrap_or_default()
     }
 }

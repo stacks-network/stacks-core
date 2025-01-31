@@ -71,7 +71,7 @@ fn test_at_block_mutations(#[case] version: ClarityVersion, #[case] epoch: Stack
 
         eprintln!("Initializing contract...");
         owned_env
-            .initialize_contract(c.clone(), &contract, None, ASTRules::PrecheckSize)
+            .initialize_contract(c, contract, None, ASTRules::PrecheckSize)
             .unwrap();
     }
 
@@ -83,14 +83,14 @@ fn test_at_block_mutations(#[case] version: ClarityVersion, #[case] epoch: Stack
     ) -> Result<Value> {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
         let p1 = execute(p1_str).expect_principal().unwrap();
-        let mut placeholder_context =
+        let placeholder_context =
             ContractContext::new(QualifiedContractIdentifier::transient(), version);
         eprintln!("Branched execution...");
 
         {
-            let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
-            let command = format!("(var-get datum)");
-            let value = env.eval_read_only(&c, &command).unwrap();
+            let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+            let command = "(var-get datum)";
+            let value = env.eval_read_only(&c, command).unwrap();
             assert_eq!(value, Value::Int(expected_value));
         }
 
@@ -150,7 +150,7 @@ fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
 
         eprintln!("Initializing contract...");
         owned_env
-            .initialize_contract(c.clone(), &contract, None, ASTRules::PrecheckSize)
+            .initialize_contract(c, contract, None, ASTRules::PrecheckSize)
             .unwrap();
     }
 
@@ -162,14 +162,14 @@ fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
     ) -> Result<Value> {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
         let p1 = execute(p1_str).expect_principal().unwrap();
-        let mut placeholder_context =
+        let placeholder_context =
             ContractContext::new(QualifiedContractIdentifier::transient(), version);
         eprintln!("Branched execution...");
 
         {
-            let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
-            let command = format!("(var-get datum)");
-            let value = env.eval_read_only(&c, &command).unwrap();
+            let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+            let command = "(var-get datum)";
+            let value = env.eval_read_only(&c, command).unwrap();
             assert_eq!(value, Value::Int(expected_value));
         }
 
@@ -224,7 +224,7 @@ fn test_at_block_missing_defines(#[case] version: ClarityVersion, #[case] epoch:
 
         eprintln!("Initializing contract...");
         owned_env
-            .initialize_contract(c_a.clone(), &contract, None, ASTRules::PrecheckSize)
+            .initialize_contract(c_a, contract, None, ASTRules::PrecheckSize)
             .unwrap();
     }
 
@@ -239,7 +239,7 @@ fn test_at_block_missing_defines(#[case] version: ClarityVersion, #[case] epoch:
 
         eprintln!("Initializing contract...");
         let e = owned_env
-            .initialize_contract(c_b.clone(), &contract, None, ASTRules::PrecheckSize)
+            .initialize_contract(c_b, contract, None, ASTRules::PrecheckSize)
             .unwrap_err();
         e
     }
@@ -379,13 +379,13 @@ fn branched_execution(
         }
     };
     let contract_identifier = QualifiedContractIdentifier::new(p1_address.clone(), "tokens".into());
-    let mut placeholder_context =
+    let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     eprintln!("Branched execution...");
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
+        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
         let command = format!("(get-balance {})", p1_str);
         let balance = env.eval_read_only(&contract_identifier, &command).unwrap();
         let expected = if expect_success { 10 } else { 0 };

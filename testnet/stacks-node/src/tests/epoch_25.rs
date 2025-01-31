@@ -52,10 +52,10 @@ fn microblocks_disabled() {
     let spender_1_bal = 10_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let spender_2_bal = 10_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
-    let spender_1_sk = StacksPrivateKey::new();
+    let spender_1_sk = StacksPrivateKey::random();
     let spender_1_addr: PrincipalData = to_addr(&spender_1_sk).into();
 
-    let spender_2_sk = StacksPrivateKey::new();
+    let spender_2_sk = StacksPrivateKey::random();
     let spender_2_addr: PrincipalData = to_addr(&spender_2_sk).into();
 
     let mut initial_balances = vec![];
@@ -118,7 +118,7 @@ fn microblocks_disabled() {
         u32::MAX,
         pox_3_activation_height as u32,
     );
-    burnchain_config.pox_constants = pox_constants.clone();
+    burnchain_config.pox_constants = pox_constants;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -139,7 +139,7 @@ fn microblocks_disabled() {
     eprintln!("Chain bootstrapped...");
 
     let mut run_loop = neon::RunLoop::new(conf.clone());
-    let runloop_burnchain = burnchain_config.clone();
+    let runloop_burnchain = burnchain_config;
 
     let blocks_processed = run_loop.get_blocks_processed_arc();
 
