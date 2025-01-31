@@ -11737,13 +11737,17 @@ fn multiple_miners_empty_sortition() {
         // lets mine a btc flash block
         let rl2_commits_before = rl2_commits.load(Ordering::SeqCst);
         let rl1_commits_before = rl1_commits.load(Ordering::SeqCst);
+        let info_before = get_chain_info(&conf);
+
         signer_test
             .running_nodes
             .btc_regtest_controller
             .build_next_block(2);
 
         wait_for(60, || {
-            Ok(rl2_commits.load(Ordering::SeqCst) > rl2_commits_before
+            let info = get_chain_info(&conf);
+            Ok(info.burn_block_height >= 2 + info_before.burn_block_height
+                && rl2_commits.load(Ordering::SeqCst) > rl2_commits_before
                 && rl1_commits.load(Ordering::SeqCst) > rl1_commits_before)
         })
         .unwrap();
