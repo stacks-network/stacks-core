@@ -1901,6 +1901,7 @@ fn restarting_miner() {
 
 #[test]
 #[ignore]
+#[allow(non_snake_case)]
 /// This test spins up a nakamoto-neon node.
 /// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0,
 /// having flash blocks when epoch updates and expects everything to work normally,
@@ -1910,7 +1911,12 @@ fn restarting_miner() {
 ///  * 30 blocks are mined after 3.0 starts. This is enough to mine across 2 reward cycles
 ///  * A transaction submitted to the mempool in 3.0 will be mined in 3.0
 ///  * The final chain tip is a nakamoto block
-fn flash_blocks_on_epoch_3() {
+///
+/// NOTE: This test has been disabled because it's flaky, and we don't need to
+/// test the Epoch 3 transition since it's already happened
+///
+/// See issue [#5765](https://github.com/stacks-network/stacks-core/issues/5765) for details
+fn flash_blocks_on_epoch_3_FLAKY() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
