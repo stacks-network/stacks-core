@@ -780,19 +780,18 @@ pub fn next_block_and_wait_for_commits(
         .map(|info| info.stacks_tip_height)
         .max()
         .unwrap();
-    let last_commit_burn_hts: Vec<_> = node_counters
+    let last_commit_burn_hts = node_counters
         .iter()
-        .map(|c| &c.naka_submitted_commit_last_burn_height)
-        .collect();
-    let last_commit_stacks_hts: Vec<_> = node_counters
+        .map(|c| &c.naka_submitted_commit_last_burn_height);
+    let last_commit_stacks_hts = node_counters
         .iter()
-        .map(|c| &c.naka_submitted_commit_last_stacks_tip)
-        .collect();
+        .map(|c| &c.naka_submitted_commit_last_stacks_tip);
 
     next_block_and(btc_controller, timeout_secs, || {
-        let burn_height_committed_to = last_commit_burn_hts.iter().all(|last_commit_burn_height| {
-            last_commit_burn_height.load(Ordering::SeqCst) > burn_ht_before
-        });
+        let burn_height_committed_to =
+            last_commit_burn_hts.clone().all(|last_commit_burn_height| {
+                last_commit_burn_height.load(Ordering::SeqCst) > burn_ht_before
+            });
         if !wait_for_stacks_block {
             Ok(burn_height_committed_to)
         } else {
@@ -801,7 +800,7 @@ pub fn next_block_and_wait_for_commits(
             }
             let stacks_tip_committed_to =
                 last_commit_stacks_hts
-                    .iter()
+                    .clone()
                     .all(|last_commit_stacks_height| {
                         last_commit_stacks_height.load(Ordering::SeqCst) > stacks_ht_before
                     });
@@ -7564,6 +7563,7 @@ fn check_block_times() {
         naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
+    let counters = run_loop.counters();
 
     let coord_channel = run_loop.coordinator_channels();
 
@@ -7606,19 +7606,13 @@ fn check_block_times() {
 
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
+    wait_for_first_naka_block_commit(60, &counters.naka_submitted_commits);
 
-    let epochs = naka_conf.burnchain.epochs.clone().unwrap();
-    let epoch_3 = &epochs[StacksEpochId::Epoch30];
-    let epoch_3_start = epoch_3.start_height;
-    let mut last_stacks_block_height = 0;
-    let mut last_tenure_height = 0;
-    next_block_and(&mut btc_regtest_controller, 60, || {
-        let info = get_chain_info_result(&naka_conf).unwrap();
-        last_stacks_block_height = info.stacks_tip_height as u128;
-        last_tenure_height = last_stacks_block_height + 1;
-        Ok(info.burn_block_height == epoch_3_start)
-    })
-    .unwrap();
+    let info = get_chain_info_result(&naka_conf).unwrap();
+    let mut last_stacks_block_height = info.stacks_tip_height as u128;
+    let mut last_tenure_height = last_stacks_block_height + 1;
+
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     let time0_value = call_read_only(
         &naka_conf,
@@ -7676,16 +7670,13 @@ fn check_block_times() {
         Ok(stacks_block_height > last_stacks_block_height && cur_sender_nonce == sender_nonce)
     })
     .expect("Timed out waiting for contracts to publish");
-    last_stacks_block_height = stacks_block_height;
 
     // Repeat these tests for 5 tenures
     for _ in 0..5 {
-        next_block_and(&mut btc_regtest_controller, 60, || {
-            let info = get_chain_info_result(&naka_conf).unwrap();
-            stacks_block_height = info.stacks_tip_height as u128;
-            Ok(stacks_block_height > last_stacks_block_height)
-        })
-        .unwrap();
+        next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+        let info = get_chain_info_result(&naka_conf).unwrap();
+        stacks_block_height = info.stacks_tip_height as u128;
+
         last_stacks_block_height = stacks_block_height;
         last_tenure_height += 1;
         info!("New tenure {last_tenure_height}, Stacks height: {last_stacks_block_height}");
