@@ -40,9 +40,7 @@ use stacks::util_lib::boot::boot_code_id;
 use super::stackerdb_listener::StackerDBListenerComms;
 use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::StackerDBChannel;
-use crate::nakamoto_node::stackerdb_listener::{
-    BlockStatus, StackerDBListener, EVENT_RECEIVER_POLL,
-};
+use crate::nakamoto_node::stackerdb_listener::{StackerDBListener, EVENT_RECEIVER_POLL};
 use crate::neon::Counters;
 use crate::Config;
 
@@ -320,8 +318,6 @@ impl SignerCoordinator {
                     "Invalid rejection timeout step function definition".into(),
                 )
             })?;
-        // this is used for comparing block_status to identify if it has been changed from the previous event
-        let mut block_status_tracker = BlockStatus::default();
 
         // this is used to track the start of the waiting cycle
         let rejections_timer = Instant::now();
@@ -333,20 +329,19 @@ impl SignerCoordinator {
                 block_signer_sighash,
                 EVENT_RECEIVER_POLL,
                 |status| {
+                    // rejections-based timeout expired?
                     if rejections_timer.elapsed() > *rejections_timeout {
                         return false;
                     }
-                    if *status != block_status_tracker {
+                    // number or rejections changed?
+                    if status.total_reject_weight as u64 != rejections {
                         return false;
                     }
-                    return true;
+                    // enough signatures?
+                    return status.total_weight_signed < self.weight_threshold;
                 },
             )? {
-                Some(status) => {
-                    // keep track of the last status
-                    block_status_tracker = status.clone();
-                    status
-                }
+                Some(status) => status,
                 None => {
                     // If we just received a timeout, we should check if the burnchain
                     // tip has changed or if we received this signed block already in

@@ -337,8 +337,10 @@ impl StackerDBListener {
                         block.gathered_signatures.insert(slot_id, signature);
                         block.responded_signers.insert(signer_pubkey);
 
-                        // Signal to anyone waiting on this block that we have a new status
-                        cvar.notify_all();
+                        if block.total_weight_signed >= self.weight_threshold {
+                            // Signal to anyone waiting on this block that we have enough signatures
+                            cvar.notify_all();
+                        }
 
                         // Update the idle timestamp for this signer
                         self.update_idle_timestamp(
@@ -394,8 +396,14 @@ impl StackerDBListener {
                             "server_version" => rejected_data.metadata.server_version,
                         );
 
-                        // Signal to anyone waiting on this block that we have a new status
-                        cvar.notify_all();
+                        if block
+                            .total_reject_weight
+                            .saturating_add(self.weight_threshold)
+                            > self.total_weight
+                        {
+                            // Signal to anyone waiting on this block that we have enough rejections
+                            cvar.notify_all();
+                        }
 
                         // Update the idle timestamp for this signer
                         self.update_idle_timestamp(
