@@ -380,7 +380,7 @@ impl SignerCoordinator {
                                   "rejections_threshold" => self.total_weight.saturating_sub(self.weight_threshold)
                         );
                         return Err(NakamotoNodeError::SigningCoordinatorFailure(
-                            "Gave up while trying reaching the threshold".into(),
+                            "Timed out while waiting for signatures".into(),
                         ));
                     }
 
@@ -437,7 +437,7 @@ impl SignerCoordinator {
                           "rejections_threshold" => self.total_weight.saturating_sub(self.weight_threshold)
                 );
                 return Err(NakamotoNodeError::SigningCoordinatorFailure(
-                    "Gave up while trying reaching the threshold".into(),
+                    "Timed out while waiting for signatures".into(),
                 ));
             } else {
                 continue;
