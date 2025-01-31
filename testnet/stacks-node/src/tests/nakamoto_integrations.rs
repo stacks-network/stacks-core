@@ -1745,7 +1745,7 @@ fn restarting_miner() {
         naka_proposed_blocks: proposals_submitted_2,
         ..
     } = run_loop_2.counters();
-    let rl2_counters = run_loop.counters();
+    let rl2_counters = run_loop_2.counters();
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
     wait_for_runloop(&blocks_processed);
@@ -1832,13 +1832,16 @@ fn restarting_miner() {
         let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
             .unwrap()
             .unwrap();
-        Ok(tip.stacks_block_height > last_tip.stacks_block_height)
+        let stacks_tip_committed_to = rl2_counters
+            .naka_submitted_commit_last_stacks_tip
+            .load(Ordering::SeqCst);
+        Ok(tip.stacks_block_height > last_tip.stacks_block_height
+            && stacks_tip_committed_to > last_tip.stacks_block_height)
     })
     .unwrap_or_else(|e| {
         let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
             .unwrap()
             .unwrap();
-
         error!(
             "Failed to get a new block after restart";
             "last_tip_height" => last_tip.stacks_block_height,
@@ -10043,8 +10046,7 @@ fn test_shadow_recovery() {
 
     // revive ATC-C by waiting for commits
     for _i in 0..4 {
-        btc_regtest_controller.bootstrap_chain(1);
-        sleep_ms(30_000);
+        next_block_and_commits_only(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
     }
 
     // make another tenure
