@@ -183,7 +183,8 @@ pub fn boot_nakamoto<'a>(
     // reward cycles are 5 blocks long
     // first 25 blocks are boot-up
     // reward cycle 6 instantiates pox-3
-    // we stack in reward cycle 7 so pox-3 is evaluated to find reward set participation
+    // we stack in reward cycle 7 so pox-3 is evaluated to find reward set
+    // participation
     peer_config
         .stacker_dbs
         .push(boot_code_id(MINERS_NAME, false));
@@ -332,9 +333,9 @@ pub fn make_contract(
     tx_signer.get_tx().unwrap()
 }
 
-/// Given the blocks and block-commits for a reward cycle, replay the sortitions on the given
-/// TestPeer, always processing the first block of the reward cycle before processing all
-/// subsequent blocks in random order.
+/// Given the blocks and block-commits for a reward cycle, replay the sortitions
+/// on the given TestPeer, always processing the first block of the reward cycle
+/// before processing all subsequent blocks in random order.
 fn replay_reward_cycle(
     peer: &mut TestPeer,
     burn_ops: &[Vec<BlockstackOperationType>],
@@ -532,8 +533,8 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
         &blocks.last().unwrap().header
     );
 
-    // replay the blocks and sortitions in random order, and verify that we still reach the chain
-    // tip
+    // replay the blocks and sortitions in random order, and verify that we still
+    // reach the chain tip
     let mut replay_peer = make_replay_peer(&mut peer);
     replay_reward_cycle(&mut replay_peer, &[burn_ops], &blocks);
 
@@ -718,15 +719,19 @@ impl TestPeer<'_> {
             .unwrap()
     }
 
-    /// Produce a single-block tenure, containing a stx-transfer sent from `sender_key`.
+    /// Produce a single-block tenure, containing a stx-transfer sent from
+    /// `sender_key`.
     ///
-    /// * `after_burn_ops` is called right after `self.begin_nakamoto_tenure` to modify any burn ops
+    /// * `after_burn_ops` is called right after `self.begin_nakamoto_tenure` to
+    ///   modify any burn ops
     /// for this tenure
     ///
-    /// * `miner_setup` is called right after the Nakamoto block builder is constructed, but before
+    /// * `miner_setup` is called right after the Nakamoto block builder is
+    ///   constructed, but before
     /// any txs are mined
     ///
-    /// * `after_block` is called right after the block is assembled, but before it is signed.
+    /// * `after_block` is called right after the block is assembled, but before
+    ///   it is signed.
     pub fn single_block_tenure_fallible<S, F, G>(
         &mut self,
         sender_key: &StacksPrivateKey,
@@ -797,8 +802,10 @@ impl TestPeer<'_> {
 #[test]
 // Test the block commit descendant check in nakamoto
 //   - create a 12 address PoX reward set
-//   - make a normal block commit, assert that the bitvec must contain 1s for those addresses
-//   - make a burn block commit, assert that the bitvec must contain 0s for those addresses
+//   - make a normal block commit, assert that the bitvec must contain 1s for
+//     those addresses
+//   - make a burn block commit, assert that the bitvec must contain 0s for
+//     those addresses
 fn block_descendant() {
     let private_key = StacksPrivateKey::from_seed(&[2]);
     let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&private_key));
@@ -869,7 +876,8 @@ fn block_descendant() {
     //  so, if this has a tenure mined, the direct parent check won't occur
     peer.mine_empty_tenure();
 
-    // this would be where things go haywire. this tenure's parent will be the anchor block.
+    // this would be where things go haywire. this tenure's parent will be the
+    // anchor block.
     let (first_reward_block, ..) = peer.single_block_tenure(&private_key, |_| {}, |_| {}, |_| true);
 
     assert_eq!(
@@ -933,7 +941,8 @@ fn block_info_tests(use_primary_testnet: bool) {
             .with_network_id(chain_id);
     boot_plan.pox_constants = pox_constants;
 
-    // Supply an empty vec to make sure we have no nakamoto blocks when this test begins
+    // Supply an empty vec to make sure we have no nakamoto blocks when this test
+    // begins
     let mut peer = boot_plan.boot_into_nakamoto_peer(vec![], None);
 
     let clar1_contract = "
@@ -1107,8 +1116,9 @@ fn block_info_tests(use_primary_testnet: bool) {
     )
     .unwrap();
 
-    // note, since tenure_1 only has one block in it, tenure_1_block_ht is *also* the tenure height, so this should return the
-    // same value regardless of the `primary_tesnet` flag
+    // note, since tenure_1 only has one block in it, tenure_1_block_ht is *also*
+    // the tenure height, so this should return the same value regardless of the
+    // `primary_tesnet` flag
     assert_eq!(c1_tenure1_from_tenure2, c3_tenure1_from_tenure2);
     assert_eq!(c1_tenure1_from_tenure2, tenure_1_start_block_id);
 
@@ -1196,7 +1206,8 @@ fn block_info_tests(use_primary_testnet: bool) {
     if use_primary_testnet {
         assert_eq!(c1_tenure_2_mid_block.unwrap(), c3_tenure_2_mid_block);
     } else {
-        // if interpreted as a tenure-height, this will return none, because there's no tenure at height +1 yet
+        // if interpreted as a tenure-height, this will return none, because there's no
+        // tenure at height +1 yet
         assert!(c1_tenure_2_mid_block.is_none());
 
         // query the tenure height again from the latest block for good measure
@@ -1297,7 +1308,8 @@ fn block_info_tests(use_primary_testnet: bool) {
     if use_primary_testnet {
         assert_eq!(c1_tenure_3_mid_block.unwrap(), c3_tenure_3_mid_block);
     } else {
-        // if interpreted as a tenure-height, this will return none, because there's no tenure at height +1 yet
+        // if interpreted as a tenure-height, this will return none, because there's no
+        // tenure at height +1 yet
         assert!(c1_tenure_3_mid_block.is_none());
 
         // query the tenure height again from the latest block for good measure
@@ -1315,8 +1327,10 @@ fn block_info_tests(use_primary_testnet: bool) {
 #[test]
 // Test PoX Reward and Punish treatment in nakamoto
 //   - create a 12 address PoX reward set
-//   - make a normal block commit, assert that the bitvec must contain 1s for those addresses
-//   - make a burn block commit, assert that the bitvec must contain 0s for those addresses
+//   - make a normal block commit, assert that the bitvec must contain 1s for
+//     those addresses
+//   - make a burn block commit, assert that the bitvec must contain 0s for
+//     those addresses
 fn pox_treatment() {
     let private_key = StacksPrivateKey::from_seed(&[2]);
     let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&private_key));
@@ -1384,11 +1398,11 @@ fn pox_treatment() {
     expected_reward_set.reverse();
     let pox_recipients = Mutex::new(vec![]);
     info!("Starting the test... beginning with an reward commit");
-    // The next block should be the start of a reward phase, so the PoX recipient should
-    //  be chosen.
+    // The next block should be the start of a reward phase, so the PoX recipient
+    // should  be chosen.
     //
-    // First: perform a normal block commit, and then try to mine a block with all zeros in the
-    //        bitvector.
+    // First: perform a normal block commit, and then try to mine a block with all
+    // zeros in the        bitvector.
     let (invalid_block, _, tenure_change_tx, coinbase_tx) = peer.single_block_tenure(
         &private_key,
         |_| {},
@@ -2203,9 +2217,10 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
     let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
     let sort_db = peer.sortdb.as_mut().unwrap();
 
-    // this is sortition height 12, and this miner has earned all 12 of the coinbases
-    // plus the initial per-block mining bonus of 2600 STX, but minus the last three rewards (since
-    // the miner rewards take three sortitions to confirm).
+    // this is sortition height 12, and this miner has earned all 12 of the
+    // coinbases plus the initial per-block mining bonus of 2600 STX, but minus
+    // the last three rewards (since the miner rewards take three sortitions to
+    // confirm).
     //
     // This is (1000 + 2600) * 10 + 1000 - (3600 * 2 + 1000)
     //            first 10          block    unmatured rewards
@@ -2370,8 +2385,8 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
         }
     }
 
-    // replay the blocks and sortitions in random order, and verify that we still reach the chain
-    // tip
+    // replay the blocks and sortitions in random order, and verify that we still
+    // reach the chain tip
     let mut replay_peer = make_replay_peer(&mut peer);
     for (burn_ops, blocks) in rc_burn_ops.iter().zip(rc_blocks.iter()) {
         replay_reward_cycle(&mut replay_peer, burn_ops, blocks);
@@ -2406,11 +2421,12 @@ fn test_nakamoto_coordinator_10_tenures_10_sortitions() {
     simple_nakamoto_coordinator_10_tenures_10_sortitions();
 }
 
-/// Mine two tenures across three sortitions, using a tenure-extend to allow the first tenure to
-/// cover the time of two sortitions.
+/// Mine two tenures across three sortitions, using a tenure-extend to allow the
+/// first tenure to cover the time of two sortitions.
 ///
-/// Use a tenure-extend to grant the miner of the first tenure the ability to mine
-/// 20 blocks in the first tenure (10 before the second sortiton, and 10 after)
+/// Use a tenure-extend to grant the miner of the first tenure the ability to
+/// mine 20 blocks in the first tenure (10 before the second sortiton, and 10
+/// after)
 pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> {
     let private_key = StacksPrivateKey::from_seed(&[2]);
     let addr = StacksAddress::from_public_keys(
@@ -2724,8 +2740,8 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
     assert_eq!(highest_tenure.cause, TenureChangeCause::BlockFound);
     assert_eq!(highest_tenure.num_blocks_confirmed, 20);
 
-    // replay the blocks and sortitions in random order, and verify that we still reach the chain
-    // tip
+    // replay the blocks and sortitions in random order, and verify that we still
+    // reach the chain tip
     let mut replay_peer = make_replay_peer(&mut peer);
     replay_reward_cycle(&mut replay_peer, &rc_burn_ops, &all_blocks);
 
@@ -2758,7 +2774,8 @@ fn test_nakamoto_coordinator_2_tenures_3_sortitions() {
     simple_nakamoto_coordinator_2_tenures_3_sortitions();
 }
 
-/// Mine a 10 Nakamoto tenures with 10 Nakamoto blocks, but do a tenure-extend in each block
+/// Mine a 10 Nakamoto tenures with 10 Nakamoto blocks, but do a tenure-extend
+/// in each block
 pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPeer<'static> {
     let private_key = StacksPrivateKey::from_seed(&[2]);
     let addr = StacksAddress::from_public_keys(
@@ -2769,8 +2786,8 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
     )
     .unwrap();
 
-    // make enough signers and signing keys so we can create a block and a malleablized block that
-    // are both valid
+    // make enough signers and signing keys so we can create a block and a
+    // malleablized block that are both valid
     let (mut test_signers, test_stackers) = TestStacker::multi_signing_set(&[
         0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3,
     ]);
@@ -2941,9 +2958,10 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
     let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
     let sort_db = peer.sortdb.as_mut().unwrap();
 
-    // this is sortition height 12, and this miner has earned all 12 of the coinbases
-    // plus the initial per-block mining bonus of 2600 STX, but minus the last three rewards (since
-    // the miner rewards take three sortitions to confirm).
+    // this is sortition height 12, and this miner has earned all 12 of the
+    // coinbases plus the initial per-block mining bonus of 2600 STX, but minus
+    // the last three rewards (since the miner rewards take three sortitions to
+    // confirm).
     //
     // This is (1000 + 2600) * 10 + 1000 - (3600 * 2 + 1000)
     //            first 10          block    unmatured rewards
@@ -3021,8 +3039,8 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
         &rc_blocks.last().unwrap().last().unwrap().header
     );
 
-    // replay the blocks and sortitions in random order, and verify that we still reach the chain
-    // tip
+    // replay the blocks and sortitions in random order, and verify that we still
+    // reach the chain tip
     let mut replay_peer = make_replay_peer(&mut peer);
     for (burn_ops, blocks) in rc_burn_ops.iter().zip(rc_blocks.iter()) {
         replay_reward_cycle(&mut replay_peer, burn_ops, blocks);
@@ -3175,8 +3193,8 @@ fn test_stacks_on_burnchain_ops() {
     )
     .unwrap();
 
-    // make enough signers and signing keys so we can create a block and a malleablized block that
-    // are both valid
+    // make enough signers and signing keys so we can create a block and a
+    // malleablized block that are both valid
     let (mut test_signers, test_stackers) = TestStacker::multi_signing_set(&[
         0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3,
     ]);

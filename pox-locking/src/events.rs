@@ -113,12 +113,14 @@ fn create_event_info_data_code(
     args: &[Value],
     response: &ResponseData,
 ) -> String {
-    // If a given burn block height is in a prepare phase, then the stacker will be in the _next_ reward cycle, so bump the cycle by 1
-    // `prepare_offset` is 1 or 0, depending on whether current execution is in a prepare phase or not
+    // If a given burn block height is in a prepare phase, then the stacker will be
+    // in the _next_ reward cycle, so bump the cycle by 1 `prepare_offset` is 1
+    // or 0, depending on whether current execution is in a prepare phase or not
     //
     // "is-in-next-pox-set" == effective-height < (cycle-length - prepare-length)
-    // "<" since the txs of the first block of the prepare phase are NOT considered in the pox-set,
-    // the pox-set is locked in the first block of the prepare phase, before the transactions of that block are run.
+    // "<" since the txs of the first block of the prepare phase are NOT considered
+    // in the pox-set, the pox-set is locked in the first block of the prepare
+    // phase, before the transactions of that block are run.
     let pox_set_offset = r#"
         (pox-set-offset (if (<
             (mod (- %height% (var-get first-burnchain-block-height)) (var-get pox-reward-cycle-length))
@@ -560,9 +562,10 @@ fn create_event_info_data_code(
     }
 }
 
-/// Synthesize an events data tuple to return on the successful execution of a pox-2 or pox-3 or pox-4 stacking
-/// function.  It runs a series of Clarity queries against the PoX contract's data space (including
-/// calling PoX functions).
+/// Synthesize an events data tuple to return on the successful execution of a
+/// pox-2 or pox-3 or pox-4 stacking function.  It runs a series of Clarity
+/// queries against the PoX contract's data space (including calling PoX
+/// functions).
 pub fn synthesize_pox_event_info(
     global_context: &mut GlobalContext,
     contract_id: &QualifiedContractIdentifier,

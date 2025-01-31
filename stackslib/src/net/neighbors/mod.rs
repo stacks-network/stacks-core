@@ -54,47 +54,51 @@ pub const NEIGHBOR_REQUEST_TIMEOUT: u64 = 30;
 /// Default is 3 days.
 pub const MAX_NEIGHBOR_AGE: u64 = 60 * 60 * 24 * 3;
 
-/// Default number of initial walks the state-machine should execute before self-throttling.  When
-/// the node starts up, it will run this many walks without delay in order to quickly populate the
-/// frontier DB. After this many walks complete, it will settle into walking every so often.
-/// This value counts the number of *successful* walks; failed or partially-successful walks do not
-/// count towards this total.
+/// Default number of initial walks the state-machine should execute before
+/// self-throttling.  When the node starts up, it will run this many walks
+/// without delay in order to quickly populate the frontier DB. After this many
+/// walks complete, it will settle into walking every so often. This value
+/// counts the number of *successful* walks; failed or partially-successful
+/// walks do not count towards this total.
 pub const NUM_INITIAL_WALKS: u64 = 10;
-/// Default number of initial walk retries.  The node will re-attempt an unthrottled walk this many
-/// times when it starts up, should the initial walk fail for some reason.
+/// Default number of initial walk retries.  The node will re-attempt an
+/// unthrottled walk this many times when it starts up, should the initial walk
+/// fail for some reason.
 pub const WALK_RETRY_COUNT: u64 = 10;
-/// Every so often, the neighbor walk's current neighbor will be reset to a random node (selected
-/// from the DB or the current set of connected peers).  This is the minimum number of walk steps
-/// to be taken before this reset happens.
+/// Every so often, the neighbor walk's current neighbor will be reset to a
+/// random node (selected from the DB or the current set of connected peers).
+/// This is the minimum number of walk steps to be taken before this reset
+/// happens.
 pub const WALK_MIN_DURATION: u64 = 20;
-/// Maximum number of times a neighbor walk can take steps before being forcibly reset to a random
-/// node.
+/// Maximum number of times a neighbor walk can take steps before being forcibly
+/// reset to a random node.
 pub const WALK_MAX_DURATION: u64 = 40;
-/// The probability that a walk will be reset when the number of steps is in-between the min and
-/// max durations.
+/// The probability that a walk will be reset when the number of steps is
+/// in-between the min and max durations.
 pub const WALK_RESET_PROB: f64 = 0.05;
-/// Maximum number of seconds the walk can remain in a single state before it will be reset.  This
-/// prevents walks from stalling out indefinitely.
+/// Maximum number of seconds the walk can remain in a single state before it
+/// will be reset.  This prevents walks from stalling out indefinitely.
 pub const WALK_STATE_TIMEOUT: u64 = 60;
 
-/// Total number of seconds for which a particular walk can exist.  It will be reset if it exceeds
-/// this age.
+/// Total number of seconds for which a particular walk can exist.  It will be
+/// reset if it exceeds this age.
 #[cfg(test)]
 pub const WALK_RESET_INTERVAL: u64 = 60;
 #[cfg(not(test))]
 pub const WALK_RESET_INTERVAL: u64 = 600;
 
-/// How often the node will consider pruning neighbors from its neighbor set.  The node will prune
-/// neighbors from over-represented hosts and IP ranges in order to maintain connections to a
-/// diverse set of neighbors.
+/// How often the node will consider pruning neighbors from its neighbor set.
+/// The node will prune neighbors from over-represented hosts and IP ranges in
+/// order to maintain connections to a diverse set of neighbors.
 #[cfg(test)]
 pub const PRUNE_FREQUENCY: u64 = 0;
 #[cfg(not(test))]
 pub const PRUNE_FREQUENCY: u64 = 43200;
 
-/// Not all neighbors discovered will have an up-to-date chain tip.  This value is the highest
-/// discrepancy between the local burnchain block height and the remote node's burnchain block
-/// height for which the neighbor will be considered as a worthwhile peer to remember.
+/// Not all neighbors discovered will have an up-to-date chain tip.  This value
+/// is the highest discrepancy between the local burnchain block height and the
+/// remote node's burnchain block height for which the neighbor will be
+/// considered as a worthwhile peer to remember.
 #[cfg(test)]
 pub const MAX_NEIGHBOR_BLOCK_DELAY: u64 = 25;
 #[cfg(not(test))]
@@ -106,15 +110,15 @@ pub const NEIGHBOR_WALK_INTERVAL: u64 = 0;
 #[cfg(not(test))]
 pub const NEIGHBOR_WALK_INTERVAL: u64 = 120; // seconds
 
-/// Probability that we begin an always-allowed peer walk if we're either in IBD or if we're not
-/// connected to at least one always-allowed node
+/// Probability that we begin an always-allowed peer walk if we're either in IBD
+/// or if we're not connected to at least one always-allowed node
 pub const WALK_SEED_PROBABILITY: f64 = 0.9;
 
 impl PeerNetwork {
-    /// Begin an outbound walk or a pingback walk, depending on whether or not we have pingback
-    /// state.
-    /// If we do, then do a pingback walk with 50% probability.  Otherwise do an outbound walk.
-    /// If we don't, then always do an outbound walk.
+    /// Begin an outbound walk or a pingback walk, depending on whether or not
+    /// we have pingback state.
+    /// If we do, then do a pingback walk with 50% probability.  Otherwise do an
+    /// outbound walk. If we don't, then always do an outbound walk.
     fn new_outbound_or_pingback_walk(
         &self,
     ) -> Result<NeighborWalk<PeerDBNeighborWalk, PeerNetworkComms>, net_error> {
@@ -211,8 +215,9 @@ impl PeerNetwork {
         );
     }
 
-    /// Instantiate a neighbor walk, and update internal bookkeeping about how many times and how
-    /// often we've done this (so we can intelligently alter walk strategies).
+    /// Instantiate a neighbor walk, and update internal bookkeeping about how
+    /// many times and how often we've done this (so we can intelligently
+    /// alter walk strategies).
     ///
     /// Returns the new neighbor walk on success.
     /// Returns None if we could not instantiate a walk for some reason.
@@ -231,7 +236,8 @@ impl PeerNetwork {
             .count_connected_always_allowed_peers()
             .unwrap_or((0, 0));
 
-        // always ensure we're connected to always-allowed outbound peers other than ourselves
+        // always ensure we're connected to always-allowed outbound peers other than
+        // ourselves
         let walk_seed =
             thread_rng().gen::<f64>() < self.get_connection_opts().walk_seed_probability;
         let walk_res = if ibd
@@ -250,8 +256,8 @@ impl PeerNetwork {
                 ibd,
             )
         } else if self.walk_attempts % (self.connection_opts.walk_inbound_ratio + 1) == 0 {
-            // not IBD, or not walk_seed, or connected to an always-allowed peer, or no always-allowed.
-            // Time to try an inbound neighbor
+            // not IBD, or not walk_seed, or connected to an always-allowed peer, or no
+            // always-allowed. Time to try an inbound neighbor
             debug!("{:?}: Instantiate walk to inbound neigbor", self.get_local_peer();
                    "walk_attempts" => self.walk_attempts,
                    "walk_inbound_ratio" => self.connection_opts.walk_inbound_ratio,
@@ -261,8 +267,8 @@ impl PeerNetwork {
 
             self.new_maybe_inbound_walk()
         } else {
-            // no need to walk to an always-allowed peer, and not time to try an inbound neighbor.
-            // Either do an outbound walk, or do a pingback walk.
+            // no need to walk to an always-allowed peer, and not time to try an inbound
+            // neighbor. Either do an outbound walk, or do a pingback walk.
             // If one fails, then try the other.
             debug!("{:?}: Instantiate walk to either outbound or pingback neighbor", self.get_local_peer();
                    "walk_attempts" => self.walk_attempts,
@@ -291,8 +297,9 @@ impl PeerNetwork {
 
         self.walk_attempts += 1;
 
-        // if we somehow failed to create a walk, then at least try to create a walk to a pingback
-        // peer in the event that our error was due to there being no known/available neighbors.
+        // if we somehow failed to create a walk, then at least try to create a walk to
+        // a pingback peer in the event that our error was due to there being no
+        // known/available neighbors.
         let walk = match walk_res {
             Ok(x) => x,
             Err(Error::NoSuchNeighbor) => {
@@ -403,8 +410,9 @@ impl PeerNetwork {
     /// Update the state of our peer graph walk.
     /// If we complete a walk, give back a walk result.
     /// Mask errors by restarting the graph walk.
-    /// Returns the walk result, and a true/false flag to indicate whether or not the work for the
-    /// walk was finished (i.e. we either completed the walk, or we reset the walk)
+    /// Returns the walk result, and a true/false flag to indicate whether or
+    /// not the work for the walk was finished (i.e. we either completed the
+    /// walk, or we reset the walk)
     pub fn walk_peer_graph(&mut self, ibd: bool) -> (bool, Option<NeighborWalkResult>) {
         if !self.setup_walk(ibd) {
             // nothing to do
@@ -464,7 +472,8 @@ impl PeerNetwork {
         let walk_timed_out = walk.walk_step_count >= walk.walk_max_duration
             || walk.walk_instantiation_time + walk.walk_reset_interval < get_epoch_time_secs();
 
-        // unless we're seeding the frontier table, we should occasionally restart the walk.
+        // unless we're seeding the frontier table, we should occasionally restart the
+        // walk.
         if (self.walk_count > self.connection_opts.num_initial_walks
             && walk.walk_step_count >= walk.walk_min_duration)
             || walk_timed_out

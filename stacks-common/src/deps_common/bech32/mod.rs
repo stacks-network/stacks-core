@@ -20,15 +20,16 @@
 
 //! Encoding and decoding of the Bech32 format
 //!
-//! Bech32 is an encoding scheme that is easy to use for humans and efficient to encode in QR codes.
+//! Bech32 is an encoding scheme that is easy to use for humans and efficient to
+//! encode in QR codes.
 //!
-//! A Bech32 string consists of a human-readable part (HRP), a separator (the character `'1'`), and
-//! a data part. A checksum at the end of the string provides error detection to prevent mistakes
-//! when the string is written off or read out loud.
+//! A Bech32 string consists of a human-readable part (HRP), a separator (the
+//! character `'1'`), and a data part. A checksum at the end of the string
+//! provides error detection to prevent mistakes when the string is written off
+//! or read out loud.
 //!
 //! The original description in [BIP-0173](https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki)
 //! has more details.
-//!
 #![cfg_attr(
     feature = "bech32_std",
     doc = "
@@ -127,8 +128,8 @@ pub trait WriteBase32 {
 
 const CHECKSUM_LENGTH: usize = 6;
 
-/// Allocationless Bech32 writer that accumulates the checksum data internally and writes them out
-/// in the end.
+/// Allocationless Bech32 writer that accumulates the checksum data internally
+/// and writes them out in the end.
 pub struct Bech32Writer<'a> {
     formatter: &'a mut dyn fmt::Write,
     chk: u32,
@@ -136,10 +137,11 @@ pub struct Bech32Writer<'a> {
 }
 
 impl<'a> Bech32Writer<'a> {
-    /// Creates a new writer that can write a bech32 string without allocating itself.
+    /// Creates a new writer that can write a bech32 string without allocating
+    /// itself.
     ///
-    /// This is a rather low-level API and doesn't check the HRP or data length for standard
-    /// compliance.
+    /// This is a rather low-level API and doesn't check the HRP or data length
+    /// for standard compliance.
     pub fn new(
         hrp: &str,
         variant: Variant,
@@ -177,7 +179,8 @@ impl<'a> Bech32Writer<'a> {
         }
     }
 
-    /// Write out the checksum at the end. If this method isn't called this will happen on drop.
+    /// Write out the checksum at the end. If this method isn't called this will
+    /// happen on drop.
     pub fn finalize(mut self) -> fmt::Result {
         self.write_checksum()?;
         mem::forget(self);
@@ -221,7 +224,8 @@ impl Drop for Bech32Writer<'_> {
 /// Parse/convert base32 slice to `Self`. It is the reciprocal of
 /// `ToBase32`.
 pub trait FromBase32: Sized {
-    /// The associated error which can be returned from parsing (e.g. because of bad padding).
+    /// The associated error which can be returned from parsing (e.g. because of
+    /// bad padding).
     type Err;
 
     /// Convert a base32 slice to `Self`.
@@ -266,7 +270,8 @@ pub trait ToBase32 {
     fn write_base32<W: WriteBase32>(&self, writer: &mut W) -> Result<(), <W as WriteBase32>::Err>;
 }
 
-/// Interface to calculate the length of the base32 representation before actually serializing
+/// Interface to calculate the length of the base32 representation before
+/// actually serializing
 pub trait Base32Len: ToBase32 {
     /// Calculate the base32 serialized length
     fn base32_len(&self) -> usize;
@@ -276,23 +281,24 @@ impl<T: AsRef<[u8]>> ToBase32 for T {
     fn write_base32<W: WriteBase32>(&self, writer: &mut W) -> Result<(), <W as WriteBase32>::Err> {
         // Amount of bits left over from last round, stored in buffer.
         let mut buffer_bits = 0u32;
-        // Holds all unwritten bits left over from last round. The bits are stored beginning from
-        // the most significant bit. E.g. if buffer_bits=3, then the byte with bits a, b and c will
-        // look as follows: [a, b, c, 0, 0, 0, 0, 0]
+        // Holds all unwritten bits left over from last round. The bits are stored
+        // beginning from the most significant bit. E.g. if buffer_bits=3, then
+        // the byte with bits a, b and c will look as follows: [a, b, c, 0, 0,
+        // 0, 0, 0]
         let mut buffer: u8 = 0;
 
         for &b in self.as_ref() {
-            // Write first u5 if we have to write two u5s this round. That only happens if the
-            // buffer holds too many bits, so we don't have to combine buffer bits with new bits
-            // from this rounds byte.
+            // Write first u5 if we have to write two u5s this round. That only happens if
+            // the buffer holds too many bits, so we don't have to combine
+            // buffer bits with new bits from this rounds byte.
             if buffer_bits >= 5 {
                 writer.write_u5(u5((buffer & 0b1111_1000) >> 3))?;
                 buffer <<= 5;
                 buffer_bits -= 5;
             }
 
-            // Combine all bits from buffer with enough bits from this rounds byte so that they fill
-            // a u5. Save reamining bits from byte to buffer.
+            // Combine all bits from buffer with enough bits from this rounds byte so that
+            // they fill a u5. Save reamining bits from byte to buffer.
             let from_buffer = buffer >> 3;
             let from_byte = b >> (3 + buffer_bits); // buffer_bits <= 4
 
@@ -301,7 +307,8 @@ impl<T: AsRef<[u8]>> ToBase32 for T {
             buffer_bits += 3;
         }
 
-        // There can be at most two u5s left in the buffer after processing all bytes, write them.
+        // There can be at most two u5s left in the buffer after processing all bytes,
+        // write them.
         if buffer_bits >= 5 {
             writer.write_u5(u5((buffer & 0b1111_1000) >> 3))?;
             buffer <<= 5;
@@ -327,13 +334,14 @@ impl<T: AsRef<[u8]>> Base32Len for T {
     }
 }
 
-/// A trait to convert between u8 arrays and u5 arrays without changing the content of the elements,
-/// but checking that they are in range.
+/// A trait to convert between u8 arrays and u5 arrays without changing the
+/// content of the elements, but checking that they are in range.
 pub trait CheckBase32<T: AsRef<[u5]>> {
     /// Error type if conversion fails
     type Err;
 
-    /// Check if all values are in range and return array-like struct of `u5` values
+    /// Check if all values are in range and return array-like struct of `u5`
+    /// values
     fn check_base32(self) -> Result<T, Self::Err>;
 }
 
@@ -358,8 +366,10 @@ enum Case {
 /// Check if the HRP is valid. Returns the case of the HRP, if any.
 ///
 /// # Errors
-/// * **MixedCase**: If the HRP contains both uppercase and lowercase characters.
-/// * **InvalidChar**: If the HRP contains any non-ASCII characters (outside 33..=126).
+/// * **MixedCase**: If the HRP contains both uppercase and lowercase
+///   characters.
+/// * **InvalidChar**: If the HRP contains any non-ASCII characters (outside
+///   33..=126).
 /// * **InvalidLength**: If the HRP is outside 1..83 characters long.
 fn check_hrp(hrp: &str) -> Result<Case, Error> {
     if hrp.is_empty() || hrp.len() > 83 {
@@ -509,7 +519,8 @@ pub fn encode_without_checksum<T: AsRef<[u5]>>(hrp: &str, data: T) -> Result<Str
 
 /// Decode a bech32 string into the raw HRP and the data bytes.
 ///
-/// Returns the HRP in lowercase, the data with the checksum removed, and the encoding.
+/// Returns the HRP in lowercase, the data with the checksum removed, and the
+/// encoding.
 pub fn decode(s: &str) -> Result<(String, Vec<u5>, Variant), Error> {
     let (hrp_lower, mut data) = split_and_decode(s)?;
     if data.len() < CHECKSUM_LENGTH {
@@ -528,7 +539,8 @@ pub fn decode(s: &str) -> Result<(String, Vec<u5>, Variant), Error> {
     }
 }
 
-/// Decode a bech32 string into the raw HRP and the data bytes, assuming no checksum.
+/// Decode a bech32 string into the raw HRP and the data bytes, assuming no
+/// checksum.
 ///
 /// Returns the HRP in lowercase and the data.
 pub fn decode_without_checksum(s: &str) -> Result<(String, Vec<u5>), Error> {

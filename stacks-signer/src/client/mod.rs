@@ -89,7 +89,8 @@ pub enum ClientError {
     /// Invalid response from the stacks node
     #[error("Invalid response from the stacks node: {0}")]
     InvalidResponse(String),
-    /// A successful sortition's info response should be parseable into a SortitionState
+    /// A successful sortition's info response should be parseable into a
+    /// SortitionState
     #[error("A successful sortition's info response should be parseable into a SortitionState")]
     UnexpectedSortitionInfo,
     /// An RPC libsigner error occurred
@@ -97,7 +98,8 @@ pub enum ClientError {
     RPCError(#[from] RPCError),
 }
 
-/// Retry a function F with an exponential backoff and notification on transient failure
+/// Retry a function F with an exponential backoff and notification on transient
+/// failure
 pub fn retry_with_exponential_backoff<F, E, T>(request_fn: F) -> Result<T, ClientError>
 where
     F: FnMut() -> Result<T, backoff::Error<E>>,
@@ -215,7 +217,8 @@ pub(crate) mod tests {
         ConsensusHash(hash)
     }
 
-    /// Build a response to get_pox_data_with_retry where it returns a specific reward cycle id and block height
+    /// Build a response to get_pox_data_with_retry where it returns a specific
+    /// reward cycle id and block height
     pub fn build_get_pox_data_response(
         reward_cycle: Option<u64>,
         prepare_phase_start_height: Option<u64>,
@@ -296,7 +299,8 @@ pub(crate) mod tests {
         (format!("HTTP/1.1 200 Ok\n\n{pox_info_json}"), pox_info)
     }
 
-    /// Build a response for the get_peer_info_with_retry request with a specific stacks tip height and consensus hash
+    /// Build a response for the get_peer_info_with_retry request with a
+    /// specific stacks tip height and consensus hash
     pub fn build_get_peer_info_response(
         burn_block_height: Option<u64>,
         pox_consensus_hash: Option<ConsensusHash>,
@@ -350,8 +354,8 @@ pub(crate) mod tests {
         format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}")
     }
 
-    /// Generate a signer config with the given number of signers and keys where the first signer is
-    /// obtained from the provided global config
+    /// Generate a signer config with the given number of signers and keys where
+    /// the first signer is obtained from the provided global config
     pub fn generate_signer_config(config: &GlobalConfig, num_signers: u32) -> SignerConfig {
         assert!(
             num_signers > 0,
@@ -389,13 +393,15 @@ pub(crate) mod tests {
             signer_id_to_addr.insert(signer_id, address);
             signer_addr_to_weight.insert(address, weight_per_signer + remaining_weight);
             signer_addresses.push(address);
-            remaining_weight = 0; // The first signer gets the extra weight if there is any. All other signers only get the weight_per_signer
+            remaining_weight = 0; // The first signer gets the extra weight if
+                                  // there is any. All other signers only get
+                                  // the weight_per_signer
         }
         SignerConfig {
             reward_cycle,
             signer_mode: SignerConfigMode::Normal {
                 signer_id: 0,
-                signer_slot_id: SignerSlotID(rand::thread_rng().gen_range(0..num_signers)), // Give a random signer slot id between 0 and num_signers
+                signer_slot_id: SignerSlotID(rand::thread_rng().gen_range(0..num_signers)), /* Give a random signer slot id between 0 and num_signers */
             },
             signer_entries: SignerEntries {
                 signer_addr_to_id,

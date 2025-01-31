@@ -16,7 +16,6 @@
 //!
 //! This module defines structions and functions for storing the blocks and
 //! transactions which make up the Bitcoin system.
-//!
 
 pub mod block;
 pub mod constants;

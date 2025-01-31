@@ -38,7 +38,8 @@ use crate::util_lib::db::Error as DBError;
 const TIP_ANCESTOR_SEARCH_DEPTH: u64 = 10;
 
 /// Cached data for a sortition in the sortition DB.
-/// Caching this allows us to avoid calls to `SortitionDB::get_block_snapshot_consensus()`.
+/// Caching this allows us to avoid calls to
+/// `SortitionDB::get_block_snapshot_consensus()`.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct InvSortitionInfo {
     parent_consensus_hash: ConsensusHash,
@@ -73,8 +74,9 @@ pub(crate) struct InvTenureInfo {
 
 impl InvTenureInfo {
     /// Load up cacheable tenure state for a given tenure-ID consensus hash.
-    /// This only returns Ok(Some(..)) if there was a tenure-change tx for this consensus hash
-    /// (i.e. it was a BlockFound tenure, not an Extension tenure)
+    /// This only returns Ok(Some(..)) if there was a tenure-change tx for this
+    /// consensus hash (i.e. it was a BlockFound tenure, not an Extension
+    /// tenure)
     pub fn load(
         chainstate: &StacksChainState,
         tip_block_id: &StacksBlockId,
@@ -100,16 +102,18 @@ impl InvTenureInfo {
 }
 
 /// This struct represents cached inventory data loaded from Nakamoto headers.
-/// It is of the utmost importance that inventory message generation is _fast_, and incurs as
-/// little I/O overhead as possible, given how essential these messages are to nodes trying to keep
-/// in sync.  By caching (immutable) tenure data in this struct, we can enusre that this happens
-/// all the time except for during node bootup.
+/// It is of the utmost importance that inventory message generation is _fast_,
+/// and incurs as little I/O overhead as possible, given how essential these
+/// messages are to nodes trying to keep in sync.  By caching (immutable) tenure
+/// data in this struct, we can enusre that this happens all the time except for
+/// during node bootup.
 pub struct InvGenerator {
     /// Map stacks tips to a table of (tenure ID, optional tenure info)
     processed_tenures: HashMap<StacksBlockId, HashMap<ConsensusHash, Option<InvTenureInfo>>>,
     /// Map consensus hashes to sortition data about them
     sortitions: HashMap<ConsensusHash, InvSortitionInfo>,
-    /// how far back to search for ancestor Stacks blocks when processing a new tip
+    /// how far back to search for ancestor Stacks blocks when processing a new
+    /// tip
     tip_ancestor_search_depth: u64,
     /// count cache misses for `processed_tenures`
     cache_misses: u128,
@@ -151,23 +155,27 @@ impl InvGenerator {
         self.cache_misses
     }
 
-    /// Find the highest ancestor of `tip_block_id` that has an entry in `processed_tenures`.
-    /// Search up to `self.tip_ancestor_search_depth` ancestors back.
+    /// Find the highest ancestor of `tip_block_id` that has an entry in
+    /// `processed_tenures`. Search up to `self.tip_ancestor_search_depth`
+    /// ancestors back.
     ///
-    /// The intuition here is that `tip_block_id` is the highest block known to the node, and it
-    /// can advance when new blocks are processed.  We associate a set of cached processed tenures with
-    /// each tip, but if the tip advances, we simply move the cached processed tenures "up to" the
-    /// new tip instead of reloading them from disk each time.
+    /// The intuition here is that `tip_block_id` is the highest block known to
+    /// the node, and it can advance when new blocks are processed.  We
+    /// associate a set of cached processed tenures with each tip, but if
+    /// the tip advances, we simply move the cached processed tenures "up to"
+    /// the new tip instead of reloading them from disk each time.
     ///
-    /// However, searching for an ancestor tip incurs a sqlite DB read, so we want to bound the
-    /// search depth.  In practice, the bound on this depth would be derived from how often the
-    /// chain tip changes relative to how often we serve up inventory data.  The depth should be
-    /// the maximum expected number of blocks to be processed in-between handling `GetNakamotoInv`
-    /// messages.
+    /// However, searching for an ancestor tip incurs a sqlite DB read, so we
+    /// want to bound the search depth.  In practice, the bound on this
+    /// depth would be derived from how often the chain tip changes relative
+    /// to how often we serve up inventory data.  The depth should be
+    /// the maximum expected number of blocks to be processed in-between
+    /// handling `GetNakamotoInv` messages.
     ///
-    /// If found, then return the ancestor block ID represented in `self.processed_tenures`, as
-    /// well as the list of any intermediate tenures between (and including) that of `tip_block_id`
-    /// and that of (and including) the highest-found ancestor.
+    /// If found, then return the ancestor block ID represented in
+    /// `self.processed_tenures`, as well as the list of any intermediate
+    /// tenures between (and including) that of `tip_block_id` and that of
+    /// (and including) the highest-found ancestor.
     ///
     /// If not, then return None.
     pub(crate) fn find_ancestor_processed_tenures(
@@ -221,17 +229,18 @@ impl InvGenerator {
 
     /// Get a processed tenure. If it's not cached, then load it from disk.
     ///
-    /// Loading it is expensive, so once loaded, store it with the cached processed tenure map
-    /// associated with `tip_block_id`.
+    /// Loading it is expensive, so once loaded, store it with the cached
+    /// processed tenure map associated with `tip_block_id`.
     ///
-    /// If there is no such map, then see if a recent ancestor of `tip_block_id` is represented. If
-    /// so, then remove that map and associate it with `tip_block_id`.  This way, as the blockchain
-    /// advances, cached tenure information for the same Stacks fork stays associated with that
-    /// fork's chain tip (assuming this code gets run sufficiently often relative to the
-    /// advancement of the `tip_block_id` tip value).
+    /// If there is no such map, then see if a recent ancestor of `tip_block_id`
+    /// is represented. If so, then remove that map and associate it with
+    /// `tip_block_id`.  This way, as the blockchain advances, cached tenure
+    /// information for the same Stacks fork stays associated with that
+    /// fork's chain tip (assuming this code gets run sufficiently often
+    /// relative to the advancement of the `tip_block_id` tip value).
     ///
-    /// Returns Ok(Some(..)) if there existed a tenure-change tx for this given consensus hash
-    /// Returns Ok(None) if not
+    /// Returns Ok(Some(..)) if there existed a tenure-change tx for this given
+    /// consensus hash Returns Ok(None) if not
     /// Returns Err(..) on DB error
     pub(crate) fn get_processed_tenure(
         &mut self,
@@ -243,8 +252,8 @@ impl InvGenerator {
         let tip_block_id = StacksBlockId::new(tip_block_ch, tip_block_bh);
         if !self.processed_tenures.contains_key(&tip_block_id) {
             // this tip has no known table.
-            // does it have an ancestor with a table? If so, then move its ancestor's table to this
-            // tip. Otherwise, make a new table.
+            // does it have an ancestor with a table? If so, then move its ancestor's table
+            // to this tip. Otherwise, make a new table.
             if let Some((ancestor_tip_id, intermediate_tenures)) =
                 self.find_ancestor_processed_tenures(chainstate, &tip_block_id)?
             {
@@ -252,10 +261,11 @@ impl InvGenerator {
                 //
                 // Between successive calls to this function, the Stacks tip (identified by
                 // `tip_block_ch` and `tip_block_bh`) can advance as more blocks are discovered.
-                // This means that tenures that had previously been treated as absent could now be
-                // present.  By evicting cached data for all tenures between (and including) the
-                // highest ancestor of the current Stacks tip, and the current Stacks tip, we force
-                // this code to re-evaluate the presence or absence of each potentially-affected
+                // This means that tenures that had previously been treated as absent could now
+                // be present.  By evicting cached data for all tenures between
+                // (and including) the highest ancestor of the current Stacks
+                // tip, and the current Stacks tip, we force this code to
+                // re-evaluate the presence or absence of each potentially-affected
                 // tenure.
                 //
                 // First, remove the highest ancestor's table, so we can re-assign it to the new
@@ -267,8 +277,9 @@ impl InvGenerator {
                         panic!("FATAL: did not have ancestor tip reported by search");
                     });
 
-                // Clear out any intermediate cached results for tenure presence/absence, including
-                // both that of the highest ancestor and the current tip.
+                // Clear out any intermediate cached results for tenure presence/absence,
+                // including both that of the highest ancestor and the current
+                // tip.
                 for ch in intermediate_tenures.into_iter() {
                     ancestor_tenures.remove(&ch);
                 }
@@ -323,10 +334,12 @@ impl InvGenerator {
     }
 
     /// Generate an block inventory bit vector for a reward cycle.
-    /// The bit vector is "big-endian" -- the first bit is the oldest sortition, and the last bit is
-    /// the newest sortition.  It is structured as follows:
+    /// The bit vector is "big-endian" -- the first bit is the oldest sortition,
+    /// and the last bit is the newest sortition.  It is structured as
+    /// follows:
     /// * Bit 0 is the sortition at the start of the given reward cycle
-    /// * Bit i is 1 if there was a tenure-start for the ith sortition in the reward cycle, and 0
+    /// * Bit i is 1 if there was a tenure-start for the ith sortition in the
+    ///   reward cycle, and 0
     /// if not.
     ///
     /// Populate the cached data lazily.
@@ -335,7 +348,8 @@ impl InvGenerator {
     /// * `chainstate` is a handle to the chainstate DB
     /// * `reward_cycle` is the reward cycle for which to generate the inventory
     ///
-    /// The resulting bitvector will be truncated if `reward_cycle` is the current reward cycle.
+    /// The resulting bitvector will be truncated if `reward_cycle` is the
+    /// current reward cycle.
     pub fn make_tenure_bitvector(
         &mut self,
         tip: &BlockSnapshot,
@@ -373,26 +387,32 @@ impl InvGenerator {
 
         // loop variables and invariants:
         //
-        // * `cur_height` is a "cursor" that gets used to populate the bitmap. It corresponds
-        // to a burnchain block height (since inventory bitvectors correspond to sortitions).
-        // It gets decremented once per loop pass.  The loop terminates once the reward cycle
-        // for `cur_height` is less than the given `reward_cycle`.
+        // * `cur_height` is a "cursor" that gets used to populate the bitmap. It
+        //   corresponds
+        // to a burnchain block height (since inventory bitvectors correspond to
+        // sortitions). It gets decremented once per loop pass.  The loop
+        // terminates once the reward cycle for `cur_height` is less than the
+        // given `reward_cycle`.
         //
-        // * `cur_consensus_hash` refers to the consensus hash of the sortition at `cur_height`. It
+        // * `cur_consensus_hash` refers to the consensus hash of the sortition at
+        //   `cur_height`. It
         // is updated once per loop pass.
         //
-        // * `tenure_status` is the bit vector itself.  On each pass of this loop, `true` or
-        // `false` is pushed to it.  When the loop exits, `tenure_status` will have a `true` or
-        // `false` value for each sortition in the given reward cycle.
+        // * `tenure_status` is the bit vector itself.  On each pass of this loop,
+        //   `true` or
+        // `false` is pushed to it.  When the loop exits, `tenure_status` will have a
+        // `true` or `false` value for each sortition in the given reward cycle.
         //
-        // `cur_tenure_opt` refers to the tenure that is active as of `cur_height`, if there is one.
-        // If there is an active tenure in `cur_height`, then if the sortition at `cur_height`
-        // matches the `tenure_id_consensus_hash` of `cur_tenure_opt`, `cur_tenure_opt` is
-        // set to its parent tenure, and we push `true` to `tenure_status`.  This is the only
-        // time we do this, since since `cur_tenure_opt`'s `tenure_id_consensus_hash` only
-        // ever matches `cur_consensus_hash` if a tenure began at `cur_height`.  If a tenure did _not_
-        // begin at `cur_height`, or if there is no active tenure at `cur_height`, then `tenure_status`.
-        // will have `false` for `cur_height`'s bit.
+        // `cur_tenure_opt` refers to the tenure that is active as of `cur_height`, if
+        // there is one. If there is an active tenure in `cur_height`, then if
+        // the sortition at `cur_height` matches the `tenure_id_consensus_hash`
+        // of `cur_tenure_opt`, `cur_tenure_opt` is set to its parent tenure,
+        // and we push `true` to `tenure_status`.  This is the only time we do
+        // this, since since `cur_tenure_opt`'s `tenure_id_consensus_hash` only
+        // ever matches `cur_consensus_hash` if a tenure began at `cur_height`.  If a
+        // tenure did _not_ begin at `cur_height`, or if there is no active
+        // tenure at `cur_height`, then `tenure_status`. will have `false` for
+        // `cur_height`'s bit.
         loop {
             let cur_reward_cycle = sortdb
                 .pox_constants
@@ -427,8 +447,8 @@ impl InvGenerator {
                     tenure_status.push(false);
                 }
             } else {
-                // no active tenure during this sortition. Check the parent sortition to see if a
-                // tenure begain there.
+                // no active tenure during this sortition. Check the parent sortition to see if
+                // a tenure begain there.
                 trace!("No winning sortition for {cur_consensus_hash} (bit {cur_height})");
                 tenure_status.push(false);
                 cur_tenure_opt = self.get_processed_tenure(
@@ -470,8 +490,8 @@ pub struct NakamotoTenureInv {
     /// Which neighbor is this for
     pub neighbor_address: NeighborAddress,
 
-    /// The fields below are used for synchronizing this particular peer's inventories.
-    /// Currently tracked reward cycle
+    /// The fields below are used for synchronizing this particular peer's
+    /// inventories. Currently tracked reward cycle
     pub cur_reward_cycle: u64,
     /// Status of this node.
     /// True if we should keep talking to it; false if not
@@ -499,8 +519,9 @@ impl NakamotoTenureInv {
         }
     }
 
-    /// Does this remote neighbor have the ith tenure data for the given (absolute) burn block height?
-    /// (note that block_height is the _absolute_ block height)
+    /// Does this remote neighbor have the ith tenure data for the given
+    /// (absolute) burn block height? (note that block_height is the
+    /// _absolute_ block height)
     pub fn has_ith_tenure(&self, burn_block_height: u64) -> bool {
         if burn_block_height < self.first_block_height {
             return false;
@@ -543,9 +564,9 @@ impl NakamotoTenureInv {
 
     /// Add in a newly-discovered inventory.
     /// NOTE: inventories are supposed to be aligned to the reward cycle
-    /// Returns true if the tenure bitvec has changed -- we either learned about a new tenure-start
-    /// block, or the remote peer "un-learned" it (e.g. due to a reorg).
-    /// Returns false if not.
+    /// Returns true if the tenure bitvec has changed -- we either learned about
+    /// a new tenure-start block, or the remote peer "un-learned" it (e.g.
+    /// due to a reorg). Returns false if not.
     pub fn merge_tenure_inv(&mut self, tenure_inv: BitVec<2100>, reward_cycle: u64) -> bool {
         // populate the tenures bitmap to we can fit this tenures inv
         let learned = self
@@ -568,8 +589,8 @@ impl NakamotoTenureInv {
         query_rc
     }
 
-    /// Reset synchronization state for this peer.  Don't remove inventory data; just make it so we
-    /// can talk to the peer again
+    /// Reset synchronization state for this peer.  Don't remove inventory data;
+    /// just make it so we can talk to the peer again
     pub fn try_reset_comms(&mut self, inv_sync_interval: u64, start_rc: u64, max_rc: u64) {
         let now = get_epoch_time_secs();
         if self.start_sync_time + inv_sync_interval <= now
@@ -833,8 +854,8 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
     }
 
     /// Proceed to ask neighbors for their nakamoto tenure inventories.
-    /// If we're in initial block download (ibd), then only ask our bootstrap peers.
-    /// Otherwise, ask everyone.
+    /// If we're in initial block download (ibd), then only ask our bootstrap
+    /// peers. Otherwise, ask everyone.
     /// Returns Err(..) on I/O errors
     pub fn process_getnakamotoinv_begins(
         &mut self,
@@ -962,8 +983,8 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
     }
 
     /// Finish asking for inventories, and update inventory state.
-    /// Returns Ok(num-messages, true) if an inv state machine learned something.
-    /// Returns Ok(num-messages, false) if not
+    /// Returns Ok(num-messages, true) if an inv state machine learned
+    /// something. Returns Ok(num-messages, false) if not
     /// Returns Err(..) on I/O errors
     pub fn process_getnakamotoinv_finishes(
         &mut self,
@@ -1008,16 +1029,16 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
     }
 
     /// Do we need to do an inv sync burst?
-    /// This happens after `burst_interval` milliseconds have passed since we noticed the sortition
-    /// changed.
+    /// This happens after `burst_interval` milliseconds have passed since we
+    /// noticed the sortition changed.
     fn need_inv_burst(&self) -> bool {
         self.burst_deadline_ms < get_epoch_time_ms() && self.last_burst_ms < self.burst_deadline_ms
     }
 
     /// Top-level state machine execution
     pub fn run(&mut self, network: &mut PeerNetwork, sortdb: &SortitionDB, ibd: bool) -> bool {
-        // if the burnchain tip has changed, then force all communications to reset for the current
-        // reward cycle in order to hasten block download
+        // if the burnchain tip has changed, then force all communications to reset for
+        // the current reward cycle in order to hasten block download
         if let Some(last_sort_tip) = self.last_sort_tip.as_ref() {
             if last_sort_tip.consensus_hash != network.burnchain_tip.consensus_hash {
                 debug!(

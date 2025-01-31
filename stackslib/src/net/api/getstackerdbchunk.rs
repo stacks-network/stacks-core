@@ -82,7 +82,8 @@ impl HttpRequest for RPCGetStackerDBChunkRequestHandler {
     }
 
     /// Try to decode this request.
-    /// There's nothing to load here, so just make sure the request is well-formed.
+    /// There's nothing to load here, so just make sure the request is
+    /// well-formed.
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
@@ -122,11 +123,12 @@ impl RPCRequestHandler for RPCGetStackerDBChunkRequestHandler {
 
     /// Make the response.
     /// NOTE: it's not safe to stream chunks; they have to be sent all at once.
-    /// This is because any streaming algorithm that does not lock the chunk row is at risk of
-    /// racing a chunk-download or a chunk-push, which would atomically overwrite the data being
-    /// streamed (and lead to corrupt data being sent).  As a result, StackerDB chunks are capped
-    /// at 1MB, and StackerDB replication is always an opt-in protocol.  Node operators subscribe
-    /// to StackerDB replicas at their own risk.
+    /// This is because any streaming algorithm that does not lock the chunk row
+    /// is at risk of racing a chunk-download or a chunk-push, which would
+    /// atomically overwrite the data being streamed (and lead to corrupt
+    /// data being sent).  As a result, StackerDB chunks are capped
+    /// at 1MB, and StackerDB replication is always an opt-in protocol.  Node
+    /// operators subscribe to StackerDB replicas at their own risk.
     fn try_handle_request(
         &mut self,
         preamble: HttpRequestPreamble,
@@ -213,8 +215,8 @@ impl RPCRequestHandler for RPCGetStackerDBChunkRequestHandler {
 
 /// Decode the HTTP response
 impl HttpResponse for RPCGetStackerDBChunkRequestHandler {
-    /// Decode this response from a byte stream.  This is called by the client to decode this
-    /// message
+    /// Decode this response from a byte stream.  This is called by the client
+    /// to decode this message
     fn try_parse_response(
         &self,
         preamble: &HttpResponsePreamble,

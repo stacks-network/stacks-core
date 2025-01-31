@@ -1027,8 +1027,8 @@ where
     }
 }
 
-// insert a range of 4096 consecutive keys (forcing node promotions) by varying the low-order bits.
-// every 128 keys, make a new trie
+// insert a range of 4096 consecutive keys (forcing node promotions) by varying
+// the low-order bits. every 128 keys, make a new trie
 #[test]
 #[ignore]
 fn marf_insert_4096_128_seq_low() {
@@ -1081,8 +1081,8 @@ fn marf_insert_4096_128_seq_low() {
     );
 }
 
-// insert a range of 4096 consecutive keys (forcing node promotions) by varying the high-order bits.
-// every 128 keys, make a new trie
+// insert a range of 4096 consecutive keys (forcing node promotions) by varying
+// the high-order bits. every 128 keys, make a new trie
 #[test]
 #[ignore]
 fn marf_insert_4096_128_seq_high() {
@@ -1108,8 +1108,8 @@ fn marf_insert_4096_128_seq_high() {
 }
 
 // insert a leaf, open a new block, and attempt to split the leaf
-// TODO: try also when the leaf to split dangles from an intermediate node, not off of the root
-// (since we have a different backptr copy routine there)
+// TODO: try also when the leaf to split dangles from an intermediate node, not
+// off of the root (since we have a different backptr copy routine there)
 #[test]
 fn marf_split_leaf_path() {
     let path = "/tmp/rust_marf_split_leaf_path";
@@ -1193,9 +1193,9 @@ fn marf_split_leaf_path() {
     assert_eq!(read_value_2.data.to_vec(), value_2.data.to_vec());
 }
 
-// insert a random sequence of 65536 keys.  Every 2048 inserts, start a new block.
-//   *these aren't forks* `insert_leaf` on a non-existent bhh creates a block extension in
-//   walk_cow via `MARF::extend_trie`.
+// insert a random sequence of 65536 keys.  Every 2048 inserts, start a new
+// block.   *these aren't forks* `insert_leaf` on a non-existent bhh creates a
+// block extension in   walk_cow via `MARF::extend_trie`.
 
 #[test]
 #[ignore]
@@ -1401,9 +1401,9 @@ fn marf_insert_random_10485760_4096_file_storage() {
     }
 }
 
-// insert a random sequence of 4096 keys.  Every 128 inserts, fork.  Use batching.
-// Do merkle tests each key/value inserted -- both immediately after the batch containing them
-// is inserted, and once all inserts complete.
+// insert a random sequence of 4096 keys.  Every 128 inserts, fork.  Use
+// batching. Do merkle tests each key/value inserted -- both immediately after
+// the batch containing them is inserted, and once all inserts complete.
 #[test]
 #[ignore]
 fn marf_insert_random_4096_128_merkle_proof() {
@@ -1616,8 +1616,8 @@ fn marf_read_random_1048576_4096_file_storage() {
     }
 }
 
-// insert a range of 4096 consecutive keys (forcing node promotions) by varying the low-order bits.
-// every 128 keys, make a new trie.
+// insert a range of 4096 consecutive keys (forcing node promotions) by varying
+// the low-order bits. every 128 keys, make a new trie.
 #[test]
 fn marf_insert_128_32() {
     marf_insert(
@@ -1641,8 +1641,8 @@ fn marf_insert_128_32() {
     );
 }
 
-// insert a range of 4096 consecutive keys (forcing node promotions) by varying the low-order bits.
-// every 128 keys, make a new trie.
+// insert a range of 4096 consecutive keys (forcing node promotions) by varying
+// the low-order bits. every 128 keys, make a new trie.
 #[test]
 #[ignore]
 fn marf_insert_4096_128() {
@@ -1667,8 +1667,8 @@ fn marf_insert_4096_128() {
     );
 }
 
-// insert a range of 256 consecutive keys (forcing node promotions) by varying the low-order bits.
-// every 16 keys, make a new trie.
+// insert a range of 256 consecutive keys (forcing node promotions) by varying
+// the low-order bits. every 16 keys, make a new trie.
 #[test]
 fn marf_insert_256_16() {
     marf_insert(
@@ -1695,9 +1695,9 @@ fn marf_insert_256_16() {
 #[test]
 #[ignore]
 fn marf_insert_get_128_fork_256() {
-    // create 256 forks organized as a binary tree, and insert 128 values into each one.
-    // make sure we can read them all from each chain tip, and make sure we can generate merkle
-    // proofs of each one's value.
+    // create 256 forks organized as a binary tree, and insert 128 values into each
+    // one. make sure we can read them all from each chain tip, and make sure we
+    // can generate merkle proofs of each one's value.
     let path = ":memory:".to_string();
 
     let marf_opts = MARFOpenOpts::default();
@@ -1896,8 +1896,8 @@ fn marf_insert_flush_to_different_block() {
         assert_eq!(read_value.data.to_vec(), value.data.to_vec());
         assert_eq!(marf.borrow_storage_backend().get_cur_block(), target_block);
 
-        // can prove off of the target block (but only if we're not in deferred-hash mode,
-        // since we haven't committed yet).
+        // can prove off of the target block (but only if we're not in deferred-hash
+        // mode, since we haven't committed yet).
         if marf.borrow_storage_backend().hash_calculation_mode != TrieHashCalculationMode::Deferred
         {
             root_table_cache = Some(merkle_test_marf(
@@ -2052,9 +2052,9 @@ fn test_marf_read_only() {
     );
     let value = MARFValue::from(0x1234);
 
-    // functions that require a transaction _cannot_ be called on a readonly marf, because
-    //   both the storage function for initiating a tx _and_ sqlite will have errored before
-    //   you could call the function.
+    // functions that require a transaction _cannot_ be called on a readonly marf,
+    // because   both the storage function for initiating a tx _and_ sqlite will
+    // have errored before   you could call the function.
     if let Err(Error::ReadOnlyError) = ro_marf.begin_tx() {
     } else {
         assert!(false);

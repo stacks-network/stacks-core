@@ -395,8 +395,9 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         Ok(hashes)
     }
 
-    /// Given a TriePtr to the _currently-visited_ node and the chr of the _previous_ node, calculate a
-    /// Merkle proof node.  Include all the children hashes _except_ for the one that corresponds
+    /// Given a TriePtr to the _currently-visited_ node and the chr of the
+    /// _previous_ node, calculate a Merkle proof node.  Include all the
+    /// children hashes _except_ for the one that corresponds
     /// to the previous node.
     fn ptr_to_segment_proof_node(
         storage: &mut TrieStorageConnection<T>,
@@ -466,9 +467,10 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         Ok(proof_node)
     }
 
-    /// Make the initial shunt proof in a MARF merkle proof, for a node that isn't a backptr.
-    /// This is a one-item list of a TrieMerkleProofType::Shunt proof entry.
-    /// The storage handle must be opened to the block we care about.
+    /// Make the initial shunt proof in a MARF merkle proof, for a node that
+    /// isn't a backptr. This is a one-item list of a
+    /// TrieMerkleProofType::Shunt proof entry. The storage handle must be
+    /// opened to the block we care about.
     fn make_initial_shunt_proof(
         storage: &mut TrieStorageConnection<T>,
     ) -> Result<Vec<TrieMerkleProofType<T>>, Error> {
@@ -483,27 +485,32 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         Ok(vec![backptr_proof])
     }
 
-    /// Given a node's (non-backptr) ptr, and the node's backptr, make a shunt proof that links
-    /// them.  That is, make a proof that the current trie's root node hash and ptr are only reachable from the
-    /// corresponding non-backptr root in this trie's ${ptr.back_block()}th ancestor back.
-    /// s must point to the block from which we're going to walk back from.
+    /// Given a node's (non-backptr) ptr, and the node's backptr, make a shunt
+    /// proof that links them.  That is, make a proof that the current
+    /// trie's root node hash and ptr are only reachable from the
+    /// corresponding non-backptr root in this trie's ${ptr.back_block()}th
+    /// ancestor back. s must point to the block from which we're going to
+    /// walk back from.
     ///
-    /// The first entry of the shunt proof is the set of Trie root hashes _excluding_ the one from
-    /// backptr, as well as the index into the list of Trie root hashes into which the backptr hash
-    /// should be inserted (this root hash is calculated from the segment proof for that backptr
+    /// The first entry of the shunt proof is the set of Trie root hashes
+    /// _excluding_ the one from backptr, as well as the index into the list
+    /// of Trie root hashes into which the backptr hash should be inserted
+    /// (this root hash is calculated from the segment proof for that backptr
     /// node).
     ///
-    /// The last entry of the shunt proof is the set of root hashes _excluding_ the final root
-    /// hash, which will be the root hash for the segment proof for the non-backptr copy of this
-    /// node.
+    /// The last entry of the shunt proof is the set of root hashes _excluding_
+    /// the final root hash, which will be the root hash for the segment
+    /// proof for the non-backptr copy of this node.
     ///
-    /// All intermediate shunt proofs will contain all ancestor hashes for each node in-between the
-    /// backptr and the non-backptr node.  The intermediate root hashes will be calculated by the verifier.
+    /// All intermediate shunt proofs will contain all ancestor hashes for each
+    /// node in-between the backptr and the non-backptr node.  The
+    /// intermediate root hashes will be calculated by the verifier.
     fn make_backptr_shunt_proof(
         storage: &mut TrieStorageConnection<T>,
         backptr: &TriePtr,
     ) -> Result<Vec<TrieMerkleProofType<T>>, Error> {
-        // the proof is built "backwards" -- starting from the current block all the way back to backptr.
+        // the proof is built "backwards" -- starting from the current block all the way
+        // back to backptr.
         assert!(is_backptr(backptr.id()));
 
         let mut proof = vec![];
@@ -544,8 +551,8 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
             );
         }
 
-        // find last and intermediate entries in the shunt proof -- exclude the root hashes; just
-        // include the ancestor hashes.
+        // find last and intermediate entries in the shunt proof -- exclude the root
+        // hashes; just include the ancestor hashes.
         while current_height > ancestor_height && !found_backptr {
             storage.open_block(&block_header)?;
             let _cur_root_hash = read_root_hash(storage)?;
@@ -608,8 +615,8 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
 
             idx += 1;
 
-            // need the target node's root trie ptr, unless this is the first proof (in which case
-            // it's a junction proof)
+            // need the target node's root trie ptr, unless this is the first proof (in
+            // which case it's a junction proof)
             if !proof.is_empty() {
                 let root_ptr = storage.root_trieptr();
                 let (root_node, _) = storage.read_nodetype(&root_ptr)?;
@@ -707,8 +714,8 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 }
 
                 if hashes.is_empty() {
-                    // special case -- if this shunt proof has no hashes (i.e. this is a leaf from the first
-                    // block), then we can safely skip this step
+                    // special case -- if this shunt proof has no hashes (i.e. this is a leaf from
+                    // the first block), then we can safely skip this step
                     trace!(
                         "Special case for a 0-ancestor node: hash is just the trie hash: {:?}",
                         node_root_hash
@@ -746,8 +753,8 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
     ) -> Option<TrieHash> {
         let mut hash = initial_hash.clone();
 
-        // walk subsequent legs of a shunt proof, except for the last (since we need the next
-        // segment proof for that)
+        // walk subsequent legs of a shunt proof, except for the last (since we need the
+        // next segment proof for that)
         for i in 0..shunt_proof.len() {
             let proof_node = &shunt_proof[i];
             hash = match proof_node {
@@ -773,15 +780,16 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         Some(hash)
     }
 
-    /// Verify a shunt juncture, where a shunt proof tail and a segment proof meet.
-    /// Returns the hash of the root of the junction
+    /// Verify a shunt juncture, where a shunt proof tail and a segment proof
+    /// meet. Returns the hash of the root of the junction
     fn verify_shunt_proof_junction(
         node_root_hash: &TrieHash,
         penultimate_trie_hash: &TrieHash,
         shunt_proof_junction: &TrieMerkleProofType<T>,
     ) -> Option<TrieHash> {
-        // at the juncture, we include the node root hash (from the subsequent segment proof) as
-        // the first hash, and include the penultimate trie hash in its idx
+        // at the juncture, we include the node root hash (from the subsequent segment
+        // proof) as the first hash, and include the penultimate trie hash in
+        // its idx
         let hash = match shunt_proof_junction {
             TrieMerkleProofType::Shunt((ref idx, ref hashes)) => {
                 if *idx == 0 {
@@ -831,7 +839,8 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         Some(hash)
     }
 
-    /// Given a list of non-backptr ptrs and a root block header hash, calculate a Merkle proof.
+    /// Given a list of non-backptr ptrs and a root block header hash, calculate
+    /// a Merkle proof.
     fn make_segment_proof(
         storage: &mut TrieStorageConnection<T>,
         ptrs: &[TriePtr],
@@ -909,8 +918,8 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         Some(get_node_hash(node, &all_hashes, &mut ()))
     }
 
-    /// Given a segment proof, the deepest node's hash, and the hash of the trie root, verify that
-    /// the segment proof is well-formed.
+    /// Given a segment proof, the deepest node's hash, and the hash of the trie
+    /// root, verify that the segment proof is well-formed.
     /// If so, calculate the root hash of the segment and return it.
     fn verify_segment_proof(
         proof: &[TrieMerkleProofType<T>],
@@ -1108,11 +1117,14 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
     }
 
     /// Given a value and the root hash from which this proof was
-    /// (supposedly) generated go and verify whether or not it is consistent with the root hash.
-    /// For the proof validation to work, the verifier needs to know which Trie roots correspond to
-    /// which block headers.  This can be calculated and verified independently from the blockchain
+    /// (supposedly) generated go and verify whether or not it is consistent
+    /// with the root hash. For the proof validation to work, the verifier
+    /// needs to know which Trie roots correspond to which block headers.
+    /// This can be calculated and verified independently from the blockchain
     /// headers.
-    /// NOTE: Trie root hashes are globally unique by design, even if they represent the same contents, so the root_to_block map is bijective with high probability.
+    /// NOTE: Trie root hashes are globally unique by design, even if they
+    /// represent the same contents, so the root_to_block map is bijective with
+    /// high probability.
     pub fn verify_proof(
         proof: &[TrieMerkleProofType<T>],
         path: &TrieHash,
@@ -1436,8 +1448,9 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         expected_value: &MARFValue,
         root_block_header: &T,
     ) -> Result<TrieMerkleProof<T>, Error> {
-        // accumulate proofs in reverse order -- each proof will be from an earlier and earlier
-        // trie, so we'll reverse them in the end so the proof starts with the latest trie.
+        // accumulate proofs in reverse order -- each proof will be from an earlier and
+        // earlier trie, so we'll reverse them in the end so the proof starts
+        // with the latest trie.
         let mut segment_proofs = vec![];
         let mut shunt_proofs = vec![];
         let mut block_header = root_block_header.clone();
@@ -1479,7 +1492,8 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 let shunt_proof = TrieMerkleProof::make_backptr_shunt_proof(storage, &backptr)?;
                 shunt_proofs.push(shunt_proof);
             } else {
-                // make the shunt proof for the block that contains the non-backptr of this leaf.
+                // make the shunt proof for the block that contains the non-backptr of this
+                // leaf.
                 let first_shunt_proof = TrieMerkleProof::make_initial_shunt_proof(storage)?;
                 shunt_proofs.push(first_shunt_proof);
             }

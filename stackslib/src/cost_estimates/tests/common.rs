@@ -14,7 +14,8 @@ use crate::chainstate::stacks::{
 };
 use crate::core::StacksEpochId;
 
-/// Make a block receipt from `tx_receipts` with some dummy values filled for test.
+/// Make a block receipt from `tx_receipts` with some dummy values filled for
+/// test.
 #[cfg(test)]
 pub fn make_block_receipt(tx_receipts: Vec<StacksTransactionReceipt>) -> StacksEpochReceipt {
     StacksEpochReceipt {

@@ -498,8 +498,9 @@ fn test_inv_truncate_pox_inv() {
     assert_eq!(peer_inv.num_reward_cycles, 6);
 
     // truncate happened -- only reward cycles 0, 1, and 2 remain (3 * 5 = 15 bits)
-    // BUT: reward cycles start on the _first_ block, so the first bit doesn't count!
-    // The expected bit vector (grouped by reward cycle) is actually 1 11111 11111 11111.
+    // BUT: reward cycles start on the _first_ block, so the first bit doesn't
+    // count! The expected bit vector (grouped by reward cycle) is actually 1
+    // 11111 11111 11111.
     assert_eq!(peer_inv.block_inv, vec![0xff, 0xff, 0x00, 0x00]);
     assert_eq!(peer_inv.microblocks_inv, vec![0xff, 0xff, 0x00, 0x00]);
     assert_eq!(
@@ -822,8 +823,8 @@ fn test_sync_inv_make_inv_messages() {
         }
     }
 
-    // simulate a getpoxinv / poxinv for several reward cycles, including more than we have
-    // (10, but only have 7)
+    // simulate a getpoxinv / poxinv for several reward cycles, including more than
+    // we have (10, but only have 7)
     let getpoxinv_request = peer_1
         .with_network_state(|sortdb, _chainstate, network, _relayer, _mempool| {
             let height = network.burnchain.reward_cycle_to_block_height(1);
@@ -854,7 +855,8 @@ fn test_sync_inv_make_inv_messages() {
 
     match reply {
         StacksMessageType::PoxInv(poxinv) => {
-            assert_eq!(poxinv.bitlen, 7); // 2 reward cycles we generated, plus 5 reward cycles when booted up (1 reward cycle = 5 blocks).  1st one is free
+            assert_eq!(poxinv.bitlen, 7); // 2 reward cycles we generated, plus 5 reward cycles when booted up (1 reward
+                                          // cycle = 5 blocks).  1st one is free
             assert_eq!(poxinv.pox_bitvec, vec![0x7f]);
         }
         x => {
@@ -1881,7 +1883,8 @@ fn test_sync_inv_2_peers_different_pox_vectors() {
             sortdb_reader.get_pox_id().unwrap()
         };
 
-        // peers must have different PoX bit vectors -- peer 1 didn't see the last reward cycle
+        // peers must have different PoX bit vectors -- peer 1 didn't see the last
+        // reward cycle
         assert_eq!(
             peer_1_pox_id,
             PoxId::from_bools(vec![
@@ -1925,8 +1928,8 @@ fn test_sync_inv_2_peers_different_pox_vectors() {
                 None => {}
             };
 
-            // peer 2 should see that peer 1 has all blocks up to where we stopped feeding them to
-            // it
+            // peer 2 should see that peer 1 has all blocks up to where we stopped feeding
+            // them to it
             match peer_2.network.inv_state {
                 Some(ref inv) => {
                     inv_2_count = inv.get_inv_num_blocks(&peer_1.to_neighbor().addr);
@@ -2042,7 +2045,8 @@ fn test_sync_inv_2_peers_different_pox_vectors() {
         for i in 0..(num_blocks - 2 * reward_cycle_length) {
             assert!(peer_1_inv.has_ith_block(i + first_stacks_block_height));
             if i > 0 && i != num_blocks - 2 * reward_cycle_length - 1 {
-                // peer 1 doesn't have the final microblock stream, since no anchor block confirmed it
+                // peer 1 doesn't have the final microblock stream, since no anchor block
+                // confirmed it
                 assert!(peer_1_inv.has_ith_microblock_stream(i + first_stacks_block_height));
             }
         }

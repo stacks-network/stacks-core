@@ -365,8 +365,8 @@ where
     (headers_return, marf_kv, result)
 }
 
-// like in_block, but does _not_ advance the chain tip.  Used for read-only queries against the
-// chain tip itself.
+// like in_block, but does _not_ advance the chain tip.  Used for read-only
+// queries against the chain tip itself.
 fn at_chaintip<F, R>(db_path: &str, mut marf_kv: MarfedKV, f: F) -> R
 where
     F: FnOnce(WritableMarfStore) -> (WritableMarfStore, R),
@@ -536,7 +536,8 @@ impl CLIHeadersDB {
         );
     }
 
-    /// Create or open a new CLI DB at db_path.  If it already exists, then this method is a no-op.
+    /// Create or open a new CLI DB at db_path.  If it already exists, then this
+    /// method is a no-op.
     pub fn new(db_path: &str, mainnet: bool) -> CLIHeadersDB {
         let instantiate = db_path == ":memory:" || fs::metadata(&db_path).is_err();
 
@@ -554,8 +555,8 @@ impl CLIHeadersDB {
     }
 
     /// Open an CLI DB at db_path. Returns Err() if it doesn't exist.
-    /// Normally this would be Option<..>, but since this gets used with friendly_expect,
-    /// using a Result<..> is necessary.
+    /// Normally this would be Option<..>, but since this gets used with
+    /// friendly_expect, using a Result<..> is necessary.
     pub fn resume(db_path: &str) -> Result<CLIHeadersDB, String> {
         let cli_db_path = get_cli_db_path(db_path);
         if let Err(e) = fs::metadata(&cli_db_path) {

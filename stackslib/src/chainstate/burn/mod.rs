@@ -83,19 +83,24 @@ pub struct BlockSnapshot {
     pub ops_hash: OpsHash,
     /// how many burn tokens have been destroyed since genesis
     pub total_burn: u64,
-    /// whether or not a sortition happened in this block (will be false if there were no burns)
+    /// whether or not a sortition happened in this block (will be false if
+    /// there were no burns)
     pub sortition: bool,
-    /// rolling hash of the burn chain's block headers -- this gets mixed with the sortition VRF seed
+    /// rolling hash of the burn chain's block headers -- this gets mixed with
+    /// the sortition VRF seed
     pub sortition_hash: SortitionHash,
-    /// txid of the leader block commit that won sortition.  Will all 0's if sortition is false.
+    /// txid of the leader block commit that won sortition.  Will all 0's if
+    /// sortition is false.
     pub winning_block_txid: Txid,
-    /// hash of Stacks block that won sortition (will be all 0's if sortition is false)
+    /// hash of Stacks block that won sortition (will be all 0's if sortition is
+    /// false)
     pub winning_stacks_block_hash: BlockHeaderHash,
     /// root hash of the index over the materialized view of all inserted data
     pub index_root: TrieHash,
     /// how many stacks blocks exist
     pub num_sortitions: u64,
-    /// did we download, store, and incorporate the stacks block into the chain state
+    /// did we download, store, and incorporate the stacks block into the chain
+    /// state
     pub stacks_block_accepted: bool,
     /// if we accepted a block, this is its height
     pub stacks_block_height: u64,
@@ -244,9 +249,10 @@ pub trait ConsensusHashExtensions {
     /// Returns a consensus hash of all zeros
     fn empty() -> ConsensusHash;
 
-    /// Instantiate a consensus hash from this block's operations, the total burn so far
-    /// for the resulting consensus hash, and the geometric series of previous consensus
-    /// hashes.  Note that prev_consensus_hashes should be in order from most-recent to
+    /// Instantiate a consensus hash from this block's operations, the total
+    /// burn so far for the resulting consensus hash, and the geometric
+    /// series of previous consensus hashes.  Note that
+    /// prev_consensus_hashes should be in order from most-recent to
     /// least-recent.
     fn from_ops(
         burn_header_hash: &BurnchainHeaderHash,
@@ -283,9 +289,10 @@ impl ConsensusHashExtensions for ConsensusHash {
         ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap()
     }
 
-    /// Instantiate a consensus hash from this block's operations, the total burn so far
-    /// for the resulting consensus hash, and the geometric series of previous consensus
-    /// hashes.  Note that prev_consensus_hashes should be in order from most-recent to
+    /// Instantiate a consensus hash from this block's operations, the total
+    /// burn so far for the resulting consensus hash, and the geometric
+    /// series of previous consensus hashes.  Note that
+    /// prev_consensus_hashes should be in order from most-recent to
     /// least-recent.
     fn from_ops(
         burn_header_hash: &BurnchainHeaderHash,
@@ -298,9 +305,10 @@ impl ConsensusHashExtensions for ConsensusHash {
         // simply as a hash-chain of the new ops hash, the sequence of
         // previous consensus hashes, and the total burn that went into this
         // consensus hash.  We don't turn them into Merkle trees first.
-        // We also make it so the consensus hash commits to both the transactions and the block
-        // that contains them (so two different blocks with the same Blockstack-relevant transactions
-        // in the same order will have two different consensus hashes, as they should).
+        // We also make it so the consensus hash commits to both the transactions and
+        // the block that contains them (so two different blocks with the same
+        // Blockstack-relevant transactions in the same order will have two
+        // different consensus hashes, as they should).
 
         let burn_bytes = total_burn.to_be_bytes();
         let result;

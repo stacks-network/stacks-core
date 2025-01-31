@@ -126,7 +126,8 @@ impl SortitionHandleTx<'_> {
         let this_block_height = block_header.block_height;
         let this_block_hash = block_header.block_hash.clone();
 
-        // make the burn distribution, and in doing so, identify the user burns that we'll keep
+        // make the burn distribution, and in doing so, identify the user burns that
+        // we'll keep
         let state_transition = BurnchainStateTransition::from_block_ops(self, burnchain, parent_snapshot, this_block_ops, missed_commits)
             .map_err(|e| {
                 error!("TRANSACTION ABORTED when converting {} blockstack operations in block {} ({}) to a burn distribution: {:?}", this_block_ops.len(), this_block_height, &this_block_hash, e);
@@ -311,9 +312,9 @@ impl SortitionHandleTx<'_> {
         Ok(res)
     }
 
-    /// Given the extracted txs, and a block header, go process them into the next
-    /// snapshot.  Unlike process_block_ops, this method applies safety checks against the given
-    /// list of blockstack transactions.
+    /// Given the extracted txs, and a block header, go process them into the
+    /// next snapshot.  Unlike process_block_ops, this method applies safety
+    /// checks against the given list of blockstack transactions.
     pub fn process_block_txs(
         &mut self,
         mainnet: bool,

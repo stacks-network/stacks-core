@@ -52,14 +52,15 @@ pub const MAX_CONTEXT_DEPTH: u16 = 256;
 // TODO:
 //    hide the environment's instance variables.
 //     we don't want many of these changing after instantiation.
-/// Environments pack a reference to the global context (which is basically the db),
-///   the current contract context, a call stack, the current sender, caller, and
-///   sponsor (if one exists).
-/// Essentially, the point of the Environment struct is to prevent all the eval functions
-///   from including all of these items in their method signatures individually. Because
-///   these different contexts can be mixed and matched (i.e., in a contract-call, you change
-///   contract context), a single "invocation" will end up creating multiple environment
-///   objects as context changes occur.
+/// Environments pack a reference to the global context (which is basically the
+/// db),   the current contract context, a call stack, the current sender,
+/// caller, and   sponsor (if one exists).
+/// Essentially, the point of the Environment struct is to prevent all the eval
+/// functions   from including all of these items in their method signatures
+/// individually. Because   these different contexts can be mixed and matched
+/// (i.e., in a contract-call, you change   contract context), a single
+/// "invocation" will end up creating multiple environment   objects as context
+/// changes occur.
 pub struct Environment<'a, 'b, 'hooks> {
     pub global_context: &'a mut GlobalContext<'b, 'hooks>,
     pub contract_context: &'a ContractContext,
@@ -194,7 +195,8 @@ pub struct GlobalContext<'a, 'hooks> {
     read_only: Vec<bool>,
     pub cost_track: LimitedCostTracker,
     pub mainnet: bool,
-    /// This is the epoch of the block that this transaction is executing within.
+    /// This is the epoch of the block that this transaction is executing
+    /// within.
     pub epoch_id: StacksEpochId,
     /// This is the chain ID of the transaction
     pub chain_id: u32,
@@ -271,7 +273,8 @@ impl AssetMap {
             .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
     }
 
-    // This will get the next amount for a (principal, asset) entry in the asset table.
+    // This will get the next amount for a (principal, asset) entry in the asset
+    // table.
     fn get_next_amount(
         &self,
         principal: &PrincipalData,
@@ -623,8 +626,9 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         }
     }
 
-    /// Initialize a contract with the "default" contract context (i.e. clarity1, transient ID).
-    /// No longer appropriate outside of testing, now that there are multiple clarity versions.
+    /// Initialize a contract with the "default" contract context (i.e.
+    /// clarity1, transient ID). No longer appropriate outside of testing,
+    /// now that there are multiple clarity versions.
     #[cfg(any(test, feature = "testing"))]
     pub fn initialize_contract(
         &mut self,
@@ -795,9 +799,10 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         self.context.cost_track.get_total()
     }
 
-    /// Destroys this environment, returning ownership of its database reference.
-    ///  If the context wasn't top-level (i.e., it had uncommitted data), return None,
-    ///   because the database is not guaranteed to be in a sane state.
+    /// Destroys this environment, returning ownership of its database
+    /// reference.  If the context wasn't top-level (i.e., it had
+    /// uncommitted data), return None,   because the database is not
+    /// guaranteed to be in a sane state.
     pub fn destruct(self) -> Option<(ClarityDatabase<'a>, LimitedCostTracker)> {
         self.context.destruct()
     }
@@ -879,11 +884,12 @@ impl CostTracker for GlobalContext<'_, '_> {
 }
 
 impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
-    /// Returns an Environment value & checks the types of the contract sender, caller, and sponsor
+    /// Returns an Environment value & checks the types of the contract sender,
+    /// caller, and sponsor
     ///
     /// # Panics
-    /// Panics if the Value types for sender (Principal), caller (Principal), or sponsor
-    /// (Optional Principal) are incorrect.
+    /// Panics if the Value types for sender (Principal), caller (Principal), or
+    /// sponsor (Optional Principal) are incorrect.
     pub fn new(
         global_context: &'a mut GlobalContext<'b, 'hooks>,
         contract_context: &'a ContractContext,
@@ -902,7 +908,8 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         }
     }
 
-    /// Leaving sponsor value as is for this new context (as opposed to setting it to None)
+    /// Leaving sponsor value as is for this new context (as opposed to setting
+    /// it to None)
     pub fn nest_as_principal<'c>(
         &'c mut self,
         sender: PrincipalData,
@@ -1023,8 +1030,9 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         self.eval_raw_with_rules(program, ast::ASTRules::Typical)
     }
 
-    /// Used only for contract-call! cost short-circuiting. Once the short-circuited cost
-    ///  has been evaluated and assessed, the contract-call! itself is executed "for free".
+    /// Used only for contract-call! cost short-circuiting. Once the
+    /// short-circuited cost  has been evaluated and assessed, the
+    /// contract-call! itself is executed "for free".
     pub fn run_free<F, A>(&mut self, to_run: F) -> A
     where
         F: FnOnce(&mut Environment) -> A,
@@ -1033,18 +1041,20 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             &mut self.global_context.cost_track,
             LimitedCostTracker::new_free(),
         );
-        // note: it is important that this method not return until original_tracker has been
-        //  restored. DO NOT use the try syntax (?).
+        // note: it is important that this method not return until original_tracker has
+        // been  restored. DO NOT use the try syntax (?).
         let result = to_run(self);
         self.global_context.cost_track = original_tracker;
         result
     }
 
-    /// This is the epoch of the block that this transaction is executing within.
-    /// Note: in the current plans for 2.1, there is also a contract-specific **Clarity version**
-    ///  which governs which native functions are available / defined. That is separate from this
-    ///  epoch identifier, and most Clarity VM changes should consult that value instead. This
-    ///  epoch identifier is used for determining how cost functions should be applied.
+    /// This is the epoch of the block that this transaction is executing
+    /// within. Note: in the current plans for 2.1, there is also a
+    /// contract-specific **Clarity version**  which governs which native
+    /// functions are available / defined. That is separate from this  epoch
+    /// identifier, and most Clarity VM changes should consult that value
+    /// instead. This  epoch identifier is used for determining how cost
+    /// functions should be applied.
     pub fn epoch(&self) -> &StacksEpochId {
         &self.global_context.epoch_id
     }
@@ -1059,9 +1069,10 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         self.inner_execute_contract(contract, tx_name, args, read_only, false)
     }
 
-    /// This method is exposed for callers that need to invoke a private method directly.
-    /// For example, this is used by the Stacks chainstate for invoking private methods
-    /// on the pox-2 contract. This should not be called by user transaction processing.
+    /// This method is exposed for callers that need to invoke a private method
+    /// directly. For example, this is used by the Stacks chainstate for
+    /// invoking private methods on the pox-2 contract. This should not be
+    /// called by user transaction processing.
     pub fn execute_contract_allow_private(
         &mut self,
         contract: &QualifiedContractIdentifier,
@@ -1075,8 +1086,8 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
     /// This method handles actual execution of contract-calls on a contract.
     ///
     /// `allow_private` should always be set to `false` for user transactions:
-    ///  this ensures that only `define-public` and `define-read-only` methods can
-    ///  be invoked. The `allow_private` mode should only be used by
+    ///  this ensures that only `define-public` and `define-read-only` methods
+    /// can  be invoked. The `allow_private` mode should only be used by
     ///  `Environment::execute_contract_allow_private`.
     fn inner_execute_contract(
         &mut self,
@@ -1254,8 +1265,8 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
     ) -> Result<()> {
         self.global_context.begin();
 
-        // wrap in a closure so that `?` can be caught and the global_context can roll_back()
-        //  before returning.
+        // wrap in a closure so that `?` can be caught and the global_context can
+        // roll_back()  before returning.
         let result = (|| {
             runtime_cost(
                 ClarityCostFunction::ContractStorage,
@@ -1274,8 +1285,9 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             }
 
             // first, store the contract _content hash_ in the data store.
-            //    this is necessary before creating and accessing metadata fields in the data store,
-            //      --or-- storing any analysis metadata in the data store.
+            //    this is necessary before creating and accessing metadata fields in the
+            // data store,      --or-- storing any analysis metadata in the data
+            // store.
             self.global_context
                 .database
                 .insert_contract_hash(&contract_identifier, contract_string)?;
@@ -1314,9 +1326,10 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
     }
 
     /// Top-level STX-transfer, invoked by TokenTransfer transactions.
-    /// Only commits if the inner stx_transfer_consolidated() returns an (ok true) value.
-    /// Rolls back if it returns an (err ..) value, or if the method itself fails for some reason
-    /// (miners should never build blocks that spend non-existent STX in a top-level token-transfer)
+    /// Only commits if the inner stx_transfer_consolidated() returns an (ok
+    /// true) value. Rolls back if it returns an (err ..) value, or if the
+    /// method itself fails for some reason (miners should never build
+    /// blocks that spend non-existent STX in a top-level token-transfer)
     pub fn stx_transfer(
         &mut self,
         from: &PrincipalData,
@@ -1717,9 +1730,10 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         self.database.roll_back()
     }
 
-    // the allow_private parameter allows private functions calls to return any Clarity type
-    // and not just Response. It only has effect is the devtools feature is enabled. eg:
-    // clarity = { version = "*", features = ["devtools"] }
+    // the allow_private parameter allows private functions calls to return any
+    // Clarity type and not just Response. It only has effect is the devtools
+    // feature is enabled. eg: clarity = { version = "*", features =
+    // ["devtools"] }
     pub fn handle_tx_result(
         &mut self,
         result: Result<Value>,
@@ -1749,8 +1763,9 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
     }
 
     /// Destroys this context, returning ownership of its database reference.
-    ///  If the context wasn't top-level (i.e., it had uncommitted data), return None,
-    ///   because the database is not guaranteed to be in a sane state.
+    ///  If the context wasn't top-level (i.e., it had uncommitted data), return
+    /// None,   because the database is not guaranteed to be in a sane
+    /// state.
     pub fn destruct(self) -> Option<(ClarityDatabase<'a>, LimitedCostTracker)> {
         if self.is_top_level() {
             Some((self.database, self.cost_track))
@@ -2136,8 +2151,9 @@ mod test {
         let mut env = tl_env_factory.get_env(epoch);
         let u1 = StacksAddress::new(0, Hash160([1; 20])).unwrap();
         let u2 = StacksAddress::new(0, Hash160([2; 20])).unwrap();
-        // insufficient balance must be a non-includable transaction. it must error here,
-        //  not simply rollback the tx and squelch the error as includable.
+        // insufficient balance must be a non-includable transaction. it must error
+        // here,  not simply rollback the tx and squelch the error as
+        // includable.
         let e = env
             .stx_transfer(
                 &PrincipalData::from(u1),

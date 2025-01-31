@@ -74,7 +74,8 @@ pub const HTTP_PREAMBLE_MAX_ENCODED_SIZE: u32 = 4096;
 /// Maximum number of headers in an HTTP request or response
 pub const HTTP_PREAMBLE_MAX_NUM_HEADERS: usize = 64;
 
-/// Helper function to parse a SIP-003 bytestream.  The first 4 bytes are a big-endian length prefix
+/// Helper function to parse a SIP-003 bytestream.  The first 4 bytes are a
+/// big-endian length prefix
 pub fn parse_bytestream<R: Read, T: StacksMessageCodec>(
     preamble: &HttpResponsePreamble,
     mut body: &[u8],
@@ -90,8 +91,8 @@ pub fn parse_bytestream<R: Read, T: StacksMessageCodec>(
     Ok(item)
 }
 
-/// Helper function to decode an HTTP response preamble and its request body (as an `fd`) into a
-/// JSON object
+/// Helper function to decode an HTTP response preamble and its request body (as
+/// an `fd`) into a JSON object
 pub fn parse_json<T: serde::de::DeserializeOwned>(
     preamble: &HttpResponsePreamble,
     body: &[u8],

@@ -331,7 +331,8 @@ fn test_stackerdb_prepare_clear_slots() {
 /// Test that we can insert and query chunks to a StackerDB.
 /// * verifies that they must be signed
 /// * verifies that they mut not be stale
-/// * verifies that they cannot exceed the config-given wall-clock write frequency
+/// * verifies that they cannot exceed the config-given wall-clock write
+///   frequency
 /// * verifies that they cannot exceed the per-chunk write count
 #[test]
 fn test_stackerdb_insert_query_chunks() {

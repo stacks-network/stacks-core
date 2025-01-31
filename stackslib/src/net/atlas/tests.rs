@@ -300,7 +300,8 @@ fn test_attachment_instance_parsing() {
 
 #[test]
 fn test_attachments_batch_ordering() {
-    // Ensuring that when batches are being queued, we are correctly dequeueing, based on the following priorities:
+    // Ensuring that when batches are being queued, we are correctly dequeueing,
+    // based on the following priorities:
     // 1) the batch that has been the least retried,
     // 2) if tie, the batch that will lead to the maximum number of downloads,
     // 3) if tie, the most oldest batch
@@ -328,7 +329,8 @@ fn test_attachments_batch_ordering() {
         0,
     );
 
-    // Batch 3: 4 attachments, tried once, emitted at block #3, assuming page_size = 8
+    // Batch 3: 4 attachments, tried once, emitted at block #3, assuming page_size =
+    // 8
     let attachments_batch_3 = new_attachments_batch_from(
         vec![
             new_attachment_instance_from(&new_attachment_from("facade21"), 8, 3),
@@ -358,7 +360,8 @@ fn test_attachments_batch_ordering() {
 
     // According to the rules above, the expected order is:
     // 1) Batch 2 (tie on retry count with 1 and 4 -> attachments count)
-    // 2) Batch 1 (tie on retry count with 4 -> tie on attachments count 4 -> block height)
+    // 2) Batch 1 (tie on retry count with 4 -> tie on attachments count 4 -> block
+    //    height)
     // 3) Batch 4 (retry count)
     // 4) Batch 3
     assert_eq!(priority_queue.pop().unwrap(), attachments_batch_2);
@@ -369,7 +372,8 @@ fn test_attachments_batch_ordering() {
 
 #[test]
 fn test_attachments_inventory_requests_ordering() {
-    // Ensuring that when we're flooding a set of peers with GetAttachmentsInventory requests, the order is based on the following rules:
+    // Ensuring that when we're flooding a set of peers with GetAttachmentsInventory
+    // requests, the order is based on the following rules:
     // 1) Nodes with highest ratio successful requests / total requests
     // 2) if tie, biggest number of total requests
     let attachments_inventory_1_request =
@@ -415,7 +419,8 @@ fn test_attachments_inventory_requests_ordering() {
 
 #[test]
 fn test_attachment_requests_ordering() {
-    // Ensuring that when we're downloading some attachments, the order is based on the following rules:
+    // Ensuring that when we're downloading some attachments, the order is based on
+    // the following rules:
     // 1) attachments that are the least available
     // 2) if tie, starting with the most reliable peer
     let attachment_1 = new_attachment_from("facade01");
@@ -717,7 +722,8 @@ fn test_downloader_context_attachment_requests() {
         request_type.request_path(),
         format!("/v2/attachments/{}", attachment_4.hash())
     );
-    // Peer 1 is the only peer showing Attachment 4 as being available in its inventory
+    // Peer 1 is the only peer showing Attachment 4 as being available in its
+    // inventory
     assert_eq!(request.get_url(), &peer_url_3);
 
     let request = attachments_requests.pop().unwrap();
@@ -727,11 +733,12 @@ fn test_downloader_context_attachment_requests() {
         request_type.request_path(),
         format!("/v2/attachments/{}", attachment_1.hash())
     );
-    // Both Peer 1 and Peer 2 could serve Attachment 1, but Peer 1 has a better history
+    // Both Peer 1 and Peer 2 could serve Attachment 1, but Peer 1 has a better
+    // history
     assert_eq!(request.get_url(), &peer_url_1);
 
-    // The 2 last requests can be served by Peer 1, 2 and 3, but will be served in random
-    // order by Peer 1 (best score).
+    // The 2 last requests can be served by Peer 1, 2 and 3, but will be served in
+    // random order by Peer 1 (best score).
     let request = attachments_requests.pop().unwrap();
     let request_type = request.make_request_type(localhost.clone());
     assert_eq!(request.get_url(), &peer_url_1);
@@ -1184,8 +1191,8 @@ fn test_get_minmax_heights_atlasdb() {
 
     let atlas_db = AtlasDB::connect_memory(atlas_config).unwrap();
 
-    // Calling get_minmax_heights_window_for_page_index on a blank db should return an error,
-    // not be crashing.
+    // Calling get_minmax_heights_window_for_page_index on a blank db should return
+    // an error, not be crashing.
     let res = atlas_db
         .get_minmax_heights_window_for_page_index(0)
         .unwrap_err();

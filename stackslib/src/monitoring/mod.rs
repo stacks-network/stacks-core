@@ -355,8 +355,8 @@ pub fn increment_contract_calls_processed() {
 }
 
 /// Given a value (type uint256), return value/uint256::max() as an f64 value.
-/// The precision of the percentage is determined by the input `precision_points`, which is capped
-/// at a max of 15.
+/// The precision of the percentage is determined by the input
+/// `precision_points`, which is capped at a max of 15.
 fn convert_uint256_to_f64_percentage(value: Uint256, precision_points: u32) -> f64 {
     let precision_points = precision_points.min(15);
     let base = 10;

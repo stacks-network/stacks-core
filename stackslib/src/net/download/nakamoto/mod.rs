@@ -17,53 +17,62 @@
 //!
 //! # Overview
 //!
-//! The downloader is implemented as a network state machine, which is called from the main event
-//! loop of the p2p network.  On each pass, the downloader state machine inspects the Stacks chain
-//! state and peer block inventories to see if there are any tenures to download, and if so, it
-//! queues up HTTP requests for the blocks and reacts to their responses.  It yields the downloaded
-//! blocks, which the p2p main loop yields in its `NetworkResult` for the relayer to consume.
+//! The downloader is implemented as a network state machine, which is called
+//! from the main event loop of the p2p network.  On each pass, the downloader
+//! state machine inspects the Stacks chain state and peer block inventories to
+//! see if there are any tenures to download, and if so, it queues up HTTP
+//! requests for the blocks and reacts to their responses.  It yields the
+//! downloaded blocks, which the p2p main loop yields in its `NetworkResult` for
+//! the relayer to consume.
 //!
 //! # Design
 //!
-//! The state machine has three layers: a top-level state machine for managing all of
-//! the requisite state for identifying tenures to download, a pair of low-level state machines for
-//! fetching individual tenures, and a middle layer for using the tenure data to drive the low-level
-//! state machines to fetch the requisite tenures.
+//! The state machine has three layers: a top-level state machine for managing
+//! all of the requisite state for identifying tenures to download, a pair of
+//! low-level state machines for fetching individual tenures, and a middle layer
+//! for using the tenure data to drive the low-level state machines to fetch the
+//! requisite tenures.
 //!
-//! The three-layer design is meant to provide a degree of encapsulation of each downloader
-//! concern.  Because downloading tenures is a multi-step process, we encapsulate the steps to
-//! download a single tenure into a low-level state machine which can be driven by separate
-//! flow-control.  Because we can drive multiple tenure downloads in parallel (i.e. one per peer),
-//! we have a middle layer for scheduling tenures to peers for download.  This middle layer manages
-//! the lifecycles of the lower layer state machines.  The top layer is needed to interface the
-//! middle layer to the chainstate and the rest of the p2p network, and as such, handles the
-//! bookkeeping so that the lower layers can operate without needing access to this
-//! otherwise-unrelated concern.
+//! The three-layer design is meant to provide a degree of encapsulation of each
+//! downloader concern.  Because downloading tenures is a multi-step process, we
+//! encapsulate the steps to download a single tenure into a low-level state
+//! machine which can be driven by separate flow-control.  Because we can drive
+//! multiple tenure downloads in parallel (i.e. one per peer), we have a middle
+//! layer for scheduling tenures to peers for download.  This middle layer
+//! manages the lifecycles of the lower layer state machines.  The top layer is
+//! needed to interface the middle layer to the chainstate and the rest of the
+//! p2p network, and as such, handles the bookkeeping so that the lower layers
+//! can operate without needing access to this otherwise-unrelated concern.
 //!
 //! ## NakamotoDownloadStateMachine
 //!
-//! The top-level download state machine (`NakamotoDownloadStateMachine`) has two states:
-//! Obtaining confirmed tenures, and obtaining unconfirmed tenures.  A _confirmed_ tenure is a
-//! tenure for which we can obtain the start and end block hashes using peer inventories and the
-//! sortition DB.  The hashes are embedded within sortition winners, and the inventories tell us
-//! which sortitions correspond to tenure-starts and tenure-ends (each tenure-end is the
-//! tenure-start of the next tenure).  An _unconfirmed_ tenure is a tenure that is not confirmed --
-//! we do not have one or both of its start/end block hashes available from the sortition history
-//! since they have not been recorded yet.
+//! The top-level download state machine (`NakamotoDownloadStateMachine`) has
+//! two states: Obtaining confirmed tenures, and obtaining unconfirmed tenures.
+//! A _confirmed_ tenure is a tenure for which we can obtain the start and end
+//! block hashes using peer inventories and the sortition DB.  The hashes are
+//! embedded within sortition winners, and the inventories tell us
+//! which sortitions correspond to tenure-starts and tenure-ends (each
+//! tenure-end is the tenure-start of the next tenure).  An _unconfirmed_ tenure
+//! is a tenure that is not confirmed -- we do not have one or both of its
+//! start/end block hashes available from the sortition history since they have
+//! not been recorded yet.
 //!
-//! The `NakamotoDownloadStateMachine` operates by attempting to download each reward cycle's
-//! tenures, including the current reward cycle.  Once it has obtained them all for the current
-//! reward cycle, it proceeds to fetch the next reward cycle's tenures.  It does this because the
-//! sortition DB itself cannot inform us of the tenure start/end block hashes in a given reward
-//! cycle until the PoX anchor block mined in the previous reward cycle has been downloaded and
-//! processed.
+//! The `NakamotoDownloadStateMachine` operates by attempting to download each
+//! reward cycle's tenures, including the current reward cycle.  Once it has
+//! obtained them all for the current reward cycle, it proceeds to fetch the
+//! next reward cycle's tenures.  It does this because the sortition DB itself
+//! cannot inform us of the tenure start/end block hashes in a given reward
+//! cycle until the PoX anchor block mined in the previous reward cycle has been
+//! downloaded and processed.
 //!
-//! To achieve this, the `NakamotoDwonloadStateMachine` performs a lot of bookkeeping.  Namely, it
-//! keeps track of:
+//! To achieve this, the `NakamotoDwonloadStateMachine` performs a lot of
+//! bookkeeping.  Namely, it keeps track of:
 //!
-//! * The ongoing and prior reward cycle's sortitions' tenure IDs and winning block hashes
+//! * The ongoing and prior reward cycle's sortitions' tenure IDs and winning
+//!   block hashes
 //! (implemented as lists of `WantedTenure`s)
-//! * Which sortitions correspond to tenure start and end blocks (implemented as a table of
+//! * Which sortitions correspond to tenure start and end blocks (implemented as
+//!   a table of
 //! `TenureStartEnd`s)
 //! * Which neighbors can serve which full tenures
 //! * What order to request tenures in
@@ -72,41 +81,48 @@
 //!
 //! ## `NakamotoTenureDownloadSet`
 //!
-//! Naturally, the `NakamotoDownloadStateMachine` contains two code paths -- one for each mode.
-//! To facilitate confirmed tenure downloads, it has a second-layer state machine called
-//! the `NakamotoTenureDownloadSet`.  This is responsible for identifying and issuing requests to
-//! peers which can serve complete tenures, and keeping track of whether or not the current reward
-//! cycle has any remaining tenures to download.  To facilitate unconfirmed tenure downloads (which
-//! is a much simpler task), it simply provides an internal method for issuing requests and
-//! processing responses for its neighbors' unconfirmed tenure data.
+//! Naturally, the `NakamotoDownloadStateMachine` contains two code paths -- one
+//! for each mode. To facilitate confirmed tenure downloads, it has a
+//! second-layer state machine called the `NakamotoTenureDownloadSet`.  This is
+//! responsible for identifying and issuing requests to peers which can serve
+//! complete tenures, and keeping track of whether or not the current reward
+//! cycle has any remaining tenures to download.  To facilitate unconfirmed
+//! tenure downloads (which is a much simpler task), it simply provides an
+//! internal method for issuing requests and processing responses for its
+//! neighbors' unconfirmed tenure data.
 //!
-//! This middle layer consumes the data mantained by the `,akamotoDownloaderStateMachine` in order
-//! to instantiate, drive, and clean up one or more per-tenure download state machines.
+//! This middle layer consumes the data mantained by the
+//! `,akamotoDownloaderStateMachine` in order to instantiate, drive, and clean
+//! up one or more per-tenure download state machines.
 //!
 //! ## `NakamotoTenureDownloader` and `NakamotoUnconfirmedTenureDownloader`
 //!
-//! Per SIP-021, obtaining a confirmed tenure is a multi-step process.  To carry this out, this
-//! module contains two third-level state machines: `NakamotoTenureDownloader`, which downloads a
-//! single tenure's blocks if the start and end block hash are known, and
-//! `NakamotoUnconfirmedTenureDownloader`, which downloads the ongoing tenure.  The
-//! `NakamotoTenureDownloadSet` uses a set of `NakamotoTenureDownloader` instances (one per
-//! neighbor) to fetch confirmed tenures, and the `NakamotoDownloadStateMachine`'s unconfirmed
-//! tenure download state provides a method for driving a set of
-//! `NakamotoUnconfirmedTenureDownloader` machines to poll neighbors for their latest tenure
-//! blocks.
+//! Per SIP-021, obtaining a confirmed tenure is a multi-step process.  To carry
+//! this out, this module contains two third-level state machines:
+//! `NakamotoTenureDownloader`, which downloads a single tenure's blocks if the
+//! start and end block hash are known, and
+//! `NakamotoUnconfirmedTenureDownloader`, which downloads the ongoing tenure.
+//! The `NakamotoTenureDownloadSet` uses a set of `NakamotoTenureDownloader`
+//! instances (one per neighbor) to fetch confirmed tenures, and the
+//! `NakamotoDownloadStateMachine`'s unconfirmed tenure download state provides
+//! a method for driving a set of `NakamotoUnconfirmedTenureDownloader` machines
+//! to poll neighbors for their latest tenure blocks.
 //!
 //! # Implementation
 //!
-//! The implementation here plugs directly into the p2p state machine, and is called once per pass.
-//! Unlike in Stacks 2.x, the downloader is consistently running, and can act on newly-discovered
-//! tenures once a peer's inventory reports their availability.  This is because Nakamoto is more
-//! latency-sensitive than Stacks 2.x, and nodes need to obtain blocks as quickly as possible.
+//! The implementation here plugs directly into the p2p state machine, and is
+//! called once per pass. Unlike in Stacks 2.x, the downloader is consistently
+//! running, and can act on newly-discovered tenures once a peer's inventory
+//! reports their availability.  This is because Nakamoto is more
+//! latency-sensitive than Stacks 2.x, and nodes need to obtain blocks as
+//! quickly as possible.
 //!
-//! Concerning latency, a lot of attention is paid to reducing the amount of gratuitous I/O
-//! required for the state machine to run.  The bookkeeping steps in the
-//! `NakamotoDownloadStateMachine` may seem tedious, but they are specifically designed to only
-//! load new sortition and chainstate data when it is necessary to do so.  Most of the time, the
-//! downloader never touches disk; it only needs to do so when it is considering new sortitions and
+//! Concerning latency, a lot of attention is paid to reducing the amount of
+//! gratuitous I/O required for the state machine to run.  The bookkeeping steps
+//! in the `NakamotoDownloadStateMachine` may seem tedious, but they are
+//! specifically designed to only load new sortition and chainstate data when it
+//! is necessary to do so.  Most of the time, the downloader never touches disk;
+//! it only needs to do so when it is considering new sortitions and
 //! new chain tips.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};

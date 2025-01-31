@@ -31,7 +31,6 @@
 //! either marks the instance as available (if the content data is
 //! already stored on the node) or it adds the attachment instance
 //! to its download queue.
-//!
 
 use std::collections::HashSet;
 use std::fs;
@@ -110,13 +109,14 @@ const ATLASDB_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS index_instance_status ON attachment_instances(status);",
 ];
 
-/// Attachment instances pass through different states once written to the AtlasDB.
-/// These instances are initially written as a new Stacks block is processed, and marked
-/// as `Queued`. These queued instances contain all the data of the new attachment instance,
-/// but they have not yet been checked against the AtlasDB to determine if there is extant
-/// Attachment content/data associated with them. The network run loop (`p2p` thread) checks
-/// for any queued attachment instances on each pass, and performs that check. Once the check
-/// is completed, any checked instances are updated to `Checked`.
+/// Attachment instances pass through different states once written to the
+/// AtlasDB. These instances are initially written as a new Stacks block is
+/// processed, and marked as `Queued`. These queued instances contain all the
+/// data of the new attachment instance, but they have not yet been checked
+/// against the AtlasDB to determine if there is extant Attachment content/data
+/// associated with them. The network run loop (`p2p` thread) checks
+/// for any queued attachment instances on each pass, and performs that check.
+/// Once the check is completed, any checked instances are updated to `Checked`.
 pub enum AttachmentInstanceStatus {
     /// This variant indicates that the attachments instance has been written,
     /// but the AtlasDownloader has not yet checked that the attachment matched
@@ -296,7 +296,8 @@ impl AtlasDB {
         Self::check_instantiate_db(atlas_config, conn, readwrite, create_flag)
     }
 
-    /// Inner method for instantiating the db if necessary, updating the schema, or adding indexes
+    /// Inner method for instantiating the db if necessary, updating the schema,
+    /// or adding indexes
     fn check_instantiate_db(
         atlas_config: AtlasConfig,
         conn: Connection,
@@ -431,7 +432,8 @@ impl AtlasDB {
     }
 
     #[cfg(test)]
-    /// Only ever to be used in testing, connect to db, but using existing sqlconn
+    /// Only ever to be used in testing, connect to db, but using existing
+    /// sqlconn
     pub fn connect_with_sqlconn(
         atlas_config: AtlasConfig,
         conn: Connection,
@@ -664,8 +666,8 @@ impl AtlasDB {
     /// Insert an attachment instance from an initial batch.
     /// All such instances are marked "checked", and is_available = true
     ///
-    /// This is invoked by the AtlasDownloader when it first runs. The AtlasDownloader
-    /// is currently managed in the P2P thread.
+    /// This is invoked by the AtlasDownloader when it first runs. The
+    /// AtlasDownloader is currently managed in the P2P thread.
     pub fn insert_initial_attachment_instance(
         &mut self,
         attachment: &AttachmentInstance,
@@ -673,7 +675,8 @@ impl AtlasDB {
         self.insert_attachment_instance(attachment, AttachmentInstanceStatus::Checked, true)
     }
 
-    /// Return all the queued attachment instances, limited by `MAX_PROCESS_PER_ROUND`
+    /// Return all the queued attachment instances, limited by
+    /// `MAX_PROCESS_PER_ROUND`
     pub fn queued_attachments(&self) -> Result<Vec<AttachmentInstance>, db_error> {
         query_rows(
             &self.conn,
@@ -682,7 +685,8 @@ impl AtlasDB {
         )
     }
 
-    /// Update a queued attachment to "checked", setting the `is_available` field.
+    /// Update a queued attachment to "checked", setting the `is_available`
+    /// field.
     pub fn mark_attachment_instance_checked(
         &mut self,
         attachment: &AttachmentInstance,

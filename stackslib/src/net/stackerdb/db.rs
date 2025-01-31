@@ -162,9 +162,10 @@ fn inner_get_stackerdb_id(
     Ok(query_row(conn, sql, args)?.ok_or(net_error::NoSuchStackerDB(smart_contract.clone()))?)
 }
 
-/// Load up chunk metadata from the database, keyed by the chunk's database's smart contract and
-/// its identifier.
-/// Inner method body for related methods in both the DB instance and the transaction instance.
+/// Load up chunk metadata from the database, keyed by the chunk's database's
+/// smart contract and its identifier.
+/// Inner method body for related methods in both the DB instance and the
+/// transaction instance.
 fn inner_get_slot_metadata(
     conn: &DBConn,
     smart_contract: &QualifiedContractIdentifier,
@@ -176,9 +177,10 @@ fn inner_get_slot_metadata(
     query_row(conn, sql, args).map_err(|e| e.into())
 }
 
-/// Load up validation information from the database, keyed by the chunk's database's smart
-/// contract and its identifier.
-/// Inner method body for related methods in both the DB instance and the transaction instance.
+/// Load up validation information from the database, keyed by the chunk's
+/// database's smart contract and its identifier.
+/// Inner method body for related methods in both the DB instance and the
+/// transaction instance.
 fn inner_get_slot_validation(
     conn: &DBConn,
     smart_contract: &QualifiedContractIdentifier,
@@ -230,8 +232,8 @@ impl StackerDBTx<'_> {
     }
 
     /// Set up a database's storage slots.
-    /// The slots must be in a deterministic order, since they are used to determine the chunk ID
-    /// (and thus the key used to authenticate them)
+    /// The slots must be in a deterministic order, since they are used to
+    /// determine the chunk ID (and thus the key used to authenticate them)
     pub fn create_stackerdb(
         &self,
         smart_contract: &QualifiedContractIdentifier,
@@ -293,7 +295,8 @@ impl StackerDBTx<'_> {
         Ok(())
     }
 
-    /// Shrink a StackerDB.  Remove all slots at and beyond a particular slot ID.
+    /// Shrink a StackerDB.  Remove all slots at and beyond a particular slot
+    /// ID.
     fn shrink_stackerdb(&self, stackerdb_id: i64, first_slot_id: u32) -> Result<(), net_error> {
         let qry = "DELETE FROM chunks WHERE stackerdb_id = ?1 AND slot_id >= ?2";
         let args = params![&stackerdb_id, &first_slot_id];
@@ -302,10 +305,11 @@ impl StackerDBTx<'_> {
         Ok(())
     }
 
-    /// Update a database's storage slots, e.g. from new configuration state in its smart contract.
-    /// Chunk data for slots that no longer exist will be dropped.
-    /// Newly-created slots will be instantiated with empty data.
-    /// If the address for a slot changes, then its data will be dropped.
+    /// Update a database's storage slots, e.g. from new configuration state in
+    /// its smart contract. Chunk data for slots that no longer exist will
+    /// be dropped. Newly-created slots will be instantiated with empty
+    /// data. If the address for a slot changes, then its data will be
+    /// dropped.
     pub fn reconfigure_stackerdb(
         &self,
         smart_contract: &QualifiedContractIdentifier,
@@ -376,8 +380,8 @@ impl StackerDBTx<'_> {
     }
 
     /// Insert a chunk into the DB.
-    /// It must be authenticated, and its lamport clock must be higher than the one that's already
-    /// there.  These will not be checked.
+    /// It must be authenticated, and its lamport clock must be higher than the
+    /// one that's already there.  These will not be checked.
     fn insert_chunk(
         &self,
         smart_contract: &QualifiedContractIdentifier,
@@ -507,8 +511,9 @@ impl StackerDBs {
         Ok(db)
     }
 
-    /// Connect to a stacker DB, creating it if it doesn't exist and if readwrite is true.
-    /// Readwrite is enforced by the underling sqlite connection.
+    /// Connect to a stacker DB, creating it if it doesn't exist and if
+    /// readwrite is true. Readwrite is enforced by the underling sqlite
+    /// connection.
     pub fn connect(path: &str, readwrite: bool) -> Result<StackerDBs, net_error> {
         Self::instantiate(path, readwrite)
     }
@@ -546,8 +551,8 @@ impl StackerDBs {
         query_rows(&self.conn, sql, NO_PARAMS).map_err(|e| e.into())
     }
 
-    /// Get the principal who signs a particular slot in a particular stacker DB.
-    /// Returns Ok(Some(addr)) if this slot exists in the DB
+    /// Get the principal who signs a particular slot in a particular stacker
+    /// DB. Returns Ok(Some(addr)) if this slot exists in the DB
     /// Returns Ok(None) if the slot does not exist
     /// Returns Err(..) if the DB doesn't exist of some other DB error happens
     pub fn get_slot_signer(
@@ -623,7 +628,8 @@ impl StackerDBs {
             .map_err(|e| e.into())
     }
 
-    /// Get the list of slot ID versions for a given DB instance at a given reward cycle
+    /// Get the list of slot ID versions for a given DB instance at a given
+    /// reward cycle
     pub fn get_slot_versions(
         &self,
         smart_contract: &QualifiedContractIdentifier,
@@ -634,7 +640,8 @@ impl StackerDBs {
         query_rows(&self.conn, sql, args).map_err(|e| e.into())
     }
 
-    /// Get the list of slot write timestamps for a given DB instance at a given reward cycle
+    /// Get the list of slot write timestamps for a given DB instance at a given
+    /// reward cycle
     pub fn get_slot_write_timestamps(
         &self,
         smart_contract: &QualifiedContractIdentifier,
@@ -679,8 +686,8 @@ impl StackerDBs {
         Ok(results)
     }
 
-    /// Get a versioned chunk out of this database.  If the version is not present, then None will
-    /// be returned.
+    /// Get a versioned chunk out of this database.  If the version is not
+    /// present, then None will be returned.
     pub fn get_chunk(
         &self,
         smart_contract: &QualifiedContractIdentifier,

@@ -55,7 +55,8 @@ impl RPCBlocksRequestHandler {
 pub struct StacksBlockStream {
     /// index block hash of the block to download
     pub index_block_hash: StacksBlockId,
-    /// offset into whatever is being read (the blob, or the file in the chunk store)
+    /// offset into whatever is being read (the blob, or the file in the chunk
+    /// store)
     pub offset: u64,
     /// total number of bytes read.
     pub total_bytes: u64,
@@ -95,7 +96,8 @@ impl HttpRequest for RPCBlocksRequestHandler {
     }
 
     /// Try to decode this request.
-    /// There's nothing to load here, so just make sure the request is well-formed.
+    /// There's nothing to load here, so just make sure the request is
+    /// well-formed.
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
@@ -185,8 +187,8 @@ impl RPCRequestHandler for RPCBlocksRequestHandler {
 
 /// Decode the HTTP response
 impl HttpResponse for RPCBlocksRequestHandler {
-    /// Decode this response from a byte stream.  This is called by the client to decode this
-    /// message
+    /// Decode this response from a byte stream.  This is called by the client
+    /// to decode this message
     fn try_parse_response(
         &self,
         preamble: &HttpResponsePreamble,
@@ -223,9 +225,10 @@ impl HttpChunkGenerator for StacksBlockStream {
                     msg
                 })?;
 
-        // The reason we open a file on each call to stream data is because we don't want to
-        // exhaust the supply of file descriptors.  Maybe a future version of this code will do
-        // something like cache the set of open files so we don't have to keep re-opening them.
+        // The reason we open a file on each call to stream data is because we don't
+        // want to exhaust the supply of file descriptors.  Maybe a future
+        // version of this code will do something like cache the set of open
+        // files so we don't have to keep re-opening them.
         let mut file_fd = fs::OpenOptions::new()
             .read(true)
             .write(false)

@@ -88,7 +88,8 @@ pub struct StackerDBChunkData {
     pub slot_id: u32,
     /// slot version (a lamport clock)
     pub slot_version: u32,
-    /// signature from the stacker over (slot id, slot version, chunk sha512/256)
+    /// signature from the stacker over (slot id, slot version, chunk
+    /// sha512/256)
     pub sig: MessageSignature,
     /// the chunk data
     #[serde(
@@ -202,7 +203,8 @@ impl StackerDBChunkData {
         }
     }
 
-    /// Calculate the hash of the chunk bytes.  This is the SHA512/256 hash of the data.
+    /// Calculate the hash of the chunk bytes.  This is the SHA512/256 hash of
+    /// the data.
     pub fn data_hash(&self) -> Sha512Trunc256Sum {
         Sha512Trunc256Sum::from_data(&self.data)
     }
@@ -234,7 +236,8 @@ impl StackerDBChunkData {
     }
 
     /// Verify that this chunk was signed by the given
-    /// public key hash (`addr`).  Only fails if the underlying signing library fails.
+    /// public key hash (`addr`).  Only fails if the underlying signing library
+    /// fails.
     pub fn verify(&self, addr: &StacksAddress) -> Result<bool, Error> {
         let md = self.get_slot_metadata();
         md.verify(addr)

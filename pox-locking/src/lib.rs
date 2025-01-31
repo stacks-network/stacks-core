@@ -63,7 +63,8 @@ pub const POX_2_NAME: &str = "pox-2";
 pub const POX_3_NAME: &str = "pox-3";
 pub const POX_4_NAME: &str = "pox-4";
 
-/// Handle special cases of contract-calls -- namely, those into PoX that should lock up STX
+/// Handle special cases of contract-calls -- namely, those into PoX that should
+/// lock up STX
 pub fn handle_contract_call_special_cases(
     global_context: &mut GlobalContext,
     sender: Option<&PrincipalData>,

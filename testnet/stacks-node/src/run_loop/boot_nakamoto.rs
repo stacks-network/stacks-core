@@ -41,7 +41,8 @@ pub struct Neon2NakaData {
 }
 
 impl Neon2NakaData {
-    /// Take needed values from `NeonGlobals` and optionally `PeerNetwork`, consuming them
+    /// Take needed values from `NeonGlobals` and optionally `PeerNetwork`,
+    /// consuming them
     pub fn new(globals: NeonGlobals, peer_network: Option<PeerNetwork>) -> Self {
         let key_state = globals
             .leader_key_registration_state
@@ -132,8 +133,8 @@ impl BootRunLoop {
         }
     }
 
-    /// The main entry point for the run loop. This starts either a 2.x-neon or 3.x-nakamoto
-    /// node depending on the current burnchain height.
+    /// The main entry point for the run loop. This starts either a 2.x-neon or
+    /// 3.x-nakamoto node depending on the current burnchain height.
     pub fn start(&mut self, burnchain_opt: Option<Burnchain>, mine_start: u64) {
         match self.active_loop {
             InnerLoops::Epoch2(_) => self.start_from_neon(burnchain_opt, mine_start),
@@ -148,9 +149,10 @@ impl BootRunLoop {
         naka_loop.start(burnchain_opt, mine_start, None)
     }
 
-    // configuring mutants::skip -- this function is covered through integration tests (this function
-    //  is pretty definitionally an integration, so thats unavoidable), and the integration tests
-    //  do not get counted in mutants coverage.
+    // configuring mutants::skip -- this function is covered through integration
+    // tests (this function  is pretty definitionally an integration, so thats
+    // unavoidable), and the integration tests  do not get counted in mutants
+    // coverage.
     #[cfg_attr(test, mutants::skip)]
     fn start_from_neon(&mut self, burnchain_opt: Option<Burnchain>, mine_start: u64) {
         let InnerLoops::Epoch2(ref mut neon_loop) = self.active_loop else {
@@ -244,8 +246,9 @@ impl BootRunLoop {
         let burnchain = config.get_burnchain();
         let sortdb_path = config.get_burn_db_file_path();
         if fs::metadata(&sortdb_path).is_err() {
-            // if the sortition db doesn't exist yet, don't try to open() it, because that creates the
-            // db file even if it doesn't instantiate the tables, which breaks connect() logic.
+            // if the sortition db doesn't exist yet, don't try to open() it, because that
+            // creates the db file even if it doesn't instantiate the tables,
+            // which breaks connect() logic.
             info!("Failed to open Sortition DB while checking current burn height, assuming height = 0");
             return Ok(0);
         }

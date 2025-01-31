@@ -53,7 +53,8 @@ impl RPCMicroblocksConfirmedRequestHandler {
 }
 
 impl StacksIndexedMicroblockStream {
-    /// Make a new indexed microblock streamer using the descendent Stacks anchored block
+    /// Make a new indexed microblock streamer using the descendent Stacks
+    /// anchored block
     pub fn new_confirmed(
         chainstate: &StacksChainState,
         child_block_id: &StacksBlockId,
@@ -84,7 +85,8 @@ impl HttpRequest for RPCMicroblocksConfirmedRequestHandler {
     }
 
     /// Try to decode this request.
-    /// There's nothing to load here, so just make sure the request is well-formed.
+    /// There's nothing to load here, so just make sure the request is
+    /// well-formed.
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
@@ -168,8 +170,8 @@ impl RPCRequestHandler for RPCMicroblocksConfirmedRequestHandler {
 
 /// Decode the HTTP response
 impl HttpResponse for RPCMicroblocksConfirmedRequestHandler {
-    /// Decode this response from a byte stream.  This is called by the client to decode this
-    /// message
+    /// Decode this response from a byte stream.  This is called by the client
+    /// to decode this message
     fn try_parse_response(
         &self,
         preamble: &HttpResponsePreamble,

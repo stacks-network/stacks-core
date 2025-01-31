@@ -51,8 +51,8 @@ impl RPCNakamotoTenureInfoRequestHandler {
 }
 
 /// The view of this node's current tenure.
-/// All of this information can be found from the PeerNetwork struct, so loading this up should
-/// incur zero disk I/O.
+/// All of this information can be found from the PeerNetwork struct, so loading
+/// this up should incur zero disk I/O.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct RPCGetTenureInfo {
     /// The highest known consensus hash (identifies the current tenure)
@@ -86,7 +86,8 @@ impl HttpRequest for RPCNakamotoTenureInfoRequestHandler {
     }
 
     /// Try to decode this request.
-    /// There's nothing to load here, so just make sure the request is well-formed.
+    /// There's nothing to load here, so just make sure the request is
+    /// well-formed.
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,

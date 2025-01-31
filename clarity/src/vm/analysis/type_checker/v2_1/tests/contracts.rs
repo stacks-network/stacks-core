@@ -1802,7 +1802,8 @@ fn clarity_trait_experiments_duplicate_trait(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // Can we re-define a trait with the same type and same name in a different contract?
+    // Can we re-define a trait with the same type and same name in a different
+    // contract?
     let result = db.execute(|db| {
         load_versioned(db, "empty-trait", version, epoch)?;
         load_versioned(db, "empty-trait-copy", version, epoch)
@@ -1887,7 +1888,8 @@ fn clarity_trait_experiments_double_trait(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // Can we define a trait with two methods with the same name and different types?
+    // Can we define a trait with two methods with the same name and different
+    // types?
     match db.execute(|db| load_versioned(db, "double-trait", version, epoch)) {
         Ok(_) if version == ClarityVersion::Clarity1 => (),
         Err(err) if version >= ClarityVersion::Clarity2 => {
@@ -1905,7 +1907,8 @@ fn clarity_trait_experiments_impl_double_trait_both(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // Can we implement a trait with two methods with the same name and different types?
+    // Can we implement a trait with two methods with the same name and different
+    // types?
     match db.execute(|db| {
         load_versioned(db, "double-trait", version, epoch)?;
         load_versioned(db, "impl-double-trait-both", version, epoch)
@@ -1926,7 +1929,8 @@ fn clarity_trait_experiments_impl_double_trait_1(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // Can we implement a trait with two methods with the same name and different types?
+    // Can we implement a trait with two methods with the same name and different
+    // types?
     match db.execute(|db| {
         load_versioned(db, "double-trait", version, epoch)?;
         load_versioned(db, "impl-double-trait-1", version, epoch)
@@ -1949,7 +1953,8 @@ fn clarity_trait_experiments_impl_double_trait_2(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // Can we implement a trait with two methods with the same name and different types?
+    // Can we implement a trait with two methods with the same name and different
+    // types?
     match db.execute(|db| {
         load_versioned(db, "double-trait", version, epoch)?;
         load_versioned(db, "impl-double-trait-2", version, epoch)
@@ -1970,7 +1975,8 @@ fn clarity_trait_experiments_use_double_trait(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // Can we implement a trait with two methods with the same name and different types?
+    // Can we implement a trait with two methods with the same name and different
+    // types?
     match db.execute(|db| {
         load_versioned(db, "double-trait", version, epoch)?;
         load_versioned(db, "partial-double-trait-1", version, epoch)?;
@@ -1994,7 +2000,8 @@ fn clarity_trait_experiments_use_partial_double_trait_1(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // Can we implement a trait with two methods with the same name and different types?
+    // Can we implement a trait with two methods with the same name and different
+    // types?
     match db.execute(|db| {
         load_versioned(db, "double-trait", version, epoch)?;
         load_versioned(db, "partial-double-trait-1", version, epoch)?;
@@ -2018,7 +2025,8 @@ fn clarity_trait_experiments_use_partial_double_trait_2(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // Can we implement a trait with two methods with the same name and different types?
+    // Can we implement a trait with two methods with the same name and different
+    // types?
     match db.execute(|db| {
         load_versioned(db, "double-trait", version, epoch)?;
         load_versioned(db, "partial-double-trait-2", version, epoch)?;
@@ -2058,7 +2066,8 @@ fn clarity_trait_experiments_impl_identical_double_trait(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // Can we implement a trait with two methods with the same name and different types?
+    // Can we implement a trait with two methods with the same name and different
+    // types?
     match db.execute(|db| {
         load_versioned(db, "identical-double-trait", version, epoch)?;
         load_versioned(db, "impl-identical-double-trait", version, epoch)
@@ -2094,8 +2103,8 @@ fn clarity_trait_experiments_use_math_trait_transitive_alias(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // Can we import a trait from a contract that uses but does not define the trait?
-    // Does the transitive import use the trait alias or the trait name?
+    // Can we import a trait from a contract that uses but does not define the
+    // trait? Does the transitive import use the trait alias or the trait name?
     let err = db
         .execute(|db| {
             load_versioned(db, "math-trait", version, epoch)?;
@@ -2114,8 +2123,8 @@ fn clarity_trait_experiments_use_math_trait_transitive_name(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // Can we import a trait from a contract that uses but does not define the trait?
-    // Does the transitive import use the trait alias or the trait name?
+    // Can we import a trait from a contract that uses but does not define the
+    // trait? Does the transitive import use the trait alias or the trait name?
     match db.execute(|db| {
         load_versioned(db, "math-trait", version, epoch)?;
         load_versioned(db, "use-math-trait", version, epoch)?;
@@ -2137,7 +2146,8 @@ fn clarity_trait_experiments_use_original_and_define_a_trait(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // Can we reference original trait and define trait with the same name in one contract?
+    // Can we reference original trait and define trait with the same name in one
+    // contract?
     let result = db.execute(|db| {
         load_versioned(db, "a-trait", version, epoch)?;
         load_versioned(db, "use-original-and-define-a-trait", version, epoch)
@@ -2159,8 +2169,8 @@ fn clarity_trait_experiments_use_redefined_and_define_a_trait(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // Can we reference redefined trait and define trait with the same name in one contract?
-    // Will this redefined trait also overwrite the trait alias?
+    // Can we reference redefined trait and define trait with the same name in one
+    // contract? Will this redefined trait also overwrite the trait alias?
     match db.execute(|db| {
         load_versioned(db, "a-trait", version, epoch)?;
         load_versioned(db, "use-redefined-and-define-a-trait", version, epoch)
@@ -2243,7 +2253,8 @@ fn clarity_trait_experiments_call_nested_trait_1(
     let mut db = marf.as_analysis_db();
 
     // Can we call functions with nested trait types by passing a trait parameter?
-    // Can we call functions with nested trait types where a trait parameter is _not_ passed? E.g. a response.
+    // Can we call functions with nested trait types where a trait parameter is
+    // _not_ passed? E.g. a response.
     let result = db.execute(|db| {
         load_versioned(db, "empty", version, epoch)?;
         load_versioned(db, "empty-trait", version, epoch)?;
@@ -2276,7 +2287,8 @@ fn clarity_trait_experiments_call_nested_trait_2(
     let mut db = marf.as_analysis_db();
 
     // Can we call functions with nested trait types by passing a trait parameter?
-    // Can we call functions with nested trait types where a trait parameter is _not_ passed? E.g. a response.
+    // Can we call functions with nested trait types where a trait parameter is
+    // _not_ passed? E.g. a response.
     let result = db.execute(|db| {
         load_versioned(db, "empty", version, epoch)?;
         load_versioned(db, "empty-trait", version, epoch)?;
@@ -2302,7 +2314,8 @@ fn clarity_trait_experiments_call_nested_trait_3_ok(
     let mut db = marf.as_analysis_db();
 
     // Can we call functions with nested trait types by passing a trait parameter?
-    // Can we call functions with nested trait types where a trait parameter is _not_ passed? E.g. a response.
+    // Can we call functions with nested trait types where a trait parameter is
+    // _not_ passed? E.g. a response.
     let result = db.execute(|db| {
         load_versioned(db, "empty", version, epoch)?;
         load_versioned(db, "empty-trait", version, epoch)?;
@@ -2328,7 +2341,8 @@ fn clarity_trait_experiments_call_nested_trait_3_err(
     let mut db = marf.as_analysis_db();
 
     // Can we call functions with nested trait types by passing a trait parameter?
-    // Can we call functions with nested trait types where a trait parameter is _not_ passed? E.g. a response.
+    // Can we call functions with nested trait types where a trait parameter is
+    // _not_ passed? E.g. a response.
     let result = db.execute(|db| {
         load_versioned(db, "empty", version, epoch)?;
         load_versioned(db, "empty-trait", version, epoch)?;
@@ -2351,7 +2365,8 @@ fn clarity_trait_experiments_call_nested_trait_4(
     let mut db = marf.as_analysis_db();
 
     // Can we call functions with nested trait types by passing a trait parameter?
-    // Can we call functions with nested trait types where a trait parameter is _not_ passed? E.g. a response.
+    // Can we call functions with nested trait types where a trait parameter is
+    // _not_ passed? E.g. a response.
     let result = db.execute(|db| {
         load_versioned(db, "empty", version, epoch)?;
         load_versioned(db, "empty-trait", version, epoch)?;
@@ -2440,7 +2455,8 @@ fn clarity_trait_experiments_trait_literal_incomplete(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // Can we pass a literal where a trait is expected with a partial implementation?
+    // Can we pass a literal where a trait is expected with a partial
+    // implementation?
     let err = db
         .execute(|db| {
             load_versioned(db, "math-trait", version, epoch)?;
@@ -3024,7 +3040,8 @@ fn clarity_trait_experiments_readonly_static_call(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // Can we call a readonly function in a separate contract from a readonly function?
+    // Can we call a readonly function in a separate contract from a readonly
+    // function?
     let result = db.execute(|db| {
         load_versioned(db, "math-trait", version, epoch)?;
         load_versioned(db, "impl-math-trait", version, epoch)?;
@@ -3091,7 +3108,8 @@ fn clarity_trait_experiments_dyn_call_trait_partial(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // Can we dynamically call a contract that just implements one function from a trait?
+    // Can we dynamically call a contract that just implements one function from a
+    // trait?
     let err = db
         .execute(|db| {
             load_versioned(db, "math-trait", version, epoch)?;
@@ -3118,7 +3136,8 @@ fn clarity_trait_experiments_dyn_call_not_implemented(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // Can we dynamically call a contract that doesn't implement the function call via the trait?
+    // Can we dynamically call a contract that doesn't implement the function call
+    // via the trait?
     let err = db
         .execute(|db| {
             load_versioned(db, "math-trait", version, epoch)?;
@@ -3145,7 +3164,8 @@ fn clarity_trait_experiments_call_use_principal(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // Can we call a contract with takes a principal with a contract identifier that is not bound to a deployed contract?
+    // Can we call a contract with takes a principal with a contract identifier that
+    // is not bound to a deployed contract?
     let result = db.execute(|db| {
         load_versioned(db, "use-principal", version, epoch)?;
         call_versioned(db, "use-principal", "use", ".made-up", version, epoch)
@@ -3254,7 +3274,8 @@ fn clarity_trait_experiments_trait_recursion(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // This example shows how traits can induce the runtime to make a recursive (but terminating) call which is caught by the recursion checker at runtime.
+    // This example shows how traits can induce the runtime to make a recursive (but
+    // terminating) call which is caught by the recursion checker at runtime.
     let result = db.execute(|db| {
         load_versioned(db, "simple-trait", version, epoch)?;
         load_versioned(db, "impl-simple-trait", version, epoch)?;
@@ -3283,7 +3304,8 @@ fn clarity_trait_experiments_principals_list_to_traits_list(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // This example shows how traits can induce the runtime to make a recursive (but terminating) call which is caught by the recursion checker at runtime.
+    // This example shows how traits can induce the runtime to make a recursive (but
+    // terminating) call which is caught by the recursion checker at runtime.
     let result = db.execute(|db| {
         load_versioned(db, "math-trait", version, epoch)?;
         load_versioned(db, "impl-math-trait", version, epoch)?;
@@ -3306,7 +3328,8 @@ fn clarity_trait_experiments_traits_list_to_traits_list(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // This example shows how traits can induce the runtime to make a recursive (but terminating) call which is caught by the recursion checker at runtime.
+    // This example shows how traits can induce the runtime to make a recursive (but
+    // terminating) call which is caught by the recursion checker at runtime.
     let result = db.execute(|db| {
         load_versioned(db, "math-trait", version, epoch)?;
         load_versioned(db, "impl-math-trait", version, epoch)?;
@@ -3326,7 +3349,8 @@ fn clarity_trait_experiments_mixed_list_to_traits_list(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // This example shows how traits can induce the runtime to make a recursive (but terminating) call which is caught by the recursion checker at runtime.
+    // This example shows how traits can induce the runtime to make a recursive (but
+    // terminating) call which is caught by the recursion checker at runtime.
     let result = db.execute(|db| {
         load_versioned(db, "math-trait", version, epoch)?;
         load_versioned(db, "impl-math-trait", version, epoch)?;
@@ -3501,7 +3525,8 @@ fn clarity_trait_experiments_cross_epochs(
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // Can we define a trait in epoch 2.05 that uses another trait, then use it in epoch 2.1?
+    // Can we define a trait in epoch 2.05 that uses another trait, then use it in
+    // epoch 2.1?
     let result = db.execute(|db| {
         load_versioned(
             db,

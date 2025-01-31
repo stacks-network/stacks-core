@@ -14,12 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-/// This test module is concerned with verifying that the system can build blocks out of
-/// transactions from the mempool under various circumstances.  The tests here focus on testing
-/// block construction from various types of transactions and block availabilities, based on data
-/// available in the mempool.  This differs from the `chain_histories` module in that the `chain_histories` module is
-/// concerned with building out and testing block histories from manually-constructed blocks,
-/// ignoring mempool-level concerns entirely.
+/// This test module is concerned with verifying that the system can build
+/// blocks out of transactions from the mempool under various circumstances.
+/// The tests here focus on testing block construction from various types of
+/// transactions and block availabilities, based on data available in the
+/// mempool.  This differs from the `chain_histories` module in that the
+/// `chain_histories` module is concerned with building out and testing block
+/// histories from manually-constructed blocks, ignoring mempool-level concerns
+/// entirely.
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -819,7 +821,9 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
     }
 
     let last_block = last_block.unwrap();
-    assert_eq!(last_block.header.total_work.work, 10); // mined a chain successfully across the epoch boundary
+    assert_eq!(last_block.header.total_work.work, 10); // mined a chain
+                                                       // successfully across
+                                                       // the epoch boundary
 }
 
 #[test]
@@ -1129,7 +1133,9 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
     }
 
     let last_block = last_block.unwrap();
-    assert_eq!(last_block.header.total_work.work, 10); // mined a chain successfully across the epoch boundary
+    assert_eq!(last_block.header.total_work.work, 10); // mined a chain
+                                                       // successfully across
+                                                       // the epoch boundary
 }
 
 #[test]
@@ -1139,9 +1145,9 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
 /// the mempool. This leads to the behavior in this test where txs are included
 /// like 0 -> 1 -> 2 ... -> 25 -> next origin 0 -> 1 ...
 /// because the fee goes up with the nonce.
-/// (2) Discovery of nonce in the mempool iteration: this behavior allows the miner
-/// to consider an origin's "next" transaction immediately. Prior behavior would
-/// only do so after processing any other origin's transactions.
+/// (2) Discovery of nonce in the mempool iteration: this behavior allows the
+/// miner to consider an origin's "next" transaction immediately. Prior behavior
+/// would only do so after processing any other origin's transactions.
 fn test_build_anchored_blocks_incrementing_nonces() {
     let private_keys: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let addresses: Vec<_> = private_keys
@@ -1264,8 +1270,8 @@ fn test_build_anchored_blocks_incrementing_nonces() {
     // expensive transaction was not mined, but the two stx-transfers were
     assert_eq!(stacks_block.txs.len(), 251);
 
-    // block should be ordered like coinbase, nonce 0, nonce 1, .. nonce 25, nonce 0, ..
-    //  because the tx fee for each transaction increases with the nonce
+    // block should be ordered like coinbase, nonce 0, nonce 1, .. nonce 25, nonce
+    // 0, ..  because the tx fee for each transaction increases with the nonce
     for (i, tx) in stacks_block.txs.iter().enumerate() {
         if i == 0 {
             let okay = matches!(tx.payload, TransactionPayload::Coinbase(..));
@@ -1729,7 +1735,8 @@ fn test_build_anchored_blocks_zero_fee_transaction() {
     peer.next_burnchain_block(burn_ops);
     peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-    // Check that the block contains 2 transactions (coinbase + zero-fee transaction)
+    // Check that the block contains 2 transactions (coinbase + zero-fee
+    // transaction)
     assert_eq!(stacks_block.txs.len(), 2);
 
     // Verify that the zero-fee transaction is in the block
@@ -2907,20 +2914,21 @@ fn test_build_microblock_stream_forks() {
 fn test_build_microblock_stream_forks_with_descendants() {
     // creates a chainstate that looks like this:
     //
-    //                                                   [mblock] <- [mblock] <- [tenure-2] (Poison-at-2)
-    //                                                 /
-    //                                          (2)   /
+    //                                                   [mblock] <- [mblock] <-
+    // [tenure-2] (Poison-at-2)
+    // /                                          (2)   /
     // [tenure-0] <- [mblock] <- [mblock] <- [mblock] <- [tenure-1] (Poison-at-2)
     //                                                \
     //                                                 \               (4)
-    //                                                   [mblock] <- [mblock] <- [tenure-3] (Poison-at-4)
+    //                                                   [mblock] <- [mblock] <-
+    // [tenure-3] (Poison-at-4)
     //
-    //  Tenures 1 and 2 can report PoisonMicroblocks for the same point in the mblock stream
-    //  fork as long as they themselves are on different branches.
+    //  Tenures 1 and 2 can report PoisonMicroblocks for the same point in the
+    // mblock stream  fork as long as they themselves are on different branches.
     //
-    //  Tenure 3 can report a PoisonMicroblock for a lower point in the fork and have it mined
-    //  (seq(4)), as long as the PoisonMicroblock at seq(2) doesn't find its way into its fork
-    //  of the chain history.
+    //  Tenure 3 can report a PoisonMicroblock for a lower point in the fork and
+    // have it mined  (seq(4)), as long as the PoisonMicroblock at seq(2)
+    // doesn't find its way into its fork  of the chain history.
     let mut privks = vec![];
     let mut addrs = vec![];
     let mut mblock_privks = vec![];
@@ -4678,10 +4686,10 @@ fn mempool_incorporate_pox_unlocks() {
 }
 
 #[test]
-/// Test the situation in which the nonce order of transactions from a user. That is,
-/// nonce 1 has a higher fee than nonce 0.
-/// Want to see that both transactions can go into the same block, because the miner
-/// should make multiple passes.
+/// Test the situation in which the nonce order of transactions from a user.
+/// That is, nonce 1 has a higher fee than nonce 0.
+/// Want to see that both transactions can go into the same block, because the
+/// miner should make multiple passes.
 fn test_fee_order_mismatch_nonce_order() {
     let privk = StacksPrivateKey::from_hex(
         "42faca653724860da7a41bfcef7e6ba78db55146f6900de8cb2a9f760ffac70c01",
@@ -4853,9 +4861,9 @@ fn mempool_walk_test_users_10_rounds_3_cache_size_2000_null_prob_100() {
     paramaterized_mempool_walk_test(10, 3, 2000, 100, 30000)
 }
 
-/// With the parameters given, create `num_rounds` transactions per each user in `num_users`.
-/// `nonce_and_candidate_cache_size` is the cache size used for both of the nonce cache
-/// and the candidate cache.
+/// With the parameters given, create `num_rounds` transactions per each user in
+/// `num_users`. `nonce_and_candidate_cache_size` is the cache size used for
+/// both of the nonce cache and the candidate cache.
 fn paramaterized_mempool_walk_test(
     num_users: usize,
     num_rounds: usize,

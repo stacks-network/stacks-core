@@ -83,11 +83,13 @@ use crate::{monitoring, version_string};
 pub const STREAM_CHUNK_SIZE: u64 = 4096;
 
 pub struct ConversationHttp {
-    /// send/receive buffering state-machine for interfacing with a non-blocking socket
+    /// send/receive buffering state-machine for interfacing with a non-blocking
+    /// socket
     connection: ConnectionHttp,
     /// poll ID for this struct's associated socket
     conn_id: usize,
-    /// time (in seconds) for how long an attempt to connect to a peer is allowed to take
+    /// time (in seconds) for how long an attempt to connect to a peer is
+    /// allowed to take
     timeout: u64,
     /// remote host's identifier (DNS or IP).  Goes into the `Host:` header
     peer_host: PeerHost,
@@ -195,7 +197,8 @@ impl ConversationHttp {
     }
 
     /// Start a HTTP request from this peer, and expect a response.
-    /// Returns the request handle; does not set the handle into this connection.
+    /// Returns the request handle; does not set the handle into this
+    /// connection.
     fn start_request(&mut self, req: StacksHttpRequest) -> Result<ReplyHandleHttp, net_error> {
         test_debug!(
             "{:?},id={}: Start HTTP request {:?}",
@@ -250,8 +253,9 @@ impl ConversationHttp {
         // account for the request
         self.total_request_count += 1;
 
-        // make the relay handle. There may not have been a valid request in the first place, so
-        // we'll use a relay handle (not a reply handle) to push out the error.
+        // make the relay handle. There may not have been a valid request in the first
+        // place, so we'll use a relay handle (not a reply handle) to push out
+        // the error.
         let mut reply = self.connection.make_relay_handle(self.conn_id)?;
 
         // queue up the HTTP headers, and then stream back the body.
@@ -261,8 +265,9 @@ impl ConversationHttp {
     }
 
     /// Handle an external HTTP request.
-    /// Returns a StacksMessageType option -- it's Some(...) if we need to forward a message to the
-    /// peer network (like a transaction or a block or microblock)
+    /// Returns a StacksMessageType option -- it's Some(...) if we need to
+    /// forward a message to the peer network (like a transaction or a block
+    /// or microblock)
     pub fn handle_request(
         &mut self,
         req: StacksHttpRequest,
@@ -276,7 +281,8 @@ impl ConversationHttp {
         let mut reply = self.connection.make_relay_handle(self.conn_id)?;
         let relay_msg_opt = node.take_relay_message();
 
-        // make sure content-length is properly set, based on how we're about to stream data back
+        // make sure content-length is properly set, based on how we're about to stream
+        // data back
         response_preamble.content_length = response_body.content_length();
 
         // buffer up response headers into the reply handle
@@ -307,7 +313,8 @@ impl ConversationHttp {
             do_keep_alive = *keep_alive;
 
             while !drained_stream {
-                // write out the last-generated data into the write-end of the reply handle's pipe
+                // write out the last-generated data into the write-end of the reply handle's
+                // pipe
                 if let Some(pipe_fd) = reply.inner_pipe_out() {
                     let num_written = http_response.pipe_out(pipe_fd)?;
                     if num_written == 0 {
@@ -328,15 +335,17 @@ impl ConversationHttp {
             }
 
             if !drained_stream {
-                // Consume data from the read-end of the reply-handle's pipe and try to drain it into
-                // the socket.  Note that this merely fills the socket buffer; the read-end may still
-                // have pending data after this call (which will need to be drained into the
-                // socket by a subsequent call to `try_flush()` -- i.e. on the next pass of the
+                // Consume data from the read-end of the reply-handle's pipe and try to drain it
+                // into the socket.  Note that this merely fills the socket
+                // buffer; the read-end may still have pending data after this
+                // call (which will need to be drained into the socket by a
+                // subsequent call to `try_flush()` -- i.e. on the next pass of the
                 // event loop).
                 //
-                // The `false` parameter means that the handle should be able to continue to receive
-                // more data from the write-end (i.e. the request handler's streamer instance) even if
-                // all data gets drained to the socket buffer on flush.
+                // The `false` parameter means that the handle should be able to continue to
+                // receive more data from the write-end (i.e. the request
+                // handler's streamer instance) even if all data gets drained to
+                // the socket buffer on flush.
                 match reply.try_flush_ex(false) {
                     Ok(res) => {
                         test_debug!("{}: Streamed reply is drained?: {}", &_self_str, res);
@@ -349,9 +358,10 @@ impl ConversationHttp {
                     }
                 }
             } else {
-                // If we're actually done sending data, then try to flush the reply handle without
-                // expecting more data to be written to the write-end of this reply handle's pipe.
-                // Then, once all bufferred data gets drained to the socket, we can drop this request.
+                // If we're actually done sending data, then try to flush the reply handle
+                // without expecting more data to be written to the write-end of
+                // this reply handle's pipe. Then, once all bufferred data gets
+                // drained to the socket, we can drop this request.
                 match reply.try_flush() {
                     Ok(res) => {
                         test_debug!("{}: Streamed reply is drained?: {}", &_self_str, res);
@@ -395,8 +405,8 @@ impl ConversationHttp {
 
     /// Try to move pending bytes into and out of the reply handle.
     /// If we finish doing so, then extract the StacksHttpResponse
-    /// If we are not done yet, then return Ok(reply-handle) if we can try again, or net_error if
-    /// we cannot.
+    /// If we are not done yet, then return Ok(reply-handle) if we can try
+    /// again, or net_error if we cannot.
     fn try_send_recv_response(
         req: ReplyHandleHttp,
     ) -> Result<StacksHttpResponse, Result<ReplyHandleHttp, net_error>> {

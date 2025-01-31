@@ -37,7 +37,8 @@ use crate::util_lib::db::{DBConn, DBTx};
 pub struct NeighborReplacements {
     /// neighbors to be replaced
     replacements: HashMap<NeighborAddress, Neighbor>,
-    /// slots in the peer DB into which a neighbor will be stored if it must be replaced
+    /// slots in the peer DB into which a neighbor will be stored if it must be
+    /// replaced
     replaced_neighbors: HashMap<NeighborAddress, u32>,
 }
 
@@ -81,10 +82,12 @@ impl NeighborReplacements {
     }
 }
 
-/// Trait that captures all of the DB I/O that the neighbor walk state machine needs to do
+/// Trait that captures all of the DB I/O that the neighbor walk state machine
+/// needs to do
 pub trait NeighborWalkDB {
-    /// Gets a list of random neighbors to crawl for the purposes of continuing a random neighbor
-    /// walk that have been contacted no earlier than the given `last_contact_time`.
+    /// Gets a list of random neighbors to crawl for the purposes of continuing
+    /// a random neighbor walk that have been contacted no earlier than the
+    /// given `last_contact_time`.
     ///
     /// Returns a list of one or more neighbors on success.
     /// Returns NoSuchNeighbor if there are no known neighbors
@@ -95,17 +98,18 @@ pub trait NeighborWalkDB {
         num_neighbors: u64,
     ) -> Result<Vec<Neighbor>, net_error>;
 
-    /// Get the initial peers for a walk, depending on whether or not we're in IBD.
-    /// If we're in IBD, then we have to use the bootstrap nodes.
+    /// Get the initial peers for a walk, depending on whether or not we're in
+    /// IBD. If we're in IBD, then we have to use the bootstrap nodes.
     fn get_initial_walk_neighbors(
         &self,
         network: &PeerNetwork,
         ibd: bool,
     ) -> Result<Vec<Neighbor>, net_error>;
 
-    /// Find the neighbor addresses and neighbor state that we need to resolve to neighbors,
-    /// and find out the neighbor addresses that we already have fresh neighbor data for.
-    /// If we know of a neighbor, and contacted it recently, then consider it resolved _even if_
+    /// Find the neighbor addresses and neighbor state that we need to resolve
+    /// to neighbors, and find out the neighbor addresses that we already
+    /// have fresh neighbor data for. If we know of a neighbor, and
+    /// contacted it recently, then consider it resolved _even if_
     /// the reported NeighborAddress public key hash doesn't match our records.
     fn lookup_stale_neighbors(
         &self,
@@ -113,10 +117,12 @@ pub trait NeighborWalkDB {
         addrs: &[NeighborAddress],
     ) -> Result<(HashMap<NeighborAddress, Neighbor>, Vec<NeighborAddress>), net_error>;
 
-    /// Add a neighbor to the DB, or if there's no slot available for it, schedule it to be
-    /// replaced.  The neighbor info is identified by the handshake message components
-    /// (captured in `preamble`, `handshake`, and `db_data`).  If there is no space in the DB for
-    /// this neighbor, an _existing_ neighbor is loaded from the DB and added to `replacements`.
+    /// Add a neighbor to the DB, or if there's no slot available for it,
+    /// schedule it to be replaced.  The neighbor info is identified by the
+    /// handshake message components (captured in `preamble`, `handshake`,
+    /// and `db_data`).  If there is no space in the DB for this neighbor,
+    /// an _existing_ neighbor is loaded from the DB and added to
+    /// `replacements`.
     ///
     /// Returns (was-new?, neighbor-record)
     fn add_or_schedule_replace_neighbor(
@@ -145,7 +151,8 @@ pub trait NeighborWalkDB {
     ) -> Result<(), net_error>;
 
     /// Get a neighbor record from a handshake.
-    /// If any data for this neighbor exists in the DB already, then load that in as well.
+    /// If any data for this neighbor exists in the DB already, then load that
+    /// in as well.
     fn neighbor_from_handshake(
         &self,
         network: &PeerNetwork,
@@ -163,8 +170,8 @@ pub trait NeighborWalkDB {
         db_data: Option<&StackerDBHandshakeData>,
     ) -> Result<Neighbor, net_error>;
 
-    /// Update the given neighbor with optional new handshake state and save it to the DB.
-    /// Returns the updated neighbor.
+    /// Update the given neighbor with optional new handshake state and save it
+    /// to the DB. Returns the updated neighbor.
     fn update_neighbor(
         &self,
         network: &mut PeerNetwork,
@@ -214,9 +221,9 @@ pub trait NeighborWalkDB {
     }
 
     /// Get a random starting neighbor for an ongoing walk.
-    /// Older but still fresh neighbors will be preferred -- a neighbor from the first 50th
-    /// percentile of neighbors (by last contact time) will be selected at random.
-    /// Returns the random neighbor on success
+    /// Older but still fresh neighbors will be preferred -- a neighbor from the
+    /// first 50th percentile of neighbors (by last contact time) will be
+    /// selected at random. Returns the random neighbor on success
     /// Returns NoSuchNeighbor if there are no candidates
     fn get_next_walk_neighbor(&self, network: &PeerNetwork) -> Result<Neighbor, net_error> {
         // pick a random neighbor as a walking point.
@@ -282,8 +289,9 @@ impl PeerDBNeighborWalk {
         Self {}
     }
 
-    /// Given a neighbor we tried to insert into the peer database, find one of the existing
-    /// neighbors it collided with.  Return its slot in the peer db.
+    /// Given a neighbor we tried to insert into the peer database, find one of
+    /// the existing neighbors it collided with.  Return its slot in the
+    /// peer db.
     fn find_replaced_neighbor_slot(
         conn: &DBConn,
         nk: &NeighborKey,
@@ -341,8 +349,8 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
             }
 
             // need to resolve this one, but don't talk to it if we did so recently (even
-            // if we have stale information for it -- the remote node could be trying to trick
-            // us into DDoS'ing this node).
+            // if we have stale information for it -- the remote node could be trying to
+            // trick us into DDoS'ing this node).
             let peer_opt = PeerDB::get_peer(dbconn, network_id, &naddr.addrbytes, naddr.port)
                 .map_err(net_error::DBError)?;
 

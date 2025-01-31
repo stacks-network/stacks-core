@@ -352,7 +352,8 @@ fn test_http_response_preamble_headers() {
             .is_some(),
         "CORS header is missing"
     );
-    assert!(txt.find("Connection: ").is_none()); // not sent if keep_alive is true
+    assert!(txt.find("Connection: ").is_none()); // not sent if keep_alive is
+                                                 // true
 }
 
 #[test]

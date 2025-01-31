@@ -27,7 +27,8 @@ use stacks_common::{debug, info, warn};
 use crate::client::{retry_with_exponential_backoff, ClientError};
 use crate::config::{SignerConfig, SignerConfigMode};
 
-/// The signer StackerDB slot ID, purposefully wrapped to prevent conflation with SignerID
+/// The signer StackerDB slot ID, purposefully wrapped to prevent conflation
+/// with SignerID
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy, PartialOrd, Ord)]
 pub struct SignerSlotID(pub u32);
 
@@ -53,8 +54,8 @@ pub struct StackerDB<M: MessageSlotID + std::cmp::Eq> {
     stacks_private_key: StacksPrivateKey,
     /// A map of a message ID to last chunk version for each session
     slot_versions: HashMap<M, HashMap<SignerSlotID, u32>>,
-    /// The running mode of the stackerdb (whether the signer is running in dry-run or
-    ///  normal operation)
+    /// The running mode of the stackerdb (whether the signer is running in
+    /// dry-run or  normal operation)
     mode: StackerDBMode,
     /// The reward cycle of the connecting signer
     reward_cycle: u64,
@@ -83,7 +84,8 @@ impl<M: MessageSlotID + 'static> From<&SignerConfig> for StackerDB<M> {
 
 impl<M: MessageSlotID + 'static> StackerDB<M> {
     #[cfg(any(test, feature = "testing"))]
-    /// Create a StackerDB client in normal operation (i.e., not a dry-run signer)
+    /// Create a StackerDB client in normal operation (i.e., not a dry-run
+    /// signer)
     pub fn new_normal(
         host: &str,
         stacks_private_key: StacksPrivateKey,
@@ -124,7 +126,8 @@ impl<M: MessageSlotID + 'static> StackerDB<M> {
         }
     }
 
-    /// Sends messages to the .signers stacker-db with an exponential backoff retry
+    /// Sends messages to the .signers stacker-db with an exponential backoff
+    /// retry
     pub fn send_message_with_retry<T: SignerMessage<M>>(
         &mut self,
         message: T,
@@ -138,8 +141,8 @@ impl<M: MessageSlotID + 'static> StackerDB<M> {
         self.send_message_bytes_with_retry(&msg_id, message_bytes)
     }
 
-    /// Sends message (as a raw msg ID and bytes) to the .signers stacker-db with an
-    /// exponential backoff retry
+    /// Sends message (as a raw msg ID and bytes) to the .signers stacker-db
+    /// with an exponential backoff retry
     pub fn send_message_bytes_with_retry(
         &mut self,
         msg_id: &M,
@@ -295,7 +298,8 @@ mod tests {
         let signer_config = build_signer_config_tomls(
             &[StacksPrivateKey::random()],
             "localhost:20443",
-            Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
+            Some(Duration::from_millis(128)), /* Timeout defaults to 5 seconds. Let's override
+                                               * it to 128 milliseconds. */
             &Network::Testnet,
             "1234",
             16,

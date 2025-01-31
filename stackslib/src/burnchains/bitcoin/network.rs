@@ -58,7 +58,8 @@ impl BitcoinIndexer {
     }
 
     /// Receive a Bitcoin protocol message on the wire
-    /// If this method returns Err(ConnectionBroken), then the caller should attempt to re-connect.
+    /// If this method returns Err(ConnectionBroken), then the caller should
+    /// attempt to re-connect.
     pub fn recv_message(&mut self) -> Result<PeerMessage, btc_error> {
         let magic = network_id_to_bytes(self.runtime.network_id);
 
@@ -166,10 +167,10 @@ impl BitcoinIndexer {
         Ok(self.runtime.block_height)
     }
 
-    /// Connect to a remote peer, do a handshake with the remote peer, and use exponential backoff until we
-    /// succeed in establishing a connection.
-    /// This method masks ConnectionBroken errors, but does not mask other network errors.
-    /// Returns the remote peer's block height on success
+    /// Connect to a remote peer, do a handshake with the remote peer, and use
+    /// exponential backoff until we succeed in establishing a connection.
+    /// This method masks ConnectionBroken errors, but does not mask other
+    /// network errors. Returns the remote peer's block height on success
     pub fn connect_handshake_backoff(&mut self) -> Result<u64, btc_error> {
         let mut backoff: f64 = 1.0;
         let mut rng = thread_rng();
@@ -335,8 +336,8 @@ impl BitcoinIndexer {
     }
 
     /// Send a GetHeaders message
-    /// Note that this isn't a generic GetHeaders message -- you should use this only to ask
-    /// for a batch of 2,000 block hashes after this given hash.
+    /// Note that this isn't a generic GetHeaders message -- you should use this
+    /// only to ask for a batch of 2,000 block hashes after this given hash.
     pub fn send_getheaders(&mut self, prev_block_hash: Sha256dHash) -> Result<(), btc_error> {
         let getheaders =
             btc_message_blockdata::GetHeadersMessage::new(vec![prev_block_hash], prev_block_hash);

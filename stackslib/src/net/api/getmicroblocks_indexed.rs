@@ -83,8 +83,8 @@ impl StacksIndexedMicroblockStream {
             &mblock_info.anchored_block_hash,
         );
 
-        // need to send out the consensus_serialize()'ed array length before sending microblocks.
-        // this is exactly what seq tells us, though.
+        // need to send out the consensus_serialize()'ed array length before sending
+        // microblocks. this is exactly what seq tells us, though.
         test_debug!(
             "Will stream {} microblocks back from {}",
             mblock_info.sequence,
@@ -117,7 +117,8 @@ impl HttpRequest for RPCMicroblocksIndexedRequestHandler {
     }
 
     /// Try to decode this request.
-    /// There's nothing to load here, so just make sure the request is well-formed.
+    /// There's nothing to load here, so just make sure the request is
+    /// well-formed.
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
@@ -199,8 +200,8 @@ impl RPCRequestHandler for RPCMicroblocksIndexedRequestHandler {
 
 /// Decode the HTTP response
 impl HttpResponse for RPCMicroblocksIndexedRequestHandler {
-    /// Decode this response from a byte stream.  This is called by the client to decode this
-    /// message
+    /// Decode this response from a byte stream.  This is called by the client
+    /// to decode this message
     fn try_parse_response(
         &self,
         preamble: &HttpResponsePreamble,

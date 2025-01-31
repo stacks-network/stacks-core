@@ -79,13 +79,13 @@ pub trait Address: Clone + fmt::Debug + fmt::Display {
     fn is_burn(&self) -> bool;
 }
 
-// sliding burnchain window over which a miner's past block-commit payouts will be used to weight
-// its current block-commit in a sortition.
+// sliding burnchain window over which a miner's past block-commit payouts will
+// be used to weight its current block-commit in a sortition.
 // This is the value used in epoch 2.x
 pub const MINING_COMMITMENT_WINDOW: u8 = 6;
 
-// how often a miner must commit in its mining commitment window in order to even be considered for
-// sortition.
+// how often a miner must commit in its mining commitment window in order to
+// even be considered for sortition.
 // Only relevant for Nakamoto (epoch 3.x)
 pub const MINING_COMMITMENT_FREQUENCY_NAKAMOTO: u8 = 3;
 
@@ -110,13 +110,14 @@ pub enum MempoolCollectionBehavior {
     ByReceiveTime,
 }
 
-/// Struct describing an interval of time (measured in burnchain blocks) during which a coinbase is
-/// allotted.  Applies to SIP-029 code paths and later.
+/// Struct describing an interval of time (measured in burnchain blocks) during
+/// which a coinbase is allotted.  Applies to SIP-029 code paths and later.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CoinbaseInterval {
     /// amount of uSTX to award
     pub coinbase: u128,
-    /// height of the chain after Stacks chain genesis at which this coinbase interval starts
+    /// height of the chain after Stacks chain genesis at which this coinbase
+    /// interval starts
     pub effective_start_height: u64,
 }
 
@@ -131,7 +132,8 @@ pub struct CoinbaseInterval {
 // | 4th                | 1,470,000      |   803,950           | 1,758,602,847    | 62.5 (50%) | 0.37%            |
 // | -                  | 2,197,560      | 1,531,510           | 1,804,075,347    | 62.5 (0%)  | 0.18%            |
 //
-// The above is for mainnet, which has a burnchain year of 52596 blocks and starts at burnchain height 666050.
+// The above is for mainnet, which has a burnchain year of 52596 blocks and
+// starts at burnchain height 666050.
 
 /// Mainnet coinbase intervals, as of SIP-029
 pub static COINBASE_INTERVALS_MAINNET: LazyLock<[CoinbaseInterval; 5]> = LazyLock::new(|| {
@@ -208,7 +210,8 @@ pub fn set_test_coinbase_schedule(coinbase_schedule: Option<Vec<CoinbaseInterval
 
 impl CoinbaseInterval {
     /// Look up the value of a coinbase at an effective height.
-    /// Precondition: `intervals` must be sorted in ascending order by `effective_start_height`
+    /// Precondition: `intervals` must be sorted in ascending order by
+    /// `effective_start_height`
     pub fn get_coinbase_at_effective_height(
         intervals: &[CoinbaseInterval],
         effective_height: u64,
@@ -236,7 +239,8 @@ impl CoinbaseInterval {
         intervals.last().unwrap_or_else(|| unreachable!()).coinbase
     }
 
-    /// Verify that a list of intervals is sorted in ascending order by `effective_start_height`
+    /// Verify that a list of intervals is sorted in ascending order by
+    /// `effective_start_height`
     pub fn check_order(intervals: &[CoinbaseInterval]) -> bool {
         if intervals.len() < 2 {
             return true;
@@ -324,7 +328,8 @@ impl StacksEpochId {
     }
 
     /// Whether or not this epoch interprets block commit OPs block hash field
-    ///  as a new block hash or the StacksBlockId of a new tenure's parent tenure.
+    ///  as a new block hash or the StacksBlockId of a new tenure's parent
+    /// tenure.
     pub fn block_commits_to_parent(&self) -> bool {
         match self {
             StacksEpochId::Epoch10
@@ -356,10 +361,12 @@ impl StacksEpochId {
 
     /// Does this epoch support unlocking PoX contributors that miss a slot?
     ///
-    /// Epoch 2.0 - 2.05 didn't support this feature, but they weren't epoch-guarded on it. Instead,
-    ///  the behavior never activates in those epochs because the Pox1 contract does not provide
-    ///  `contibuted_stackers` information. This check maintains that exact semantics by returning
-    ///  true for all epochs before 2.5. For 2.5 and after, this returns false.
+    /// Epoch 2.0 - 2.05 didn't support this feature, but they weren't
+    /// epoch-guarded on it. Instead,  the behavior never activates in those
+    /// epochs because the Pox1 contract does not provide
+    ///  `contibuted_stackers` information. This check maintains that exact
+    /// semantics by returning  true for all epochs before 2.5. For 2.5 and
+    /// after, this returns false.
     pub fn supports_pox_missed_slot_unlocks(&self) -> bool {
         self < &StacksEpochId::Epoch25
     }
@@ -369,8 +376,8 @@ impl StacksEpochId {
         MINING_COMMITMENT_WINDOW
     }
 
-    /// How often must a miner mine in order to be considered for sortition in its commitment
-    /// window?
+    /// How often must a miner mine in order to be considered for sortition in
+    /// its commitment window?
     pub fn mining_commitment_frequency(&self) -> u8 {
         match self {
             StacksEpochId::Epoch10
@@ -500,8 +507,8 @@ impl StacksEpochId {
 
     /// what are the offsets after chain-start when coinbase reductions occur?
     /// Applies at and after SIP-029.
-    /// Uses coinbase intervals defined by COINBASE_INTERVALS_MAINNET, unless overridden by a unit
-    /// or integration test.
+    /// Uses coinbase intervals defined by COINBASE_INTERVALS_MAINNET, unless
+    /// overridden by a unit or integration test.
     fn coinbase_reward_sip029(
         &self,
         mainnet: bool,
@@ -618,9 +625,9 @@ impl StacksAddress {
         // infallible
     }
 
-    /// Generate an address from a given address hash mode, signature threshold, and list of public
-    /// keys.  Only return an address if the combination given is supported.
-    /// The version is may be arbitrary.
+    /// Generate an address from a given address hash mode, signature threshold,
+    /// and list of public keys.  Only return an address if the combination
+    /// given is supported. The version is may be arbitrary.
     pub fn from_public_keys(
         version: u8,
         hash_mode: &AddressHashMode,
@@ -680,8 +687,8 @@ impl StacksAddress {
 
 impl std::fmt::Display for StacksAddress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // the .unwrap_or_else() should be unreachable since StacksAddress is constructed to only
-        // accept a 5-bit value for its version
+        // the .unwrap_or_else() should be unreachable since StacksAddress is
+        // constructed to only accept a 5-bit value for its version
         c32_address(self.version(), self.bytes().as_bytes())
             .expect("Stacks version is not C32-encodable")
             .fmt(f)
@@ -720,9 +727,9 @@ pub struct StacksEpoch<L> {
 }
 
 impl<L> StacksEpoch<L> {
-    /// Determine which epoch, if any, in a list of epochs, a given burnchain height falls into.
-    /// Returns Some(index) if there is such an epoch in the list.
-    /// Returns None if not.
+    /// Determine which epoch, if any, in a list of epochs, a given burnchain
+    /// height falls into. Returns Some(index) if there is such an epoch in
+    /// the list. Returns None if not.
     pub fn find_epoch(epochs: &[StacksEpoch<L>], height: u64) -> Option<usize> {
         for (i, epoch) in epochs.iter().enumerate() {
             if epoch.start_height <= height && height < epoch.end_height {

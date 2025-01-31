@@ -79,7 +79,9 @@ pub const STORE_CONTRACT: &str = r#"(define-map store { key: (string-ascii 32) }
         (print (concat "Setting key " key))
         (map-set store { key: key } { value: value })
         (ok true)))"#;
-// ./blockstack-cli --testnet publish 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 0 store /tmp/out.clar
+// ./blockstack-cli --testnet publish
+// 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 0 store
+// /tmp/out.clar
 
 pub const SK_1: &str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
 pub const SK_2: &str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
@@ -109,8 +111,8 @@ lazy_static! {
     });
 }
 
-/// Generate a random port number between 1024 and 65534 (inclusive) and insert it into the USED_PORTS set.
-/// Returns the generated port number.
+/// Generate a random port number between 1024 and 65534 (inclusive) and insert
+/// it into the USED_PORTS set. Returns the generated port number.
 pub fn gen_random_port() -> u16 {
     let mut rng = rand::thread_rng();
     let range_len = (1024..u16::MAX).len();
@@ -126,8 +128,9 @@ pub fn gen_random_port() -> u16 {
     }
 }
 
-// Add a port to the USED_PORTS set. This is used to ensure that we don't try to bind to the same port in tests
-// Returns true if the port was inserted, false if it was already in the set.
+// Add a port to the USED_PORTS set. This is used to ensure that we don't try to
+// bind to the same port in tests Returns true if the port was inserted, false
+// if it was already in the set.
 pub fn insert_new_port(port: u16) -> bool {
     let mut ports = USED_PORTS.lock().unwrap();
     ports.insert(port)
@@ -350,8 +353,10 @@ pub fn make_contract_publish_microblock_only(
 }
 
 pub fn new_test_conf() -> Config {
-    // secretKey: "b1cf9cee5083f421c84d7cb53be5edf2801c3c78d63d53917aee0bdc8bd160ee01",
-    // publicKey: "03e2ed46873d0db820e8c6001aabc082d72b5b900b53b7a1b9714fe7bde3037b81",
+    // secretKey:
+    // "b1cf9cee5083f421c84d7cb53be5edf2801c3c78d63d53917aee0bdc8bd160ee01",
+    // publicKey:
+    // "03e2ed46873d0db820e8c6001aabc082d72b5b900b53b7a1b9714fe7bde3037b81",
     // stacksAddress: "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT"
     let rpc_port = gen_random_port();
     let p2p_port = gen_random_port();
@@ -381,7 +386,8 @@ pub fn new_test_conf() -> Config {
 
 /// Randomly change the config's network ports to new ports.
 pub fn set_random_binds(config: &mut Config) {
-    // Just in case prior config was not created with `new_test_conf`, we need to add the prior generated ports
+    // Just in case prior config was not created with `new_test_conf`, we need to
+    // add the prior generated ports
     let prior_rpc_port: u16 = config
         .node
         .rpc_bind
@@ -579,15 +585,16 @@ fn make_microblock(
         })
         .collect();
 
-    // NOTE: we intentionally do not check the block's microblock pubkey hash against the private
-    // key, because we may need to test that microblocks get rejected due to bad signatures.
+    // NOTE: we intentionally do not check the block's microblock pubkey hash
+    // against the private key, because we may need to test that microblocks get
+    // rejected due to bad signatures.
     microblock_builder
         .mine_next_microblock_from_txs(mempool_txs, privk)
         .unwrap()
 }
 
-/// Deserializes the `StacksTransaction` objects from `blocks` and returns all those that
-/// match `test_fn`.
+/// Deserializes the `StacksTransaction` objects from `blocks` and returns all
+/// those that match `test_fn`.
 pub fn select_transactions_where(
     blocks: &Vec<serde_json::Value>,
     test_fn: fn(&StacksTransaction) -> bool,
@@ -608,8 +615,8 @@ pub fn select_transactions_where(
     result
 }
 
-/// This function will call `next_block_and_wait` until the burnchain height underlying `BitcoinRegtestController`
-/// reaches *exactly* `target_height`.
+/// This function will call `next_block_and_wait` until the burnchain height
+/// underlying `BitcoinRegtestController` reaches *exactly* `target_height`.
 ///
 /// Returns `false` if `next_block_and_wait` times out.
 pub fn run_until_burnchain_height(
@@ -1362,8 +1369,8 @@ fn test_inner_pick_best_tip() {
     );
 
     // suppose now that we previously picked (2,104) as the best-tip.
-    // No other tips at Stacks height 2 will be accepted, nor will those at heights 3 and 4 (since
-    // they descend from the wrong height-2 block).
+    // No other tips at Stacks height 2 will be accepted, nor will those at heights
+    // 3 and 4 (since they descend from the wrong height-2 block).
     let mut best_tips = HashMap::new();
     best_tips.insert(2, sorted_candidates[3].clone());
 
@@ -1422,10 +1429,11 @@ fn test_inner_pick_best_tip() {
         BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..5].to_vec(), best_tips.clone())
     );
 
-    // now suppose that we previously picked both (2,101) and (3,105) as the best-tips.
-    // these best-tips are in conflict, but that shouldn't prohibit us from choosing (4,106) as the
-    // best tip even though it doesn't confirm (2,101).  However, it would mean that (2,102) and
-    // (2,104) are in conflict.
+    // now suppose that we previously picked both (2,101) and (3,105) as the
+    // best-tips. these best-tips are in conflict, but that shouldn't prohibit
+    // us from choosing (4,106) as the best tip even though it doesn't confirm
+    // (2,101).  However, it would mean that (2,102) and (2,104) are in
+    // conflict.
     let mut best_tips = HashMap::new();
     best_tips.insert(2, sorted_candidates[1].clone());
     best_tips.insert(3, sorted_candidates[4].clone());

@@ -153,11 +153,14 @@ pub struct BlockInfo {
     pub valid: Option<bool>,
     /// Whether this block is already being signed over
     pub signed_over: bool,
-    /// Time at which the proposal was received by this signer (epoch time in seconds)
+    /// Time at which the proposal was received by this signer (epoch time in
+    /// seconds)
     pub proposed_time: u64,
-    /// Time at which the proposal was signed by this signer (epoch time in seconds)
+    /// Time at which the proposal was signed by this signer (epoch time in
+    /// seconds)
     pub signed_self: Option<u64>,
-    /// Time at which the proposal was signed by a threshold in the signer set (epoch time in seconds)
+    /// Time at which the proposal was signed by a threshold in the signer set
+    /// (epoch time in seconds)
     pub signed_group: Option<u64>,
     /// The block state relative to the signer's view of the stacks blockchain
     pub state: BlockState,
@@ -195,7 +198,8 @@ impl BlockInfo {
             .unwrap_or(false)
     }
 
-    /// Mark this block as locally accepted, valid, signed over, and records either the self or group signed timestamp in the block info if it wasn't
+    /// Mark this block as locally accepted, valid, signed over, and records
+    /// either the self or group signed timestamp in the block info if it wasn't
     ///  already set.
     pub fn mark_locally_accepted(&mut self, group_signed: bool) -> Result<(), String> {
         self.move_to(BlockState::LocallyAccepted)?;
@@ -209,8 +213,8 @@ impl BlockInfo {
         Ok(())
     }
 
-    /// Mark this block as valid, signed over, and records a group timestamp in the block info if it wasn't
-    ///  already set.
+    /// Mark this block as valid, signed over, and records a group timestamp in
+    /// the block info if it wasn't  already set.
     fn mark_globally_accepted(&mut self) -> Result<(), String> {
         self.move_to(BlockState::GloballyAccepted)?;
         self.valid = Some(true);
@@ -409,7 +413,8 @@ CREATE TABLE IF NOT EXISTS block_rejection_signer_addrs (
     PRIMARY KEY (signer_addr)
 ) STRICT;"#;
 
-// Migration logic necessary to move blocks from the old blocks table to the new blocks table
+// Migration logic necessary to move blocks from the old blocks table to the new
+// blocks table
 static MIGRATE_BLOCKS_TABLE_2_BLOCKS_TABLE_3: &str = r#"
 CREATE TABLE IF NOT EXISTS temp_blocks (
     -- The block sighash commits to all of the stacks and burnchain state as of its parent,
@@ -524,7 +529,8 @@ static SCHEMA_4: &[&str] = &[
 static SCHEMA_5: &[&str] = &[
     MIGRATE_BLOCKS_TABLE_2_BLOCKS_TABLE_3,
     CREATE_INDEXES_5,
-    "DELETE FROM db_config;", // Be extra careful. Make sure there is only ever one row in the table.
+    "DELETE FROM db_config;", /* Be extra careful. Make sure there is only ever one row in the
+                               * table. */
     "INSERT INTO db_config (version) VALUES (5);",
 ];
 
@@ -652,8 +658,9 @@ impl SignerDb {
 
     /// Register custom scalar functions used by the database
     fn register_scalar_functions(&self) -> Result<(), DBError> {
-        // Register helper function for determining if a block is a tenure change transaction
-        // Required only for data migration from Schema 4 to Schema 5
+        // Register helper function for determining if a block is a tenure change
+        // transaction Required only for data migration from Schema 4 to Schema
+        // 5
         self.db.create_scalar_function(
             "is_tenure_change",
             1,
@@ -675,8 +682,8 @@ impl SignerDb {
     }
 
     /// Either instantiate a new database, or migrate an existing one
-    /// If the detected version of the existing database is 0 (i.e., a pre-migration
-    /// logic DB, the DB will be dropped).
+    /// If the detected version of the existing database is 0 (i.e., a
+    /// pre-migration logic DB, the DB will be dropped).
     fn create_or_migrate(&mut self) -> Result<(), DBError> {
         self.register_scalar_functions()?;
         let sql_tx = tx_begin_immediate(&mut self.db)?;
@@ -709,7 +716,8 @@ impl SignerDb {
         )
     }
 
-    /// Get the signer state for the provided reward cycle if it exists in the database
+    /// Get the signer state for the provided reward cycle if it exists in the
+    /// database
     pub fn get_encrypted_signer_state(
         &self,
         reward_cycle: u64,
@@ -721,7 +729,8 @@ impl SignerDb {
         )
     }
 
-    /// Insert the given state in the `signer_states` table for the given reward cycle
+    /// Insert the given state in the `signer_states` table for the given reward
+    /// cycle
     pub fn insert_encrypted_signer_state(
         &self,
         reward_cycle: u64,
@@ -746,8 +755,8 @@ impl SignerDb {
         try_deserialize(result)
     }
 
-    /// Return whether a block proposal has been stored for a tenure (identified by its consensus hash)
-    /// Does not consider the block's state.
+    /// Return whether a block proposal has been stored for a tenure (identified
+    /// by its consensus hash) Does not consider the block's state.
     pub fn has_proposed_block_in_tenure(&self, tenure: &ConsensusHash) -> Result<bool, DBError> {
         let query = "SELECT block_info FROM blocks WHERE consensus_hash = ? LIMIT 1";
         let result: Option<String> = query_row(&self.db, query, [tenure])?;
@@ -755,7 +764,8 @@ impl SignerDb {
         Ok(result.is_some())
     }
 
-    /// Return the first signed block in a tenure (identified by its consensus hash)
+    /// Return the first signed block in a tenure (identified by its consensus
+    /// hash)
     pub fn get_first_signed_block_in_tenure(
         &self,
         tenure: &ConsensusHash,
@@ -766,7 +776,8 @@ impl SignerDb {
         try_deserialize(result)
     }
 
-    /// Return the last accepted block in a tenure (identified by its consensus hash).
+    /// Return the last accepted block in a tenure (identified by its consensus
+    /// hash).
     pub fn get_last_accepted_block(
         &self,
         tenure: &ConsensusHash,
@@ -782,7 +793,8 @@ impl SignerDb {
         try_deserialize(result)
     }
 
-    /// Return the last globally accepted block in a tenure (identified by its consensus hash).
+    /// Return the last globally accepted block in a tenure (identified by its
+    /// consensus hash).
     pub fn get_last_globally_accepted_block(
         &self,
         tenure: &ConsensusHash,
@@ -826,8 +838,9 @@ impl SignerDb {
         Ok(())
     }
 
-    /// Get timestamp (epoch seconds) at which a burn block was received over the event dispatcheer by this signer
-    /// if that burn block has been received.
+    /// Get timestamp (epoch seconds) at which a burn block was received over
+    /// the event dispatcheer by this signer if that burn block has been
+    /// received.
     pub fn get_burn_block_receive_time(
         &self,
         burn_hash: &BurnchainHeaderHash,
@@ -993,8 +1006,8 @@ impl SignerDb {
         Ok(Some(broadcasted))
     }
 
-    /// Get a pending block validation, sorted by the time at which it was added to the pending table.
-    /// If found, remove it from the pending table.
+    /// Get a pending block validation, sorted by the time at which it was added
+    /// to the pending table. If found, remove it from the pending table.
     pub fn get_and_remove_pending_block_validation(
         &self,
     ) -> Result<Option<Sha512Trunc256Sum>, DBError> {
@@ -1030,7 +1043,8 @@ impl SignerDb {
         Ok(())
     }
 
-    /// Return the start time (epoch time in seconds) and the processing time in milliseconds of the tenure (idenfitied by consensus_hash).
+    /// Return the start time (epoch time in seconds) and the processing time in
+    /// milliseconds of the tenure (idenfitied by consensus_hash).
     fn get_tenure_times(&self, tenure: &ConsensusHash) -> Result<(u64, u64), DBError> {
         let query = "SELECT tenure_change, proposed_time, validation_time_ms FROM blocks WHERE consensus_hash = ?1 AND state = ?2 ORDER BY stacks_height DESC";
         let args = params![tenure, BlockState::GloballyAccepted.to_string()];
@@ -1062,8 +1076,9 @@ impl SignerDb {
         ))
     }
 
-    /// Calculate the tenure extend timestamp. If determine the timestamp for a block rejection, check_tenure_extend should be set to false to avoid recalculating
-    /// the tenure extend timestamp for a tenure extend block.
+    /// Calculate the tenure extend timestamp. If determine the timestamp for a
+    /// block rejection, check_tenure_extend should be set to false to avoid
+    /// recalculating the tenure extend timestamp for a tenure extend block.
     pub fn calculate_tenure_extend_timestamp(
         &self,
         tenure_idle_timeout: Duration,
@@ -1093,8 +1108,9 @@ impl SignerDb {
         tenure_extend_timestamp
     }
 
-    /// Mark a block as globally accepted. This removes the block from the pending
-    /// validations table. This does **not** update the block's state in SignerDb.
+    /// Mark a block as globally accepted. This removes the block from the
+    /// pending validations table. This does **not** update the block's
+    /// state in SignerDb.
     pub fn mark_block_globally_accepted(&self, block_info: &mut BlockInfo) -> Result<(), DBError> {
         block_info
             .mark_globally_accepted()
@@ -1103,8 +1119,9 @@ impl SignerDb {
         Ok(())
     }
 
-    /// Mark a block as globally rejected. This removes the block from the pending
-    /// validations table. This does **not** update the block's state in SignerDb.
+    /// Mark a block as globally rejected. This removes the block from the
+    /// pending validations table. This does **not** update the block's
+    /// state in SignerDb.
     pub fn mark_block_globally_rejected(&self, block_info: &mut BlockInfo) -> Result<(), DBError> {
         block_info
             .mark_globally_rejected()
@@ -1539,7 +1556,8 @@ mod tests {
         assert!(block.check_state(BlockState::GloballyAccepted));
         assert!(!block.check_state(BlockState::GloballyRejected));
 
-        // Must manually override as will not be able to move from GloballyAccepted to GloballyRejected
+        // Must manually override as will not be able to move from GloballyAccepted to
+        // GloballyRejected
         block.state = BlockState::GloballyRejected;
         assert!(!block.check_state(BlockState::Unprocessed));
         assert!(!block.check_state(BlockState::LocallyAccepted));
@@ -1718,7 +1736,8 @@ mod tests {
         block_info_3.validation_time_ms = Some(5000);
         block_info_3.proposed_time = block_info_1.proposed_time + 10;
 
-        // This should have no effect on the time calculations as its not a globally accepted block
+        // This should have no effect on the time calculations as its not a globally
+        // accepted block
         let (mut block_info_4, _block_proposal) = create_block_override(|b| {
             b.block.header.consensus_hash = consensus_hash_1;
             b.block.header.miner_signature = MessageSignature([0x04; 65]);
@@ -1739,7 +1758,8 @@ mod tests {
         block_info_5.validation_time_ms = Some(20000);
         block_info_5.proposed_time = block_info_1.proposed_time + 20;
 
-        // This should have no effect on the time calculations as its not a globally accepted block
+        // This should have no effect on the time calculations as its not a globally
+        // accepted block
         let (mut block_info_6, _block_proposal) = create_block_override(|b| {
             b.block.header.consensus_hash = consensus_hash_2;
             b.block.header.miner_signature = MessageSignature([0x06; 65]);

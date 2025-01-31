@@ -68,12 +68,14 @@ pub struct TrieFileRAM {
     trie_offsets: TrieIdOffsets,
 }
 
-/// This is flat-file storage for a MARF's tries.  All tries are stored as contiguous byte arrays
-/// within a larger byte array.  The variants differ in how those bytes are backed.  The `RAM`
-/// variant stores data in RAM in a byte buffer, and the `Disk` variant stores data in a flat file
-/// on disk.  This structure is used to support external trie blobs, so that the tries don't need
-/// to be stored in sqlite blobs (which incurs a sqlite paging overhead).  This is useful for when
-/// the tries are too big to fit into a single page, such as the Stacks chainstate.
+/// This is flat-file storage for a MARF's tries.  All tries are stored as
+/// contiguous byte arrays within a larger byte array.  The variants differ in
+/// how those bytes are backed.  The `RAM` variant stores data in RAM in a byte
+/// buffer, and the `Disk` variant stores data in a flat file on disk.  This
+/// structure is used to support external trie blobs, so that the tries don't
+/// need to be stored in sqlite blobs (which incurs a sqlite paging overhead).
+/// This is useful for when the tries are too big to fit into a single page,
+/// such as the Stacks chainstate.
 pub enum TrieFile {
     RAM(TrieFileRAM),
     Disk(TrieFileDisk),
@@ -143,8 +145,8 @@ impl TrieFile {
         }
     }
 
-    /// Append a new trie blob to external storage, and add the offset and length to the trie DB.
-    /// Return the trie ID
+    /// Append a new trie blob to external storage, and add the offset and
+    /// length to the trie DB. Return the trie ID
     pub fn store_trie_blob<T: MarfTrieId>(
         &mut self,
         db: &Connection,
@@ -180,7 +182,8 @@ impl TrieFile {
 
     /// Vacuum the database and report the size before and after.
     ///
-    /// Returns database errors.  Filesystem errors from reporting the file size change are masked.
+    /// Returns database errors.  Filesystem errors from reporting the file size
+    /// change are masked.
     fn inner_post_migrate_vacuum(db: &Connection, db_path: &str) -> Result<(), Error> {
         // for fun, report the shrinkage
         let size_before_opt = fs::metadata(db_path)
@@ -204,8 +207,8 @@ impl TrieFile {
         Ok(())
     }
 
-    /// Vacuum the database, and set up and tear down the necessary environment variables to
-    /// use same parent directory for scratch space.
+    /// Vacuum the database, and set up and tear down the necessary environment
+    /// variables to use same parent directory for scratch space.
     ///
     /// Infallible -- any vacuum errors are masked.
     fn post_migrate_vacuum(db: &Connection, db_path: &str) {
@@ -247,7 +250,8 @@ impl TrieFile {
     }
 
     /// Copy the trie blobs out of a sqlite3 DB into their own file.
-    /// NOTE: this is *not* thread-safe.  Do not call while the DB is being used by another thread.
+    /// NOTE: this is *not* thread-safe.  Do not call while the DB is being used
+    /// by another thread.
     pub fn export_trie_blobs<T: MarfTrieId>(
         &mut self,
         db: &Connection,
@@ -351,8 +355,9 @@ impl NodeHashReader for TrieFileNodeHashReader<'_> {
 }
 
 impl TrieFile {
-    /// Determine the file offset in the TrieFile where a serialized trie starts.
-    /// The offsets are stored in the given DB, and are cached indefinitely once loaded.
+    /// Determine the file offset in the TrieFile where a serialized trie
+    /// starts. The offsets are stored in the given DB, and are cached
+    /// indefinitely once loaded.
     pub fn get_trie_offset(&mut self, db: &Connection, block_id: u32) -> Result<u64, Error> {
         let offset_opt = match self {
             TrieFile::RAM(ref ram) => ram.trie_offsets.get(&block_id),
@@ -384,8 +389,8 @@ impl TrieFile {
         Ok(TrieHash(hash_buff))
     }
 
-    /// Obtain a TrieNodeType and its associated TrieHash for a node, given its block ID and
-    /// pointer
+    /// Obtain a TrieNodeType and its associated TrieHash for a node, given its
+    /// block ID and pointer
     pub fn read_node_type(
         &mut self,
         db: &Connection,
@@ -409,7 +414,8 @@ impl TrieFile {
         read_nodetype_at_head_nohash(self, ptr.id())
     }
 
-    /// Obtain a TrieHash for a node, given the node's block's hash (used only in testing)
+    /// Obtain a TrieHash for a node, given the node's block's hash (used only
+    /// in testing)
     #[cfg(test)]
     pub fn get_node_hash_bytes_by_bhh<T: MarfTrieId>(
         &mut self,
@@ -471,7 +477,8 @@ impl TrieFile {
     }
 }
 
-/// Boilerplate Write implementation for TrieFileDisk.  Plumbs through to the inner fd.
+/// Boilerplate Write implementation for TrieFileDisk.  Plumbs through to the
+/// inner fd.
 impl Write for TrieFileDisk {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.fd.write(buf)
@@ -482,7 +489,8 @@ impl Write for TrieFileDisk {
     }
 }
 
-/// Boilerplate Write implementation for TrieFileRAM.  Plumbs through to the inner fd.
+/// Boilerplate Write implementation for TrieFileRAM.  Plumbs through to the
+/// inner fd.
 impl Write for TrieFileRAM {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.fd.write(buf)
@@ -493,7 +501,8 @@ impl Write for TrieFileRAM {
     }
 }
 
-/// Boilerplate Write implementation for TrieFile enum.  Plumbs through to the inner struct.
+/// Boilerplate Write implementation for TrieFile enum.  Plumbs through to the
+/// inner struct.
 impl Write for TrieFile {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         match self {
@@ -510,21 +519,24 @@ impl Write for TrieFile {
     }
 }
 
-/// Boilerplate Read implementation for TrieFileDisk.  Plumbs through to the inner fd.
+/// Boilerplate Read implementation for TrieFileDisk.  Plumbs through to the
+/// inner fd.
 impl Read for TrieFileDisk {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.fd.read(buf)
     }
 }
 
-/// Boilerplate Read implementation for TrieFileRAM.  Plumbs through to the inner fd.
+/// Boilerplate Read implementation for TrieFileRAM.  Plumbs through to the
+/// inner fd.
 impl Read for TrieFileRAM {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.fd.read(buf)
     }
 }
 
-/// Boilerplate Read implementation for TrieFile enum.  Plumbs through to the inner struct.
+/// Boilerplate Read implementation for TrieFile enum.  Plumbs through to the
+/// inner struct.
 impl Read for TrieFile {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
@@ -534,14 +546,16 @@ impl Read for TrieFile {
     }
 }
 
-/// Boilerplate Seek implementation for TrieFileDisk.  Plumbs through to the inner fd
+/// Boilerplate Seek implementation for TrieFileDisk.  Plumbs through to the
+/// inner fd
 impl Seek for TrieFileDisk {
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         self.fd.seek(pos)
     }
 }
 
-/// Boilerplate Seek implementation for TrieFileDisk.  Plumbs through to the inner fd
+/// Boilerplate Seek implementation for TrieFileDisk.  Plumbs through to the
+/// inner fd
 impl Seek for TrieFileRAM {
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         self.fd.seek(pos)

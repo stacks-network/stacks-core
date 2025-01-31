@@ -274,8 +274,8 @@ fn integration_test_get_info() {
                     .unwrap();
 
                 // store this for later, because we can't just do it in a refcell or any outer
-                // variable because this is a function pointer type, and thus can't access anything
-                // outside its scope :(
+                // variable because this is a function pointer type, and thus can't access
+                // anything outside its scope :(
                 let tmppath = "/tmp/integration_test_get_info-old-tip";
                 let old_tip = StacksBlockId::new(&consensus_hash, &header_hash);
                 use std::fs;
@@ -1219,7 +1219,8 @@ fn contract_stx_transfer() {
                     )
                     .unwrap();
             } else if round == 4 {
-                // let's testing "chaining": submit MAXIMUM_MEMPOOL_TX_CHAINING - 1 txs, which should succeed
+                // let's testing "chaining": submit MAXIMUM_MEMPOOL_TX_CHAINING - 1 txs, which
+                // should succeed
                 for i in 0..MAXIMUM_MEMPOOL_TX_CHAINING {
                     let xfer_to_contract = make_stacks_transfer(
                         &sk_3,
@@ -1790,7 +1791,8 @@ fn bad_contract_tx_rollback() {
                     )
                     .unwrap();
 
-                // doesn't consistently get mined by the StacksBlockBuilder, because order matters!
+                // doesn't consistently get mined by the StacksBlockBuilder, because order
+                // matters!
                 let xfer_to_contract =
                     make_stacks_transfer(&sk_3, 2, 10, CHAIN_ID_TESTNET, &addr_2.into(), 3000);
                 tenure

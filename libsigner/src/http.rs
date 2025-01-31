@@ -28,7 +28,8 @@ use crate::error::{EventError, RPCError};
 pub const MAX_HTTP_HEADERS: usize = 32;
 pub const MAX_HTTP_HEADER_LEN: usize = 4096;
 
-/// Decoding of the relevant parts of a signer-directed HTTP request from the Stacks node
+/// Decoding of the relevant parts of a signer-directed HTTP request from the
+/// Stacks node
 #[derive(Debug)]
 pub struct SignerHttpRequest {
     pub verb: String,
@@ -125,14 +126,16 @@ pub fn decode_http_request(payload: &[u8]) -> Result<SignerHttpRequest, EventErr
 }
 
 /// Decode the HTTP response payload into its headers and body.
-/// Return the offset into payload where the body starts, and a table of headers.
+/// Return the offset into payload where the body starts, and a table of
+/// headers.
 ///
-/// If the payload contains a status code other than 200, then RPCERror::HttpError(..) will be
-/// returned with the status code.
-/// If the payload is missing necessary data, then RPCError::MalformedResponse(..) will be
-/// returned, with a human-readable reason string.
-/// If the payload does not contain a full HTTP header list, then RPCError::Deserialize(..) will be
-/// returned.  This can happen if there are more than MAX_HTTP_HEADERS in the payload, for example.
+/// If the payload contains a status code other than 200, then
+/// RPCERror::HttpError(..) will be returned with the status code.
+/// If the payload is missing necessary data, then
+/// RPCError::MalformedResponse(..) will be returned, with a human-readable
+/// reason string. If the payload does not contain a full HTTP header list, then
+/// RPCError::Deserialize(..) will be returned.  This can happen if there are
+/// more than MAX_HTTP_HEADERS in the payload, for example.
 pub fn decode_http_response(payload: &[u8]) -> Result<(HashMap<String, String>, usize), RPCError> {
     // realistically, there won't be more than 32 headers
     let mut headers_buf = [httparse::EMPTY_HEADER; MAX_HTTP_HEADERS];

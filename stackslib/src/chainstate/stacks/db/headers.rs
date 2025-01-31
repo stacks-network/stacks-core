@@ -106,7 +106,8 @@ impl FromRow<StacksMicroblockHeader> for StacksMicroblockHeader {
 }
 
 impl StacksChainState {
-    /// Insert a block header that is paired with an already-existing block commit and snapshot
+    /// Insert a block header that is paired with an already-existing block
+    /// commit and snapshot
     pub fn insert_stacks_block_header(
         tx: &DBTx,
         parent_id: &StacksBlockId,
@@ -217,8 +218,8 @@ impl StacksChainState {
         }
     }
 
-    /// Get a stacks header info by burn block and block hash (i.e. by primary key).
-    /// Does not get back data about the parent microblock stream.
+    /// Get a stacks header info by burn block and block hash (i.e. by primary
+    /// key). Does not get back data about the parent microblock stream.
     pub fn get_anchored_block_header_info(
         conn: &Connection,
         consensus_hash: &ConsensusHash,
@@ -232,8 +233,9 @@ impl StacksChainState {
         .map_err(Error::DBError)
     }
 
-    /// Get a stacks header info by index block hash (i.e. by the hash of the burn block header
-    /// hash and the block hash -- the hash of the primary key)
+    /// Get a stacks header info by index block hash (i.e. by the hash of the
+    /// burn block header hash and the block hash -- the hash of the primary
+    /// key)
     pub fn get_stacks_block_header_info_by_index_block_hash(
         conn: &Connection,
         index_block_hash: &StacksBlockId,
@@ -246,9 +248,9 @@ impl StacksChainState {
     }
 
     /// Get a stacks header info by its sortition's consensus hash.
-    /// Because the consensus hash mixes in the burnchain header hash and the PoX bit vector,
-    /// it's guaranteed to be unique across all burnchain forks and all PoX forks, and thus all
-    /// Stacks forks.
+    /// Because the consensus hash mixes in the burnchain header hash and the
+    /// PoX bit vector, it's guaranteed to be unique across all burnchain
+    /// forks and all PoX forks, and thus all Stacks forks.
     pub fn get_stacks_block_header_info_by_consensus_hash(
         conn: &Connection,
         consensus_hash: &ConsensusHash,
@@ -346,8 +348,9 @@ impl StacksChainState {
             .is_some())
     }
 
-    /// Load up the past N ancestors' index block hashes of a given block, *including* the given
-    /// index_block_hash.  The returned vector will contain the following hashes, in this order
+    /// Load up the past N ancestors' index block hashes of a given block,
+    /// *including* the given index_block_hash.  The returned vector will
+    /// contain the following hashes, in this order
     ///     * index_block_hash
     ///     * 1st ancestor of index_block_hash
     ///     * 2nd ancestor of index_block_hash

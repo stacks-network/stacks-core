@@ -34,12 +34,13 @@ use crate::{neon, BitcoinRegtestController, BurnchainController, Keychain};
 
 #[test]
 #[ignore]
-// Test that the miner code path and the follower code path end up with the exact same calculation of a
-//  a block's execution cost, budget expended, and total allotted budget.
-// This test will broadcast transactions from a single user account, where *even* nonce transactions
-//  are marked anchored block only and *odd* nonce transactions are marked microblock only. This will ensure
-//  that each anchored block (after the first) will confirm a 1-transaction microblock stream and contain 1
-//  transaction.
+// Test that the miner code path and the follower code path end up with the
+// exact same calculation of a  a block's execution cost, budget expended, and
+// total allotted budget. This test will broadcast transactions from a single
+// user account, where *even* nonce transactions  are marked anchored block only
+// and *odd* nonce transactions are marked microblock only. This will ensure
+//  that each anchored block (after the first) will confirm a 1-transaction
+// microblock stream and contain 1  transaction.
 fn test_exact_block_costs() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -261,7 +262,8 @@ fn test_exact_block_costs() {
         assert_eq!(mined_mblock_confirmed_cost, mblock_confirm_cost as u64);
     }
 
-    // check that we processed at least 2 user transactions in a block pre-2.05 and post-2.05
+    // check that we processed at least 2 user transactions in a block pre-2.05 and
+    // post-2.05
     assert!(processed_txs_before_205);
     assert!(processed_txs_after_205);
 
@@ -401,9 +403,9 @@ fn test_dynamic_db_method_costs() {
 
     // broadcast 10 contract calls and produce 10 more blocks
     //  there's an off-by-one behavior in `next_block_and_wait`, where the miner
-    //  has already assembled the next block when it is called, so the tx broadcasted
-    //  when current_burn_height = `n` will be included in a block elected at burn height
-    //  `n + 2`
+    //  has already assembled the next block when it is called, so the tx
+    // broadcasted  when current_burn_height = `n` will be included in a block
+    // elected at burn height  `n + 2`
     for i in 0..10 {
         submit_tx(&http_origin, &make_db_get1_call(1 + (2 * i)));
         submit_tx(&http_origin, &make_db_get2_call(2 + (2 * i)));
@@ -478,7 +480,8 @@ fn test_dynamic_db_method_costs() {
         }
     }
 
-    // make sure that the test covered the blocks before, at, and after the epoch transition.
+    // make sure that the test covered the blocks before, at, and after the epoch
+    // transition.
     assert!(tested_heights.contains(&(epoch_205_transition_height - 1)));
     assert!(tested_heights.contains(&epoch_205_transition_height));
     assert!(tested_heights.contains(&(epoch_205_transition_height + 1)));
@@ -490,9 +493,9 @@ fn test_dynamic_db_method_costs() {
 #[test]
 #[ignore]
 fn transition_empty_blocks() {
-    // very simple test to verify that the miner will keep making valid (empty) blocks after the
-    // transition.  Really tests that the block-commits are well-formed before and after the epoch
-    // transition.
+    // very simple test to verify that the miner will keep making valid (empty)
+    // blocks after the transition.  Really tests that the block-commits are
+    // well-formed before and after the epoch transition.
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -550,8 +553,8 @@ fn transition_empty_blocks() {
 
     // these should all succeed across the epoch boundary
     for _i in 0..5 {
-        // also, make *huge* block-commits with invalid marker bytes once we reach the new
-        // epoch, and verify that it fails.
+        // also, make *huge* block-commits with invalid marker bytes once we reach the
+        // new epoch, and verify that it fails.
         let tip_info = get_chain_info(&conf);
 
         // this block is the epoch transition?
@@ -648,8 +651,9 @@ fn transition_empty_blocks() {
     channel.stop_chains_coordinator();
 }
 
-/// This test checks that the block limit is changed at Stacks 2.05. We lower the allowance, and
-/// check that we can 1) afford the function call before the target height and
+/// This test checks that the block limit is changed at Stacks 2.05. We lower
+/// the allowance, and check that we can 1) afford the function call before the
+/// target height and
 /// 2) cannot afford the function call after the target height.
 #[test]
 #[ignore]
@@ -831,8 +835,8 @@ fn test_cost_limit_switch_version205() {
     );
     assert_eq!(increment_contract_defines.len(), 1);
 
-    // Alice calls the contract and should succeed, because we have not lowered the block limit
-    // yet.
+    // Alice calls the contract and should succeed, because we have not lowered the
+    // block limit yet.
     submit_tx(
         &http_origin,
         &make_contract_call(
@@ -850,8 +854,8 @@ fn test_cost_limit_switch_version205() {
     // Wait for the contract call to process.
     run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, 214, &conf);
 
-    // Check that we have processed the contract successfully, by checking that the contract call
-    // is in the block record.
+    // Check that we have processed the contract successfully, by checking that the
+    // contract call is in the block record.
     let increment_calls_alice = select_transactions_where(
         &test_observer::get_blocks(),
         |transaction| match &transaction.payload {
@@ -866,7 +870,8 @@ fn test_cost_limit_switch_version205() {
     // Clear the observer so we can look for Bob's transaction.
     test_observer::clear();
 
-    // The cost contract was switched at height 220. So, now we expect Bob's call to fail.
+    // The cost contract was switched at height 220. So, now we expect Bob's call to
+    // fail.
     run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, 216, &conf);
     submit_tx(
         &http_origin,
@@ -900,8 +905,8 @@ fn test_cost_limit_switch_version205() {
     channel.stop_chains_coordinator();
 }
 
-// mine a stream of microblocks, and verify that microblock streams can get bigger after the epoch
-// transition
+// mine a stream of microblocks, and verify that microblock streams can get
+// bigger after the epoch transition
 #[test]
 #[ignore]
 fn bigger_microblock_streams_in_2_05() {
@@ -1126,8 +1131,9 @@ fn bigger_microblock_streams_in_2_05() {
     let mut epoch_20_stream_cost = ExecutionCost::ZERO;
     let mut epoch_205_stream_cost = ExecutionCost::ZERO;
 
-    // max == largest number of transactions per stream in a given epoch (2.0 or 2.05)
-    // total == number of transactions across all streams in a given epoch (2.0 or 2.05)
+    // max == largest number of transactions per stream in a given epoch (2.0 or
+    // 2.05) total == number of transactions across all streams in a given epoch
+    // (2.0 or 2.05)
     let mut max_big_txs_per_microblock_20 = 0;
     let mut total_big_txs_per_microblock_20 = 0;
 

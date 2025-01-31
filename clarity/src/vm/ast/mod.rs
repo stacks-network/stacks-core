@@ -75,9 +75,10 @@ fn parse_in_epoch(
     }
 }
 
-/// This is the part of the AST parser that runs without respect to cost analysis, specifically
-/// pertaining to verifying that the AST is reasonably-sized.
-/// Used mainly to filter transactions that might be too costly, as an optimization heuristic.
+/// This is the part of the AST parser that runs without respect to cost
+/// analysis, specifically pertaining to verifying that the AST is
+/// reasonably-sized. Used mainly to filter transactions that might be too
+/// costly, as an optimization heuristic.
 pub fn ast_check_size(
     contract_identifier: &QualifiedContractIdentifier,
     source_code: &str,
@@ -388,8 +389,8 @@ mod test {
 
         // for deep lists, a test like this works:
         //   it can assert a limit, that you can also verify
-        //   by disabling `VaryStackDepthChecker` and arbitrarily bumping up the parser lexer limits
-        //   and see that it produces the same result
+        //   by disabling `VaryStackDepthChecker` and arbitrarily bumping up the parser
+        // lexer limits   and see that it produces the same result
         let exceeds_stack_depth_list = format!(
             "{}u1 {}",
             "(list ".repeat(stack_limit + 1),
@@ -490,8 +491,8 @@ mod test {
 
             // for deep lists, a test like this works:
             //   it can assert a limit, that you can also verify
-            //   by disabling `VaryStackDepthChecker` and arbitrarily bumping up the parser lexer limits
-            //   and see that it produces the same result
+            //   by disabling `VaryStackDepthChecker` and arbitrarily bumping up the parser
+            // lexer limits   and see that it produces the same result
             let exceeds_stack_depth_list = format!(
                 "{}u1 {}",
                 "(list ".repeat(stack_limit + 1),

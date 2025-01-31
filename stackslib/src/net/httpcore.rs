@@ -14,7 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-/// This module binds the http library to Stacks as a `ProtocolFamily` implementation
+/// This module binds the http library to Stacks as a `ProtocolFamily`
+/// implementation
 use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
@@ -65,9 +66,10 @@ pub const STACKS_HEADER_HEIGHT: &str = "X-Canonical-Stacks-Tip-Height";
 pub const STACKS_REQUEST_ID: &str = "X-Request-Id";
 
 /// Request ID to use or expect from non-Stacks HTTP clients.
-/// In particular, if a HTTP response does not contain the x-request-id header, then it's assumed
-/// to be this value.  This is needed to support fetching immutables like block and microblock data
-/// from non-Stacks nodes (like Gaia hubs, CDNs, vanilla HTTP servers, and so on).
+/// In particular, if a HTTP response does not contain the x-request-id header,
+/// then it's assumed to be this value.  This is needed to support fetching
+/// immutables like block and microblock data from non-Stacks nodes (like Gaia
+/// hubs, CDNs, vanilla HTTP servers, and so on).
 pub const HTTP_REQUEST_ID_RESERVED: u32 = 0;
 
 /// All representations of the `tip=` query parameter value
@@ -102,7 +104,8 @@ impl From<&str> for TipRequest {
     }
 }
 
-/// Extension to HttpRequestPreamble to give it awareness of Stacks-specific fields
+/// Extension to HttpRequestPreamble to give it awareness of Stacks-specific
+/// fields
 pub trait HttpPreambleExtensions {
     /// Set the node's canonical Stacks chain tip
     fn set_canonical_stacks_tip_height(&mut self, height: Option<u32>);
@@ -176,13 +179,13 @@ impl HttpPreambleExtensions for HttpResponsePreamble {
     }
 }
 
-/// This module contains request helpers for decoding common data found in the request path regex captures.
-/// The error types convert to HTTP responses.
+/// This module contains request helpers for decoding common data found in the
+/// request path regex captures. The error types convert to HTTP responses.
 pub mod request {
     use super::*;
 
-    /// Get and parse a contract address from a path's captures, given the address and contract
-    /// regex field names.
+    /// Get and parse a contract address from a path's captures, given the
+    /// address and contract regex field names.
     pub fn get_contract_address(
         captures: &Captures,
         address_key: &str,
@@ -219,7 +222,8 @@ pub mod request {
         Ok(contract_identifier)
     }
 
-    /// Get and parse a StacksBlockId from a path's captures, given the name of the regex field.
+    /// Get and parse a StacksBlockId from a path's captures, given the name of
+    /// the regex field.
     pub fn get_block_hash(captures: &Captures, key: &str) -> Result<StacksBlockId, HttpError> {
         let block_id = if let Some(block_id) = captures.name(key) {
             match StacksBlockId::from_hex(block_id.as_str()) {
@@ -234,7 +238,8 @@ pub mod request {
         Ok(block_id)
     }
 
-    /// Get and parse a Txid from a path's captures, given the name of the regex field.
+    /// Get and parse a Txid from a path's captures, given the name of the regex
+    /// field.
     pub fn get_txid(captures: &Captures, key: &str) -> Result<Txid, HttpError> {
         let txid = if let Some(txid) = captures.name(key) {
             match Txid::from_hex(txid.as_str()) {
@@ -249,7 +254,8 @@ pub mod request {
         Ok(txid)
     }
 
-    /// Get and parse a Clarity name from a path's captures, given the name of the regex field.
+    /// Get and parse a Clarity name from a path's captures, given the name of
+    /// the regex field.
     pub fn get_clarity_name(captures: &Captures, key: &str) -> Result<ClarityName, HttpError> {
         let clarity_name = if let Some(name_str) = captures.name(key) {
             if let Ok(clarity_name) = ClarityName::try_from(name_str.as_str().to_string()) {
@@ -264,7 +270,8 @@ pub mod request {
         Ok(clarity_name)
     }
 
-    /// Get and parse a ConsensusHash from a path's captures, given the name of the regex field.
+    /// Get and parse a ConsensusHash from a path's captures, given the name of
+    /// the regex field.
     pub fn get_consensus_hash(captures: &Captures, key: &str) -> Result<ConsensusHash, HttpError> {
         let ch = if let Some(ch_str) = captures.name(key) {
             match ConsensusHash::from_hex(ch_str.as_str()) {
@@ -279,7 +286,8 @@ pub mod request {
         Ok(ch)
     }
 
-    /// Get and parse a u32 from a path's captures, given the name of the regex field.
+    /// Get and parse a u32 from a path's captures, given the name of the regex
+    /// field.
     pub fn get_u32(captures: &Captures, key: &str) -> Result<u32, HttpError> {
         let u = if let Some(u32_str) = captures.name(key) {
             match u32_str.as_str().parse::<u32>() {
@@ -295,7 +303,8 @@ pub mod request {
     }
 }
 
-/// Extension to HttpRequestContents to give it awareness of Stacks-specific fields
+/// Extension to HttpRequestContents to give it awareness of Stacks-specific
+/// fields
 pub trait HttpRequestContentsExtensions {
     /// Chain constructor: Request a specific tip
     fn for_specific_tip(self, tip: StacksBlockId) -> Self;
@@ -364,8 +373,8 @@ impl Clone for Box<dyn RPCRequestHandler> {
 
 /// Trait that every HTTP round-trip request type must implement.
 pub trait RPCRequestHandler: HttpRequest + HttpResponse + RPCRequestHandlerClone {
-    /// Reset the RPC handler.  This clears any internal state this handler stored between calls to
-    /// `try_handle_request()`
+    /// Reset the RPC handler.  This clears any internal state this handler
+    /// stored between calls to `try_handle_request()`
     fn restart(&mut self);
     /// Instantiate the HTTP response headers and body from a request
     fn try_handle_request(
@@ -439,7 +448,8 @@ pub struct StacksHttpRequest {
     preamble: HttpRequestPreamble,
     contents: HttpRequestContents,
     start_time: u128,
-    /// Cache result of `StacksHttp::find_response_handler` so we don't have to do the regex matching twice
+    /// Cache result of `StacksHttp::find_response_handler` so we don't have to
+    /// do the regex matching twice
     response_handler_index: Option<usize>,
 }
 
@@ -454,11 +464,11 @@ impl StacksHttpRequest {
     }
 
     /// Instantiate a request to a remote Stacks peer
-    /// `path` is just the request path.  Query arguments are added via `contents`.  Any query
-    /// component to `path` will be silently dropped.
+    /// `path` is just the request path.  Query arguments are added via
+    /// `contents`.  Any query component to `path` will be silently dropped.
     ///
-    /// In Stacks, all requests must have a known content length.  If it cannot be calculated, then
-    /// this method will fail.
+    /// In Stacks, all requests must have a known content length.  If it cannot
+    /// be calculated, then this method will fail.
     pub fn new_for_peer(
         peerhost: PeerHost,
         verb: String,
@@ -521,7 +531,8 @@ impl StacksHttpRequest {
     }
 
     /// Write out this message to a Write.
-    /// NOTE: In practice, the Write will be a reply handle endpoint, so writing to it won't block.
+    /// NOTE: In practice, the Write will be a reply handle endpoint, so writing
+    /// to it won't block.
     pub fn send<W: Write>(&self, fd: &mut W) -> Result<(), NetError> {
         self.preamble.send(fd)?;
         self.contents.get_payload().send(fd).map_err(NetError::from)
@@ -605,8 +616,9 @@ impl StacksHttpResponse {
         Ok((self.preamble, self.body.try_into()?))
     }
 
-    /// Send this HTTP response on a given Write.  Only used for testing; in practice, the RPC
-    /// request handler takes care of sending or streaming data back.
+    /// Send this HTTP response on a given Write.  Only used for testing; in
+    /// practice, the RPC request handler takes care of sending or streaming
+    /// data back.
     pub fn send<W: Write>(&self, fd: &mut W) -> Result<(), NetError> {
         self.preamble.consensus_serialize(fd)?;
         if self.preamble.content_length.is_some() {
@@ -734,7 +746,8 @@ impl StacksMessageCodec for StacksHttpPreamble {
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksHttpPreamble, CodecError> {
         let mut retry_fd = RetryReader::new(fd);
 
-        // the byte stream can decode to a http request or a http response, but not both.
+        // the byte stream can decode to a http request or a http response, but not
+        // both.
         match HttpRequestPreamble::consensus_deserialize(&mut retry_fd) {
             Ok(request) => Ok(StacksHttpPreamble::Request(request)),
             Err(e_request) => {
@@ -765,7 +778,8 @@ impl StacksMessageCodec for StacksHttpPreamble {
 
 impl MessageSequence for StacksHttpMessage {
     fn request_id(&self) -> u32 {
-        // there is at most one in-flight HTTP request, as far as a Connection<P> is concerned
+        // there is at most one in-flight HTTP request, as far as a Connection<P> is
+        // concerned
         HTTP_REQUEST_ID_RESERVED
     }
 
@@ -792,9 +806,10 @@ impl StacksHttpRecvStream {
         }
     }
 
-    /// Feed data into our chunked transfer reader state.  If we finish reading a stream, return
-    /// the decoded bytes (as Some(Vec<u8>) and the total number of encoded bytes consumed).
-    /// Always returns the number of bytes consumed.
+    /// Feed data into our chunked transfer reader state.  If we finish reading
+    /// a stream, return the decoded bytes (as Some(Vec<u8>) and the total
+    /// number of encoded bytes consumed). Always returns the number of
+    /// bytes consumed.
     pub fn consume_data<R: Read>(
         &mut self,
         fd: &mut R,
@@ -863,7 +878,8 @@ struct StacksHttpReplyData {
     stream: StacksHttpRecvStream,
 }
 
-/// Default response handler, for when using StacksHttp to issue arbitrary requests
+/// Default response handler, for when using StacksHttp to issue arbitrary
+/// requests
 #[derive(Clone)]
 struct RPCArbitraryResponseHandler {}
 impl HttpResponse for RPCArbitraryResponseHandler {
@@ -903,11 +919,13 @@ impl HttpResponse for RPCArbitraryResponseHandler {
 
 /// Stacks HTTP state machine implementation, for bufferring up data.
 /// One of these exists per Connection<P: Protocol>.
-/// There can be at most one HTTP request in-flight (i.e. we don't do pipelining).
+/// There can be at most one HTTP request in-flight (i.e. we don't do
+/// pipelining).
 ///
-/// This state machine gets used for both clients and servers.  A client issues an HTTP request,
-/// and must receive a follow-up HTTP reply (or the state machine errors out).  A server receives
-/// an HTTP request, and sends an HTTP reply.
+/// This state machine gets used for both clients and servers.  A client issues
+/// an HTTP request, and must receive a follow-up HTTP reply (or the state
+/// machine errors out).  A server receives an HTTP request, and sends an HTTP
+/// reply.
 #[derive(Clone)]
 pub struct StacksHttp {
     /// Address of peer
@@ -916,17 +934,18 @@ pub struct StacksHttp {
     body_start: Option<usize>,
     /// number of preamble bytes seen so far
     num_preamble_bytes: usize,
-    /// last 4 bytes of the preamble we've seen, just in case the \r\n\r\n straddles two calls to
-    /// read_preamble()
+    /// last 4 bytes of the preamble we've seen, just in case the \r\n\r\n
+    /// straddles two calls to read_preamble()
     last_four_preamble_bytes: [u8; 4],
     /// Incoming reply state
     reply: Option<StacksHttpReplyData>,
     /// Size of HTTP chunks to write
     chunk_size: usize,
     /// Which request handler is active.
-    /// This is only used if this state-machine is used by a client to issue a request and then
-    /// parse a reply.  If instead this state-machine is used by the server to parse a request and
-    /// send a reply, it will be unused.
+    /// This is only used if this state-machine is used by a client to issue a
+    /// request and then parse a reply.  If instead this state-machine is
+    /// used by the server to parse a request and send a reply, it will be
+    /// unused.
     request_handler_index: Option<usize>,
     /// HTTP request handlers (verb, regex, request-handler, response-handler)
     request_handlers: Vec<(String, Regex, Box<dyn RPCRequestHandler>)>,
@@ -934,7 +953,8 @@ pub struct StacksHttp {
     pub maximum_call_argument_size: u32,
     /// Maximum execution budget of a read-only call
     pub read_only_call_limit: ExecutionCost,
-    /// The authorization token to enable access to privileged features, such as the block proposal RPC endpoint
+    /// The authorization token to enable access to privileged features, such as
+    /// the block proposal RPC endpoint
     pub auth_token: Option<String>,
     /// Allow arbitrary responses to be handled in addition to request handlers
     allow_arbitrary_response: bool,
@@ -962,8 +982,8 @@ impl StacksHttp {
         http
     }
 
-    /// Create an HTTP protocol state machine that can handle arbitrary responses.
-    /// Used for building clients.
+    /// Create an HTTP protocol state machine that can handle arbitrary
+    /// responses. Used for building clients.
     pub fn new_client(peer_addr: SocketAddr, conn_opts: &ConnectionOptions) -> StacksHttp {
         StacksHttp {
             peer_addr,
@@ -993,8 +1013,8 @@ impl StacksHttp {
         ));
     }
 
-    /// Find the HTTP request handler to use to process the reply, given the request path.
-    /// Returns the index into the list of handlers
+    /// Find the HTTP request handler to use to process the reply, given the
+    /// request path. Returns the index into the list of handlers
     fn find_response_handler(&self, request_verb: &str, request_path: &str) -> Option<usize> {
         for (i, (verb, regex, _)) in self.request_handlers.iter().enumerate() {
             if request_verb != verb {
@@ -1021,7 +1041,8 @@ impl StacksHttp {
         self.request_handler_index = Some(handler_index);
     }
 
-    /// Try to parse an inbound HTTP request using a given handler, preamble, and body
+    /// Try to parse an inbound HTTP request using a given handler, preamble,
+    /// and body
     #[cfg(test)]
     pub fn handle_try_parse_request(
         &self,
@@ -1064,9 +1085,9 @@ impl StacksHttp {
         let (decoded_path, query) = decode_request_path(&preamble.path_and_query_str)?;
         test_debug!("decoded_path: '{}', query: '{}'", &decoded_path, &query);
 
-        // NOTE: This loop starts out like `find_response_handler()`, but `captures`'s lifetime is
-        // bound to `regex` so we can't just return it from `find_response_handler()`.  Thus, it's
-        // duplicated here.
+        // NOTE: This loop starts out like `find_response_handler()`, but `captures`'s
+        // lifetime is bound to `regex` so we can't just return it from
+        // `find_response_handler()`.  Thus, it's duplicated here.
         for (verb, regex, request) in self.request_handlers.iter_mut() {
             if &preamble.verb != verb {
                 continue;
@@ -1138,8 +1159,9 @@ impl StacksHttp {
         Ok(StacksHttpResponse::new(preamble.clone(), payload))
     }
 
-    /// Try to parse an inbound HTTP response, given its decoded HTTP preamble, and the HTTP
-    /// version and request path that had originally sent.  The body will be read from `fd`.
+    /// Try to parse an inbound HTTP response, given its decoded HTTP preamble,
+    /// and the HTTP version and request path that had originally sent.  The
+    /// body will be read from `fd`.
     pub fn try_parse_response(
         &mut self,
         request_handler_index: usize,
@@ -1160,8 +1182,8 @@ impl StacksHttp {
     }
 
     /// Handle an HTTP request by generating an HTTP response.
-    /// Returns Ok((preamble, contents)) on success.  Note that this could be an HTTP error
-    /// message.
+    /// Returns Ok((preamble, contents)) on success.  Note that this could be an
+    /// HTTP error message.
     /// Returns Err(..) on failure to decode or generate the response.
     pub fn try_handle_request(
         &mut self,
@@ -1215,8 +1237,8 @@ impl StacksHttp {
     }
 
     /// Set up the pending response
-    /// Called indirectly from ProtocolFamily::read_preamble() when handling an HTTP response
-    /// Used for dealing with streaming data
+    /// Called indirectly from ProtocolFamily::read_preamble() when handling an
+    /// HTTP response Used for dealing with streaming data
     fn set_pending(&mut self, preamble: &HttpResponsePreamble) {
         self.reply = Some(StacksHttpReplyData {
             request_id: preamble
@@ -1226,11 +1248,12 @@ impl StacksHttp {
         });
     }
 
-    /// Set the preamble. This is only relevant for receiving an HTTP response to a request that we
-    /// already sent.  It gets called from ProtocolFamily::read_preamble().
+    /// Set the preamble. This is only relevant for receiving an HTTP response
+    /// to a request that we already sent.  It gets called from
+    /// ProtocolFamily::read_preamble().
     ///
-    /// This method will set up this state machine to consume the message associated with this
-    /// premable, if the response is chunked.
+    /// This method will set up this state machine to consume the message
+    /// associated with this premable, if the response is chunked.
     fn set_preamble(&mut self, preamble: &StacksHttpPreamble) -> Result<(), NetError> {
         match preamble {
             StacksHttpPreamble::Response(ref http_response_preamble) => {
@@ -1262,10 +1285,12 @@ impl StacksHttp {
     }
 
     /// Used for processing chunk-encoded streams.
-    /// Given the preamble and a Read, stream the bytes into a chunk-decoder.  Return the decoded
-    /// bytes if we decode an entire stream.  Always return the number of bytes consumed.
-    /// Returns Ok((Some(decoded bytes we got, total number of encoded bytes), number of bytes gotten in this call)) if we're done decoding.
-    /// Returns Ok((None, number of bytes gotten in this call)) if there's more to decode.
+    /// Given the preamble and a Read, stream the bytes into a chunk-decoder.
+    /// Return the decoded bytes if we decode an entire stream.  Always
+    /// return the number of bytes consumed. Returns Ok((Some(decoded bytes
+    /// we got, total number of encoded bytes), number of bytes gotten in this
+    /// call)) if we're done decoding. Returns Ok((None, number of bytes
+    /// gotten in this call)) if there's more to decode.
     pub fn consume_data<R: Read>(
         &mut self,
         preamble: &HttpResponsePreamble,
@@ -1292,14 +1317,16 @@ impl StacksHttp {
 
     /// Calculate the search window for \r\n\r\n in the preamble stream.
     ///
-    /// As we are streaming the preamble, we're looking for the pattern `\r\n\r\n`.  The last four
-    /// bytes of the encoded preamble are always stored in `self.last_four_preamble_bytes`; this
-    /// gets updated as the preamble data is streamed in.  So, given these last four bytes, and the
-    /// next chunk of data streamed in from the request (in `buf`), determine the 4-byte sequence
-    /// to check for `\r\n\r\n`.
+    /// As we are streaming the preamble, we're looking for the pattern
+    /// `\r\n\r\n`.  The last four bytes of the encoded preamble are always
+    /// stored in `self.last_four_preamble_bytes`; this gets updated as the
+    /// preamble data is streamed in.  So, given these last four bytes, and the
+    /// next chunk of data streamed in from the request (in `buf`), determine
+    /// the 4-byte sequence to check for `\r\n\r\n`.
     ///
-    /// `i` is the offset into the chunk `buf` being searched.  If `i < 4`, then we must check the
-    /// last `4 - i` bytes of `self.last_four_preamble_bytes` as well as the first `i` bytes of
+    /// `i` is the offset into the chunk `buf` being searched.  If `i < 4`, then
+    /// we must check the last `4 - i` bytes of
+    /// `self.last_four_preamble_bytes` as well as the first `i` bytes of
     /// `buf`.  Otherwise, we just check `buf[i-4..i]`.
     fn body_start_search_window(&self, i: usize, buf: &[u8]) -> [u8; 4] {
         let window = match i {
@@ -1328,8 +1355,8 @@ impl StacksHttp {
     }
 
     /// Get a unique `&str` identifier for each request type
-    /// This can only return a finite set of identifiers, which makes it safer to use for Prometheus metrics
-    /// For details see https://github.com/stacks-network/stacks-core/issues/4574
+    /// This can only return a finite set of identifiers, which makes it safer
+    /// to use for Prometheus metrics For details see https://github.com/stacks-network/stacks-core/issues/4574
     pub fn metrics_identifier(&self, req: &mut StacksHttpRequest) -> &str {
         let Ok((decoded_path, _)) = decode_request_path(req.request_path()) else {
             return "<err-url-decode>";
@@ -1399,7 +1426,8 @@ impl ProtocolFamily for StacksHttp {
         HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize
     }
 
-    /// how big is this message?  Might not know if we're dealing with chunked encoding.
+    /// how big is this message?  Might not know if we're dealing with chunked
+    /// encoding.
     fn payload_len(&mut self, preamble: &StacksHttpPreamble) -> Option<usize> {
         match *preamble {
             StacksHttpPreamble::Request(ref http_request_preamble) => {
@@ -1411,11 +1439,11 @@ impl ProtocolFamily for StacksHttp {
         }
     }
 
-    /// Read the next HTTP preamble (be it a request or a response), and return the preamble and
-    /// the number of bytes consumed while reading it.
+    /// Read the next HTTP preamble (be it a request or a response), and return
+    /// the preamble and the number of bytes consumed while reading it.
     fn read_preamble(&mut self, buf: &[u8]) -> Result<(StacksHttpPreamble, usize), NetError> {
-        // does this contain end-of-headers marker, including the last four bytes of preamble we
-        // saw?
+        // does this contain end-of-headers marker, including the last four bytes of
+        // preamble we saw?
         if self.body_start.is_none() {
             for i in 0..=buf.len() {
                 let window = self.body_start_search_window(i, buf);
@@ -1451,14 +1479,17 @@ impl ProtocolFamily for StacksHttp {
         Ok((preamble, preamble_len))
     }
 
-    /// Stream a payload of unknown length.  Only gets called if payload_len() returns None.
+    /// Stream a payload of unknown length.  Only gets called if payload_len()
+    /// returns None.
     ///
-    /// Returns Ok((Some((message, num-bytes-consumed)), num-bytes-read)) if we read enough data to
-    /// form a message.  `num-bytes-consumed` is the number of bytes required to parse the message,
-    /// and `num-bytes-read` is the number of bytes read in this call.
+    /// Returns Ok((Some((message, num-bytes-consumed)), num-bytes-read)) if we
+    /// read enough data to form a message.  `num-bytes-consumed` is the
+    /// number of bytes required to parse the message, and `num-bytes-read`
+    /// is the number of bytes read in this call.
     ///
-    /// Returns Ok((None, num-bytes-read)) if we consumed data (i.e. `num-bytes-read` bytes), but
-    /// did not yet have enough of the message to parse it.  The caller should try again.
+    /// Returns Ok((None, num-bytes-read)) if we consumed data (i.e.
+    /// `num-bytes-read` bytes), but did not yet have enough of the message
+    /// to parse it.  The caller should try again.
     ///
     /// Returns Error on irrecoverable error.
     fn stream_payload<R: Read>(
@@ -1479,9 +1510,10 @@ impl ProtocolFamily for StacksHttp {
                     return Err(NetError::InvalidState);
                 }
 
-                // sanity check -- if we're receiving a response, then we must have earlier issued
-                // a request, or we must be in client mode. Thus, we must already know which
-                // response handler to use. Otherwise, someone sent us malforemd data.
+                // sanity check -- if we're receiving a response, then we must have earlier
+                // issued a request, or we must be in client mode. Thus, we must
+                // already know which response handler to use. Otherwise,
+                // someone sent us malforemd data.
                 if self.request_handler_index.is_none() && !self.allow_arbitrary_response {
                     self.reset();
                     return Err(NetError::DeserializeError(
@@ -1562,8 +1594,8 @@ impl ProtocolFamily for StacksHttp {
     /// Parse a payload of known length.
     /// Only gets called if payload_len() returns Some(...).
     ///
-    /// Return Ok(message, num-bytes-consumed) if we decoded a message.  The message will
-    /// have consumed `num-bytes-consumed` bytes.
+    /// Return Ok(message, num-bytes-consumed) if we decoded a message.  The
+    /// message will have consumed `num-bytes-consumed` bytes.
     ///
     /// Return Err(..) if we failed to decode the message.
     fn read_payload(
@@ -1639,9 +1671,9 @@ impl ProtocolFamily for StacksHttp {
                     }
                 }
 
-                // sanity check -- if we're receiving a response, then we must have earlier issued
-                // a request. Thus, we must already know which response handler to use.
-                // Otherwise, someone sent us malformed data.
+                // sanity check -- if we're receiving a response, then we must have earlier
+                // issued a request. Thus, we must already know which response
+                // handler to use. Otherwise, someone sent us malformed data.
                 let handler_index = self.request_handler_index.ok_or_else(|| {
                     self.reset();
                     NetError::DeserializeError("Unsolicited HTTP response".to_string())
@@ -1660,16 +1692,17 @@ impl ProtocolFamily for StacksHttp {
         _preamble: &StacksHttpPreamble,
         _bytes: &[u8],
     ) -> Result<(), NetError> {
-        // not defined for HTTP messages, but maybe we could add a signature header at some point
-        // in the future if needed.
+        // not defined for HTTP messages, but maybe we could add a signature header at
+        // some point in the future if needed.
         Ok(())
     }
 
     /// Write out a message to `fd`.
     ///
-    /// NOTE: If we're sending a StacksHttpMessage::Request(..), then the next preamble and payload
-    /// received _must be_ a StacksHttpMessage::Response(..) in response to the request.
-    /// If it is not, then that decode will fail.
+    /// NOTE: If we're sending a StacksHttpMessage::Request(..), then the next
+    /// preamble and payload received _must be_ a
+    /// StacksHttpMessage::Response(..) in response to the request. If it is
+    /// not, then that decode will fail.
     fn write_message<W: Write>(
         &mut self,
         fd: &mut W,
@@ -1785,11 +1818,11 @@ fn handle_net_error(e: NetError, msg: &str) -> io::Error {
 }
 
 /// Send an HTTP request to the given host:port.  Returns the decoded response.
-/// Internally, this creates a socket, connects it, sends the HTTP request, and decodes the HTTP
-/// response.  It is a blocking operation.
+/// Internally, this creates a socket, connects it, sends the HTTP request, and
+/// decodes the HTTP response.  It is a blocking operation.
 ///
-/// If the request encounters a network error, then return an error.  Don't retry.
-/// If the request times out after `timeout`, then return an error.
+/// If the request encounters a network error, then return an error.  Don't
+/// retry. If the request times out after `timeout`, then return an error.
 pub fn send_http_request(
     host: &str,
     port: u16,
@@ -1797,9 +1830,10 @@ pub fn send_http_request(
     timeout: Duration,
 ) -> Result<StacksHttpResponse, io::Error> {
     // Find the host:port that works.
-    // This is sometimes necessary because `localhost` can resolve to both its ipv4 and ipv6
-    // addresses, but usually, Stacks services like event observers are only bound to ipv4
-    // addresses.  So, be sure to use an address that will lead to a socket connection!
+    // This is sometimes necessary because `localhost` can resolve to both its ipv4
+    // and ipv6 addresses, but usually, Stacks services like event observers are
+    // only bound to ipv4 addresses.  So, be sure to use an address that will
+    // lead to a socket connection!
     let mut stream_and_addr = None;
     let mut last_err = None;
     for addr in format!("{host}:{port}").to_socket_addrs()? {
@@ -1832,39 +1866,46 @@ pub fn send_http_request(
 
     // Some explanation of what's going on here is in order.
     //
-    // The networking stack in Stacks is designed to operate on non-blocking sockets, and
-    // furthermore, it operates in a way that the call site in which a network request is issued can
-    // be in a wholly separate stack (or thread) from the connection.  While this is absolutely necessary
-    // within the Stacks node, using it to issue a single blocking request imposes a lot of
-    // overhead.
+    // The networking stack in Stacks is designed to operate on non-blocking
+    // sockets, and furthermore, it operates in a way that the call site in
+    // which a network request is issued can be in a wholly separate stack (or
+    // thread) from the connection.  While this is absolutely necessary
+    // within the Stacks node, using it to issue a single blocking request imposes a
+    // lot of overhead.
     //
-    // First, we will create the network connection and give it a ProtocolFamily implementation
-    // (StacksHttp), which gets used by the connection to encode and deocde messages.
+    // First, we will create the network connection and give it a ProtocolFamily
+    // implementation (StacksHttp), which gets used by the connection to encode
+    // and deocde messages.
     //
-    // Second, we'll create a _handle_ to the network connection into which we will write requests
-    // and read responses.  The connection itself is an opaque black box that, internally,
-    // implements a state machine around the ProtocolFamily implementation to incrementally read
-    // ProtocolFamily messages from a Read, and write them to a Write.  The Read + Write is
-    // (usually) a non-blocking socket; the network connection deals with EWOULDBLOCK internally,
-    // as well as underfull socket buffers.
+    // Second, we'll create a _handle_ to the network connection into which we will
+    // write requests and read responses.  The connection itself is an opaque
+    // black box that, internally, implements a state machine around the
+    // ProtocolFamily implementation to incrementally read ProtocolFamily
+    // messages from a Read, and write them to a Write.  The Read + Write is
+    // (usually) a non-blocking socket; the network connection deals with
+    // EWOULDBLOCK internally, as well as underfull socket buffers.
     //
-    // Third, we need to _drive_ data to the socket.  We have to repeatedly (1) flush the network
-    // handle (which contains the buffered bytes from the message to be fed into the socket), and
-    // (2) drive bytes from the handle into the socket iself via the network connection.  This is a
-    // two-step process mainly because the handle is expected to live in a separate stack (or even
-    // a separate thread).
+    // Third, we need to _drive_ data to the socket.  We have to repeatedly (1)
+    // flush the network handle (which contains the buffered bytes from the
+    // message to be fed into the socket), and (2) drive bytes from the handle
+    // into the socket iself via the network connection.  This is a
+    // two-step process mainly because the handle is expected to live in a separate
+    // stack (or even a separate thread).
     //
-    // Fourth, we need to _drive_ data from the socket.  We have to repeatedly (1) pull data from
-    // the socket into the network connection, and (2) drive parsed messages from the connection to
-    // the handle.  Then, the call site that owns the handle simply polls the handle for new
-    // messages.  Once we have received a message, we can proceed to handle it.
+    // Fourth, we need to _drive_ data from the socket.  We have to repeatedly (1)
+    // pull data from the socket into the network connection, and (2) drive
+    // parsed messages from the connection to the handle.  Then, the call site
+    // that owns the handle simply polls the handle for new messages.  Once we
+    // have received a message, we can proceed to handle it.
     //
-    // Finally, we deal with the kind of HTTP message we got. If it's an error response, we convert
-    // it into an error.  If it's a request (i.e. not a response), we also return an error.  We
-    // only return the message if it was a well-formed non-error HTTP response.
+    // Finally, we deal with the kind of HTTP message we got. If it's an error
+    // response, we convert it into an error.  If it's a request (i.e. not a
+    // response), we also return an error.  We only return the message if it was
+    // a well-formed non-error HTTP response.
 
     // Step 1-2: set up the connection and request handle
-    // NOTE: we don't need anything special for connection options, so just use the default
+    // NOTE: we don't need anything special for connection options, so just use the
+    // default
     let conn_opts = ConnectionOptions::default();
     let http = StacksHttp::new_client(addr, &conn_opts);
     let mut connection = NetworkConnection::new(http, &conn_opts, None);
@@ -1877,10 +1918,11 @@ pub fn send_http_request(
             )
         })?;
 
-    // Step 3: load up the request with the message we're gonna send, and iteratively dump its
-    // bytes from the handle into the socket (the connection does internal buffering and
-    // bookkeeping to deal with the cases where we fail to fill the socket buffer, or we can't send
-    // anymore because the socket buffer is currently full).
+    // Step 3: load up the request with the message we're gonna send, and
+    // iteratively dump its bytes from the handle into the socket (the
+    // connection does internal buffering and bookkeeping to deal with the cases
+    // where we fail to fill the socket buffer, or we can't send anymore because
+    // the socket buffer is currently full).
     request
         .send(&mut request_handle)
         .map_err(|e| handle_net_error(e, "Failed to serialize request body"))?;
@@ -1912,9 +1954,10 @@ pub fn send_http_request(
         }
     }
 
-    // Step 4: pull bytes from the socket back into the handle, and see if the connection decoded
-    // and dispatched any new messages to the request handle.  If so, then extract the message and
-    // check that it's a well-formed HTTP response.
+    // Step 4: pull bytes from the socket back into the handle, and see if the
+    // connection decoded and dispatched any new messages to the request handle.
+    // If so, then extract the message and check that it's a well-formed HTTP
+    // response.
     debug!("send_request(receiving data)");
     let response = loop {
         // get back the reply

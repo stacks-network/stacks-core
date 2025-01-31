@@ -105,7 +105,8 @@ const STATUS_RESP_TRUE: &str = "success";
 const STATUS_RESP_NOT_COMMITTED: &str = "abort_by_response";
 const STATUS_RESP_POST_CONDITION: &str = "abort_by_post_condition";
 
-/// Update `serve()` in `neon_integrations.rs` with any new paths that need to be tested
+/// Update `serve()` in `neon_integrations.rs` with any new paths that need to
+/// be tested
 pub const PATH_MICROBLOCK_SUBMIT: &str = "new_microblocks";
 pub const PATH_MEMPOOL_TX_SUBMIT: &str = "new_mempool_tx";
 pub const PATH_MEMPOOL_TX_DROP: &str = "drop_mempool_tx";
@@ -197,16 +198,18 @@ impl StackerDBChannel {
         }
     }
 
-    /// Consume the receiver for the StackerDBChannel and drop the senders. This should be done
-    /// before another interested thread can subscribe to events, but it is not absolutely necessary
-    /// to do so (it would just result in temporary over-use of memory while the prior channel is still
+    /// Consume the receiver for the StackerDBChannel and drop the senders. This
+    /// should be done before another interested thread can subscribe to
+    /// events, but it is not absolutely necessary to do so (it would just
+    /// result in temporary over-use of memory while the prior channel is still
     /// open).
     ///
-    /// The StackerDBChnnel's receiver is guarded with a Mutex, so that ownership can
-    /// be taken by different threads without unsafety.
+    /// The StackerDBChnnel's receiver is guarded with a Mutex, so that
+    /// ownership can be taken by different threads without unsafety.
     pub fn replace_receiver(&self, receiver: Receiver<StackerDBChunksEvent>) {
-        // not strictly necessary, but do this rather than mark the `receiver` argument as unused
-        // so that we're explicit about the fact that `replace_receiver` consumes.
+        // not strictly necessary, but do this rather than mark the `receiver` argument
+        // as unused so that we're explicit about the fact that
+        // `replace_receiver` consumes.
         drop(receiver);
         let mut guard = self
             .sender_info
@@ -215,13 +218,14 @@ impl StackerDBChannel {
         guard.take();
     }
 
-    /// Create a new event receiver channel for receiving events relevant to the miner coordinator,
-    /// dropping the old StackerDB event sender channels if they are still registered.
-    ///  Returns the new receiver channel and a bool indicating whether or not sender channels were
-    ///   still in place.
+    /// Create a new event receiver channel for receiving events relevant to the
+    /// miner coordinator, dropping the old StackerDB event sender channels
+    /// if they are still registered.  Returns the new receiver channel and
+    /// a bool indicating whether or not sender channels were   still in
+    /// place.
     ///
-    /// The StackerDBChannel senders are guarded by mutexes so that they can be replaced
-    /// by different threads without unsafety.
+    /// The StackerDBChannel senders are guarded by mutexes so that they can be
+    /// replaced by different threads without unsafety.
     pub fn register_miner_coordinator(&self) -> (Receiver<StackerDBChunksEvent>, bool) {
         let mut sender_info = self
             .sender_info
@@ -233,13 +237,15 @@ impl StackerDBChannel {
         (recv, replaced_receiver)
     }
 
-    /// Is there a thread holding the receiver, and is it interested in chunks events from `stackerdb`?
-    /// Returns the a sending channel to broadcast the event to if so, and `None` if not.
+    /// Is there a thread holding the receiver, and is it interested in chunks
+    /// events from `stackerdb`? Returns the a sending channel to broadcast
+    /// the event to if so, and `None` if not.
     pub fn is_active(
         &self,
         stackerdb: &QualifiedContractIdentifier,
     ) -> Option<Sender<StackerDBChunksEvent>> {
-        // if the receiver field is empty (i.e., None), then there is no listening thread, return None
+        // if the receiver field is empty (i.e., None), then there is no listening
+        // thread, return None
         let guard = self
             .sender_info
             .lock()
@@ -545,7 +551,8 @@ impl EventObserver {
     }
 
     /// Send the payload to the given URL.
-    /// Before sending this payload, any pending payloads in the database will be sent first.
+    /// Before sending this payload, any pending payloads in the database will
+    /// be sent first.
     pub fn send_payload(&self, payload: &serde_json::Value, path: &str) {
         // Construct the full URL
         let url_str = if path.starts_with('/') {
@@ -614,7 +621,8 @@ impl EventObserver {
         })
     }
 
-    /// Returns tuple of (txid, success, raw_result, raw_tx, contract_interface_json)
+    /// Returns tuple of (txid, success, raw_result, raw_tx,
+    /// contract_interface_json)
     fn generate_payload_info_for_receipt(receipt: &StacksTransactionReceipt) -> ReceiptPayloadInfo {
         let tx = &receipt.transaction;
 
@@ -632,10 +640,12 @@ impl EventObserver {
                     if let TransactionPayload::PoisonMicroblock(..) = &inner_tx.payload {
                         STATUS_RESP_TRUE
                     } else {
-                        unreachable!() // Transaction results should otherwise always be a Value::Response type
+                        unreachable!() // Transaction results should otherwise
+                                       // always be a Value::Response type
                     }
                 } else {
-                    unreachable!() // Transaction results should always be a Value::Response type
+                    unreachable!() // Transaction results should always be a
+                                   // Value::Response type
                 }
             }
         };
@@ -722,7 +732,8 @@ impl EventObserver {
         self.send_payload(payload, PATH_MEMPOOL_TX_SUBMIT);
     }
 
-    /// Serializes new microblocks data into a JSON payload and sends it off to the correct path
+    /// Serializes new microblocks data into a JSON payload and sends it off to
+    /// the correct path
     fn send_new_microblocks(
         &self,
         parent_index_block_hash: StacksBlockId,
@@ -888,17 +899,19 @@ impl EventObserver {
 }
 
 /// Events received from block-processing.
-/// Stacks events are structured as JSON, and are grouped by topic.  An event observer can
-/// subscribe to one or more specific event streams, or the "any" stream to receive all of them.
+/// Stacks events are structured as JSON, and are grouped by topic.  An event
+/// observer can subscribe to one or more specific event streams, or the "any"
+/// stream to receive all of them.
 #[derive(Clone)]
 pub struct EventDispatcher {
     /// List of configured event observers to which events will be posted.
     /// The fields below this contain indexes into this list.
     registered_observers: Vec<EventObserver>,
-    /// Smart contract-specific events, keyed by (contract-id, event-name). Values are indexes into `registered_observers`.
+    /// Smart contract-specific events, keyed by (contract-id, event-name).
+    /// Values are indexes into `registered_observers`.
     contract_events_observers_lookup: HashMap<(QualifiedContractIdentifier, String), HashSet<u16>>,
-    /// Asset event observers, keyed by fully-qualified asset identifier. Values are indexes into
-    /// `registered_observers.
+    /// Asset event observers, keyed by fully-qualified asset identifier. Values
+    /// are indexes into `registered_observers.
     assets_observers_lookup: HashMap<AssetIdentifier, HashSet<u16>>,
     /// Index into `registered_observers` that will receive burn block events
     burn_block_observers_lookup: HashSet<u16>,
@@ -910,16 +923,16 @@ pub struct EventDispatcher {
     stx_observers_lookup: HashSet<u16>,
     /// Index into `registered_observers` that will receive all events
     any_event_observers_lookup: HashSet<u16>,
-    /// Index into `registered_observers` that will receive block miner events (Stacks 2.5 and
-    /// lower)
+    /// Index into `registered_observers` that will receive block miner events
+    /// (Stacks 2.5 and lower)
     miner_observers_lookup: HashSet<u16>,
-    /// Index into `registered_observers` that will receive microblock miner events (Stacks 2.5 and
-    /// lower)
+    /// Index into `registered_observers` that will receive microblock miner
+    /// events (Stacks 2.5 and lower)
     mined_microblocks_observers_lookup: HashSet<u16>,
     /// Index into `registered_observers` that will receive StackerDB events
     stackerdb_observers_lookup: HashSet<u16>,
-    /// Index into `registered_observers` that will receive block proposal events (Nakamoto and
-    /// later)
+    /// Index into `registered_observers` that will receive block proposal
+    /// events (Nakamoto and later)
     block_proposal_observers_lookup: HashSet<u16>,
     /// Channel for sending StackerDB events to the miner coordinator
     pub stackerdb_channel: Arc<Mutex<StackerDBChannel>>,
@@ -1167,12 +1180,12 @@ impl EventDispatcher {
         }
     }
 
-    /// Iterates through tx receipts, and then the events corresponding to each receipt to
-    /// generate a dispatch matrix & event vector.
+    /// Iterates through tx receipts, and then the events corresponding to each
+    /// receipt to generate a dispatch matrix & event vector.
     ///
     /// # Returns
-    /// - dispatch_matrix: a vector where each index corresponds to the hashset of event indexes
-    ///     that each respective event observer is subscribed to
+    /// - dispatch_matrix: a vector where each index corresponds to the hashset
+    ///   of event indexes that each respective event observer is subscribed to
     /// - events: a vector of all events from all the tx receipts
     #[allow(clippy::type_complexity)]
     fn create_dispatch_matrix_and_event_vector<'a>(
@@ -1353,9 +1366,10 @@ impl EventDispatcher {
         }
     }
 
-    /// Creates a list of observers that are interested in the new microblocks event,
-    /// creates a mapping from observers to the event ids that are relevant to each, and then
-    /// sends the event to each interested observer.
+    /// Creates a list of observers that are interested in the new microblocks
+    /// event, creates a mapping from observers to the event ids that are
+    /// relevant to each, and then sends the event to each interested
+    /// observer.
     pub fn process_new_microblocks(
         &self,
         parent_index_block_hash: StacksBlockId,
@@ -1547,8 +1561,8 @@ impl EventDispatcher {
         }
     }
 
-    /// Forward newly-accepted StackerDB chunk metadata to downstream `stackerdb` observers.
-    /// Infallible.
+    /// Forward newly-accepted StackerDB chunk metadata to downstream
+    /// `stackerdb` observers. Infallible.
     pub fn process_new_stackerdb_chunks(
         &self,
         contract_id: QualifiedContractIdentifier,
@@ -1943,7 +1957,8 @@ mod test {
     }
 
     fn get_random_port() -> u16 {
-        // Bind to a random port by specifying port 0, then retrieve the port assigned by the OS
+        // Bind to a random port by specifying port 0, then retrieve the port assigned
+        // by the OS
         let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind to a random port");
         listener.local_addr().unwrap().port()
     }

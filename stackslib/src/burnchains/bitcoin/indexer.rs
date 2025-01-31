@@ -432,8 +432,8 @@ impl BitcoinIndexer {
     }
 
     /// Synchronize a range of headers from bitcoin to a specific file.
-    /// If last_block is None, then sync as many headers as the remote peer has to offer.
-    /// Returns the height of the last block fetched
+    /// If last_block is None, then sync as many headers as the remote peer has
+    /// to offer. Returns the height of the last block fetched
     pub fn sync_last_headers(
         &mut self,
         start_block: u64,
@@ -583,9 +583,10 @@ impl BitcoinIndexer {
         Ok(reorg_spv_client)
     }
 
-    /// Search for a bitcoin reorg.  Return the offset into the canonical bitcoin headers where
-    /// the reorg starts.  Returns the hight of the highest common ancestor.
-    /// Note that under certain testnet settings, the bitcoin chain itself can shrink.
+    /// Search for a bitcoin reorg.  Return the offset into the canonical
+    /// bitcoin headers where the reorg starts.  Returns the hight of the
+    /// highest common ancestor. Note that under certain testnet settings,
+    /// the bitcoin chain itself can shrink.
     pub fn find_bitcoin_reorg<F>(
         &mut self,
         canonical_headers_path: &str,
@@ -895,10 +896,12 @@ impl BitcoinIndexer {
     }
 
     /// Verify that the last block header we have is within 2 hours of now.
-    /// Return burnchain_error::TrySyncAgain if not, and delete the offending header
+    /// Return burnchain_error::TrySyncAgain if not, and delete the offending
+    /// header
     pub fn check_chain_tip_timestamp(&mut self) -> Result<(), burnchain_error> {
-        // if there was no target block height, then verify that the highest header fetched is within
-        // 2 hours of now.  Remove headers that don't meet this criterion.
+        // if there was no target block height, then verify that the highest header
+        // fetched is within 2 hours of now.  Remove headers that don't meet
+        // this criterion.
         let highest_header_height = self.get_highest_header_height()?;
         if highest_header_height == 0 {
             return Err(burnchain_error::TrySyncAgain);
@@ -1025,11 +1028,13 @@ impl BurnchainIndexer for BitcoinIndexer {
         Ok(first_block_header_timestamp)
     }
 
-    /// Get a vector of the stacks epochs. This notion of epochs is dependent on the burn block height.
-    /// Valid epochs include stacks 1.0, stacks 2.0, stacks 2.05, and so on.
+    /// Get a vector of the stacks epochs. This notion of epochs is dependent on
+    /// the burn block height. Valid epochs include stacks 1.0, stacks 2.0,
+    /// stacks 2.05, and so on.
     ///
     /// Choose according to:
-    /// 1) Use the custom epochs defined on the underlying `BitcoinIndexerConfig`, if they exist.
+    /// 1) Use the custom epochs defined on the underlying
+    ///    `BitcoinIndexerConfig`, if they exist.
     /// 2) Use hard-coded static values, otherwise.
     ///
     /// It is an error (panic) to set custom epochs if running on `Mainnet`.
@@ -1065,8 +1070,8 @@ impl BurnchainIndexer for BitcoinIndexer {
         Ok(ret_headers)
     }
 
-    /// Identify underlying reorgs and return the block height of the highest block in common
-    /// between the remote node and our block headers.
+    /// Identify underlying reorgs and return the block height of the highest
+    /// block in common between the remote node and our block headers.
     fn find_chain_reorg(&mut self) -> Result<u64, burnchain_error> {
         let headers_path = self.config.spv_headers_path.clone();
         let reorg_path = format!("{}.reorg", &self.config.spv_headers_path);
@@ -1360,7 +1365,8 @@ mod test {
                 path_1,
                 path_reorg,
                 |ref mut indexer, ref mut spv_client, start_block, end_block_opt| {
-                    // mock the bitcoind by just copying over the relevant headers from our backup reorg db
+                    // mock the bitcoind by just copying over the relevant headers from our backup
+                    // reorg db
                     let end_block = end_block_opt.unwrap_or(10000000);
                     let hdrs = spv_client_reorg
                         .read_block_headers(start_block, end_block)
@@ -1533,7 +1539,8 @@ mod test {
                 path_1,
                 path_reorg,
                 |ref mut indexer, ref mut spv_client, start_block, end_block_opt| {
-                    // mock the bitcoind by just copying over the relevant headers from our backup reorg db
+                    // mock the bitcoind by just copying over the relevant headers from our backup
+                    // reorg db
                     let end_block = end_block_opt.unwrap_or(10000000);
                     let hdrs = spv_client_reorg
                         .read_block_headers(start_block, end_block)
@@ -3140,7 +3147,8 @@ mod test {
         let total_work_before_idempotent = spv_client.update_chain_work().unwrap();
         assert_eq!(total_work_before, total_work_before_idempotent);
 
-        // fake block headers for mainnet 40319-40320, which is on a difficulty adjustment boundary
+        // fake block headers for mainnet 40319-40320, which is on a difficulty
+        // adjustment boundary
         let bad_headers = [
             LoneBlockHeader {
                 header: BlockHeader {
@@ -3278,7 +3286,8 @@ mod test {
 
         assert_eq!(spv_client.get_headers_height().unwrap(), 40321);
 
-        // fake block headers for mainnet 40319-40320, which is on a difficulty adjustment boundary
+        // fake block headers for mainnet 40319-40320, which is on a difficulty
+        // adjustment boundary
         let bad_headers = vec![
             LoneBlockHeader {
                 header: BlockHeader {
@@ -3495,7 +3504,8 @@ mod test {
         assert_eq!(spv_client.get_highest_header_height().unwrap(), 1);
     }
 
-    /// This test ensures that setting `should_keep_running` to false halts the handshake function.
+    /// This test ensures that setting `should_keep_running` to false halts the
+    /// handshake function.
     #[test]
     fn test_should_keep_running_halts_handshake() {
         let db_path = "/tmp/test_should_keep_running.dat".to_string();

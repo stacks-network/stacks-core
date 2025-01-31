@@ -481,7 +481,8 @@ mod tests {
     }
 
     #[test]
-    /// Test the behavior of from_seed using hard-coded values from previous existing integration tests
+    /// Test the behavior of from_seed using hard-coded values from previous
+    /// existing integration tests
     fn sk_from_seed() {
         let sk = Secp256k1PrivateKey::from_seed(&[2; 32]);
         assert_eq!(

@@ -217,7 +217,8 @@ impl Sha256dHash {
 
     // Human-readable hex output
 
-    /// Decodes a big-endian (i.e. reversed vs sha256sum output) hex string as a Sha256dHash
+    /// Decodes a big-endian (i.e. reversed vs sha256sum output) hex string as a
+    /// Sha256dHash
     #[inline]
     pub fn from_hex(s: &str) -> Result<Sha256dHash, HexError> {
         if s.len() != 64 {
@@ -244,7 +245,8 @@ impl Sha256dHash {
         Ok(Sha256dHash(ret))
     }
 
-    /// Decodes a little-endian (i.e. same as sha256sum output) hex string as a Sha256dHash
+    /// Decodes a little-endian (i.e. same as sha256sum output) hex string as a
+    /// Sha256dHash
     #[inline]
     pub fn from_hex_le(s: &str) -> Result<Sha256dHash, HexError> {
         if s.len() != 64 {
@@ -341,10 +343,10 @@ impl<'de> serde::Deserialize<'de> for Sha256dHash {
 impl serde::Serialize for Sha256dHash {
     /// Serialize a `Sha256dHash`.
     ///
-    /// Note that this outputs hashes as big endian hex numbers, so this should be
-    /// used only for user-facing stuff. Internal and network serialization is
-    /// little-endian and should be done using the consensus
-    /// [`ConsensusEncodable`][1] interface.
+    /// Note that this outputs hashes as big endian hex numbers, so this should
+    /// be used only for user-facing stuff. Internal and network
+    /// serialization is little-endian and should be done using the
+    /// consensus [`ConsensusEncodable`][1] interface.
     ///
     /// [1]: ../../network/encodable/trait.ConsensusEncodable.html
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -366,7 +368,8 @@ impl serde::Serialize for Sha256dHash {
 
 // Debug encodings (no reversing)
 impl fmt::Debug for Sha256dHash {
-    /// Output the raw sha256d hash, not reversing it (unlike Display and what Core does for user display)
+    /// Output the raw sha256d hash, not reversing it (unlike Display and what
+    /// Core does for user display)
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let &Sha256dHash(data) = self;
         for ch in data.iter() {
@@ -377,7 +380,8 @@ impl fmt::Debug for Sha256dHash {
 }
 
 impl fmt::Debug for Hash160 {
-    /// Output the raw hash160 hash, not reversing it (nothing reverses the output of ripemd160 in Bitcoin)
+    /// Output the raw hash160 hash, not reversing it (nothing reverses the
+    /// output of ripemd160 in Bitcoin)
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let &Hash160(data) = self;
         for ch in data.iter() {

@@ -44,8 +44,8 @@ use crate::util_lib::test::*;
 
 #[test]
 fn test_mempool_sync_2_peers() {
-    // peer 1 gets some transactions; verify peer 2 gets the recent ones and not the old
-    // ones
+    // peer 1 gets some transactions; verify peer 2 gets the recent ones and not the
+    // old ones
     let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
     let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
 
@@ -708,8 +708,8 @@ fn test_mempool_sync_2_peers_blacklisted() {
 /// Make sure mempool sync never stores problematic transactions
 #[test]
 fn test_mempool_sync_2_peers_problematic() {
-    // peer 1 gets some transactions; peer 2 blacklists them all due to being invalid.
-    // verify peer 2 stores nothing.
+    // peer 1 gets some transactions; peer 2 blacklists them all due to being
+    // invalid. verify peer 2 stores nothing.
     let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
     let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
 
@@ -897,8 +897,8 @@ fn test_mempool_sync_2_peers_problematic() {
     assert_eq!(peer_2_mempool_txs.len(), 128);
 }
 
-/// Verify that when transactions get stored into the mempool, they are always keyed to the
-/// tenure-start block and its coinbase height
+/// Verify that when transactions get stored into the mempool, they are always
+/// keyed to the tenure-start block and its coinbase height
 #[test]
 pub fn test_mempool_storage_nakamoto() {
     let private_key = StacksPrivateKey::from_seed(&[2]);

@@ -244,7 +244,8 @@ fn test_simple_is_standard_mainnet_cases() {
 
 #[test]
 fn test_simple_is_standard_undefined_cases() {
-    // When an address is neither a testnet nor a mainnet address, the result should be false.
+    // When an address is neither a testnet nor a mainnet address, the result should
+    // be false.
     let invalid_addr_test = "(is-standard 'S1G2081040G2081040G2081040G208105NK8PE5)";
     assert_eq!(
         Value::Bool(false),
@@ -298,8 +299,8 @@ fn test_simple_is_standard_undefined_cases() {
     );
 }
 
-/// Creates a Tuple which is the result of parsing a Principal tuple into a Tuple of its `version`
-/// and `hash-bytes` and `name`
+/// Creates a Tuple which is the result of parsing a Principal tuple into a
+/// Tuple of its `version` and `hash-bytes` and `name`
 fn create_principal_destruct_tuple_from_strings(
     version: &str,
     hash_bytes: &str,
@@ -517,10 +518,11 @@ fn test_principal_destruct_good() {
 }
 
 #[test]
-// Test that we notice principals that do not correspond to valid version bytes, and return them in
-// the error channel.
+// Test that we notice principals that do not correspond to valid version bytes,
+// and return them in the error channel.
 fn test_principal_destruct_bad_version_byte() {
-    // SZ is not a valid prefix for any Stacks network. But it's valid for the future.
+    // SZ is not a valid prefix for any Stacks network. But it's valid for the
+    // future.
     let input = r#"(principal-destruct? 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#;
     assert_eq!(
         Value::Response(ResponseData {
@@ -586,7 +588,8 @@ fn test_principal_destruct_bad_version_byte() {
         .unwrap()
     );
 
-    // SZ is not a valid prefix for any Stacks network. But it's valid for the future.
+    // SZ is not a valid prefix for any Stacks network. But it's valid for the
+    // future.
     let input = r#"(principal-destruct? 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.foo)"#;
     assert_eq!(
         Value::Response(ResponseData {
@@ -865,9 +868,9 @@ fn create_principal_from_strings(
 }
 
 #[test]
-// Test cases where the version byte is of the right type `(buff 1)`, but where the byte doesn't
-// match a recognized network. This is meant for compatibility with "future" network bytes, so
-// is still valid.
+// Test cases where the version byte is of the right type `(buff 1)`, but where
+// the byte doesn't match a recognized network. This is meant for compatibility
+// with "future" network bytes, so is still valid.
 fn test_principal_construct_version_byte_future() {
     // The version byte 0x1f is unrecognized today, but is valid for the future.
     let input = r#"(principal-construct? 0x1f 0x0102030405060708091011121314151617181920)"#;
@@ -942,11 +945,11 @@ fn test_principal_construct_version_byte_future() {
 }
 
 #[test]
-// Test cases where the wrong type should be a `CheckErrors` error, because it should have been
-// caught by the type checker.
+// Test cases where the wrong type should be a `CheckErrors` error, because it
+// should have been caught by the type checker.
 fn test_principal_construct_check_errors() {
-    // The version bytes 0x5904934 are invalid. Should have been caught by type checker so use
-    // `CheckErrors`.
+    // The version bytes 0x5904934 are invalid. Should have been caught by type
+    // checker so use `CheckErrors`.
     let input = r#"(principal-construct? 0x590493 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
         Err(CheckErrors::TypeValueError(
@@ -965,8 +968,8 @@ fn test_principal_construct_check_errors() {
         )
     );
 
-    // u22 is not a byte buffer, so is invalid. Should have been caught by type checker so use
-    // `CheckErrors`.
+    // u22 is not a byte buffer, so is invalid. Should have been caught by type
+    // checker so use `CheckErrors`.
     let input = r#"(principal-construct? u22 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
         Err(CheckErrors::TypeValueError(BUFF_1.clone(), Value::UInt(22)).into()),
@@ -979,8 +982,8 @@ fn test_principal_construct_check_errors() {
         )
     );
 
-    // Hash key part is too large, should have length 20. This is a `CheckErrors` error because it
-    // should have been caught by the type checker.
+    // Hash key part is too large, should have length 20. This is a `CheckErrors`
+    // error because it should have been caught by the type checker.
     let input = r#"(principal-construct? 0x16 0x010203040506070809101112131415161718192021)"#;
     assert_eq!(
         execute_with_parameters(
@@ -1025,8 +1028,8 @@ fn test_principal_construct_check_errors() {
 #[test]
 // Test cases where we return an "in response" error.
 fn test_principal_construct_response_errors() {
-    // Hash key part is too small, should have length 20. This wasn't for the type checker, so the
-    // error is signaled in the returned Response.
+    // Hash key part is too small, should have length 20. This wasn't for the type
+    // checker, so the error is signaled in the returned Response.
     let input = r#"(principal-construct? 0x16 0x01020304050607080910111213141516171819)"#;
     assert_eq!(
         execute_with_parameters(
@@ -1053,8 +1056,8 @@ fn test_principal_construct_response_errors() {
         }),
     );
 
-    // Version byte is too small, should have length 1. This error is signaled in the returned
-    // Response.
+    // Version byte is too small, should have length 1. This error is signaled in
+    // the returned Response.
     let input = r#"(principal-construct? 0x 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
         execute_with_parameters(

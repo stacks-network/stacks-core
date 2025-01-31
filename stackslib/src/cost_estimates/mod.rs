@@ -30,18 +30,20 @@ use crate::core::StacksEpochId;
 
 /// This trait is for implementation of *fee rate* estimation: estimators should
 ///  track the actual paid fee rate for transactions in blocks, and use that to
-///  provide estimates for block inclusion. Fee rate estimators provide an estimate
-///  for the amount of microstx per unit of the block limit occupied that must be
-///  paid for miners to consider the transaction for inclusion in a block.
+///  provide estimates for block inclusion. Fee rate estimators provide an
+/// estimate  for the amount of microstx per unit of the block limit occupied
+/// that must be  paid for miners to consider the transaction for inclusion in a
+/// block.
 ///
-/// Note: `CostEstimator` and `FeeRateEstimator` implementations do two very different
-///  tasks. `CostEstimator` implementations estimate the `ExecutionCost` for a transaction
-///  payload. `FeeRateEstimator` implementations estimate the network's current fee rate.
-///  Clients interested in determining the fee to be paid for a transaction must used both
+/// Note: `CostEstimator` and `FeeRateEstimator` implementations do two very
+/// different  tasks. `CostEstimator` implementations estimate the
+/// `ExecutionCost` for a transaction  payload. `FeeRateEstimator`
+/// implementations estimate the network's current fee rate.  Clients interested
+/// in determining the fee to be paid for a transaction must used both
 ///  whereas miners only need to use a `CostEstimator`
 pub trait FeeEstimator {
-    /// This method is invoked by the `stacks-node` to update the fee estimator with a new
-    ///  block receipt.
+    /// This method is invoked by the `stacks-node` to update the fee estimator
+    /// with a new  block receipt.
     fn notify_block(
         &mut self,
         receipt: &StacksEpochReceipt,
@@ -52,8 +54,8 @@ pub trait FeeEstimator {
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
-/// This struct is returned from fee rate estimators as the current best estimate for
-/// fee rates to include a transaction in a block.
+/// This struct is returned from fee rate estimators as the current best
+/// estimate for fee rates to include a transaction in a block.
 pub struct FeeRateEstimate {
     pub high: f64,
     pub middle: f64,
@@ -116,17 +118,20 @@ pub fn estimate_fee_rate<CE: CostEstimator + ?Sized, CM: CostMetric + ?Sized>(
     Ok(tx.get_tx_fee() as f64 / metric_estimate as f64)
 }
 
-/// This trait is for implementation of *execution cost* estimation. CostEstimators
-///  provide the estimated `ExecutionCost` for a given `TransactionPayload`.
+/// This trait is for implementation of *execution cost* estimation.
+/// CostEstimators  provide the estimated `ExecutionCost` for a given
+/// `TransactionPayload`.
 ///
-/// Note: `CostEstimator` and `FeeRateEstimator` implementations do two very different
-///  tasks. `CostEstimator` implementations estimate the `ExecutionCost` for a transaction
-///  payload. `FeeRateEstimator` implementations estimate the network's current fee rate.
-///  Clients interested in determining the fee to be paid for a transaction must used both
+/// Note: `CostEstimator` and `FeeRateEstimator` implementations do two very
+/// different  tasks. `CostEstimator` implementations estimate the
+/// `ExecutionCost` for a transaction  payload. `FeeRateEstimator`
+/// implementations estimate the network's current fee rate.  Clients interested
+/// in determining the fee to be paid for a transaction must used both
 ///  whereas miners only need to use a `CostEstimator`
 pub trait CostEstimator: Send {
-    /// This method is invoked by the `stacks-node` to update the cost estimator with a new
-    ///  cost measurement. The given `tx` had a measured cost of `actual_cost`.
+    /// This method is invoked by the `stacks-node` to update the cost estimator
+    /// with a new  cost measurement. The given `tx` had a measured cost of
+    /// `actual_cost`.
     fn notify_event(
         &mut self,
         tx: &TransactionPayload,
@@ -135,8 +140,9 @@ pub trait CostEstimator: Send {
         evaluated_epoch: &StacksEpochId,
     ) -> Result<(), EstimatorError>;
 
-    /// This method is used by a stacks-node to obtain an estimate for a given transaction payload.
-    /// If the estimator cannot provide an accurate estimate for a given payload, it should return
+    /// This method is used by a stacks-node to obtain an estimate for a given
+    /// transaction payload. If the estimator cannot provide an accurate
+    /// estimate for a given payload, it should return
     /// `EstimatorError::NoEstimateAvailable`
     fn estimate_cost(
         &self,
@@ -144,11 +150,12 @@ pub trait CostEstimator: Send {
         evaluated_epoch: &StacksEpochId,
     ) -> Result<ExecutionCost, EstimatorError>;
 
-    /// This method is invoked by the `stacks-node` to notify the estimator of all the transaction
-    /// receipts in a given block.
+    /// This method is invoked by the `stacks-node` to notify the estimator of
+    /// all the transaction receipts in a given block.
     ///
-    /// A default implementation is provided to implementing structs that processes the transaction
-    /// receipts by feeding them into `CostEstimator::notify_event()`
+    /// A default implementation is provided to implementing structs that
+    /// processes the transaction receipts by feeding them into
+    /// `CostEstimator::notify_event()`
     fn notify_block(
         &mut self,
         receipts: &[StacksTransactionReceipt],
@@ -234,8 +241,8 @@ impl EstimatorError {
     }
 }
 
-/// Null `CostEstimator` implementation: this is useful in rust typing when supplying
-/// a `None` value to the `ChainsCoordinator` estimator field.
+/// Null `CostEstimator` implementation: this is useful in rust typing when
+/// supplying a `None` value to the `ChainsCoordinator` estimator field.
 impl CostEstimator for () {
     fn notify_event(
         &mut self,
@@ -256,8 +263,8 @@ impl CostEstimator for () {
     }
 }
 
-/// Null `FeeEstimator` implementation: this is useful in rust typing when supplying
-/// a `None` value to the `ChainsCoordinator` estimator field.
+/// Null `FeeEstimator` implementation: this is useful in rust typing when
+/// supplying a `None` value to the `ChainsCoordinator` estimator field.
 impl FeeEstimator for () {
     fn notify_block(
         &mut self,

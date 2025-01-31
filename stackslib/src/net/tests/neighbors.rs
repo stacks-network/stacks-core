@@ -369,8 +369,8 @@ fn test_step_walk_1_neighbor_bad_epoch() {
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
 
-        // peers know about each other, but peer 2 never talks to peer 1 since it believes that
-        // it's in a wholly different epoch
+        // peers know about each other, but peer 2 never talks to peer 1 since it
+        // believes that it's in a wholly different epoch
         peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
         peer_2.add_neighbor(&mut peer_1.to_neighbor(), None, true);
 
@@ -545,8 +545,8 @@ fn test_step_walk_1_neighbor_bootstrapping() {
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
 
-        // peer 1 crawls peer 2, but peer 1 doesn't add peer 2 to its frontier becuase peer 2 is
-        // too far behind.
+        // peer 1 crawls peer 2, but peer 1 doesn't add peer 2 to its frontier becuase
+        // peer 2 is too far behind.
         peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
 
         // advance peer 1
@@ -623,8 +623,8 @@ fn test_step_walk_1_neighbor_behind() {
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
 
-        // peer 1 crawls peer 2, and peer 1 adds peer 2 to its frontier even though peer 2 does
-        // not, because peer 2 is too far ahead
+        // peer 1 crawls peer 2, and peer 1 adds peer 2 to its frontier even though peer
+        // 2 does not, because peer 2 is too far ahead
         peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
 
         // advance peer 2
@@ -708,7 +708,8 @@ fn test_step_walk_1_neighbor_behind() {
 
         let neighbor_2 = peer_2.to_neighbor();
 
-        // peer 2 was added to the peer DB of peer 1, even though peer 1 is very behind peer 2
+        // peer 2 was added to the peer DB of peer 1, even though peer 1 is very behind
+        // peer 2
         let peer_1_dbconn = peer_1.get_peerdb_conn();
         match PeerDB::get_peer(
             peer_1_dbconn,
@@ -808,7 +809,8 @@ fn test_step_walk_10_neighbors_of_neighbor_plain() {
                 i += 1;
             }
 
-            // peer 1 must have handshaked with all of peer 2's neighbors if this test will pass
+            // peer 1 must have handshaked with all of peer 2's neighbors if this test will
+            // pass
             let peer_1_dbconn = peer_1.get_peerdb_conn();
             let mut num_handshakes = 0;
             for peer in &peer_2_neighbors {
@@ -837,7 +839,8 @@ fn test_step_walk_10_neighbors_of_neighbor_plain() {
                 continue;
             }
 
-            // peer 1 learned that peer 2 has an out-degree of 10 (10 neighbors) and an in-degree of 1 if this test will pass
+            // peer 1 learned that peer 2 has an out-degree of 10 (10 neighbors) and an
+            // in-degree of 1 if this test will pass
             let n2 = peer_2.to_neighbor();
             let p2_opt = PeerDB::get_peer(
                 peer_1_dbconn,
@@ -1015,7 +1018,8 @@ fn test_step_walk_10_neighbors_of_neighbor_bootstrapping() {
                 continue;
             }
 
-            // peer 1 learned that peer 2 has an out-degree of 6 (peer_1 + 5 fresh neighbors) and an in-degree of 1
+            // peer 1 learned that peer 2 has an out-degree of 6 (peer_1 + 5 fresh
+            // neighbors) and an in-degree of 1
             let n2 = peer_2.to_neighbor();
             let p2_opt = PeerDB::get_peer(
                 peer_1_dbconn,
@@ -1334,9 +1338,10 @@ fn test_step_walk_3_neighbors_inbound() {
         let mut peer_2 = TestPeer::new(peer_2_config);
         let mut peer_3 = TestPeer::new(peer_3_config);
 
-        // Peer 2 and peer 3 are public nodes that don't know about each other, but peer 1 lists
-        // both of them as outbound neighbors.  Goal is for peer 2 to learn about peer 3, and vice
-        // versa, by crawling peer 1 through an inbound neighbor walk.
+        // Peer 2 and peer 3 are public nodes that don't know about each other, but peer
+        // 1 lists both of them as outbound neighbors.  Goal is for peer 2 to
+        // learn about peer 3, and vice versa, by crawling peer 1 through an
+        // inbound neighbor walk.
         peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
         peer_1.add_neighbor(&mut peer_3.to_neighbor(), None, true);
 

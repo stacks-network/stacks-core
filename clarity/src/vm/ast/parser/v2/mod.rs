@@ -46,11 +46,12 @@ enum SetupTupleResult {
 struct OpenTuple {
     nodes: Vec<PreSymbolicExpression>,
     span: Span,
-    /// Is the next node is expected to be a key or value? All of the preparatory work is done _before_ the parse loop tries to digest the next
-    /// node (i.e., whitespace ingestion and checking for commas)
+    /// Is the next node is expected to be a key or value? All of the
+    /// preparatory work is done _before_ the parse loop tries to digest the
+    /// next node (i.e., whitespace ingestion and checking for commas)
     expects: OpenTupleStatus,
-    /// This is the last peeked token before trying to parse a key or value node, used for
-    ///  diagnostic reporting
+    /// This is the last peeked token before trying to parse a key or value
+    /// node, used for  diagnostic reporting
     diagnostic_token: PlacedToken,
 }
 
@@ -203,11 +204,13 @@ impl<'a> Parser<'a> {
 
     // TODO: add tests from mutation testing results #4829
     #[cfg_attr(test, mutants::skip)]
-    /// Process a new child node for an AST expression that is open and waiting for children nodes. For example,
-    ///  a list or tuple expression that is waiting for child expressions.
+    /// Process a new child node for an AST expression that is open and waiting
+    /// for children nodes. For example,  a list or tuple expression that is
+    /// waiting for child expressions.
     ///
-    /// Returns Some(node) if the open node is finished and should be popped from the stack.
-    /// Returns None if the open node is not finished and should remain on the parser stack.
+    /// Returns Some(node) if the open node is finished and should be popped
+    /// from the stack. Returns None if the open node is not finished and
+    /// should remain on the parser stack.
     fn handle_open_node(
         &mut self,
         open_node: &mut ParserStackElement,
@@ -313,7 +316,8 @@ impl<'a> Parser<'a> {
                                     ParseErrors::UnexpectedToken(last_token.token),
                                     last_token.span,
                                 )?;
-                                return Ok(None); // Ok(None) yields to the parse loop
+                                return Ok(None); // Ok(None) yields to the parse
+                                                 // loop
                             }
                         }
                     }
@@ -398,7 +402,8 @@ impl<'a> Parser<'a> {
                                     ParseErrors::UnexpectedToken(last_token.token),
                                     last_token.span,
                                 )?;
-                                return Ok(None); // Ok(None) yields to the parse loop
+                                return Ok(None); // Ok(None) yields to the parse
+                                                 // loop
                             }
                         }
                     }
@@ -452,8 +457,9 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Do all the preprocessing required to setup tuple parsing. If the tuple immediately
-    /// closes, return the final expression here, otherwise, return OpenTuple.
+    /// Do all the preprocessing required to setup tuple parsing. If the tuple
+    /// immediately closes, return the final expression here, otherwise,
+    /// return OpenTuple.
     fn open_tuple(&mut self, lbrace: PlacedToken) -> ParseResult<SetupTupleResult> {
         let mut open_tuple = OpenTuple {
             nodes: vec![],
@@ -790,8 +796,9 @@ impl<'a> Parser<'a> {
     /// Returns some valid expression. When None is returned, check the current
     /// token from the caller.
     pub fn parse_node(&mut self) -> ParseResult<Option<PreSymbolicExpression>> {
-        // `parse_stack` stores information about any nodes which may contain interior AST nodes.
-        // because even though this function only returns a single node, that single node may contain others.
+        // `parse_stack` stores information about any nodes which may contain interior
+        // AST nodes. because even though this function only returns a single
+        // node, that single node may contain others.
         let mut parse_stack = vec![];
         let mut first_run = true;
         // do-while loop until there are no more nodes waiting for children nodes
@@ -812,7 +819,8 @@ impl<'a> Parser<'a> {
                                     ParseErrors::ExpressionStackDepthTooDeep,
                                     token.span.clone(),
                                 )?;
-                                // Do not try to continue, exit cleanly now to avoid a stack overflow.
+                                // Do not try to continue, exit cleanly now to avoid a stack
+                                // overflow.
                                 self.skip_to_end();
                                 return Ok(None);
                             }
@@ -825,13 +833,15 @@ impl<'a> Parser<'a> {
                             continue;
                         }
                         Token::Lbrace => {
-                            // This sugared syntax for tuple becomes a list of pairs, so depth is increased by 2.
+                            // This sugared syntax for tuple becomes a list of pairs, so depth is
+                            // increased by 2.
                             if self.nesting_depth + 2 > MAX_NESTING_DEPTH {
                                 self.add_diagnostic(
                                     ParseErrors::ExpressionStackDepthTooDeep,
                                     token.span.clone(),
                                 )?;
-                                // Do not try to continue, exit cleanly now to avoid a stack overflow.
+                                // Do not try to continue, exit cleanly now to avoid a stack
+                                // overflow.
                                 self.skip_to_end();
                                 return Ok(None);
                             }
@@ -840,7 +850,8 @@ impl<'a> Parser<'a> {
                                 SetupTupleResult::OpenTuple(open_tuple) => {
                                     self.nesting_depth += 2;
                                     parse_stack.push(ParserStackElement::OpenTuple(open_tuple));
-                                    // open the tuple on the parse_stack, and then continue to the next token
+                                    // open the tuple on the parse_stack, and then continue to the
+                                    // next token
                                     continue;
                                 }
                                 SetupTupleResult::Closed(closed_tuple) => Some(closed_tuple),
@@ -1041,9 +1052,9 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // This should be unreachable -- the loop only exits if there are no open tuples or lists,
-        //  but the last line of the loop also checks if there are no open tuples or lists and if not,
-        //  returns the node.
+        // This should be unreachable -- the loop only exits if there are no open tuples
+        // or lists,  but the last line of the loop also checks if there are no
+        // open tuples or lists and if not,  returns the node.
         Ok(None)
     }
 

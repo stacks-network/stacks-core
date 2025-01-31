@@ -59,7 +59,8 @@ pub struct RPCNeighbor {
 }
 
 /// Serialize and deserialize `Option<Vec<QualifiedContractIdentifier>>`
-///  using the `to_string()` and `parse()` implementations of `QualifiedContractIdentifier`.
+///  using the `to_string()` and `parse()` implementations of
+/// `QualifiedContractIdentifier`.
 mod serde_opt_vec_qci {
     use clarity::vm::types::QualifiedContractIdentifier;
     use serde::{Deserialize, Serialize};
@@ -228,7 +229,8 @@ impl HttpRequest for RPCNeighborsRequestHandler {
     }
 
     /// Try to decode this request.
-    /// There's nothing to load here, so just make sure the request is well-formed.
+    /// There's nothing to load here, so just make sure the request is
+    /// well-formed.
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,

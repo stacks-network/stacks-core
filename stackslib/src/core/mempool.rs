@@ -71,7 +71,8 @@ use crate::util_lib::db::{
 };
 use crate::{cost_estimates, monitoring};
 
-// maximum number of confirmations a transaction can have before it's garbage-collected
+// maximum number of confirmations a transaction can have before it's
+// garbage-collected
 pub static MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;
 pub static MAXIMUM_MEMPOOL_TX_CHAINING: u64 = 25;
 pub static MEMPOOL_NAKAMOTO_MAX_TRANSACTION_AGE: Duration =
@@ -86,7 +87,8 @@ pub const BLOOM_COUNTER_ERROR_RATE: f64 = 0.001;
 // expected number of txs in the bloom filter
 pub const MAX_BLOOM_COUNTER_TXS: u32 = 8192;
 
-// how far back in time (in Stacks blocks) does the bloom counter maintain tx records?
+// how far back in time (in Stacks blocks) does the bloom counter maintain tx
+// records?
 pub const BLOOM_COUNTER_DEPTH: usize = 2;
 
 // how long will a transaction be blacklisted?
@@ -95,11 +97,13 @@ pub const DEFAULT_BLACKLIST_TIMEOUT: u64 = 24 * 60 * 60 * 2;
 pub const DEFAULT_BLACKLIST_MAX_SIZE: u64 = 134217728; // 2**27 -- the blacklist table can reach at most 4GB at 128 bytes per record
 
 // maximum many tx tags we'll send before sending a bloom filter instead.
-// The parameter choice here is due to performance -- calculating a tag set can be slower than just
-// loading the bloom filter, even though the bloom filter is larger.
+// The parameter choice here is due to performance -- calculating a tag set can
+// be slower than just loading the bloom filter, even though the bloom filter is
+// larger.
 const DEFAULT_MAX_TX_TAGS: u32 = 2048;
 
-/// A node-specific transaction tag -- the first 8 bytes of siphash(local-seed,txid)
+/// A node-specific transaction tag -- the first 8 bytes of
+/// siphash(local-seed,txid)
 #[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub struct TxTag(pub [u8; 8]);
 
@@ -224,8 +228,9 @@ fn parse_mempool_query_page_id<R: Read>(
 }
 
 /// Decode a transaction stream, returned from /v2/mempool/query.
-/// The wire format is a list of transactions (no SIP-003 length prefix), followed by an
-/// optional 32-byte page ID.  Obtain both the transactions and page ID, if it exists.
+/// The wire format is a list of transactions (no SIP-003 length prefix),
+/// followed by an optional 32-byte page ID.  Obtain both the transactions and
+/// page ID, if it exists.
 pub fn decode_tx_stream<R: Read>(
     fd: &mut R,
 ) -> Result<(Vec<StacksTransaction>, Option<Txid>), net_error> {
@@ -429,7 +434,8 @@ pub struct MemPoolTxInfo {
 }
 
 /// This class is a minimal version of `MemPoolTxInfo`. It contains
-/// just enough information to 1) filter by nonce readiness, 2) sort by fee rate.
+/// just enough information to 1) filter by nonce readiness, 2) sort by fee
+/// rate.
 #[derive(Debug, Clone)]
 pub struct MemPoolTxInfoPartial {
     pub txid: Txid,
@@ -446,17 +452,19 @@ pub struct MemPoolTxMetadata {
     pub len: u64,
     pub tx_fee: u64,
     /// The tenure ID in which this transaction was accepted.
-    /// In epoch 2.x, this is the consensus hash of the sortition that chose the Stacks block
-    /// In Nakamoto, this is the consensus hash of the ongoing tenure.
+    /// In epoch 2.x, this is the consensus hash of the sortition that chose the
+    /// Stacks block In Nakamoto, this is the consensus hash of the ongoing
+    /// tenure.
     pub tenure_consensus_hash: ConsensusHash,
     /// The tenure block in which this transaction was accepted.
-    /// In epoch 2.x, this is the hash of the Stacks block produced in the sortition.
-    /// In Nakamoto, this is the hash of the tenure-start block.
+    /// In epoch 2.x, this is the hash of the Stacks block produced in the
+    /// sortition. In Nakamoto, this is the hash of the tenure-start block.
     pub tenure_block_header_hash: BlockHeaderHash,
-    /// The number of coinbases that have transpired at the time of this transaction's acceptance.
-    /// In epoch 2.x, this is the same as the Stacks block height
-    /// In Nakamoto, this is the simply the number of coinbases produced in the history tipped at
-    /// `tenure_consensus_hash` and `tenure_block_header_hash`
+    /// The number of coinbases that have transpired at the time of this
+    /// transaction's acceptance. In epoch 2.x, this is the same as the
+    /// Stacks block height In Nakamoto, this is the simply the number of
+    /// coinbases produced in the history tipped at `tenure_consensus_hash`
+    /// and `tenure_block_header_hash`
     pub coinbase_height: u64,
     pub origin_address: StacksAddress,
     pub origin_nonce: u64,
@@ -516,24 +524,25 @@ impl MemPoolWalkTxTypes {
 
 #[derive(Debug, Clone)]
 pub struct MemPoolWalkSettings {
-    /// Maximum amount of time a miner will spend walking through mempool transactions, in
-    /// milliseconds.  This is a soft deadline.
+    /// Maximum amount of time a miner will spend walking through mempool
+    /// transactions, in milliseconds.  This is a soft deadline.
     pub max_walk_time_ms: u64,
-    /// Probability percentage to consider a transaction which has not received a cost estimate.
-    /// That is, with x%, when picking the next transaction to include a block, select one that
-    /// either failed to get a cost estimate or has not been estimated yet.
+    /// Probability percentage to consider a transaction which has not received
+    /// a cost estimate. That is, with x%, when picking the next transaction
+    /// to include a block, select one that either failed to get a cost
+    /// estimate or has not been estimated yet.
     pub consider_no_estimate_tx_prob: u8,
     /// Size of the nonce cache. This avoids MARF look-ups.
     pub nonce_cache_size: u64,
-    /// Size of the candidate cache. These are the candidates that will be retried after each
-    /// transaction is mined.
+    /// Size of the candidate cache. These are the candidates that will be
+    /// retried after each transaction is mined.
     pub candidate_retry_cache_size: u64,
     /// Types of transactions we'll consider
     pub txs_to_consider: HashSet<MemPoolWalkTxTypes>,
     /// Origins for transactions that we'll consider
     pub filter_origins: HashSet<StacksAddress>,
-    /// What percentage of the remaining cost limit should we consume before stopping the walk
-    /// None means we consume the entire cost limit ASAP
+    /// What percentage of the remaining cost limit should we consume before
+    /// stopping the walk None means we consume the entire cost limit ASAP
     pub tenure_cost_limit_per_block_percentage: Option<u8>,
 }
 
@@ -913,13 +922,15 @@ impl<'a> MemPoolTx<'a> {
         Ok(())
     }
 
-    /// Add the txid to the bloom counter in the mempool DB, optionally replacing a prior
-    /// transaction (identified by prior_txid) if the bloom counter is full.
-    /// If this is the first txid at this coinbase height, then also garbage-collect the bloom counter to remove no-longer-recent transactions.
-    /// If the bloom counter is saturated -- i.e. it represents more than MAX_BLOOM_COUNTER_TXS
-    /// transactions -- then pick another transaction to evict from the bloom filter and return its txid.
-    /// (Note that no transactions are ever removed from the mempool; we just don't prioritize them
-    /// in the bloom filter).
+    /// Add the txid to the bloom counter in the mempool DB, optionally
+    /// replacing a prior transaction (identified by prior_txid) if the
+    /// bloom counter is full. If this is the first txid at this coinbase
+    /// height, then also garbage-collect the bloom counter to remove
+    /// no-longer-recent transactions. If the bloom counter is saturated --
+    /// i.e. it represents more than MAX_BLOOM_COUNTER_TXS transactions --
+    /// then pick another transaction to evict from the bloom filter and return
+    /// its txid. (Note that no transactions are ever removed from the
+    /// mempool; we just don't prioritize them in the bloom filter).
     fn update_bloom_counter(
         &mut self,
         coinbase_height: u64,
@@ -943,8 +954,8 @@ impl<'a> MemPoolTx<'a> {
                 bloom_counter.remove_raw(dbtx, &prior_txid.0)?;
             }
 
-            // keep the bloom counter un-saturated -- remove at most one transaction from it to keep
-            // the error rate at or below the target error rate
+            // keep the bloom counter un-saturated -- remove at most one transaction from it
+            // to keep the error rate at or below the target error rate
             let evict_txid = {
                 let num_recents = MemPoolDB::get_num_recent_txs(dbtx)?;
                 if num_recents >= MAX_BLOOM_COUNTER_TXS.into() {
@@ -997,7 +1008,8 @@ impl<'a> MemPoolTx<'a> {
     }
 }
 
-/// Used to locally cache nonces to avoid repeatedly looking them up in the nonce.
+/// Used to locally cache nonces to avoid repeatedly looking them up in the
+/// nonce.
 struct NonceCache {
     cache: HashMap<StacksAddress, u64>,
     /// The maximum size that this cache can be.
@@ -1020,8 +1032,9 @@ impl NonceCache {
     /// If absent, then the `nonces` table will be queried for this address.
     /// If absent, then the MARF will be queried for this address.
     ///
-    /// If not in RAM, the nonce will be opportunistically stored to the `nonces` table.  If that
-    /// fails due to lock contention, then the method will return `true` for its second tuple argument.
+    /// If not in RAM, the nonce will be opportunistically stored to the
+    /// `nonces` table.  If that fails due to lock contention, then the
+    /// method will return `true` for its second tuple argument.
     ///
     /// Returns (nonce, should-try-store-again?)
     fn get<C>(
@@ -1172,7 +1185,8 @@ impl CandidateCache {
         assert!(self.cache.len() + self.next.len() <= self.max_cache_size);
     }
 
-    /// Prepare for the next iteration, transferring transactions from `next` to `cache`.
+    /// Prepare for the next iteration, transferring transactions from `next` to
+    /// `cache`.
     fn reset(&mut self) {
         // We do not need a size check here, because the cache can only grow in size
         // after `cache` is empty. New transactions are not walked until the entire
@@ -1207,10 +1221,10 @@ impl CandidateCache {
 ///
 /// Returns:
 ///   `Equal` if both origin and sponsor nonces match expected
-///   `Less` if the origin nonce is less than expected, or the origin matches expected and the
-///          sponsor nonce is less than expected
-///   `Greater` if the origin nonce is greater than expected, or the origin matches expected
-///          and the sponsor nonce is greater than expected
+///   `Less` if the origin nonce is less than expected, or the origin matches
+/// expected and the          sponsor nonce is less than expected
+///   `Greater` if the origin nonce is greater than expected, or the origin
+/// matches expected          and the sponsor nonce is greater than expected
 fn order_nonces(
     origin_actual: u64,
     origin_expected: u64,
@@ -1251,8 +1265,9 @@ impl MemPoolDB {
         Ok(())
     }
 
-    /// Load the schema version from the database, if it's new enough to have such a version.
-    /// Returns Some(version) if a version can be loaded; None if not.
+    /// Load the schema version from the database, if it's new enough to have
+    /// such a version. Returns Some(version) if a version can be loaded;
+    /// None if not.
     fn get_schema_version(conn: &DBConn) -> Result<Option<i64>, db_error> {
         let is_versioned = table_exists(conn, "schema_version")?;
         if !is_versioned {
@@ -1568,9 +1583,10 @@ impl MemPoolDB {
     }
 
     /// Helper method to record nonces to a retry-buffer.
-    /// This is needed for when we try to write-through a new (address, nonce) pair to the on-disk
-    /// `nonces` cache, but the write fails due to lock contention from another thread.  The
-    /// retry-buffer will be used to later store this data in a single transaction.
+    /// This is needed for when we try to write-through a new (address, nonce)
+    /// pair to the on-disk `nonces` cache, but the write fails due to lock
+    /// contention from another thread.  The retry-buffer will be used to
+    /// later store this data in a single transaction.
     fn save_nonce_for_retry(
         retry_store: &mut HashMap<StacksAddress, u64>,
         max_size: u64,
@@ -1637,8 +1653,9 @@ impl MemPoolDB {
         let mut candidate_cache = CandidateCache::new(settings.candidate_retry_cache_size);
         let mut nonce_cache = NonceCache::new(settings.nonce_cache_size);
 
-        // set of (address, nonce) to store after the inner loop completes.  This will be done in a
-        // single transaction.  This cannot grow to more than `settings.nonce_cache_size` entries.
+        // set of (address, nonce) to store after the inner loop completes.  This will
+        // be done in a single transaction.  This cannot grow to more than
+        // `settings.nonce_cache_size` entries.
         let mut retry_store = HashMap::new();
 
         let sql = "
@@ -1716,8 +1733,8 @@ impl MemPoolDB {
             let (expected_sponsor_nonce, retry_store_sponsor_nonce) =
                 nonce_cache.get(&candidate.sponsor_address, clarity_tx, self.conn());
 
-            // Try storing these nonces later if we failed to do so here, e.g. due to some other
-            // thread holding the write-lock on the mempool DB.
+            // Try storing these nonces later if we failed to do so here, e.g. due to some
+            // other thread holding the write-lock on the mempool DB.
             if retry_store_origin_nonce {
                 Self::save_nonce_for_retry(
                     &mut retry_store,
@@ -1778,7 +1795,8 @@ impl MemPoolDB {
             let tx_info = match tx_info_option {
                 Some(tx) => tx,
                 None => {
-                    // Note: Don't panic here because maybe the state has changed from garbage collection.
+                    // Note: Don't panic here because maybe the state has changed from garbage
+                    // collection.
                     warn!("Miner: could not find a tx for id {:?}", &candidate.txid);
                     continue;
                 }
@@ -1899,9 +1917,9 @@ impl MemPoolDB {
             candidate_cache.reset();
         };
 
-        // drop these rusqlite statements and queries, since their existence as immutable borrows on the
-        // connection prevents us from beginning a transaction below (which requires a mutable
-        // borrow).
+        // drop these rusqlite statements and queries, since their existence as
+        // immutable borrows on the connection prevents us from beginning a
+        // transaction below (which requires a mutable borrow).
         drop(null_iterator);
         drop(fee_iterator);
         drop(query_stmt_null);
@@ -1966,7 +1984,8 @@ impl MemPoolDB {
         Ok(rows.len())
     }
 
-    /// Get a number of transactions after a given timestamp on a given chain tip.
+    /// Get a number of transactions after a given timestamp on a given chain
+    /// tip.
     #[cfg(test)]
     pub fn get_txs_after(
         conn: &DBConn,
@@ -1986,9 +2005,11 @@ impl MemPoolDB {
         Ok(rows)
     }
 
-    /// Get a transaction's metadata, given address and nonce, and whether the address is used as a sponsor or an origin.
-    /// Faster than getting the MemPoolTxInfo, since no deserialization will be needed.
-    /// Used to see if there exists a transaction with this info, so as to implement replace-by-fee
+    /// Get a transaction's metadata, given address and nonce, and whether the
+    /// address is used as a sponsor or an origin. Faster than getting the
+    /// MemPoolTxInfo, since no deserialization will be needed. Used to see
+    /// if there exists a transaction with this info, so as to implement
+    /// replace-by-fee
     pub fn get_tx_metadata_by_address(
         conn: &DBConn,
         is_origin: bool,
@@ -2003,7 +2024,8 @@ impl MemPoolDB {
         query_row(conn, &sql, args)
     }
 
-    /// Are the given fully-qualified blocks, identified by their (consensus-hash, block-header-hash) pairs, in the same fork?
+    /// Are the given fully-qualified blocks, identified by their
+    /// (consensus-hash, block-header-hash) pairs, in the same fork?
     /// That is, is one block an ancestor of another?
     /// TODO: Nakamoto-ize
     fn are_blocks_in_same_fork(
@@ -2035,24 +2057,27 @@ impl MemPoolDB {
         }
     }
 
-    /// Add a transaction to the mempool.  If it already exists, then replace it if the given fee
-    /// is higher than the one that's already there.
+    /// Add a transaction to the mempool.  If it already exists, then replace it
+    /// if the given fee is higher than the one that's already there.
     /// Carry out the mempool admission test before adding.
     ///
-    /// `tip_consensus_hash`, `tip_block_header_hash`, and `coinbase_height` describe the fork that
-    /// was canonical when this transaction is added.  While `coinbase_height` would be derived
-    /// from these first two fields, it is supplied independently to facilitate testing.
+    /// `tip_consensus_hash`, `tip_block_header_hash`, and `coinbase_height`
+    /// describe the fork that was canonical when this transaction is added.
+    /// While `coinbase_height` would be derived from these first two
+    /// fields, it is supplied independently to facilitate testing.
     ///
-    /// If this is called in the Nakamoto epoch -- i.e. if `tip_consensus_hash` is in the Nakamoto
-    /// epoch -- then these tip hashes will be resolved to the tenure-start hashes first.  This is
-    /// because in Nakamoto, we index transactions by tenure-start blocks since they directly
-    /// correspond to epoch 2.x Stacks blocks (meaning, the semantics of mempool sync are preserved
-    /// across epoch 2.x and Nakamoto as long as we treat transactions this way).  In both epochs,
-    /// transactions arrive during a miner's tenure, not during a particular block's status as
+    /// If this is called in the Nakamoto epoch -- i.e. if `tip_consensus_hash`
+    /// is in the Nakamoto epoch -- then these tip hashes will be resolved
+    /// to the tenure-start hashes first.  This is because in Nakamoto, we
+    /// index transactions by tenure-start blocks since they directly
+    /// correspond to epoch 2.x Stacks blocks (meaning, the semantics of mempool
+    /// sync are preserved across epoch 2.x and Nakamoto as long as we treat
+    /// transactions this way).  In both epochs, transactions arrive during
+    /// a miner's tenure, not during a particular block's status as
     /// the canonical chain tip.
     ///
-    /// The tenure resolution behavior can be short-circuited with `resolve_tenure = false`.
-    /// However, this is only used in testing.
+    /// The tenure resolution behavior can be short-circuited with
+    /// `resolve_tenure = false`. However, this is only used in testing.
     ///
     /// Don't call directly; use submit().
     pub(crate) fn try_add_tx(
@@ -2073,13 +2098,14 @@ impl MemPoolDB {
     ) -> Result<(), MemPoolRejection> {
         let length = tx_bytes.len() as u64;
 
-        // this transaction is said to arrive during this _tenure_, not during this _block_.
-        // In epoch 2.x, these are the same as `tip_consensus_hash` and `tip_block_header_hash`.
-        // In Nakamoto, they may be different.
+        // this transaction is said to arrive during this _tenure_, not during this
+        // _block_. In epoch 2.x, these are the same as `tip_consensus_hash` and
+        // `tip_block_header_hash`. In Nakamoto, they may be different.
         //
-        // The only exception to this rule is if `tip_consensus_hash` and `tip_block_header_hash`
-        // are `FIRST_BURNCHAIN_CONSENSUS_HASH` and `FIRST_STACKS_BLOCK_HASH` -- in this case,
-        // there's no need to find the tenure-start header
+        // The only exception to this rule is if `tip_consensus_hash` and
+        // `tip_block_header_hash` are `FIRST_BURNCHAIN_CONSENSUS_HASH` and
+        // `FIRST_STACKS_BLOCK_HASH` -- in this case, there's no need to find
+        // the tenure-start header
         let (consensus_hash, block_header_hash) = if resolve_tenure {
             let tenure_start_header = NakamotoChainState::get_tenure_start_block_header(
                 &mut chainstate.index_conn(),
@@ -2209,7 +2235,8 @@ impl MemPoolDB {
         Ok(())
     }
 
-    /// Garbage-collect the mempool according to the behavior specified in `behavior`.
+    /// Garbage-collect the mempool according to the behavior specified in
+    /// `behavior`.
     pub fn garbage_collect(
         &mut self,
         chain_height: u64,
@@ -2237,8 +2264,8 @@ impl MemPoolDB {
         tx.commit()
     }
 
-    /// Garbage-collect the mempool. Remove transactions that were accepted more than `age` ago.
-    /// The granularity of this check is in seconds.
+    /// Garbage-collect the mempool. Remove transactions that were accepted more
+    /// than `age` ago. The granularity of this check is in seconds.
     pub fn garbage_collect_by_time(
         tx: &MemPoolTx,
         age: &Duration,
@@ -2259,8 +2286,8 @@ impl MemPoolDB {
         Ok(())
     }
 
-    /// Garbage-collect the mempool.  Remove transactions that were received `min_coinbase_height`
-    ///  blocks ago.
+    /// Garbage-collect the mempool.  Remove transactions that were received
+    /// `min_coinbase_height`  blocks ago.
     pub fn garbage_collect_by_coinbase_height(
         tx: &MemPoolTx,
         min_coinbase_height: u64,
@@ -2390,18 +2417,20 @@ impl MemPoolDB {
 
     /// One-shot transaction submit.
     ///
-    /// Transactions are indexed relative to a chain tip, identified by `consensus_hash` and
-    /// `block_hash`.  These fields have slightly different interpretations depending on what epoch
-    /// we're in:
+    /// Transactions are indexed relative to a chain tip, identified by
+    /// `consensus_hash` and `block_hash`.  These fields have slightly
+    /// different interpretations depending on what epoch we're in:
     /// * In epoch 2.x, these are the Stacks chain tip.
-    /// * In Nakamoto, these will be resolved to the tenure-start block of the tenure in which this
-    /// Stacks block lies.  The reason for this is because of how the mempool performs
-    /// garbage collection in its DB and bloom filter -- the latter of which is used for mempool
-    /// sync.
+    /// * In Nakamoto, these will be resolved to the tenure-start block of the
+    ///   tenure in which this
+    /// Stacks block lies.  The reason for this is because of how the mempool
+    /// performs garbage collection in its DB and bloom filter -- the latter
+    /// of which is used for mempool sync.
     ///
-    /// No action is required by te caller to handle this discrepancy; the caller should just submit
-    /// the canonical Stacks tip.  If the current epoch is a Nakamoto epoch, it will be resolved to
-    /// the tenure-start block internally.
+    /// No action is required by te caller to handle this discrepancy; the
+    /// caller should just submit the canonical Stacks tip.  If the current
+    /// epoch is a Nakamoto epoch, it will be resolved to the tenure-start
+    /// block internally.
     pub fn submit(
         &mut self,
         chainstate: &mut StacksChainState,
@@ -2455,7 +2484,8 @@ impl MemPoolDB {
         Ok(())
     }
 
-    /// Miner-driven submit (e.g. for poison microblocks), where no checks are performed
+    /// Miner-driven submit (e.g. for poison microblocks), where no checks are
+    /// performed
     pub fn miner_submit(
         &mut self,
         chainstate: &mut StacksChainState,
@@ -2555,8 +2585,8 @@ impl MemPoolDB {
         Ok(())
     }
 
-    /// garbage-collect the tx blacklist -- delete any transactions whose blacklist timeout has
-    /// been exceeded
+    /// garbage-collect the tx blacklist -- delete any transactions whose
+    /// blacklist timeout has been exceeded
     pub fn garbage_collect_tx_blacklist(
         tx: &DBTx<'_>,
         now: u64,
@@ -2618,7 +2648,8 @@ impl MemPoolDB {
     }
 
     /// Inner code body for dropping transactions.
-    /// Note that the bloom filter will *NOT* be updated.  That's the caller's job, if desired.
+    /// Note that the bloom filter will *NOT* be updated.  That's the caller's
+    /// job, if desired.
     fn inner_drop_txs(tx: &DBTx<'_>, txids: &[Txid]) -> Result<(), db_error> {
         let sql = "DELETE FROM mempool WHERE txid = ?";
         for txid in txids.iter() {
@@ -2627,8 +2658,9 @@ impl MemPoolDB {
         Ok(())
     }
 
-    /// Drop transactions from the mempool.  Does not update the bloom filter, thereby ensuring that
-    /// these transactions will still show up as present to the mempool sync logic.
+    /// Drop transactions from the mempool.  Does not update the bloom filter,
+    /// thereby ensuring that these transactions will still show up as
+    /// present to the mempool sync logic.
     pub fn drop_txs(&mut self, txids: &[Txid]) -> Result<(), db_error> {
         let mempool_tx = self.tx_begin()?;
         MemPoolDB::inner_drop_txs(&mempool_tx, txids)?;
@@ -2650,11 +2682,13 @@ impl MemPoolDB {
         Ok(())
     }
 
-    /// Drop and blacklist transactions, so we don't re-broadcast them or re-fetch them.
-    /// Do *NOT* remove them from the bloom filter.  This will cause them to continue to be
-    /// reported as present, which is exactly what we want because we don't want these transactions
-    /// to be seen again (so we don't want anyone accidentally "helpfully" pushing them to us, nor
-    /// do we want the mempool sync logic to "helpfully" re-discover and re-download them).
+    /// Drop and blacklist transactions, so we don't re-broadcast them or
+    /// re-fetch them. Do *NOT* remove them from the bloom filter.  This
+    /// will cause them to continue to be reported as present, which is
+    /// exactly what we want because we don't want these transactions
+    /// to be seen again (so we don't want anyone accidentally "helpfully"
+    /// pushing them to us, nor do we want the mempool sync logic to
+    /// "helpfully" re-discover and re-download them).
     pub fn drop_and_blacklist_txs(&mut self, txids: &[Txid]) -> Result<(), db_error> {
         let now = get_epoch_time_secs();
         let blacklist_timeout = self.blacklist_timeout;
@@ -2698,7 +2732,8 @@ impl MemPoolDB {
         }
     }
 
-    /// Get the bloom filter that represents the set of recent transactions we have
+    /// Get the bloom filter that represents the set of recent transactions we
+    /// have
     pub fn get_txid_bloom_filter(&self) -> Result<BloomFilter<BloomNodeHasher>, db_error> {
         self.bloom_counter.to_bloom_filter(self.conn())
     }
@@ -2715,8 +2750,8 @@ impl MemPoolDB {
         }
     }
 
-    /// Get the transaction ID list that represents the set of transactions that are represented in
-    /// the bloom counter.
+    /// Get the transaction ID list that represents the set of transactions that
+    /// are represented in the bloom counter.
     pub fn get_bloom_txids(&self) -> Result<Vec<Txid>, db_error> {
         let max_height = match MemPoolDB::get_max_coinbase_height(self.conn())? {
             Some(h) => h,
@@ -2731,9 +2766,10 @@ impl MemPoolDB {
         query_rows(self.conn(), sql, args)
     }
 
-    /// Get the transaction tag list that represents the set of recent transactions we have.
-    /// Generate them with our node-local seed so that our txtag list is different from anyone
-    /// else's, with high probability.
+    /// Get the transaction tag list that represents the set of recent
+    /// transactions we have. Generate them with our node-local seed so that
+    /// our txtag list is different from anyone else's, with high
+    /// probability.
     pub fn get_txtags(&self, seed: &[u8]) -> Result<Vec<TxTag>, db_error> {
         self.get_bloom_txids().map(|txid_list| {
             txid_list
@@ -2743,8 +2779,8 @@ impl MemPoolDB {
         })
     }
 
-    /// How many recent transactions are there -- i.e. within BLOOM_COUNTER_DEPTH coinbase heights of
-    /// the chain tip?
+    /// How many recent transactions are there -- i.e. within
+    /// BLOOM_COUNTER_DEPTH coinbase heights of the chain tip?
     pub fn get_num_recent_txs(conn: &DBConn) -> Result<u64, db_error> {
         let max_height = match MemPoolDB::get_max_coinbase_height(conn)? {
             Some(h) => h,
@@ -2798,13 +2834,15 @@ impl MemPoolDB {
         )
     }
 
-    /// Get the next batch of transactions from our mempool that are *not* represented in the given
-    /// MemPoolSyncData.  Transactions are ordered lexicographically by randomized_txids.hashed_txid, since this allows us
-    /// to use the txid as a cursor while ensuring that each node returns txids in a deterministic random order
-    /// (so if some nodes are configured to return fewer than MAX_BLOOM_COUNTER_TXS transactions,
-    /// a requesting node will still have a good chance of getting something useful).
-    /// Also, return the next value to pass for `last_randomized_txid` to load the next page.
-    /// Also, return the number of rows considered.
+    /// Get the next batch of transactions from our mempool that are *not*
+    /// represented in the given MemPoolSyncData.  Transactions are ordered
+    /// lexicographically by randomized_txids.hashed_txid, since this allows us
+    /// to use the txid as a cursor while ensuring that each node returns txids
+    /// in a deterministic random order (so if some nodes are configured to
+    /// return fewer than MAX_BLOOM_COUNTER_TXS transactions, a requesting
+    /// node will still have a good chance of getting something useful).
+    /// Also, return the next value to pass for `last_randomized_txid` to load
+    /// the next page. Also, return the number of rows considered.
     pub fn static_find_next_missing_transactions(
         conn: &DBConn,
         data: &MemPoolSyncData,

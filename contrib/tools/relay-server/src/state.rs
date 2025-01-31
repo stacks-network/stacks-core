@@ -2,7 +2,8 @@ use hashbrown::HashMap;
 
 #[derive(Default)]
 pub struct State {
-    /// The value for this map is an index for the last read message for this node.
+    /// The value for this map is an index for the last read message for this
+    /// node.
     highwaters: HashMap<String, usize>,
     queue: Vec<Vec<u8>>,
 }

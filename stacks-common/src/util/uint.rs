@@ -18,7 +18,6 @@
 //!
 //! Implementation of a various large-but-fixed sized unsigned integer types.
 //! The functions here are designed to be fast.
-//!
 /// Borrowed with gratitude from Andrew Poelstra's rust-bitcoin library
 use std::fmt;
 

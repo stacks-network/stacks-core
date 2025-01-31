@@ -98,8 +98,8 @@ fn setup_peer_config(
     conf
 }
 
-/// Arrange 15 peers into a ring topology, and verify that each peer learns of each other peer over
-/// time.  Peers are always allowed, so always peered with.
+/// Arrange 15 peers into a ring topology, and verify that each peer learns of
+/// each other peer over time.  Peers are always allowed, so always peered with.
 #[test]
 #[ignore]
 fn test_walk_ring_allow_15() {
@@ -127,8 +127,9 @@ fn test_walk_ring_allow_15() {
     })
 }
 
-/// Arrange 15 peers into a ring topology, and verify that each peer learns of each other peer over
-/// time.  No peer is always-allowed, and all walks are allowed.
+/// Arrange 15 peers into a ring topology, and verify that each peer learns of
+/// each other peer over time.  No peer is always-allowed, and all walks are
+/// allowed.
 #[test]
 #[ignore]
 fn test_walk_ring_15_plain() {
@@ -152,8 +153,9 @@ fn test_walk_ring_15_plain() {
     })
 }
 
-/// Arrange 15 peers into a ring topology, and verify that each peer learns of each other peer over
-/// time.  No inbound walks, but pingback walks are allowed.
+/// Arrange 15 peers into a ring topology, and verify that each peer learns of
+/// each other peer over time.  No inbound walks, but pingback walks are
+/// allowed.
 #[test]
 #[ignore]
 fn test_walk_ring_15_pingback() {
@@ -179,8 +181,9 @@ fn test_walk_ring_15_pingback() {
     })
 }
 
-/// Arrange 15 peers into a ring topology, and verify that each peer learns of each other peer over
-/// time.  Puts one peer in a different AS to bias the neighbor walk towards it.
+/// Arrange 15 peers into a ring topology, and verify that each peer learns of
+/// each other peer over time.  Puts one peer in a different AS to bias the
+/// neighbor walk towards it.
 #[test]
 #[ignore]
 fn test_walk_ring_15_org_biased() {
@@ -248,8 +251,9 @@ fn test_walk_ring_15_org_biased() {
 
 fn test_walk_ring_ex(peer_configs: &mut Vec<TestPeerConfig>, test_pingback: bool) -> Vec<TestPeer> {
     // arrange neighbors into a "ring" topology, where
-    // neighbor N is connected to neighbor (N-1)%NUM_NEIGHBORS and (N+1)%NUM_NEIGHBORS.
-    // If test_pingback is true, then neighbor N is only connected to (N+1)%NUM_NEIGHBORS
+    // neighbor N is connected to neighbor (N-1)%NUM_NEIGHBORS and
+    // (N+1)%NUM_NEIGHBORS. If test_pingback is true, then neighbor N is only
+    // connected to (N+1)%NUM_NEIGHBORS
     let mut peers = vec![];
 
     let peer_count = peer_configs.len();
@@ -308,8 +312,8 @@ fn test_walk_ring_pingback(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPe
     test_walk_ring_ex(peer_configs, true)
 }
 
-/// Arrange 15 peers into a line topology, and verify that each peer learns of each other peer over
-/// time.  All peers are whitelisted to one another.
+/// Arrange 15 peers into a line topology, and verify that each peer learns of
+/// each other peer over time.  All peers are whitelisted to one another.
 #[test]
 #[ignore]
 fn test_walk_line_allowed_15() {
@@ -336,8 +340,9 @@ fn test_walk_line_allowed_15() {
     })
 }
 
-/// Arrange 15 peers into a line topology, and verify that each peer learns of each other peer over
-/// time.  No peers are whitelisted to one another, and all walk types are allowed.
+/// Arrange 15 peers into a line topology, and verify that each peer learns of
+/// each other peer over time.  No peers are whitelisted to one another, and all
+/// walk types are allowed.
 #[test]
 #[ignore]
 fn test_walk_line_15_plain() {
@@ -361,8 +366,8 @@ fn test_walk_line_15_plain() {
     })
 }
 
-/// Arrange 15 peers into a line topology, and verify that each peer learns of each other peer over
-/// time.  One peer is in a different AS.
+/// Arrange 15 peers into a line topology, and verify that each peer learns of
+/// each other peer over time.  One peer is in a different AS.
 #[test]
 #[ignore]
 fn test_walk_line_15_org_biased() {
@@ -426,8 +431,8 @@ fn test_walk_line_15_org_biased() {
     })
 }
 
-/// Arrange 15 peers into a line topology, and verify that each peer learns of each other peer over
-/// time.  No inbound walks allowed; only pingback walks.
+/// Arrange 15 peers into a line topology, and verify that each peer learns of
+/// each other peer over time.  No inbound walks allowed; only pingback walks.
 #[test]
 #[ignore]
 fn test_walk_line_15_pingback() {
@@ -521,8 +526,8 @@ fn test_walk_line_ex(peer_configs: &mut Vec<TestPeerConfig>, pingback_test: bool
     peers
 }
 
-/// Arrange 15 peers into a star topology, and verify that each peer learns of each other peer over
-/// time.  All peers whitelist each other.
+/// Arrange 15 peers into a star topology, and verify that each peer learns of
+/// each other peer over time.  All peers whitelist each other.
 #[test]
 #[ignore]
 fn test_walk_star_allowed_15() {
@@ -548,8 +553,9 @@ fn test_walk_star_allowed_15() {
     })
 }
 
-/// Arrange 15 peers into a star topology, and verify that each peer learns of each other peer over
-/// time.  No peers whitelist each other, and all walk types are alloweed.
+/// Arrange 15 peers into a star topology, and verify that each peer learns of
+/// each other peer over time.  No peers whitelist each other, and all walk
+/// types are alloweed.
 #[test]
 #[ignore]
 fn test_walk_star_15_plain() {
@@ -571,8 +577,9 @@ fn test_walk_star_15_plain() {
     })
 }
 
-/// Arrange 15 peers into a star topology, and verify that each peer learns of each other peer over
-/// time.  No peers whitelist each other, and inbound walks (but not pingbacks) are disabled.
+/// Arrange 15 peers into a star topology, and verify that each peer learns of
+/// each other peer over time.  No peers whitelist each other, and inbound walks
+/// (but not pingbacks) are disabled.
 #[test]
 #[ignore]
 fn test_walk_star_15_pingback() {
@@ -597,8 +604,8 @@ fn test_walk_star_15_pingback() {
     })
 }
 
-/// Arrange 15 peers into a star topology, and verify that each peer learns of each other peer over
-/// time.  One peer is in a separate AS.
+/// Arrange 15 peers into a star topology, and verify that each peer learns of
+/// each other peer over time.  One peer is in a separate AS.
 #[test]
 #[ignore]
 fn test_walk_star_15_org_biased() {
@@ -672,9 +679,10 @@ fn test_walk_star_pingback(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPe
 
 fn test_walk_star_ex(peer_configs: &mut Vec<TestPeerConfig>, pingback_test: bool) -> Vec<TestPeer> {
     // arrange neighbors into a "star" topology.
-    // If pingback_test is true, then initial connections are unidirectional -- each neighbor (except
-    // for 0) only knows about 0.  Neighbor 0 knows about no one.
-    // If pingback_test is false, then initial connections are bidirectional.
+    // If pingback_test is true, then initial connections are unidirectional -- each
+    // neighbor (except for 0) only knows about 0.  Neighbor 0 knows about no
+    // one. If pingback_test is false, then initial connections are
+    // bidirectional.
 
     let mut peers = vec![];
     let peer_count = peer_configs.len();
@@ -722,17 +730,19 @@ fn test_walk_star_ex(peer_configs: &mut Vec<TestPeerConfig>, pingback_test: bool
 }
 
 fn test_walk_inbound_line(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPeer> {
-    // arrange neighbors into a two-tiered "line" topology, where even-numbered neighbors are
-    // "NAT'ed" but connected to both the predecessor and successor odd neighbors.  Odd
-    // numbered neighbors are not connected to anyone.  The first and last even-numbered
-    // neighbor is only connected to its successor and predecessor, respectively.
+    // arrange neighbors into a two-tiered "line" topology, where even-numbered
+    // neighbors are "NAT'ed" but connected to both the predecessor and
+    // successor odd neighbors.  Odd numbered neighbors are not connected to
+    // anyone.  The first and last even-numbered neighbor is only connected to
+    // its successor and predecessor, respectively.
     //
     //    1     3     5
     //   ^ ^   ^ ^   ^ ^
     //  /   \ /   \ /   \   ... etc ...
     // 0     2     4     6
     //
-    // The goal of this test is that odd-numbered neighbors all learn about each other
+    // The goal of this test is that odd-numbered neighbors all learn about each
+    // other
 
     let mut peers = vec![];
     let peer_count = peer_configs.len();
@@ -805,9 +815,9 @@ fn test_walk_inbound_line(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPee
     peers
 }
 
-/// Arrange 15 peers into an alternating line topology, and verify that each peer learns of each
-/// other peer over time.  Odd peers have no outbound neighbors initially, but share one or two
-/// inbound peers.
+/// Arrange 15 peers into an alternating line topology, and verify that each
+/// peer learns of each other peer over time.  Odd peers have no outbound
+/// neighbors initially, but share one or two inbound peers.
 #[test]
 #[ignore]
 fn test_walk_inbound_line_15() {
@@ -825,8 +835,8 @@ fn test_walk_inbound_line_15() {
             conf.connection_opts.disable_pingbacks = true;
             conf.connection_opts.disable_inbound_walks = false;
             conf.connection_opts.walk_inbound_ratio = 2;
-            // basically, don't timeout (so public nodes can ask non-public inbound nodes about
-            // neighbors indefinitely)
+            // basically, don't timeout (so public nodes can ask non-public inbound nodes
+            // about neighbors indefinitely)
             conf.connection_opts.connect_timeout = 60000;
             conf.connection_opts.timeout = 60000;
             conf.connection_opts.handshake_timeout = 60000;

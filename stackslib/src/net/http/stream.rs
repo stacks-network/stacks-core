@@ -37,9 +37,10 @@ pub trait HttpChunkGenerator: Send {
     fn hint_chunk_size(&self) -> usize;
 
     /// Stream one chunk to the pipe writer.  This never blocks.
-    /// Returns Ok(num-bytes > 0) if there are more chunks (i.e. the caller should call this again)
-    /// Returns Ok(0) if there are no more chunks (i.e. the caller should not call this again)
-    /// Returns Err(..) on irrecoverable I/O error
+    /// Returns Ok(num-bytes > 0) if there are more chunks (i.e. the caller
+    /// should call this again) Returns Ok(0) if there are no more chunks
+    /// (i.e. the caller should not call this again) Returns Err(..) on
+    /// irrecoverable I/O error
     #[cfg_attr(test, mutants::skip)]
     fn stream_to(
         &mut self,
@@ -69,10 +70,11 @@ pub trait HttpChunkGenerator: Send {
 
 /// Interface for streaming data
 pub trait Streamer {
-    /// Return the offset into the stream at which this Streamer points.  This value is equivalent
-    /// to returning the number of bytes streamed out so far.
+    /// Return the offset into the stream at which this Streamer points.  This
+    /// value is equivalent to returning the number of bytes streamed out so
+    /// far.
     fn offset(&self) -> u64;
-    /// Update the stream's offset pointer by `nw` bytes, so the implementation can keep track of
-    /// how much data has been sent so far.
+    /// Update the stream's offset pointer by `nw` bytes, so the implementation
+    /// can keep track of how much data has been sent so far.
     fn add_bytes(&mut self, nw: u64);
 }

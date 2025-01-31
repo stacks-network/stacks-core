@@ -28,26 +28,27 @@ use crate::net::{
     NakamotoBlocksData, NeighborKey, Preamble, StacksMessage, StacksMessageType,
 };
 
-/// This module contains all of the code needed to handle unsolicited messages -- that is, messages
-/// that get pushed to us.  These include:
+/// This module contains all of the code needed to handle unsolicited messages
+/// -- that is, messages that get pushed to us.  These include:
 ///
 /// * BlocksAvailable (epoch 2.x)
 /// * MicroblocksAvailable (epoch 2.x)
 /// * BlocksData (epoch 2.x)
 /// * NakamotoBlocksData (epoch 3.x)
 ///
-/// Normally, the PeerNetwork will attempt to validate each message and pass it to the Relayer via
-/// a NetworkResult.  However, some kinds of messages (such as these) cannot be always be
-/// validated, because validation depends on chainstate data that is not yet available.  For
-/// example, if this node is behind the burnchain chain tip, it will be unable to verify blocks
-/// pushed to it for sortitions that have yet to be processed locally.
+/// Normally, the PeerNetwork will attempt to validate each message and pass it
+/// to the Relayer via a NetworkResult.  However, some kinds of messages (such
+/// as these) cannot be always be validated, because validation depends on
+/// chainstate data that is not yet available.  For example, if this node is
+/// behind the burnchain chain tip, it will be unable to verify blocks pushed to
+/// it for sortitions that have yet to be processed locally.
 ///
-/// In the event that a message cannot be validated, the PeerNetwork will instead store these
-/// messages internally (in `self.pending_messages`), and try to validate them again once the
-/// burnchain view changes.
+/// In the event that a message cannot be validated, the PeerNetwork will
+/// instead store these messages internally (in `self.pending_messages`), and
+/// try to validate them again once the burnchain view changes.
 ///
-/// Transactions are not considered here, but are handled separately with the mempool
-/// synchronization state machine.
+/// Transactions are not considered here, but are handled separately with the
+/// mempool synchronization state machine.
 
 impl PeerNetwork {
     #[cfg_attr(test, mutants::skip)]
@@ -80,9 +81,9 @@ impl PeerNetwork {
         Some(remote_neighbor_key)
     }
 
-    /// Update a peer's inventory state to indicate that the given block is available.
-    /// If updated, return the sortition height of the bit in the inv that was set.
-    /// Only valid for epoch 2.x
+    /// Update a peer's inventory state to indicate that the given block is
+    /// available. If updated, return the sortition height of the bit in the
+    /// inv that was set. Only valid for epoch 2.x
     fn handle_unsolicited_inv_update_epoch2x(
         &mut self,
         sortdb: &SortitionDB,
@@ -164,8 +165,8 @@ impl PeerNetwork {
     }
 
     #[cfg_attr(test, mutants::skip)]
-    /// Determine whether or not the system can buffer up this message, based on site-local
-    /// configuration options.
+    /// Determine whether or not the system can buffer up this message, based on
+    /// site-local configuration options.
     /// Return true if so, false if not
     pub(crate) fn can_buffer_data_message(
         &self,
@@ -173,8 +174,8 @@ impl PeerNetwork {
         msgs: &[StacksMessage],
         msg: &StacksMessage,
     ) -> bool {
-        // check limits against connection opts, and if the limit is not met, then buffer up the
-        // message.
+        // check limits against connection opts, and if the limit is not met, then
+        // buffer up the message.
         let mut blocks_available = 0;
         let mut microblocks_available = 0;
         let mut blocks_data = 0;
@@ -286,8 +287,8 @@ impl PeerNetwork {
             return true;
         };
 
-        // check limits against connection opts, and if the limit is not met, then buffer up the
-        // message.
+        // check limits against connection opts, and if the limit is not met, then
+        // buffer up the message.
         if !self.can_buffer_data_message(event_id, msgs, &msg) {
             return false;
         }
@@ -320,8 +321,8 @@ impl PeerNetwork {
     ) -> bool {
         let key = (event_id, neighbor_key.clone());
         let Some(msgs) = self.pending_stacks_messages.get(&key) else {
-            // check limits against connection opts, and if the limit is not met, then buffer up the
-            // message.
+            // check limits against connection opts, and if the limit is not met, then
+            // buffer up the message.
             if !self.can_buffer_data_message(event_id, &[], &msg) {
                 return false;
             }
@@ -340,8 +341,8 @@ impl PeerNetwork {
             return true;
         };
 
-        // check limits against connection opts, and if the limit is not met, then buffer up the
-        // message.
+        // check limits against connection opts, and if the limit is not met, then
+        // buffer up the message.
         if !self.can_buffer_data_message(event_id, msgs, &msg) {
             return false;
         }
@@ -361,7 +362,8 @@ impl PeerNetwork {
         true
     }
 
-    /// Do we need a block or microblock stream, given its sortition's consensus hash?
+    /// Do we need a block or microblock stream, given its sortition's consensus
+    /// hash?
     fn need_block_or_microblock_stream(
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
@@ -386,23 +388,27 @@ impl PeerNetwork {
         }
     }
 
-    /// Handle unsolicited BlocksAvailable.  If it is valid, and it represents a block that this
-    /// peer does not have, then hint to the epoch2x downloader that it needs to go and fetch it.
-    /// Also, update this peer's copy of the remote sender's inv to indicate that it has the block,
-    /// so the downloader can eventually request the block regardless of whether or not the hint is
-    /// effective.
+    /// Handle unsolicited BlocksAvailable.  If it is valid, and it represents a
+    /// block that this peer does not have, then hint to the epoch2x
+    /// downloader that it needs to go and fetch it. Also, update this
+    /// peer's copy of the remote sender's inv to indicate that it has the
+    /// block, so the downloader can eventually request the block regardless
+    /// of whether or not the hint is effective.
     ///
-    /// This function only accepts BlocksAvailable messages from outbound peers, since we only
-    /// track inventories for outbound peers.
+    /// This function only accepts BlocksAvailable messages from outbound peers,
+    /// since we only track inventories for outbound peers.
     ///
-    /// The caller can call this in one of two ways: with `buffer` set to `true` or `false`.  If
-    /// `buffer` is `true`, then the caller is asking to know if the message can be buffered if it
-    /// cannot be handled.  If it is instead `false`, then the caller is asking to simply try and
-    /// handle the given message.  In both cases, the blocks' validity will be checked against the
-    /// sortition DB, and if they correspond to real sortitions, then the remote peer's inventory
-    /// will be updated and the local peer's downloader will be alerted to this block.
+    /// The caller can call this in one of two ways: with `buffer` set to `true`
+    /// or `false`.  If `buffer` is `true`, then the caller is asking to
+    /// know if the message can be buffered if it cannot be handled.  If it
+    /// is instead `false`, then the caller is asking to simply try and
+    /// handle the given message.  In both cases, the blocks' validity will be
+    /// checked against the sortition DB, and if they correspond to real
+    /// sortitions, then the remote peer's inventory will be updated and the
+    /// local peer's downloader will be alerted to this block.
     ///
-    /// Errors pertaining to the validity of the message are logged but not returned.
+    /// Errors pertaining to the validity of the message are logged but not
+    /// returned.
     fn handle_unsolicited_BlocksAvailable(
         &mut self,
         sortdb: &SortitionDB,
@@ -413,8 +419,8 @@ impl PeerNetwork {
         buffer: bool,
     ) -> bool {
         let Some(outbound_neighbor_key) = self.find_outbound_neighbor(event_id) else {
-            // we only accept BlocksAvailable from outbound peers, since we only crawl invs from
-            // outbound peers.
+            // we only accept BlocksAvailable from outbound peers, since we only crawl invs
+            // from outbound peers.
             return false;
         };
 
@@ -503,24 +509,29 @@ impl PeerNetwork {
         to_buffer
     }
 
-    /// Handle unsolicited MicroblocksAvailable.  If it is valid, and it represents a microblock stream that this
-    /// peer does not have, then hint to the epoch2x downloader that it needs to go and fetch it.
-    /// Also, update this peer's copy of the remote sender's inv to indicate that it has the stream,
-    /// so the downloader can eventually request the stream regardless of whether or not the hint is
-    /// effective.
+    /// Handle unsolicited MicroblocksAvailable.  If it is valid, and it
+    /// represents a microblock stream that this peer does not have, then
+    /// hint to the epoch2x downloader that it needs to go and fetch it.
+    /// Also, update this peer's copy of the remote sender's inv to indicate
+    /// that it has the stream, so the downloader can eventually request the
+    /// stream regardless of whether or not the hint is effective.
     ///
-    /// This function only accepts MicroblocksAvailable messages from outbound peers, since we only
-    /// track inventories for outbound peers.
+    /// This function only accepts MicroblocksAvailable messages from outbound
+    /// peers, since we only track inventories for outbound peers.
     ///
-    /// The caller can call this in one of two ways: with `buffer` set to `true` or `false`.  If
-    /// `buffer` is `true`, then the caller is asking to know if the message can be buffered if it
-    /// cannot be handled.  If it is instead `false`, then the caller is asking to simply try and
-    /// handle the given message.  In both cases, the remote peer's inventory will be updated and
-    /// the local peer's downloader will be alerted to the presence of these microblocks.
+    /// The caller can call this in one of two ways: with `buffer` set to `true`
+    /// or `false`.  If `buffer` is `true`, then the caller is asking to
+    /// know if the message can be buffered if it cannot be handled.  If it
+    /// is instead `false`, then the caller is asking to simply try and
+    /// handle the given message.  In both cases, the remote peer's inventory
+    /// will be updated and the local peer's downloader will be alerted to
+    /// the presence of these microblocks.
     ///
-    /// Errors pertaining to the validity of the message are logged but not returned.
+    /// Errors pertaining to the validity of the message are logged but not
+    /// returned.
     ///
-    /// Return whether or not we need to buffer this message for subsequent consideration.
+    /// Return whether or not we need to buffer this message for subsequent
+    /// consideration.
     fn handle_unsolicited_MicroblocksAvailable(
         &mut self,
         sortdb: &SortitionDB,
@@ -614,17 +625,19 @@ impl PeerNetwork {
 
     /// Handle unsolicited BlocksData.
     ///
-    /// Don't (yet) validate the data, but do update our inv for the peer that sent it, if we have
-    /// an outbound connection to that peer.
+    /// Don't (yet) validate the data, but do update our inv for the peer that
+    /// sent it, if we have an outbound connection to that peer.
     ///
     /// Log but do nothing with errors in validation.
     ///
-    /// The caller can call this in one of two ways: with `buffer` set to `true` or `false`.  If
-    /// `buffer` is `true`, then the caller is asking to know if the message can be buffered if it
-    /// cannot be handled.  If it is instead `false`, then the caller is asking to simply try and
-    /// handle the given message.  In both cases, the block will be checked against the local
-    /// sortition DB, and if it corresponds to a sortition, the remote peer's inventory will be
-    /// updated to reflect that it has it.
+    /// The caller can call this in one of two ways: with `buffer` set to `true`
+    /// or `false`.  If `buffer` is `true`, then the caller is asking to
+    /// know if the message can be buffered if it cannot be handled.  If it
+    /// is instead `false`, then the caller is asking to simply try and
+    /// handle the given message.  In both cases, the block will be checked
+    /// against the local sortition DB, and if it corresponds to a
+    /// sortition, the remote peer's inventory will be updated to reflect
+    /// that it has it.
     ///
     /// Returns true if we have to buffer this message; false if not.
     fn handle_unsolicited_BlocksData(
@@ -709,8 +722,8 @@ impl PeerNetwork {
                 continue;
             }
 
-            // only bother updating the inventory for this event's peer if we have an outbound
-            // connection to it.
+            // only bother updating the inventory for this event's peer if we have an
+            // outbound connection to it.
             if let Some(outbound_neighbor_key) = outbound_neighbor_key_opt.as_ref() {
                 let _ = self.handle_unsolicited_inv_update_epoch2x(
                     sortdb,
@@ -727,22 +740,26 @@ impl PeerNetwork {
 
     /// Handle unsolicited MicroblocksData.
     ///
-    /// Don't (yet) validate the data; just verify that it connects to two existing StacksBlocks,
-    /// and if so, keep it to be passed on to the relayer.
+    /// Don't (yet) validate the data; just verify that it connects to two
+    /// existing StacksBlocks, and if so, keep it to be passed on to the
+    /// relayer.
     ///
     /// Log but do nothing with errors in validation.
     ///
-    /// The caller can call this in one of two ways: with `buffer` set to `true` or `false`.  If
-    /// `buffer` is `true`, then the caller is asking to know if the message can be buffered if it
-    /// cannot be handled.  If it is instead `false`, then the caller is asking to simply try and
-    /// handle the given message.  In both cases, the microblocks will be checked against the local
-    /// sortition DB and chainstate DB, and if they correspond to a missing stream between two known
-    /// StacksBlocks, the remote peer's inventory will be updated to reflect that it has this
+    /// The caller can call this in one of two ways: with `buffer` set to `true`
+    /// or `false`.  If `buffer` is `true`, then the caller is asking to
+    /// know if the message can be buffered if it cannot be handled.  If it
+    /// is instead `false`, then the caller is asking to simply try and
+    /// handle the given message.  In both cases, the microblocks will be
+    /// checked against the local sortition DB and chainstate DB, and if
+    /// they correspond to a missing stream between two known StacksBlocks,
+    /// the remote peer's inventory will be updated to reflect that it has this
     /// stream.
     ///
-    /// Returns whether or not to buffer.  If the microblocks correspond to existing chain state,
-    /// then this method will indicate to the opposite of `buffer`, which ensures that the messages
-    /// will never be buffered but instead processed immediately.  Otherwise, no buffering will
+    /// Returns whether or not to buffer.  If the microblocks correspond to
+    /// existing chain state, then this method will indicate to the opposite
+    /// of `buffer`, which ensures that the messages will never be buffered
+    /// but instead processed immediately.  Otherwise, no buffering will
     /// take place.
     fn handle_unsolicited_MicroblocksData(
         &mut self,
@@ -798,8 +815,8 @@ impl PeerNetwork {
     }
 
     #[cfg_attr(test, mutants::skip)]
-    /// Check the signature of a NakamotoBlock against its sortition's reward cycle.
-    /// The reward cycle must be recent.
+    /// Check the signature of a NakamotoBlock against its sortition's reward
+    /// cycle. The reward cycle must be recent.
     pub(crate) fn check_nakamoto_block_signer_signature(
         &mut self,
         reward_cycle: u64,
@@ -835,9 +852,10 @@ impl PeerNetwork {
 
     #[cfg_attr(test, mutants::skip)]
     /// Find the reward cycle in which to validate the signature for this block.
-    /// This may not actually correspond to the sortition for this block's tenure -- for example,
-    /// it may be for a block whose sortition is about to be processed.  As such, return both the
-    /// reward cycle, and whether or not it corresponds to the sortition.
+    /// This may not actually correspond to the sortition for this block's
+    /// tenure -- for example, it may be for a block whose sortition is
+    /// about to be processed.  As such, return both the reward cycle, and
+    /// whether or not it corresponds to the sortition.
     pub(crate) fn find_nakamoto_block_reward_cycle(
         &self,
         sortdb: &SortitionDB,
@@ -854,8 +872,8 @@ impl PeerNetwork {
                     &nakamoto_block.header.consensus_hash,
                     &nakamoto_block.block_id()
                 );
-                // we don't have the sortition for this, so we can't process it yet (i.e. we need
-                // to buffer)
+                // we don't have the sortition for this, so we can't process it yet (i.e. we
+                // need to buffer)
                 // load the tip so we can load the current reward set data
                 (self.burnchain_tip.clone(), false)
             }
@@ -888,8 +906,9 @@ impl PeerNetwork {
     }
 
     #[cfg_attr(test, mutants::skip)]
-    /// Determine if an unsolicited NakamotoBlockData message contains data we can potentially
-    /// buffer.  Returns whether or not the block can be buffered.
+    /// Determine if an unsolicited NakamotoBlockData message contains data we
+    /// can potentially buffer.  Returns whether or not the block can be
+    /// buffered.
     pub(crate) fn is_nakamoto_block_bufferable(
         &mut self,
         sortdb: &SortitionDB,
@@ -926,11 +945,12 @@ impl PeerNetwork {
     #[cfg_attr(test, mutants::skip)]
     /// Handle an unsolicited NakamotoBlocksData message.
     ///
-    /// Unlike Stacks epoch 2.x blocks, no change to the remote peer's inventory will take place.
-    /// This is because a 1-bit indicates the _entire_ tenure is present for a given sortition, and
-    /// this is usually impossible to tell here.  Instead, this handler will return `true` if the
-    /// sortition identified by the block's consensus hash is known to this node (in which case,
-    /// the relayer can store it to staging).
+    /// Unlike Stacks epoch 2.x blocks, no change to the remote peer's inventory
+    /// will take place. This is because a 1-bit indicates the _entire_
+    /// tenure is present for a given sortition, and this is usually
+    /// impossible to tell here.  Instead, this handler will return `true` if
+    /// the sortition identified by the block's consensus hash is known to
+    /// this node (in which case, the relayer can store it to staging).
     ///
     /// Returns true if this message should be buffered and re-processed  
     pub(crate) fn inner_handle_unsolicited_NakamotoBlocksData(
@@ -965,16 +985,17 @@ impl PeerNetwork {
     #[cfg_attr(test, mutants::skip)]
     /// Handle an unsolicited NakamotoBlocksData message.
     ///
-    /// Unlike Stacks epoch 2.x blocks, no change to the remote peer's inventory will take place.
-    /// This is because a 1-bit indicates the _entire_ tenure is present for a given sortition, and
-    /// this is usually impossible to tell here.  Instead, this handler will return `true` if the
-    /// sortition identified by the block's consensus hash is known to this node (in which case,
-    /// the relayer can store it to staging).
+    /// Unlike Stacks epoch 2.x blocks, no change to the remote peer's inventory
+    /// will take place. This is because a 1-bit indicates the _entire_
+    /// tenure is present for a given sortition, and this is usually
+    /// impossible to tell here.  Instead, this handler will return `true` if
+    /// the sortition identified by the block's consensus hash is known to
+    /// this node (in which case, the relayer can store it to staging).
     ///
     /// Returns true if this message should be buffered and re-processed  
     ///
-    /// Wraps inner_handle_unsolicited_NakamotoBlocksData by resolving the event_id to the optional
-    /// neighbor key.
+    /// Wraps inner_handle_unsolicited_NakamotoBlocksData by resolving the
+    /// event_id to the optional neighbor key.
     fn handle_unsolicited_NakamotoBlocksData(
         &mut self,
         sortdb: &SortitionDB,
@@ -994,23 +1015,25 @@ impl PeerNetwork {
     }
 
     #[cfg_attr(test, mutants::skip)]
-    /// Handle an unsolicited message, with either the intention of just processing it (in which
-    /// case, `buffer` will be `false`), or with the intention of not only processing it, but also
-    /// determining if it can be bufferred and retried later (in which case, `buffer` will be
-    /// `true`).  This applies to messages that can be reprocessed after the next sortition (not
-    /// the next Stacks tenure)
+    /// Handle an unsolicited message, with either the intention of just
+    /// processing it (in which case, `buffer` will be `false`), or with the
+    /// intention of not only processing it, but also determining if it can
+    /// be bufferred and retried later (in which case, `buffer` will be
+    /// `true`).  This applies to messages that can be reprocessed after the
+    /// next sortition (not the next Stacks tenure)
     ///
-    /// This code gets called with `buffer` set to true when the message is first received.  If
-    /// this method returns (true, x), then this code gets called with the same message a
-    /// subsequent time when the sortition changes (and in that case, `buffer` will be false).
+    /// This code gets called with `buffer` set to true when the message is
+    /// first received.  If this method returns (true, x), then this code
+    /// gets called with the same message a subsequent time when the
+    /// sortition changes (and in that case, `buffer` will be false).
     ///
-    /// Returns (true, x) if we should buffer the message and try processing it again later.
-    /// Returns (false, x) if we should *not* buffer this message, because it *won't* be valid
-    /// later.
+    /// Returns (true, x) if we should buffer the message and try processing it
+    /// again later. Returns (false, x) if we should *not* buffer this
+    /// message, because it *won't* be valid later.
     ///
-    /// Returns (x, true) if we should forward the message to the relayer, so it can be processed.
-    /// Returns (x, false) if we should *not* forward the message to the relayer, because it will
-    /// *not* be processed.
+    /// Returns (x, true) if we should forward the message to the relayer, so it
+    /// can be processed. Returns (x, false) if we should *not* forward the
+    /// message to the relayer, because it will *not* be processed.
     fn handle_unsolicited_sortition_message(
         &mut self,
         sortdb: &SortitionDB,
@@ -1056,8 +1079,8 @@ impl PeerNetwork {
             }
             StacksMessageType::Microblocks(ref new_mblocks) => {
                 // update inv state for this peer, and optionally forward to the relayer.
-                // Note that if these microblocks can be processed *now*, then they *will not* be
-                // buffered
+                // Note that if these microblocks can be processed *now*, then they *will not*
+                // be buffered
                 let to_buffer = self.handle_unsolicited_MicroblocksData(
                     chainstate,
                     event_id,
@@ -1085,22 +1108,25 @@ impl PeerNetwork {
     }
 
     #[cfg_attr(test, mutants::skip)]
-    /// Handle an unsolicited message, with either the intention of just processing it (in which
-    /// case, `buffer` will be `false`), or with the intention of not only processing it, but also
-    /// determining if it can be bufferred and retried later (in which case, `buffer` will be
-    /// `true`).  This applies to messages that can be reprocessed after the next Stacks tenure.
+    /// Handle an unsolicited message, with either the intention of just
+    /// processing it (in which case, `buffer` will be `false`), or with the
+    /// intention of not only processing it, but also determining if it can
+    /// be bufferred and retried later (in which case, `buffer` will be
+    /// `true`).  This applies to messages that can be reprocessed after the
+    /// next Stacks tenure.
     ///
-    /// This code gets called with `buffer` set to true when the message is first received.  If
-    /// this method returns (true, x), then this code gets called with the same message a
-    /// subsequent time when the sortition changes (and in that case, `buffer` will be false).
+    /// This code gets called with `buffer` set to true when the message is
+    /// first received.  If this method returns (true, x), then this code
+    /// gets called with the same message a subsequent time when the
+    /// sortition changes (and in that case, `buffer` will be false).
     ///
-    /// Returns (true, x) if we should buffer the message and try processing it again later.
-    /// Returns (false, x) if we should *not* buffer this message, because it *won't* be valid
-    /// later.
+    /// Returns (true, x) if we should buffer the message and try processing it
+    /// again later. Returns (false, x) if we should *not* buffer this
+    /// message, because it *won't* be valid later.
     ///
-    /// Returns (x, true) if we should forward the message to the relayer, so it can be processed.
-    /// Returns (x, false) if we should *not* forward the message to the relayer, because it will
-    /// *not* be processed.
+    /// Returns (x, true) if we should forward the message to the relayer, so it
+    /// can be processed. Returns (x, false) if we should *not* forward the
+    /// message to the relayer, because it will *not* be processed.
     fn handle_unsolicited_stacks_message(
         &mut self,
         chainstate: &mut StacksChainState,
@@ -1111,9 +1137,9 @@ impl PeerNetwork {
     ) -> (bool, bool) {
         match payload {
             StacksMessageType::StackerDBPushChunk(ref data) => {
-                // N.B. send back a reply if we're calling to buffer, since this would be the first
-                // time we're seeing this message (instead of a subsequent time on follow-up
-                // processing).
+                // N.B. send back a reply if we're calling to buffer, since this would be the
+                // first time we're seeing this message (instead of a subsequent
+                // time on follow-up processing).
                 let (can_buffer, can_store) = self
                     .handle_unsolicited_StackerDBPushChunk(
                         chainstate, event_id, preamble, data, buffer,
@@ -1141,7 +1167,8 @@ impl PeerNetwork {
         }
     }
 
-    /// Authenticate unsolicited messages -- find the address of the neighbor that sent them.
+    /// Authenticate unsolicited messages -- find the address of the neighbor
+    /// that sent them.
     pub fn authenticate_unsolicited_messages(
         &self,
         unsolicited: HashMap<usize, Vec<StacksMessage>>,
@@ -1183,23 +1210,26 @@ impl PeerNetwork {
     }
 
     #[cfg_attr(test, mutants::skip)]
-    /// Handle unsolicited messages propagated up to us from our ongoing ConversationP2Ps.
-    /// Return messages that we couldn't handle here, but key them by neighbor, not event, so the
-    /// relayer can do something useful with them.
+    /// Handle unsolicited messages propagated up to us from our ongoing
+    /// ConversationP2Ps. Return messages that we couldn't handle here, but
+    /// key them by neighbor, not event, so the relayer can do something
+    /// useful with them.
     ///
-    /// This applies only to messages that might be processable after the next sortition.  It does
-    /// *NOT* apply to messages that might be processable after the next tenure.
+    /// This applies only to messages that might be processable after the next
+    /// sortition.  It does *NOT* apply to messages that might be
+    /// processable after the next tenure.
     ///
     /// Invalid messages are dropped silently, with an log message.
     ///
-    /// If `buffer` is true, then this message will be buffered up and tried again in a subsequent
-    /// call if the handler for it deems the message valid.
+    /// If `buffer` is true, then this message will be buffered up and tried
+    /// again in a subsequent call if the handler for it deems the message
+    /// valid.
     ///
-    /// If `buffer` is false, then if the message handler deems the message valid, it will be
-    /// forwraded to the relayer.
+    /// If `buffer` is false, then if the message handler deems the message
+    /// valid, it will be forwraded to the relayer.
     ///
-    /// Returns messages we could not buffer, keyed by sender and event ID.  This can be fed
-    /// directly into `handle_unsolicited_stacks_messages()`
+    /// Returns messages we could not buffer, keyed by sender and event ID.
+    /// This can be fed directly into `handle_unsolicited_stacks_messages()`
     pub fn handle_unsolicited_sortition_messages(
         &mut self,
         sortdb: &SortitionDB,
@@ -1261,17 +1291,19 @@ impl PeerNetwork {
 
     #[cfg_attr(test, mutants::skip)]
     /// Handle unsolicited and unhandled messages returned by
-    /// `handle_unsolicited_sortition_messages()`, to see if any of them could be processed at the
-    /// start of the next Stacks tenure.  That is, the `unsolicited` map contains messages that
-    /// came from authenticated peers and do not exceed buffer quotas.
+    /// `handle_unsolicited_sortition_messages()`, to see if any of them could
+    /// be processed at the start of the next Stacks tenure.  That is, the
+    /// `unsolicited` map contains messages that came from authenticated
+    /// peers and do not exceed buffer quotas.
     ///
     /// Invalid messages are dropped silently, with a log message.
     ///
-    /// If `buffer` is true, then this message will be buffered up and tried again in a subsequent
-    /// call if the handler for it deems the message valid.
+    /// If `buffer` is true, then this message will be buffered up and tried
+    /// again in a subsequent call if the handler for it deems the message
+    /// valid.
     ///
-    /// If `buffer` is false, then if the message handler deems the message valid, it will be
-    /// forwraded to the relayer.
+    /// If `buffer` is false, then if the message handler deems the message
+    /// valid, it will be forwraded to the relayer.
     ///
     /// Returns messages we could not buffer, keyed by sender.
     pub fn handle_unsolicited_stacks_messages(

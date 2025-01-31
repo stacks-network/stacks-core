@@ -27,11 +27,14 @@ use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifie
 use crate::vm::ClarityVersion;
 
 enum TraitContext {
-    /// Traits stored in this context use the trait type-checking behavior defined in Clarity1
+    /// Traits stored in this context use the trait type-checking behavior
+    /// defined in Clarity1
     Clarity1(HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>),
-    /// Traits stored in this context use the new trait type-checking behavior defined in Clarity2
+    /// Traits stored in this context use the new trait type-checking behavior
+    /// defined in Clarity2
     Clarity2 {
-        /// Aliases for locally defined traits and traits imported with `use-trait`
+        /// Aliases for locally defined traits and traits imported with
+        /// `use-trait`
         defined: HashSet<ClarityName>,
         /// All traits which are defined or used in a contract
         all: HashMap<TraitIdentifier, BTreeMap<ClarityName, FunctionSignature>>,
@@ -343,8 +346,8 @@ impl ContractContext {
         }
     }
 
-    /// This function consumes the ContractContext, and puts the relevant information
-    ///  into the provided ContractAnalysis
+    /// This function consumes the ContractContext, and puts the relevant
+    /// information  into the provided ContractAnalysis
     pub fn into_contract_analysis(mut self, contract_analysis: &mut ContractAnalysis) {
         for (name, function_type) in self.public_function_types.drain() {
             contract_analysis.add_public_function(name, function_type);

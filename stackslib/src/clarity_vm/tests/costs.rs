@@ -436,10 +436,11 @@ fn epoch205_eq_input_size_testnet() {
     epoch205_eq_input_size(false)
 }
 
-// Test the `concat` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
-// cost larger when larger objects are fed into `concat` from the datastore.
-// Capture the cost of just the concat operation by measuring the cost of contracts that do everything but concat, and
-//  ones that do the same and concat.
+// Test the `concat` changes in epoch 2.05. Using a dynamic input to the cost
+// function will make the difference in runtime cost larger when larger objects
+// are fed into `concat` from the datastore. Capture the cost of just the concat
+// operation by measuring the cost of contracts that do everything but concat,
+// and  ones that do the same and concat.
 fn epoch205_concat(use_mainnet: bool) {
     let small_exec_without_concat = "(define-data-var db (list 500 int) (list 1 2 3 4 5))
         (define-public (execute)
@@ -513,8 +514,9 @@ fn epoch205_concat_testnet() {
     epoch205_concat(false)
 }
 
-// Test the `var-get` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
-// cost larger when larger objects are fetched from the datastore.
+// Test the `var-get` changes in epoch 2.05. Using a dynamic input to the cost
+// function will make the difference in runtime cost larger when larger objects
+// are fetched from the datastore.
 fn epoch205_var_get(use_mainnet: bool) {
     let smaller_exec = "(define-data-var db (list 500 int) (list 1 2 3 4 5))
       (define-public (execute)
@@ -547,8 +549,9 @@ fn epoch205_var_get_testnet() {
     epoch205_var_get(false)
 }
 
-// Test the `var-set` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
-// cost larger when larger objects are stored to the datastore.
+// Test the `var-set` changes in epoch 2.05. Using a dynamic input to the cost
+// function will make the difference in runtime cost larger when larger objects
+// are stored to the datastore.
 fn epoch205_var_set(use_mainnet: bool) {
     let smaller_exec = "(define-data-var db (list 500 int) (list 1))
       (define-public (execute)
@@ -581,8 +584,9 @@ fn epoch205_var_set_testnet() {
     epoch205_var_set(false)
 }
 
-// Test the `map-get` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
-// cost larger when larger objects are fetched from the datastore.
+// Test the `map-get` changes in epoch 2.05. Using a dynamic input to the cost
+// function will make the difference in runtime cost larger when larger objects
+// are fetched from the datastore.
 fn epoch205_map_get(use_mainnet: bool) {
     let smaller_exec = "(define-map db int (list 500 int))
       (map-set db 0 (list 1 2 3 4 5))
@@ -617,8 +621,9 @@ fn epoch205_map_get_testnet() {
     epoch205_map_get(false)
 }
 
-// Test the `map-set` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
-// cost larger when larger objects are stored to the datastore.
+// Test the `map-set` changes in epoch 2.05. Using a dynamic input to the cost
+// function will make the difference in runtime cost larger when larger objects
+// are stored to the datastore.
 fn epoch205_map_set(use_mainnet: bool) {
     let smaller_exec = "(define-map db int (list 500 int))
       (define-public (execute)
@@ -651,8 +656,9 @@ fn epoch205_map_set_testnet() {
     epoch205_map_set(false)
 }
 
-// Test the `map-insert` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
-// cost larger when larger objects are stored to the datastore.
+// Test the `map-insert` changes in epoch 2.05. Using a dynamic input to the
+// cost function will make the difference in runtime cost larger when larger
+// objects are stored to the datastore.
 fn epoch205_map_insert(use_mainnet: bool) {
     let smaller_exec = "(define-map db int (list 500 int))
       (define-public (execute)
@@ -685,8 +691,9 @@ fn epoch205_map_insert_testnet() {
     epoch205_map_insert(false)
 }
 
-// Test the `map-delete` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
-// cost larger when larger objects are used as keys to the datastore.
+// Test the `map-delete` changes in epoch 2.05. Using a dynamic input to the
+// cost function will make the difference in runtime cost larger when larger
+// objects are used as keys to the datastore.
 fn epoch205_map_delete(use_mainnet: bool) {
     let smaller_exec = "(define-map db (list 500 int) int)
       (map-set db (list 1 2 3 4 5) 0)
@@ -722,8 +729,9 @@ fn epoch205_map_delete_testnet() {
     epoch205_map_delete(false)
 }
 
-// Test the nft changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
-// cost larger when larger objects are stored to the datastore.
+// Test the nft changes in epoch 2.05. Using a dynamic input to the cost
+// function will make the difference in runtime cost larger when larger objects
+// are stored to the datastore.
 fn epoch205_nfts(use_mainnet: bool) {
     // test nft-mint
     let smaller_exec = "(define-non-fungible-token db (list 500 int))

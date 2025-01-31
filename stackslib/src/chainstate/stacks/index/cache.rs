@@ -48,15 +48,16 @@ use crate::util_lib::db::{
     SQLITE_MMAP_SIZE,
 };
 
-/// Fully-qualified address of a Trie node.  Includes both the block's blob rowid and the pointer within the
-/// block's blob as to where it is stored.
+/// Fully-qualified address of a Trie node.  Includes both the block's blob
+/// rowid and the pointer within the block's blob as to where it is stored.
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct TrieNodeAddr(u32, TriePtr);
 
 /// Cache state for all node caching strategies.
 pub struct TrieCacheState<T: MarfTrieId> {
-    /// Mapping between trie blob IDs (i.e. rowids) and the MarfTrieId of the trie.  Contents are
-    /// never evicted, since the size of this map grows only at the rate of new Stacks blocks.
+    /// Mapping between trie blob IDs (i.e. rowids) and the MarfTrieId of the
+    /// trie.  Contents are never evicted, since the size of this map grows
+    /// only at the rate of new Stacks blocks.
     block_hash_cache: HashMap<u32, T>,
 
     /// Mapping between trie blob hashes and their IDs
@@ -166,8 +167,9 @@ pub enum TrieCache<T: MarfTrieId> {
 }
 
 impl<T: MarfTrieId> TrieCache<T> {
-    /// Instantiate the default strategy.  This can be taken from the `STACKS_MARF_CACHE_STRATEGY`
-    /// environ, or failing that, it will use a no-op strategy.
+    /// Instantiate the default strategy.  This can be taken from the
+    /// `STACKS_MARF_CACHE_STRATEGY` environ, or failing that, it will use a
+    /// no-op strategy.
     pub fn default() -> TrieCache<T> {
         if let Ok(strategy) = std::env::var("STACKS_MARF_CACHE_STRATEGY") {
             TrieCache::new(&strategy)
@@ -212,7 +214,8 @@ impl<T: MarfTrieId> TrieCache<T> {
         }
     }
 
-    /// Load a node from the cache, given its block ID and trie pointer within the block.
+    /// Load a node from the cache, given its block ID and trie pointer within
+    /// the block.
     pub fn load_node(&mut self, block_id: u32, trieptr: &TriePtr) -> Option<TrieNodeType> {
         if let TrieCache::Noop(_) = self {
             None
@@ -221,8 +224,9 @@ impl<T: MarfTrieId> TrieCache<T> {
         }
     }
 
-    /// Load both a node and its hash, given its block ID and trie pointer within the block.
-    /// Returns None if either the hash or the node are missing -- both must be cached.
+    /// Load both a node and its hash, given its block ID and trie pointer
+    /// within the block. Returns None if either the hash or the node are
+    /// missing -- both must be cached.
     pub fn load_node_and_hash(
         &mut self,
         block_id: u32,
@@ -235,7 +239,8 @@ impl<T: MarfTrieId> TrieCache<T> {
         }
     }
 
-    /// Load a node's hash, given its node's block ID and trie pointer within the block.
+    /// Load a node's hash, given its node's block ID and trie pointer within
+    /// the block.
     pub fn load_node_hash(&mut self, block_id: u32, trieptr: &TriePtr) -> Option<TrieHash> {
         if let TrieCache::Noop(_) = self {
             None
@@ -244,7 +249,8 @@ impl<T: MarfTrieId> TrieCache<T> {
         }
     }
 
-    /// Store a node and its hash to the cache.  `trieptr` must NOT be a backpointer
+    /// Store a node and its hash to the cache.  `trieptr` must NOT be a
+    /// backpointer
     pub fn store_node_and_hash(
         &mut self,
         block_id: u32,

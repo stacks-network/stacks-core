@@ -208,9 +208,10 @@ impl SignerCoordinator {
     /// signatures. It does so in two ways, concurrently:
     /// * It waits for the signer DB listener to collect enough signatures to
     ///   accept or reject the block
-    /// * It waits for the chainstate to contain the relayed block. If so, then its signatures are
-    ///   loaded and returned. This can happen if the node receives the block via a signer who
-    ///   fetched all signatures and assembled the signature vector, all before we could.
+    /// * It waits for the chainstate to contain the relayed block. If so, then
+    ///   its signatures are loaded and returned. This can happen if the node
+    ///   receives the block via a signer who fetched all signatures and
+    ///   assembled the signature vector, all before we could.
     // Mutants skip here: this function is covered via integration tests,
     //  which the mutation testing does not see.
     #[cfg_attr(test, mutants::skip)]

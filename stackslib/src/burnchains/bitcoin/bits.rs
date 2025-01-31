@@ -38,15 +38,17 @@ use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 
-/// Parse a script into its structured constituant opcodes and data and collect them
+/// Parse a script into its structured constituant opcodes and data and collect
+/// them
 pub fn parse_script(script: &Script) -> Vec<Instruction<'_>> {
-    // we will have to accept non-minimial pushdata since there's at least one OP_RETURN
-    // in the transaction stream that has this property already.
+    // we will have to accept non-minimial pushdata since there's at least one
+    // OP_RETURN in the transaction stream that has this property already.
     script.iter(false).collect()
 }
 
 impl BitcoinTxInputStructured {
-    /// Parse a script instruction stream encoding a p2pkh scritpsig into a BitcoinTxInput
+    /// Parse a script instruction stream encoding a p2pkh scritpsig into a
+    /// BitcoinTxInput
     pub fn from_bitcoin_p2pkh_script_sig(
         instructions: &[Instruction],
         input_txid: (Txid, u32),
@@ -84,9 +86,10 @@ impl BitcoinTxInputStructured {
         }
     }
 
-    /// given the number of sigs required (m) and an array of pubkey pushbytes instructions, extract
-    /// a burnchain tx input.  If segwit is True, then it means these pushbytes came from a witness
-    /// program instead of a script-sig
+    /// given the number of sigs required (m) and an array of pubkey pushbytes
+    /// instructions, extract a burnchain tx input.  If segwit is True, then
+    /// it means these pushbytes came from a witness program instead of a
+    /// script-sig
     fn from_bitcoin_pubkey_pushbytes(
         num_sigs: usize,
         pubkey_pushbytes: &[Instruction],
@@ -139,8 +142,9 @@ impl BitcoinTxInputStructured {
         })
     }
 
-    /// Given the number of signatures required (m) and an array of Vec<u8>'s encoding public keys
-    /// (both taken from a segwit program), extract a burnchain tx input.
+    /// Given the number of signatures required (m) and an array of Vec<u8>'s
+    /// encoding public keys (both taken from a segwit program), extract a
+    /// burnchain tx input.
     fn from_bitcoin_witness_pubkey_vecs(
         num_sigs: usize,
         pubkey_vecs: &[Vec<u8>],
@@ -214,7 +218,8 @@ impl BitcoinTxInputStructured {
                         // op1 and op2 must be integers
                         match (op1.classify(), op2.classify()) {
                             (Class::PushNum(num_sigs), Class::PushNum(num_pubkeys)) => {
-                                // the "#instructions - 3" comes from the OP_m, OP_n, and OP_CHECKMULTISIG
+                                // the "#instructions - 3" comes from the OP_m, OP_n, and
+                                // OP_CHECKMULTISIG
                                 if num_sigs < 1
                                     || num_pubkeys < 1
                                     || num_pubkeys < num_sigs
@@ -266,8 +271,9 @@ impl BitcoinTxInputStructured {
         instructions: &[Instruction],
         input_txid: (Txid, u32),
     ) -> Option<BitcoinTxInputStructured> {
-        // format: OP_0 <sig1> <sig2> ... <sig_m> OP_m <pubkey1> <pubkey2> ... <pubkey_n> OP_n OP_CHECKMULTISIG
-        // the "OP_m <pubkey1> <pubkey2> ... <pubkey_n> OP_N OP_CHECKMULTISIG" is a single PushBytes
+        // format: OP_0 <sig1> <sig2> ... <sig_m> OP_m <pubkey1> <pubkey2> ...
+        // <pubkey_n> OP_n OP_CHECKMULTISIG the "OP_m <pubkey1> <pubkey2> ...
+        // <pubkey_n> OP_N OP_CHECKMULTISIG" is a single PushBytes
         if instructions.len() < 3 || instructions[0] != Instruction::PushBytes(&[]) {
             test_debug!(
                 "Not a multisig script: {} instructions -- the first is {:?}",
@@ -277,7 +283,8 @@ impl BitcoinTxInputStructured {
             return None;
         }
 
-        // verify that we got PUSHBYTES(<sig1>) PUSHBYTES(<sig2>) ... PUSHBYTES(<sigm>) PUSHBYTES(redeem script)
+        // verify that we got PUSHBYTES(<sig1>) PUSHBYTES(<sig2>) ... PUSHBYTES(<sigm>)
+        // PUSHBYTES(redeem script)
         for i in 1..instructions.len() {
             match instructions[i] {
                 Instruction::PushBytes(_script) => {}
@@ -299,7 +306,8 @@ impl BitcoinTxInputStructured {
             input_txid,
         )?;
 
-        // number of signatures must match number of required signatures (excluding OP_0 and PUSHDATA(redeem script))
+        // number of signatures must match number of required signatures (excluding OP_0
+        // and PUSHDATA(redeem script))
         if instructions.len() - 2 != tx_input.num_required {
             test_debug!(
                 "Not a multisig script: {} signatures, {} required",
@@ -312,7 +320,8 @@ impl BitcoinTxInputStructured {
         Some(tx_input)
     }
 
-    /// parse p2wpkh-over-p2sh public keys, given p2sh scriptsig as hash of witness
+    /// parse p2wpkh-over-p2sh public keys, given p2sh scriptsig as hash of
+    /// witness
     fn from_bitcoin_p2wpkh_p2sh_script_sig(
         instructions: &[Instruction],
         witness: &[Vec<u8>],
@@ -398,7 +407,8 @@ impl BitcoinTxInputStructured {
                     return None;
                 }
 
-                // witness program should be OP_0 <sig1> <sig2> ... <sig_n> MULTISIG_REDEEM_SCRIPT
+                // witness program should be OP_0 <sig1> <sig2> ... <sig_n>
+                // MULTISIG_REDEEM_SCRIPT
                 let num_expected_sigs = witness.len() - 2;
                 let redeem_script = &witness[witness.len() - 1];
 
@@ -408,7 +418,8 @@ impl BitcoinTxInputStructured {
                     input_txid,
                 )?;
 
-                // number of signatures must match number of required signatures (excluding OP_0 and PUSHDATA(redeem script))
+                // number of signatures must match number of required signatures (excluding OP_0
+                // and PUSHDATA(redeem script))
                 if num_expected_sigs != tx_input.num_required {
                     test_debug!(
                         "Not a witness multisig script: {} signatures, {} required",
@@ -443,8 +454,8 @@ impl BitcoinTxInputStructured {
             })
     }
 
-    /// Parse a script-sig and a witness as either a p2wpkh-over-p2sh or p2wsh-over-p2sh multisig
-    /// script.
+    /// Parse a script-sig and a witness as either a p2wpkh-over-p2sh or
+    /// p2wsh-over-p2sh multisig script.
     fn from_bitcoin_witness_script_sig(
         script_sig: &Script,
         witness: &[Vec<u8>],
@@ -490,10 +501,11 @@ impl BitcoinTxInputRaw {
     }
 }
 
-/// All of the parsing code in this implementation is for use in Stacks 2.05 or earlier.
-/// In Stacks 2.1 and later, we don't care about the scriptSig at all.
-/// But because Stacks 2.05 and earlier will only accept transactions with recognized scriptSigs
-/// (i.e. those that this code parses), we're stuck with it.
+/// All of the parsing code in this implementation is for use in Stacks 2.05 or
+/// earlier. In Stacks 2.1 and later, we don't care about the scriptSig at all.
+/// But because Stacks 2.05 and earlier will only accept transactions with
+/// recognized scriptSigs (i.e. those that this code parses), we're stuck with
+/// it.
 impl BitcoinTxInput {
     /// parse a Bitcoin transaction input into a raw BitcoinTxInput.
     /// Always succeeds
@@ -506,7 +518,8 @@ impl BitcoinTxInput {
     }
 
     /// parse a Bitcoin transaction input into a structured BitcoinTxInput.
-    /// Returns None if the input could not be parsed into a recognizeable format
+    /// Returns None if the input could not be parsed into a recognizeable
+    /// format
     pub fn from_bitcoin_txin_structured(txin: &BtcTxIn) -> Option<BitcoinTxInput> {
         let input_txid = to_txid(txin);
         match txin.witness.len() {
@@ -545,8 +558,8 @@ fn to_txid(txin: &BtcTxIn) -> (Txid, u32) {
 }
 
 impl BitcoinTxOutput {
-    /// Parse a BitcoinTxOutput from a Bitcoin scriptpubkey and its value in satoshis.
-    /// Only supports legacy (p2pkh, p2sh) addresses.
+    /// Parse a BitcoinTxOutput from a Bitcoin scriptpubkey and its value in
+    /// satoshis. Only supports legacy (p2pkh, p2sh) addresses.
     /// WARNING: Cannot distinguish between p2sh and segwit-p2sh
     fn from_bitcoin_script_pubkey_legacy(
         network_id: BitcoinNetworkType,
@@ -579,9 +592,10 @@ impl BitcoinTxOutput {
         }
     }
 
-    /// Parse a BitcoinTxOutput from a Bitcoin scriptpubkey and its value in satoshis.
-    /// Supports segwit (p2wpkh, p2wsh, p2tr) and legacy (p2wpkh, p2sh) addresses.
-    /// WARNING: Cannot distinguish between p2sh and segwit-p2sh
+    /// Parse a BitcoinTxOutput from a Bitcoin scriptpubkey and its value in
+    /// satoshis. Supports segwit (p2wpkh, p2wsh, p2tr) and legacy (p2wpkh,
+    /// p2sh) addresses. WARNING: Cannot distinguish between p2sh and
+    /// segwit-p2sh
     fn from_bitcoin_script_pubkey(
         network_id: BitcoinNetworkType,
         script_pubkey: &Script,
@@ -1102,7 +1116,8 @@ mod tests {
         }
     }
 
-    /// Make sure we can decode taproot scripts with the current vendored version of bitcoin-rs
+    /// Make sure we can decode taproot scripts with the current vendored
+    /// version of bitcoin-rs
     #[test]
     fn test_input_taproot() {
         let txs : Vec<(&str, Vec<BitcoinTxInputRaw>, Vec<BitcoinTxOutput>)> = vec![

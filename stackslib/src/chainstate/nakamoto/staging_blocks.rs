@@ -273,9 +273,10 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         Ok(res.is_some())
     }
 
-    /// Get the block ID, processed-status, orphan-status, and signing weight of the non-orphaned
-    /// block with the given consensus hash and sighash with the most amount of signatures.
-    /// There will be at most one such block.
+    /// Get the block ID, processed-status, orphan-status, and signing weight of
+    /// the non-orphaned block with the given consensus hash and sighash
+    /// with the most amount of signatures. There will be at most one such
+    /// block.
     ///
     /// NOTE: for Nakamoto blocks, the sighash is the same as the block hash.
     pub fn get_block_processed_and_signed_weight(
@@ -401,9 +402,9 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         Ok(res)
     }
 
-    /// Get all Nakamoto blocks in a tenure that report being tenure-start blocks
-    /// (depending on signer behavior, there can be more than one; none are guaranteed to be
-    /// canonical).
+    /// Get all Nakamoto blocks in a tenure that report being tenure-start
+    /// blocks (depending on signer behavior, there can be more than one;
+    /// none are guaranteed to be canonical).
     ///
     /// Used by the block downloader
     pub fn get_nakamoto_tenure_start_blocks(
@@ -428,10 +429,11 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
             .collect())
     }
 
-    /// Find the next ready-to-process Nakamoto block, given a connection to the staging blocks DB.
-    /// NOTE: the relevant field queried from `nakamoto_staging_blocks` are updated by a separate
-    /// tx from block-processing, so it's imperative that the thread that calls this function is
-    /// the *same* thread that goes to process blocks.
+    /// Find the next ready-to-process Nakamoto block, given a connection to the
+    /// staging blocks DB. NOTE: the relevant field queried from
+    /// `nakamoto_staging_blocks` are updated by a separate
+    /// tx from block-processing, so it's imperative that the thread that calls
+    /// this function is the *same* thread that goes to process blocks.
     /// Returns (the block, the size of the block)
     pub(crate) fn next_ready_nakamoto_block(
         &self,
@@ -498,8 +500,9 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
     }
 
     /// Given a consensus hash, determine if the burn block has been processed.
-    /// Because this is stored in a denormalized way, we'll want to do this whenever we store a
-    /// block (so we can set `burn_attachable` accordingly)
+    /// Because this is stored in a denormalized way, we'll want to do this
+    /// whenever we store a block (so we can set `burn_attachable`
+    /// accordingly)
     pub fn is_burn_block_processed(
         &self,
         consensus_hash: &ConsensusHash,
@@ -512,9 +515,9 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
 }
 
 impl NakamotoStagingBlocksTx<'_> {
-    /// Notify the staging database that a given stacks block has been processed.
-    /// This will update the attachable status for children blocks, as well as marking the stacks
-    ///  block itself as processed.
+    /// Notify the staging database that a given stacks block has been
+    /// processed. This will update the attachable status for children
+    /// blocks, as well as marking the stacks  block itself as processed.
     pub fn set_block_processed(&self, block: &StacksBlockId) -> Result<(), ChainstateError> {
         let clear_staged_block =
             "UPDATE nakamoto_staging_blocks SET processed = 1, processed_time = ?2
@@ -527,9 +530,9 @@ impl NakamotoStagingBlocksTx<'_> {
         Ok(())
     }
 
-    /// Modify the staging database that a given stacks block can never be processed.
-    /// This will update the attachable status for children blocks, as well as marking the stacks
-    /// block itself as orphaned.
+    /// Modify the staging database that a given stacks block can never be
+    /// processed. This will update the attachable status for children
+    /// blocks, as well as marking the stacks block itself as orphaned.
     pub fn set_block_orphaned(&self, block: &StacksBlockId) -> Result<(), ChainstateError> {
         let update_dependents = "UPDATE nakamoto_staging_blocks SET orphaned = 1
                                  WHERE parent_block_id = ?";
@@ -647,9 +650,9 @@ impl NakamotoStagingBlocksTx<'_> {
         Ok(present.is_some())
     }
 
-    /// Store a block into the staging DB if its sighash has never been seen before.
-    /// NOTE: the block hash and sighash are the same for Nakamoto blocks, so this is equivalent to
-    /// storing a new block.
+    /// Store a block into the staging DB if its sighash has never been seen
+    /// before. NOTE: the block hash and sighash are the same for Nakamoto
+    /// blocks, so this is equivalent to storing a new block.
     /// Return true if stored; false if not.
     pub(crate) fn try_store_block_with_new_signer_sighash(
         &self,
@@ -688,7 +691,8 @@ impl NakamotoStagingBlocksTx<'_> {
 
 impl StacksChainState {
     /// Begin a transaction against the staging blocks DB.
-    /// Note that this DB is (or will eventually be) in a separate database from the headers.
+    /// Note that this DB is (or will eventually be) in a separate database from
+    /// the headers.
     pub fn staging_db_tx_begin(&mut self) -> Result<NakamotoStagingBlocksTx<'_>, ChainstateError> {
         let tx = tx_begin_immediate(&mut self.nakamoto_staging_blocks_conn)?;
         Ok(NakamotoStagingBlocksTx(tx))
@@ -721,8 +725,8 @@ impl StacksChainState {
     }
 
     /// Get the path to the Nakamoto staging blocks DB.
-    /// It's separate from the headers DB in order to avoid DB contention between downloading
-    /// blocks and processing them.
+    /// It's separate from the headers DB in order to avoid DB contention
+    /// between downloading blocks and processing them.
     pub fn static_get_nakamoto_staging_blocks_path(
         root_path: PathBuf,
     ) -> Result<String, ChainstateError> {

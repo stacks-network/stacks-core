@@ -17,7 +17,6 @@
 //! This module provides various constants relating to the blockchain and
 //! consensus code. In particular, it defines the genesis block and its
 //! single transaction
-//!
 
 use crate::deps_common::bitcoin::blockdata::block::{Block, BlockHeader};
 use crate::deps_common::bitcoin::blockdata::transaction::{OutPoint, Transaction, TxIn, TxOut};
@@ -50,7 +49,8 @@ pub fn max_money(_: Network) -> u64 {
     21_000_000 * COIN_VALUE
 }
 
-/// Constructs and returns the coinbase (and only) transaction of the Bitcoin genesis block
+/// Constructs and returns the coinbase (and only) transaction of the Bitcoin
+/// genesis block
 fn bitcoin_genesis_tx() -> Transaction {
     // Base
     let mut ret = Transaction {

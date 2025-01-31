@@ -38,13 +38,14 @@ use crate::util_lib::strings::UrlString;
 pub enum MempoolSyncState {
     /// Picking an outbound peer
     PickOutboundPeer,
-    /// Resolving its data URL to a SocketAddr. Contains the data URL, DNS request handle, and
-    /// mempool page ID
+    /// Resolving its data URL to a SocketAddr. Contains the data URL, DNS
+    /// request handle, and mempool page ID
     ResolveURL(UrlString, DNSRequest, Txid),
-    /// Sending the request for mempool transactions. Contains the data URL, resolved socket, and
-    /// mempool page.
+    /// Sending the request for mempool transactions. Contains the data URL,
+    /// resolved socket, and mempool page.
     SendQuery(UrlString, SocketAddr, Txid),
-    /// Receiving the mempool response. Contains the URL, socket address, and event ID
+    /// Receiving the mempool response. Contains the URL, socket address, and
+    /// event ID
     RecvResponse(UrlString, SocketAddr, usize),
 }
 
@@ -136,8 +137,9 @@ impl MempoolSync {
     /// Pick a peer to mempool sync with.
     /// Returns Ok(None) if we're done syncing the mempool.
     /// Returns Ok(Some(..)) if we're not done, and can proceed
-    /// Returns the new sync state -- either ResolveURL if we need to resolve a data URL,
-    /// or SendQuery if we got the IP address and can just issue the query.
+    /// Returns the new sync state -- either ResolveURL if we need to resolve a
+    /// data URL, or SendQuery if we got the IP address and can just issue
+    /// the query.
     #[cfg_attr(test, mutants::skip)]
     fn mempool_sync_pick_outbound_peer(
         &mut self,
@@ -213,8 +215,9 @@ impl MempoolSync {
     /// Begin resolving the DNS host of a data URL for mempool sync.
     /// Returns Ok(None) if we're done syncing the mempool.
     /// Returns Ok(Some(..)) if we're not done, and can proceed
-    /// Returns the new sync state -- either ResolveURL if we need to resolve a data URL,
-    /// or SendQuery if we got the IP address and can just issue the query.
+    /// Returns the new sync state -- either ResolveURL if we need to resolve a
+    /// data URL, or SendQuery if we got the IP address and can just issue
+    /// the query.
     #[cfg_attr(test, mutants::skip)]
     fn mempool_sync_begin_resolve_data_url(
         &self,
@@ -316,8 +319,8 @@ impl MempoolSync {
         }
     }
 
-    /// Ask the remote peer for its mempool, connecting to it in the process if need be.
-    /// Returns Ok((true, ..)) if we're done mempool syncing
+    /// Ask the remote peer for its mempool, connecting to it in the process if
+    /// need be. Returns Ok((true, ..)) if we're done mempool syncing
     /// Returns Ok((false, ..)) if there's more to do
     /// Returns the event ID on success
     #[cfg_attr(test, mutants::skip)]
@@ -346,7 +349,8 @@ impl MempoolSync {
     /// Receive the mempool sync response.
     /// Return Ok(true, ..) if we're done with the mempool sync.
     /// Return Ok(false, ..) if we have more work to do.
-    /// Returns the page ID of the next request to make, and the list of transactions we got
+    /// Returns the page ID of the next request to make, and the list of
+    /// transactions we got
     #[cfg_attr(test, mutants::skip)]
     fn mempool_sync_recv_response(
         &mut self,

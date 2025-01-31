@@ -37,8 +37,8 @@ use crate::vm::types::{
 /// If deserialization failed because the described type is a bad type and
 ///   a CheckError is thrown, it gets wrapped in BadTypeError.
 /// Any IOErrrors from the supplied buffer will manifest as IOError variants,
-///   except for EOF -- if the deserialization code experiences an EOF, it is caught
-///   and rethrown as DeserializationError
+///   except for EOF -- if the deserialization code experiences an EOF, it is
+/// caught   and rethrown as DeserializationError
 #[derive(Debug, PartialEq)]
 pub enum SerializationError {
     IOError(IncomparableError<std::io::Error>),
@@ -57,13 +57,14 @@ lazy_static! {
     };
 }
 
-/// Deserialization uses a specific epoch for passing to the type signature checks
-/// The reason this is pinned to Epoch21 is so that values stored before epoch-2.4
-///  can still be read from the database.
+/// Deserialization uses a specific epoch for passing to the type signature
+/// checks The reason this is pinned to Epoch21 is so that values stored before
+/// epoch-2.4  can still be read from the database.
 const DESERIALIZATION_TYPE_CHECK_EPOCH: StacksEpochId = StacksEpochId::Epoch21;
 
-/// Pre-sanitization values could end up being larger than the deserializer originally
-///  supported, so we increase the bound to a higher level limit imposed by the cost checker.
+/// Pre-sanitization values could end up being larger than the deserializer
+/// originally  supported, so we increase the bound to a higher level limit
+/// imposed by the cost checker.
 const SANITIZATION_READ_BOUND: u64 = 15_000_000;
 
 /// Before epoch-2.4, this is the deserialization depth limit.
@@ -224,8 +225,8 @@ macro_rules! serialize_guarded_string {
         impl ClarityValueSerializable<$Name> for $Name {
             fn serialize_write<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
                 w.write_all(&self.len().to_be_bytes())?;
-                // self.as_bytes() is always len bytes, because this is only used for GuardedStrings
-                //   which are a subset of ASCII
+                // self.as_bytes() is always len bytes, because this is only used for
+                // GuardedStrings   which are a subset of ASCII
                 w.write_all(self.as_str().as_bytes())
             }
 
@@ -314,8 +315,9 @@ macro_rules! check_match {
 
 /// `DeserializeStackItem` objects are used by the deserializer to indicate
 ///  how the deserialization loop's current object is to be handled once it is
-///  deserialized: i.e., is the object the top-level object for the serialization
-///  or is it an entry in a composite type (e.g., a list or tuple)?
+///  deserialized: i.e., is the object the top-level object for the
+/// serialization  or is it an entry in a composite type (e.g., a list or
+/// tuple)?
 enum DeserializeStackItem {
     List {
         items: Vec<Value>,
@@ -345,10 +347,11 @@ enum DeserializeStackItem {
 }
 
 impl DeserializeStackItem {
-    /// What is the expected type for the child of this deserialization stack item?
+    /// What is the expected type for the child of this deserialization stack
+    /// item?
     ///
-    /// Returns `None` if this stack item either doesn't have an expected type, or the
-    ///   next child is going to be sanitized/elided.
+    /// Returns `None` if this stack item either doesn't have an expected type,
+    /// or the   next child is going to be sanitized/elided.
     fn next_expected_type(&self) -> Result<Option<TypeSignature>, SerializationError> {
         match self {
             DeserializeStackItem::List { expected_type, .. } => Ok(expected_type
@@ -558,7 +561,8 @@ impl Value {
             };
 
             if bytes_read > expect_size as u64 {
-                // this can happen due to sanitization, so its no longer indicative of a *problem* with the node.
+                // this can happen due to sanitization, so its no longer indicative of a
+                // *problem* with the node.
                 debug!(
                     "Deserialized more bytes than expected size during deserialization. Expected size = {}, bytes read = {}, type = {}",
                     expect_size,
@@ -798,8 +802,7 @@ impl Value {
                         //  tuple will be elided (or sanitized) from the tuple.
                         // the logic here is that the next pair should be elided if:
                         //    * `sanitize` parameter is true
-                        //    * `tuple_type` is some (i.e., there is an expected type for the
-                        //       tuple)
+                        //    * `tuple_type` is some (i.e., there is an expected type for the tuple)
                         //    * `tuple_type` does not contain an entry for `key`
                         let next_sanitize = sanitize
                             && tuple_type
@@ -986,7 +989,7 @@ impl Value {
                             // the logic here is that the next pair should be elided if:
                             //    * `sanitize` parameter is true
                             //    * `tuple_type` is some (i.e., there is an expected type for the
-                            //       tuple)
+                            //      tuple)
                             //    * `tuple_type` does not contain an entry for `key`
                             let next_sanitize = sanitize
                                 && expected_type
@@ -1103,10 +1106,12 @@ impl Value {
         Ok(())
     }
 
-    /// This function attempts to deserialize a byte buffer into a Clarity Value.
-    /// The `expected_type` parameter tells the deserializer to expect (and enforce)
-    /// a particular type. `ClarityDB` uses this to ensure that lists, tuples, etc. loaded from the database
-    /// have their max-length and other type information set by the type declarations in the contract.
+    /// This function attempts to deserialize a byte buffer into a Clarity
+    /// Value. The `expected_type` parameter tells the deserializer to
+    /// expect (and enforce) a particular type. `ClarityDB` uses this to
+    /// ensure that lists, tuples, etc. loaded from the database have their
+    /// max-length and other type information set by the type declarations in
+    /// the contract.
     pub fn try_deserialize_bytes(
         bytes: &Vec<u8>,
         expected: &TypeSignature,
@@ -1116,9 +1121,10 @@ impl Value {
     }
 
     /// This function attempts to deserialize a hex string into a Clarity Value.
-    /// The `expected_type` parameter tells the deserializer to expect (and enforce)
-    /// a particular type. `ClarityDB` uses this to ensure that lists, tuples, etc. loaded from the database
-    /// have their max-length and other type information set by the type declarations in the contract.
+    /// The `expected_type` parameter tells the deserializer to expect (and
+    /// enforce) a particular type. `ClarityDB` uses this to ensure that
+    /// lists, tuples, etc. loaded from the database have their max-length
+    /// and other type information set by the type declarations in the contract.
     pub fn try_deserialize_hex(
         hex: &str,
         expected: &TypeSignature,
@@ -1151,14 +1157,15 @@ impl Value {
         }
     }
 
-    /// Try to deserialize a value without type information. This *does not* perform sanitization
-    ///  so it should not be used when decoding clarity database values.
+    /// Try to deserialize a value without type information. This *does not*
+    /// perform sanitization  so it should not be used when decoding clarity
+    /// database values.
     fn try_deserialize_bytes_untyped(bytes: &Vec<u8>) -> Result<Value, SerializationError> {
         Value::deserialize_read(&mut bytes.as_slice(), None, false)
     }
 
-    /// Try to deserialize a value from a hex string without type information. This *does not*
-    /// perform sanitization.
+    /// Try to deserialize a value from a hex string without type information.
+    /// This *does not* perform sanitization.
     pub fn try_deserialize_hex_untyped(hex: &str) -> Result<Value, SerializationError> {
         let hex = hex.strip_prefix("0x").unwrap_or(hex);
         let data = hex_bytes(hex).map_err(|_| "Bad hex string")?;
@@ -1222,7 +1229,8 @@ impl Value {
     /// Returns Some if the sanitization is successful, or was not necessary.
     /// Returns None if the sanitization failed.
     ///
-    /// Returns the sanitized value _and_ whether or not sanitization was required.
+    /// Returns the sanitized value _and_ whether or not sanitization was
+    /// required.
     pub fn sanitize_value(
         epoch: &StacksEpochId,
         expected: &TypeSignature,
@@ -1238,7 +1246,8 @@ impl Value {
                     TypeSignature::SequenceType(SequenceSubtype::ListType(lt)) => lt,
                     _ => return None,
                 };
-                // if cannot compute l.len(), sanitization fails, so use ? operator can short return
+                // if cannot compute l.len(), sanitization fails, so use ? operator can short
+                // return
                 if l.len().ok()? > lt.get_max_len() {
                     return None;
                 }
@@ -1250,7 +1259,8 @@ impl Value {
                     sanitized_items.push(sanitized_item);
                     did_sanitize_children = did_sanitize_children || did_sanitize;
                 }
-                // do not sanitize list before construction here, because we're already sanitizing
+                // do not sanitize list before construction here, because we're already
+                // sanitizing
                 let output_list = Value::cons_list_unsanitized(sanitized_items).ok()?;
                 (output_list, did_sanitize_children)
             }
@@ -1499,7 +1509,8 @@ pub mod tests {
         );
 
         // make a list that says it is longer than it is!
-        //   this describes a list of size MAX_VALUE_SIZE of Value::Bool(true)'s, but is actually only 59 bools.
+        //   this describes a list of size MAX_VALUE_SIZE of Value::Bool(true)'s, but is
+        // actually only 59 bools.
         let mut eof = vec![3u8; 64_usize];
         // list prefix
         eof[0] = 11;

@@ -16,220 +16,293 @@
 
 /// ## The Problem
 ///
-/// There were two related design flaws in the way the Stacks blockchain deals with PoX anchor blocks:
+/// There were two related design flaws in the way the Stacks blockchain deals
+/// with PoX anchor blocks:
 ///
-/// * If it is ever the case in which a PoX anchor block is missing, and yet somehow manages to achieve 80% or more
-/// confirmations during the prepare phase, then the subsequent arrival of that anchor block will cause a _deep_ chain
-/// reorg.  It doesn't matter how many future blocks get mined -- if the anchor block is later revealed, it will
-/// invalidate all of the blocks that did not build on it.  While mining and confirming an anchor block is very costly,
-/// it's not only possible, but profitable: anyone who manages to do this could hold the blockchain for ransom by
-/// threatening to disclose the anchor block and invaldiate all blocks after it unless they were paid not to (i.e. in
-/// perpetuity).
+/// * If it is ever the case in which a PoX anchor block is missing, and yet
+///   somehow manages to achieve 80% or more
+/// confirmations during the prepare phase, then the subsequent arrival of that
+/// anchor block will cause a _deep_ chain reorg.  It doesn't matter how many
+/// future blocks get mined -- if the anchor block is later revealed, it will
+/// invalidate all of the blocks that did not build on it.  While mining and
+/// confirming an anchor block is very costly, it's not only possible, but
+/// profitable: anyone who manages to do this could hold the blockchain for
+/// ransom by threatening to disclose the anchor block and invaldiate all blocks
+/// after it unless they were paid not to (i.e. in perpetuity).
 ///
-/// * If it is ever the case that not enough STX get locked for PoX to begin in reward cycle _R_, then a node that
-/// processes Stacks blocks first without the anchor block in _R_ and then with the anchor block in _R_ will crash
-/// because it will attempt to calculate the same sortition twice.  This is because the same block-commits would be
+/// * If it is ever the case that not enough STX get locked for PoX to begin in
+///   reward cycle _R_, then a node that
+/// processes Stacks blocks first without the anchor block in _R_ and then with
+/// the anchor block in _R_ will crash because it will attempt to calculate the
+/// same sortition twice.  This is because the same block-commits would be
 /// processed in both cases -- they'd both be PoB commits.
 ///
-/// This subsystem fixes both problems by making the _history of anchor blocks itself_ forkable, and by implementing
-/// _Nakamoto consensus_ on the anchor block history forks so that there will always be a canonical anchor block
-/// history.  In doing so, the Stacks blockchain now has _three_ levels of forks: the Bitcoin chain, the history of PoX
-/// anchor blocks, and the history of Stacks blocks.  The canonical Stacks fork is the longest history of Stacks blocks
-/// that passes through the canonical history of anchor blocks which resides on the canonical Bitcoin chain.
+/// This subsystem fixes both problems by making the _history of anchor blocks
+/// itself_ forkable, and by implementing _Nakamoto consensus_ on the anchor
+/// block history forks so that there will always be a canonical anchor block
+/// history.  In doing so, the Stacks blockchain now has _three_ levels of
+/// forks: the Bitcoin chain, the history of PoX anchor blocks, and the history
+/// of Stacks blocks.  The canonical Stacks fork is the longest history of
+/// Stacks blocks that passes through the canonical history of anchor blocks
+/// which resides on the canonical Bitcoin chain.
 ///
 /// ## Background: Sortition Histories
 ///
-/// Recall that each Bitcoin block can contain block-commits that are valid only if certain anchor blocks are known to
-/// the node, and invalid if other anchor blocks are known.  Specifically, a block-commit can be a valid PoX
-/// block-commit _only if_ the current reward cycle has an anchor block, _and_ that anchor block is known to the node.
-/// Otherwise, if the block-commit does not descend from the anchor block, or there is no anchor block for this reward
-/// cycle, then the block-commit can only be valid if it's a PoB block-commit.
+/// Recall that each Bitcoin block can contain block-commits that are valid only
+/// if certain anchor blocks are known to the node, and invalid if other anchor
+/// blocks are known.  Specifically, a block-commit can be a valid PoX
+/// block-commit _only if_ the current reward cycle has an anchor block, _and_
+/// that anchor block is known to the node. Otherwise, if the block-commit does
+/// not descend from the anchor block, or there is no anchor block for this
+/// reward cycle, then the block-commit can only be valid if it's a PoB
+/// block-commit.
 ///
-/// What this means is that there is a _set_ of sortition histories on the Bitcoin chainstate that will each yield a
-/// unique history of block-commits (which in turn represent a unique set of possible Stacks forks).  This set has
-/// _O(2**n)_ members, where _n_ is the number of reward cycles that have anchor blocks.  This is because each time a
-/// new reward cycle is processed with an anchor block, there will be a sortition history that descends from it in which
-/// the anchor block is known to the node, and a sortition history in which it is _not_ known.
+/// What this means is that there is a _set_ of sortition histories on the
+/// Bitcoin chainstate that will each yield a unique history of block-commits
+/// (which in turn represent a unique set of possible Stacks forks).  This set
+/// has _O(2**n)_ members, where _n_ is the number of reward cycles that have
+/// anchor blocks.  This is because each time a new reward cycle is processed
+/// with an anchor block, there will be a sortition history that descends from
+/// it in which the anchor block is known to the node, and a sortition history
+/// in which it is _not_ known.
 ///
-/// Which sortition history is the "true" sortition history, and how do we determine this?  This is what this subsystem
-/// addresses.
+/// Which sortition history is the "true" sortition history, and how do we
+/// determine this?  This is what this subsystem addresses.
 ///
 /// ## Solution: Weight Sortition Histories by Miner Affirmations
 ///
-/// Can we deduce whether or not an anchor block _should_ exist and be known to the network, using only Bitcoin
-/// chainstate?  A likely anchor block's block-commit will have at least 80 confirmations in the prepare phase -- at
-/// least F*w (i.e. 80) Bitcoin blocks will contain at least one block-commit that has the likely anchor block-commit as
-/// an ancestor.
+/// Can we deduce whether or not an anchor block _should_ exist and be known to
+/// the network, using only Bitcoin chainstate?  A likely anchor block's
+/// block-commit will have at least 80 confirmations in the prepare phase -- at
+/// least F*w (i.e. 80) Bitcoin blocks will contain at least one block-commit
+/// that has the likely anchor block-commit as an ancestor.
 ///
-/// Of course, there are competing block-commits in each Bitcoin block; only one will be chosen as the Stacks block.
-/// But, recall that in the prepare phase of a reward cycle, all miners must burn BTC.  Because miners are sending BTC
-/// to the burn address, you can _compare_ the economic worth of all block-commits within a prepare-phase block.
-/// Moreover, you can calculate how much BTC went into confirming a likely anchor block's block-commit.  In doing so, we
-/// can introduce an extra criterion for selecting the anchor block in a reward cycle:
+/// Of course, there are competing block-commits in each Bitcoin block; only one
+/// will be chosen as the Stacks block. But, recall that in the prepare phase of
+/// a reward cycle, all miners must burn BTC.  Because miners are sending BTC to
+/// the burn address, you can _compare_ the economic worth of all block-commits
+/// within a prepare-phase block. Moreover, you can calculate how much BTC went
+/// into confirming a likely anchor block's block-commit.  In doing so, we
+/// can introduce an extra criterion for selecting the anchor block in a reward
+/// cycle:
 ///
-/// **The PoX anchor block for reward cycle _R_ is a Stacks block that has not yet been chosen to be an anchor block,
-/// and is the highest block outside _R_'s prepare phase that has at least F*w confirmations and is confirmed by the
-/// most BTC burnt.**
+/// **The PoX anchor block for reward cycle _R_ is a Stacks block that has not
+/// yet been chosen to be an anchor block, and is the highest block outside
+/// _R_'s prepare phase that has at least F*w confirmations and is confirmed by
+/// the most BTC burnt.**
 ///
-/// This is slightly different than the definition in SIP-007.  We're only looking at block-commits now.  If there are
-/// two or more reward-phase block-commits that got F*w confirmations, then we select the block-commit that got the most
-/// BTC.  If this block-commit doesn't actually correspond to a Stacks block, then there is no anchor block for the
-/// reward cycle.  Also, if this block-commit has been an anchor block before in some prior reward cycle, then there is
-/// no anchor block for this reward cycle.  If Stacks miners are honest, and no Stacks miner has more than 80% of the
-/// mining power, then neither of these two cases arise -- Stacks miners will build Stacks blocks on top of blocks they
-/// know about, and their corresponding block-commits in the prepare-phase will confirm the block-commit for an anchor
-/// block the miners believe exists.
+/// This is slightly different than the definition in SIP-007.  We're only
+/// looking at block-commits now.  If there are two or more reward-phase
+/// block-commits that got F*w confirmations, then we select the block-commit
+/// that got the most BTC.  If this block-commit doesn't actually correspond to
+/// a Stacks block, then there is no anchor block for the reward cycle.  Also,
+/// if this block-commit has been an anchor block before in some prior reward
+/// cycle, then there is no anchor block for this reward cycle.  If Stacks
+/// miners are honest, and no Stacks miner has more than 80% of the
+/// mining power, then neither of these two cases arise -- Stacks miners will
+/// build Stacks blocks on top of blocks they know about, and their
+/// corresponding block-commits in the prepare-phase will confirm the
+/// block-commit for an anchor block the miners believe exists.
 ///
-/// The key insight into understanding the solution to #1805 is to see that the act of choosing an anchor block is
-/// _also_ the acts of doing the following two things:
+/// The key insight into understanding the solution to #1805 is to see that the
+/// act of choosing an anchor block is _also_ the acts of doing the following
+/// two things:
 ///
-/// * Picking a likely anchor block-commit is the act of _affirming_ that the anchor block is known to the network.  A
-/// bootstrapping node does not know which Stacks blocks actually exist, since it needs to go and actually download
-/// them.  But, it can examine only the Bitcoin chainstate and deduce the likely anchor block for each reward cycle.  If
-/// a reward cycle has a likely anchor block-commit, then we say that the set of miners who mined that prepare-phase
-/// have _affirmed_ to this node and all future bootstrapping nodes that they believed that this anchor block exists.  I
-/// say "affirmed" because it's a weaker guarantee than "confirmed" -- the anchor block can still get lost after the
-/// miners make their affirmations.
+/// * Picking a likely anchor block-commit is the act of _affirming_ that the
+///   anchor block is known to the network.  A
+/// bootstrapping node does not know which Stacks blocks actually exist, since
+/// it needs to go and actually download them.  But, it can examine only the
+/// Bitcoin chainstate and deduce the likely anchor block for each reward cycle.
+/// If a reward cycle has a likely anchor block-commit, then we say that the set
+/// of miners who mined that prepare-phase have _affirmed_ to this node and all
+/// future bootstrapping nodes that they believed that this anchor block exists.
+/// I say "affirmed" because it's a weaker guarantee than "confirmed" -- the
+/// anchor block can still get lost after the miners make their affirmations.
 ///
-/// * Picking a likely anchor block-commit is the act of affirming all of the previous affirmations that this anchor
-/// block represents.  An anchor block is a descendant of a history of prior anchor blocks, so miners affirming that it
-/// exists by sending block-commits that confirm its block-commit is also the act of miners affirming that all of the
-/// ancestor anchor blocks it confirms also exist.  For example, if there are 4 reward cycles, and cycles 1, 2, and 3
-/// have anchor blocks, then the act of miners choosing an anchor block in reward cycle 4's prepare phase that descends
-/// from the anchor block in reward cycle 3 is _also_ the act of affirming that the anchor block for reward cycle 3
-/// exists.  If the anchor block for reward cycle 3 descends from the anchor block of reward cycle 1, but _not_ from the
-/// anchor block in reward cycle 2, then the miners have also affirmed that the anchor block for reward cycle 1 exists.
-/// Moreover, the anchor block in reward cycle 1 has been affirmed _twice_ -- both by the miners in reward cycle 3's
-/// prepare phase, and the miners in reward cycle 4's prepare phase.  The anchor block in reward cycle 2 has _not_ been
-/// affirmed.
+/// * Picking a likely anchor block-commit is the act of affirming all of the
+///   previous affirmations that this anchor
+/// block represents.  An anchor block is a descendant of a history of prior
+/// anchor blocks, so miners affirming that it exists by sending block-commits
+/// that confirm its block-commit is also the act of miners affirming that all
+/// of the ancestor anchor blocks it confirms also exist.  For example, if there
+/// are 4 reward cycles, and cycles 1, 2, and 3 have anchor blocks, then the act
+/// of miners choosing an anchor block in reward cycle 4's prepare phase that
+/// descends from the anchor block in reward cycle 3 is _also_ the act of
+/// affirming that the anchor block for reward cycle 3 exists.  If the anchor
+/// block for reward cycle 3 descends from the anchor block of reward cycle 1,
+/// but _not_ from the anchor block in reward cycle 2, then the miners have also
+/// affirmed that the anchor block for reward cycle 1 exists. Moreover, the
+/// anchor block in reward cycle 1 has been affirmed _twice_ -- both by the
+/// miners in reward cycle 3's prepare phase, and the miners in reward cycle 4's
+/// prepare phase.  The anchor block in reward cycle 2 has _not_ been affirmed.
 ///
-/// The act of building anchor blocks on top of anchor blocks gives us a way to _weight_ the corresponding sortition
-/// histories.  An anchor block gets "heavier" as the number of descendant anchor blocks increases, and as the number of
-/// reward cycles without anchor blocks increases.  This is because in both cases, miners are _not_ working on an anchor
-/// block history that would _invalidate_ this anchor block -- i.e. they are continuously affirming that this anchor
-/// block exists.
+/// The act of building anchor blocks on top of anchor blocks gives us a way to
+/// _weight_ the corresponding sortition histories.  An anchor block gets
+/// "heavier" as the number of descendant anchor blocks increases, and as the
+/// number of reward cycles without anchor blocks increases.  This is because in
+/// both cases, miners are _not_ working on an anchor block history that would
+/// _invalidate_ this anchor block -- i.e. they are continuously affirming that
+/// this anchor block exists.
 ///
-/// We can define the weight of a sortition history as the weight of its heaviest anchor block.  If you want to produce
-/// a sortition history that is heavier, but invalidates the last _N_ anchor blocks, you'll have to mine at least _N +
-/// 1_ reward cycles.  This gets us a form of Nakamoto consensus for the status of anchor blocks -- the more affirmed an
-/// anchor block is, the harder it is to get it unaffirmed.  By doing this, we address the first problem with PoX anchor
-/// blocks: in order to hold the chain hostage, you have to _continuously_ mine reward cycles that confirm your missing
-/// anchor block.
+/// We can define the weight of a sortition history as the weight of its
+/// heaviest anchor block.  If you want to produce a sortition history that is
+/// heavier, but invalidates the last _N_ anchor blocks, you'll have to mine at
+/// least _N + 1_ reward cycles.  This gets us a form of Nakamoto consensus for
+/// the status of anchor blocks -- the more affirmed an anchor block is, the
+/// harder it is to get it unaffirmed.  By doing this, we address the first
+/// problem with PoX anchor blocks: in order to hold the chain hostage, you have
+/// to _continuously_ mine reward cycles that confirm your missing anchor block.
 ///
 /// ## Implementation: Affirmation Maps
 ///
-/// We track this information through a data structure called an **affirmation map**.  An affirmation map has the
-/// following methods:
+/// We track this information through a data structure called an **affirmation
+/// map**.  An affirmation map has the following methods:
 ///
-/// * `at(i)`: Determine the network's affirmation status of the anchor block for the _ith_ reward cycle, starting at
-/// reward cycle 1 (reward cycle 0 has no anchor block, ever).  The domain of `i` is defined as the set of reward cycles
-/// known to the node, excluding 0, and evaluates to one of the following:
+/// * `at(i)`: Determine the network's affirmation status of the anchor block
+///   for the _ith_ reward cycle, starting at
+/// reward cycle 1 (reward cycle 0 has no anchor block, ever).  The domain of
+/// `i` is defined as the set of reward cycles known to the node, excluding 0,
+/// and evaluates to one of the following:
 ///
 ///    * `p`: There is an anchor block, and it's present
 ///    * `a`: There is an anchor block, and it's absent
 ///    * `n`: There is no anchor block
 ///
-/// * `weight()`:  This returns the maximum number of anchor blocks that descend from an anchor block this affirmation
+/// * `weight()`:  This returns the maximum number of anchor blocks that descend
+///   from an anchor block this affirmation
 /// map represents
 ///
-/// Each block-commit represents an affirmation by the miner about the state of the anchor blocks that the
-/// block-commit's Stacks block confirms.  When processing block-commits, the node will calculate the affirmation map
+/// Each block-commit represents an affirmation by the miner about the state of
+/// the anchor blocks that the block-commit's Stacks block confirms.  When
+/// processing block-commits, the node will calculate the affirmation map
 /// for each block-commit inductively as follows:
 ///
 ///    * If the block-commit is in the prepare phase for reward cycle _R_:
 ///
 ///         * If there is an anchor block for _R_:
 ///
-///             * If this commit descends from the anchor block, then its affirmation map is the same as the anchor
-///               block's, plus having `at(R)` set to `p`
+///             * If this commit descends from the anchor block, then its
+///               affirmation map is the same as the anchor block's, plus having
+///               `at(R)` set to `p`
 ///
-///             * Otherwise, its affirmation map the same as the anchor block's, plus having `at(R)`set to `a`
+///             * Otherwise, its affirmation map the same as the anchor block's,
+///               plus having `at(R)`set to `a`
 ///
 ///         * Otherwise:
 ///
-///             * If the parent descended from some anchor block at reward cycle _R - k_ then this commit's affirmation
-///               map is the same as its parent, plus having `at(R - k)` set to `p`, plus having all `at(R - k < x < R)`
-///               set to `n` if reward cycle _x_ doesn't have an anchor block, and `a` if it does.
-///
-///             * Otherwise, this commit's affirmation map is defined as `at(x)` set to `n` if reward cycle _x_ doesn't
+///             * If the parent descended from some anchor block at reward cycle
+///               _R - k_ then this commit's affirmation map is the same as its
+///               parent, plus having `at(R - k)` set to `p`, plus having all
+///               `at(R - k < x < R)` set to `n` if reward cycle _x_ doesn't
 ///               have an anchor block, and `a` if it does.
+///
+///             * Otherwise, this commit's affirmation map is defined as `at(x)`
+///               set to `n` if reward cycle _x_ doesn't have an anchor block,
+///               and `a` if it does.
 ///
 ///    * Otherwise:
 ///
-///         * If the parent descended from some anchor block in reward cycle _R - k_, then this commit's affirmation map
-///           is the same as its parent, plus having `at(R - k < x < R)` set to `n` if reward cycle _x_ doesn't have an
-///           anchor block, and `a` if it does.
+///         * If the parent descended from some anchor block in reward cycle _R
+///           - k_, then this commit's affirmation map is the same as its
+///           parent, plus having `at(R - k < x < R)` set to `n` if reward cycle
+///           _x_ doesn't have an anchor block, and `a` if it does.
 ///
-///         * Otherwise, this commit's affirmation map is defined as `at(x)` set to `n` if reward cycle _x_ doesn't have
-///           an anchor block, and `a` if it does.
+///         * Otherwise, this commit's affirmation map is defined as `at(x)` set
+///           to `n` if reward cycle _x_ doesn't have an anchor block, and `a`
+///           if it does.
 ///       
-/// Consider the example above, where we have anchor block histories 1,3,4 and 1,2.
+/// Consider the example above, where we have anchor block histories 1,3,4 and
+/// 1,2.
 ///
-/// * A block-commit in the prepare-phase for reward cycle 4 that confirms the anchor block for reward cycle 4 would
-/// have affirmation map `papp`, because it affirms that the anchor blocks for reward cycles 1, 3, and 4 exist.
+/// * A block-commit in the prepare-phase for reward cycle 4 that confirms the
+///   anchor block for reward cycle 4 would
+/// have affirmation map `papp`, because it affirms that the anchor blocks for
+/// reward cycles 1, 3, and 4 exist.
 ///
-/// * A block-commit in the prepare-phase for reward cycle 4 that does NOT confirm the anchor block for reward cycle 4, but
-/// descends from a block that descends from the anchor block in reward cycle 3, would have the affirmation map `papa`,
-/// because it does NOT affirm that the anchor block for reward cycle 4 exists, but it DOES affirm that the anchor block
-/// history terminating at the anchor block for reward cycle 3 exists.
+/// * A block-commit in the prepare-phase for reward cycle 4 that does NOT
+///   confirm the anchor block for reward cycle 4, but
+/// descends from a block that descends from the anchor block in reward cycle 3,
+/// would have the affirmation map `papa`, because it does NOT affirm that the
+/// anchor block for reward cycle 4 exists, but it DOES affirm that the anchor
+/// block history terminating at the anchor block for reward cycle 3 exists.
 ///
-/// * A block-commit in the prepare-phase for reward cycle 4 that descends from a block that descends from the anchor block
-/// for reward cycle 2 would have affirmation map `ppaa`, because it builds on the anchor block for reward cycle 2, but it
-/// doesn't build on the anchor blocks for 3 and 4.
+/// * A block-commit in the prepare-phase for reward cycle 4 that descends from
+///   a block that descends from the anchor block
+/// for reward cycle 2 would have affirmation map `ppaa`, because it builds on
+/// the anchor block for reward cycle 2, but it doesn't build on the anchor
+/// blocks for 3 and 4.
 ///
-/// * Suppose reward cycle 5 rolls around, and no anchor block is chosen at all.  Then, a block in the reward
-/// phase for reward cycle 5 that builds off the anchor block in reward cycle 4 would have affirmation map `pappn`.
-/// Similarly, a block in reward cycle 5's reward phase that builds off of the anchor block in reward cycle 2 would have
-/// affirmation map `ppaan`.
+/// * Suppose reward cycle 5 rolls around, and no anchor block is chosen at all.
+///   Then, a block in the reward
+/// phase for reward cycle 5 that builds off the anchor block in reward cycle 4
+/// would have affirmation map `pappn`. Similarly, a block in reward cycle 5's
+/// reward phase that builds off of the anchor block in reward cycle 2 would
+/// have affirmation map `ppaan`.
 ///
-/// (Here's a small lemma:  if any affirmation map has `at(R) = n` for a given reward cycle `R`, then _all_ affirmation
-/// maps will have `at(R) == n`).
+/// (Here's a small lemma:  if any affirmation map has `at(R) = n` for a given
+/// reward cycle `R`, then _all_ affirmation maps will have `at(R) == n`).
 ///
-/// Now that we have a way to measure affirmations on anchor blocks, we can use them to deduce a canonical sortition
-/// history as simply the history that represents the affirmation map with the highest `weight()` value.  If there's a
-/// tie, then we pick the affirmation map with the highest `i` such that `at(i) = p` (i.e. a later anchor block
-/// affirmation is a stronger affirmation than an earlier one).  This is always a tie-breaker, because each
-/// prepare-phase either affirms or does not affirm exactly one anchor block.
+/// Now that we have a way to measure affirmations on anchor blocks, we can use
+/// them to deduce a canonical sortition history as simply the history that
+/// represents the affirmation map with the highest `weight()` value.  If
+/// there's a tie, then we pick the affirmation map with the highest `i` such
+/// that `at(i) = p` (i.e. a later anchor block affirmation is a stronger
+/// affirmation than an earlier one).  This is always a tie-breaker, because
+/// each prepare-phase either affirms or does not affirm exactly one anchor
+/// block.
 ///
 /// ### Using Affirmation Maps
 ///
-/// Each time we finish processing a reward cycle, the burnchain processor identifies the anchor block's commit and
-/// updates the affirmation maps for the prepare-phase block-commits in the burnchain DB (now that an anchor block
-/// decision has been made).  As the DB receives subsequent reward-phase block-commits, their affirmation maps are
-/// calculated using the above definition.
+/// Each time we finish processing a reward cycle, the burnchain processor
+/// identifies the anchor block's commit and updates the affirmation maps for
+/// the prepare-phase block-commits in the burnchain DB (now that an anchor
+/// block decision has been made).  As the DB receives subsequent reward-phase
+/// block-commits, their affirmation maps are calculated using the above
+/// definition.
 ///
-/// Each time the chains coordinator processes a burnchain block, it sees if its view of the heaviest affirmation map
-/// has changed.  If so, it executes a PoX reorg like before -- it invalidates the sortitions back to the latest
-/// sortition that is represented on the now-heaviest affirmation map.  Unlike before, it will _re-validate_ any
-/// sortitions that it has processed in the past if a _prefix_ of the now-heaviest affirmation map has been the heaviest
-/// affirmation map in the past.  This can arise if there are two competing sets of miners that are fighting over two
-/// different sortition histories.  In this case, it also forgets the orphaned statuses of all invalidated and
-/// re-validated Stacks blocks, so they can be downloaded and applied again to the Stacks chain state (note that a
-/// Stacks block will be applied at most once in any case -- it's just that it can be an orphan on one sortition
+/// Each time the chains coordinator processes a burnchain block, it sees if its
+/// view of the heaviest affirmation map has changed.  If so, it executes a PoX
+/// reorg like before -- it invalidates the sortitions back to the latest
+/// sortition that is represented on the now-heaviest affirmation map.  Unlike
+/// before, it will _re-validate_ any sortitions that it has processed in the
+/// past if a _prefix_ of the now-heaviest affirmation map has been the heaviest
+/// affirmation map in the past.  This can arise if there are two competing sets
+/// of miners that are fighting over two different sortition histories.  In this
+/// case, it also forgets the orphaned statuses of all invalidated and
+/// re-validated Stacks blocks, so they can be downloaded and applied again to
+/// the Stacks chain state (note that a Stacks block will be applied at most
+/// once in any case -- it's just that it can be an orphan on one sortition
 /// history, but a valid and accepted block in another).
 ///
-/// Because we take care to re-validate sortitions that have already been processed, we avoid the second design flaw in
-/// the PoX anchor block handling -- a sortition will always be processed at most once.  This is further guaranteed by
-/// making sure that the consensus hash for each sortition is calculated in part from the PoX bit vector that is
-/// _induced_ by the heaviest affirmation map.  That is, the node's PoX ID is no longer calculated from the presence or
-/// absence of anchor blocks, but instead calculated from the heaviest affirmation map as follows:
+/// Because we take care to re-validate sortitions that have already been
+/// processed, we avoid the second design flaw in the PoX anchor block handling
+/// -- a sortition will always be processed at most once.  This is further
+/// guaranteed by making sure that the consensus hash for each sortition is
+/// calculated in part from the PoX bit vector that is _induced_ by the heaviest
+/// affirmation map.  That is, the node's PoX ID is no longer calculated from
+/// the presence or absence of anchor blocks, but instead calculated from the
+/// heaviest affirmation map as follows:
 ///
 /// * If `at(i)` is `p` or `n`, then bit `i` is 1
 /// * Otherwise, bit `i` is 0
 ///
-/// In addition, when a late anchor block arrives and is processed by the chains coordinator, the heaviest affirmation
-/// map is consulted to determine whether or not it _should_ be processed.  If it's _not_ affirmed, then it is ignored.
+/// In addition, when a late anchor block arrives and is processed by the chains
+/// coordinator, the heaviest affirmation map is consulted to determine whether
+/// or not it _should_ be processed.  If it's _not_ affirmed, then it is
+/// ignored.
 ///
 /// ## Failure Recovery
 ///
-/// In the event that a hidden anchor block arises, this subsystem includes a way to _override_ the heaviest affirmation
-/// map for a given reward cycle.  If an anchor block is missing, miners can _declare_ it missing by updating a row in
-/// the burnchain DB that marks the anchor block as forever missing.  This prevents a "short" (but still devastating)
-/// reorg whereby an anchor block is missing for _almost_ the duration of the reward cycle -- in such a case, the
-/// absence of this declaration would cause the reward cycle's blocks to all be invalidated.  Adding this declaration,
-/// and then mining an anchor block that does _not_ affirm the missing anchor block would solve this for future
-/// bootstrapping nodes.
-///
+/// In the event that a hidden anchor block arises, this subsystem includes a
+/// way to _override_ the heaviest affirmation map for a given reward cycle.  If
+/// an anchor block is missing, miners can _declare_ it missing by updating a
+/// row in the burnchain DB that marks the anchor block as forever missing.
+/// This prevents a "short" (but still devastating) reorg whereby an anchor
+/// block is missing for _almost_ the duration of the reward cycle -- in such a
+/// case, the absence of this declaration would cause the reward cycle's blocks
+/// to all be invalidated.  Adding this declaration, and then mining an anchor
+/// block that does _not_ affirm the missing anchor block would solve this for
+/// future bootstrapping nodes.
 use std::cmp;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fmt;
@@ -281,8 +354,8 @@ impl AffirmationMapEntry {
     }
 }
 
-/// An affirmation map is simply a list of affirmation map entries.  This struct merely wraps the
-/// list behind accessor and mutator methods.
+/// An affirmation map is simply a list of affirmation map entries.  This struct
+/// merely wraps the list behind accessor and mutator methods.
 #[derive(Clone, PartialEq)]
 pub struct AffirmationMap {
     pub affirmations: Vec<AffirmationMapEntry>,
@@ -411,10 +484,11 @@ impl AffirmationMap {
     }
 
     /// Has `other` diverged from `self`?
-    /// If `other` contains a reward cycle affirmation that is not present in `self`, then yes.
-    /// (Note that this means that if `other` is a prefix of `self`, then no divergence).
-    /// Return the index into `other` where the affirmation differs from `self`.
-    /// Return `None` if no difference exists.
+    /// If `other` contains a reward cycle affirmation that is not present in
+    /// `self`, then yes. (Note that this means that if `other` is a prefix
+    /// of `self`, then no divergence). Return the index into `other` where
+    /// the affirmation differs from `self`. Return `None` if no difference
+    /// exists.
     pub fn find_divergence(&self, other: &AffirmationMap) -> Option<u64> {
         for i in 0..cmp::min(self.len(), other.len()) {
             if self.affirmations[i] != other.affirmations[i] {
@@ -429,10 +503,11 @@ impl AffirmationMap {
         None
     }
 
-    /// At what reward cycle should a node start searching for block inventories, given the heaviest
-    /// affirmation map?.  This is the lowest reward cycle in which both self and heaviest affirm
-    /// "absent" that comes _after_ the highest reward cycle in which both self and heaviest affirm
-    /// "present".
+    /// At what reward cycle should a node start searching for block
+    /// inventories, given the heaviest affirmation map?.  This is the
+    /// lowest reward cycle in which both self and heaviest affirm
+    /// "absent" that comes _after_ the highest reward cycle in which both self
+    /// and heaviest affirm "present".
     ///
     /// For `paa` and `pap`, it's 1
     /// For `paap` and `paap`, it's 3
@@ -484,7 +559,8 @@ impl AffirmationMap {
     }
 
     /// What is the weight of this affirmation map?
-    /// i.e. how many times did the network either affirm an anchor block, or make no election?
+    /// i.e. how many times did the network either affirm an anchor block, or
+    /// make no election?
     pub fn weight(&self) -> u64 {
         let mut weight = 0;
         for i in 0..self.len() {
@@ -499,9 +575,9 @@ impl AffirmationMap {
     }
 }
 
-/// Get a parent/child reward cycle.  Only return Some(..) if the reward cycle is known for both --
-/// i.e. their block heights are plausible -- they are at or after the first burnchain block
-/// height.
+/// Get a parent/child reward cycle.  Only return Some(..) if the reward cycle
+/// is known for both -- i.e. their block heights are plausible -- they are at
+/// or after the first burnchain block height.
 pub fn get_parent_child_reward_cycles(
     parent: &LeaderBlockCommitOp,
     block_commit: &LeaderBlockCommitOp,
@@ -535,11 +611,11 @@ pub fn get_parent_child_reward_cycles(
     Some((parent_reward_cycle, child_reward_cycle))
 }
 
-/// Read a range of blockstack operations for a prepare phase of a given reward cycle.
-/// Only includes block-commits.
-/// The returned vec is a vec of vecs of block-commits in block order.  The ith item is a vec of
-/// block-commits in block order for the ith prepare-phase block (item 0 is the first prepare-phase
-/// block's block-commits).
+/// Read a range of blockstack operations for a prepare phase of a given reward
+/// cycle. Only includes block-commits.
+/// The returned vec is a vec of vecs of block-commits in block order.  The ith
+/// item is a vec of block-commits in block order for the ith prepare-phase
+/// block (item 0 is the first prepare-phase block's block-commits).
 pub fn read_prepare_phase_commits<B: BurnchainHeaderReader>(
     burnchain_tx: &BurnchainDBTransaction,
     indexer: &B,
@@ -575,8 +651,9 @@ pub fn read_prepare_phase_commits<B: BurnchainHeaderReader>(
                         test_debug!("Skip too-early block commit");
                         continue;
                     }
-                    // the block commit's parent must be a burnchain block that is evaluated by the node
-                    //  blocks that are <= first_block_height do not meet this requirement.
+                    // the block commit's parent must be a burnchain block that is evaluated by the
+                    // node  blocks that are <= first_block_height do not meet
+                    // this requirement.
                     if (opdata.parent_block_ptr as u64) <= first_block_height {
                         test_debug!("Skip orphaned block-commit");
                         continue;
@@ -617,9 +694,10 @@ pub fn read_prepare_phase_commits<B: BurnchainHeaderReader>(
     Ok(ret)
 }
 
-/// Find all referenced parent block-commits already in the burnchain DB, so we can extract their VRF seeds.
-/// If this method errors out, it's because it couldn't read the burnchain headers DB (or it's
-/// corrupted). Either way, the caller may treat this as a fatal condition.
+/// Find all referenced parent block-commits already in the burnchain DB, so we
+/// can extract their VRF seeds. If this method errors out, it's because it
+/// couldn't read the burnchain headers DB (or it's corrupted). Either way, the
+/// caller may treat this as a fatal condition.
 pub fn read_parent_block_commits<B: BurnchainHeaderReader>(
     burnchain_tx: &BurnchainDBTransaction,
     indexer: &B,
@@ -692,8 +770,8 @@ pub fn read_parent_block_commits<B: BurnchainHeaderReader>(
     Ok(parent_list)
 }
 
-/// Given a list of prepare-phase block-commits, and a list of parent commits, filter out and remove
-/// the prepare-phase commits that _don't_ have a parent.
+/// Given a list of prepare-phase block-commits, and a list of parent commits,
+/// filter out and remove the prepare-phase commits that _don't_ have a parent.
 pub fn filter_orphan_block_commits(
     parents: &[LeaderBlockCommitOp],
     prepare_phase_ops: Vec<Vec<LeaderBlockCommitOp>>,
@@ -736,8 +814,9 @@ pub fn filter_orphan_block_commits(
         .collect()
 }
 
-/// Given a list of prepare-phase block-commits, filter out the ones that don't have correct burn
-/// modulii.  This means that late block-commits don't count as confirmations.
+/// Given a list of prepare-phase block-commits, filter out the ones that don't
+/// have correct burn modulii.  This means that late block-commits don't count
+/// as confirmations.
 pub fn filter_missed_block_commits(
     prepare_phase_ops: Vec<Vec<LeaderBlockCommitOp>>,
 ) -> Vec<Vec<LeaderBlockCommitOp>> {
@@ -769,11 +848,12 @@ pub fn filter_missed_block_commits(
         .collect()
 }
 
-/// Given a list of block-commits in the prepare-phase, find the block-commit pointer outside the
-/// prepare-phase which must be the anchor block, if it exists at all.  This is always
-/// the block-commit that has the most cumulative BTC committed behind it (and the highest
-/// such in the event of a tie), as well as at least `anchor_threshold` confirmations.
-/// Returns the pointer into the burnchain where the anchor block-commit can be found, if it
+/// Given a list of block-commits in the prepare-phase, find the block-commit
+/// pointer outside the prepare-phase which must be the anchor block, if it
+/// exists at all.  This is always the block-commit that has the most cumulative
+/// BTC committed behind it (and the highest such in the event of a tie), as
+/// well as at least `anchor_threshold` confirmations. Returns the pointer into
+/// the burnchain where the anchor block-commit can be found, if it
 /// exists at all.
 /// Returns None otherwise
 fn inner_find_heaviest_block_commit_ptr(
@@ -816,11 +896,12 @@ fn inner_find_heaviest_block_commit_ptr(
     // map (block_height, vtxindex) to (parent_block_height, parent_vtxindex)
     let mut parents = BTreeMap::new();
 
-    // map (block_height, vtxindex) to (non-prepare-ancestor-height, non-prepare-ancestor-vtxindex)
+    // map (block_height, vtxindex) to (non-prepare-ancestor-height,
+    // non-prepare-ancestor-vtxindex)
     let mut ancestors = BTreeMap::new();
 
-    // map (non-prepare-ancestor-height, non-prepare-ancestor-vtxindex) to (set-of-block-heights, total_burnt)
-    // that contain descendants
+    // map (non-prepare-ancestor-height, non-prepare-ancestor-vtxindex) to
+    // (set-of-block-heights, total_burnt) that contain descendants
     let mut ancestor_confirmations: BTreeMap<(u64, u32), (HashSet<u64>, u64)> = BTreeMap::new();
 
     // calculate each block-commit's parents
@@ -836,7 +917,8 @@ fn inner_find_heaviest_block_commit_ptr(
         }
     }
 
-    // calculate the ancestor map -- find the highest non-prepare-phase ancestor for each prepare-phase block-commit.
+    // calculate the ancestor map -- find the highest non-prepare-phase ancestor for
+    // each prepare-phase block-commit.
     for prepare_block_ops in prepare_phase_ops.iter().rev() {
         for opdata in prepare_block_ops.iter() {
             let mut cursor = (opdata.block_height, opdata.vtxindex);
@@ -852,8 +934,8 @@ fn inner_find_heaviest_block_commit_ptr(
         }
     }
 
-    // calculate the ancestor confirmations -- figure out how many distinct blocks contain
-    // block-commits that descend from each pre-prepare-phase ancestor
+    // calculate the ancestor confirmations -- figure out how many distinct blocks
+    // contain block-commits that descend from each pre-prepare-phase ancestor
     for prepare_block_ops in prepare_phase_ops.iter() {
         for opdata in prepare_block_ops.iter() {
             if let Some((ancestor_height, ancestor_vtxindex)) =
@@ -886,8 +968,9 @@ fn inner_find_heaviest_block_commit_ptr(
         return None;
     }
 
-    // find the ancestors with at least $anchor_threshold confirmations, and pick the one that has the
-    // most total BTC.  Break ties by ancestor order -- highest ancestor commit wins.
+    // find the ancestors with at least $anchor_threshold confirmations, and pick
+    // the one that has the most total BTC.  Break ties by ancestor order --
+    // highest ancestor commit wins.
     let mut ancestor_block = 0;
     let mut ancestor_vtxindex = 0;
     let mut most_burnt = 0;
@@ -926,13 +1009,14 @@ fn inner_find_heaviest_block_commit_ptr(
     ))
 }
 
-/// Given a list of block-commits in the prepare-phase, find the block-commit outside the
-/// prepare-phase which must be the anchor block, if it exists at all.  This is always
-/// the block-commit that has the most cumulative BTC committed behind it (and the highest
-/// such in the event of a tie), as well as at least `anchor_threshold` confirmations.  If the anchor block
+/// Given a list of block-commits in the prepare-phase, find the block-commit
+/// outside the prepare-phase which must be the anchor block, if it exists at
+/// all.  This is always the block-commit that has the most cumulative BTC
+/// committed behind it (and the highest such in the event of a tie), as well as
+/// at least `anchor_threshold` confirmations.  If the anchor block
 /// commit is found, return the descendancy matrix for it as well.
-/// Returns Some(the winning block commit, descendancy matrix, total confirmations, total burnt) if
-/// there's an anchor block commit.
+/// Returns Some(the winning block commit, descendancy matrix, total
+/// confirmations, total burnt) if there's an anchor block commit.
 /// Returns None otherwise
 pub fn find_heaviest_block_commit<B: BurnchainHeaderReader>(
     burnchain_tx: &BurnchainDBTransaction,
@@ -970,8 +1054,8 @@ pub fn find_heaviest_block_commit<B: BurnchainHeaderReader>(
             });
 
     // find the PoX anchor block-commit, if it exists at all
-    // (note that it may not -- a rich attacker can force F*w confirmations with lots of BTC on a
-    // commit that was never mined).
+    // (note that it may not -- a rich attacker can force F*w confirmations with
+    // lots of BTC on a commit that was never mined).
     for block_op in heaviest_ancestor_block.ops.into_iter() {
         if let BlockstackOperationType::LeaderBlockCommit(opdata) = block_op {
             if opdata.block_height == ancestor_block && opdata.vtxindex == ancestor_vtxindex {
@@ -982,8 +1066,8 @@ pub fn find_heaviest_block_commit<B: BurnchainHeaderReader>(
                     "stacks_block_hash" => opdata.block_header_hash
                 );
 
-                // sanity check -- there should be exactly as many confirmations on the suspected
-                // anchor block as there are distinct descendancies.
+                // sanity check -- there should be exactly as many confirmations on the
+                // suspected anchor block as there are distinct descendancies.
                 let mut conf_count = 0;
 
                 // sanity check -- there should be exactly as many BTC burnt for the suspected
@@ -1075,12 +1159,13 @@ fn inner_find_valid_prepare_phase_commits<B: BurnchainHeaderReader>(
     Ok(prepare_ops_valid)
 }
 
-/// Find the pointer to the PoX anchor block selected in a reward cycle, if it exists.  This is the heaviest F*w-confirmed
-/// block-commit before the prepare-phase of this reward cycle, provided that it is not already an
-/// anchor block for some other reward cycle.  Note that the anchor block found will be the anchor
-/// block for the *next* reward cycle.
-/// Returns a pointer to the block-commit transaction in the burnchain, if the prepare phase
-/// selected an anchor block.
+/// Find the pointer to the PoX anchor block selected in a reward cycle, if it
+/// exists.  This is the heaviest F*w-confirmed block-commit before the
+/// prepare-phase of this reward cycle, provided that it is not already an
+/// anchor block for some other reward cycle.  Note that the anchor block found
+/// will be the anchor block for the *next* reward cycle.
+/// Returns a pointer to the block-commit transaction in the burnchain, if the
+/// prepare phase selected an anchor block.
 /// Returns None if not.
 pub fn find_pox_anchor_block_ptr<B: BurnchainHeaderReader>(
     burnchain_tx: &BurnchainDBTransaction,
@@ -1097,16 +1182,16 @@ pub fn find_pox_anchor_block_ptr<B: BurnchainHeaderReader>(
     .map(|(ptr, _)| ptr))
 }
 
-/// Find the PoX anchor block selected in a reward cycle, if it exists.  This is the heaviest F*w-confirmed
-/// block-commit before the prepare-phase of this reward cycle, provided that it is not already an
-/// anchor block for some other reward cycle.  Note that the anchor block found will be the anchor
-/// block for the *next* reward cycle.
-/// Returns:
-///     (a) the list of block-commits, grouped by block and ordered by vtxindex, in this prepare phase
-///     (b) the PoX anchor block-commit, if it exists, and
-///     (c) the descendancy data for the prepare phase.  Descendency[i][j] is true if the jth
-///     block-commit in the ith block in the prepare phase descends from the anchor block, or False
-///     if not.
+/// Find the PoX anchor block selected in a reward cycle, if it exists.  This is
+/// the heaviest F*w-confirmed block-commit before the prepare-phase of this
+/// reward cycle, provided that it is not already an anchor block for some other
+/// reward cycle.  Note that the anchor block found will be the anchor block for
+/// the *next* reward cycle. Returns:
+///     (a) the list of block-commits, grouped by block and ordered by vtxindex,
+/// in this prepare phase     (b) the PoX anchor block-commit, if it exists, and
+///     (c) the descendancy data for the prepare phase.  Descendency[i][j] is
+/// true if the jth     block-commit in the ith block in the prepare phase
+/// descends from the anchor block, or False     if not.
 /// Returns only database-related errors.
 pub fn find_pox_anchor_block<B: BurnchainHeaderReader>(
     burnchain_tx: &BurnchainDBTransaction,
@@ -1194,8 +1279,8 @@ pub fn update_pox_affirmation_maps<B: BurnchainHeaderReader>(
         tx.set_anchor_block(&anchor_block, reward_cycle + 1)?;
         assert_eq!(descendancy.len(), prepare_ops.len());
 
-        // mark the prepare-phase commits that elected this next reward cycle's anchor block as
-        // having descended or not descended from this anchor block.
+        // mark the prepare-phase commits that elected this next reward cycle's anchor
+        // block as having descended or not descended from this anchor block.
         for (block_idx, block_ops) in prepare_ops.iter().enumerate() {
             assert_eq!(block_ops.len(), descendancy[block_idx].len());
 
@@ -1221,8 +1306,9 @@ pub fn update_pox_affirmation_maps<B: BurnchainHeaderReader>(
         // anchor block not found for this upcoming reward cycle
         tx.clear_anchor_block(reward_cycle + 1)?;
 
-        // mark all prepare-phase commits as NOT having descended from the next reward cycle's anchor
-        // block as NOT having descended from any anchor block (since one was not chosen)
+        // mark all prepare-phase commits as NOT having descended from the next reward
+        // cycle's anchor block as NOT having descended from any anchor block
+        // (since one was not chosen)
         for block_ops in prepare_ops.iter() {
             for tx_op in block_ops.iter() {
                 test_debug!(

@@ -96,29 +96,31 @@ impl From<&mut NakamotoTenureDownloader> for CompletedTenure {
 
 pub const PEER_DEPRIORITIZATION_TIME_SECS: u64 = 60;
 
-/// A set of confirmed downloader state machines assigned to one or more neighbors.  The block
-/// downloader runs tenure-downloaders in parallel, since the downloader for the N+1'st tenure
-/// needs to feed data into the Nth tenure.  This struct is responsible for scheduling peer
-/// connections to downloader state machines, such that each peer is assigned to at most one
-/// downloader.  A peer is assigned a downloader for the duration of at most one RPC request, at
-/// which point, it will be re-assigned a (possibly different) downloader.  As such, each machine
-/// can make progress even if there is only one available peer (in which case, that peer will get
-/// scheduled across multiple machines to drive their progress in the right sequence such that
-/// tenures will be incrementally fetched and yielded by the p2p state machine to the relayer).
+/// A set of confirmed downloader state machines assigned to one or more
+/// neighbors.  The block downloader runs tenure-downloaders in parallel, since
+/// the downloader for the N+1'st tenure needs to feed data into the Nth tenure.
+/// This struct is responsible for scheduling peer connections to downloader
+/// state machines, such that each peer is assigned to at most one downloader.
+/// A peer is assigned a downloader for the duration of at most one RPC request,
+/// at which point, it will be re-assigned a (possibly different) downloader.
+/// As such, each machine can make progress even if there is only one available
+/// peer (in which case, that peer will get scheduled across multiple machines
+/// to drive their progress in the right sequence such that tenures will be
+/// incrementally fetched and yielded by the p2p state machine to the relayer).
 pub struct NakamotoTenureDownloaderSet {
     /// A list of instantiated downloaders that are in progress
     pub(crate) downloaders: Vec<Option<NakamotoTenureDownloader>>,
     /// An assignment of peers to downloader machines in the `downloaders` list.
     pub(crate) peers: HashMap<NeighborAddress, usize>,
-    /// The set of tenures that have been successfully downloaded (but possibly not yet stored or
-    /// processed)
+    /// The set of tenures that have been successfully downloaded (but possibly
+    /// not yet stored or processed)
     pub(crate) completed_tenures: HashSet<CompletedTenure>,
     /// Number of times a tenure download was attempted
     pub(crate) attempted_tenures: HashMap<ConsensusHash, u64>,
     /// Number of times a tenure download failed
     pub(crate) attempt_failed_tenures: HashMap<ConsensusHash, u64>,
-    /// Peers that should be deprioritized because they're dead (maps to when they can be used
-    /// again)
+    /// Peers that should be deprioritized because they're dead (maps to when
+    /// they can be used again)
     pub(crate) deprioritized_peers: HashMap<NeighborAddress, u64>,
 }
 
@@ -167,8 +169,8 @@ impl NakamotoTenureDownloaderSet {
         Self::mark_deprioritized(deprioritized_peers, peer);
     }
 
-    /// Assign the given peer to the given downloader state machine.  Allocate a slot for it if
-    /// needed.
+    /// Assign the given peer to the given downloader state machine.  Allocate a
+    /// slot for it if needed.
     fn add_downloader(&mut self, naddr: NeighborAddress, downloader: NakamotoTenureDownloader) {
         debug!(
             "Add downloader for tenure {} driven by {naddr}",
@@ -233,8 +235,8 @@ impl NakamotoTenureDownloaderSet {
         }
     }
 
-    /// Count up the number of in-flight messages, based on the states of each instantiated
-    /// downloader.
+    /// Count up the number of in-flight messages, based on the states of each
+    /// instantiated downloader.
     pub fn inflight(&self) -> usize {
         let mut cnt = 0;
         for downloader_opt in self.downloaders.iter() {
@@ -252,7 +254,8 @@ impl NakamotoTenureDownloaderSet {
         cnt
     }
 
-    /// Determine if this downloader set is empty -- i.e. there's no in-progress downloaders.
+    /// Determine if this downloader set is empty -- i.e. there's no in-progress
+    /// downloaders.
     pub fn is_empty(&self) -> bool {
         for downloader_opt in self.downloaders.iter() {
             let Some(downloader) = downloader_opt else {
@@ -267,9 +270,10 @@ impl NakamotoTenureDownloaderSet {
         true
     }
 
-    /// Try to resume processing a download state machine with a given peer.  Since a peer is
-    /// detached from the machine after a single RPC call, this call is needed to re-attach it to a
-    /// (potentially different, unblocked) machine for the next RPC call to this peer.
+    /// Try to resume processing a download state machine with a given peer.
+    /// Since a peer is detached from the machine after a single RPC call,
+    /// this call is needed to re-attach it to a (potentially different,
+    /// unblocked) machine for the next RPC call to this peer.
     ///
     /// Returns true if the peer gets scheduled.
     /// Returns false if not.
@@ -304,8 +308,8 @@ impl NakamotoTenureDownloaderSet {
         return false;
     }
 
-    /// Deschedule peers that are bound to downloader slots that are either vacant or correspond to
-    /// blocked downloaders.
+    /// Deschedule peers that are bound to downloader slots that are either
+    /// vacant or correspond to blocked downloaders.
     pub fn clear_available_peers(&mut self) {
         let mut idled: Vec<NeighborAddress> = vec![];
         for (naddr, i) in self.peers.iter() {
@@ -332,8 +336,9 @@ impl NakamotoTenureDownloaderSet {
         }
     }
 
-    /// Clear out downloaders (but not their peers) that have finished.  The caller should follow
-    /// this up with a call to `clear_available_peers()`.
+    /// Clear out downloaders (but not their peers) that have finished.  The
+    /// caller should follow this up with a call to
+    /// `clear_available_peers()`.
     pub fn clear_finished_downloaders(&mut self) {
         for downloader_opt in self.downloaders.iter_mut() {
             // clear the downloader if it's done by setting it to None
@@ -347,8 +352,9 @@ impl NakamotoTenureDownloaderSet {
         }
     }
 
-    /// Find the downloaders that have obtained their tenure-start blocks, and extract them.  These
-    /// will be fed into other downloaders which are blocked on needing their tenure-end blocks.
+    /// Find the downloaders that have obtained their tenure-start blocks, and
+    /// extract them.  These will be fed into other downloaders which are
+    /// blocked on needing their tenure-end blocks.
     pub(crate) fn find_new_tenure_start_blocks(&self) -> HashMap<StacksBlockId, NakamotoBlock> {
         let mut ret = HashMap::new();
         for downloader_opt in self.downloaders.iter() {
@@ -363,7 +369,8 @@ impl NakamotoTenureDownloaderSet {
         ret
     }
 
-    /// Does there exist a downloader (possibly unscheduled) for the given tenure?
+    /// Does there exist a downloader (possibly unscheduled) for the given
+    /// tenure?
     pub(crate) fn has_downloader_for_tenure(&self, tenure_id: &ConsensusHash) -> bool {
         for downloader_opt in self.downloaders.iter() {
             let Some(downloader) = downloader_opt else {
@@ -381,8 +388,8 @@ impl NakamotoTenureDownloaderSet {
     }
 
     /// Create a given number of downloads from a schedule and availability set.
-    /// Removes items from the schedule, and neighbors from the availability set.
-    /// A neighbor will be issued at most one request.
+    /// Removes items from the schedule, and neighbors from the availability
+    /// set. A neighbor will be issued at most one request.
     pub(crate) fn make_tenure_downloaders(
         &mut self,
         schedule: &mut VecDeque<ConsensusHash>,
@@ -530,14 +537,17 @@ impl NakamotoTenureDownloaderSet {
 
     /// Run all confirmed downloaders.
     /// * Identify neighbors for which we do not have an inflight request
-    /// * Get each such neighbor's downloader, and generate its next HTTP reqeust. Send that
+    /// * Get each such neighbor's downloader, and generate its next HTTP
+    ///   reqeust. Send that
     /// request to the neighbor and begin driving the underlying socket I/O.
-    /// * Get each HTTP reply, and pass it into the corresponding downloader's handler to advance
+    /// * Get each HTTP reply, and pass it into the corresponding downloader's
+    ///   handler to advance
     /// its state.
-    /// * Identify and remove misbehaving neighbors and neighbors whose connections have broken.
+    /// * Identify and remove misbehaving neighbors and neighbors whose
+    ///   connections have broken.
     ///
-    /// Returns the set of downloaded blocks obtained for completed downloaders.  These will be
-    /// full confirmed tenures.
+    /// Returns the set of downloaded blocks obtained for completed downloaders.
+    /// These will be full confirmed tenures.
     pub fn run(
         &mut self,
         network: &mut PeerNetwork,

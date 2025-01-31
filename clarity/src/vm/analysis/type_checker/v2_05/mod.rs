@@ -425,7 +425,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         Ok(())
     }
 
-    // Type check an expression, with an expected_type that should _admit_ the expression.
+    // Type check an expression, with an expected_type that should _admit_ the
+    // expression.
     pub fn type_check_expects(
         &mut self,
         expr: &SymbolicExpression,
@@ -634,7 +635,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
     ) -> CheckResult<(ClarityName, (TypeSignature, TypeSignature))> {
         self.type_map.set_type(key_type, no_type())?;
         self.type_map.set_type(value_type, no_type())?;
-        // should we set the type of the subexpressions of the signature to no-type as well?
+        // should we set the type of the subexpressions of the signature to no-type as
+        // well?
 
         let key_type = TypeSignature::parse_type_repr(StacksEpochId::Epoch2_05, key_type, &mut ())
             .map_err(|_| CheckErrors::BadMapTypeDefinition)?;
@@ -645,7 +647,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         Ok((map_name.clone(), (key_type, value_type)))
     }
 
-    // Aaron: note, using lazy statics here would speed things up a bit and reduce clone()s
+    // Aaron: note, using lazy statics here would speed things up a bit and reduce
+    // clone()s
     fn try_native_function_check(
         &mut self,
         function: &str,
@@ -811,7 +814,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         Ok((trait_name.clone(), trait_signature))
     }
 
-    // Checks if an expression is a _define_ expression, and if so, typechecks it. Otherwise, it returns Ok(None)
+    // Checks if an expression is a _define_ expression, and if so, typechecks it.
+    // Otherwise, it returns Ok(None)
     fn try_type_check_define(
         &mut self,
         expression: &SymbolicExpression,

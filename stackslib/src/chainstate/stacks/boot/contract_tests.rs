@@ -89,9 +89,9 @@ pub struct ClarityTestSim {
     fork: u64,
     /// This vec specifies the transitions for each epoch.
     /// It is a list of heights at which the simulated chain transitions
-    /// first to Epoch 2.0, then to Epoch 2.05, then to Epoch 2.1, etc. If the Epoch 2.0 transition
-    /// is set to 0, Epoch 1.0 will be skipped. Otherwise, the simulated chain will
-    /// begin in Epoch 1.0.
+    /// first to Epoch 2.0, then to Epoch 2.05, then to Epoch 2.1, etc. If the
+    /// Epoch 2.0 transition is set to 0, Epoch 1.0 will be skipped.
+    /// Otherwise, the simulated chain will begin in Epoch 1.0.
     pub epoch_bounds: Vec<u64>,
 }
 
@@ -102,9 +102,9 @@ pub struct TestSimHeadersDB {
 pub struct TestSimBurnStateDB {
     /// This vec specifies the transitions for each epoch.
     /// It is a list of heights at which the simulated chain transitions
-    /// first to Epoch 2.0, then to Epoch 2.05, then to Epoch 2.1, etc. If the Epoch 2.0 transition
-    /// is set to 0, Epoch 1.0 will be skipped. Otherwise, the simulated chain will
-    /// begin in Epoch 1.0.
+    /// first to Epoch 2.0, then to Epoch 2.05, then to Epoch 2.1, etc. If the
+    /// Epoch 2.0 transition is set to 0, Epoch 1.0 will be skipped.
+    /// Otherwise, the simulated chain will begin in Epoch 1.0.
     epoch_bounds: Vec<u64>,
     pox_constants: PoxConstants,
     height: u32,
@@ -370,8 +370,8 @@ impl BurnStateDB for TestSimBurnStateDB {
         height: u32,
         sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash> {
-        // generate burnchain header hash for height if the sortition ID is a valid test-sim
-        // sortition ID
+        // generate burnchain header hash for height if the sortition ID is a valid
+        // test-sim sortition ID
         if height >= self.height {
             None
         } else {
@@ -392,8 +392,8 @@ impl BurnStateDB for TestSimBurnStateDB {
         &self,
         consensus_hash: &ConsensusHash,
     ) -> Option<SortitionId> {
-        // consensus hashes are constructed as the leading 20 bytes of the stacks block ID from
-        // whence it came.
+        // consensus hashes are constructed as the leading 20 bytes of the stacks block
+        // ID from whence it came.
         let mut bytes = [0u8; 32];
         bytes[0..20].copy_from_slice(&consensus_hash.0);
         Some(SortitionId(bytes))
@@ -554,8 +554,8 @@ impl HeadersDB for TestSimHeadersDB {
         bhh: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<ConsensusHash> {
-        // capture the first 20 bytes of the block ID, which in this case captures the height and
-        // fork ID.
+        // capture the first 20 bytes of the block ID, which in this case captures the
+        // height and fork ID.
         let mut bytes_20 = [0u8; 20];
         bytes_20.copy_from_slice(&bhh.0[0..20]);
         Some(ConsensusHash(bytes_20))
@@ -2274,9 +2274,9 @@ fn delegation_tests() {
         );
 
         // okay, let's try some more delegation situations...
-        // 1. we already locked user[0] up for round 2, so let's add some more stacks for round 2 from
-        //    user[3]. in the process, this will add more stacks for lockup in round 1, so lets commit
-        //    that as well.
+        // 1. we already locked user[0] up for round 2, so let's add some more stacks
+        //    for round 2 from user[3]. in the process, this will add more stacks for
+        //    lockup in round 1, so lets commit that as well.
 
         assert_eq!(
             env.execute_transaction(

@@ -96,14 +96,16 @@ impl PoxSyncWatchdogComms {
     }
 }
 
-/// Monitor the state of the Stacks blockchain as the peer network and relay threads download and
-/// proces Stacks blocks.  Don't allow the node to process the next PoX reward cycle's sortitions
-/// unless it's reasonably sure that it has processed all Stacks blocks for this reward cycle.
-/// This struct monitors the Stacks chainstate to make this determination.
+/// Monitor the state of the Stacks blockchain as the peer network and relay
+/// threads download and proces Stacks blocks.  Don't allow the node to process
+/// the next PoX reward cycle's sortitions unless it's reasonably sure that it
+/// has processed all Stacks blocks for this reward cycle. This struct monitors
+/// the Stacks chainstate to make this determination.
 pub struct PoxSyncWatchdog {
     /// time between burnchain syncs in steady state
     steady_state_burnchain_sync_interval: u64,
-    /// handle to relayer thread that informs the watchdog when the P2P state-machine does stuff
+    /// handle to relayer thread that informs the watchdog when the P2P
+    /// state-machine does stuff
     relayer_comms: PoxSyncWatchdogComms,
     /// should this sync watchdog always download? used in integration tests.
     unconditionally_download: bool,
@@ -128,8 +130,9 @@ impl PoxSyncWatchdog {
         self.relayer_comms.clone()
     }
 
-    /// Are we in the initial burnchain block download? i.e. is the burn tip snapshot far enough away
-    /// from the burnchain height that we should be eagerly downloading snapshots?
+    /// Are we in the initial burnchain block download? i.e. is the burn tip
+    /// snapshot far enough away from the burnchain height that we should be
+    /// eagerly downloading snapshots?
     fn infer_initial_burnchain_block_download(
         burnchain: &Burnchain,
         last_processed_height: u64,
@@ -152,8 +155,8 @@ impl PoxSyncWatchdog {
     }
 
     /// Wait until the next PoX anchor block arrives.
-    /// We know for a fact that they all exist for Epochs 2.5 and earlier, in both mainnet and
-    /// testnet.
+    /// We know for a fact that they all exist for Epochs 2.5 and earlier, in
+    /// both mainnet and testnet.
     /// Return (still-in-ibd?, maximum-burnchain-sync-height) on success.
     pub fn pox_sync_wait(
         &mut self,

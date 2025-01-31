@@ -48,12 +48,14 @@ use crate::net::{
     StacksHttp, StacksP2P,
 };
 
-/// The default maximum age in seconds of a block that can be validated by the block proposal endpoint
+/// The default maximum age in seconds of a block that can be validated by the
+/// block proposal endpoint
 pub const DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS: u64 = 600;
 
 /// Receiver notification handle.
-/// When a message with the expected `seq` value arrives, send it to an expected receiver (possibly
-/// in another thread) via the given `receiver_input` channel.
+/// When a message with the expected `seq` value arrives, send it to an expected
+/// receiver (possibly in another thread) via the given `receiver_input`
+/// channel.
 #[derive(Debug)]
 struct ReceiverNotify<P: ProtocolFamily> {
     expected_seq: u32,
@@ -70,8 +72,8 @@ impl<P: ProtocolFamily> ReceiverNotify<P> {
         }
     }
 
-    /// Send this message to the waiting receiver, consuming this notification handle.
-    /// May fail silently.
+    /// Send this message to the waiting receiver, consuming this notification
+    /// handle. May fail silently.
     pub fn send(self, msg: P::Message) {
         let msg_name = msg.get_message_name().to_string();
         let msg_id = msg.request_id();
@@ -87,12 +89,13 @@ impl<P: ProtocolFamily> ReceiverNotify<P> {
     }
 }
 
-/// Opaque structure for waiting or a reply.  Contains the other end of a ReceiverNotify that lives
-/// in a connection's outbox.
+/// Opaque structure for waiting or a reply.  Contains the other end of a
+/// ReceiverNotify that lives in a connection's outbox.
 #[derive(Debug)]
 pub struct NetworkReplyHandle<P: ProtocolFamily> {
     receiver_output: Option<Receiver<P::Message>>,
-    request_pipe_write: Option<PipeWrite>, // caller feeds in the message via this pipe endpoint.  Set to None on flush
+    request_pipe_write: Option<PipeWrite>, /* caller feeds in the message via this pipe
+                                            * endpoint.  Set to None on flush */
     deadline: u64,
     socket_event_id: usize,
 }
@@ -137,8 +140,9 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
 
     /// Try to flush and receive.
     /// Only call this once all sender data is buffered up.
-    /// Consumed the handle if it succeeds in both emptying the message buffer and getting a message.
-    /// Returns itself if it still has data to flush, or if it's still waiting for a reply.
+    /// Consumed the handle if it succeeds in both emptying the message buffer
+    /// and getting a message. Returns itself if it still has data to flush,
+    /// or if it's still waiting for a reply.
     pub fn try_send_recv(mut self) -> Result<P::Message, Result<NetworkReplyHandle<P>, net_error>> {
         if self.request_pipe_write.is_some() {
             match self.try_flush() {
@@ -165,8 +169,8 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
     /// Poll on this handle.
     /// Consumes this handle if it succeeds in getting a message.
     /// Returns itself if there is no pending message.
-    /// If a deadline is set to something non-zero, then fail if the deadline passed (this handle
-    /// is destroyed in the process).
+    /// If a deadline is set to something non-zero, then fail if the deadline
+    /// passed (this handle is destroyed in the process).
     pub fn try_recv(mut self) -> Result<P::Message, Result<NetworkReplyHandle<P>, net_error>> {
         if self.deadline > 0 && self.deadline < get_epoch_time_secs() {
             debug!(
@@ -193,9 +197,9 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
         }
     }
 
-    /// Receive the outstanding message from our peer within the allotted time (pass -1 for "wait forever").
-    /// Destroys the NetworkReplyHandle in the process.  You can only call this once!
-    /// Timeout is in seconds.
+    /// Receive the outstanding message from our peer within the allotted time
+    /// (pass -1 for "wait forever"). Destroys the NetworkReplyHandle in the
+    /// process.  You can only call this once! Timeout is in seconds.
     pub fn recv(mut self, timeout: i64) -> Result<P::Message, net_error> {
         match self.receiver_output {
             Some(ref mut output) => {
@@ -225,8 +229,9 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
         }
     }
 
-    /// Try to flush the inner pipe writer.  If we succeed, drop the inner pipe if
-    /// `drop_on_success` is true.  Returns `true` if we drained the write end, `false` if not.
+    /// Try to flush the inner pipe writer.  If we succeed, drop the inner pipe
+    /// if `drop_on_success` is true.  Returns `true` if we drained the
+    /// write end, `false` if not.
     pub fn try_flush_ex(&mut self, drop_on_success: bool) -> Result<bool, net_error> {
         let ret;
         let fd_opt = match self.request_pipe_write.take() {
@@ -258,8 +263,9 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
     }
 
     /// Try to flush the inner pipe writer.  If we succeed, drop the inner pipe.
-    /// Only call this once you're done sending -- this is just to move the data along.
-    /// Return true if we're done sending; false if we need to call this again.
+    /// Only call this once you're done sending -- this is just to move the data
+    /// along. Return true if we're done sending; false if we need to call
+    /// this again.
     pub fn try_flush(&mut self) -> Result<bool, net_error> {
         self.try_flush_ex(true)
     }
@@ -288,7 +294,8 @@ impl<P: ProtocolFamily> Write for NetworkReplyHandle<P> {
 }
 
 /// In-flight message to a remote peer.
-/// When a reply is received, it may be forwarded along to an optional ReceiverNotify.
+/// When a reply is received, it may be forwarded along to an optional
+/// ReceiverNotify.
 #[derive(Debug)]
 struct InflightMessage<P: ProtocolFamily> {
     pipe_read: Option<PipeRead>,
@@ -347,33 +354,40 @@ pub struct ConnectionOptions {
     pub max_http_clients: u64,
     pub neighbor_request_timeout: u64,
     pub max_neighbor_age: u64,
-    /// How many walk steps to take when the node has booted up.  This influences how quickly the
-    /// node will find new peers on start-up.  This describes the maximum length of such walks.
+    /// How many walk steps to take when the node has booted up.  This
+    /// influences how quickly the node will find new peers on start-up.
+    /// This describes the maximum length of such walks.
     pub num_initial_walks: u64,
-    /// How many walk state-machine restarts to take when the node has boote dup.  This influences
-    /// how quickly the node will find new peers on start-up.  This describes the maximum number of
+    /// How many walk state-machine restarts to take when the node has boote
+    /// dup.  This influences how quickly the node will find new peers on
+    /// start-up.  This describes the maximum number of
     /// such walk state-machine run-throughs.
     pub walk_retry_count: u64,
     /// How often, in seconds, to run the walk state machine.
     pub walk_interval: u64,
-    /// The regularity of doing an inbound neighbor walk (as opposed to an outbound neighbor walk).
-    /// Every `walk_inbound_ratio + 1`-th walk will be an inbound neighbor walk.
+    /// The regularity of doing an inbound neighbor walk (as opposed to an
+    /// outbound neighbor walk). Every `walk_inbound_ratio + 1`-th walk will
+    /// be an inbound neighbor walk.
     pub walk_inbound_ratio: u64,
     /// Minimum number of steps a walk will run until it can be reset.
     pub walk_min_duration: u64,
     /// Maximum number of steps a walk will run until forcibly reset.
     pub walk_max_duration: u64,
-    /// Probabiility that the walk will be reset once `walk_min_duration` steps are taken.
+    /// Probabiility that the walk will be reset once `walk_min_duration` steps
+    /// are taken.
     pub walk_reset_prob: f64,
     /// Maximum number of seconds a walk can last before being reset.
     pub walk_reset_interval: u64,
-    /// Maximum number of seconds a walk can remain in the same state before being reset.
+    /// Maximum number of seconds a walk can remain in the same state before
+    /// being reset.
     pub walk_state_timeout: u64,
-    /// If the node is booting up, or if the node is not connected to an always-allowed peer and
-    /// there are one or more such peers in the peers DB, then this controls the probability that
-    /// the node will attempt to start a walk to an always-allowed peer.  It's good to have this
-    /// close to, but not equal to 1.0, so that if the node can't reach any always-allowed peer for
-    /// some reason but can reach other neighbors, then neighbor walks can continue.
+    /// If the node is booting up, or if the node is not connected to an
+    /// always-allowed peer and there are one or more such peers in the
+    /// peers DB, then this controls the probability that the node will
+    /// attempt to start a walk to an always-allowed peer.  It's good to have
+    /// this close to, but not equal to 1.0, so that if the node can't reach
+    /// any always-allowed peer for some reason but can reach other
+    /// neighbors, then neighbor walks can continue.
     pub walk_seed_probability: f64,
     /// How often, if ever, to log our neighbors via DEBG.
     /// Units are milliseconds.  A value of 0 means "never".
@@ -402,17 +416,23 @@ pub struct ConnectionOptions {
     pub max_microblock_push: u64,
     pub antientropy_retry: u64,
     pub antientropy_public: bool,
-    /// maximum number of Stacks 2.x BlocksAvailable messages that can be buffered before processing
+    /// maximum number of Stacks 2.x BlocksAvailable messages that can be
+    /// buffered before processing
     pub max_buffered_blocks_available: u64,
-    /// maximum number of Stacks 2.x MicroblocksAvailable that can be buffered before processing
+    /// maximum number of Stacks 2.x MicroblocksAvailable that can be buffered
+    /// before processing
     pub max_buffered_microblocks_available: u64,
-    /// maximum number of Stacks 2.x pushed Block messages we can buffer before processing
+    /// maximum number of Stacks 2.x pushed Block messages we can buffer before
+    /// processing
     pub max_buffered_blocks: u64,
-    /// maximum number of Stacks 2.x pushed Microblock messages we can buffer before processing
+    /// maximum number of Stacks 2.x pushed Microblock messages we can buffer
+    /// before processing
     pub max_buffered_microblocks: u64,
-    /// maximum number of pushed Nakamoto Block messages we can buffer before processing
+    /// maximum number of pushed Nakamoto Block messages we can buffer before
+    /// processing
     pub max_buffered_nakamoto_blocks: u64,
-    /// maximum number of pushed StackerDB chunk messages we can buffer before processing
+    /// maximum number of pushed StackerDB chunk messages we can buffer before
+    /// processing
     pub max_buffered_stackerdb_chunks: u64,
     /// how often to query a remote peer for its mempool, in seconds
     pub mempool_sync_interval: u64,
@@ -424,10 +444,11 @@ pub struct ConnectionOptions {
     pub socket_recv_buffer_size: u32,
     /// socket write buffer size
     pub socket_send_buffer_size: u32,
-    /// whether or not to announce or accept neighbors that are behind private networks
+    /// whether or not to announce or accept neighbors that are behind private
+    /// networks
     pub private_neighbors: bool,
-    /// maximum number of confirmations for a nakamoto block's sortition for which it will be
-    /// pushed
+    /// maximum number of confirmations for a nakamoto block's sortition for
+    /// which it will be pushed
     pub max_nakamoto_block_relay_age: u64,
     /// minimum amount of time between requests to push nakamoto blocks (millis)
     pub nakamoto_push_interval_ms: u128,
@@ -437,7 +458,8 @@ pub struct ConnectionOptions {
     pub nakamoto_unconfirmed_downloader_interval_ms: u128,
     /// The authorization token to enable privileged RPC endpoints
     pub auth_token: Option<String>,
-    /// The maximum age in seconds of a block that can be validated by the block proposal endpoint
+    /// The maximum age in seconds of a block that can be validated by the block
+    /// proposal endpoint
     pub block_proposal_max_age_secs: u64,
     /// StackerDB replicas to talk to for a particular smart contract
     pub stackerdb_hint_replicas: HashMap<QualifiedContractIdentifier, Vec<NeighborAddress>>,
@@ -463,8 +485,8 @@ pub struct ConnectionOptions {
     pub disable_block_push: bool,
     /// Disable microblock pushing
     pub disable_microblock_push: bool,
-    /// Disable walk pingbacks -- don't attempt to walk to a remote peer even if it contacted us
-    /// first
+    /// Disable walk pingbacks -- don't attempt to walk to a remote peer even if
+    /// it contacted us first
     pub disable_pingbacks: bool,
     /// Disable walking to inbound neighbors
     pub disable_inbound_walks: bool,
@@ -478,16 +500,16 @@ pub struct ConnectionOptions {
     pub disable_stackerdb_sync: bool,
     /// Unconditionally disconnect a peer after this amount of time
     pub force_disconnect_interval: Option<u64>,
-    /// If set to true, this forces the p2p state machine to believe that it is running in
-    /// the reward cycle in which Nakamoto activates, and thus needs to run both the epoch
-    /// 2.x and Nakamoto state machines.
+    /// If set to true, this forces the p2p state machine to believe that it is
+    /// running in the reward cycle in which Nakamoto activates, and thus
+    /// needs to run both the epoch 2.x and Nakamoto state machines.
     pub force_nakamoto_epoch_transition: bool,
     /// Reject blocks that were pushed
     pub reject_blocks_pushed: bool,
 
     // test facilitation
-    /// Do not require that an unsolicited message originate from an authenticated, connected
-    /// neighbor
+    /// Do not require that an unsolicited message originate from an
+    /// authenticated, connected neighbor
     pub test_disable_unsolicited_message_authentication: bool,
 }
 
@@ -499,26 +521,37 @@ impl std::default::Default for ConnectionOptions {
             connect_timeout: 10, // how long a socket can be in a connecting state
             handshake_timeout: 30, // how long before a peer must send a handshake, after connecting
             timeout: 30,         // how long to wait for a reply to a request
-            idle_timeout: 15, // how long a non-request HTTP connection can be idle before it's closed
-            heartbeat: 3600,  // send a heartbeat once an hour by default
+            idle_timeout: 15,    /* how long a non-request HTTP connection can be idle before
+                                  * it's closed */
+            heartbeat: 3600,            // send a heartbeat once an hour by default
             private_key_lifetime: 4302, // key expires after ~1 month
-            num_neighbors: 32, // how many outbound connections we can have, full-stop
-            num_clients: 256, // how many inbound connections we can have, full-stop
-            soft_num_neighbors: 20, // how many outbound connections we can have, before we start pruning them
-            soft_num_clients: 128, // how many inbound connections we can have, before we start pruning them
-            max_neighbors_per_host: 10, // how many outbound connections we can have per IP address, full-stop
-            max_clients_per_host: 10, // how many inbound connections we can have per IP address, full-stop
-            soft_max_neighbors_per_host: 10, // how many outbound connections we can have per IP address, before we start pruning them
-            soft_max_neighbors_per_org: 10, // how many outbound connections we can have per AS-owning organization, before we start pruning them
-            soft_max_clients_per_host: 10, // how many inbound connections we can have per IP address, before we start pruning them,
+            num_neighbors: 32,          // how many outbound connections we can have, full-stop
+            num_clients: 256,           // how many inbound connections we can have, full-stop
+            soft_num_neighbors: 20,     /* how many outbound connections we can have, before we
+                                         * start pruning them */
+            soft_num_clients: 128, /* how many inbound connections we can have, before we start
+                                    * pruning them */
+            max_neighbors_per_host: 10, /* how many outbound connections we can have per IP
+                                         * address, full-stop */
+            max_clients_per_host: 10, /* how many inbound connections we can have per IP address,
+                                       * full-stop */
+            soft_max_neighbors_per_host: 10, /* how many outbound connections we can have per IP
+                                              * address, before we start pruning them */
+            soft_max_neighbors_per_org: 10, /* how many outbound connections we can have per
+                                             * AS-owning organization, before we start pruning
+                                             * them */
+            soft_max_clients_per_host: 10, /* how many inbound connections we can have per IP
+                                            * address, before we start pruning them, */
             max_neighbors_of_neighbor: 10,
             max_http_clients: 10,
-            neighbor_request_timeout: NEIGHBOR_REQUEST_TIMEOUT, // how long to wait for a neighbor request
+            neighbor_request_timeout: NEIGHBOR_REQUEST_TIMEOUT, /* how long to wait for a
+                                                                 * neighbor request */
             max_neighbor_age: MAX_NEIGHBOR_AGE,
             num_initial_walks: NUM_INITIAL_WALKS,
             walk_retry_count: WALK_RETRY_COUNT,
             walk_interval: NEIGHBOR_WALK_INTERVAL, // how often to do a neighbor walk.
-            walk_inbound_ratio: 2, // walk inbound neighbors twice as often as outbound by default
+            walk_inbound_ratio: 2,                 /* walk inbound neighbors twice as often as
+                                                    * outbound by default */
             walk_min_duration: WALK_MIN_DURATION,
             walk_max_duration: WALK_MAX_DURATION,
             walk_reset_prob: WALK_RESET_PROB,
@@ -527,13 +560,15 @@ impl std::default::Default for ConnectionOptions {
             walk_seed_probability: WALK_SEED_PROBABILITY,
             log_neighbors_freq: 60_000,
             inv_sync_interval: INV_SYNC_INTERVAL, // how often to synchronize block inventories
-            inv_reward_cycles: INV_REWARD_CYCLES, // how many reward cycles of blocks to sync in a non-full inventory sync
+            inv_reward_cycles: INV_REWARD_CYCLES, /* how many reward cycles of blocks to sync in
+                                                   * a non-full inventory sync */
             download_interval: BLOCK_DOWNLOAD_INTERVAL, // how often to scan for blocks to download
             pingback_timeout: 60,
-            dns_timeout: 15_000,            // DNS timeout, in millis
-            max_inflight_blocks: 6,         // number of parallel block downloads
-            max_inflight_attachments: 6,    // number of parallel attachments downloads
-            max_attachment_retry_count: 32, // how many attempt to get an attachment before giving up
+            dns_timeout: 15_000,         // DNS timeout, in millis
+            max_inflight_blocks: 6,      // number of parallel block downloads
+            max_inflight_attachments: 6, // number of parallel attachments downloads
+            max_attachment_retry_count: 32, /* how many attempt to get an attachment before
+                                          * giving up */
             read_only_call_limit: ExecutionCost {
                 write_length: 0,
                 write_count: 0,
@@ -549,12 +584,16 @@ impl std::default::Default for ConnectionOptions {
             max_nakamoto_block_push_bandwidth: 0, // infinite upload bandwidth allowed
             max_sockets: 800,            // maximum number of client sockets we'll ever register
             public_ip_address: None,     // resolve it at runtime by default
-            public_ip_request_timeout: 60, // how often we can attempt to look up our public IP address
-            public_ip_timeout: 3600,       // re-learn the public IP ever hour, if it's not given
-            public_ip_max_retries: 3, // maximum number of retries before self-throttling for $public_ip_timeout
-            max_block_push: 10, // maximum number of blocksData messages to push out via our anti-entropy protocol
-            max_microblock_push: 10, // maximum number of microblocks messages to push out via our anti-entropy protocol
-            antientropy_retry: 3600, // retry pushing data once every hour
+            public_ip_request_timeout: 60, /* how often we can attempt to look up our public IP
+                                          * address */
+            public_ip_timeout: 3600, // re-learn the public IP ever hour, if it's not given
+            public_ip_max_retries: 3, /* maximum number of retries before self-throttling for
+                                      * $public_ip_timeout */
+            max_block_push: 10, /* maximum number of blocksData messages to push out via our
+                                 * anti-entropy protocol */
+            max_microblock_push: 10, /* maximum number of microblocks messages to push out via
+                                      * our anti-entropy protocol */
+            antientropy_retry: 3600,  // retry pushing data once every hour
             antientropy_public: true, // run antientropy even if we're NOT NAT'ed
             max_buffered_blocks_available: 5,
             max_buffered_microblocks_available: 5,
@@ -570,8 +609,10 @@ impl std::default::Default for ConnectionOptions {
             private_neighbors: true,
             max_nakamoto_block_relay_age: 6,
             nakamoto_push_interval_ms: 30_000, // re-send a block no more than once every 30 seconds
-            nakamoto_inv_sync_burst_interval_ms: 1_000, // wait 1 second after a sortition before running inventory sync
-            nakamoto_unconfirmed_downloader_interval_ms: 5_000, // run unconfirmed downloader once every 5 seconds
+            nakamoto_inv_sync_burst_interval_ms: 1_000, /* wait 1 second after a sortition before
+                                                * running inventory sync */
+            nakamoto_unconfirmed_downloader_interval_ms: 5_000, /* run unconfirmed downloader
+                                                                 * once every 5 seconds */
             auth_token: None,
             block_proposal_max_age_secs: DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS,
             stackerdb_hint_replicas: HashMap::new(),
@@ -655,7 +696,8 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
     }
 
     /// try to consume buffered data to form a message preamble.
-    /// returns an option of the preamble consumed and the number of bytes used from the bytes slice
+    /// returns an option of the preamble consumed and the number of bytes used
+    /// from the bytes slice
     #[cfg_attr(test, mutants::skip)]
     fn consume_preamble(
         &mut self,
@@ -746,8 +788,8 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
         to_consume
     }
 
-    /// Try and consume a payload from our internal buffer when the length of the payload is given
-    /// in the preamble.
+    /// Try and consume a payload from our internal buffer when the length of
+    /// the payload is given in the preamble.
     fn consume_payload_known_length(
         &mut self,
         protocol: &mut P,
@@ -805,8 +847,9 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
         }
     }
 
-    /// Try to consume buffered data to form a message, where we don't know how long the message
-    /// is.  Stream it into the protocol, and see what the protocol spits out.
+    /// Try to consume buffered data to form a message, where we don't know how
+    /// long the message is.  Stream it into the protocol, and see what the
+    /// protocol spits out.
     fn consume_payload_unknown_length(
         &mut self,
         protocol: &mut P,
@@ -862,9 +905,9 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
     }
 
     /// Try to consume buffered data to form a message.
-    /// This method may consume enough data to form multiple messages; in that case, this will
-    /// return the first such message.  Call this repeatedly with an empty bytes array to get all
-    /// messages.
+    /// This method may consume enough data to form multiple messages; in that
+    /// case, this will return the first such message.  Call this repeatedly
+    /// with an empty bytes array to get all messages.
     fn consume_payload(
         &mut self,
         protocol: &mut P,
@@ -884,14 +927,16 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
     }
 
     /// Consume messages while we have space in our inbox.
-    /// It is possible for this method to append more messages to the inbox than inbox_maxsize.
-    /// However, since only so many messages can fit into buf, the number of messages that can be
-    /// inserted into the inbox beyond inbox_maxsize is still limited.  Subsequent calls to
-    /// recv_bytes() will prevent more data from being read from the socket until the messages are
-    /// dequeued.
+    /// It is possible for this method to append more messages to the inbox than
+    /// inbox_maxsize. However, since only so many messages can fit into
+    /// buf, the number of messages that can be inserted into the inbox
+    /// beyond inbox_maxsize is still limited.  Subsequent calls to
+    /// recv_bytes() will prevent more data from being read from the socket
+    /// until the messages are dequeued.
     ///
-    /// Returns nothing on success, and enqueues zero or more messages into our inbox.
-    /// Returns net_error::InvalidMessage if a message could not be parsed or authenticated.
+    /// Returns nothing on success, and enqueues zero or more messages into our
+    /// inbox. Returns net_error::InvalidMessage if a message could not be
+    /// parsed or authenticated.
     fn consume_messages(&mut self, protocol: &mut P, buf: &[u8]) -> Result<(), net_error> {
         let mut offset = 0;
         loop {
@@ -960,8 +1005,8 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
             }
         }
 
-        // we can buffer bytes faster than we can process messages, so be sure to drain the buffer
-        // before returning.
+        // we can buffer bytes faster than we can process messages, so be sure to drain
+        // the buffer before returning.
         if !self.buf.is_empty() {
             loop {
                 let mut consumed_message = false;
@@ -1023,9 +1068,9 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
         let mut socket_closed = false;
         while !blocked {
             // get the next bytes
-            // NOTE: it's important that buf not be too big, since up to buf.len()-1 bytes may need
-            // to be copied if a message boundary isn't aligned with buf (which is usually the
-            // case).
+            // NOTE: it's important that buf not be too big, since up to buf.len()-1 bytes
+            // may need to be copied if a message boundary isn't aligned with
+            // buf (which is usually the case).
             let mut buf = [0u8; 65536];
             let num_read = match fd.read(&mut buf) {
                 Ok(0) => {
@@ -1354,7 +1399,8 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
     }
 
     /// Send any messages we got to waiting receivers.
-    /// Return the list of unsolicited messages (such as blocks and transactions).
+    /// Return the list of unsolicited messages (such as blocks and
+    /// transactions).
     pub fn drain_inbox(&mut self) -> Vec<P::Message> {
         let mut unsolicited = vec![];
         loop {
@@ -1414,9 +1460,9 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
     }
 
     /// Send a message and expect a reply.
-    /// Caller will need to write the message bytes into the resulting NetworkReplyHandle, and call
-    /// flush() on it to make sure the data gets written out to the socket.
-    /// ttl is in seconds
+    /// Caller will need to write the message bytes into the resulting
+    /// NetworkReplyHandle, and call flush() on it to make sure the data
+    /// gets written out to the socket. ttl is in seconds
     pub fn make_request_handle(
         &mut self,
         request_id: u32,
@@ -1435,7 +1481,8 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
     }
 
     /// Forward a message and expect no reply
-    /// Returns a Write-able handle into which the message should be written, and flushed.
+    /// Returns a Write-able handle into which the message should be written,
+    /// and flushed.
     pub fn make_relay_handle(
         &mut self,
         socket_event_id: usize,
@@ -1986,7 +2033,8 @@ mod test {
         assert_eq!(conn.outbox.outbox.len(), 3);
         assert_eq!(nw, ping_size + ping_size / 2);
 
-        // buffer is partially full, with (ping_size / 2) bytes (the first half of a ping)
+        // buffer is partially full, with (ping_size / 2) bytes (the first half of a
+        // ping)
         assert_eq!(conn.outbox.socket_out_ptr, ping_size / 2);
 
         // the (ping_size / 2) bytes should be half a ping

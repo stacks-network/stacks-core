@@ -96,13 +96,14 @@ impl BurnchainStateTransition {
         }
     }
 
-    /// Get the transaction IDs of all accepted burnchain operations in this block
+    /// Get the transaction IDs of all accepted burnchain operations in this
+    /// block
     pub fn txids(&self) -> Vec<Txid> {
         self.accepted_ops.iter().map(|op| op.txid()).collect()
     }
 
-    /// Get the sum of all burnchain tokens spent in this burnchain block's accepted operations
-    /// (i.e. applies to block commits).
+    /// Get the sum of all burnchain tokens spent in this burnchain block's
+    /// accepted operations (i.e. applies to block commits).
     /// Returns None on overflow.
     pub fn total_burns(&self) -> Option<u64> {
         self.accepted_ops.iter().try_fold(0u64, |acc, op| {
@@ -114,8 +115,9 @@ impl BurnchainStateTransition {
         })
     }
 
-    /// Get the median block burn from the window.  If the window length is even, then the average
-    /// of the two middle-most values will be returned.
+    /// Get the median block burn from the window.  If the window length is
+    /// even, then the average of the two middle-most values will be
+    /// returned.
     pub fn windowed_median_burns(&self) -> Option<u64> {
         let block_total_burn_opts = self.windowed_block_commits.iter().map(|block_commits| {
             block_commits
@@ -168,7 +170,8 @@ impl BurnchainStateTransition {
         for i in 0..block_ops.len() {
             match block_ops[i] {
                 BlockstackOperationType::PreStx(_) => {
-                    // PreStx ops don't need to be processed by sort db, so pass.
+                    // PreStx ops don't need to be processed by sort db, so
+                    // pass.
                 }
                 BlockstackOperationType::StackStx(_) => {
                     accepted_ops.push(block_ops[i].clone());
@@ -194,7 +197,8 @@ impl BurnchainStateTransition {
             };
         }
 
-        // find all VRF leader keys that were consumed by the block commits of this block
+        // find all VRF leader keys that were consumed by the block commits of this
+        // block
         let consumed_leader_keys =
             sort_tx.get_consumed_leader_keys(parent_snapshot, &block_commits)?;
 
@@ -324,7 +328,8 @@ impl BurnchainStateTransition {
         }
 
         // calculate the burn distribution from these operations.
-        // The resulting distribution will contain the user burns that match block commits
+        // The resulting distribution will contain the user burns that match block
+        // commits
         let burn_dist = BurnSamplePoint::make_min_median_distribution(
             epoch_id.mining_commitment_window(),
             windowed_block_commits.clone(),
@@ -493,12 +498,14 @@ impl Burnchain {
 
     #[deprecated(note = "BROKEN; DO NOT USE IN NEW CODE")]
     pub fn is_mainnet(&self) -> bool {
-        // NOTE: this is always false, and it's consensus-critical so we can't change it :(
+        // NOTE: this is always false, and it's consensus-critical so we can't change it
+        // :(
         self.network_id == NETWORK_ID_MAINNET
     }
 
     /// the expected sunset burn is:
-    ///   total_commit * (progress through sunset phase) / (sunset phase duration)
+    ///   total_commit * (progress through sunset phase) / (sunset phase
+    /// duration)
     pub fn expected_sunset_burn(
         &self,
         burn_height: u64,
@@ -550,8 +557,8 @@ impl Burnchain {
     }
 
     /// Is this the first block to receive rewards in its cycle?
-    /// This is the mod 1 block. Note: in nakamoto, the signer set for cycle N signs
-    ///  the mod 0 block.
+    /// This is the mod 1 block. Note: in nakamoto, the signer set for cycle N
+    /// signs  the mod 0 block.
     pub fn is_reward_cycle_start(&self, burn_height: u64) -> bool {
         self.pox_constants
             .is_reward_cycle_start(self.first_block_height, burn_height)
@@ -571,8 +578,8 @@ impl Burnchain {
             .reward_cycle_to_block_height(self.first_block_height, reward_cycle)
     }
 
-    /// the first burn block that must be *signed* by the signer set of `reward_cycle`.
-    /// this is the modulo 0 block
+    /// the first burn block that must be *signed* by the signer set of
+    /// `reward_cycle`. this is the modulo 0 block
     pub fn nakamoto_first_block_of_cycle(&self, reward_cycle: u64) -> u64 {
         self.pox_constants
             .nakamoto_first_block_of_cycle(self.first_block_height, reward_cycle)
@@ -975,7 +982,8 @@ impl Burnchain {
         }
     }
 
-    /// Sanity check -- a list of checked ops is sorted and all vtxindexes are unique
+    /// Sanity check -- a list of checked ops is sorted and all vtxindexes are
+    /// unique
     pub fn ops_are_sorted(ops: &[BlockstackOperationType]) -> bool {
         if ops.len() > 1 {
             for i in 0..ops.len() - 1 {
@@ -988,8 +996,8 @@ impl Burnchain {
     }
 
     /// Verify that there are no duplicate VRF keys registered.
-    /// If a key was registered more than once, take the first one and drop the rest.
-    /// checked_ops must be sorted by vtxindex
+    /// If a key was registered more than once, take the first one and drop the
+    /// rest. checked_ops must be sorted by vtxindex
     /// Returns the filtered list of blockstack ops
     pub fn filter_block_VRF_dups(
         mut checked_ops: Vec<BlockstackOperationType>,
@@ -1023,8 +1031,8 @@ impl Burnchain {
     }
 
     /// Top-level entry point to check and process a block.
-    /// NOTE: you must call this in order by burnchain blocks in the burnchain -- i.e. process the
-    /// parent before any children.
+    /// NOTE: you must call this in order by burnchain blocks in the burnchain
+    /// -- i.e. process the parent before any children.
     pub fn process_block<B: BurnchainHeaderReader>(
         burnchain: &Burnchain,
         burnchain_db: &mut BurnchainDB,
@@ -1052,8 +1060,9 @@ impl Burnchain {
     }
 
     /// Update the affirmation maps for the previous reward cycle's commits.
-    /// This is a no-op unless the given burnchain block height falls on a reward cycle boundary.  In that
-    /// case, the previous reward cycle's block commits' affirmation maps are all re-calculated.
+    /// This is a no-op unless the given burnchain block height falls on a
+    /// reward cycle boundary.  In that case, the previous reward cycle's
+    /// block commits' affirmation maps are all re-calculated.
     pub fn process_affirmation_maps<B: BurnchainHeaderReader>(
         burnchain: &Burnchain,
         burnchain_db: &mut BurnchainDB,
@@ -1083,7 +1092,8 @@ impl Burnchain {
     }
 
     /// Hand off the block to the ChainsCoordinator _and_ process the sortition
-    ///   *only* to be used by legacy stacks node interfaces, like the Helium node.
+    ///   *only* to be used by legacy stacks node interfaces, like the Helium
+    /// node.
     ///
     /// It does not work on mainnet.
     fn process_block_and_sortition_deprecated<B: BurnchainHeaderReader>(
@@ -1118,8 +1128,9 @@ impl Burnchain {
         let sortition_tip = SortitionDB::get_canonical_sortition_tip(db.conn())?;
 
         // extract block-commit metadata
-        // Do not emit sortition/burn block events to event observer in this method, because this
-        // method is deprecated and only used in defunct helium nodes
+        // Do not emit sortition/burn block events to event observer in this method,
+        // because this method is deprecated and only used in defunct helium
+        // nodes
 
         db.evaluate_sortition(
             false,
@@ -1132,8 +1143,9 @@ impl Burnchain {
         )
     }
 
-    /// Determine if there has been a chain reorg, given our current canonical burnchain tip.
-    /// Return the new chain tip and a boolean signaling the presence of a reorg
+    /// Determine if there has been a chain reorg, given our current canonical
+    /// burnchain tip. Return the new chain tip and a boolean signaling the
+    /// presence of a reorg
     fn sync_reorg<I: BurnchainIndexer>(indexer: &mut I) -> Result<(u64, bool), burnchain_error> {
         let headers_path = indexer.get_headers_path();
 
@@ -1146,9 +1158,10 @@ impl Burnchain {
             return Ok((0, false));
         }
 
-        // did we encounter a reorg since last sync?  Find the highest common ancestor of the
-        // remote bitcoin peer's chain state.
-        // Note that this value is 0-indexed -- the smallest possible value it returns is 0.
+        // did we encounter a reorg since last sync?  Find the highest common ancestor
+        // of the remote bitcoin peer's chain state.
+        // Note that this value is 0-indexed -- the smallest possible value it returns
+        // is 0.
         let reorg_height = indexer
             .find_chain_reorg()
             .inspect_err(|e| error!("Failed to check for reorgs from {headers_path}: {e:?}"))?;
@@ -1182,8 +1195,9 @@ impl Burnchain {
     }
 
     /// Deprecated top-level burnchain sync.
-    /// Returns (snapshot of new burnchain tip, last state-transition processed if any)
-    /// If this method returns Err(burnchain_error::TrySyncAgain), then call this method again.
+    /// Returns (snapshot of new burnchain tip, last state-transition processed
+    /// if any) If this method returns Err(burnchain_error::TrySyncAgain),
+    /// then call this method again.
     pub fn sync_with_indexer_deprecated<
         I: BurnchainIndexer + BurnchainHeaderReader + 'static + Send,
     >(
@@ -1265,8 +1279,8 @@ impl Burnchain {
 
         let burnchain_config = self.clone();
 
-        // TODO: don't re-process blocks.  See if the block hash is already present in the burn db,
-        // and if so, do nothing.
+        // TODO: don't re-process blocks.  See if the block hash is already present in
+        // the burn db, and if so, do nothing.
         let download_thread: thread::JoinHandle<Result<(), burnchain_error>> =
             thread::spawn(move || {
                 while let Ok(Some(ipc_header)) = downloader_recv.recv() {
@@ -1410,8 +1424,8 @@ impl Burnchain {
     }
 
     /// Get the highest burnchain block processed, if we have processed any.
-    /// Return Some(..) if we have processed at least one processed burnchain block; return None
-    /// otherwise.
+    /// Return Some(..) if we have processed at least one processed burnchain
+    /// block; return None otherwise.
     pub fn get_highest_burnchain_block(
         &self,
     ) -> Result<Option<BurnchainBlockHeader>, burnchain_error> {
@@ -1441,10 +1455,11 @@ impl Burnchain {
     }
 
     /// Top-level burnchain sync.
-    /// Returns the burnchain block header for the new burnchain tip, which will be _at least_ as
-    /// high as target_block_height_opt (if given), or whatever is currently at the tip of the
-    /// burnchain DB.
-    /// If this method returns Err(burnchain_error::TrySyncAgain), then call this method again.
+    /// Returns the burnchain block header for the new burnchain tip, which will
+    /// be _at least_ as high as target_block_height_opt (if given), or
+    /// whatever is currently at the tip of the burnchain DB.
+    /// If this method returns Err(burnchain_error::TrySyncAgain), then call
+    /// this method again.
     pub fn sync_with_indexer<I>(
         &mut self,
         indexer: &mut I,
@@ -1589,8 +1604,8 @@ impl Burnchain {
             SortitionDB::get_stacks_epochs(sortdb.conn())?
         };
 
-        // TODO: don't re-process blocks.  See if the block hash is already present in the burn db,
-        // and if so, do nothing.
+        // TODO: don't re-process blocks.  See if the block hash is already present in
+        // the burn db, and if so, do nothing.
         let download_thread: thread::JoinHandle<Result<(), burnchain_error>> =
             thread::Builder::new()
                 .name("burnchain-downloader".to_string())

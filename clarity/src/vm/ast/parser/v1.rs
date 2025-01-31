@@ -185,7 +185,8 @@ lazy_static! {
     ];
 }
 
-/// Lex the contract, permitting nesting of lists and tuples up to `max_nesting`.
+/// Lex the contract, permitting nesting of lists and tuples up to
+/// `max_nesting`.
 fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u32)>> {
     let mut context = LexContext::ExpectNothing;
 
@@ -224,7 +225,8 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
                     LexContext::ExpectClosing => {
                         // expect the next lexed item to be something that typically
                         // "closes" an atom -- i.e., whitespace or a right-parens.
-                        // this prevents an atom like 1234abc from getting split into "1234" and "abc"
+                        // this prevents an atom like 1234abc from getting split into "1234" and
+                        // "abc"
                         match matcher.handler {
                             TokenType::RParens => Ok(()),
                             TokenType::RCurly => Ok(()),
@@ -786,7 +788,8 @@ mod test {
 
     #[test]
     fn test_parse_let_expression() {
-        // This test includes some assertions ont the spans of each atom / atom_value / list, which makes indentation important.
+        // This test includes some assertions ont the spans of each atom / atom_value /
+        // list, which makes indentation important.
         let input = r#"z (let ((x 1) (y 2))
     (+ x ;; "comments section?"
         ;; this is also a comment!

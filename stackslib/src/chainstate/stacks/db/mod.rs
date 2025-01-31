@@ -102,7 +102,8 @@ lazy_static! {
         std::env::var("STACKS_TRANSACTION_LOG") == Ok("1".into());
 }
 
-/// Fault injection struct for various kinds of faults we'd like to introduce into the system
+/// Fault injection struct for various kinds of faults we'd like to introduce
+/// into the system
 pub struct StacksChainStateFaults {
     // if true, then the envar STACKS_HIDE_BLOCKS_AT_HEIGHT will be consulted to get a list of
     // Stacks block heights to never propagate or announce.
@@ -188,9 +189,11 @@ pub struct StacksHeaderInfo {
     pub stacks_block_height: u64,
     /// MARF root hash of the headers DB (not consensus critical)
     pub index_root: TrieHash,
-    /// consensus hash of the burnchain block in which this miner was selected to produce this block
+    /// consensus hash of the burnchain block in which this miner was selected
+    /// to produce this block
     pub consensus_hash: ConsensusHash,
-    /// Hash of the burnchain block in which this miner was selected to produce this block
+    /// Hash of the burnchain block in which this miner was selected to produce
+    /// this block
     pub burn_header_hash: BurnchainHeaderHash,
     /// Height of the burnchain block
     pub burn_header_height: u32,
@@ -199,7 +202,8 @@ pub struct StacksHeaderInfo {
     /// Size of the block corresponding to `anchored_header` in bytes
     pub anchored_block_size: u64,
     /// The burnchain tip that is passed to Clarity while processing this block.
-    /// This should always be `Some()` for Nakamoto blocks and `None` for 2.x blocks
+    /// This should always be `Some()` for Nakamoto blocks and `None` for 2.x
+    /// blocks
     pub burn_view: Option<ConsensusHash>,
 }
 
@@ -903,7 +907,8 @@ const CHAINSTATE_INDEXES: &[&str] = &[
 
 pub use stacks_common::consts::MINER_REWARD_MATURITY;
 
-// fraction (out of 100) of the coinbase a user will receive for reporting a microblock stream fork
+// fraction (out of 100) of the coinbase a user will receive for reporting a
+// microblock stream fork
 pub const POISON_MICROBLOCK_COMMISSION_FRACTION: u128 = 5;
 
 #[derive(Debug, Clone)]
@@ -1040,7 +1045,8 @@ impl StacksChainState {
     /// Do we need a schema migration?
     /// Return Ok(true) if so
     /// Return Ok(false) if not
-    /// Return Err(..) on DB errors, or if this DB is not consistent with `mainnet` or `chain_id`
+    /// Return Err(..) on DB errors, or if this DB is not consistent with
+    /// `mainnet` or `chain_id`
     fn need_schema_migrations(
         conn: &Connection,
         mainnet: bool,
@@ -1234,8 +1240,9 @@ impl StacksChainState {
                 None => panic!("Failed to parsed genesis address {addr}"),
             },
         };
-        // Convert a given address to the currently running network mode (mainnet vs testnet).
-        // All addresses from the Stacks 1.0 import data should be mainnet, but we'll handle either case.
+        // Convert a given address to the currently running network mode (mainnet vs
+        // testnet). All addresses from the Stacks 1.0 import data should be
+        // mainnet, but we'll handle either case.
         let converted_version = if mainnet {
             match stacks_address.version() {
                 C32_ADDRESS_VERSION_TESTNET_SINGLESIG => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
@@ -1739,8 +1746,8 @@ impl StacksChainState {
         StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, marf_opts)
     }
 
-    /// Re-open the chainstate -- i.e. to get a new handle to it using an existing chain state's
-    /// parameters
+    /// Re-open the chainstate -- i.e. to get a new handle to it using an
+    /// existing chain state's parameters
     pub fn reopen(&self) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
         StacksChainState::open(
             self.mainnet,
@@ -1975,8 +1982,8 @@ impl StacksChainState {
     }
 
     /// Execute a public function in `contract` from a read-only DB context
-    ///  Any mutations that occur will be rolled-back before returning, regardless of
-    ///  an okay or error result.
+    ///  Any mutations that occur will be rolled-back before returning,
+    /// regardless of  an okay or error result.
     pub fn eval_fn_read_only(
         &mut self,
         burn_dbconn: &dyn BurnStateDB,
@@ -2021,7 +2028,8 @@ impl StacksChainState {
         self.state_index.sqlite_conn()
     }
 
-    /// Begin processing an epoch's transactions within the context of a chainstate transaction
+    /// Begin processing an epoch's transactions within the context of a
+    /// chainstate transaction
     pub fn chainstate_block_begin<'a, 'b>(
         chainstate_tx: &'b ChainstateTx<'b>,
         clarity_instance: &'a mut ClarityInstance,
@@ -2044,8 +2052,8 @@ impl StacksChainState {
         )
     }
 
-    /// Begin a transaction against the Clarity VM, _outside of_ the context of a chainstate
-    /// transaction.  Used by the miner for producing blocks.
+    /// Begin a transaction against the Clarity VM, _outside of_ the context of
+    /// a chainstate transaction.  Used by the miner for producing blocks.
     pub fn block_begin<'a>(
         &'a mut self,
         burn_dbconn: &'a dyn BurnStateDB,
@@ -2067,9 +2075,9 @@ impl StacksChainState {
         )
     }
 
-    /// Begin a transaction against the Clarity VM for initiating the genesis block
-    ///  the genesis block is special cased because it must be evaluated _before_ the
-    ///  cost contract is loaded in the boot code.
+    /// Begin a transaction against the Clarity VM for initiating the genesis
+    /// block  the genesis block is special cased because it must be
+    /// evaluated _before_ the  cost contract is loaded in the boot code.
     pub fn genesis_block_begin<'a>(
         &'a mut self,
         burn_dbconn: &'a dyn BurnStateDB,
@@ -2082,8 +2090,9 @@ impl StacksChainState {
         let db = &self.state_index;
         let clarity_instance = &mut self.clarity_state;
 
-        // mix burn header hash and stacks block header hash together, since the stacks block hash
-        // it not guaranteed to be globally unique (but the burn header hash _is_).
+        // mix burn header hash and stacks block header hash together, since the stacks
+        // block hash it not guaranteed to be globally unique (but the burn
+        // header hash _is_).
         let parent_index_block =
             StacksChainState::get_parent_index_block(parent_consensus_hash, parent_block);
 
@@ -2199,9 +2208,9 @@ impl StacksChainState {
         Ok(res)
     }
 
-    /// Run to_do on the unconfirmed Clarity VM state if the tip refers to the unconfirmed state;
-    /// otherwise run to_do on the confirmed state of the Clarity VM. If the tip doesn't exist,
-    /// then return None.
+    /// Run to_do on the unconfirmed Clarity VM state if the tip refers to the
+    /// unconfirmed state; otherwise run to_do on the confirmed state of the
+    /// Clarity VM. If the tip doesn't exist, then return None.
     pub fn maybe_read_only_clarity_tx<F, R>(
         &mut self,
         burn_dbconn: &dyn BurnStateDB,
@@ -2244,7 +2253,8 @@ impl StacksChainState {
         }
     }
 
-    /// Begin an unconfirmed VM transaction, if there's no other open transaction for it.
+    /// Begin an unconfirmed VM transaction, if there's no other open
+    /// transaction for it.
     pub fn chainstate_begin_unconfirmed<'a, 'b>(
         conf: DBConfig,
         headers_db: &'b dyn HeadersDB,
@@ -2259,7 +2269,8 @@ impl StacksChainState {
         }
     }
 
-    /// Open a Clarity transaction against this chainstate's unconfirmed state, if it exists.
+    /// Open a Clarity transaction against this chainstate's unconfirmed state,
+    /// if it exists.
     pub fn begin_unconfirmed<'a>(
         &'a mut self,
         burn_dbconn: &'a dyn BurnStateDB,
@@ -2295,8 +2306,8 @@ impl StacksChainState {
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
     ) -> ClarityTx<'a, 'b> {
-        // mix consensus hash and stacks block header hash together, since the stacks block hash
-        // it not guaranteed to be globally unique (but the pair is)
+        // mix consensus hash and stacks block header hash together, since the stacks
+        // block hash it not guaranteed to be globally unique (but the pair is)
         let parent_index_block =
             StacksChainState::get_parent_index_block(parent_consensus_hash, parent_block);
 
@@ -2349,8 +2360,9 @@ impl StacksChainState {
         let db = &self.state_index;
         let clarity_instance = &mut self.clarity_state;
 
-        // mix burn header hash and stacks block header hash together, since the stacks block hash
-        // it not guaranteed to be globally unique (but the burn header hash _is_).
+        // mix burn header hash and stacks block header hash together, since the stacks
+        // block hash it not guaranteed to be globally unique (but the burn
+        // header hash _is_).
         let parent_index_block =
             StacksChainState::get_parent_index_block(parent_consensus_hash, parent_block);
 
@@ -2403,8 +2415,9 @@ impl StacksChainState {
         let db = &self.state_index;
         let clarity_instance = &mut self.clarity_state;
 
-        // mix burn header hash and stacks block header hash together, since the stacks block hash
-        // it not guaranteed to be globally unique (but the burn header hash _is_).
+        // mix burn header hash and stacks block header hash together, since the stacks
+        // block hash it not guaranteed to be globally unique (but the burn
+        // header hash _is_).
         let parent_index_block =
             StacksChainState::get_parent_index_block(parent_consensus_hash, parent_block);
 
@@ -2443,7 +2456,8 @@ impl StacksChainState {
         }
     }
 
-    /// Get the appropriate MARF index hash to use to identify a chain tip, given a block header
+    /// Get the appropriate MARF index hash to use to identify a chain tip,
+    /// given a block header
     pub fn get_index_hash(
         consensus_hash: &ConsensusHash,
         header_hash: &BlockHeaderHash,
@@ -2458,7 +2472,8 @@ impl StacksChainState {
         }
     }
 
-    /// Record the microblock public key hash for a block into the MARF'ed Clarity DB
+    /// Record the microblock public key hash for a block into the MARF'ed
+    /// Clarity DB
     pub fn insert_microblock_pubkey_hash(
         clarity_tx: &mut ClarityTx,
         height: u32,
@@ -2477,7 +2492,8 @@ impl StacksChainState {
         Ok(())
     }
 
-    /// Get the block height at which a microblock public key hash was used, if any
+    /// Get the block height at which a microblock public key hash was used, if
+    /// any
     pub fn has_microblock_pubkey_hash(
         clarity_tx: &mut ClarityTx,
         mblock_pubkey_hash: &Hash160,
@@ -2516,8 +2532,8 @@ impl StacksChainState {
         Ok(txids)
     }
 
-    /// Get the txids of the burnchain operations applied in the past N Stacks blocks.
-    /// Only works for epoch 2.x
+    /// Get the txids of the burnchain operations applied in the past N Stacks
+    /// blocks. Only works for epoch 2.x
     pub fn get_burnchain_txids_in_ancestors(
         conn: &Connection,
         index_block_hash: &StacksBlockId,
@@ -2589,8 +2605,8 @@ impl StacksChainState {
         Ok(())
     }
 
-    /// Append a Stacks block to an existing Stacks block, and grant the miner the block reward.
-    /// Return the new Stacks header info.
+    /// Append a Stacks block to an existing Stacks block, and grant the miner
+    /// the block reward. Return the new Stacks header info.
     pub fn advance_tip(
         headers_tx: &mut StacksDBTx<'_>,
         parent_tip: &StacksBlockHeader,
@@ -2602,7 +2618,7 @@ impl StacksChainState {
         new_burnchain_timestamp: u64,
         microblock_tail_opt: Option<StacksMicroblockHeader>,
         block_reward: &MinerPaymentSchedule,
-        mature_miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>, // (miner, [users], parent, matured rewards)
+        mature_miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>, /* (miner, [users], parent, matured rewards) */
         anchor_block_cost: &ExecutionCost,
         anchor_block_size: u64,
         applied_epoch_transition: bool,

@@ -644,10 +644,12 @@ fn check_principal_of(
 
 /// Forms:
 /// (define-public (principal-construct (buff 1) (buff 20))
-///     (response principal { error_code: uint, principal: (option principal) }))
+///     (response principal { error_code: uint, principal: (option principal)
+/// }))
 ///
-/// (define-public (principal-construct (buff 1) (buff 20) (string-ascii CONTRACT_MAX_NAME_LENGTH))
-///     (response principal { error_code: uint, principal: (option principal) }))
+/// (define-public (principal-construct (buff 1) (buff 20) (string-ascii
+/// CONTRACT_MAX_NAME_LENGTH))     (response principal { error_code: uint,
+/// principal: (option principal) }))
 fn check_principal_construct(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
@@ -729,8 +731,10 @@ fn check_get_block_info(
 }
 
 // # Errors
-// - `CheckErrors::GetBurnBlockInfoExpectPropertyName` when `args[0]` is not a valid `ClarityName`.
-// - `CheckErrors::NoSuchBlockInfoProperty` when `args[0]` does not name a `BurnBlockInfoProperty`.
+// - `CheckErrors::GetBurnBlockInfoExpectPropertyName` when `args[0]` is not a
+//   valid `ClarityName`.
+// - `CheckErrors::NoSuchBlockInfoProperty` when `args[0]` does not name a
+//   `BurnBlockInfoProperty`.
 fn check_get_burn_block_info(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
@@ -1009,8 +1013,9 @@ impl TypedNativeFunction {
                     })?,
                 )],
                 returns: {
-                    /// The return type of `principal-destruct` is a Response, in which the success
-                    /// and error types are the same.
+                    /// The return type of `principal-destruct` is a Response,
+                    /// in which the success and error types
+                    /// are the same.
                     fn parse_principal_basic_type() -> Result<TupleTypeSignature, CheckErrors> {
                         TupleTypeSignature::try_from(vec![
                             ("version".into(), BUFF_1.clone()),

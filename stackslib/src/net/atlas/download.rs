@@ -61,9 +61,9 @@ impl AttachmentsDownloader {
         }
     }
 
-    /// Identify whether or not any AttachmentBatches in the priority queue are ready for
-    /// (re-)consideration by the downloader, based on whether or not its re-try deadline
-    /// has passed.
+    /// Identify whether or not any AttachmentBatches in the priority queue are
+    /// ready for (re-)consideration by the downloader, based on whether or
+    /// not its re-try deadline has passed.
     pub fn has_ready_batches(&self) -> bool {
         for batch in self.priority_queue.iter() {
             if batch.retry_deadline < get_epoch_time_secs() {
@@ -73,10 +73,11 @@ impl AttachmentsDownloader {
         return false;
     }
 
-    /// Returns the next attachments batch that is ready for processing -- i.e. after its deadline
-    /// has passed.
-    /// Because AttachmentBatches are ordered first by their retry deadlines, it follows that if
-    /// there are any ready AttachmentBatches, they'll be at the head of the queue.
+    /// Returns the next attachments batch that is ready for processing -- i.e.
+    /// after its deadline has passed.
+    /// Because AttachmentBatches are ordered first by their retry deadlines, it
+    /// follows that if there are any ready AttachmentBatches, they'll be at
+    /// the head of the queue.
     pub fn pop_next_ready_batch(&mut self) -> Option<AttachmentsBatch> {
         let next_is_ready = if let Some(next) = self.priority_queue.peek() {
             next.retry_deadline < get_epoch_time_secs()
@@ -92,7 +93,8 @@ impl AttachmentsDownloader {
     }
 
     /// This function executes `AttachmentsBatchStateMachine` for one step.
-    /// It handles initializing and setting the batch to be processed by the machine.
+    /// It handles initializing and setting the batch to be processed by the
+    /// machine.
     pub fn run(
         &mut self,
         dns_client: &mut DNSClient,
@@ -215,18 +217,21 @@ impl AttachmentsDownloader {
         Ok((resolved_attachments, events_to_deregister))
     }
 
-    /// Given a list of `AttachmentInstance`, check if the content corresponding to that
-    ///  instance is (1) already validated (2) inboxed or (3) unknown.
+    /// Given a list of `AttachmentInstance`, check if the content corresponding
+    /// to that  instance is (1) already validated (2) inboxed or (3)
+    /// unknown.
     ///
-    /// In the event of (1) or (2), `do_if_found` is invoked, and the attachment instance will
-    ///  be returned (with the attachment data) in the result set. If the attachment was inboxed (case 2),
-    ///  the attachment is marked as instantiated in the atlas db.
+    /// In the event of (1) or (2), `do_if_found` is invoked, and the attachment
+    /// instance will  be returned (with the attachment data) in the result
+    /// set. If the attachment was inboxed (case 2),  the attachment is
+    /// marked as instantiated in the atlas db.
     ///
-    /// In the event of (3), `do_if_not_found` is invoked, and the attachment instance is added
-    ///  to `self.priority_queue`.
+    /// In the event of (3), `do_if_not_found` is invoked, and the attachment
+    /// instance is added  to `self.priority_queue`.
     ///
-    /// The return value of this function is a vector of all the instances from `iterator` which
-    ///  resolved to Attachment data, paired with that data.
+    /// The return value of this function is a vector of all the instances from
+    /// `iterator` which  resolved to Attachment data, paired with that
+    /// data.
     fn check_attachment_instances<F, G>(
         &mut self,
         atlas_db: &mut AtlasDB,
@@ -288,13 +293,13 @@ impl AttachmentsDownloader {
         Ok(resolved_attachments)
     }
 
-    /// Check any queued attachment instances to see if we already have data for them,
-    ///  returning a vector of (instance, attachment) pairs for any of the queued attachments
-    ///  which already had the associated data
+    /// Check any queued attachment instances to see if we already have data for
+    /// them,  returning a vector of (instance, attachment) pairs for any of
+    /// the queued attachments  which already had the associated data
     /// Marks any processed attachments as checked
     ///
-    /// This method is invoked in the thread managing the AttachmentDownloader. This is currently
-    ///  the P2P thread.
+    /// This method is invoked in the thread managing the AttachmentDownloader.
+    /// This is currently  the P2P thread.
     pub fn check_queued_attachment_instances(
         &mut self,
         atlas_db: &mut AtlasDB,
@@ -313,8 +318,8 @@ impl AttachmentsDownloader {
         )
     }
 
-    /// Insert the initial attachments set. Only add the attachment instance if associated data
-    ///  was found.
+    /// Insert the initial attachments set. Only add the attachment instance if
+    /// associated data  was found.
     pub fn enqueue_initial_attachments(
         &mut self,
         atlas_db: &mut AtlasDB,
@@ -467,7 +472,8 @@ impl AttachmentsBatchStateContext {
                     continue;
                 }
 
-                // Success, we found at least one inventory including the attachment we're looking for.
+                // Success, we found at least one inventory including the attachment we're
+                // looking for.
                 let request = AttachmentRequest {
                     sources,
                     content_hash: content_hash.clone(),
@@ -586,8 +592,9 @@ impl AttachmentsBatchStateMachine {
         AttachmentsBatchStateMachine::Initialized(ctx)
     }
 
-    /// Runs the state machine one step. The machine transitions through the states sequentially:
-    /// `Initialized`, `DNSLookup` (which invokes a sub state machine, `BatchedDNSLookupsState`),
+    /// Runs the state machine one step. The machine transitions through the
+    /// states sequentially: `Initialized`, `DNSLookup` (which invokes a sub
+    /// state machine, `BatchedDNSLookupsState`),
     /// `DownloadingAttachmentsInv`, `DownloadingAttachment`, and `Done`.
     fn try_proceed(
         fsm: AttachmentsBatchStateMachine,
@@ -664,8 +671,9 @@ impl AttachmentsBatchStateMachine {
     }
 }
 
-/// State machine for doing DNS lookups for a list of URLs. The machine progresses linearly through
-/// the states, and advances through calls to `try_proceed`.
+/// State machine for doing DNS lookups for a list of URLs. The machine
+/// progresses linearly through the states, and advances through calls to
+/// `try_proceed`.
 #[derive(Debug)]
 enum BatchedDNSLookupsState {
     Initialized(Vec<UrlString>),
@@ -788,8 +796,9 @@ impl BatchedDNSLookupsState {
                 }
 
                 // Remove urls that have successfully been looked up by the DNS client.
-                // If not removed, `poll_lookup` will return an error in successive calls of this
-                // function, when trying to process remaining inflight requests.
+                // If not removed, `poll_lookup` will return an error in successive calls of
+                // this function, when trying to process remaining inflight
+                // requests.
                 for url_str in completed_lookups.iter() {
                     state
                         .parsed_urls

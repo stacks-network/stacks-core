@@ -112,8 +112,9 @@ impl HttpRequest for RPCGetClarityMetadataRequestHandler {
 
         if metadata_key != "analysis" {
             // Validate that the metadata key is well-formed. It must be of data type:
-            //   DataMapMeta (5) | VariableMeta (6) | FungibleTokenMeta (7) | NonFungibleTokenMeta (8)
-            //   or Contract (9) followed by a valid contract metadata name
+            //   DataMapMeta (5) | VariableMeta (6) | FungibleTokenMeta (7) |
+            // NonFungibleTokenMeta (8)   or Contract (9) followed by a valid
+            // contract metadata name
             match captures
                 .name("data_type")
                 .and_then(|data_type| StoreType::try_from(data_type.as_str()).ok())

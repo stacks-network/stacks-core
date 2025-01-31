@@ -87,7 +87,8 @@ impl HttpRequest for RPCPostStackerDBChunkRequestHandler {
     }
 
     /// Try to decode this request.
-    /// There's nothing to load here, so just make sure the request is well-formed.
+    /// There's nothing to load here, so just make sure the request is
+    /// well-formed.
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
@@ -195,8 +196,8 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
                     ));
                 };
                 if let Err(_e) = tx.get_stackerdb_id(&contract_identifier) {
-                    // shouldn't be necessary (this is checked against the peer network's configured DBs),
-                    // but you never know.
+                    // shouldn't be necessary (this is checked against the peer network's configured
+                    // DBs), but you never know.
                     return Err(StacksHttpResponse::new_error(
                         &preamble,
                         &HttpNotFound::new("StackerDB not found".to_string()),
@@ -320,8 +321,8 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
 
 /// Decode the HTTP response
 impl HttpResponse for RPCPostStackerDBChunkRequestHandler {
-    /// Decode this response from a byte stream.  This is called by the client to decode this
-    /// message
+    /// Decode this response from a byte stream.  This is called by the client
+    /// to decode this message
     fn try_parse_response(
         &self,
         preamble: &HttpResponsePreamble,

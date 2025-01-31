@@ -3133,8 +3133,8 @@ fn process_new_blocks_rejects_problematic_asts() {
         )
         .unwrap();
 
-    // despite this data showing up in all aspects of the network result, none of it actually
-    // gets relayed
+    // despite this data showing up in all aspects of the network result, none of it
+    // actually gets relayed
     assert_eq!(processed_blocks.len(), 0);
     assert_eq!(processed_mblocks.len(), 0);
     assert_eq!(relay_mblocks.len(), 0);
@@ -3441,9 +3441,9 @@ fn test_block_versioned_smart_contract_gated_at_v210() {
             (anchored_block.0, vec![])
         };
 
-    // tenures 26 and 27 should fail, since the block contains a versioned smart contract.
-    // Versioned smart contracts should only be supported if the block is in epoch 2.1, which
-    // activates at tenure 27.
+    // tenures 26 and 27 should fail, since the block contains a versioned smart
+    // contract. Versioned smart contracts should only be supported if the block
+    // is in epoch 2.1, which activates at tenure 27.
     for i in 0..2 {
         let (burn_ops, stacks_block, microblocks) = peer.make_tenure(&mut make_tenure);
         let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
@@ -3661,8 +3661,8 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
         // process it
         peer.coord.handle_new_stacks_block().unwrap();
 
-        // the mempool would reject a versioned contract transaction, since we're not yet at
-        // tenure 28
+        // the mempool would reject a versioned contract transaction, since we're not
+        // yet at tenure 28
         let versioned_contract = (*versioned_contract_opt.borrow()).clone().unwrap();
         let versioned_contract_len = versioned_contract.serialize_to_vec().len();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
@@ -3718,8 +3718,8 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
     // process it
     peer.coord.handle_new_stacks_block().unwrap();
 
-    // the mempool would accept a versioned contract transaction, since we're not yet at
-    // tenure 28
+    // the mempool would accept a versioned contract transaction, since we're not
+    // yet at tenure 28
     let versioned_contract = (*versioned_contract_opt.borrow()).clone().unwrap();
     let versioned_contract_len = versioned_contract.serialize_to_vec().len();
     match node.chainstate.will_admit_mempool_tx(
@@ -3740,6 +3740,7 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
 }
 
 // TODO: process bans
-// TODO: test sending invalid blocks-available and microblocks-available (should result in a ban)
-// TODO: test sending invalid transactions (should result in a ban)
-// TODO: test bandwidth limits (sending too much should result in a nack, and then a ban)
+// TODO: test sending invalid blocks-available and microblocks-available (should
+// result in a ban) TODO: test sending invalid transactions (should result in a
+// ban) TODO: test bandwidth limits (sending too much should result in a nack,
+// and then a ban)

@@ -92,8 +92,8 @@ pub struct StacksMemPoolStream {
     pub max_txs: u64,
     /// coinbase height of the chain at time of query
     pub coinbase_height: u64,
-    /// Are we done sending transactions, and are now in the process of sending the trailing page
-    /// ID?
+    /// Are we done sending transactions, and are now in the process of sending
+    /// the trailing page ID?
     pub corked: bool,
     /// Did we run out of transactions to send?
     pub finished: bool,
@@ -230,7 +230,8 @@ impl HttpRequest for RPCMempoolQueryRequestHandler {
     }
 
     /// Try to decode this request.
-    /// There's nothing to load here, so just make sure the request is well-formed.
+    /// There's nothing to load here, so just make sure the request is
+    /// well-formed.
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
@@ -319,8 +320,8 @@ impl RPCRequestHandler for RPCMempoolQueryRequestHandler {
 
 /// Decode the HTTP response
 impl HttpResponse for RPCMempoolQueryRequestHandler {
-    /// Decode this response from a byte stream.  This is called by the client to decode this
-    /// message
+    /// Decode this response from a byte stream.  This is called by the client
+    /// to decode this message
     fn try_parse_response(
         &self,
         preamble: &HttpResponsePreamble,
@@ -354,8 +355,8 @@ impl StacksHttpRequest {
 }
 
 impl StacksHttpResponse {
-    /// Decode an HTTP response body into the transactions and next-page ID returned from
-    /// /v2/mempool/query.
+    /// Decode an HTTP response body into the transactions and next-page ID
+    /// returned from /v2/mempool/query.
     pub fn decode_mempool_txs_page(
         self,
     ) -> Result<(Vec<StacksTransaction>, Option<Txid>), NetError> {

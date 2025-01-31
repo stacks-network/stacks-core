@@ -23,7 +23,8 @@ use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
 pub struct SignerEntries {
     /// The signer addresses mapped to signer ID
     pub signer_addr_to_id: HashMap<StacksAddress, u32>,
-    /// The signer IDs mapped to addresses. Uses a BTreeMap to ensure *reward cycle order*
+    /// The signer IDs mapped to addresses. Uses a BTreeMap to ensure *reward
+    /// cycle order*
     pub signer_id_to_addr: BTreeMap<u32, StacksAddress>,
     /// signer ID mapped to public key
     pub signer_id_to_pk: HashMap<u32, StacksPublicKey>,
@@ -48,7 +49,8 @@ pub enum Error {
 }
 
 impl SignerEntries {
-    /// Try to parse the reward set defined by `NakamotoSignEntry` into the SignerEntries struct
+    /// Try to parse the reward set defined by `NakamotoSignEntry` into the
+    /// SignerEntries struct
     pub fn parse(is_mainnet: bool, reward_set: &[NakamotoSignerEntry]) -> Result<Self, Error> {
         let mut signer_pk_to_id = HashMap::with_capacity(reward_set.len());
         let mut signer_id_to_pk = HashMap::with_capacity(reward_set.len());

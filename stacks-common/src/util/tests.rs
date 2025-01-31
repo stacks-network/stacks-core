@@ -14,16 +14,19 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::sync::{Arc, Mutex};
-/// `TestFlag` is a thread-safe utility designed for managing shared state in testing scenarios. It wraps
-/// a value of type `T` inside an `Arc<Mutex<Option<T>>>`, allowing you to set and retrieve a value
+/// `TestFlag` is a thread-safe utility designed for managing shared state in
+/// testing scenarios. It wraps a value of type `T` inside an
+/// `Arc<Mutex<Option<T>>>`, allowing you to set and retrieve a value
 /// across different parts of your codebase while ensuring thread safety.
 ///
 /// This structure is particularly useful when:
 /// - You need a global or static variable in tests.
-/// - You want to control the execution of custom test code paths by setting and checking a shared value.
+/// - You want to control the execution of custom test code paths by setting and
+///   checking a shared value.
 ///
 /// # Type Parameter
-/// - `T`: The type of the value managed by the `TestFlag`. It must implement the `Default` and `Clone` traits.
+/// - `T`: The type of the value managed by the `TestFlag`. It must implement
+///   the `Default` and `Clone` traits.
 ///
 /// # Examples
 ///
@@ -56,7 +59,8 @@ impl<T: Default + Clone> Default for TestFlag<T> {
 impl<T: Default + Clone> TestFlag<T> {
     /// Sets the value of the test flag.
     ///
-    /// This method updates the value stored inside the `TestFlag`, replacing any existing value.
+    /// This method updates the value stored inside the `TestFlag`, replacing
+    /// any existing value.
     ///
     /// # Arguments
     /// - `value`: The new value to set for the `TestFlag`.
@@ -74,10 +78,12 @@ impl<T: Default + Clone> TestFlag<T> {
 
     /// Retrieves the current value of the test flag.
     ///
-    /// If no value has been set, this method returns the default value for the type `T`.
+    /// If no value has been set, this method returns the default value for the
+    /// type `T`.
     ///
     /// # Returns
-    /// - The current value of the test flag, or the default value of `T` if none has been set.
+    /// - The current value of the test flag, or the default value of `T` if
+    ///   none has been set.
     ///
     /// # Examples
     ///

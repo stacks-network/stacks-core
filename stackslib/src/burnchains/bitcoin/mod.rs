@@ -75,7 +75,8 @@ pub enum Error {
     NoncontiguousHeader,
     /// Missing header
     MissingHeader,
-    /// Invalid header proof-of-work (i.e. due to a bad timestamp or a bad `bits` field)
+    /// Invalid header proof-of-work (i.e. due to a bad timestamp or a bad
+    /// `bits` field)
     InvalidPoW,
     /// Chainwork would decrease by including a given header
     InvalidChainWork,
@@ -170,7 +171,8 @@ pub enum BitcoinInputType {
 }
 
 /// Bitcoin tx input we can parse in 2.05 and earlier.
-/// In 2.05 and earlier, we cared about being able to parse a scriptSig and witness.
+/// In 2.05 and earlier, we cared about being able to parse a scriptSig and
+/// witness.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct BitcoinTxInputStructured {
     pub keys: Vec<BitcoinPublicKey>,
@@ -180,7 +182,8 @@ pub struct BitcoinTxInputStructured {
 }
 
 /// Bitcoin tx input we can parse in 2.1 and later.
-/// In 2.1 and later, we don't care about being able to parse a scriptSig or witness.
+/// In 2.1 and later, we don't care about being able to parse a scriptSig or
+/// witness.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct BitcoinTxInputRaw {
     pub scriptSig: Vec<u8>,

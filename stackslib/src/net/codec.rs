@@ -54,7 +54,8 @@ pub fn bitvec_len(bitlen: u16) -> u16 {
 }
 
 impl Preamble {
-    /// Make an empty preamble with the given version and fork-set identifier, and payload length.
+    /// Make an empty preamble with the given version and fork-set identifier,
+    /// and payload length.
     pub fn new(
         peer_version: u32,
         network_id: u32,
@@ -78,8 +79,9 @@ impl Preamble {
         }
     }
 
-    /// Given the serialized message type and bits, sign the resulting message and store the
-    /// signature.  message_bits includes the relayers, payload type, and payload.
+    /// Given the serialized message type and bits, sign the resulting message
+    /// and store the signature.  message_bits includes the relayers,
+    /// payload type, and payload.
     pub fn sign(
         &mut self,
         message_bits: &[u8],
@@ -173,7 +175,8 @@ impl StacksMessageCodec for Preamble {
         let signature: MessageSignature = read_next(fd)?;
         let payload_len: u32 = read_next(fd)?;
 
-        // minimum is 5 bytes -- a zero-length vector (4 bytes of 0) plus a type identifier (1 byte)
+        // minimum is 5 bytes -- a zero-length vector (4 bytes of 0) plus a type
+        // identifier (1 byte)
         if payload_len < 5 {
             test_debug!("Payload len is too small: {}", payload_len);
             return Err(codec_error::DeserializeError(format!(
@@ -606,7 +609,8 @@ impl HandshakeData {
             None => (local_peer.addrbytes.clone(), local_peer.port),
         };
 
-        // transmit the empty string if our data URL compels us to bind to the anynet address
+        // transmit the empty string if our data URL compels us to bind to the anynet
+        // address
         let data_url = if local_peer.data_url.has_routable_host() {
             local_peer.data_url.clone()
         } else if let Some(data_port) = local_peer.data_url.get_port() {
@@ -1425,8 +1429,8 @@ impl StacksMessage {
         self.preamble.sign(&message_bits[..], private_key)
     }
 
-    /// Sign the StacksMessage.  The StacksMessage must _not_ have any relayers (i.e. we're
-    /// originating this messsage).
+    /// Sign the StacksMessage.  The StacksMessage must _not_ have any relayers
+    /// (i.e. we're originating this messsage).
     pub fn sign(&mut self, seq: u32, private_key: &Secp256k1PrivateKey) -> Result<(), net_error> {
         if !self.relayers.is_empty() {
             return Err(net_error::InvalidMessage);
@@ -1481,8 +1485,8 @@ impl StacksMessage {
         Ok((relayers, payload))
     }
 
-    /// Verify this message by treating the public key buffer as a secp256k1 public key.
-    /// Fails if:
+    /// Verify this message by treating the public key buffer as a secp256k1
+    /// public key. Fails if:
     /// * the signature doesn't match
     /// * the buffer doesn't encode a secp256k1 public key
     pub fn verify_secp256k1(&self, public_key: &StacksPublicKeyBuffer) -> Result<(), net_error> {
@@ -1524,7 +1528,8 @@ impl ProtocolFamily for StacksP2P {
         PREAMBLE_ENCODED_SIZE as usize
     }
 
-    /// How long is an encoded message payload going to be, if we can tell at all?
+    /// How long is an encoded message payload going to be, if we can tell at
+    /// all?
     fn payload_len(&mut self, preamble: &Preamble) -> Option<usize> {
         Some(preamble.payload_len as usize)
     }
@@ -1541,8 +1546,9 @@ impl ProtocolFamily for StacksP2P {
         Ok((preamble, PREAMBLE_ENCODED_SIZE as usize))
     }
 
-    /// StacksP2P messages are never streamed, since we always know how long they are.
-    /// This should be unreachable, since payload_len() always returns Some(...)
+    /// StacksP2P messages are never streamed, since we always know how long
+    /// they are. This should be unreachable, since payload_len() always
+    /// returns Some(...)
     fn stream_payload<R: Read>(
         &mut self,
         _preamble: &Preamble,

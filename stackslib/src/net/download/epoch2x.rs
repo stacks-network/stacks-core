@@ -67,15 +67,15 @@ pub const BLOCK_DOWNLOAD_BAN_URL: u64 = 300;
 #[cfg(test)]
 pub const BLOCK_DOWNLOAD_BAN_URL: u64 = 60;
 
-/// If we created a request to download a block or microblock, don't do so again until this many
-/// seconds have passed.
+/// If we created a request to download a block or microblock, don't do so again
+/// until this many seconds have passed.
 #[cfg(not(test))]
 pub const BLOCK_REREQUEST_INTERVAL: u64 = 60;
 #[cfg(test)]
 pub const BLOCK_REREQUEST_INTERVAL: u64 = 30;
 
-/// This module is responsible for downloading blocks and microblocks from other peers, using block
-/// inventory state (see src/net/inv.rs)
+/// This module is responsible for downloading blocks and microblocks from other
+/// peers, using block inventory state (see src/net/inv.rs)
 
 #[derive(Debug, PartialEq, Clone, Hash, Eq)]
 pub enum BlockRequestKeyKind {
@@ -90,8 +90,10 @@ pub struct BlockRequestKey {
     pub consensus_hash: ConsensusHash,
     pub anchor_block_hash: BlockHeaderHash,
     pub index_block_hash: StacksBlockId,
-    pub parent_block_header: Option<StacksBlockHeader>, // only used if asking for a microblock; used to confirm the stream's continuity
-    pub parent_consensus_hash: Option<ConsensusHash>,   // ditto
+    pub parent_block_header: Option<StacksBlockHeader>, /* only used if asking for a microblock;
+                                                         * used to confirm the stream's
+                                                         * continuity */
+    pub parent_consensus_hash: Option<ConsensusHash>, // ditto
     pub sortition_height: u64,
     pub download_start: u64,
     pub kind: BlockRequestKeyKind,
@@ -204,8 +206,8 @@ pub struct BlockDownloader {
     empty_block_download_passes: u64,
     empty_microblock_download_passes: u64,
 
-    /// When was the last time we did a full scan of the inv state?  when was the last time the inv
-    /// state was updated?
+    /// When was the last time we did a full scan of the inv state?  when was
+    /// the last time the inv state was updated?
     pub finished_scan_at: u64,
     last_inv_update_at: u64,
 
@@ -224,7 +226,8 @@ pub struct BlockDownloader {
     dns_timeout: u128,
 
     /// In-flight requests for blocks and confirmed microblocks
-    /// The key for each of these is the sortition height and _index_ block hash.
+    /// The key for each of these is the sortition height and _index_ block
+    /// hash.
     getblock_requests: HashMap<BlockRequestKey, usize>,
     getmicroblocks_requests: HashMap<BlockRequestKey, usize>,
     blocks: HashMap<BlockRequestKey, StacksBlock>,
@@ -233,9 +236,11 @@ pub struct BlockDownloader {
     /// statistics on peers' data-plane endpoints
     pub(crate) dead_peers: Vec<usize>,
     pub(crate) broken_peers: Vec<usize>,
-    broken_neighbors: Vec<NeighborKey>, // disconnect peers who report invalid block inventories too
+    broken_neighbors: Vec<NeighborKey>, /* disconnect peers who report invalid block inventories
+                                         * too */
 
-    pub(crate) blocked_urls: HashMap<UrlString, u64>, // URLs that chronically don't work, and when we can try them again
+    pub(crate) blocked_urls: HashMap<UrlString, u64>, /* URLs that chronically don't work, and
+                                                       * when we can try them again */
 
     /// how often to download
     download_interval: u64,
@@ -338,7 +343,8 @@ impl BlockDownloader {
             if url_str.is_empty() {
                 continue;
             }
-            let url = url_str.parse_to_block_url()?; // NOTE: should always succeed, since a UrlString shouldn't decode unless it's a valid URL or the empty string
+            let url = url_str.parse_to_block_url()?; // NOTE: should always succeed, since a UrlString shouldn't decode unless it's a
+                                                     // valid URL or the empty string
             let port = match url.port_or_known_default() {
                 Some(p) => p,
                 None => {
@@ -426,8 +432,8 @@ impl BlockDownloader {
         self.state = BlockDownloaderState::GetBlocksFinish;
     }
 
-    /// Finish fetching blocks.  Return true once all reply handles have been fulfilled (either
-    /// with data, or with an error).
+    /// Finish fetching blocks.  Return true once all reply handles have been
+    /// fulfilled (either with data, or with an error).
     /// Store blocks as we get them.
     pub fn getblocks_try_finish(&mut self, network: &mut PeerNetwork) -> Result<bool, net_error> {
         assert_eq!(self.state, BlockDownloaderState::GetBlocksFinish);
@@ -516,8 +522,10 @@ impl BlockDownloader {
                                         // remote peer didn't have the block
                                         info!("Remote neighbor {:?} ({:?}) does not actually have block {} indexed at {} ({})", &block_key.neighbor, &block_key.data_url, block_key.sortition_height, &block_key.index_block_hash, &block_key.consensus_hash);
 
-                                        // the fact that we asked this peer means that it's block inv indicated
-                                        // it was present, so the absence is the mark of a broken peer
+                                        // the fact that we asked this peer means that it's block
+                                        // inv indicated
+                                        // it was present, so the absence is the mark of a broken
+                                        // peer
                                         self.broken_peers.push(event_id);
                                         self.broken_neighbors.push(block_key.neighbor.clone());
                                     }
@@ -634,7 +642,8 @@ impl BlockDownloader {
                                             self.broken_peers.push(event_id);
                                             self.broken_neighbors.push(block_key.neighbor.clone());
                                         } else {
-                                            // have microblocks (but we don't know yet if they're well-formed)
+                                            // have microblocks (but we don't know yet if they're
+                                            // well-formed)
                                             debug!(
                                                 "Got (tentative) microblocks {}: {}/{}-{}",
                                                 block_key.sortition_height,
@@ -646,17 +655,23 @@ impl BlockDownloader {
                                         }
                                     }
                                     Err(net_error::NotFoundError) => {
-                                        // remote peer didn't have the microblock, even though their blockinv said
+                                        // remote peer didn't have the microblock, even though their
+                                        // blockinv said
                                         // they did.
                                         info!("Remote neighbor {:?} ({:?}) does not have microblock stream indexed at {}", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash;
                                             "consensus_hash" => %block_key.consensus_hash
                                         );
 
-                                        // the fact that we asked this peer means that it's block inv indicated
-                                        // it was present, so the absence is the mark of a broken peer.
-                                        // HOWEVER, there has been some bugs recently about nodes reporting
-                                        // invalid microblock streams as present, even though they are
-                                        // truly absent.  Don't punish these peers with a ban; just don't
+                                        // the fact that we asked this peer
+                                        // means that it's block inv indicated
+                                        // it was present, so the absence is the
+                                        // mark of a broken peer.
+                                        // HOWEVER, there has been some bugs
+                                        // recently about nodes reporting
+                                        // invalid microblock streams as
+                                        // present, even though they are
+                                        // truly absent.  Don't punish these
+                                        // peers with a ban; just don't
                                         // talk to them for a while.
                                     }
                                     Err(e) => {
@@ -687,9 +702,10 @@ impl BlockDownloader {
         return Ok(false);
     }
 
-    /// Get the availability of each block in the given sortition range, using the inv state.
-    /// Return the local block headers, paired with the list of peers that can serve them.
-    /// Possibly less than the given range request.
+    /// Get the availability of each block in the given sortition range, using
+    /// the inv state. Return the local block headers, paired with the list
+    /// of peers that can serve them. Possibly less than the given range
+    /// request.
     pub fn get_block_availability(
         _local_peer: &LocalPeer,
         inv_state: &InvState,
@@ -840,8 +856,8 @@ impl BlockDownloader {
         Ok(ret)
     }
 
-    /// Find out which neighbors can serve a confirmed microblock stream, given the
-    /// burn/block-header-hashes of the sortition that _produced_ them.
+    /// Find out which neighbors can serve a confirmed microblock stream, given
+    /// the burn/block-header-hashes of the sortition that _produced_ them.
     fn get_microblock_stream_availability(
         _local_peer: &LocalPeer,
         inv_state: &InvState,
@@ -889,7 +905,8 @@ impl BlockDownloader {
         Ok(neighbors)
     }
 
-    /// Clear out broken peers that told us they had blocks, but didn't serve them.
+    /// Clear out broken peers that told us they had blocks, but didn't serve
+    /// them.
     fn clear_broken_peers(&mut self) -> (Vec<usize>, Vec<NeighborKey>) {
         // remove dead/broken peers
         let mut disconnect = vec![];
@@ -902,9 +919,10 @@ impl BlockDownloader {
         (disconnect, disconnect_neighbors)
     }
 
-    /// Set a hint that a block is now available from a remote peer, if we're idling or we're ahead
-    /// of the given height.  If force is true, then always restart the download scan at the target
-    /// sortition, even if we're in the middle of downloading.
+    /// Set a hint that a block is now available from a remote peer, if we're
+    /// idling or we're ahead of the given height.  If force is true, then
+    /// always restart the download scan at the target sortition, even if
+    /// we're in the middle of downloading.
     pub fn hint_block_sortition_height_available(
         &mut self,
         block_sortition_height: u64,
@@ -937,8 +955,9 @@ impl BlockDownloader {
         }
     }
 
-    /// Set a hint that a confirmed microblock stream is now available from a remote peer, if we're idling or we're ahead
-    /// of the given height.  If force is true, then always restart the download scan at the target
+    /// Set a hint that a confirmed microblock stream is now available from a
+    /// remote peer, if we're idling or we're ahead of the given height.  If
+    /// force is true, then always restart the download scan at the target
     /// sortition, even if we're in the middle of downloading.
     pub fn hint_microblock_sortition_height_available(
         &mut self,
@@ -1091,7 +1110,8 @@ impl PeerNetwork {
         Ok(true)
     }
 
-    /// Are we able to download a microblock stream between two blocks at this time?
+    /// Are we able to download a microblock stream between two blocks at this
+    /// time?
     pub fn can_download_microblock_stream(
         _local_peer: &LocalPeer,
         chainstate: &StacksChainState,
@@ -1118,8 +1138,8 @@ impl PeerNetwork {
             return Ok(false);
         }
 
-        // block not processed for some reason.  Do we have the parent and child anchored blocks at
-        // least?
+        // block not processed for some reason.  Do we have the parent and child
+        // anchored blocks at least?
 
         let _parent_header = match StacksChainState::load_block_header(
             &chainstate.blocks_path,
@@ -1185,8 +1205,9 @@ impl PeerNetwork {
         }
     }
 
-    /// Create block request keys for a range of blocks that are available but that we don't have in a given range of
-    /// sortitions.  The same keys can be used to fetch confirmed microblock streams.
+    /// Create block request keys for a range of blocks that are available but
+    /// that we don't have in a given range of sortitions.  The same keys
+    /// can be used to fetch confirmed microblock streams.
     fn make_requests(
         &mut self,
         sortdb: &SortitionDB,
@@ -1330,7 +1351,8 @@ impl PeerNetwork {
                     continue;
                 }
 
-                // does this anchor block _confirm_ a microblock stream that we don't know about?
+                // does this anchor block _confirm_ a microblock stream that we don't know
+                // about?
                 let parent_header_opt = {
                     let child_block_info = match StacksChainState::load_staging_block_info(
                         chainstate.db(),
@@ -1602,8 +1624,8 @@ impl PeerNetwork {
 
                 // fetch as many blocks and microblocks as we can -- either
                 // downloader.max_inflight_requests, or however many blocks remain between the
-                // downloader's sortition height and the chain tip's sortition height (whichever is
-                // smaller).
+                // downloader's sortition height and the chain tip's sortition height (whichever
+                // is smaller).
                 while next_block_sortition_height
                     <= network.chain_view.burn_block_height - sortdb.first_block_height
                     || next_microblock_sortition_height
@@ -1903,10 +1925,11 @@ impl PeerNetwork {
         })
     }
 
-    /// Start a request, given the list of request keys to consider.  Use the given request_factory to
-    /// create the HTTP request.  Pops requests off the front of request_keys, and returns once it successfully
-    /// sends out a request via the HTTP peer.  Returns the event ID in the http peer that's
-    /// handling the request.
+    /// Start a request, given the list of request keys to consider.  Use the
+    /// given request_factory to create the HTTP request.  Pops requests off
+    /// the front of request_keys, and returns once it successfully
+    /// sends out a request via the HTTP peer.  Returns the event ID in the http
+    /// peer that's handling the request.
     pub fn begin_request<T: Requestable>(
         network: &mut PeerNetwork,
         dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>,
@@ -2047,7 +2070,8 @@ impl PeerNetwork {
 
     /// Process newly-fetched blocks and microblocks.
     /// Returns true if we've completed all requests.
-    /// Returns (done?, at-chain-tip?, blocks-we-got, microblocks-we-got) on success
+    /// Returns (done?, at-chain-tip?, blocks-we-got, microblocks-we-got) on
+    /// success
     fn finish_downloads(
         &mut self,
         sortdb: &SortitionDB,
@@ -2252,7 +2276,8 @@ impl PeerNetwork {
                     && downloader.empty_microblock_download_passes > 0
                 {
                     // we scanned the entire chain and didn't download anything.
-                    // Either we have everything already, or none of our peers have anything we don't have, or we can't reach any of our peers.
+                    // Either we have everything already, or none of our peers have anything we
+                    // don't have, or we can't reach any of our peers.
                     // Regardless, we can throttle back now.
                     debug!("Did a full pass over the burn chain sortitions and found no new data");
                     downloader.finished_scan_at = get_epoch_time_secs();
@@ -2320,12 +2345,13 @@ impl PeerNetwork {
         self.attachments_downloader = Some(AttachmentsDownloader::new(initial_batch));
     }
 
-    /// Process block downloader lifetime.  Returns the new blocks and microblocks if we get
-    /// anything.
+    /// Process block downloader lifetime.  Returns the new blocks and
+    /// microblocks if we get anything.
     /// Returns:
     /// * are we done?
     /// * did we do a full pass up to the chain tip?
-    /// * what's the local PoX ID when we started?  Will be Some(..) when we're done
+    /// * what's the local PoX ID when we started?  Will be Some(..) when we're
+    ///   done
     /// * List of blocks we downloaded
     /// * List of microblock streams we downloaded
     /// * List of broken HTTP event IDs to disconnect from

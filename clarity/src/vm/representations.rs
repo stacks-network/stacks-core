@@ -83,8 +83,8 @@ guarded_string!(
 impl StacksMessageCodec for ClarityName {
     #[allow(clippy::needless_as_bytes)] // as_bytes isn't necessary, but verbosity is preferable in the codec impls
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        // ClarityName can't be longer than vm::representations::MAX_STRING_LEN, which itself is
-        // a u8, so we should be good here.
+        // ClarityName can't be longer than vm::representations::MAX_STRING_LEN, which
+        // itself is a u8, so we should be good here.
         if self.as_bytes().len() > MAX_STRING_LEN as usize {
             return Err(codec_error::SerializeError(
                 "Failed to serialize clarity name: too long".to_string(),

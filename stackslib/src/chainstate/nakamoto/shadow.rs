@@ -18,26 +18,28 @@ use clarity::vm::costs::ExecutionCost;
 use rusqlite::params;
 /// Shadow blocks
 ///
-/// In the event of an emergency chain halt, a SIP will be written to declare that a chain halt has
-/// happened, and what transactions and blocks (if any) need to be mined at which burnchain block
-/// heights to recover the chain.
+/// In the event of an emergency chain halt, a SIP will be written to declare
+/// that a chain halt has happened, and what transactions and blocks (if any)
+/// need to be mined at which burnchain block heights to recover the chain.
 ///
-/// If this remedy is necessary, these blocks will be mined into one or more _shadow_ blocks and
-/// _shadow_ tenures.
+/// If this remedy is necessary, these blocks will be mined into one or more
+/// _shadow_ blocks and _shadow_ tenures.
 ///
-/// Shadow blocks are blocks that are inserted directly into the staging blocks DB as part of a
-/// schema update. They are neither mined nor relayed.  Instead, they are synthesized as part of an
-/// emergency node upgrade in order to ensure that the conditions which lead to the chain stall
-/// never occur.
+/// Shadow blocks are blocks that are inserted directly into the staging blocks
+/// DB as part of a schema update. They are neither mined nor relayed.  Instead,
+/// they are synthesized as part of an emergency node upgrade in order to ensure
+/// that the conditions which lead to the chain stall never occur.
 ///
-/// For example, if a prepare phase is mined without a single block-commit hitting the Bitcoin
-/// chain, a pair of shadow block tenures will be synthesized to create a PoX anchor block and
-/// restore the chain's liveness.  As another example, if insufficiently many STX are locked in PoX
-/// to get a healthy set of signers, a shadow block can be synthesized with extra `stack-stx`
-/// transactions submitted from healthy stackers in order to create a suitable PoX reward set.
+/// For example, if a prepare phase is mined without a single block-commit
+/// hitting the Bitcoin chain, a pair of shadow block tenures will be
+/// synthesized to create a PoX anchor block and restore the chain's liveness.
+/// As another example, if insufficiently many STX are locked in PoX
+/// to get a healthy set of signers, a shadow block can be synthesized with
+/// extra `stack-stx` transactions submitted from healthy stackers in order to
+/// create a suitable PoX reward set.
 ///
-/// This module contains shadow block-specific logic for the Nakamoto block header, Nakamoto block,
-/// Nakamoto chainstate, and Nakamoto miner structures.
+/// This module contains shadow block-specific logic for the Nakamoto block
+/// header, Nakamoto block, Nakamoto chainstate, and Nakamoto miner structures.
 use rusqlite::Connection;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
@@ -77,9 +79,10 @@ use crate::util_lib::db::{query_row, u64_to_sql, Error as DBError};
 impl NakamotoBlockHeader {
     /// Is this a shadow block?
     ///
-    /// This is a special kind of block that is directly inserted into the chainstate by means of a
-    /// consensus rule.  It won't be downloaded or broadcasted, but every node will have it.  They
-    /// get created as a result of a consensus-level SIP in order to restore the chain to working
+    /// This is a special kind of block that is directly inserted into the
+    /// chainstate by means of a consensus rule.  It won't be downloaded or
+    /// broadcasted, but every node will have it.  They get created as a
+    /// result of a consensus-level SIP in order to restore the chain to working
     /// order.
     ///
     /// Shadow blocks have the high bit of their version field set.
@@ -114,8 +117,9 @@ impl NakamotoBlock {
         self.header.is_shadow_block()
     }
 
-    /// Verify that if this shadow block has a coinbase, that its VRF proof is consistent with the leader
-    /// public key's VRF key. If there is no coinbase tx, then this is a no-op.
+    /// Verify that if this shadow block has a coinbase, that its VRF proof is
+    /// consistent with the leader public key's VRF key. If there is no
+    /// coinbase tx, then this is a no-op.
     pub(crate) fn check_shadow_coinbase_tx(&self, mainnet: bool) -> Result<(), ChainstateError> {
         if !self.is_shadow_block() {
             error!(
@@ -124,9 +128,9 @@ impl NakamotoBlock {
             panic!();
         }
 
-        // If this shadow block has a coinbase, then verify that it has a VRF proof (which will be
-        // verified later) and that its recipient is the burn address.  Shadow blocks do not award
-        // STX.
+        // If this shadow block has a coinbase, then verify that it has a VRF proof
+        // (which will be verified later) and that its recipient is the burn
+        // address.  Shadow blocks do not award STX.
         if let Some(coinbase_tx) = self.get_coinbase_tx() {
             let (_, recipient_opt, vrf_proof_opt) = coinbase_tx
                 .try_as_coinbase()
@@ -154,8 +158,9 @@ impl NakamotoBlock {
                 ));
             }
 
-            // can't check the VRF proof because the creator of the shadow block (e.g. the SIP
-            // process) isn't a miner, so it could be anything.
+            // can't check the VRF proof because the creator of the shadow block
+            // (e.g. the SIP process) isn't a miner, so it could be
+            // anything.
         }
         Ok(())
     }
@@ -164,17 +169,20 @@ impl NakamotoBlock {
     ///
     /// Arguments
     /// -- `mainnet`: whether or not the chain is mainnet
-    /// -- `tenure_burn_chain_tip` is the BlockSnapshot containing the block-commit for this block's
-    /// tenure.  It is not always the tip of the burnchain.
-    /// -- `expected_burn` is the total number of burnchain tokens spent, if known.
+    /// -- `tenure_burn_chain_tip` is the BlockSnapshot containing the
+    /// block-commit for this block's tenure.  It is not always the tip of
+    /// the burnchain. -- `expected_burn` is the total number of burnchain
+    /// tokens spent, if known.
     ///
     /// Verifies the following:
-    /// -- (self.header.consensus_hash) that this block falls into this block-commit's tenure
-    /// -- (self.header.burn_spent) that this block's burn total matches `burn_tip`'s total burn
-    /// -- if this block has a tenure change, then it's consistent with the miner's public key and
+    /// -- (self.header.consensus_hash) that this block falls into this
+    /// block-commit's tenure -- (self.header.burn_spent) that this block's
+    /// burn total matches `burn_tip`'s total burn -- if this block has a
+    /// tenure change, then it's consistent with the miner's public key and
     /// self.header.consensus_hash
     ///
-    /// NOTE: unlike normal blocks, we do not need to verify the VRF proof or miner signature
+    /// NOTE: unlike normal blocks, we do not need to verify the VRF proof or
+    /// miner signature
     pub(crate) fn validate_shadow_against_burnchain(
         &self,
         mainnet: bool,
@@ -203,16 +211,17 @@ impl NakamotoBlock {
 }
 
 impl NakamotoChainState {
-    /// Verify that the shadow parent of a normal block is consistent with the normal block's
-    /// tenure's block-commit.
+    /// Verify that the shadow parent of a normal block is consistent with the
+    /// normal block's tenure's block-commit.
     ///
     /// * the block-commit vtxindex must be 0 (i.e. burnchain coinbase)
-    /// * the block-commit block ptr must be the shadow parent tenure's sortition
+    /// * the block-commit block ptr must be the shadow parent tenure's
+    ///   sortition
     ///
     /// Returns Ok(()) if the parent is _not_ a shadow block
-    /// Returns Ok(()) if the parent is a shadow block, and the above criteria are met
-    /// Returns Err(ChainstateError::InvalidStacksBlock(..)) if the parent is a shadow block, and
-    /// some of the criteria above are false
+    /// Returns Ok(()) if the parent is a shadow block, and the above criteria
+    /// are met Returns Err(ChainstateError::InvalidStacksBlock(..)) if the
+    /// parent is a shadow block, and some of the criteria above are false
     /// Returns Err(..) on other (DB-related) errors
     pub(crate) fn validate_shadow_parent_burnchain(
         staging_db: NakamotoStagingBlocksConnRef,
@@ -220,8 +229,8 @@ impl NakamotoChainState {
         block: &NakamotoBlock,
         block_commit: &LeaderBlockCommitOp,
     ) -> Result<(), ChainstateError> {
-        // only applies if the parent is a nakamoto block (since all shadow blocks are nakamoto
-        // blocks)
+        // only applies if the parent is a nakamoto block (since all shadow blocks are
+        // nakamoto blocks)
         let Some(parent_header) =
             staging_db.get_nakamoto_block_header(&block.header.parent_block_id)?
         else {
@@ -339,7 +348,8 @@ impl NakamotoChainState {
             ChainstateError::NoSuchBlockError
         })?;
 
-        // the shadow tenure won't have a block-commit, but we just found its tenure ID anyway
+        // the shadow tenure won't have a block-commit, but we just found its tenure ID
+        // anyway
         debug!(
             "Load VRF proof for shadow tenure {}",
             &tenure_consensus_hash
@@ -359,8 +369,8 @@ impl NakamotoChainState {
         return Ok(Some(vrf_proof));
     }
 
-    /// Begin block-processing for a shadow block and return all of the pre-processed state within a
-    /// `SetupBlockResult`.
+    /// Begin block-processing for a shadow block and return all of the
+    /// pre-processed state within a `SetupBlockResult`.
     ///
     /// Called to begin processing a shadow block
     pub(crate) fn setup_shadow_block_processing<'a, 'b>(
@@ -422,9 +432,9 @@ impl NakamotoChainState {
 
 impl NakamotoBlockBuilder {
     /// This function should be called before `tenure_begin`.
-    /// It creates a MinerTenureInfo struct which owns connections to the chainstate and sortition
-    /// DBs, so that block-processing is guaranteed to terminate before the lives of these handles
-    /// expire.
+    /// It creates a MinerTenureInfo struct which owns connections to the
+    /// chainstate and sortition DBs, so that block-processing is guaranteed
+    /// to terminate before the lives of these handles expire.
     ///
     /// It's used to create shadow blocks.
     pub(crate) fn shadow_load_tenure_info<'a>(
@@ -438,9 +448,9 @@ impl NakamotoBlockBuilder {
 
     /// Begin/resume mining a shadow tenure's transactions.
     /// Returns an open ClarityTx for mining the block.
-    /// NOTE: even though we don't yet know the block hash, the Clarity VM ensures that a
-    /// transaction can't query information about the _current_ block (i.e. information that is not
-    /// yet known).
+    /// NOTE: even though we don't yet know the block hash, the Clarity VM
+    /// ensures that a transaction can't query information about the
+    /// _current_ block (i.e. information that is not yet known).
     pub fn shadow_tenure_begin<'a, 'b>(
         &mut self,
         burn_dbconn: &'a SortitionHandleConn,
@@ -552,7 +562,8 @@ impl NakamotoBlockBuilder {
                             debug!("Block budget exceeded on tx {}", &tx.txid());
                         }
                         Error::InvalidStacksTransaction(_emsg, true) => {
-                            // if we have an invalid transaction that was quietly ignored, don't warn here either
+                            // if we have an invalid transaction that was quietly ignored, don't
+                            // warn here either
                             test_debug!(
                                 "Failed to apply tx {}: InvalidStacksTransaction '{:?}'",
                                 &tx.txid(),
@@ -587,9 +598,10 @@ impl NakamotoBlockBuilder {
     /// Used by tooling to synthesize shadow blocks in case of an emergency.
     /// The details and circumstances will be recorded in an accompanying SIP.
     ///
-    /// `naka_tip_id` is the Stacks chain tip on top of which the shadow block will be built.
-    /// `tenure_id_consensus_hash` is the sortition in which the shadow block will be built.
-    /// `txs` are transactions to include, beyond a coinbase and tenure-change
+    /// `naka_tip_id` is the Stacks chain tip on top of which the shadow block
+    /// will be built. `tenure_id_consensus_hash` is the sortition in which
+    /// the shadow block will be built. `txs` are transactions to include,
+    /// beyond a coinbase and tenure-change
     pub fn make_shadow_tenure(
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
@@ -784,14 +796,16 @@ impl NakamotoStagingBlocksConnRef<'_> {
         Ok(present.is_some())
     }
 
-    /// Shadow blocks, unlike Stacks blocks, have a unique place in the chain history.
-    /// They are inserted post-hoc, so they and their underlying burnchain blocks don't get
-    /// invalidated via a fork.  A consensus hash can identify (1) no tenures, (2) a single
-    /// shadow tenure, or (3) one or more non-shadow tenures.
+    /// Shadow blocks, unlike Stacks blocks, have a unique place in the chain
+    /// history. They are inserted post-hoc, so they and their underlying
+    /// burnchain blocks don't get invalidated via a fork.  A consensus hash
+    /// can identify (1) no tenures, (2) a single shadow tenure, or (3) one
+    /// or more non-shadow tenures.
     ///
-    /// This is important when downloading a tenure that is ended by a shadow block, since it won't
-    /// be processed beforehand and its hash isn't learned from the burnchain (so we must be able
-    /// to infer that if this is a shadow tenure, none of the blocks in it have siblings).
+    /// This is important when downloading a tenure that is ended by a shadow
+    /// block, since it won't be processed beforehand and its hash isn't
+    /// learned from the burnchain (so we must be able to infer that if this
+    /// is a shadow tenure, none of the blocks in it have siblings).
     pub fn get_shadow_tenure_start_block(
         &self,
         ch: &ConsensusHash,
@@ -951,13 +965,14 @@ pub fn process_shadow_block(
 
 /// DO NOT RUN ON A RUNNING NODE (unless you're testing).
 ///
-/// Automatically repair a node that has been stalled due to an empty prepare phase.
-/// Works by synthesizing, inserting, and processing shadow tenures in-between the last sortition
-/// with a winner and the burnchain tip.
+/// Automatically repair a node that has been stalled due to an empty prepare
+/// phase. Works by synthesizing, inserting, and processing shadow tenures
+/// in-between the last sortition with a winner and the burnchain tip.
 ///
-/// This is meant to be accessed by the tooling. Once the blocks are synthesized, they would be
-/// added into other broken nodes' chainstates by the same tooling.  Ultimately, a patched node
-/// would be released with these shadow blocks added in as part of the chainstate schema.
+/// This is meant to be accessed by the tooling. Once the blocks are
+/// synthesized, they would be added into other broken nodes' chainstates by the
+/// same tooling.  Ultimately, a patched node would be released with these
+/// shadow blocks added in as part of the chainstate schema.
 ///
 /// Returns the syntheisized shadow blocks on success.
 /// Returns error on failure.

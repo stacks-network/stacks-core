@@ -100,7 +100,8 @@ pub enum Error {
     StacksTransactionSkipped(String),
     PostConditionFailed(String),
     NoSuchBlockError,
-    /// The supplied Sortition IDs, consensus hashes, or stacks blocks are not in the same fork.
+    /// The supplied Sortition IDs, consensus hashes, or stacks blocks are not
+    /// in the same fork.
     NotInSameFork,
     InvalidChainstateDB,
     BlockTooBigError,
@@ -128,7 +129,8 @@ pub enum Error {
     ProblematicTransaction(Txid),
     MinerAborted,
     ChannelClosed(String),
-    /// This error indicates a Epoch2 block attempted to build off of a Nakamoto block.
+    /// This error indicates a Epoch2 block attempted to build off of a Nakamoto
+    /// block.
     InvalidChildOfNakomotoBlock,
     NoRegisteredSigners(u64),
 }
@@ -415,12 +417,14 @@ pub enum TransactionAuthFlags {
     AuthSponsored = 0x05,
 }
 
-/// Transaction signatures are validated by calculating the public key from the signature, and
-/// verifying that all public keys hash to the signing account's hash.  To do so, we must preserve
-/// enough information in the auth structure to recover each public key's bytes.
+/// Transaction signatures are validated by calculating the public key from the
+/// signature, and verifying that all public keys hash to the signing account's
+/// hash.  To do so, we must preserve enough information in the auth structure
+/// to recover each public key's bytes.
 ///
-/// An auth field can be a public key or a signature.  In both cases, the public key (either given
-/// in-the-raw or embedded in a signature) may be encoded as compressed or uncompressed.
+/// An auth field can be a public key or a signature.  In both cases, the public
+/// key (either given in-the-raw or embedded in a signature) may be encoded as
+/// compressed or uncompressed.
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
 pub enum TransactionAuthFieldID {
@@ -502,8 +506,8 @@ impl TransactionAuthField {
     }
 }
 
-// tag address hash modes as "singlesig" or "multisig" so we can't accidentally construct an
-// invalid spending condition
+// tag address hash modes as "singlesig" or "multisig" so we can't accidentally
+// construct an invalid spending condition
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SinglesigHashMode {
@@ -649,7 +653,10 @@ pub enum TransactionSpendingCondition {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TransactionAuth {
     Standard(TransactionSpendingCondition),
-    Sponsored(TransactionSpendingCondition, TransactionSpendingCondition), // the second account pays on behalf of the first account
+    Sponsored(TransactionSpendingCondition, TransactionSpendingCondition), /* the second
+                                                                            * account pays on
+                                                                            * behalf of the
+                                                                            * first account */
 }
 
 /// A transaction that calls into a smart contract
@@ -697,7 +704,8 @@ impl_byte_array_serde!(TokenTransferMemo);
 pub enum TenureChangeCause {
     /// A valid winning block-commit
     BlockFound = 0,
-    /// The next burnchain block is taking too long, so extend the runtime budget
+    /// The next burnchain block is taking too long, so extend the runtime
+    /// budget
     Extended = 1,
 }
 
@@ -741,16 +749,17 @@ pub enum TenureChangeError {
 /// A transaction from Stackers to signal new mining tenure
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TenureChangePayload {
-    /// Consensus hash of this tenure.  Corresponds to the sortition in which the miner of this
-    /// block was chosen.  It may be the case that this miner's tenure gets _extended_ across
-    /// subsequent sortitions; if this happens, then this `consensus_hash` value _remains the same_
+    /// Consensus hash of this tenure.  Corresponds to the sortition in which
+    /// the miner of this block was chosen.  It may be the case that this
+    /// miner's tenure gets _extended_ across subsequent sortitions; if this
+    /// happens, then this `consensus_hash` value _remains the same_
     /// as the sortition in which the winning block-commit was mined.
     pub tenure_consensus_hash: ConsensusHash,
-    /// Consensus hash of the previous tenure.  Corresponds to the sortition of the previous
-    /// winning block-commit.
+    /// Consensus hash of the previous tenure.  Corresponds to the sortition of
+    /// the previous winning block-commit.
     pub prev_tenure_consensus_hash: ConsensusHash,
-    /// Current consensus hash on the underlying burnchain.  Corresponds to the last-seen
-    /// sortition.
+    /// Current consensus hash on the underlying burnchain.  Corresponds to the
+    /// last-seen sortition.
     pub burn_view_consensus_hash: ConsensusHash,
     /// The StacksBlockId of the last block from the previous tenure
     pub previous_tenure_end: StacksBlockId,
@@ -1040,14 +1049,19 @@ pub struct StacksMicroblock {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StacksBlockHeader {
     pub version: u8,
-    pub total_work: StacksWorkScore, // NOTE: this is the work done on the chain tip this block builds on (i.e. take this from the parent)
+    pub total_work: StacksWorkScore, /* NOTE: this is the work done on the chain tip this block
+                                      * builds on (i.e. take this from the parent) */
     pub proof: VRFProof,
-    pub parent_block: BlockHeaderHash, // NOTE: even though this is also present in the burn chain, we need this here for super-light clients that don't even have burn chain headers
+    pub parent_block: BlockHeaderHash, /* NOTE: even though this is also present in the burn
+                                        * chain, we need this here for super-light clients that
+                                        * don't even have burn chain headers */
     pub parent_microblock: BlockHeaderHash,
     pub parent_microblock_sequence: u16,
     pub tx_merkle_root: Sha512Trunc256Sum,
     pub state_index_root: TrieHash,
-    pub microblock_pubkey_hash: Hash160, // we'll get the public key back from the first signature (note that this is the Hash160 of the _compressed_ public key)
+    pub microblock_pubkey_hash: Hash160, /* we'll get the public key back from the first
+                                          * signature (note that this is the Hash160 of the
+                                          * _compressed_ public key) */
 }
 
 /// Header structure for a microblock
@@ -1088,8 +1102,9 @@ pub struct StacksBlockBuilder {
 // maximum amount of data a leader can send during its epoch (2MB)
 pub const MAX_EPOCH_SIZE: u32 = 2 * 1024 * 1024;
 
-// maximum microblock size is 64KB, but note that the current leader has a space budget of
-// $MAX_EPOCH_SIZE bytes (so the average microblock size needs to be 4kb if there are 256 of them)
+// maximum microblock size is 64KB, but note that the current leader has a space
+// budget of $MAX_EPOCH_SIZE bytes (so the average microblock size needs to be
+// 4kb if there are 256 of them)
 pub const MAX_MICROBLOCK_SIZE: u32 = 65536;
 
 #[cfg(test)]

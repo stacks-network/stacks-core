@@ -2,8 +2,8 @@ use std::cmp;
 
 use clarity::vm::costs::ExecutionCost;
 
-/// This trait defines metrics used to convert `ExecutionCost` and tx_len usage into single-dimensional
-/// metrics that can be used to compute a fee rate.
+/// This trait defines metrics used to convert `ExecutionCost` and tx_len usage
+/// into single-dimensional metrics that can be used to compute a fee rate.
 pub trait CostMetric: Send {
     fn from_cost_and_len(
         &self,
@@ -39,8 +39,8 @@ impl CostMetric for Box<dyn CostMetric> {
 pub const PROPORTION_RESOLUTION: u64 = 10_000;
 
 /// This metric calculates a single dimensional value for a transaction's
-/// consumption by summing the proportion of each of the block limit's dimensions
-/// that the transaction consumed.
+/// consumption by summing the proportion of each of the block limit's
+/// dimensions that the transaction consumed.
 ///
 /// The maximum scalar value for an execution cost that = the block limit is
 /// 6 * `PROPORTION_RESOLUTION`.
@@ -48,9 +48,10 @@ pub struct ProportionalDotProduct {
     block_size_limit: u64,
 }
 
-/// This metric always returns a unit value for all execution costs and tx lengths.
-/// When used, this metric will cause block assembly to consider transactions based
-/// solely on their raw transaction fee, not any kind of rate estimation.
+/// This metric always returns a unit value for all execution costs and tx
+/// lengths. When used, this metric will cause block assembly to consider
+/// transactions based solely on their raw transaction fee, not any kind of rate
+/// estimation.
 pub struct UnitMetric;
 
 impl ProportionalDotProduct {

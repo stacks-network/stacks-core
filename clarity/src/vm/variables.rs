@@ -84,9 +84,10 @@ pub fn lookup_reserved_variable(
                 // In epoch 2.x, the `block-height` keyword returns the Stacks block height.
                 // For Clarity 1 and Clarity 2 contracts executing in epoch 3, `block-height`
                 // is equal to the tenure height instead of the Stacks block height. This change
-                // is made to maintain a similar pace at which this value increments (e.g. for use
-                // as an expiration). In Clarity 3, `block-height` is removed to avoid confusion.
-                // It is replaced with two new keywords: `stacks-block-height` and `tenure-height`.
+                // is made to maintain a similar pace at which this value increments (e.g. for
+                // use as an expiration). In Clarity 3, `block-height` is
+                // removed to avoid confusion. It is replaced with two new
+                // keywords: `stacks-block-height` and `tenure-height`.
                 if env.global_context.epoch_id < StacksEpochId::Epoch30 {
                     let block_height = env.global_context.database.get_current_block_height();
                     Ok(Some(Value::UInt(block_height as u128)))

@@ -229,8 +229,9 @@ pub struct RunLoop {
     is_miner: Option<bool>,                // not known until .start() is called
     burnchain: Option<Burnchain>,          // not known until .start() is called
     pox_watchdog_comms: PoxSyncWatchdogComms,
-    /// NOTE: this is duplicated in self.globals, but it needs to be accessible before globals is
-    /// instantiated (namely, so the test framework can access it).
+    /// NOTE: this is duplicated in self.globals, but it needs to be accessible
+    /// before globals is instantiated (namely, so the test framework can
+    /// access it).
     miner_status: Arc<Mutex<MinerStatus>>,
     monitoring_thread: Option<JoinHandle<Result<(), MonitoringError>>>,
 }
@@ -359,8 +360,8 @@ impl RunLoop {
         self.miner_status.clone()
     }
 
-    /// Set up termination handler.  Have a signal set the `should_keep_running` atomic bool to
-    /// false.  Panics of called more than once.
+    /// Set up termination handler.  Have a signal set the `should_keep_running`
+    /// atomic bool to false.  Panics of called more than once.
     pub fn setup_termination_handler(keep_running_writer: Arc<AtomicBool>, allow_err: bool) {
         let install = termination::set_handler(move |sig_id| match sig_id {
             SignalId::Bus => {
@@ -591,9 +592,9 @@ impl RunLoop {
         chain_state_db
     }
 
-    /// Instantiate the Stacks chain state and start the chains coordinator thread.
-    /// Returns the coordinator thread handle, and the receiving end of the coordinator's atlas
-    /// attachment channel.
+    /// Instantiate the Stacks chain state and start the chains coordinator
+    /// thread. Returns the coordinator thread handle, and the receiving end
+    /// of the coordinator's atlas attachment channel.
     fn spawn_chains_coordinator(
         &mut self,
         burnchain_config: &Burnchain,
@@ -612,7 +613,8 @@ impl RunLoop {
 
         let chain_state_db = self.boot_chainstate(burnchain_config);
 
-        // NOTE: re-instantiate AtlasConfig so we don't have to keep the genesis attachments around
+        // NOTE: re-instantiate AtlasConfig so we don't have to keep the genesis
+        // attachments around
         let moved_atlas_config = self.config.atlas.clone();
         let moved_config = self.config.clone();
         let moved_burnchain_config = burnchain_config.clone();
@@ -693,8 +695,8 @@ impl RunLoop {
         self.monitoring_thread.take()
     }
 
-    /// Get the sortition DB's highest block height, aligned to a reward cycle boundary, and the
-    /// highest sortition.
+    /// Get the sortition DB's highest block height, aligned to a reward cycle
+    /// boundary, and the highest sortition.
     /// Returns (height at rc start, sortition)
     fn get_reward_cycle_sortition_db_height(
         sortdb: &SortitionDB,
@@ -726,9 +728,9 @@ impl RunLoop {
     }
 
     /// Wake up and drive stacks block processing if there's been a PoX reorg.
-    /// Be careful not to saturate calls to announce new stacks blocks, because that will disable
-    /// mining (which would prevent a miner attempting to fix a hidden PoX anchor block from making
-    /// progress).
+    /// Be careful not to saturate calls to announce new stacks blocks, because
+    /// that will disable mining (which would prevent a miner attempting to
+    /// fix a hidden PoX anchor block from making progress).
     fn drive_pox_reorg_stacks_block_processing(
         globals: &Globals,
         config: &Config,
@@ -804,8 +806,9 @@ impl RunLoop {
                 .find_divergence(&heaviest_affirmation_map)
                 .is_some()
         {
-            // the sortition affirmation map might also be inconsistent, so we'll need to fix that
-            // (i.e. the underlying sortitions) before we can fix the stacks fork
+            // the sortition affirmation map might also be inconsistent, so we'll need to
+            // fix that (i.e. the underlying sortitions) before we can fix the
+            // stacks fork
             if sortition_tip_affirmation_map.len() < heaviest_affirmation_map.len()
                 || sortition_tip_affirmation_map
                     .find_divergence(&heaviest_affirmation_map)
@@ -841,9 +844,9 @@ impl RunLoop {
     }
 
     /// Wake up and drive sortition processing if there's been a PoX reorg.
-    /// Be careful not to saturate calls to announce new burn blocks, because that will disable
-    /// mining (which would prevent a miner attempting to fix a hidden PoX anchor block from making
-    /// progress).
+    /// Be careful not to saturate calls to announce new burn blocks, because
+    /// that will disable mining (which would prevent a miner attempting to
+    /// fix a hidden PoX anchor block from making progress).
     ///
     /// only call if no in ibd
     fn drive_pox_reorg_burn_block_processing(
@@ -952,7 +955,8 @@ impl RunLoop {
                 canonical_affirmation_map.find_divergence(&sortition_tip_affirmation_map)
             {
                 if divergence_rc + 1 >= (heaviest_affirmation_map.len() as u64) {
-                    // we have unaffirmed PoX anchor blocks that are not yet processed in the sortition history
+                    // we have unaffirmed PoX anchor blocks that are not yet processed in the
+                    // sortition history
                     debug!("Drive burnchain processing: possible PoX reorg from unprocessed anchor block(s) (sortition tip: {sortition_tip_affirmation_map}, heaviest: {heaviest_affirmation_map}, canonical: {canonical_affirmation_map})");
                     globals.coord().announce_new_burn_block();
                     globals.coord().announce_new_stacks_block();
@@ -970,8 +974,9 @@ impl RunLoop {
         *last_burn_pox_reorg_recover_time = get_epoch_time_secs().into();
 
         // unconditionally bump every 5 minutes, just in case.
-        // this can get the node un-stuck if we're short on sortition processing but are unable to
-        // sync with the remote node because it keeps NACK'ing us, leading to a runloop stall.
+        // this can get the node un-stuck if we're short on sortition processing but are
+        // unable to sync with the remote node because it keeps NACK'ing us,
+        // leading to a runloop stall.
         if *last_announce_time + (UNCONDITIONAL_CHAIN_LIVENESS_CHECK as u128)
             < get_epoch_time_secs().into()
         {
@@ -982,8 +987,9 @@ impl RunLoop {
         }
     }
 
-    /// In a separate thread, periodically drive coordinator liveness by checking to see if there's
-    /// a pending reorg and if so, waking up the coordinator to go and process new blocks
+    /// In a separate thread, periodically drive coordinator liveness by
+    /// checking to see if there's a pending reorg and if so, waking up the
+    /// coordinator to go and process new blocks
     fn drive_chain_liveness(
         globals: Globals,
         config: Config,
@@ -1054,7 +1060,8 @@ impl RunLoop {
     /// charge of coordinating the new blocks coming from the burnchain and
     /// the nodes, taking turns on tenures.
     ///
-    /// Returns `Option<NeonGlobals>` so that data can be passed to `NakamotoNode`
+    /// Returns `Option<NeonGlobals>` so that data can be passed to
+    /// `NakamotoNode`
     pub fn start(
         &mut self,
         burnchain_opt: Option<Burnchain>,
@@ -1124,7 +1131,8 @@ impl RunLoop {
         // stored during a previous session.
         globals.coord().announce_new_burn_block();
 
-        // Make sure at least one sortition has happened, and make sure it's globally available
+        // Make sure at least one sortition has happened, and make sure it's globally
+        // available
         let sortdb = burnchain.sortdb_mut();
         let (rc_aligned_height, sn) =
             RunLoop::get_reward_cycle_sortition_db_height(sortdb, &burnchain_config);
@@ -1141,8 +1149,9 @@ impl RunLoop {
 
         globals.set_last_sortition(burnchain_tip_snapshot);
 
-        // Boot up the p2p network and relayer, and figure out how many sortitions we have so far
-        // (it could be non-zero if the node is resuming from chainstate)
+        // Boot up the p2p network and relayer, and figure out how many sortitions we
+        // have so far (it could be non-zero if the node is resuming from
+        // chainstate)
         let mut node = StacksNode::spawn(self, globals.clone(), relay_recv);
         let liveness_thread = self.spawn_chain_liveness_thread(globals.clone());
 
@@ -1222,10 +1231,11 @@ impl RunLoop {
                 0.0
             };
 
-            // Download each burnchain block and process their sortitions.  This, in turn, will
-            // cause the node's p2p and relayer threads to go fetch and download Stacks blocks and
-            // process them.  This loop runs for one reward cycle, so that the next pass of the
-            // runloop will cause the PoX sync watchdog to wait until it believes that the node has
+            // Download each burnchain block and process their sortitions.  This, in turn,
+            // will cause the node's p2p and relayer threads to go fetch and
+            // download Stacks blocks and process them.  This loop runs for one
+            // reward cycle, so that the next pass of the runloop will cause the
+            // PoX sync watchdog to wait until it believes that the node has
             // obtained all the Stacks blocks it can.
             debug!(
                 "Runloop: Download burnchain blocks up to reward cycle #{} (height {target_burnchain_block_height})",
@@ -1272,7 +1282,8 @@ impl RunLoop {
                     debug!("Runloop: block mining until we process all sortitions");
                     signal_mining_blocked(globals.get_miner_status());
 
-                    // first, let's process all blocks in (sortition_db_height, next_sortition_height]
+                    // first, let's process all blocks in (sortition_db_height,
+                    // next_sortition_height]
                     for block_to_process in (sortition_db_height + 1)..(next_sortition_height + 1) {
                         // stop mining so we can advance the sortition DB and so our
                         // ProcessTenure() directive (sent by relayer_sortition_notify() below)
@@ -1289,7 +1300,8 @@ impl RunLoop {
 
                         let sortition_id = &block.sortition_id;
 
-                        // Have the node process the new block, that can include, or not, a sortition.
+                        // Have the node process the new block, that can include, or not, a
+                        // sortition.
                         node.process_burnchain_state(
                             self.config(),
                             burnchain.sortdb_mut(),
@@ -1306,7 +1318,8 @@ impl RunLoop {
                             // First check if we were supposed to cleanly exit
                             if !globals.keep_running() {
                                 // The p2p thread relies on the same atomic_bool, it will
-                                // discontinue its execution after completing its ongoing runloop epoch.
+                                // discontinue its execution after completing its ongoing runloop
+                                // epoch.
                                 info!("Terminating p2p process");
                                 info!("Terminating relayer");
                                 info!("Terminating chains-coordinator");

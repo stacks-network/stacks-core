@@ -45,7 +45,8 @@ impl Keychain {
         StacksPrivateKey::from_slice(&sk_bytes[..]).expect("FATAL: Keychain::make_secret_key_bytes() returned bytes that could not be parsed into a secp256k1 secret key!")
     }
 
-    /// Get the public key hash of the nakamoto mining key (i.e., Hash160(pubkey))
+    /// Get the public key hash of the nakamoto mining key (i.e.,
+    /// Hash160(pubkey))
     pub fn get_nakamoto_pkh(&self) -> Hash160 {
         let pk = Secp256k1PublicKey::from_private(&self.nakamoto_mining_key);
         Hash160::from_node_public_key(&pk)
@@ -61,8 +62,8 @@ impl Keychain {
         self.nakamoto_mining_key = mining_key;
     }
 
-    /// Create a default keychain from the seed, with a default nakamoto mining key derived
-    ///  from the same seed (
+    /// Create a default keychain from the seed, with a default nakamoto mining
+    /// key derived  from the same seed (
     pub fn default(seed: Vec<u8>) -> Keychain {
         let secret_state = Self::make_secret_key_bytes(&seed);
         // re-hash secret_state to use as a default seed for the nakamoto mining key
@@ -117,7 +118,8 @@ impl Keychain {
     }
 
     /// Generate a VRF proof over a given byte message.
-    /// `block_height` must be the _same_ block height called to make_vrf_keypair()
+    /// `block_height` must be the _same_ block height called to
+    /// make_vrf_keypair()
     pub fn generate_proof(&self, block_height: u64, bytes: &[u8; 32]) -> VRFProof {
         let (pk, sk) = self.make_vrf_keypair(block_height);
         let proof = VRF::prove(&sk, bytes.as_ref());
@@ -129,7 +131,8 @@ impl Keychain {
     }
 
     /// Generate a microblock signing key for this burnchain block height.
-    /// `salt` can be any byte string; in practice, it's the parent Stacks block's block ID hash.
+    /// `salt` can be any byte string; in practice, it's the parent Stacks
+    /// block's block ID hash.
     pub fn make_microblock_secret_key(
         &mut self,
         burn_block_height: u64,
@@ -182,7 +185,8 @@ impl Keychain {
             .expect("FATAL: failed to sign transaction origin");
     }
 
-    /// Create a transaction authorization struct from this keychain's secret state
+    /// Create a transaction authorization struct from this keychain's secret
+    /// state
     pub fn get_transaction_auth(&self) -> Option<TransactionAuth> {
         TransactionAuth::from_p2pkh(&self.get_secret_key())
     }
@@ -374,7 +378,8 @@ mod tests {
             Some(proof)
         }
 
-        /// Given the keychain's secret keys, computes and returns the corresponding Stack address.
+        /// Given the keychain's secret keys, computes and returns the
+        /// corresponding Stack address.
         pub fn get_address(&self, is_mainnet: bool) -> StacksAddress {
             let public_keys = self
                 .secret_keys

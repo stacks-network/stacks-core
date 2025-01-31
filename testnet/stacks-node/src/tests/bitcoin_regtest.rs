@@ -208,7 +208,8 @@ fn bitcoind_integration(segwit_flag: bool) {
             burnchain_controller.bootstrap_chain(2001);
         });
 
-    // In this serie of tests, the callback is fired post-burnchain-sync, pre-stacks-sync
+    // In this serie of tests, the callback is fired post-burnchain-sync,
+    // pre-stacks-sync
     run_loop
         .callbacks
         .on_new_burn_chain_state(|round, burnchain_tip, chain_tip| {
@@ -463,7 +464,8 @@ fn bitcoind_integration(segwit_flag: bool) {
     });
 
     // Use block's hook for asserting expectations
-    // In this serie of tests, the callback is fired post-burnchain-sync, post-stacks-sync
+    // In this serie of tests, the callback is fired post-burnchain-sync,
+    // post-stacks-sync
     run_loop.callbacks.on_new_stacks_chain_state(
         |round, burnchain_tip, chain_tip, _chain_state, _burn_dbconn| {
             match round {

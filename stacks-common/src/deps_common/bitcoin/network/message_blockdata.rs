@@ -16,7 +16,6 @@
 //!
 //! This module describes network messages which are used for passing
 //! Bitcoin data (blocks and transactions) around.
-//!
 
 use crate::deps_common::bitcoin::network::constants;
 use crate::deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
@@ -49,7 +48,8 @@ pub struct GetBlocksMessage {
     /// reply with its longest known chain, starting from a locator hash
     /// if possible and block 1 otherwise.
     pub locator_hashes: Vec<Sha256dHash>,
-    /// References the block to stop at, or zero to just fetch the maximum 500 blocks
+    /// References the block to stop at, or zero to just fetch the maximum 500
+    /// blocks
     pub stop_hash: Sha256dHash,
 }
 
@@ -62,7 +62,8 @@ pub struct GetHeadersMessage {
     /// reply with its longest known chain, starting from a locator hash
     /// if possible and block 1 otherwise.
     pub locator_hashes: Vec<Sha256dHash>,
-    /// References the header to stop at, or zero to just fetch the maximum 2000 headers
+    /// References the header to stop at, or zero to just fetch the maximum 2000
+    /// headers
     pub stop_hash: Sha256dHash,
 }
 

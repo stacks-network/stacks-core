@@ -116,7 +116,8 @@ pub enum SignerConfigMode {
     /// Normal signer operation: if registered, the signer will submit
     /// stackerdb messages, etc.
     Normal {
-        /// The signer ID assigned to this signer (may be different from signer_slot_id)
+        /// The signer ID assigned to this signer (may be different from
+        /// signer_slot_id)
         signer_id: u32,
         /// The signer stackerdb slot id (may be different from signer_id)
         signer_slot_id: SignerSlotID,
@@ -149,19 +150,24 @@ pub struct SignerConfig {
     pub mainnet: bool,
     /// The path to the signer's database file
     pub db_path: PathBuf,
-    /// How much time must pass between the first block proposal in a tenure and the next bitcoin block
-    ///  before a subsequent miner isn't allowed to reorg the tenure
+    /// How much time must pass between the first block proposal in a tenure and
+    /// the next bitcoin block  before a subsequent miner isn't allowed to
+    /// reorg the tenure
     pub first_proposal_burn_block_timing: Duration,
-    /// How much time to wait for a miner to propose a block following a sortition
+    /// How much time to wait for a miner to propose a block following a
+    /// sortition
     pub block_proposal_timeout: Duration,
-    /// Time to wait for the last block of a tenure to be globally accepted or rejected
-    /// before considering a new miner's block at the same height as potentially valid.
+    /// Time to wait for the last block of a tenure to be globally accepted or
+    /// rejected before considering a new miner's block at the same height
+    /// as potentially valid.
     pub tenure_last_block_proposal_timeout: Duration,
-    /// How much time to wait for a block proposal validation response before marking the block invalid
+    /// How much time to wait for a block proposal validation response before
+    /// marking the block invalid
     pub block_proposal_validation_timeout: Duration,
     /// How much idle time must pass before allowing a tenure extend
     pub tenure_idle_timeout: Duration,
-    /// The maximum age of a block proposal in seconds that will be processed by the signer
+    /// The maximum age of a block proposal in seconds that will be processed by
+    /// the signer
     pub block_proposal_max_age_secs: u64,
     /// The running mode for the signer (dry-run or normal)
     pub signer_mode: SignerConfigMode,
@@ -188,18 +194,22 @@ pub struct GlobalConfig {
     pub db_path: PathBuf,
     /// Metrics endpoint
     pub metrics_endpoint: Option<SocketAddr>,
-    /// How much time between the first block proposal in a tenure and the next bitcoin block
-    ///  must pass before a subsequent miner isn't allowed to reorg the tenure
+    /// How much time between the first block proposal in a tenure and the next
+    /// bitcoin block  must pass before a subsequent miner isn't allowed to
+    /// reorg the tenure
     pub first_proposal_burn_block_timing: Duration,
-    /// How much time to wait for a miner to propose a block following a sortition
+    /// How much time to wait for a miner to propose a block following a
+    /// sortition
     pub block_proposal_timeout: Duration,
     /// An optional custom Chain ID
     pub chain_id: Option<u32>,
-    /// Time to wait for the last block of a tenure to be globally accepted or rejected
-    /// before considering a new miner's block at the same height as potentially valid.
+    /// Time to wait for the last block of a tenure to be globally accepted or
+    /// rejected before considering a new miner's block at the same height
+    /// as potentially valid.
     pub tenure_last_block_proposal_timeout: Duration,
-    /// How long to wait for a response from a block proposal validation response from the node
-    /// before marking that block as invalid and rejecting it
+    /// How long to wait for a response from a block proposal validation
+    /// response from the node before marking that block as invalid and
+    /// rejecting it
     pub block_proposal_validation_timeout: Duration,
     /// How much idle time must pass before allowing a tenure extend
     pub tenure_idle_timeout: Duration,
@@ -216,35 +226,44 @@ struct RawConfigFile {
     pub node_host: String,
     /// endpoint to event receiver
     pub endpoint: String,
-    /// The hex representation of the signer's Stacks private key used for communicating
-    /// with the Stacks Node, including writing to the Stacker DB instance.
+    /// The hex representation of the signer's Stacks private key used for
+    /// communicating with the Stacks Node, including writing to the Stacker
+    /// DB instance.
     pub stacks_private_key: String,
     /// The network to use. One of "mainnet" or "testnet".
     pub network: Network,
-    /// The time to wait (in millisecs) for a response from the stacker-db instance
+    /// The time to wait (in millisecs) for a response from the stacker-db
+    /// instance
     pub event_timeout_ms: Option<u64>,
     /// The authorization password for the block proposal endpoint
     pub auth_password: String,
-    /// The path to the signer's database file or :memory: for an in-memory database
+    /// The path to the signer's database file or :memory: for an in-memory
+    /// database
     pub db_path: String,
     /// Metrics endpoint
     pub metrics_endpoint: Option<String>,
-    /// How much time (in secs) must pass between the first block proposal in a tenure and the next bitcoin block
-    /// before a subsequent miner isn't allowed to reorg the tenure
+    /// How much time (in secs) must pass between the first block proposal in a
+    /// tenure and the next bitcoin block before a subsequent miner isn't
+    /// allowed to reorg the tenure
     pub first_proposal_burn_block_timing_secs: Option<u64>,
-    /// How much time (in millisecs) to wait for a miner to propose a block following a sortition
+    /// How much time (in millisecs) to wait for a miner to propose a block
+    /// following a sortition
     pub block_proposal_timeout_ms: Option<u64>,
     /// An optional custom Chain ID
     pub chain_id: Option<u32>,
-    /// Time in seconds to wait for the last block of a tenure to be globally accepted or rejected
-    /// before considering a new miner's block at the same height as potentially valid.
+    /// Time in seconds to wait for the last block of a tenure to be globally
+    /// accepted or rejected before considering a new miner's block at the
+    /// same height as potentially valid.
     pub tenure_last_block_proposal_timeout_secs: Option<u64>,
-    /// How long to wait (in millisecs) for a response from a block proposal validation response from the node
-    /// before marking that block as invalid and rejecting it
+    /// How long to wait (in millisecs) for a response from a block proposal
+    /// validation response from the node before marking that block as
+    /// invalid and rejecting it
     pub block_proposal_validation_timeout_ms: Option<u64>,
-    /// How much idle time (in seconds) must pass before a tenure extend is allowed
+    /// How much idle time (in seconds) must pass before a tenure extend is
+    /// allowed
     pub tenure_idle_timeout_secs: Option<u64>,
-    /// The maximum age of a block proposal (in secs) that will be processed by the signer.
+    /// The maximum age of a block proposal (in secs) that will be processed by
+    /// the signer.
     pub block_proposal_max_age_secs: Option<u64>,
     /// Is this signer binary going to be running in dry-run mode?
     pub dry_run: Option<bool>,
@@ -444,7 +463,8 @@ impl Debug for GlobalConfig {
     }
 }
 
-/// Helper function for building a signer config for each provided signer private key
+/// Helper function for building a signer config for each provided signer
+/// private key
 #[allow(clippy::too_many_arguments)]
 pub fn build_signer_config_tomls(
     stacks_private_keys: &[StacksPrivateKey],

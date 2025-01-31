@@ -58,7 +58,8 @@ pub enum Error {
     Network(network::Error),
     /// The header hash is not below the target
     SpvBadProofOfWork,
-    /// The `target` field of a block header did not match the expected difficulty
+    /// The `target` field of a block header did not match the expected
+    /// difficulty
     SpvBadTarget,
 }
 

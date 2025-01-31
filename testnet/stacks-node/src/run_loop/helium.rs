@@ -56,8 +56,8 @@ impl RunLoop {
         // make first non-genesis block, with initial VRF keys
         self.node.setup(&mut burnchain);
 
-        // Waiting on the 1st block (post-genesis) from the burnchain, containing the first key registrations
-        // that will be used for bootstraping the chain.
+        // Waiting on the 1st block (post-genesis) from the burnchain, containing the
+        // first key registrations that will be used for bootstraping the chain.
         let mut round_index: u64 = 0;
 
         // Sync and update node with this new block.
@@ -95,10 +95,12 @@ impl RunLoop {
             None => panic!("Error while running 1st tenure"),
         };
 
-        // Tenures are instantiating their own chainstate, so that nodes can keep a clean chainstate,
-        // while having the option of running multiple tenures concurrently and try different strategies.
-        // As a result, once the tenure ran and we have the artifacts (anchored_blocks, microblocks),
-        // we have the 1st node (leading) updating its chainstate with the artifacts from its own tenure.
+        // Tenures are instantiating their own chainstate, so that nodes can keep a
+        // clean chainstate, while having the option of running multiple tenures
+        // concurrently and try different strategies. As a result, once the
+        // tenure ran and we have the artifacts (anchored_blocks, microblocks),
+        // we have the 1st node (leading) updating its chainstate with the artifacts
+        // from its own tenure.
         leader.commit_artifacts(
             &artifacts_from_1st_tenure.anchored_block,
             &artifacts_from_1st_tenure.parent_block,
@@ -120,7 +122,8 @@ impl RunLoop {
             };
 
         // Have the node process its own tenure.
-        // We should have some additional checks here, and ensure that the previous artifacts are legit.
+        // We should have some additional checks here, and ensure that the previous
+        // artifacts are legit.
         let mut atlas_db = self.node.make_atlas_db();
 
         chain_tip = self.node.process_tenure(
@@ -141,7 +144,8 @@ impl RunLoop {
                 .index_handle(&burnchain_tip.block_snapshot.sortition_id),
         );
 
-        // If the node we're looping on won the sortition, initialize and configure the next tenure
+        // If the node we're looping on won the sortition, initialize and configure the
+        // next tenure
         if won_sortition {
             leader_tenure = self.node.initiate_new_tenure();
         }
@@ -201,7 +205,8 @@ impl RunLoop {
                 None => continue,
                 Some(ref artifacts) => {
                     // Have the node process its tenure.
-                    // We should have some additional checks here, and ensure that the previous artifacts are legit.
+                    // We should have some additional checks here, and ensure that the previous
+                    // artifacts are legit.
                     let mut atlas_db = self.node.make_atlas_db();
 
                     chain_tip = self.node.process_tenure(

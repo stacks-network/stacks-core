@@ -255,28 +255,31 @@ pub fn make_simple_key_register(
     }
 }
 
-/// Create a mock reward cycle with a particular anchor block vote outcome -- it either confirms or
-/// does not confirm an anchor block.  The method returns the data for all new mocked blocks
-/// created -- it returns the list of new block headers, and for each new block, it returns the
-/// list of block-commits created (if any).  In addition, the `headers` argument will be grown to
-/// include the new block-headers (so that a succession of calls to this method will grow the given
-/// headers argument).  The list of headers returned (first tuple item) is in 1-to-1 correspondence
-/// with the list of lists of block-commits returned (second tuple item).  If the ith item in
-/// parent_commits is None, then all the block-commits in the ith list of lists of block-commits
-/// will be None.
+/// Create a mock reward cycle with a particular anchor block vote outcome -- it
+/// either confirms or does not confirm an anchor block.  The method returns the
+/// data for all new mocked blocks created -- it returns the list of new block
+/// headers, and for each new block, it returns the list of block-commits
+/// created (if any).  In addition, the `headers` argument will be grown to
+/// include the new block-headers (so that a succession of calls to this method
+/// will grow the given headers argument).  The list of headers returned (first
+/// tuple item) is in 1-to-1 correspondence with the list of lists of
+/// block-commits returned (second tuple item).  If the ith item in
+/// parent_commits is None, then all the block-commits in the ith list of lists
+/// of block-commits will be None.
 ///
-/// The caller can control how many block-commits get produced per block with the `parent_commits`
-/// argument.  If parent_commits[i] is Some(..), then a sequence of block-commits will be produced
-/// that descend from it.
+/// The caller can control how many block-commits get produced per block with
+/// the `parent_commits` argument.  If parent_commits[i] is Some(..), then a
+/// sequence of block-commits will be produced that descend from it.
 ///
-/// If `confirm_anchor_block` is true, then the prepare-phase of the reward cycle will confirm an
-/// anchor block -- there will be sufficiently many confirmations placed on a block-commit in the
-/// reward phase.  Otherwise, enough preapre-phase blocks will be missing block-commits that no
+/// If `confirm_anchor_block` is true, then the prepare-phase of the reward
+/// cycle will confirm an anchor block -- there will be sufficiently many
+/// confirmations placed on a block-commit in the reward phase.  Otherwise,
+/// enough preapre-phase blocks will be missing block-commits that no
 /// anchor block is selected.
 ///
-/// All block-commits produced reference the given miner key (given in the `key` argument).  All
-/// block-commits created, as well as all block headers, will be stored to the given burnchain
-/// database (in addition to being returned).
+/// All block-commits produced reference the given miner key (given in the `key`
+/// argument).  All block-commits created, as well as all block headers, will be
+/// stored to the given burnchain database (in addition to being returned).
 pub fn make_reward_cycle_with_vote(
     burnchain_db: &mut BurnchainDB,
     burnchain: &Burnchain,
@@ -431,9 +434,10 @@ pub fn make_reward_cycle_with_vote(
     (new_headers, new_commits)
 }
 
-/// Conveninece wrapper that produces a reward cycle with one sequence of block-commits.  Returns
-/// the sequence of block headers in this reward cycle, and the list of block-commits created.  If
-/// parent_commit is None, then the list of block-commits will contain all None's.
+/// Conveninece wrapper that produces a reward cycle with one sequence of
+/// block-commits.  Returns the sequence of block headers in this reward cycle,
+/// and the list of block-commits created.  If parent_commit is None, then the
+/// list of block-commits will contain all None's.
 fn make_simple_reward_cycle(
     burnchain_db: &mut BurnchainDB,
     burnchain: &Burnchain,
@@ -452,8 +456,8 @@ fn make_simple_reward_cycle(
     )
 }
 
-/// Convenience wrapper that produces a reward cycle with zero or more sequences of block-commits,
-/// such that an anchor block-commit is chosen.
+/// Convenience wrapper that produces a reward cycle with zero or more sequences
+/// of block-commits, such that an anchor block-commit is chosen.
 /// Returns the list of new block headers and each blocks' commits.
 pub fn make_reward_cycle(
     burnchain_db: &mut BurnchainDB,
@@ -468,8 +472,8 @@ pub fn make_reward_cycle(
     make_reward_cycle_with_vote(burnchain_db, burnchain, key, headers, parent_commits, true)
 }
 
-/// Convenience wrapper that produces a reward cycle with zero or more sequences of block-commits,
-/// such that no anchor block-commit is chosen.
+/// Convenience wrapper that produces a reward cycle with zero or more sequences
+/// of block-commits, such that no anchor block-commit is chosen.
 /// Returns the list of new block headers and each blocks' commits.
 pub fn make_reward_cycle_without_anchor(
     burnchain_db: &mut BurnchainDB,
@@ -617,8 +621,8 @@ fn test_parent_block_commits() {
     )
     .unwrap();
 
-    // this is a simple reward cycle -- each block-commit has a unique parent, except for the
-    // orphan
+    // this is a simple reward cycle -- each block-commit has a unique parent,
+    // except for the orphan
     assert_eq!(parent_commits.len(), all_ops_with_orphan.len() - 1);
 
     let mut all_ops_with_same_parent = all_ops;
@@ -812,8 +816,8 @@ fn test_find_heaviest_block_commit() {
     let (heaviest_parent_block_commit, descendancy, total_confs, total_burns) =
         heaviest_parent_commit_opt.unwrap();
 
-    // since this is just a linear chain of block-commits, the heaviest parent is the parent of the
-    // first block-commit in the prepare phase
+    // since this is just a linear chain of block-commits, the heaviest parent is
+    // the parent of the first block-commit in the prepare phase
     assert_eq!(commits[1].as_ref().unwrap(), &heaviest_parent_block_commit);
     assert_eq!(descendancy, vec![vec![true], vec![true], vec![true]]);
     assert_eq!(total_confs, 3);
@@ -844,8 +848,8 @@ fn test_find_heaviest_block_commit() {
     assert_eq!(total_confs, 2);
     assert_eq!(total_burns, 2 * 10000);
 
-    // make a forked history, with another best-tip winner, but with a deeper fork split
-    // 1,0 <-- 2,0 <-- 3,0
+    // make a forked history, with another best-tip winner, but with a deeper fork
+    // split 1,0 <-- 2,0 <-- 3,0
     //           \
     //            `------- 4,0 <-- 5,0
     let mut all_ops_forked_majority = filtered_ops.clone();
@@ -907,8 +911,8 @@ fn test_find_heaviest_block_commit() {
     assert_eq!(total_confs, 3);
     assert_eq!(total_burns, 1 + 2);
 
-    // make a forked history where there is no best tip, but enough (majority) confirmations
-    // 1,0 <-- 2,0 <-- 3,0
+    // make a forked history where there is no best tip, but enough (majority)
+    // confirmations 1,0 <-- 2,0 <-- 3,0
     //  |        \
     //  |         `-------- 4,0
     //  |
@@ -973,8 +977,8 @@ fn test_find_heaviest_block_commit() {
 
 #[test]
 fn test_find_heaviest_parent_commit_many_commits() {
-    // Test finding parent block commits when there's multiple block-commit forks to choose from.
-    // This tests the tie-breaking logic.
+    // Test finding parent block commits when there's multiple block-commit forks to
+    // choose from. This tests the tie-breaking logic.
     let first_bhh = BurnchainHeaderHash([0; 32]);
     let first_timestamp = 0;
     let first_height = 0;
@@ -1185,7 +1189,8 @@ fn test_find_heaviest_parent_commit_many_commits() {
     all_ops_no_majority[2][0].vtxindex = 0;
     all_ops_no_majority[2][0].burn_fee = 3;
 
-    // 5,1 -- same BTC overall as the history ending at 5,0, but occurs later in the blockchain
+    // 5,1 -- same BTC overall as the history ending at 5,0, but occurs later in the
+    // blockchain
     all_ops_no_majority[2][1].parent_block_ptr = 4;
     all_ops_no_majority[2][1].parent_vtxindex = 1;
     all_ops_no_majority[2][1].vtxindex = 1;
@@ -1202,8 +1207,9 @@ fn test_find_heaviest_parent_commit_many_commits() {
     let (heaviest_parent_block_commit, descendancy, total_confs, total_burns) =
         heaviest_parent_commit_opt.unwrap();
 
-    // number of confirmations and BTC amount are the same in the two fork histories, so break ties
-    // by choosing the anchor block confirmed by the latest commit.
+    // number of confirmations and BTC amount are the same in the two fork
+    // histories, so break ties by choosing the anchor block confirmed by the
+    // latest commit.
     assert_eq!(
         commits[1][1].as_ref().unwrap(),
         &heaviest_parent_block_commit
@@ -1220,12 +1226,14 @@ fn test_find_heaviest_parent_commit_many_commits() {
 
 #[test]
 fn test_update_pox_affirmation_maps_3_forks() {
-    // Create three forks, such that each subsequent reward cycle only affirms the first reward cycle's anchor
-    // block.  That is, reward cycle 2 affirms reward cycle 1's anchor block; reward cycle 3
-    // affirms reward cycle 1's anchor block but not 2's, and reward cycle 4 affirms reward cycle
-    // 1's anchor block but not 2's or 3's.  Each affirmation map has the same weight, but verify
-    // that the canonical affirmation map is the *last-discovered* affirmation map (i.e. the one
-    // with the highest affirmed anchor block -- in this case, the fork in which reward cycle 4
+    // Create three forks, such that each subsequent reward cycle only affirms the
+    // first reward cycle's anchor block.  That is, reward cycle 2 affirms
+    // reward cycle 1's anchor block; reward cycle 3 affirms reward cycle 1's
+    // anchor block but not 2's, and reward cycle 4 affirms reward cycle
+    // 1's anchor block but not 2's or 3's.  Each affirmation map has the same
+    // weight, but verify that the canonical affirmation map is the
+    // *last-discovered* affirmation map (i.e. the one with the highest affirmed
+    // anchor block -- in this case, the fork in which reward cycle 4
     // affirms reward cycle 1's anchor block, but not 2's or 3's).
     let first_bhh = BurnchainHeaderHash([0; 32]);
     let first_timestamp = 0;
@@ -1300,7 +1308,8 @@ fn test_update_pox_affirmation_maps_3_forks() {
             .is_some()
     );
 
-    // the anchor block itself affirms nothing, since it isn't built on an anchor block
+    // the anchor block itself affirms nothing, since it isn't built on an anchor
+    // block
     let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
         burnchain_db.conn(),
         &burnchain,
@@ -1340,7 +1349,8 @@ fn test_update_pox_affirmation_maps_3_forks() {
     );
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 1, &burnchain).unwrap();
 
-    // there's two anchor blocks so far -- one for reward cycle 1, and one for reward cycle 2.
+    // there's two anchor blocks so far -- one for reward cycle 1, and one for
+    // reward cycle 2.
     assert!(
         BurnchainDB::get_canonical_anchor_block_commit(burnchain_db.conn(), &headers, 0)
             .unwrap()
@@ -1378,8 +1388,8 @@ fn test_update_pox_affirmation_maps_3_forks() {
     assert_eq!(heaviest_am, AffirmationMap::decode("p").unwrap());
     assert_eq!(canonical_am, AffirmationMap::decode("pp").unwrap());
 
-    // descend from a prepare-phase commit in rc 0, so affirms rc 0's anchor block but not rc
-    // 1's
+    // descend from a prepare-phase commit in rc 0, so affirms rc 0's anchor block
+    // but not rc 1's
     assert!(anchor_block_0.block_height < commits_0[6][0].as_ref().unwrap().block_height);
     let (next_headers, commits_2) = make_reward_cycle(
         &mut burnchain_db,
@@ -1412,8 +1422,8 @@ fn test_update_pox_affirmation_maps_3_forks() {
             .is_some()
     );
 
-    // there are two equivalently heavy affirmation maps, but the affirmation map discovered later
-    // is the heaviest.
+    // there are two equivalently heavy affirmation maps, but the affirmation map
+    // discovered later is the heaviest.
     let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
         burnchain_db.conn(),
         &burnchain,
@@ -1435,8 +1445,8 @@ fn test_update_pox_affirmation_maps_3_forks() {
     assert_eq!(heaviest_am, AffirmationMap::decode("pa").unwrap());
     assert_eq!(canonical_am, AffirmationMap::decode("pap").unwrap());
 
-    // descend from a prepare-phase commit in rc 0, so affirms rc 0's anchor block, but not rc
-    // 1's or rc 2's
+    // descend from a prepare-phase commit in rc 0, so affirms rc 0's anchor block,
+    // but not rc 1's or rc 2's
     assert!(anchor_block_0.block_height < commits_0[8][0].as_ref().unwrap().block_height);
     let (next_headers, commits_3) = make_reward_cycle(
         &mut burnchain_db,
@@ -1447,8 +1457,8 @@ fn test_update_pox_affirmation_maps_3_forks() {
     );
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 3, &burnchain).unwrap();
 
-    // there are three equivalently heavy affirmation maps, but the affirmation map discovered last
-    // is the heaviest.
+    // there are three equivalently heavy affirmation maps, but the affirmation map
+    // discovered last is the heaviest.
     let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
         burnchain_db.conn(),
         &burnchain,
@@ -1473,9 +1483,9 @@ fn test_update_pox_affirmation_maps_3_forks() {
 
 #[test]
 fn test_update_pox_affirmation_maps_unique_anchor_block() {
-    // Verify that if two reward cycles choose the same anchor block, the second reward cycle to do
-    // so will actually have no anchor block at all (since a block-commit can be an anchor block
-    // for at most one reward cycle).
+    // Verify that if two reward cycles choose the same anchor block, the second
+    // reward cycle to do so will actually have no anchor block at all (since a
+    // block-commit can be an anchor block for at most one reward cycle).
     let first_bhh = BurnchainHeaderHash([0; 32]);
     let first_timestamp = 0;
     let first_height = 0;
@@ -1549,7 +1559,8 @@ fn test_update_pox_affirmation_maps_unique_anchor_block() {
             .is_some()
     );
 
-    // the anchor block itself affirms nothing, since it isn't built on an anchor block
+    // the anchor block itself affirms nothing, since it isn't built on an anchor
+    // block
     let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
         burnchain_db.conn(),
         &burnchain,
@@ -1661,13 +1672,14 @@ fn test_update_pox_affirmation_maps_unique_anchor_block() {
 
 #[test]
 fn test_update_pox_affirmation_maps_absent() {
-    // Create two fork histories, both of which affirm the *absence* of different anchor blocks,
-    // and both of which contain stretches of reward cycles in which no reward cycle was chosen.
-    // Verify that an affirmation map becomes canonical only by affirming the *presence* of more
-    // anchor blocks than others -- i.e. affirmation maps that grow by adding reward cycles in
-    // which there was no anchor block chosen do *not* increase in weight (and thus the canonical
-    // affirmation map does *not* change even though multiple reward cycles pass with no anchor
-    // block chosen).
+    // Create two fork histories, both of which affirm the *absence* of different
+    // anchor blocks, and both of which contain stretches of reward cycles in
+    // which no reward cycle was chosen. Verify that an affirmation map becomes
+    // canonical only by affirming the *presence* of more anchor blocks than
+    // others -- i.e. affirmation maps that grow by adding reward cycles in
+    // which there was no anchor block chosen do *not* increase in weight (and thus
+    // the canonical affirmation map does *not* change even though multiple
+    // reward cycles pass with no anchor block chosen).
     let first_bhh = BurnchainHeaderHash([0; 32]);
     let first_timestamp = 0;
     let first_height = 0;
@@ -1777,8 +1789,8 @@ fn test_update_pox_affirmation_maps_absent() {
         assert_eq!(block_commit_metadata.anchor_block_descendant, None);
     }
 
-    // build a second reward cycle off of a commit that does _not_ affirm the first anchor
-    // block
+    // build a second reward cycle off of a commit that does _not_ affirm the first
+    // anchor block
     let (next_headers, commits_1) = make_reward_cycle(
         &mut burnchain_db,
         &burnchain,
@@ -1810,8 +1822,8 @@ fn test_update_pox_affirmation_maps_absent() {
     assert_eq!(heaviest_am, AffirmationMap::decode("a").unwrap());
     assert_eq!(canonical_am, AffirmationMap::decode("ap").unwrap());
 
-    // build a third reward cycle off of a commit in the second reward cycle, but make it so
-    // that there is no anchor block mined
+    // build a third reward cycle off of a commit in the second reward cycle, but
+    // make it so that there is no anchor block mined
     let (next_headers, commits_2) = make_reward_cycle_without_anchor(
         &mut burnchain_db,
         &burnchain,
@@ -1860,8 +1872,8 @@ fn test_update_pox_affirmation_maps_absent() {
     assert_eq!(heaviest_am, AffirmationMap::decode("a").unwrap());
     assert_eq!(canonical_am, AffirmationMap::decode("apn").unwrap());
 
-    // build a fourth reward cycle off of a commit in the third reward cycle, but make it so
-    // that there is no anchor block mined
+    // build a fourth reward cycle off of a commit in the third reward cycle, but
+    // make it so that there is no anchor block mined
     assert!(commits_2[5][0].is_some());
     assert!(commits_2[5][1].is_some());
     let (next_headers, commits_3) = make_reward_cycle_without_anchor(
@@ -1976,8 +1988,8 @@ fn test_update_pox_affirmation_maps_absent() {
     assert_eq!(heaviest_am, AffirmationMap::decode("a").unwrap());
     assert_eq!(canonical_am, AffirmationMap::decode("apnnn").unwrap());
 
-    // make a fifth reward cycle, but with an anchor block.  Affirms the first anchor block by
-    // descending from a chain that descends from it.
+    // make a fifth reward cycle, but with an anchor block.  Affirms the first
+    // anchor block by descending from a chain that descends from it.
     assert!(commits_4[5][0].is_some());
     assert!(commits_4[5][1].is_some());
     let (next_headers, commits_5) = make_reward_cycle(
@@ -2025,8 +2037,9 @@ fn test_update_pox_affirmation_maps_absent() {
             .is_some()
     );
 
-    // heaviest _anchor block_ affirmation map advances, since the new anchor block affirms the
-    // last 4 reward cycles, including the anchor block mined in the first reward cycle
+    // heaviest _anchor block_ affirmation map advances, since the new anchor block
+    // affirms the last 4 reward cycles, including the anchor block mined in the
+    // first reward cycle
     let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
         burnchain_db.conn(),
         &burnchain,
@@ -2045,14 +2058,14 @@ fn test_update_pox_affirmation_maps_absent() {
         &heaviest_am, &canonical_am
     );
 
-    // anchor block was chosen in the last reward cycle, and in doing so created the heaviest
-    // affirmation map for an anchor block, so the canonical affirmation map is
-    // whatever that last anchor block affirmed
+    // anchor block was chosen in the last reward cycle, and in doing so created the
+    // heaviest affirmation map for an anchor block, so the canonical
+    // affirmation map is whatever that last anchor block affirmed
     assert_eq!(heaviest_am, AffirmationMap::decode("pannn").unwrap());
     assert_eq!(canonical_am, AffirmationMap::decode("pannnp").unwrap());
 
-    // make a third history that affirms _nothing_.  It should eventually overtake this last
-    // heaviest affirmation map
+    // make a third history that affirms _nothing_.  It should eventually overtake
+    // this last heaviest affirmation map
     let mut start = vec![commits_0[3][1].clone()];
     for i in 0..6 {
         let (next_headers, commits) = make_reward_cycle_with_vote(
@@ -2124,12 +2137,14 @@ fn test_update_pox_affirmation_maps_absent() {
 
 #[test]
 fn test_update_pox_affirmation_maps_nothing() {
-    // Create a sequence of reward cycles that alternate between selecting (and affirming) an
-    // anchor block, and not selecting an anchor block at all.  Verify that in all cases the
-    // canonical affirmation map is still the affirmation map with the most affirmed anchor blocks
-    // (`pn`), and verify that the heaviest affirmation map (given the unconfirmed anchor block oracle
-    // closure) can alternate between either `pnpn` or `pnan` based on whether or not the oracle
-    // declares an anchor block present or absent in the chain state.
+    // Create a sequence of reward cycles that alternate between selecting (and
+    // affirming) an anchor block, and not selecting an anchor block at all.
+    // Verify that in all cases the canonical affirmation map is still the
+    // affirmation map with the most affirmed anchor blocks (`pn`), and verify
+    // that the heaviest affirmation map (given the unconfirmed anchor block oracle
+    // closure) can alternate between either `pnpn` or `pnan` based on whether or
+    // not the oracle declares an anchor block present or absent in the chain
+    // state.
     let first_bhh = BurnchainHeaderHash([0; 32]);
     let first_timestamp = 0;
     let first_height = 0;
@@ -2189,7 +2204,8 @@ fn test_update_pox_affirmation_maps_nothing() {
             .is_some()
     );
 
-    // the anchor block itself affirms nothing, since it isn't built on an anchor block
+    // the anchor block itself affirms nothing, since it isn't built on an anchor
+    // block
     let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
         burnchain_db.conn(),
         &burnchain,
@@ -2239,8 +2255,8 @@ fn test_update_pox_affirmation_maps_nothing() {
             .is_none()
     );
 
-    // second reward cycle doesn't have an anchor block, so there's no heaviest anchor block
-    // affirmation map yet
+    // second reward cycle doesn't have an anchor block, so there's no heaviest
+    // anchor block affirmation map yet
     let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
         burnchain_db.conn(),
         &burnchain,
@@ -2342,9 +2358,9 @@ fn test_update_pox_affirmation_maps_nothing() {
     );
     update_pox_affirmation_maps(&mut burnchain_db, &headers, 3, &burnchain).unwrap();
 
-    // there are three equivalently heavy affirmation maps, but the affirmation map discovered last
-    // is the heaviest.  BUT THIS TIME, MAKE THE UNCONFIRMED ORACLE DENY THAT THIS LAST
-    // ANCHORED BLOCK EXISTS.
+    // there are three equivalently heavy affirmation maps, but the affirmation map
+    // discovered last is the heaviest.  BUT THIS TIME, MAKE THE UNCONFIRMED
+    // ORACLE DENY THAT THIS LAST ANCHORED BLOCK EXISTS.
     let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
         burnchain_db.conn(),
         &burnchain,
@@ -2390,12 +2406,13 @@ fn test_update_pox_affirmation_maps_nothing() {
 
 #[test]
 fn test_update_pox_affirmation_fork_2_cycles() {
-    // Create two forks, where miners work on each fork for two cycles (so, there are four reward
-    // cycles in total, but miners spend the first two reward cycles on fork 1 and the next two
-    // reward cycles on fork 2).  The second fork does NOT affirm the anchor blocks in the first
-    // fork.  Verify that the canonical affirmation map progresses from `paa` to `aap` once the
-    // second fork affirms two anchor blocks (note that ties in affirmation map weights are broken
-    // by most-recently-affirmed anchor block).
+    // Create two forks, where miners work on each fork for two cycles (so, there
+    // are four reward cycles in total, but miners spend the first two reward
+    // cycles on fork 1 and the next two reward cycles on fork 2).  The second
+    // fork does NOT affirm the anchor blocks in the first fork.  Verify that
+    // the canonical affirmation map progresses from `paa` to `aap` once the
+    // second fork affirms two anchor blocks (note that ties in affirmation map
+    // weights are broken by most-recently-affirmed anchor block).
     let first_bhh = BurnchainHeaderHash([0; 32]);
     let first_timestamp = 0;
     let first_height = 0;
@@ -2455,7 +2472,8 @@ fn test_update_pox_affirmation_fork_2_cycles() {
             .is_some()
     );
 
-    // the anchor block itself affirms nothing, since it isn't built on an anchor block
+    // the anchor block itself affirms nothing, since it isn't built on an anchor
+    // block
     let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
         burnchain_db.conn(),
         &burnchain,
@@ -2518,8 +2536,8 @@ fn test_update_pox_affirmation_fork_2_cycles() {
             .is_some()
     );
 
-    // the network affirms two anchor blocks, but the second anchor block only affirms the
-    // first anchor block.
+    // the network affirms two anchor blocks, but the second anchor block only
+    // affirms the first anchor block.
     let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
         burnchain_db.conn(),
         &burnchain,
@@ -2683,10 +2701,11 @@ fn test_update_pox_affirmation_fork_2_cycles() {
 
 #[test]
 fn test_update_pox_affirmation_fork_duel() {
-    // Create two forks where miners alternate between working on forks (i.e. selecting anchor
-    // blocks) at each reward cycle.  That is, in odd reward cycles, miners work on fork #1, and in
-    // even reward cycles, they work on fork #2.  Verify that the canonical affirmation map
-    // flip-flops between that of fork #1 and fork #2 as anchor blocks are subsequently affirmed.
+    // Create two forks where miners alternate between working on forks (i.e.
+    // selecting anchor blocks) at each reward cycle.  That is, in odd reward
+    // cycles, miners work on fork #1, and in even reward cycles, they work on
+    // fork #2.  Verify that the canonical affirmation map flip-flops between
+    // that of fork #1 and fork #2 as anchor blocks are subsequently affirmed.
     let first_bhh = BurnchainHeaderHash([0; 32]);
     let first_timestamp = 0;
     let first_height = 0;
@@ -2746,7 +2765,8 @@ fn test_update_pox_affirmation_fork_duel() {
             .is_some()
     );
 
-    // the anchor block itself affirms nothing, since it isn't built on an anchor block
+    // the anchor block itself affirms nothing, since it isn't built on an anchor
+    // block
     let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
         burnchain_db.conn(),
         &burnchain,

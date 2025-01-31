@@ -169,8 +169,8 @@ impl DelegateStxOp {
                 op_error::InvalidInput
             })?;
 
-        // coerce a hash mode for this address if need be, since we'll need it when we feed this
-        // address into the .pox contract
+        // coerce a hash mode for this address if need be, since we'll need it when we
+        // feed this address into the .pox contract
         let reward_addr = if let Some(index) = data.reward_addr_index {
             if outputs.len() > index as usize {
                 Some((
@@ -459,8 +459,9 @@ mod tests {
         .unwrap_err();
         assert!(matches!(err, op_error::ParseError));
 
-        // Data is length 17. The 16th byte is set to 1, which signals that until_burn_height
-        // is Some(u64), so the deserialize function expects another 8 bytes
+        // Data is length 17. The 16th byte is set to 1, which signals that
+        // until_burn_height is Some(u64), so the deserialize function expects
+        // another 8 bytes
         let tx = BitcoinTransaction {
             txid: Txid([0; 32]),
             vtxindex: 0,
@@ -570,7 +571,8 @@ mod tests {
         assert!(matches!(err, op_error::InvalidInput));
     }
 
-    // Parse a normal DelegateStx op in which the reward_addr is set to output index 2.
+    // Parse a normal DelegateStx op in which the reward_addr is set to output index
+    // 2.
     #[test]
     fn test_parse_delegate_stx() {
         let mut data = vec![1; 80];

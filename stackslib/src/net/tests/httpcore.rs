@@ -781,8 +781,8 @@ fn test_http_response_type_codec() {
             StacksHttpPreamble::Response((*expected_http_preamble).clone())
         );
 
-        // note that message's headers contain cors headers and the like, which we don't synthesize
-        // here
+        // note that message's headers contain cors headers and the like, which we don't
+        // synthesize here
         match message {
             StacksHttpMessage::Response(ref mut response) => response.clear_headers(),
             _ => {
@@ -851,7 +851,8 @@ fn test_http_response_type_codec_err() {
 
 #[test]
 fn test_http_duplicate_concurrent_streamed_response_fails() {
-    // do not permit multiple in-flight chunk-encoded HTTP responses with the same request ID.
+    // do not permit multiple in-flight chunk-encoded HTTP responses with the same
+    // request ID.
     let valid_neighbors_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n37\r\n{\"bootstrap\":[],\"sample\":[],\"inbound\":[],\"outbound\":[]}\r\n0\r\n\r\n";
     let invalid_neighbors_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n10\r\nxxxxxxxxxxxxxxxx\r\n0\r\n\r\n";
     let invalid_chunked_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n38\r\n{\"bootstrap\":[],\"sample\":[],\"inbound\":[],\"outbound\":[]}\r\n0\r\n\r\n";
@@ -1140,7 +1141,8 @@ fn test_send_request_timeout() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind test listener");
     let addr = listener.local_addr().unwrap();
 
-    // Spawn a thread that will accept the connection and do nothing, simulating a long delay
+    // Spawn a thread that will accept the connection and do nothing, simulating a
+    // long delay
     thread::spawn(move || {
         let (stream, _addr) = listener.accept().unwrap();
         // Hold the connection open to simulate a delay
@@ -1207,8 +1209,8 @@ fn start_mock_server(response: String, client_done_signal: Receiver<()>) -> Stri
                 .expect("Failed to receive client done signal");
 
             // Explicitly drop the stream after signaling to ensure the client finishes
-            // NOTE: this will cause the test to slow down, since `send_http_request` expects
-            // `Connection: close`
+            // NOTE: this will cause the test to slow down, since `send_http_request`
+            // expects `Connection: close`
             drop(stream);
 
             debug!("Mock server closing connection");

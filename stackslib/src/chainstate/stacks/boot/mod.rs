@@ -79,8 +79,8 @@ pub const POX_4_NAME: &str = "pox-4";
 pub const SIGNERS_NAME: &str = "signers";
 pub const SIGNERS_VOTING_NAME: &str = "signers-voting";
 pub const SIGNERS_VOTING_FUNCTION_NAME: &str = "vote-for-aggregate-public-key";
-/// This is the name of a variable in the `.signers` contract which tracks the most recently updated
-/// reward cycle number.
+/// This is the name of a variable in the `.signers` contract which tracks the
+/// most recently updated reward cycle number.
 pub const SIGNERS_UPDATE_STATE: &str = "last-set-cycle";
 pub const SIGNERS_MAX_LIST_SIZE: usize = 4000;
 pub const SIGNERS_PK_LEN: usize = 33;
@@ -97,8 +97,9 @@ pub const COSTS_1_NAME: &str = "costs";
 pub const COSTS_2_NAME: &str = "costs-2";
 pub const COSTS_3_NAME: &str = "costs-3";
 /// This contract name is used in testnet **only** to lookup an initial
-///  setting for the pox-4 aggregate key. This contract should contain a `define-read-only`
-///  function called `aggregate-key` with zero arguments which returns a (buff 33)
+///  setting for the pox-4 aggregate key. This contract should contain a
+/// `define-read-only`  function called `aggregate-key` with zero arguments
+/// which returns a (buff 33)
 pub const BOOT_TEST_POX_4_AGG_KEY_CONTRACT: &str = "pox-4-agg-test-booter";
 pub const BOOT_TEST_POX_4_AGG_KEY_FNAME: &str = "aggregate-key";
 
@@ -172,8 +173,8 @@ pub struct RawRewardSetEntry {
 // This should deprecate the const values `POX_version_NAME`, but
 // that is the kind of refactor that should be in its own PR.
 // Having an enum here is useful for a bunch of reasons, but chiefly:
-//   * we'll be able to add an Ord implementation, so that we can
-//     do much easier version checks
+//   * we'll be able to add an Ord implementation, so that we can do much easier
+//     version checks
 //   * static enforcement of matches
 define_named_enum!(PoxVersions {
     Pox1("pox"),
@@ -309,8 +310,8 @@ impl StacksChainState {
         format!("chainstate_pox::handled_cycle_start::{}", cycle_number)
     }
 
-    /// Returns whether or not the `cycle_number` PoX cycle has been handled by the
-    ///  Stacks fork in the opened `clarity_db`.
+    /// Returns whether or not the `cycle_number` PoX cycle has been handled by
+    /// the  Stacks fork in the opened `clarity_db`.
     pub fn handled_pox_cycle_start(clarity_db: &mut ClarityDatabase, cycle_number: u64) -> bool {
         let db_key = Self::handled_pox_cycle_start_key(cycle_number);
         match clarity_db
@@ -331,7 +332,8 @@ impl StacksChainState {
         Ok(())
     }
 
-    /// Get the stacking state for a user, before deleting it as part of an unlock
+    /// Get the stacking state for a user, before deleting it as part of an
+    /// unlock
     fn get_user_stacking_state(
         clarity: &mut ClarityTransactionConnection,
         principal: &PrincipalData,
@@ -368,10 +370,11 @@ impl StacksChainState {
             .expect("FATAL: unexpected PoX structure")
     }
 
-    /// Synthesize the handle-unlock print event.  This is done here, instead of pox-2, so we can
-    /// change it later without breaking consensus.
+    /// Synthesize the handle-unlock print event.  This is done here, instead of
+    /// pox-2, so we can change it later without breaking consensus.
     /// The resulting Value will be an `(ok ...)`
-    /// `user_data` is the user's stacking data, before the handle-unlock function gets called.
+    /// `user_data` is the user's stacking data, before the handle-unlock
+    /// function gets called.
     fn synthesize_unlock_event_data(
         clarity: &mut ClarityTransactionConnection,
         principal: &PrincipalData,
@@ -440,8 +443,9 @@ impl StacksChainState {
 
     // TODO: add tests from mutation testing results #4854
     #[cfg_attr(test, mutants::skip)]
-    /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
-    /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
+    /// Do all the necessary Clarity operations at the start of a PoX reward
+    /// cycle. Currently, this just means applying any auto-unlocks to
+    /// Stackers who qualified.
     ///
     /// This should only be called for PoX v2 cycles.
     pub fn handle_pox_cycle_start_pox_2(
@@ -454,8 +458,9 @@ impl StacksChainState {
 
     // TODO: add tests from mutation testing results #4854
     #[cfg_attr(test, mutants::skip)]
-    /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
-    /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
+    /// Do all the necessary Clarity operations at the start of a PoX reward
+    /// cycle. Currently, this just means applying any auto-unlocks to
+    /// Stackers who qualified.
     ///
     /// This should only be called for PoX v3 cycles.
     pub fn handle_pox_cycle_start_pox_3(
@@ -468,8 +473,9 @@ impl StacksChainState {
 
     // TODO: add tests from mutation testing results #4854
     #[cfg_attr(test, mutants::skip)]
-    /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
-    /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
+    /// Do all the necessary Clarity operations at the start of a PoX reward
+    /// cycle. Currently, this just means applying any auto-unlocks to
+    /// Stackers who qualified.
     ///
     /// This should only be called for PoX v4 cycles.
     pub fn handle_pox_cycle_start_pox_4(
@@ -483,9 +489,9 @@ impl StacksChainState {
 
     // TODO: add tests from mutation testing results #4854
     #[cfg_attr(test, mutants::skip)]
-    /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
-    /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
-    ///
+    /// Do all the necessary Clarity operations at the start of a PoX reward
+    /// cycle. Currently, this just means applying any auto-unlocks to
+    /// Stackers who qualified.
     fn handle_pox_cycle_missed_unlocks(
         clarity: &mut ClarityTransactionConnection,
         cycle_number: u64,
@@ -520,11 +526,13 @@ impl StacksChainState {
         for (principal, amount_locked) in cycle_info.missed_reward_slots.iter() {
             // we have to do several things for each principal
             // 1. lookup their Stacks account and accelerate their unlock
-            // 2. remove the user's entries from every `reward-cycle-pox-address-list` they were in
-            //     (a) this can be done by moving the last entry to the now vacated spot,
-            //         and, if necessary, updating the associated `stacking-state` entry's pointer
-            //     (b) or, if they were the only entry in the list, then just deleting them from the list
-            // 3. correct the `reward-cycle-total-stacked` entry for every reward cycle they were in
+            // 2. remove the user's entries from every `reward-cycle-pox-address-list` they
+            //    were in (a) this can be done by moving the last entry to the now vacated
+            //    spot, and, if necessary, updating the associated `stacking-state` entry's
+            //    pointer (b) or, if they were the only entry in the list, then just
+            //    deleting them from the list
+            // 3. correct the `reward-cycle-total-stacked` entry for every reward cycle they
+            //    were in
             // 4. delete the user's stacking-state entry.
             clarity.with_clarity_db(|db| {
                 // lookup the Stacks account and alter their unlock height to next block
@@ -620,8 +628,8 @@ impl StacksChainState {
             .expect("FATAL: failed to get total liquid ustx")
     }
 
-    /// Determine the minimum amount of STX per reward address required to stack in the _next_
-    /// reward cycle
+    /// Determine the minimum amount of STX per reward address required to stack
+    /// in the _next_ reward cycle
     #[cfg(test)]
     pub fn get_stacking_minimum(
         &mut self,
@@ -768,8 +776,8 @@ impl StacksChainState {
             })
             .collect();
 
-        // finally, we must sort the signer set: the signer participation bit vector depends
-        //  on a consensus-critical ordering of the signer set.
+        // finally, we must sort the signer set: the signer participation bit vector
+        // depends  on a consensus-critical ordering of the signer set.
         signer_set.sort_by_key(|entry| entry.signing_key);
 
         Some(signer_set)
@@ -777,11 +785,11 @@ impl StacksChainState {
 
     // TODO: add tests from mutation testing results #4855
     #[cfg_attr(test, mutants::skip)]
-    /// Given a threshold and set of registered addresses, return a reward set where
-    ///   every entry address has stacked more than the threshold, and addresses
-    ///   are repeated floor(stacked_amt / threshold) times.
-    /// If an address appears in `addresses` multiple times, then the address's associated amounts
-    ///   are summed.
+    /// Given a threshold and set of registered addresses, return a reward set
+    /// where   every entry address has stacked more than the threshold, and
+    /// addresses   are repeated floor(stacked_amt / threshold) times.
+    /// If an address appears in `addresses` multiple times, then the address's
+    /// associated amounts   are summed.
     pub fn make_reward_set(
         threshold: u128,
         mut addresses: Vec<RawRewardSetEntry>,
@@ -978,8 +986,8 @@ impl StacksChainState {
 
         let mut ret = vec![];
         for i in 0..num_addrs {
-            // value should be (optional (tuple (pox-addr (tuple (...))) (total-ustx uint))).
-            // Get the tuple.
+            // value should be (optional (tuple (pox-addr (tuple (...))) (total-ustx
+            // uint))). Get the tuple.
             let tuple_data = self
                 .eval_boot_code_read_only(
                     sortdb,
@@ -1060,7 +1068,8 @@ impl StacksChainState {
 
         let mut ret = vec![];
         for i in 0..num_addrs {
-            // value should be (optional (tuple (pox-addr (tuple (...))) (total-ustx uint))).
+            // value should be (optional (tuple (pox-addr (tuple (...))) (total-ustx
+            // uint))).
             let tuple = self
                 .eval_boot_code_read_only(
                     sortdb,
@@ -1156,7 +1165,8 @@ impl StacksChainState {
 
         let mut ret = vec![];
         for i in 0..num_addrs {
-            // value should be (optional (tuple (pox-addr (tuple (...))) (total-ustx uint))).
+            // value should be (optional (tuple (pox-addr (tuple (...))) (total-ustx
+            // uint))).
             let tuple = self
                 .eval_boot_code_read_only(
                     sortdb,
@@ -1221,7 +1231,8 @@ impl StacksChainState {
     }
 
     /// Get all PoX reward addresses from .pox-4
-    /// TODO: also return their stacker signer keys (as part of `RawRewardSetEntry`
+    /// TODO: also return their stacker signer keys (as part of
+    /// `RawRewardSetEntry`
     fn get_reward_addresses_pox_4(
         &mut self,
         sortdb: &SortitionDB,
@@ -1275,8 +1286,8 @@ impl StacksChainState {
         Ok(ret)
     }
 
-    /// Get the sequence of reward addresses, as well as the PoX-specified hash mode (which gets
-    /// lost in the conversion to StacksAddress)
+    /// Get the sequence of reward addresses, as well as the PoX-specified hash
+    /// mode (which gets lost in the conversion to StacksAddress)
     /// Each address will have at least (get-stacking-minimum) tokens.
     pub fn get_reward_addresses(
         &mut self,
@@ -1291,8 +1302,8 @@ impl StacksChainState {
         self.get_reward_addresses_in_cycle(burnchain, sortdb, reward_cycle, block_id)
     }
 
-    /// Get the sequence of reward addresses, as well as the PoX-specified hash mode (which gets
-    /// lost in the conversion to StacksAddress)
+    /// Get the sequence of reward addresses, as well as the PoX-specified hash
+    /// mode (which gets lost in the conversion to StacksAddress)
     /// Each address will have at least (get-stacking-minimum) tokens.
     pub fn get_reward_addresses_in_cycle(
         &mut self,
@@ -1322,8 +1333,8 @@ impl StacksChainState {
             }
         };
 
-        // Catch the epoch boundary edge case where burn height >= pox 3 activation height, but
-        // there hasn't yet been a Stacks block.
+        // Catch the epoch boundary edge case where burn height >= pox 3 activation
+        // height, but there hasn't yet been a Stacks block.
         match result {
             Err(Error::ClarityError(ClarityError::Interpreter(VmError::Unchecked(
                 CheckErrors::NoSuchContract(_),
@@ -2026,8 +2037,8 @@ pub mod test {
         contract_name: &str,
     ) -> StacksTransaction {
         // (define-public (stack-stx (amount-ustx uint)
-        //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
-        //                           (burn-height uint)
+        //                           (pox-addr (tuple (version (buff 1)) (hashbytes
+        // (buff 32))))                           (burn-height uint)
         //                           (lock-period uint))
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
@@ -3262,7 +3273,8 @@ pub mod test {
                     let mut block_txs = vec![coinbase_tx];
 
                     if tenure_id == 1 {
-                        // Alice locks up exactly 25% of the liquid STX supply, so this should succeed.
+                        // Alice locks up exactly 25% of the liquid STX supply, so this should
+                        // succeed.
                         let alice_lockup = make_pox_lockup(
                             &alice,
                             0,
@@ -4001,7 +4013,8 @@ pub mod test {
                     let mut block_txs = vec![coinbase_tx];
 
                     if tenure_id == 1 {
-                        // Alice locks up exactly 25% of the liquid STX supply, so this should succeed.
+                        // Alice locks up exactly 25% of the liquid STX supply, so this should
+                        // succeed.
                         let alice_lockup = make_pox_lockup(
                             &alice,
                             0,
@@ -4430,7 +4443,8 @@ pub mod test {
                     let mut block_txs = vec![coinbase_tx];
 
                     if tenure_id == 1 {
-                        // Alice locks up exactly 25% of the liquid STX supply, so this should succeed.
+                        // Alice locks up exactly 25% of the liquid STX supply, so this should
+                        // succeed.
                         let alice_lockup = make_pox_lockup(
                             &alice,
                             0,
@@ -4679,7 +4693,8 @@ pub mod test {
                     let mut block_txs = vec![coinbase_tx];
 
                     if tenure_id == 1 {
-                        // Alice locks up exactly 25% of the liquid STX supply, so this should succeed.
+                        // Alice locks up exactly 25% of the liquid STX supply, so this should
+                        // succeed.
                         let alice_lockup = make_pox_lockup(
                             &alice,
                             0,
@@ -5612,8 +5627,8 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
         // used to be set to 25, but test at 5 here, because the increased coinbase
-        //   and, to a lesser extent, the initial block bonus altered the relative fraction
-        //   owned by charlie.
+        //   and, to a lesser extent, the initial block bonus altered the relative
+        // fraction   owned by charlie.
         burnchain.pox_constants.pox_rejection_fraction = 5;
 
         let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
@@ -5876,5 +5891,6 @@ pub mod test {
         }
     }
 
-    // TODO: need Stacking-rejection with a BTC address -- contract name in OP_RETURN? (NEXT)
+    // TODO: need Stacking-rejection with a BTC address -- contract name in
+    // OP_RETURN? (NEXT)
 }

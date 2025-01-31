@@ -66,7 +66,8 @@ impl HttpRequest for RPCGetAttachmentsInvRequestHandler {
     }
 
     /// Try to decode this request.
-    /// There's nothing to load here, so just make sure the request is well-formed.
+    /// There's nothing to load here, so just make sure the request is
+    /// well-formed.
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
@@ -152,14 +153,15 @@ impl RPCRequestHandler for RPCGetAttachmentsInvRequestHandler {
             .ok_or(NetError::SendError("Missing `page_indexes`".into()))?;
 
         // We are receiving a list of page indexes with a chain tip hash.
-        // The amount of pages_indexes is capped by MAX_ATTACHMENT_INV_PAGES_PER_REQUEST (8)
-        // Pages sizes are controlled by the constant ATTACHMENTS_INV_PAGE_SIZE (8), which
-        // means that a `GET v2/attachments/inv` request can be requesting for a 64 bit vector
+        // The amount of pages_indexes is capped by MAX_ATTACHMENT_INV_PAGES_PER_REQUEST
+        // (8) Pages sizes are controlled by the constant
+        // ATTACHMENTS_INV_PAGE_SIZE (8), which means that a `GET
+        // v2/attachments/inv` request can be requesting for a 64 bit vector
         // at once.
-        // Since clients can be asking for non-consecutive pages indexes (1, 5_000, 10_000, ...),
-        // we will be handling each page index separately.
-        // We could also add the notion of "budget" so that a client could only get a limited number
-        // of pages when they are spanning over many blocks.
+        // Since clients can be asking for non-consecutive pages indexes (1, 5_000,
+        // 10_000, ...), we will be handling each page index separately.
+        // We could also add the notion of "budget" so that a client could only get a
+        // limited number of pages when they are spanning over many blocks.
         if page_indexes.len() > MAX_ATTACHMENT_INV_PAGES_PER_REQUEST {
             let msg = format!(
                 "Number of attachment inv pages is limited by {} per request",

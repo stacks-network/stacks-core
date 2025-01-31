@@ -188,8 +188,9 @@ pub struct TransferStxOp {
 pub struct StackStxOp {
     pub sender: StacksAddress,
     /// the PoX reward address.
-    /// NOTE: the address in .pox will be tagged as either p2pkh or p2sh; it's impossible to tell
-    /// if it's a segwit-p2sh since that looks identical to a p2sh address.
+    /// NOTE: the address in .pox will be tagged as either p2pkh or p2sh; it's
+    /// impossible to tell if it's a segwit-p2sh since that looks identical
+    /// to a p2sh address.
     pub reward_addr: PoxAddress,
     /// how many ustx this transaction locks
     pub stacked_ustx: u128,
@@ -224,12 +225,14 @@ pub struct LeaderBlockCommitOp {
 
     pub new_seed: VRFSeed,     // new seed for this block
     pub parent_block_ptr: u32, // block height of the block that contains the parent block hash
-    pub parent_vtxindex: u16, // offset in the parent block where the parent block hash can be found
-    pub key_block_ptr: u32,   // pointer to the block that contains the leader key registration
-    pub key_vtxindex: u16,    // offset in the block where the leader key can be found
-    pub memo: Vec<u8>,        // extra unused byte
+    pub parent_vtxindex: u16,  /* offset in the parent block where the parent block hash can be
+                                * found */
+    pub key_block_ptr: u32, // pointer to the block that contains the leader key registration
+    pub key_vtxindex: u16,  // offset in the block where the leader key can be found
+    pub memo: Vec<u8>,      // extra unused byte
 
-    /// how many burn tokens (e.g. satoshis) were committed to produce this block
+    /// how many burn tokens (e.g. satoshis) were committed to produce this
+    /// block
     pub burn_fee: u64,
     /// the input transaction, used in mining commitment smoothing
     pub input: (Txid, u32),
@@ -283,10 +286,11 @@ pub struct LeaderKeyRegisterOp {
 pub struct DelegateStxOp {
     pub sender: StacksAddress,
     pub delegate_to: StacksAddress,
-    /// a tuple representing the output index of the reward address in the BTC transaction,
-    ///  and the actual  PoX reward address.
-    /// NOTE: the address in .pox-2 will be tagged as either p2pkh or p2sh; it's impossible to tell
-    /// if it's a segwit-p2sh since that looks identical to a p2sh address.
+    /// a tuple representing the output index of the reward address in the BTC
+    /// transaction,  and the actual  PoX reward address.
+    /// NOTE: the address in .pox-2 will be tagged as either p2pkh or p2sh; it's
+    /// impossible to tell if it's a segwit-p2sh since that looks identical
+    /// to a p2sh address.
     pub reward_addr: Option<(u32, PoxAddress)>,
     pub delegated_ustx: u128,
     pub until_burn_height: Option<u64>,
@@ -554,10 +558,11 @@ impl BlockstackOperationType {
         })
     }
 
-    // An explicit JSON serialization function is used (instead of using the default serialization
-    // function) for the Blockstack ops. This is because (a) we wanted the serialization to be
-    // more readable, and (b) the serialization used to display PoxAddress as a string is lossy,
-    // so we wouldn't want to use this serialization by default (because there will be issues with
+    // An explicit JSON serialization function is used (instead of using the default
+    // serialization function) for the Blockstack ops. This is because (a) we
+    // wanted the serialization to be more readable, and (b) the serialization
+    // used to display PoxAddress as a string is lossy, so we wouldn't want to
+    // use this serialization by default (because there will be issues with
     // deserialization).
     pub fn blockstack_op_to_json(&self) -> serde_json::Value {
         match self {
@@ -568,9 +573,10 @@ impl BlockstackOperationType {
             BlockstackOperationType::VoteForAggregateKey(op) => {
                 Self::vote_for_aggregate_key_to_json(op)
             }
-            // json serialization for the remaining op types is not implemented for now. This function
-            // is currently only used to json-ify burnchain ops executed as Stacks transactions (so,
-            // stack_stx, transfer_stx, delegate_stx, and vote_for_aggregate_key).
+            // json serialization for the remaining op types is not implemented for now. This
+            // function is currently only used to json-ify burnchain ops executed as
+            // Stacks transactions (so, stack_stx, transfer_stx, delegate_stx, and
+            // vote_for_aggregate_key).
             _ => json!(null),
         }
     }

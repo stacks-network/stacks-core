@@ -28,7 +28,8 @@ use crate::cli::MonitorSignersArgs;
 use crate::client::{ClientError, SignerSlotID, StacksClient};
 use crate::utils::stackerdb_session;
 
-/// The `SignerMonitor` struct is used to monitor the signers stackerdb slots for expected new messages
+/// The `SignerMonitor` struct is used to monitor the signers stackerdb slots
+/// for expected new messages
 pub struct SignerMonitor {
     /// The client being used to monitor stackerdb messages
     stacks_client: StacksClient,

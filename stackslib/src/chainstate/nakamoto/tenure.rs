@@ -16,48 +16,61 @@
 
 //! This module is concerned with tracking all Nakamoto tenures.
 //!
-//! A _tenure_ is the sequence of blocks that a miner produces from a winning sortition.  A tenure
-//! can last for the duration of one or more burnchain blocks, and may be extended by Stackers.  As
-//! such, every tenure corresponds to exactly one cryptographic sortition with a winning miner.
-//! The consensus hash of the winning miner's sortition serves as the _tenure ID_, and it is
-//! guaranteed to be globally unique across all Stacks chain histories and burnchain histories.
+//! A _tenure_ is the sequence of blocks that a miner produces from a winning
+//! sortition.  A tenure can last for the duration of one or more burnchain
+//! blocks, and may be extended by Stackers.  As such, every tenure corresponds
+//! to exactly one cryptographic sortition with a winning miner. The consensus
+//! hash of the winning miner's sortition serves as the _tenure ID_, and it is
+//! guaranteed to be globally unique across all Stacks chain histories and
+//! burnchain histories.
 //!
-//! The tenures within one burnchain fork are well-ordered.  Each tenure has exactly one parent
-//! tenure, such that the last block in the parent tenure is the parent of the first block in the
-//! child tenure.  The first-ever Nakamoto tenure's parent block is the last epoch2 Stacks block.
-//! Due to well-ordering, each burnchain fork has a highest tenure, which is used to validate
-//! blocks before processing them.  Namely, a Nakamoto block must belong to the highest tenure in
-//! order to be appended to the chain tip.
+//! The tenures within one burnchain fork are well-ordered.  Each tenure has
+//! exactly one parent tenure, such that the last block in the parent tenure is
+//! the parent of the first block in the child tenure.  The first-ever Nakamoto
+//! tenure's parent block is the last epoch2 Stacks block. Due to well-ordering,
+//! each burnchain fork has a highest tenure, which is used to validate
+//! blocks before processing them.  Namely, a Nakamoto block must belong to the
+//! highest tenure in order to be appended to the chain tip.
 //!
-//! Treating tenures as sequences of blocks mined by a winning miner allows us to cause coinbases
-//! to mature based on tenure confirmations.  This is consistent with the epoch2 behavior.  It also
-//! allows us to quickly identify whether or not a block belongs to a given tenure, and it allows a
-//! booting miner to identify the set of all tenure IDs in a reward cycle using only burnchain
-//! state (although some of these tenures may be empty).
+//! Treating tenures as sequences of blocks mined by a winning miner allows us
+//! to cause coinbases to mature based on tenure confirmations.  This is
+//! consistent with the epoch2 behavior.  It also allows us to quickly identify
+//! whether or not a block belongs to a given tenure, and it allows a
+//! booting miner to identify the set of all tenure IDs in a reward cycle using
+//! only burnchain state (although some of these tenures may be empty).
 //!
-//! Tenures are created and extended via `TenureChange` transactions.  These come in two flavors:
+//! Tenures are created and extended via `TenureChange` transactions.  These
+//! come in two flavors:
 //!
-//! * A `BlockFound` tenure change, which is induced by a winning sortition.  This causes the new
-//! miner to start producing blocks, and stops the current miner from producing more blocks.
+//! * A `BlockFound` tenure change, which is induced by a winning sortition.
+//!   This causes the new
+//! miner to start producing blocks, and stops the current miner from producing
+//! more blocks.
 //!
-//! * An `Extended` tenure change, which is induced by Stackers. This resets the tenure's ongoing
+//! * An `Extended` tenure change, which is induced by Stackers. This resets the
+//!   tenure's ongoing
 //! execution budget, thereby allowing the miner to continue producing blocks.
 //!
-//! A tenure may be extended at any time by Stackers, and may span multiple Bitcoin blocks (such
-//! as if there was no sortition winner, or the winning miner never comes online).
+//! A tenure may be extended at any time by Stackers, and may span multiple
+//! Bitcoin blocks (such as if there was no sortition winner, or the winning
+//! miner never comes online).
 //!
 //! `TenureChanges` contain three pointers to chainstate:
-//! * The _tenure consensus hash_: this is the consensus hash of the sortition that chose the last
-//! winning miner.  Note that due to the above, it may not be the highest sortition processed.
-//! * The _previous tenure consensus hash_: this is the consensus hash of the sortition that chose
+//! * The _tenure consensus hash_: this is the consensus hash of the sortition
+//!   that chose the last
+//! winning miner.  Note that due to the above, it may not be the highest
+//! sortition processed.
+//! * The _previous tenure consensus hash_: this is the consensus hash of the
+//!   sortition that chose
 //! the miner who produced the parent tenure of the current ongoing tenure.
-//! * The _sortition consensus hash: this is the tip of the sortition history that Stackers knew
+//! * The _sortition consensus hash: this is the tip of the sortition history
+//!   that Stackers knew
 //! about when they created the `TenureChange.
 //!
-//! The Nakamoto system uses this module to track the set of all tenures.  It does so within a
-//! (derived-state) table called `nakamoto_tenure_events`.  Whenever a `TenureChange` transaction is
-//! processed, a new row will be added to this table.
-//!
+//! The Nakamoto system uses this module to track the set of all tenures.  It
+//! does so within a (derived-state) table called `nakamoto_tenure_events`.
+//! Whenever a `TenureChange` transaction is processed, a new row will be added
+//! to this table.
 use std::collections::HashSet;
 use std::ops::DerefMut;
 
@@ -249,8 +262,9 @@ pub struct NakamotoTenureEventId {
     pub block_id: StacksBlockId,
 }
 
-/// Nakamto tenure event.  Something happened to the tenure stream, and this struct encodes it (be
-/// it a new tenure was started, or the current tenure was extended).
+/// Nakamto tenure event.  Something happened to the tenure stream, and this
+/// struct encodes it (be it a new tenure was started, or the current tenure was
+/// extended).
 #[derive(Debug, Clone, PartialEq)]
 pub struct NakamotoTenureEvent {
     /// consensus hash of start-tenure block
@@ -259,8 +273,8 @@ pub struct NakamotoTenureEvent {
     pub prev_tenure_id_consensus_hash: ConsensusHash,
     /// sortition tip consensus hash when this tenure was processed
     pub burn_view_consensus_hash: ConsensusHash,
-    /// the cause of this tenure -- either a new miner was chosen, or the current miner's tenure
-    /// was extended
+    /// the cause of this tenure -- either a new miner was chosen, or the
+    /// current miner's tenure was extended
     pub cause: TenureChangeCause,
     /// block hash of start-tenure block
     pub block_hash: BlockHeaderHash,
@@ -300,9 +314,9 @@ impl FromRow<NakamotoTenureEvent> for NakamotoTenureEvent {
 
 impl NakamotoChainState {
     /// Create the block reward for a NakamotoBlock
-    /// `coinbase_reward_ustx` is the total coinbase reward for this block, including any
-    ///    accumulated rewards from missed sortitions or initial mining rewards.
-    /// TODO: unit test
+    /// `coinbase_reward_ustx` is the total coinbase reward for this block,
+    /// including any    accumulated rewards from missed sortitions or
+    /// initial mining rewards. TODO: unit test
     pub fn make_scheduled_miner_reward(
         mainnet: bool,
         epoch_id: StacksEpochId,
@@ -333,9 +347,10 @@ impl NakamotoChainState {
             miner_addr.to_account_principal()
         };
 
-        // N.B. a `MinerPaymentSchedule` that pays to a contract can never be created before 2.1,
-        // per the above check (and moreover, a Stacks block with a pay-to-alt-recipient coinbase would
-        // not become valid until after 2.1 activates).
+        // N.B. a `MinerPaymentSchedule` that pays to a contract can never be created
+        // before 2.1, per the above check (and moreover, a Stacks block with a
+        // pay-to-alt-recipient coinbase would not become valid until after 2.1
+        // activates).
         let miner_reward = MinerPaymentSchedule {
             address: miner_addr,
             recipient,
@@ -356,7 +371,8 @@ impl NakamotoChainState {
     }
 
     /// Get scheduled miner rewards that have matured when this tenure starts.
-    /// Returns (list of miners to pay, any residual payments to the parent miner) on success.
+    /// Returns (list of miners to pay, any residual payments to the parent
+    /// miner) on success.
     pub(crate) fn get_matured_miner_reward_schedules(
         chainstate_tx: &mut ChainstateTx,
         tip_index_hash: &StacksBlockId,
@@ -396,10 +412,11 @@ impl NakamotoChainState {
     }
 
     /// Calculate the total matured rewards from the scheduled matured rewards.
-    /// This takes a ClarityTx, so PoisonMicroblocks can be taken into account (which deduct
-    /// STX from the block reward for offending miners).
-    /// The recipient of the block reward may not be the miner, but may be a PoisonMicroblock
-    /// reporter (both are captured as the sole `recipient` in the `MaturedMinerRewards` struct).
+    /// This takes a ClarityTx, so PoisonMicroblocks can be taken into account
+    /// (which deduct STX from the block reward for offending miners).
+    /// The recipient of the block reward may not be the miner, but may be a
+    /// PoisonMicroblock reporter (both are captured as the sole `recipient`
+    /// in the `MaturedMinerRewards` struct).
     ///
     /// Returns Ok(Some(rewards)) if we were able to calculate the rewards
     /// Returns Ok(None) if there are no matured rewards yet
@@ -434,10 +451,12 @@ impl NakamotoChainState {
     }
 
     /// Determine if a tenure has been fully processed.
-    /// That is, we've processed both its tenure-start block, and we've processed a tenure-change that
-    /// claims this tenure as its parent tenure.
+    /// That is, we've processed both its tenure-start block, and we've
+    /// processed a tenure-change that claims this tenure as its parent
+    /// tenure.
     ///
-    /// If we haven't processed a tenure-start block for this tenure, then return false.
+    /// If we haven't processed a tenure-start block for this tenure, then
+    /// return false.
     pub fn has_processed_nakamoto_tenure<SDBI: StacksDBIndexed>(
         conn: &mut SDBI,
         tip_block_id: &StacksBlockId,
@@ -541,9 +560,9 @@ impl NakamotoChainState {
         Ok(query_row(headers_conn, sql, args)?)
     }
 
-    /// Get the tenure-change most recently processed in the history tipped by the given block.
-    /// This can be a block-found or an extended tenure change.
-    /// Returns None if this tip is an epoch2x block ID
+    /// Get the tenure-change most recently processed in the history tipped by
+    /// the given block. This can be a block-found or an extended tenure
+    /// change. Returns None if this tip is an epoch2x block ID
     pub fn get_ongoing_tenure<SDBI: StacksDBIndexed>(
         headers_conn: &mut SDBI,
         tip_block_id: &StacksBlockId,
@@ -568,8 +587,8 @@ impl NakamotoChainState {
         Self::get_nakamoto_tenure_change(headers_conn.sqlite(), &tenure_id)
     }
 
-    /// Verify that a tenure change tx is a valid first-ever tenure change.  It must connect to an
-    /// epoch2 block, and it must be sortition-induced.
+    /// Verify that a tenure change tx is a valid first-ever tenure change.  It
+    /// must connect to an epoch2 block, and it must be sortition-induced.
     ///
     /// Returns Some(mocked-epoch2-tenure) on success
     /// Returns None on error
@@ -617,7 +636,8 @@ impl NakamotoChainState {
             return Ok(None);
         };
 
-        // synthesize the "last epoch2" tenure info, so we can calculate the first nakamoto tenure
+        // synthesize the "last epoch2" tenure info, so we can calculate the first
+        // nakamoto tenure
         let last_epoch2_tenure = NakamotoTenureEvent {
             tenure_id_consensus_hash: parent_header.consensus_hash.clone(),
             prev_tenure_id_consensus_hash: ConsensusHash([0x00; 20]), // ignored,
@@ -659,16 +679,17 @@ impl NakamotoChainState {
         Ok(Some(sn))
     }
 
-    /// Check a Nakamoto tenure transaction's validity with respect to the last-processed tenure
-    /// and the sortition DB.  This validates the following fields:
+    /// Check a Nakamoto tenure transaction's validity with respect to the
+    /// last-processed tenure and the sortition DB.  This validates the
+    /// following fields:
     /// * tenure_consensus_hash
     /// * prev_tenure_consensus_hash
     /// * previous_tenure_end
     /// * previous_tenure_blocks
     /// * cause
     ///
-    /// `block_header` is the block header of a tenure-change block, which includes
-    /// `tenure_payload` as its first transaction.
+    /// `block_header` is the block header of a tenure-change block, which
+    /// includes `tenure_payload` as its first transaction.
     ///
     /// Returns Ok(Some(processed-tenure)) on success
     /// Returns Ok(None) if the tenure change is invalid
@@ -697,7 +718,8 @@ impl NakamotoChainState {
             return Ok(None);
         }
 
-        // all consensus hashes must be on the canonical burnchain fork, if they're not the first-ever
+        // all consensus hashes must be on the canonical burnchain fork, if they're not
+        // the first-ever
         let Some(tenure_sn) =
             Self::check_valid_consensus_hash(sort_handle, &tenure_payload.tenure_consensus_hash)?
         else {
@@ -718,8 +740,8 @@ impl NakamotoChainState {
         }
 
         if tenure_payload.prev_tenure_consensus_hash != FIRST_BURNCHAIN_CONSENSUS_HASH {
-            // the parent sortition must exist, must be canonical, and must be an ancestor of the
-            // sortition for the given consensus hash.
+            // the parent sortition must exist, must be canonical, and must be an ancestor
+            // of the sortition for the given consensus hash.
             let Some(prev_sn) = Self::check_valid_consensus_hash(
                 sort_handle,
                 &tenure_payload.prev_tenure_consensus_hash,
@@ -760,7 +782,8 @@ impl NakamotoChainState {
             .unwrap_or(false);
 
             if !is_parent_shadow_block && !prev_sn.sortition {
-                // parent wasn't a shadow block (we expect a sortition), but this wasn't a sortition-induced tenure change
+                // parent wasn't a shadow block (we expect a sortition), but this wasn't a
+                // sortition-induced tenure change
                 warn!("Invalid tenure-change: no block found";
                       "prev_tenure_consensus_hash" => %tenure_payload.prev_tenure_consensus_hash
                 );
@@ -776,24 +799,25 @@ impl NakamotoChainState {
             return Ok(None);
         }
 
-        // What tenure are we building off of?  This is the tenure in which the parent block
-        // resides.  Note that if this block is a tenure-extend block, then parent_block_id and
-        // this block reside in the same tenure (but this block will insert a tenure-extend record
-        // into the tenure-changes table).
+        // What tenure are we building off of?  This is the tenure in which the parent
+        // block resides.  Note that if this block is a tenure-extend block,
+        // then parent_block_id and this block reside in the same tenure (but
+        // this block will insert a tenure-extend record into the tenure-changes
+        // table).
         let Some(parent_tenure) =
             Self::get_ongoing_tenure(headers_conn, &block_header.parent_block_id)?
         else {
-            // not building off of a previous Nakamoto tenure.  This is the first tenure change.  It should point to an epoch
-            // 2.x block.
+            // not building off of a previous Nakamoto tenure.  This is the first tenure
+            // change.  It should point to an epoch 2.x block.
             return Self::check_first_nakamoto_tenure_change(headers_conn.sqlite(), tenure_payload);
         };
 
         // validate cause
         match tenure_payload.cause {
             TenureChangeCause::BlockFound => {
-                // this tenure_payload's prev_consensus_hash must match the parent block tenure's
-                // tenure_consensus_hash -- i.e. this tenure must be distinct from the parent
-                // block's tenure
+                // this tenure_payload's prev_consensus_hash must match the parent block
+                // tenure's tenure_consensus_hash -- i.e. this tenure must be
+                // distinct from the parent block's tenure
                 if parent_tenure.tenure_id_consensus_hash
                     != tenure_payload.prev_tenure_consensus_hash
                 {
@@ -805,8 +829,9 @@ impl NakamotoChainState {
                 }
             }
             TenureChangeCause::Extended => {
-                // tenure extensions don't begin a new tenure (since the miner isn't changing), so
-                // the tenure consensus hash must be the same as the previous tenure consensus hash
+                // tenure extensions don't begin a new tenure (since the miner isn't changing),
+                // so the tenure consensus hash must be the same as the previous
+                // tenure consensus hash
                 if tenure_payload.tenure_consensus_hash != tenure_payload.prev_tenure_consensus_hash
                 {
                     warn!("Invalid tenure-change: tenure extension tries to start a new tenure";
@@ -818,9 +843,11 @@ impl NakamotoChainState {
             }
         };
 
-        // The tenure-change must report the number of blocks _so far_ in the previous tenure (note if this is a TenureChangeCause::Extended, then its parent tenure will be its own tenure).
-        // If there is a succession of tenure-extensions for a given tenure, then the reported tenure
-        // length must report the number of blocks since the last _sortition-induced_ tenure
+        // The tenure-change must report the number of blocks _so far_ in the previous
+        // tenure (note if this is a TenureChangeCause::Extended, then its parent tenure
+        // will be its own tenure). If there is a succession of
+        // tenure-extensions for a given tenure, then the reported tenure length
+        // must report the number of blocks since the last _sortition-induced_ tenure
         // change.
         let tenure_len =
             Self::get_nakamoto_tenure_length(headers_conn.sqlite(), &block_header.parent_block_id)?;
@@ -841,9 +868,9 @@ impl NakamotoChainState {
 
     /// Advance the tenures table with a validated block's tenure data.
     /// This applies to both tenure-changes and tenure-extends.
-    /// Returns the tenure-change height (this is parent_coinbase_height + 1 if there was a
-    /// tenure-change tx, or just parent_coinbase_height if there was a tenure-extend tx or no tenure
-    /// txs at all).
+    /// Returns the tenure-change height (this is parent_coinbase_height + 1 if
+    /// there was a tenure-change tx, or just parent_coinbase_height if
+    /// there was a tenure-extend tx or no tenure txs at all).
     /// TODO: unit test
     pub(crate) fn advance_nakamoto_tenure<SH: SortitionHandle>(
         headers_tx: &mut StacksDBTx,
@@ -885,13 +912,14 @@ impl NakamotoChainState {
         return Ok(coinbase_height);
     }
 
-    /// Check that this block is in the same tenure as its parent, and that this tenure is the
-    /// highest-seen tenure.  Use this to check blocks that do _not_ have BlockFound tenure-changes.
+    /// Check that this block is in the same tenure as its parent, and that this
+    /// tenure is the highest-seen tenure.  Use this to check blocks that do
+    /// _not_ have BlockFound tenure-changes.
     ///
     /// `parent_ch` is the tenure ID consensus hash of the given block's parent.
     ///
-    /// Returns Ok(bool) to indicate whether or not this block is in the same tenure as its parent.
-    /// Returns Err(..) on DB error
+    /// Returns Ok(bool) to indicate whether or not this block is in the same
+    /// tenure as its parent. Returns Err(..) on DB error
     pub(crate) fn check_tenure_continuity<SDBI: StacksDBIndexed>(
         headers_conn: &mut SDBI,
         parent_ch: &ConsensusHash,
@@ -934,12 +962,16 @@ impl NakamotoChainState {
     /// - chainstate_tx: the transaction open against the chainstate
     /// - burn_dbconn: the sortition fork tx open against the sortition DB
     /// - block: the block being processed
-    /// - parent_coinbase_height: the number of tenures represented by the parent of this block
+    /// - parent_coinbase_height: the number of tenures represented by the
+    ///   parent of this block
     /// (equivalent to the number of coinbases)
-    /// - chain_tip_burn_header_height: the height of the burnchain block mined when this block was
+    /// - chain_tip_burn_header_height: the height of the burnchain block mined
+    ///   when this block was
     /// produced
-    /// - burnchain_commit_burn: how many burnchain tokens were spent by this block's tenure's block-commit
-    /// - burnchain_sortition_burn: total burnchain tokens spent by all miners for this block's
+    /// - burnchain_commit_burn: how many burnchain tokens were spent by this
+    ///   block's tenure's block-commit
+    /// - burnchain_sortition_burn: total burnchain tokens spent by all miners
+    ///   for this block's
     /// tenure
     ///
     /// Returns the scheduled reward for this block's miner, subject to:
@@ -994,8 +1026,9 @@ impl NakamotoChainState {
             ChainstateError::NoSuchBlockError
         })?;
         // fetch the parent tenure fees by reading the total tx fees from this block's
-        // *parent* (not parent_tenure_start_header), because `parent_block_id` is the last
-        // block of that tenure, so contains a total fee accumulation for the whole tenure
+        // *parent* (not parent_tenure_start_header), because `parent_block_id` is the
+        // last block of that tenure, so contains a total fee accumulation for
+        // the whole tenure
         let parent_tenure_fees = if parent_tenure_start_header.is_nakamoto_block() {
             Self::get_total_tenure_tx_fees_at(
                 chainstate_tx,
@@ -1038,16 +1071,16 @@ impl NakamotoChainState {
         ))
     }
 
-    /// Check that a given Nakamoto block's tenure's sortition exists and was processed on this
-    /// particular burnchain fork.
+    /// Check that a given Nakamoto block's tenure's sortition exists and was
+    /// processed on this particular burnchain fork.
     /// Return the block snapshot if so.
     pub(crate) fn check_sortition_exists(
         burn_dbconn: &SortitionHandleConn,
         block_consensus_hash: &ConsensusHash,
     ) -> Result<BlockSnapshot, ChainstateError> {
-        // check that the burnchain block that this block is associated with has been processed.
-        // N.B. we must first get its hash, and then verify that it's in the same Bitcoin fork as
-        // our `burn_dbconn` indicates.
+        // check that the burnchain block that this block is associated with has been
+        // processed. N.B. we must first get its hash, and then verify that it's
+        // in the same Bitcoin fork as our `burn_dbconn` indicates.
         let burn_header_hash =
             SortitionDB::get_burnchain_header_hash_by_consensus(burn_dbconn, block_consensus_hash)?
                 .ok_or_else(|| {

@@ -253,9 +253,9 @@ fn shrink<T>(slice: &mut &mut [T], len: usize) {
 /// > token          = 1*tchar
 /// >
 /// > tchar          = "!" / "#" / "$" / "%" / "&" / "'" / "*"
-/// >                / "+" / "-" / "." / "^" / "_" / "`" / "|" / "~"
-/// >                / DIGIT / ALPHA
-/// >                ; any VCHAR, except delimiters
+/// > / "+" / "-" / "." / "^" / "_" / "`" / "|" / "~"
+/// > / DIGIT / ALPHA
+/// > ; any VCHAR, except delimiters
 /// > ```
 #[inline]
 fn is_token(b: u8) -> bool {
@@ -627,10 +627,12 @@ fn parse_version(bytes: &mut Bytes) -> Result<u8> {
 /// > Non-US-ASCII content in header fields and the reason phrase
 /// > has been obsoleted and made opaque (the TEXT rule was removed).
 ///
-/// Note that the following implementation deliberately rejects the obsoleted (non-US-ASCII) text range.
+/// Note that the following implementation deliberately rejects the obsoleted
+/// (non-US-ASCII) text range.
 ///
-/// The fully compliant parser should probably just return the reason-phrase as an opaque &[u8] data
-/// and leave interpretation to user or specialized helpers (akin to .display() in std::path::Path)
+/// The fully compliant parser should probably just return the reason-phrase as
+/// an opaque &[u8] data and leave interpretation to user or specialized helpers
+/// (akin to .display() in std::path::Path)
 #[inline]
 fn parse_reason<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
     loop {
@@ -811,8 +813,8 @@ fn parse_headers_iter<'a>(headers: &mut &mut [Header<'a>], bytes: &mut Bytes<'a>
                 // There is at least one non-whitespace character.
                 header.value = &value_slice[0..last_visible + 1];
             } else {
-                // There is no non-whitespace character. This can only happen when value_slice is
-                // empty.
+                // There is no non-whitespace character. This can only happen when value_slice
+                // is empty.
                 header.value = value_slice;
             }
         }

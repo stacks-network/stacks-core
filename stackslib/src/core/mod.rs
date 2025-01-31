@@ -38,7 +38,8 @@ use std::cmp::Ordering;
 pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
 pub type EpochList = GenericEpochList<ExecutionCost>;
 
-// fork set identifier -- to be mixed with the consensus hash (encodes the version)
+// fork set identifier -- to be mixed with the consensus hash (encodes the
+// version)
 pub const SYSTEM_FORK_SET_VERSION: [u8; 4] = [23u8, 0u8, 0u8, 0u8];
 
 // chain id
@@ -54,15 +55,17 @@ pub use stacks_common::consts::{
 // default port
 pub const NETWORK_P2P_PORT: u16 = 6265;
 
-// Number of previous burnchain blocks to search to find burnchain-hosted Stacks operations
+// Number of previous burnchain blocks to search to find burnchain-hosted Stacks
+// operations
 pub const BURNCHAIN_TX_SEARCH_WINDOW: u8 = 6;
 
-// This controls a miner heuristic for dropping a transaction from repeated consideration
-//  in the mempool. If the transaction caused the block limit to be reached when the block
-//  was previously `TX_BLOCK_LIMIT_PROPORTION_HEURISTIC`% full, the transaction will be dropped
-//  from the mempool. 20% is chosen as a heuristic here to allow for large transactions to be
-//  attempted, but if they cannot be included in an otherwise mostly empty block, not to consider
-//  them again.
+// This controls a miner heuristic for dropping a transaction from repeated
+// consideration  in the mempool. If the transaction caused the block limit to
+// be reached when the block  was previously
+// `TX_BLOCK_LIMIT_PROPORTION_HEURISTIC`% full, the transaction will be dropped
+//  from the mempool. 20% is chosen as a heuristic here to allow for large
+// transactions to be  attempted, but if they cannot be included in an otherwise
+// mostly empty block, not to consider  them again.
 pub const TX_BLOCK_LIMIT_PROPORTION_HEURISTIC: u64 = 20;
 
 pub const GENESIS_EPOCH: StacksEpochId = StacksEpochId::Epoch20;
@@ -79,7 +82,8 @@ pub const STACKS_2_0_LAST_BLOCK_TO_PROCESS: u64 = 700_000;
 pub const MAINNET_2_0_GENESIS_ROOT_HASH: &str =
     "9653c92b1ad726e2dc17862a3786f7438ab9239c16dd8e7aaba8b0b5c34b52af";
 
-/// This is the "dummy" parent to the actual first burnchain block that we process.
+/// This is the "dummy" parent to the actual first burnchain block that we
+/// process.
 pub const FIRST_BURNCHAIN_CONSENSUS_HASH: ConsensusHash = ConsensusHash([0u8; 20]);
 
 // TODO: TO BE SET BY STACKS_V1_MINER_THRESHOLD
@@ -120,7 +124,8 @@ pub const BITCOIN_TESTNET_STACKS_31_BURN_HEIGHT: u64 = 30_000_001;
 
 /// This constant sets the approximate testnet bitcoin height at which 2.5 Xenon
 ///  was reorged back to 2.5 instantiation. This is only used to calculate the
-///  expected affirmation maps (so it only must be accurate to the reward cycle).
+///  expected affirmation maps (so it only must be accurate to the reward
+/// cycle).
 pub const BITCOIN_TESTNET_STACKS_25_REORGED_HEIGHT: u64 = 2_586_000;
 
 pub const BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT: u64 = 0;
@@ -178,7 +183,8 @@ pub const POX_V3_TESTNET_EARLY_UNLOCK_HEIGHT: u32 =
 // This is out of 10, so 7 means "70%".
 pub const NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD: u64 = 7;
 
-/// Burn block height at which the ASTRules::PrecheckSize becomes the default behavior on mainnet
+/// Burn block height at which the ASTRules::PrecheckSize becomes the default
+/// behavior on mainnet
 pub const AST_RULES_PRECHECK_SIZE: u64 = 752000; // on or about Aug 30 2022
 
 // Stacks 1.0 did not allow smart contracts so all limits are 0.
@@ -466,39 +472,39 @@ lazy_static! {
     ]);
 }
 
-/// Stacks 2.05 epoch marker.  All block-commits in 2.05 must have a memo bitfield with this value
-/// *or greater*.
+/// Stacks 2.05 epoch marker.  All block-commits in 2.05 must have a memo
+/// bitfield with this value *or greater*.
 pub static STACKS_EPOCH_2_05_MARKER: u8 = 0x05;
 
-/// Stacks 2.1 epoch marker.  All block-commits in 2.1 must have a memo bitfield with this value
-/// *or greater*.
+/// Stacks 2.1 epoch marker.  All block-commits in 2.1 must have a memo bitfield
+/// with this value *or greater*.
 pub static STACKS_EPOCH_2_1_MARKER: u8 = 0x06;
 
-/// Stacks 2.2 epoch marker.  All block-commits in 2.2 must have a memo bitfield with this value
-/// *or greater*.
+/// Stacks 2.2 epoch marker.  All block-commits in 2.2 must have a memo bitfield
+/// with this value *or greater*.
 pub static STACKS_EPOCH_2_2_MARKER: u8 = 0x07;
 
-/// Stacks 2.3 epoch marker.  All block-commits in 2.3 must have a memo bitfield with this value
-/// *or greater*.
+/// Stacks 2.3 epoch marker.  All block-commits in 2.3 must have a memo bitfield
+/// with this value *or greater*.
 pub static STACKS_EPOCH_2_3_MARKER: u8 = 0x08;
 
-/// Stacks 2.4 epoch marker.  All block-commits in 2.4 must have a memo bitfield with this value
-/// *or greater*.
+/// Stacks 2.4 epoch marker.  All block-commits in 2.4 must have a memo bitfield
+/// with this value *or greater*.
 pub static STACKS_EPOCH_2_4_MARKER: u8 = 0x09;
 
-/// Stacks 2.5 epoch marker.  All block-commits in 2.5 must have a memo bitfield with this value
-/// *or greater*.
+/// Stacks 2.5 epoch marker.  All block-commits in 2.5 must have a memo bitfield
+/// with this value *or greater*.
 pub static STACKS_EPOCH_2_5_MARKER: u8 = 0x0a;
 
-/// Stacks 3.0 epoch marker.  All block-commits in 3.0 must have a memo bitfield with this value
-/// *or greater*.
+/// Stacks 3.0 epoch marker.  All block-commits in 3.0 must have a memo bitfield
+/// with this value *or greater*.
 pub static STACKS_EPOCH_3_0_MARKER: u8 = 0x0b;
 
-/// Stacks 3.1 epoch marker.  All block-commits in 3.1 must have a memo bitfield with this value
-/// *or greater*.
-/// NOTE: it has to be 0x0d because a prior release of 3.1 with 0x0c before activation had a
-/// consensus bug. This forces miners with this buggy release off the network if they are still
-/// running it prior to 3.1 activation.
+/// Stacks 3.1 epoch marker.  All block-commits in 3.1 must have a memo bitfield
+/// with this value *or greater*.
+/// NOTE: it has to be 0x0d because a prior release of 3.1 with 0x0c before
+/// activation had a consensus bug. This forces miners with this buggy release
+/// off the network if they are still running it prior to 3.1 activation.
 pub static STACKS_EPOCH_3_1_MARKER: u8 = 0x0d;
 
 #[test]
@@ -793,11 +799,11 @@ pub trait StacksEpochExtension {
     /// This method gets the epoch vector.
     ///
     /// Choose according to:
-    /// 1) Use the custom epochs defined on the underlying `BitcoinIndexerConfig`, if they exist.
+    /// 1) Use the custom epochs defined on the underlying
+    ///    `BitcoinIndexerConfig`, if they exist.
     /// 2) Use hard-coded static values, otherwise.
     ///
     /// It is an error (panic) to set custom epochs if running on `Mainnet`.
-    ///
     fn get_epochs(
         bitcoin_network: BitcoinNetworkType,
         configured_epochs: Option<&EpochList>,
@@ -1728,9 +1734,9 @@ impl StacksEpochExtension for StacksEpoch {
         ])
     }
 
-    /// Verify that a list of epochs is well-formed, and if so, return the list of epochs.
-    /// Epochs must proceed in order, and must represent contiguous block ranges.
-    /// Panic if the list is not well-formed.
+    /// Verify that a list of epochs is well-formed, and if so, return the list
+    /// of epochs. Epochs must proceed in order, and must represent
+    /// contiguous block ranges. Panic if the list is not well-formed.
     fn validate_epochs(epochs_ref: &[StacksEpoch]) -> EpochList {
         // sanity check -- epochs must all be contiguous, each epoch must be unique,
         // and the range of epochs should span the whole non-negative i64 space.

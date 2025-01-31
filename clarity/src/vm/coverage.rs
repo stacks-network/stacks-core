@@ -109,8 +109,9 @@ impl CoverageReporter {
         for expression in exprs.iter() {
             let mut frontier = vec![expression];
             while let Some(cur_expr) = frontier.pop() {
-                // handle defines: the `define-` atom is non executable, and neither are any of the type arguments,
-                //  but the bodies of functions, the value of a constant, initial values for variables, and the
+                // handle defines: the `define-` atom is non executable, and neither are any of
+                // the type arguments,  but the bodies of functions, the value
+                // of a constant, initial values for variables, and the
                 //  max supply of FTs
                 if let Some(define_expr) = DefineFunctionsParsed::try_parse(cur_expr).ok().flatten()
                 {

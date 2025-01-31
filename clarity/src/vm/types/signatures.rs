@@ -115,11 +115,12 @@ pub struct StringUTF8Length(u32);
 
 // INVARIANTS enforced by the Type Signatures.
 //   1. A TypeSignature constructor will always fail rather than construct a
-//        type signature for a too large or invalid type. This is why any variable length
-//        type signature has a guarded constructor.
-//   2. The only methods which may be called on TypeSignatures that are too large
-//        (i.e., the only function that can be called by the constructor before
-//         it fails) is the `.size()` method, which may be used to check the size.
+//      type signature for a too large or invalid type. This is why any variable
+//      length type signature has a guarded constructor.
+//   2. The only methods which may be called on TypeSignatures that are too
+//      large (i.e., the only function that can be called by the constructor
+//      before it fails) is the `.size()` method, which may be used to check the
+//      size.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TypeSignature {
     NoType,
@@ -1103,7 +1104,8 @@ impl TypeSignature {
         )))
     }
 
-    /// If one of the types is a NoType, return Ok(the other type), otherwise return least_supertype(a, b)
+    /// If one of the types is a NoType, return Ok(the other type), otherwise
+    /// return least_supertype(a, b)
     pub fn factor_out_no_type(
         epoch: &StacksEpochId,
         a: &TypeSignature,
@@ -1119,26 +1121,26 @@ impl TypeSignature {
     }
 
     ///
-    /// This function returns the most-restrictive type that admits _both_ A and B (something like a least common supertype),
-    /// or Errors if no such type exists. On error, it throws NoSuperType(A,B), unless a constructor error'ed -- in which case,
-    /// it throws the constructor's error.
+    /// This function returns the most-restrictive type that admits _both_ A and
+    /// B (something like a least common supertype), or Errors if no such
+    /// type exists. On error, it throws NoSuperType(A,B), unless a constructor
+    /// error'ed -- in which case, it throws the constructor's error.
     ///
     ///  For two Tuples:
-    ///      least_supertype(A, B) := (tuple \for_each(key k) least_supertype(type_a_k, type_b_k))
-    ///  For two Lists:
-    ///      least_supertype(A, B) := (list max_len: max(max_len A, max_len B), entry: least_supertype(entry_a, entry_b))
-    ///        if max_len A | max_len B is 0: entry := Non-empty list entry
-    ///  For two responses:
-    ///      least_supertype(A, B) := (response least_supertype(ok_a, ok_b), least_supertype(err_a, err_b))
-    ///        if any entries are NoType, use the other type's entry
-    ///  For two options:
+    ///      least_supertype(A, B) := (tuple \for_each(key k)
+    /// least_supertype(type_a_k, type_b_k))  For two Lists:
+    ///      least_supertype(A, B) := (list max_len: max(max_len A, max_len B),
+    /// entry: least_supertype(entry_a, entry_b))        if max_len A |
+    /// max_len B is 0: entry := Non-empty list entry  For two responses:
+    ///      least_supertype(A, B) := (response least_supertype(ok_a, ok_b),
+    /// least_supertype(err_a, err_b))        if any entries are NoType, use
+    /// the other type's entry  For two options:
     ///      least_supertype(A, B) := (option least_supertype(some_a, some_b))
     ///        if some_a | some_b is NoType, use the other type's entry.
     ///  For buffers:
     ///      least_supertype(A, B) := (buff len: max(len A, len B))
     ///  For ints, uints, principals, bools:
     ///      least_supertype(A, B) := if A != B, error, else A
-    ///
     pub fn least_supertype(
         epoch: &StacksEpochId,
         a: &TypeSignature,
@@ -1717,17 +1719,18 @@ impl TypeSignature {
 
 /// These implement the size calculations in TypeSignatures
 ///    in constructors of TypeSignatures, only `.inner_size()` may be called.
-///    .inner_size is a failable method to compute the size of the type signature,
-///    Failures indicate that a type signature represents _too large_ of a value.
-/// TypeSignature constructors will fail instead of constructing such a type.
-///   because of this, the public interface to size is infallible.
+///    .inner_size is a failable method to compute the size of the type
+/// signature,    Failures indicate that a type signature represents _too large_
+/// of a value. TypeSignature constructors will fail instead of constructing
+/// such a type.   because of this, the public interface to size is infallible.
 impl TypeSignature {
     pub fn depth(&self) -> u8 {
         // unlike inner_size, depth will never threaten to overflow,
         //  because a new type can only increase depth by 1.
         match self {
             // NoType's may be asked for their size at runtime --
-            //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
+            //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error
+            // variant types).
             CallableType(_)
             | TraitReferenceType(_)
             | ListUnionType(_)
@@ -1759,7 +1762,8 @@ impl TypeSignature {
     fn inner_size(&self) -> Result<Option<u32>> {
         let out = match self {
             // NoType's may be asked for their size at runtime --
-            //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
+            //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error
+            // variant types).
             NoType => Some(1),
             IntType => Some(16),
             UIntType => Some(16),
@@ -1784,7 +1788,7 @@ impl TypeSignature {
                 cmp::max(t_size, s_size).checked_add(WRAPPER_VALUE_SIZE)
             }
             CallableType(CallableSubtype::Principal(_)) | ListUnionType(_) => Some(148), // 20+128
-            CallableType(CallableSubtype::Trait(_)) | TraitReferenceType(_) => Some(276), // 20+128+128
+            CallableType(CallableSubtype::Trait(_)) | TraitReferenceType(_) => Some(276), /* 20+128+128 */
         };
         Ok(out)
     }
@@ -1798,8 +1802,8 @@ impl TypeSignature {
     fn inner_type_size(&self) -> Option<u32> {
         match self {
             // NoType's may be asked for their size at runtime --
-            //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
-            // These types all only use ~1 byte for their type enum
+            //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error
+            // variant types). These types all only use ~1 byte for their type enum
             NoType | IntType | UIntType | BoolType | PrincipalType => Some(1),
             // u32 length + type enum
             TupleType(tuple_sig) => tuple_sig.type_size(),
@@ -1885,7 +1889,8 @@ impl TupleTypeSignature {
 
     /// Tuple Size:
     ///    size( btreemap<name, value> ) + type_size
-    ///    size( btreemap<name, value> ) = 2*map.len() + sum(names) + sum(values)
+    ///    size( btreemap<name, value> ) = 2*map.len() + sum(names) +
+    /// sum(values)
     fn inner_size(&self) -> Result<Option<u32>> {
         let Some(mut total_size) = u32::try_from(self.type_map.len())
             .ok()
@@ -1926,8 +1931,8 @@ pub fn parse_name_type_pairs<A: CostTracker>(
     name_type_pairs: &[SymbolicExpression],
     accounting: &mut A,
 ) -> Result<Vec<(ClarityName, TypeSignature)>> {
-    // this is a pretty deep nesting here, but what we're trying to do is pick out the values of
-    // the form:
+    // this is a pretty deep nesting here, but what we're trying to do is pick out
+    // the values of the form:
     // ((name1 type1) (name2 type2) (name3 type3) ...)
     // which is a list of 2-length lists of atoms.
     use crate::vm::representations::SymbolicExpressionType::List;

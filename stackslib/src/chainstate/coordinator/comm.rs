@@ -20,7 +20,6 @@ use std::time::{Duration, Instant};
 use std::{process, thread};
 
 /// Trait for use by the ChainsCoordinator
-///
 pub trait CoordinatorNotices {
     fn notify_stacks_block_processed(&mut self);
     fn notify_sortition_processed(&mut self);
@@ -54,9 +53,11 @@ pub struct CoordinatorChannels {
     signal_bools: Arc<Mutex<SignalBools>>,
     /// Condvar for notifying on updates to signal_bools
     signal_wakeup: Arc<Condvar>,
-    /// how many stacks blocks have been processed by this Coordinator thread since startup?
+    /// how many stacks blocks have been processed by this Coordinator thread
+    /// since startup?
     stacks_blocks_processed: Arc<AtomicU64>,
-    /// how many sortitions have been processed by this Coordinator thread since startup?
+    /// how many sortitions have been processed by this Coordinator thread since
+    /// startup?
     sortitions_processed: Arc<AtomicU64>,
     /// Does the StackerDB need to be refreshed?
     refresh_stacker_db: Arc<AtomicBool>,

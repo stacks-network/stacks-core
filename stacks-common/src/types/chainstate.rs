@@ -50,7 +50,8 @@ impl TrieHash {
     /// TrieHash of zero bytes
     pub fn from_empty_data() -> TrieHash {
         // sha2-512/256 hash of empty string.
-        // this is used so frequently it helps performance if we just have a constant for it.
+        // this is used so frequently it helps performance if we just have a constant
+        // for it.
         TrieHash([
             0xc6, 0x72, 0xb8, 0xd1, 0xef, 0x56, 0xed, 0x28, 0xab, 0x87, 0xc3, 0x62, 0x2c, 0x51,
             0x14, 0x06, 0x9b, 0xdd, 0x3a, 0xd7, 0xb8, 0xf9, 0x73, 0x74, 0x98, 0xd0, 0xc0, 0x1e,
@@ -306,7 +307,8 @@ impl StacksAddress {
     }
 
     // NEVER, EVER use this in ANY production code!
-    // It should never be possible to construct an address with a version greater than 31
+    // It should never be possible to construct an address with a version greater
+    // than 31
     #[cfg(any(test, feature = "testing"))]
     pub fn new_unsafe(version: u8, bytes: Hash160) -> Self {
         Self { version, bytes }
@@ -324,10 +326,10 @@ impl StacksAddress {
         (self.version, self.bytes)
     }
 
-    /// Because addresses are crockford-32 encoded, the version must be a 5-bit number.
-    /// Historically, it was possible to construct invalid addresses given that we use a u8 to
-    /// represent the version.  This function is used to validate addresses before relying on their
-    /// version.
+    /// Because addresses are crockford-32 encoded, the version must be a 5-bit
+    /// number. Historically, it was possible to construct invalid addresses
+    /// given that we use a u8 to represent the version.  This function is
+    /// used to validate addresses before relying on their version.
     pub fn has_valid_version(&self) -> bool {
         self.version < 32
     }
@@ -486,9 +488,10 @@ impl BlockHeaderHash {
 impl BurnchainHeaderHash {
     /// Instantiate a burnchain block hash from a Bitcoin block header
     pub fn from_bitcoin_hash(bitcoin_hash: &Sha256dHash) -> BurnchainHeaderHash {
-        // NOTE: Sha256dhash is the same size as BurnchainHeaderHash, so this should never panic
-        // Bitcoin stores its hashes in big-endian form, but our codebase stores them in
-        // little-endian form (which is also how most libraries work).
+        // NOTE: Sha256dhash is the same size as BurnchainHeaderHash, so this should
+        // never panic Bitcoin stores its hashes in big-endian form, but our
+        // codebase stores them in little-endian form (which is also how most
+        // libraries work).
         BurnchainHeaderHash::from_bytes_be(bitcoin_hash.as_bytes()).unwrap()
     }
 

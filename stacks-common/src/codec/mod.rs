@@ -65,8 +65,8 @@ impl error::Error for Error {
 
 /// Helper trait for various primitive types that make up Stacks messages
 pub trait StacksMessageCodec {
-    /// serialize implementors _should never_ error unless there is an underlying
-    ///   failure in writing to the `fd`
+    /// serialize implementors _should never_ error unless there is an
+    /// underlying   failure in writing to the `fd`
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), Error>
     where
         Self: Sized;

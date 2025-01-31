@@ -149,8 +149,9 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             naka_conf.add_initial_balance(PrincipalData::from(*address).to_string(), *amount);
         }
 
-        // So the combination is... one, two, three, four, five? That's the stupidest combination I've ever heard in my life!
-        // That's the kind of thing an idiot would have on his luggage!
+        // So the combination is... one, two, three, four, five? That's the stupidest
+        // combination I've ever heard in my life! That's the kind of thing an
+        // idiot would have on his luggage!
         let password = "12345";
         naka_conf.connection_options.auth_token = Some(password.to_string());
         let run_stamp = rand::random();
@@ -159,7 +160,8 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         let signer_configs: Vec<_> = build_signer_config_tomls(
             &signer_stacks_private_keys,
             &naka_conf.node.rpc_bind,
-            Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
+            Some(Duration::from_millis(128)), /* Timeout defaults to 5 seconds. Let's override
+                                               * it to 128 milliseconds. */
             &Network::Testnet,
             password,
             run_stamp,
@@ -258,7 +260,8 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         }).expect("Timed out while waiting for the signers to be registered");
     }
 
-    /// Send a status request to the signers to ensure they are registered for both reward cycles.
+    /// Send a status request to the signers to ensure they are registered for
+    /// both reward cycles.
     pub fn wait_for_registered_both_reward_cycles(&mut self, timeout_secs: u64) {
         let mut finished_signers = HashSet::new();
         wait_for(timeout_secs, || {
@@ -306,7 +309,8 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     }
 
     /// Get status check results (if returned) from each signer without blocking
-    /// Returns Some() or None() for each signer, in order of `self.spawned_signers`
+    /// Returns Some() or None() for each signer, in order of
+    /// `self.spawned_signers`
     pub fn get_states(&mut self, exclude: &HashSet<usize>) -> Vec<Option<StateInfo>> {
         let mut output = Vec::new();
         for (ix, signer) in self.spawned_signers.iter().enumerate() {
@@ -334,7 +338,8 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     }
 
     /// Mine a BTC block and wait for a new Stacks block to be mined
-    /// Note: do not use nakamoto blocks mined heuristic if running a test with multiple miners
+    /// Note: do not use nakamoto blocks mined heuristic if running a test with
+    /// multiple miners
     fn mine_nakamoto_block(&mut self, timeout: Duration, use_nakamoto_blocks_mined: bool) {
         let commits_submitted = self.running_nodes.commits_submitted.clone();
         let mined_block_time = Instant::now();
@@ -387,9 +392,9 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         info!("Nakamoto block mine time elapsed: {mined_block_elapsed_time:?}");
     }
 
-    /// Helper function to run some code and then wait for a nakamoto block to be mined.
-    /// Chain information is captured before `f` is called, and then again after `f`
-    /// to ensure that the block was mined.
+    /// Helper function to run some code and then wait for a nakamoto block to
+    /// be mined. Chain information is captured before `f` is called, and
+    /// then again after `f` to ensure that the block was mined.
     /// Note: this function does _not_ mine a BTC block.
     fn wait_for_nakamoto_block(&mut self, timeout_secs: u64, f: impl FnOnce() -> ()) {
         let blocks_before = self.running_nodes.nakamoto_blocks_mined.get();
@@ -507,7 +512,8 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         let epoch_3 = &epochs[StacksEpochId::Epoch30];
 
         let epoch_30_boundary = epoch_3.start_height - 1;
-        // advance to epoch 3.0 and trigger a sign round (cannot vote on blocks in pre epoch 3.0)
+        // advance to epoch 3.0 and trigger a sign round (cannot vote on blocks in pre
+        // epoch 3.0)
         run_until_burnchain_height(
             &mut self.running_nodes.btc_regtest_controller,
             &self.running_nodes.blocks_processed,
@@ -863,10 +869,12 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
         timeout_ms: 1000,
     });
 
-    // The signers need some initial balances in order to pay for epoch 2.5 transaction votes
+    // The signers need some initial balances in order to pay for epoch 2.5
+    // transaction votes
     let mut initial_balances = Vec::new();
 
-    // TODO: separate keys for stacking and signing (because they'll be different in prod)
+    // TODO: separate keys for stacking and signing (because they'll be different in
+    // prod)
     for key in signer_stacks_private_keys {
         initial_balances.push(InitialBalance {
             address: to_addr(key).into(),

@@ -43,7 +43,8 @@ pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT"
 pub const BLOCK_HEIGHT_TO_HASH_MAPPING_KEY: &str = "__MARF_BLOCK_HEIGHT_TO_HASH";
 pub const OWN_BLOCK_HEIGHT_KEY: &str = "__MARF_BLOCK_HEIGHT_SELF";
 
-/// Merklized Adaptive-Radix Forest -- a collection of Merklized Adaptive-Radix Tries.
+/// Merklized Adaptive-Radix Forest -- a collection of Merklized Adaptive-Radix
+/// Tries.
 pub struct MARF<T: MarfTrieId> {
     storage: TrieFileStorage<T>,
     open_chain_tip: Option<WriteChainTip<T>>,
@@ -114,7 +115,6 @@ impl MARFOpenOpts {
 ///
 /// This trait defines functions that are defined for both
 ///  MARF structs and MarfTransactions
-///
 pub trait MarfConnection<T: MarfTrieId> {
     fn with_conn<F, R>(&mut self, exec: F) -> R
     where
@@ -144,13 +144,15 @@ pub trait MarfConnection<T: MarfTrieId> {
     #[cfg(not(test))]
     fn get_and_check_with_hash(&mut self, _block_hash: &T, _key: &str) {}
 
-    /// Resolve a key from the MARF to a MARFValue with respect to the given block height.
+    /// Resolve a key from the MARF to a MARFValue with respect to the given
+    /// block height.
     fn get(&mut self, block_hash: &T, key: &str) -> Result<Option<MARFValue>, Error> {
         self.get_and_check_with_hash(block_hash, key);
         self.with_conn(|c| MARF::get_by_key(c, block_hash, key))
     }
 
-    /// Resolve a TrieHash from the MARF to a MARFValue with respect to the given block height.
+    /// Resolve a TrieHash from the MARF to a MARFValue with respect to the
+    /// given block height.
     fn get_from_hash(&mut self, block_hash: &T, th: &TrieHash) -> Result<Option<MARFValue>, Error> {
         self.with_conn(|c| MARF::get_by_hash(c, block_hash, th))
     }
@@ -199,8 +201,8 @@ pub trait MarfConnection<T: MarfTrieId> {
     }
 
     /// Check if a block can open successfully, i.e.,
-    ///   it's a known block, the storage system isn't issueing IOErrors, _and_ it's in the same fork
-    ///   as the current block
+    ///   it's a known block, the storage system isn't issueing IOErrors, _and_
+    /// it's in the same fork   as the current block
     /// The MARF _must_ be open to a valid block for this check to be evaluated.
     fn check_ancestor_block_hash(&mut self, bhh: &T) -> Result<(), Error> {
         self.with_conn(|conn| {
@@ -269,7 +271,6 @@ impl<T: MarfTrieId> MarfConnection<T> for MARF<T> {
 ///   with an open storage transaction. If this struct is
 ///   dropped without calling commit(), the storage transaction is
 ///   aborted
-///
 impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
     pub fn commit(mut self) -> Result<(), Error> {
         if self.storage.readonly() {
@@ -282,8 +283,9 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         Ok(())
     }
 
-    /// Finish writing the next trie in the MARF, but change the hash of the current Trie's
-    /// block hash to something other than what we opened it as.  This persists all changes.
+    /// Finish writing the next trie in the MARF, but change the hash of the
+    /// current Trie's block hash to something other than what we opened it
+    /// as.  This persists all changes.
     pub fn commit_to(mut self, real_bhh: &T) -> Result<(), Error> {
         if self.storage.readonly() {
             return Err(Error::ReadOnlyError);
@@ -368,10 +370,10 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         })
     }
 
-    /// Begin writing the next trie in the MARF, given the block header hash that will contain the
-    /// associated block's new state.  Call commit() or commit_to() to persist the changes.
-    /// Fails if the block already exists.
-    /// Storage will point to new chain tip on success.
+    /// Begin writing the next trie in the MARF, given the block header hash
+    /// that will contain the associated block's new state.  Call commit()
+    /// or commit_to() to persist the changes. Fails if the block already
+    /// exists. Storage will point to new chain tip on success.
     pub fn begin(&mut self, chain_tip: &T, next_chain_tip: &T) -> Result<(), Error> {
         if self.storage.readonly() {
             return Err(Error::ReadOnlyError);
@@ -511,8 +513,9 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         Ok(())
     }
 
-    /// Insert a batch of key/value pairs.  More efficient than inserting them individually, since
-    /// the trie root hash will only be calculated once (which is an O(log B) operation).
+    /// Insert a batch of key/value pairs.  More efficient than inserting them
+    /// individually, since the trie root hash will only be calculated once
+    /// (which is an O(log B) operation).
     pub fn insert_batch(&mut self, keys: &[String], values: Vec<MARFValue>) -> Result<(), Error> {
         if self.storage.readonly() {
             return Err(Error::ReadOnlyError);
@@ -532,7 +535,8 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         Ok(())
     }
 
-    /// Begin extending the MARF to an unconfirmed trie.  The resulting trie will have a block hash
+    /// Begin extending the MARF to an unconfirmed trie.  The resulting trie
+    /// will have a block hash
     /// equal to MARF::make_unconfirmed_block_hash(chain_tip) to avoid collision
     /// and block hash reuse.
     pub fn begin_unconfirmed(&mut self, chain_tip: &T) -> Result<T, Error> {
@@ -597,8 +601,8 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         }
     }
 
-    /// Seal the in-RAM MARF state so that no subsequent writes will be permitted.
-    /// Returns the new root hash of the MARF.
+    /// Seal the in-RAM MARF state so that no subsequent writes will be
+    /// permitted. Returns the new root hash of the MARF.
     /// Runtime-panics if the MARF was already sealed.
     pub fn seal(&mut self) -> Result<TrieHash, Error> {
         if self.storage.readonly() {
@@ -703,9 +707,10 @@ impl<T: MarfTrieId> MARF<T> {
         Ok(hash)
     }
 
-    /// Given a node, and the chr of one of its children, go find the last instance of that child in
-    /// the MARF and copy it forward.  Update its ptrs to point to its descendents.
-    /// s must point to the block hash in which this node lives, to which the child will be copied.
+    /// Given a node, and the chr of one of its children, go find the last
+    /// instance of that child in the MARF and copy it forward.  Update its
+    /// ptrs to point to its descendents. s must point to the block hash in
+    /// which this node lives, to which the child will be copied.
     fn node_child_copy(
         storage: &mut TrieStorageConnection<T>,
         node: &TrieNodeType,
@@ -745,8 +750,8 @@ impl<T: MarfTrieId> MARF<T> {
         Ok((child_node, child_hash, child_ptr, child_block_hash))
     }
 
-    /// Copy the root node from the previous Trie to this Trie, updating its ptrs.
-    /// s must point to the target Trie
+    /// Copy the root node from the previous Trie to this Trie, updating its
+    /// ptrs. s must point to the target Trie
     fn root_copy(storage: &mut TrieStorageConnection<T>, prev_block_hash: &T) -> Result<(), Error> {
         let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
         storage.open_block(prev_block_hash)?;
@@ -768,11 +773,12 @@ impl<T: MarfTrieId> MARF<T> {
     }
 
     /// create or open a particular Trie.
-    /// If the trie doesn't exist, then extend it from the current Trie and create a root node that
-    /// has back pointers to its immediate children in the current trie.
-    /// On Ok, s will point to new_bhh and will be open for reading.
-    /// Returns true/false, based on whether or not the trie will be created (this can return false
-    /// if we're resuming work on an unconfirmed trie)
+    /// If the trie doesn't exist, then extend it from the current Trie and
+    /// create a root node that has back pointers to its immediate children
+    /// in the current trie. On Ok, s will point to new_bhh and will be open
+    /// for reading. Returns true/false, based on whether or not the trie
+    /// will be created (this can return false if we're resuming work on an
+    /// unconfirmed trie)
     pub fn extend_trie(storage: &mut TrieStorageTransaction<T>, new_bhh: &T) -> Result<(), Error> {
         if storage.readonly() {
             unreachable!("CORRUPTION: constructed read-only TrieStorageTransaction instance");
@@ -813,9 +819,10 @@ impl<T: MarfTrieId> MARF<T> {
         }
     }
 
-    /// Walk down this MARF at the given block hash, doing a copy-on-write for intermediate nodes in this block's Trie from any prior Tries.
-    /// s must point to the last filled-in Trie -- i.e. block_hash points to the _new_ Trie that is
-    /// being filled in.
+    /// Walk down this MARF at the given block hash, doing a copy-on-write for
+    /// intermediate nodes in this block's Trie from any prior Tries. s must
+    /// point to the last filled-in Trie -- i.e. block_hash points to the _new_
+    /// Trie that is being filled in.
     fn walk_cow(
         storage: &mut TrieStorageTransaction<T>,
         block_hash: &T,
@@ -918,9 +925,10 @@ impl<T: MarfTrieId> MARF<T> {
         return Err(Error::CorruptionError("Trie has a cycle".to_string()));
     }
 
-    /// Walk down this MARF at the given block hash, resolving backptrs to previous tries.
-    /// Return the cursor and the last node visited.
-    /// s will point to the block in which the leaf was found, or the last block visited.
+    /// Walk down this MARF at the given block hash, resolving backptrs to
+    /// previous tries. Return the cursor and the last node visited.
+    /// s will point to the block in which the leaf was found, or the last block
+    /// visited.
     fn walk(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
@@ -1136,16 +1144,18 @@ impl<T: MarfTrieId> MARF<T> {
         }
     }
 
-    /// Instantiate the MARF using a TrieFileStorage instance, from the given path on disk.
-    /// This will have the side-effect of instantiating a new fork table from the tries encoded on
-    /// disk. Performant code should call this method sparingly.
+    /// Instantiate the MARF using a TrieFileStorage instance, from the given
+    /// path on disk. This will have the side-effect of instantiating a new
+    /// fork table from the tries encoded on disk. Performant code should
+    /// call this method sparingly.
     pub fn from_path(path: &str, open_opts: MARFOpenOpts) -> Result<MARF<T>, Error> {
         let file_storage = TrieFileStorage::open(path, open_opts)?;
         Ok(MARF::from_storage(file_storage))
     }
 
-    /// Instantiate an unconfirmed MARF using a TrieFileStorage instance, from the given path on disk.
-    /// This will have the side-effect of instantiating a new fork table from the tries encoded on
+    /// Instantiate an unconfirmed MARF using a TrieFileStorage instance, from
+    /// the given path on disk. This will have the side-effect of
+    /// instantiating a new fork table from the tries encoded on
     /// disk. Performant code should call this method sparingly.
     pub fn from_path_unconfirmed(path: &str, open_opts: MARFOpenOpts) -> Result<MARF<T>, Error> {
         let file_storage = TrieFileStorage::open_unconfirmed(path, open_opts)?;
@@ -1175,8 +1185,8 @@ impl<T: MarfTrieId> MARF<T> {
         result.map(|option_result| option_result.map(|leaf| leaf.data))
     }
 
-    /// Load up a MARF value by key, given a handle to the storage connection and a tip to work off
-    /// of.
+    /// Load up a MARF value by key, given a handle to the storage connection
+    /// and a tip to work off of.
     pub fn get_by_key(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
@@ -1202,8 +1212,8 @@ impl<T: MarfTrieId> MARF<T> {
         result.map(|option_result| option_result.map(|leaf| leaf.data))
     }
 
-    /// Load up a MARF value by TrieHash, given a handle to the storage connection and a tip to
-    /// work off of.
+    /// Load up a MARF value by TrieHash, given a handle to the storage
+    /// connection and a tip to work off of.
     pub fn get_by_hash(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
@@ -1298,8 +1308,9 @@ impl<T: MarfTrieId> MARF<T> {
             .map(|option_result| option_result.map(T::from))
     }
 
-    /// Make an unconfirmed chain tip from an existing chain tip, so that it won't conflict with
-    /// the "true" chain tip after the state it represents is later reprocessed and confirmed.
+    /// Make an unconfirmed chain tip from an existing chain tip, so that it
+    /// won't conflict with the "true" chain tip after the state it
+    /// represents is later reprocessed and confirmed.
     pub fn make_unconfirmed_chain_tip(chain_tip: &T) -> T {
         let mut bytes = [0u8; 64];
         bytes[0..32].copy_from_slice(chain_tip.as_bytes());
@@ -1312,8 +1323,9 @@ impl<T: MarfTrieId> MARF<T> {
         T::from_bytes(res_bytes)
     }
 
-    /// Insert a batch of key/value pairs.  More efficient than inserting them individually, since
-    /// the trie root hash will only be calculated once (which is an O(log B) operation).
+    /// Insert a batch of key/value pairs.  More efficient than inserting them
+    /// individually, since the trie root hash will only be calculated once
+    /// (which is an O(log B) operation).
     fn inner_insert_batch(
         conn: &mut TrieStorageTransaction<T>,
         block_hash: &T,
@@ -1413,8 +1425,9 @@ impl<T: MarfTrieId> MARF<T> {
         MARF::get_block_at_height(&mut self.storage.connection(), height, block_hash)
     }
 
-    /// Insert a batch of key/value pairs.  More efficient than inserting them individually, since
-    /// the trie root hash will only be calculated once (which is an O(log B) operation).
+    /// Insert a batch of key/value pairs.  More efficient than inserting them
+    /// individually, since the trie root hash will only be calculated once
+    /// (which is an O(log B) operation).
     pub fn insert_batch(&mut self, keys: &[String], values: Vec<MARFValue>) -> Result<(), Error> {
         if self.storage.readonly() {
             return Err(Error::ReadOnlyError);
@@ -1445,9 +1458,10 @@ impl<T: MarfTrieId> MARF<T> {
         self.insert_raw(path, marf_leaf)
     }
 
-    /// Insert the given (key, value) pair into the MARF.  Inserting the same key twice silently
-    /// overwrites the existing key.  Succeeds if there are no storage errors.
-    /// Must be called after a call to .begin() (will fail otherwise)
+    /// Insert the given (key, value) pair into the MARF.  Inserting the same
+    /// key twice silently overwrites the existing key.  Succeeds if there
+    /// are no storage errors. Must be called after a call to .begin() (will
+    /// fail otherwise)
     pub fn insert_raw(&mut self, path: TrieHash, marf_leaf: TrieLeaf) -> Result<(), Error> {
         if self.storage.readonly() {
             return Err(Error::ReadOnlyError);
@@ -1534,8 +1548,9 @@ impl<T: MarfTrieId> MARF<T> {
         Ok(())
     }
 
-    /// Finish writing the next trie in the MARF, but change the hash of the current Trie's
-    /// block hash to something other than what we opened it as.  This persists all changes.
+    /// Finish writing the next trie in the MARF, but change the hash of the
+    /// current Trie's block hash to something other than what we opened it
+    /// as.  This persists all changes.
     pub fn commit_to(&mut self, real_bhh: &T) -> Result<(), Error> {
         if self.storage.readonly() {
             return Err(Error::ReadOnlyError);

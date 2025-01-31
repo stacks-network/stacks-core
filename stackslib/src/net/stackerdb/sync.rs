@@ -146,15 +146,16 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     }
 
     /// Calculate the new set of replicas to contact.
-    /// This is the same as the set that was connected on the last sync, plus any
-    /// config hints and discovered nodes from the DB.
+    /// This is the same as the set that was connected on the last sync, plus
+    /// any config hints and discovered nodes from the DB.
     fn find_new_replicas(
         &self,
         mut connected_replicas: HashSet<NeighborAddress>,
         network: Option<&PeerNetwork>,
         config: &StackerDBConfig,
     ) -> Result<HashSet<NeighborAddress>, net_error> {
-        // keep all connected replicas, and replenish from config hints and the DB as needed
+        // keep all connected replicas, and replenish from config hints and the DB as
+        // needed
         let mut peers = config.hint_replicas.clone();
         if let Some(network) = network {
             let extra_peers = self.find_qualified_replicas(network)?;
@@ -172,8 +173,9 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         Ok(connected_replicas)
     }
 
-    /// Reset this state machine, and get the StackerDBSyncResult with newly-obtained chunk data
-    /// and newly-learned information about connection statistics
+    /// Reset this state machine, and get the StackerDBSyncResult with
+    /// newly-obtained chunk data and newly-learned information about
+    /// connection statistics
     pub fn reset(
         &mut self,
         network: Option<&PeerNetwork>,
@@ -199,7 +201,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             num_attempted_connections: self.num_attempted_connections,
         };
 
-        // keep all connected replicas, and replenish from config hints and the DB as needed
+        // keep all connected replicas, and replenish from config hints and the DB as
+        // needed
         let connected_replicas = mem::replace(&mut self.connected_replicas, HashSet::new());
         let next_connected_replicas =
             if let Ok(new_replicas) = self.find_new_replicas(connected_replicas, network, config) {
@@ -303,8 +306,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Given the downloaded set of chunk inventories, identify:
     /// * which chunks we need to fetch, because they're newer than ours.
     /// * what order to fetch chunks in, in rarest-first order
-    /// Returns a list of (chunk requests, list of neighbors that can service them), which is
-    /// ordered from rarest chunk to most-common chunk.
+    /// Returns a list of (chunk requests, list of neighbors that can service
+    /// them), which is ordered from rarest chunk to most-common chunk.
     pub fn make_chunk_request_schedule(
         &self,
         network: &PeerNetwork,
@@ -398,7 +401,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             }
         }
 
-        // prioritize requests by rarest-chunk-first order, but choose neighbors in random order
+        // prioritize requests by rarest-chunk-first order, but choose neighbors in
+        // random order
         let mut schedule: Vec<_> = need_chunks
             .into_iter()
             .map(|(_, (stackerdb_getchunkdata, mut neighbors))| {
@@ -421,7 +425,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     }
 
     /// Given the downloaded set of chunk inventories, identify:
-    /// * which chunks we need to push, because we have them and the neighbor does not
+    /// * which chunks we need to push, because we have them and the neighbor
+    ///   does not
     /// * what order to push them in, in rarest-first order
     pub fn make_chunk_push_schedule(
         &self,
@@ -538,8 +543,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             return Ok(false);
         }
 
-        // no need to validate the timestamp, because we already skipped requesting it if it was
-        // written too recently.
+        // no need to validate the timestamp, because we already skipped requesting it
+        // if it was written too recently.
 
         Ok(true)
     }
@@ -569,8 +574,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
 
     /// Update bookkeeping about which chunks we have pushed.
     /// Stores the new chunk inventory to RAM.
-    /// Returns true if the inventory changed (indicating that we need to resync)
-    /// Returns false otherwise
+    /// Returns true if the inventory changed (indicating that we need to
+    /// resync) Returns false otherwise
     pub fn add_pushed_chunk(
         &mut self,
         _network: &PeerNetwork,
@@ -694,9 +699,9 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
 
     /// Establish sessions with remote replicas.
     /// We might not be connected to any yet.
-    /// Clears self.replicas, and fills in self.connected_replicas with already-connected neighbors
-    /// Returns Ok(true) if we can proceed to sync
-    /// Returns Ok(false) if we should try this again
+    /// Clears self.replicas, and fills in self.connected_replicas with
+    /// already-connected neighbors Returns Ok(true) if we can proceed to
+    /// sync Returns Ok(false) if we should try this again
     /// Returns Err(NoSuchNeighbor) if we don't have anyone to talk to
     /// Returns Err(..) on DB query error
     pub fn connect_begin(&mut self, network: &mut PeerNetwork) -> Result<bool, net_error> {
@@ -1087,8 +1092,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     }
 
     /// Collect chunk replies from neighbors
-    /// Returns Ok(true) if all inflight messages have been received (or dealt with)
-    /// Returns Ok(false) otherwise
+    /// Returns Ok(true) if all inflight messages have been received (or dealt
+    /// with) Returns Ok(false) otherwise
     pub fn getchunks_try_finish(
         &mut self,
         network: &mut PeerNetwork,
@@ -1264,10 +1269,10 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     }
 
     /// Collect push-chunk replies from neighbors.
-    /// If a remote neighbor replies with a chunk-inv for a pushed chunk which contains newer data
-    /// than we have, then set `self.need_resync` to true.
-    /// Returns true if all inflight messages have been received (or dealt with)
-    /// Returns false otherwise
+    /// If a remote neighbor replies with a chunk-inv for a pushed chunk which
+    /// contains newer data than we have, then set `self.need_resync` to
+    /// true. Returns true if all inflight messages have been received (or
+    /// dealt with) Returns false otherwise
     pub fn pushchunks_try_finish(&mut self, network: &mut PeerNetwork) -> bool {
         for (naddr, message) in self.comms.collect_replies(network).into_iter() {
             let new_chunk_inv = match message.payload {
@@ -1372,8 +1377,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         }
 
         // make sure we have an up-to-date chain view.
-        // If not, then abort and immediately retry the sync (since any queued messages we have are
-        // likely gonna fail)
+        // If not, then abort and immediately retry the sync (since any queued messages
+        // we have are likely gonna fail)
         if let Some(rc_consensus_hash) = self.rc_consensus_hash.as_ref() {
             if network.get_chain_view().rc_consensus_hash != *rc_consensus_hash {
                 debug!("{:?}: {}: Resetting and restarting running StackerDB sync due to chain view change", network.get_local_peer(), &self.smart_contract_id);

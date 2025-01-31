@@ -55,7 +55,8 @@ use crate::net::{
 use crate::stacks_common::types::Address;
 use crate::util_lib::db::Error as DBError;
 
-/// Handshake with and get the reward cycle inventories for a range of reward cycles
+/// Handshake with and get the reward cycle inventories for a range of reward
+/// cycles
 pub fn peer_get_nakamoto_invs<'a>(
     mut peer: TestPeer<'a>,
     reward_cycles: &[u64],
@@ -390,8 +391,9 @@ fn test_nakamoto_inv_10_extended_tenures_10_sortitions() {
     }
 }
 
-/// NOTE: The second return value does _not_ need `<'a>`, since `observer` is never installed into
-/// the peers here.  However, it appears unavoidable to the borrow-checker.
+/// NOTE: The second return value does _not_ need `<'a>`, since `observer` is
+/// never installed into the peers here.  However, it appears unavoidable to the
+/// borrow-checker.
 pub fn make_nakamoto_peers_from_invs<'a>(
     test_name: &str,
     observer: &'a TestEventObserver,
@@ -408,8 +410,9 @@ pub fn make_nakamoto_peers_from_invs<'a>(
     })
 }
 
-/// NOTE: The second return value does _not_ need `<'a>`, since `observer` is never installed into
-/// the peers here.  However, it appears unavoidable to the borrow-checker.
+/// NOTE: The second return value does _not_ need `<'a>`, since `observer` is
+/// never installed into the peers here.  However, it appears unavoidable to the
+/// borrow-checker.
 pub fn make_nakamoto_peers_from_invs_and_balances<'a>(
     test_name: &str,
     observer: &'a TestEventObserver,
@@ -428,8 +431,9 @@ pub fn make_nakamoto_peers_from_invs_and_balances<'a>(
 }
 
 /// Make peers from inventories and balances
-/// NOTE: The second return value does _not_ need `<'a>`, since `observer` is never installed into
-/// the peers here.  However, it appears unavoidable to the borrow-checker.
+/// NOTE: The second return value does _not_ need `<'a>`, since `observer` is
+/// never installed into the peers here.  However, it appears unavoidable to the
+/// borrow-checker.
 pub fn make_nakamoto_peers_from_invs_ext<'a, F>(
     test_name: &str,
     observer: &'a TestEventObserver,
@@ -872,8 +876,8 @@ fn test_nakamoto_inv_sync_state_machine() {
         vec![true, true, true, true, true, true, true, true, true, true],
     ];
 
-    // boot two peers, and cannibalize the second one for its network and sortdb so we can use them
-    // to directly drive a state machine.
+    // boot two peers, and cannibalize the second one for its network and sortdb so
+    // we can use them to directly drive a state machine.
     let (mut peer, mut other_peers) =
         make_nakamoto_peers_from_invs(function_name!(), &observer, 10, 3, bitvecs.clone(), 1);
     let mut other_peer = other_peers.pop().unwrap();
@@ -911,9 +915,9 @@ fn test_nakamoto_inv_sync_state_machine() {
     let (sx, rx) = sync_channel(1);
     let mut inv_machine = NakamotoInvStateMachine::new(PeerNetworkComms::new());
 
-    // ::scope is necessary because Rust is forced to think that `other_peers` has the same lifetime
-    // as `observer`, which prohibits running a bare thread in which `other_peers` outlives
-    // `observer`
+    // ::scope is necessary because Rust is forced to think that `other_peers` has
+    // the same lifetime as `observer`, which prohibits running a bare thread in
+    // which `other_peers` outlives `observer`
     std::thread::scope(|s| {
         s.spawn(|| {
             let sortdb = other_peer.sortdb.take().unwrap();
@@ -996,8 +1000,8 @@ fn test_nakamoto_inv_sync_across_epoch_change() {
         vec![true, true, true, true, true, true, true, true, true, true],
     ];
 
-    // boot two peers, and cannibalize the second one for its network and sortdb so we can use them
-    // to directly drive a state machine.
+    // boot two peers, and cannibalize the second one for its network and sortdb so
+    // we can use them to directly drive a state machine.
     let (mut peer, mut other_peers) =
         make_nakamoto_peers_from_invs(function_name!(), &observer, 10, 3, bitvecs, 1);
     let mut other_peer = other_peers.pop().unwrap();
@@ -1292,7 +1296,8 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
     assert_eq!(invgen.cache_misses(), 13);
 
     //
-    // ---------------------- the inv generator can keep up with new blocks ----------------------
+    // ---------------------- the inv generator can keep up with new blocks
+    // ----------------------
     //
 
     let mut expected_bits = vec![true, true];
@@ -1347,7 +1352,8 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
     let naka_tip_bh = peer.network.stacks_tip.block_hash.clone();
 
     //
-    // ---------------------- the inv generator can track multiple forks at once ----------------------
+    // ---------------------- the inv generator can track multiple forks at once
+    // ----------------------
     //
 
     peer.mine_nakamoto_on(vec![naka_tenure_start_block]);
@@ -1406,7 +1412,8 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
     assert_eq!(invgen.cache_misses(), 20);
 
     // load inv off of the non-canonical tip.
-    // it should show the last 3 canonical tenures as missing, and this forked block as present
+    // it should show the last 3 canonical tenures as missing, and this forked block
+    // as present
     let bits = invgen
         .make_tenure_bitvector(
             &sort_tip,
@@ -1506,9 +1513,9 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
     assert_eq!(invgen.cache_misses(), 25);
 
     // load inv off of the non-canonical tip again.
-    // it should show the last 3 last canonical tenures as missing, and this forked block as
-    // present. Two additional cache misses should manifest, since we invalidate the common
-    // parent's tenure data.
+    // it should show the last 3 last canonical tenures as missing, and this forked
+    // block as present. Two additional cache misses should manifest, since we
+    // invalidate the common parent's tenure data.
     let bits = invgen
         .make_tenure_bitvector(
             &sort_tip,
@@ -1586,11 +1593,12 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
     assert_eq!(invgen.cache_misses(), 27);
 
     //
-    // ---------------------- the inv generator will search only a maximum depth before giving up ----------------------
+    // ---------------------- the inv generator will search only a maximum depth
+    // before giving up ----------------------
     //
 
-    // advance the canonical chain by 3 more blocks, so the delta between `first_naka_tip` and
-    // `naka_tip` is now 6 blocks
+    // advance the canonical chain by 3 more blocks, so the delta between
+    // `first_naka_tip` and `naka_tip` is now 6 blocks
     peer.mine_nakamoto_on(vec![naka_tip_block]);
     for i in 0..3 {
         let (naka_block, ..) = peer.single_block_tenure(&sender_key, |_| {}, |_| {}, |_| true);
@@ -1728,7 +1736,8 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
         [true, true, true, true, true, false, false, true, true, true]
     );
 
-    // reused old canonical tip information, but still had an additional cache miss from the parent
+    // reused old canonical tip information, but still had an additional cache miss
+    // from the parent
     debug!("cache misses = {}", invgen.cache_misses());
     assert_eq!(invgen.cache_misses(), 10);
 }
@@ -2287,7 +2296,8 @@ fn test_nakamoto_make_tenure_inv_from_old_tips() {
     let mut invgen_no_cache = InvGenerator::new_no_cache().with_tip_ancestor_search_depth(5);
 
     //
-    // ---------------------- querying each tip will report the successive inv bits ----------------------
+    // ---------------------- querying each tip will report the successive inv bits
+    // ----------------------
     //
     let naka_tip = peer.network.stacks_tip.block_id();
     let mut ancestor_tips = vec![];
@@ -2334,7 +2344,8 @@ fn test_nakamoto_make_tenure_inv_from_old_tips() {
         debug!("tip {}: consensus_hash={}, burn_height={}, reward_cycle={}, bits={:?}, bits_no_cache={:?}", &tip, &tip_ch, sn.block_height, rc, &bits, &bits_no_cache);
         assert_eq!(bits, bits_no_cache);
 
-        // nakamoto starts at burn height 42, and has a reward cycle length of 10, so compute the range of bitvecs we need
+        // nakamoto starts at burn height 42, and has a reward cycle length of 10, so
+        // compute the range of bitvecs we need
         assert_eq!(sortdb.pox_constants.reward_cycle_length, 10);
         assert!(rc >= 4);
 

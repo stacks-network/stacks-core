@@ -14,11 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-/// This test module is concerned with verifying that the miner can build block histories out of
-/// blocks and microblocks in which either the Stacks or burnchain histories fork (or both), and
-/// that the Stacks chain state can still process all blocks and microblocks on each fork correctly
-/// (even if they arrive out-of-order).  This module differs from the `block_construction` module in that this
-/// module focuses on building and testing chain histories; unlike `block_construction`, this module does not
+/// This test module is concerned with verifying that the miner can build block
+/// histories out of blocks and microblocks in which either the Stacks or
+/// burnchain histories fork (or both), and that the Stacks chain state can
+/// still process all blocks and microblocks on each fork correctly
+/// (even if they arrive out-of-order).  This module differs from the
+/// `block_construction` module in that this module focuses on building and
+/// testing chain histories; unlike `block_construction`, this module does not
 /// test anything about block construction from mempool state.
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -67,8 +69,8 @@ fn connect_burnchain_db(burnchain: &Burnchain) -> BurnchainDB {
     burnchain_db
 }
 
-/// Simplest end-to-end test: create 1 fork of N Stacks epochs, mined on 1 burn chain fork,
-/// all from the same miner.
+/// Simplest end-to-end test: create 1 fork of N Stacks epochs, mined on 1 burn
+/// chain fork, all from the same miner.
 fn mine_stacks_blocks_1_fork_1_miner_1_burnchain<F, G>(
     test_name: &String,
     rounds: usize,
@@ -224,7 +226,8 @@ where
             );
             assert_eq!(chain_tip.consensus_hash, fork_snapshot.consensus_hash);
 
-            // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
+            // MARF trie exists for the block header's chain state, so we can make merkle
+            // proofs on it
             assert!(check_block_state_index_root(
                 &mut node.chainstate,
                 &fork_snapshot.consensus_hash,
@@ -247,7 +250,8 @@ where
     TestMinerTrace::new(burn_node, vec![miner], miner_trace)
 }
 
-/// one miner begins a chain, and another miner joins it in the same fork at rounds/2.
+/// one miner begins a chain, and another miner joins it in the same fork at
+/// rounds/2.
 fn mine_stacks_blocks_1_fork_2_miners_1_burnchain<F>(
     test_name: &String,
     rounds: usize,
@@ -406,7 +410,8 @@ where
         );
         assert_eq!(chain_tip.consensus_hash, fork_snapshot.consensus_hash);
 
-        // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
+        // MARF trie exists for the block header's chain state, so we can make merkle
+        // proofs on it
         assert!(check_block_state_index_root(
             &mut node.chainstate,
             &fork_snapshot.consensus_hash,
@@ -577,7 +582,8 @@ where
             &block_commit_op_2,
         );
 
-        // exactly one stacks block will have been queued up, since sortition picks only one.
+        // exactly one stacks block will have been queued up, since sortition picks only
+        // one.
         match (res_1, res_2) {
             (Some(res), None) => {}
             (None, Some(res)) => {}
@@ -621,7 +627,8 @@ where
                 miner_1.origin_address().unwrap().to_string()
             );
 
-            // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
+            // MARF trie exists for the block header's chain state, so we can make merkle
+            // proofs on it
             assert!(check_block_state_index_root(
                 &mut node.chainstate,
                 &fork_snapshot.consensus_hash,
@@ -642,7 +649,8 @@ where
                 miner_2.origin_address().unwrap().to_string()
             );
 
-            // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
+            // MARF trie exists for the block header's chain state, so we can make merkle
+            // proofs on it
             assert!(check_block_state_index_root(
                 &mut node.chainstate,
                 &fork_snapshot.consensus_hash,
@@ -665,9 +673,10 @@ where
     TestMinerTrace::new(burn_node, vec![miner_1, miner_2], miner_trace)
 }
 
-/// two miners begin working on the same stacks chain, and then the stacks chain forks
-/// (resulting in two chainstates).  The burnchain is unaffected.  One miner continues on one
-/// chainstate, and the other continues on the other chainstate.  Fork happens on rounds/2
+/// two miners begin working on the same stacks chain, and then the stacks chain
+/// forks (resulting in two chainstates).  The burnchain is unaffected.  One
+/// miner continues on one chainstate, and the other continues on the other
+/// chainstate.  Fork happens on rounds/2
 fn mine_stacks_blocks_2_forks_2_miners_1_burnchain<F>(
     test_name: &String,
     rounds: usize,
@@ -692,9 +701,10 @@ where
     )
 }
 
-/// two miners begin working on the same stacks chain, and then the stacks chain forks
-/// (resulting in two chainstates).  The burnchain is unaffected.  One miner continues on one
-/// chainstate, and the other continues on the other chainstate.  Fork happens on fork_height
+/// two miners begin working on the same stacks chain, and then the stacks chain
+/// forks (resulting in two chainstates).  The burnchain is unaffected.  One
+/// miner continues on one chainstate, and the other continues on the other
+/// chainstate.  Fork happens on fork_height
 fn mine_stacks_blocks_2_forks_at_height_2_miners_1_burnchain<F>(
     test_name: &String,
     rounds: usize,
@@ -946,7 +956,8 @@ where
                 miner_1.origin_address().unwrap().to_string()
             );
 
-            // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
+            // MARF trie exists for the block header's chain state, so we can make merkle
+            // proofs on it
             assert!(check_block_state_index_root(
                 &mut node.chainstate,
                 &fork_snapshot.consensus_hash,
@@ -958,7 +969,8 @@ where
                 miner_2.origin_address().unwrap().to_string()
             );
 
-            // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
+            // MARF trie exists for the block header's chain state, so we can make merkle
+            // proofs on it
             assert!(check_block_state_index_root(
                 &mut node.chainstate,
                 &fork_snapshot.consensus_hash,
@@ -966,8 +978,8 @@ where
             ));
         }
 
-        // add both blocks to the miner trace, because in this test runner, there will be _two_
-        // nodes that process _all_ blocks
+        // add both blocks to the miner trace, because in this test runner, there will
+        // be _two_ nodes that process _all_ blocks
         next_miner_trace.add(
             miner_1.id,
             full_test_name.clone(),
@@ -1030,7 +1042,8 @@ where
             }
         };
 
-        // build off of the point where the fork occurred, regardless of who won that sortition
+        // build off of the point where the fork occurred, regardless of who won that
+        // sortition
         if last_winning_snapshot_1.num_sortitions < snapshot_at_fork.num_sortitions {
             last_winning_snapshot_1 = snapshot_at_fork.clone();
         }
@@ -1172,7 +1185,8 @@ where
             &block_commit_op_2,
         );
 
-        // exactly one stacks block will have been queued up, since sortition picks only one.
+        // exactly one stacks block will have been queued up, since sortition picks only
+        // one.
         match (res_1, res_2) {
             (Some(res), None) => assert!(res),
             (None, Some(res)) => assert!(res),
@@ -1226,7 +1240,8 @@ where
                 miner_1.origin_address().unwrap().to_string()
             );
 
-            // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
+            // MARF trie exists for the block header's chain state, so we can make merkle
+            // proofs on it
             assert!(check_block_state_index_root(
                 &mut node.chainstate,
                 &fork_snapshot.consensus_hash,
@@ -1238,7 +1253,8 @@ where
                 miner_2.origin_address().unwrap().to_string()
             );
 
-            // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
+            // MARF trie exists for the block header's chain state, so we can make merkle
+            // proofs on it
             assert!(check_block_state_index_root(
                 &mut node_2.chainstate,
                 &fork_snapshot.consensus_hash,
@@ -1265,8 +1281,8 @@ where
         );
         miner_trace.push(next_miner_trace);
 
-        // keep chainstates in sync with one another -- each node discovers each other nodes'
-        // block data.
+        // keep chainstates in sync with one another -- each node discovers each other
+        // nodes' block data.
         preprocess_stacks_block_data(
             &mut node,
             &mut burn_node,
@@ -1557,7 +1573,8 @@ where
                 miner_1.origin_address().unwrap().to_string()
             );
 
-            // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
+            // MARF trie exists for the block header's chain state, so we can make merkle
+            // proofs on it
             assert!(check_block_state_index_root(
                 &mut node.chainstate,
                 &fork_snapshot.consensus_hash,
@@ -1577,7 +1594,8 @@ where
                 miner_2.origin_address().unwrap().to_string()
             );
 
-            // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
+            // MARF trie exists for the block header's chain state, so we can make merkle
+            // proofs on it
             assert!(check_block_state_index_root(
                 &mut node.chainstate,
                 &fork_snapshot.consensus_hash,
@@ -1806,7 +1824,8 @@ where
                     stacks_block_1.block_hash()
                 );
 
-                // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
+                // MARF trie exists for the block header's chain state, so we can make merkle
+                // proofs on it
                 assert!(check_block_state_index_root(
                     &mut node.chainstate,
                     &fork_snapshot_1.consensus_hash,
@@ -1827,7 +1846,8 @@ where
                     stacks_block_2.block_hash()
                 );
 
-                // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
+                // MARF trie exists for the block header's chain state, so we can make merkle
+                // proofs on it
                 assert!(check_block_state_index_root(
                     &mut node.chainstate,
                     &fork_snapshot_2.consensus_hash,
@@ -1861,8 +1881,8 @@ where
     TestMinerTrace::new(burn_node, vec![miner_1, miner_2], miner_trace)
 }
 
-/// two miners begin working on separate forks, and the burnchain splits out under them,
-/// putting each one on a different fork.
+/// two miners begin working on separate forks, and the burnchain splits out
+/// under them, putting each one on a different fork.
 /// split happens at rounds/2
 fn mine_stacks_blocks_2_forks_2_miners_2_burnchains<F>(
     test_name: &String,
@@ -2112,7 +2132,8 @@ where
                 miner_1.origin_address().unwrap().to_string()
             );
 
-            // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
+            // MARF trie exists for the block header's chain state, so we can make merkle
+            // proofs on it
             assert!(check_block_state_index_root(
                 &mut node.chainstate,
                 &fork_snapshot.consensus_hash,
@@ -2132,7 +2153,8 @@ where
                 miner_2.origin_address().unwrap().to_string()
             );
 
-            // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
+            // MARF trie exists for the block header's chain state, so we can make merkle
+            // proofs on it
             assert!(check_block_state_index_root(
                 &mut node.chainstate,
                 &fork_snapshot.consensus_hash,
@@ -2361,7 +2383,8 @@ where
                     stacks_block_1.block_hash()
                 );
 
-                // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
+                // MARF trie exists for the block header's chain state, so we can make merkle
+                // proofs on it
                 assert!(check_block_state_index_root(
                     &mut node.chainstate,
                     &fork_snapshot_1.consensus_hash,
@@ -2382,7 +2405,8 @@ where
                     stacks_block_2.block_hash()
                 );
 
-                // MARF trie exists for the block header's chain state, so we can make merkle proofs on it
+                // MARF trie exists for the block header's chain state, so we can make merkle
+                // proofs on it
                 assert!(check_block_state_index_root(
                     &mut node.chainstate,
                     &fork_snapshot_2.consensus_hash,
@@ -2416,7 +2440,8 @@ where
     TestMinerTrace::new(burn_node, vec![miner_1, miner_2], miner_trace)
 }
 
-/// compare two chainstates to see if they have exactly the same blocks and microblocks.
+/// compare two chainstates to see if they have exactly the same blocks and
+/// microblocks.
 fn assert_chainstate_blocks_eq(test_name_1: &str, test_name_2: &str) {
     let ch1 = open_chainstate(false, 0x80000000, test_name_1);
     let ch2 = open_chainstate(false, 0x80000000, test_name_2);
@@ -2563,10 +2588,11 @@ fn assert_chainstate_blocks_eq(test_name_1: &str, test_name_2: &str) {
     }
 }
 
-/// produce all stacks blocks, but don't process them in order.  Instead, queue them all up and
-/// process them in randomized order.
-/// This works by running mine_stacks_blocks_1_fork_1_miner_1_burnchain, extracting the blocks,
-/// and then re-processing them in a different chainstate directory.
+/// produce all stacks blocks, but don't process them in order.  Instead, queue
+/// them all up and process them in randomized order.
+/// This works by running mine_stacks_blocks_1_fork_1_miner_1_burnchain,
+/// extracting the blocks, and then re-processing them in a different chainstate
+/// directory.
 fn miner_trace_replay_randomized(miner_trace: &mut TestMinerTrace) {
     test_debug!("\n\n");
     test_debug!("------------------------------------------------------------------------");
@@ -2885,8 +2911,8 @@ pub fn mine_invalid_token_transfers_block(
     (stacks_block, vec![])
 }
 
-/// mine a smart contract in an anchored block, and mine a contract-call in the same anchored
-/// block
+/// mine a smart contract in an anchored block, and mine a contract-call in the
+/// same anchored block
 pub fn mine_smart_contract_contract_call_block(
     clarity_tx: &mut ClarityTx,
     builder: &mut StacksBlockBuilder,
@@ -2936,7 +2962,8 @@ pub fn mine_smart_contract_contract_call_block(
     (stacks_block, vec![])
 }
 
-/// mine a smart contract in an anchored block, and mine some contract-calls to it in a microblock tail
+/// mine a smart contract in an anchored block, and mine some contract-calls to
+/// it in a microblock tail
 pub fn mine_smart_contract_block_contract_call_microblock(
     clarity_tx: &mut ClarityTx,
     builder: &mut StacksBlockBuilder,
@@ -3020,9 +3047,9 @@ pub fn mine_smart_contract_block_contract_call_microblock(
     (stacks_block, microblocks)
 }
 
-/// mine a smart contract in an anchored block, and mine a contract-call to it in a microblock.
-/// Make it so all microblocks throw a runtime exception, but confirm that they are still mined
-/// anyway.
+/// mine a smart contract in an anchored block, and mine a contract-call to it
+/// in a microblock. Make it so all microblocks throw a runtime exception, but
+/// confirm that they are still mined anyway.
 pub fn mine_smart_contract_block_contract_call_microblock_exception(
     clarity_tx: &mut ClarityTx,
     builder: &mut StacksBlockBuilder,
@@ -3597,15 +3624,16 @@ fn mine_anchored_invalid_token_transfer_blocks_single() {
     }
 }
 
-// TODO: invalid block with duplicate microblock public key hash (okay between forks, but not
-// within the same fork)
+// TODO: invalid block with duplicate microblock public key hash (okay between
+// forks, but not within the same fork)
 // TODO; skipped blocks
 // TODO: missing blocks
 // TODO: no-sortition
-// TODO: burnchain forks, and we mine the same anchored stacks block in the beginnings of the two descendent
-// forks.  Verify all descendents are unique -- if A --> B and A --> C, and B --> D and C -->
-// E, and B == C, verify that it is never the case that D == E (but it is allowed that B == C
-// if the burnchain forks).
-// TODO: confirm that if A is accepted but B is rejected, then C must also be rejected even if
-// it's on a different burnchain fork.
-// TODO: confirm that we can process B and C separately, even though they're the same block
+// TODO: burnchain forks, and we mine the same anchored stacks block in the
+// beginnings of the two descendent forks.  Verify all descendents are unique --
+// if A --> B and A --> C, and B --> D and C --> E, and B == C, verify that it
+// is never the case that D == E (but it is allowed that B == C if the burnchain
+// forks). TODO: confirm that if A is accepted but B is rejected, then C must
+// also be rejected even if it's on a different burnchain fork.
+// TODO: confirm that we can process B and C separately, even though they're the
+// same block

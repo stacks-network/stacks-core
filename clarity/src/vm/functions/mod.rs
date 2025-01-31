@@ -190,9 +190,8 @@ define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {
 });
 
 ///
-/// Returns a callable for the given native function if it exists in the provided
-///   ClarityVersion
-///
+/// Returns a callable for the given native function if it exists in the
+/// provided   ClarityVersion
 pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option<CallableType> {
     use crate::vm::callables::CallableType::{NativeFunction, NativeFunction205, SpecialFunction};
     use crate::vm::functions::NativeFunctions::*;

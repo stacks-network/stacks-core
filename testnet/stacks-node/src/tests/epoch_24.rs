@@ -63,11 +63,11 @@ pub fn get_reward_set_entries_at_block(
 
 #[test]
 #[ignore]
-/// Verify the buggy stacks-increase behavior that was possible in PoX-2 does not crash the
-/// node in Epoch 2.4
+/// Verify the buggy stacks-increase behavior that was possible in PoX-2 does
+/// not crash the node in Epoch 2.4
 ///
-/// Verify that the transition to Epoch 2.4 occurs smoothly even if miners do not mine in the
-/// same block as the PoX-3 activation height.
+/// Verify that the transition to Epoch 2.4 occurs smoothly even if miners do
+/// not mine in the same block as the PoX-3 activation height.
 ///
 /// Verify the PoX-3 payouts get made to the expected recipients.
 fn fix_to_pox_contract() {
@@ -675,7 +675,8 @@ fn fix_to_pox_contract() {
 
 #[test]
 #[ignore]
-/// Verify that stackers that don't meet the stacking threshold get auto-unlocked in PoX-3.
+/// Verify that stackers that don't meet the stacking threshold get
+/// auto-unlocked in PoX-3.
 fn verify_auto_unlock_behavior() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -1056,8 +1057,8 @@ fn verify_auto_unlock_behavior() {
     let account = get_account(&http_origin, &spender_2_stx_addr);
     assert_eq!(account.locked, small_stacked as u128);
 
-    // Check that the "raw" reward sets for all cycles just contains entries for both addrs
-    //  for the next few cycles.
+    // Check that the "raw" reward sets for all cycles just contains entries for
+    // both addrs  for the next few cycles.
     for _cycle_number in first_v3_cycle..(first_v3_cycle + 6) {
         let (mut chainstate, _) = StacksChainState::open(
             false,
@@ -1143,8 +1144,8 @@ fn verify_auto_unlock_behavior() {
     .unwrap();
     let sortdb = btc_regtest_controller.sortdb_mut();
 
-    // Check that the "raw" reward sets for all cycles just contains entries for the first
-    //  address at the cycle start, since addr 2 was auto-unlocked.
+    // Check that the "raw" reward sets for all cycles just contains entries for the
+    // first  address at the cycle start, since addr 2 was auto-unlocked.
     for _cycle_number in first_v3_cycle..(first_v3_cycle + 6) {
         let tip_info = get_chain_info(&conf);
         let tip_block_id =

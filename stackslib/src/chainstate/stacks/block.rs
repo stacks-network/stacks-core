@@ -121,9 +121,10 @@ impl StacksBlockHeader {
     }
 
     /// This is the "block hash" used for extending the state index root.
-    /// This method is necessary because the index root must be globally unique (but, the same stacks
-    /// block header can show up multiple times on different burn chain forks and different PoX
-    /// forks).  Thus, we mix it with a burnchain block's ConsensusHash, which identifies both the
+    /// This method is necessary because the index root must be globally unique
+    /// (but, the same stacks block header can show up multiple times on
+    /// different burn chain forks and different PoX forks).  Thus, we mix
+    /// it with a burnchain block's ConsensusHash, which identifies both the
     /// burnchain block and the PoX fork.
     pub fn make_index_block_hash(
         consensus_hash: &ConsensusHash,
@@ -183,11 +184,15 @@ impl StacksBlockHeader {
     }
 
     /// Validate this block header against the burnchain.
-    /// Used to determine whether or not we'll keep a block around (even if we don't yet have its parent).
-    /// * burn_chain_tip is the BlockSnapshot encoding the sortition that selected this block for
+    /// Used to determine whether or not we'll keep a block around (even if we
+    /// don't yet have its parent).
+    /// * burn_chain_tip is the BlockSnapshot encoding the sortition that
+    ///   selected this block for
     /// inclusion in the Stacks blockchain chain state.
-    /// * parent_stacks_chain_tip is the BlockSnapshot for the parent Stacks block this header builds on
-    /// (i.e. this is the BlockSnapshot that corresponds to the parent of the given block_commit).
+    /// * parent_stacks_chain_tip is the BlockSnapshot for the parent Stacks
+    ///   block this header builds on
+    /// (i.e. this is the BlockSnapshot that corresponds to the parent of the
+    /// given block_commit).
     pub fn validate_burnchain(
         &self,
         burn_chain_tip: &BlockSnapshot,
@@ -240,7 +245,8 @@ impl StacksBlockHeader {
             return Err(Error::InvalidStacksBlock(msg));
         }
 
-        // this header must commit to all of the work seen so far in this stacks blockchain fork.
+        // this header must commit to all of the work seen so far in this stacks
+        // blockchain fork.
         if self.total_work.burn != parent_stacks_chain_tip.total_burn {
             let msg = format!(
                 "Invalid Stacks block header {}: invalid total burns: {} != {}",
@@ -252,8 +258,8 @@ impl StacksBlockHeader {
             return Err(Error::InvalidStacksBlock(msg));
         }
 
-        // this header's VRF proof must have been generated from the last sortition's sortition
-        // hash (which includes the last commit's VRF seed)
+        // this header's VRF proof must have been generated from the last sortition's
+        // sortition hash (which includes the last commit's VRF seed)
         let valid = match VRF::verify(
             &leader_key.public_key,
             &self.proof,
@@ -282,7 +288,8 @@ impl StacksBlockHeader {
         }
 
         // not verified by this method:
-        // * parent_microblock and parent_microblock_sequence (checked in process_block())
+        // * parent_microblock and parent_microblock_sequence (checked in
+        //   process_block())
         // * total_work.work (need the parent block header for that)
         // * tx_merkle_root     (already verified; validated on deserialization)
         // * state_index_root   (validated on process_block())
@@ -304,8 +311,9 @@ impl StacksMessageCodec for StacksBlock {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksBlock, codec_error> {
-        // NOTE: don't worry about size clamps here; do that when receiving the data from the peer
-        // network.  This code assumes that the block will be small enough.
+        // NOTE: don't worry about size clamps here; do that when receiving the data
+        // from the peer network.  This code assumes that the block will be
+        // small enough.
         let header: StacksBlockHeader = read_next(fd)?;
         let txs: Vec<StacksTransaction> = {
             let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
@@ -423,8 +431,9 @@ impl StacksBlock {
         self.header.index_block_hash(consensus_hash)
     }
 
-    /// Find and return the coinbase transaction.  It's always the first transaction.
-    /// If there are 0 coinbase txs, or more than 1, then return None
+    /// Find and return the coinbase transaction.  It's always the first
+    /// transaction. If there are 0 coinbase txs, or more than 1, then
+    /// return None
     pub fn get_coinbase_tx(&self) -> Option<StacksTransaction> {
         if self.txs.is_empty() {
             return None;
@@ -561,7 +570,8 @@ impl StacksBlock {
         }
     }
 
-    /// Verify that all transactions are supported in the given epoch, as indicated by `epoch_id`
+    /// Verify that all transactions are supported in the given epoch, as
+    /// indicated by `epoch_id`
     pub fn validate_transactions_static_epoch(
         txs: &[StacksTransaction],
         epoch_id: StacksEpochId,
@@ -574,7 +584,8 @@ impl StacksBlock {
         return true;
     }
 
-    /// Verify that one transaction is supported in the given epoch, as indicated by `epoch_id`
+    /// Verify that one transaction is supported in the given epoch, as
+    /// indicated by `epoch_id`
     pub fn validate_transaction_static_epoch(
         tx: &StacksTransaction,
         epoch_id: StacksEpochId,
@@ -650,7 +661,8 @@ impl StacksBlock {
     }
 
     /// Returns size in bytes of `StacksMessageCodec` representation
-    /// Note that this will serialize the block, so don't call if there is a better way to get block size
+    /// Note that this will serialize the block, so don't call if there is a
+    /// better way to get block size
     pub fn block_size(&self) -> Result<usize, codec_error> {
         let mut buf = vec![];
         self.consensus_serialize(&mut buf)?;
@@ -784,8 +796,8 @@ impl StacksMicroblockHeader {
         }
     }
 
-    /// Create the first microblock header in a microblock stream for an empty microblock stream.
-    /// The header will not be signed
+    /// Create the first microblock header in a microblock stream for an empty
+    /// microblock stream. The header will not be signed
     pub fn first_empty_unsigned(parent_block_hash: &BlockHeaderHash) -> StacksMicroblockHeader {
         StacksMicroblockHeader::first_unsigned(parent_block_hash, &Sha512Trunc256Sum([0u8; 32]))
     }

@@ -14,9 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-/// This test module is concerned with testing the behaviors of fees and block rewards under
-/// various conditions, such as ensuring that the right principals get paid and ensuring that fees
-/// are appropriately distributed.
+/// This test module is concerned with testing the behaviors of fees and block
+/// rewards under various conditions, such as ensuring that the right principals
+/// get paid and ensuring that fees are appropriately distributed.
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -56,8 +56,8 @@ use crate::net::test::*;
 use crate::util_lib::boot::boot_code_addr;
 use crate::util_lib::db::Error as db_error;
 
-// test that the bad (pre 2.1) microblock fee payment still works.  we have to support it for
-// eternity :(
+// test that the bad (pre 2.1) microblock fee payment still works.  we have to
+// support it for eternity :(
 #[test]
 fn test_bad_microblock_fees_pre_v210() {
     let privk = StacksPrivateKey::from_hex(
@@ -1796,8 +1796,8 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
         let stacks_block_id = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
 
-        // despite the block reward going to an alt. recipient address, the block reward is still
-        // reported correctly.
+        // despite the block reward going to an alt. recipient address, the block reward
+        // is still reported correctly.
         peer
             .chainstate()
             .with_read_only_clarity_tx(
@@ -1899,14 +1899,15 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
         peer.sortdb = Some(sortdb);
     }
 
-    // finally, verify that the alt. recipient got all the coinbases except the first one
+    // finally, verify that the alt. recipient got all the coinbases except the
+    // first one
     let sortdb = peer.sortdb.take().unwrap();
     let (consensus_hash, block_bhh) =
         SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
     let stacks_block_id = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
 
-    // despite the block reward going to an alt. recipient address, the block reward is still
-    // reported correctly.
+    // despite the block reward going to an alt. recipient address, the block reward
+    // is still reported correctly.
     let recipient_balance = peer
         .chainstate()
         .with_read_only_clarity_tx(
@@ -1938,16 +1939,18 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
         )
         .unwrap();
 
-    // N.B. `stx-get-balance` will reflect one more block-reward than `get-block-info?
-    // miner-reward`, so account for that.  This is because `get-block-info?` only reports data
-    // as of the parent block, whereas `stx-get-balance` looks in the MARF directly as it is.
+    // N.B. `stx-get-balance` will reflect one more block-reward than
+    // `get-block-info? miner-reward`, so account for that.  This is because
+    // `get-block-info?` only reports data as of the parent block, whereas
+    // `stx-get-balance` looks in the MARF directly as it is.
     let additional_reward = 3600000000
         + 8000  // 2000 + (1000 * (7 - 1))
         + 480   // 3 * (200 + 100 * (7 - 1)) / 5
         + 320; // 2 * (200 + 100 * (7 - 1)) / 5
 
-    // N.B. the alt. recipient will not have received the tx fees from the stream produced in tenure
-    // 2, since tenures 0, 1, and 2 do not pay to the alt. recipient.
+    // N.B. the alt. recipient will not have received the tx fees from the stream
+    // produced in tenure 2, since tenures 0, 1, and 2 do not pay to the alt.
+    // recipient.
     let extra_tx_fees = 160; // 2 * (200 + 100 * (3 - 1)) / 5
     assert_eq!(
         recipient_balance,

@@ -46,7 +46,8 @@ use crate::net::{
 };
 use crate::util_lib::db::{DBConn, Error as db_error};
 
-/// This module is responsible for synchronizing block inventories with other peers
+/// This module is responsible for synchronizing block inventories with other
+/// peers
 #[cfg(not(test))]
 pub const INV_SYNC_INTERVAL: u64 = 150;
 #[cfg(test)]
@@ -124,8 +125,8 @@ impl PeerBlocksInv {
         }
     }
 
-    /// Does this remote neighbor have the ith microblock stream (for the ith sortition)?
-    /// (note that block_height is the _absolute_ block height)
+    /// Does this remote neighbor have the ith microblock stream (for the ith
+    /// sortition)? (note that block_height is the _absolute_ block height)
     pub fn has_ith_microblock_stream(&self, block_height: u64) -> bool {
         if block_height < self.first_block_height {
             return false;
@@ -159,11 +160,11 @@ impl PeerBlocksInv {
         }
     }
 
-    /// Merge a blocksinv into our knowledge of what blocks exist for this neighbor.
-    /// block_height corresponds to bitvec[0] & 0x01
+    /// Merge a blocksinv into our knowledge of what blocks exist for this
+    /// neighbor. block_height corresponds to bitvec[0] & 0x01
     /// bitlen = number of sortitions represented by this inv.
-    /// If clear_bits is true, then any 0-bits in the given bitvecs will be set as well as 1-bits.
-    /// returns the number of bits set in each bitvec
+    /// If clear_bits is true, then any 0-bits in the given bitvecs will be set
+    /// as well as 1-bits. returns the number of bits set in each bitvec
     pub fn merge_blocks_inv(
         &mut self,
         block_height: u64,
@@ -236,9 +237,9 @@ impl PeerBlocksInv {
         (new_blocks, new_microblocks)
     }
 
-    /// Invalidate block and microblock inventories as a result of learning a new reward cycle's status.
-    /// Drop all blocks and microblocks at and after the given reward cycle.
-    /// Returns how many bits were dropped.
+    /// Invalidate block and microblock inventories as a result of learning a
+    /// new reward cycle's status. Drop all blocks and microblocks at and
+    /// after the given reward cycle. Returns how many bits were dropped.
     pub fn truncate_block_inventories(&mut self, burnchain: &Burnchain, reward_cycle: u64) -> u64 {
         // invalidate all blocks and microblocks that come after this
         let highest_agreed_block_height = burnchain.reward_cycle_to_block_height(reward_cycle);
@@ -277,8 +278,8 @@ impl PeerBlocksInv {
         }
     }
 
-    /// Invalidate PoX inventories as a result of learning a new reward cycle's status
-    /// Returns how many bits were dropped
+    /// Invalidate PoX inventories as a result of learning a new reward cycle's
+    /// status Returns how many bits were dropped
     #[cfg_attr(test, mutants::skip)]
     pub fn truncate_pox_inventory(&mut self, burnchain: &Burnchain, reward_cycle: u64) -> u64 {
         let highest_agreed_block_height = burnchain.reward_cycle_to_block_height(reward_cycle);
@@ -306,9 +307,10 @@ impl PeerBlocksInv {
     }
 
     /// Merge a remote peer's PoX bitvector into our view of its PoX bitvector.
-    /// If we flip a 0 to a 1, then invalidate the block/microblock bits for that reward cycle _and
-    /// all subsequent reward cycles_.
-    /// Returns the lowest reward cycle number that changed from a 0 to a 1, if such a flip happens
+    /// If we flip a 0 to a 1, then invalidate the block/microblock bits for
+    /// that reward cycle _and all subsequent reward cycles_.
+    /// Returns the lowest reward cycle number that changed from a 0 to a 1, if
+    /// such a flip happens
     pub fn merge_pox_inv(
         &mut self,
         burnchain: &Burnchain,
@@ -433,9 +435,10 @@ impl PeerBlocksInv {
         total
     }
 
-    /// Determine the lowest reward cycle that this pox inv disagrees with a given pox id
-    /// Returns (disagreed reward cycle, my-inv-bit, poxid-inv-bit)
-    /// If one is longer than the other, there will be disagreement
+    /// Determine the lowest reward cycle that this pox inv disagrees with a
+    /// given pox id Returns (disagreed reward cycle, my-inv-bit,
+    /// poxid-inv-bit) If one is longer than the other, there will be
+    /// disagreement
     pub fn pox_inv_cmp(&self, pox_id: &PoxId) -> Option<(u64, bool, bool)> {
         let min = cmp::min((pox_id.len() as u64) - 1, self.num_reward_cycles);
         for i in 0..min {
@@ -714,8 +717,9 @@ impl NeighborBlockStats {
         self.state = InvWorkState::GetPoxInvFinish;
     }
 
-    /// Determine whether or not a received PoxInv is less certain than the local PoX
-    /// inventory.  Return the lowest reward cycle where the remote node is less certain than us.
+    /// Determine whether or not a received PoxInv is less certain than the
+    /// local PoX inventory.  Return the lowest reward cycle where the
+    /// remote node is less certain than us.
     pub fn check_remote_pox_inv_uncertainty(
         network: &mut PeerNetwork,
         target_pox_reward_cycle: u64,
@@ -737,9 +741,9 @@ impl NeighborBlockStats {
         return bit;
     }
 
-    /// Determine whether or not a received PoxInv is more certain as the local PoX
-    /// inventory.  Return the loewst reward cycle where the local nodes is less certain than the
-    /// remote node.
+    /// Determine whether or not a received PoxInv is more certain as the local
+    /// PoX inventory.  Return the loewst reward cycle where the local nodes
+    /// is less certain than the remote node.
     pub fn check_local_pox_inv_uncertainty(
         network: &mut PeerNetwork,
         target_pox_reward_cycle: u64,
@@ -762,8 +766,8 @@ impl NeighborBlockStats {
     }
 
     /// Try to finish getting all PoxInvData requests.
-    /// Return true if this method is done -- i.e. all requests have been handled.
-    /// Return false if we're not done.
+    /// Return true if this method is done -- i.e. all requests have been
+    /// handled. Return false if we're not done.
     /// Return Err(..) on irrecoverable error.
     pub fn getpoxinv_try_finish(&mut self, network: &mut PeerNetwork) -> Result<bool, net_error> {
         assert!(!self.done);
@@ -857,8 +861,8 @@ impl NeighborBlockStats {
     }
 
     /// Try to finish getting all BlocksInvData requests.
-    /// Return true if this method is done -- i.e. all requests have been handled.
-    /// Return false if we're not done.
+    /// Return true if this method is done -- i.e. all requests have been
+    /// handled. Return false if we're not done.
     pub fn getblocksinv_try_finish(
         &mut self,
         network: &mut PeerNetwork,
@@ -1196,13 +1200,14 @@ impl InvState {
         ret
     }
 
-    /// Set a block or confirmed microblock stream as available, given the burn header hash and consensus hash.
-    /// Used when processing a BlocksAvailable or MicroblocksAvailable message.
-    /// Drops if the message refers to a block height
-    /// Returns the optional block sortition height at which the block or confirmed microblock stream resides in the blockchain (returns
-    /// None if its bit was already set).
-    /// Returns NotFoundError if the consensus hash is not recognized, but may be recognized in the
-    /// future
+    /// Set a block or confirmed microblock stream as available, given the burn
+    /// header hash and consensus hash. Used when processing a
+    /// BlocksAvailable or MicroblocksAvailable message. Drops if the
+    /// message refers to a block height Returns the optional block
+    /// sortition height at which the block or confirmed microblock stream
+    /// resides in the blockchain (returns None if its bit was already set).
+    /// Returns NotFoundError if the consensus hash is not recognized, but may
+    /// be recognized in the future
     fn set_data_available(
         &mut self,
         burnchain: &Burnchain,
@@ -1224,8 +1229,8 @@ impl InvState {
                 sn
             }
             None => {
-                // we don't know about this block -- the sending node is probably too far ahead of
-                // us.
+                // we don't know about this block -- the sending node is probably too far ahead
+                // of us.
                 debug!("Unknown consensus hash {}", consensus_hash);
                 return Err(net_error::NotFoundError);
             }
@@ -1241,7 +1246,8 @@ impl InvState {
 
         match self.block_stats.get_mut(neighbor_key) {
             Some(stats) => {
-                // can't set this if we haven't scanned this remote node's PoX inventory this high
+                // can't set this if we haven't scanned this remote node's PoX inventory this
+                // high
                 let reward_cycle = match burnchain.block_height_to_reward_cycle(sn.block_height) {
                     Some(rc) => rc,
                     None => {
@@ -1260,8 +1266,9 @@ impl InvState {
                     return Err(net_error::NotFoundError);
                 }
 
-                // NOTE: block heights are 1-indexed in the burn DB, since the 0th snapshot block is the
-                // genesis snapshot and doesn't correspond to anything (the 1st snapshot is block 0)
+                // NOTE: block heights are 1-indexed in the burn DB, since the 0th snapshot
+                // block is the genesis snapshot and doesn't correspond to
+                // anything (the 1st snapshot is block 0)
                 let set = if microblocks {
                     debug!(
                         "Neighbor {:?} now has confirmed microblock stream at {} ({}) (sortition {})",
@@ -1395,9 +1402,10 @@ impl PeerNetwork {
         }
     }
 
-    /// Try to make a GetPoxInv request for the target reward cycle for this peer.
-    /// The resulting GetPoxInv, if Some(..), will request a segment of the remote peer's PoX
-    /// bitvector starting from target_pox_reward_cycle, and fetching up to GETPOXINV_MAX_BITLEN bits.
+    /// Try to make a GetPoxInv request for the target reward cycle for this
+    /// peer. The resulting GetPoxInv, if Some(..), will request a segment
+    /// of the remote peer's PoX bitvector starting from
+    /// target_pox_reward_cycle, and fetching up to GETPOXINV_MAX_BITLEN bits.
     /// The target_pox_reward_cycle will be the _lowest_ reward cycle requested.
     fn make_getpoxinv(
         &self,
@@ -1465,7 +1473,8 @@ impl PeerNetwork {
             }
         };
 
-        // ask for all PoX bits in-between target_reward_cyle and highest_reward_cycle, inclusive
+        // ask for all PoX bits in-between target_reward_cyle and highest_reward_cycle,
+        // inclusive
         let num_reward_cycles =
             if target_pox_reward_cycle + GETPOXINV_MAX_BITLEN <= max_reward_cycle {
                 GETPOXINV_MAX_BITLEN
@@ -1512,9 +1521,10 @@ impl PeerNetwork {
         Ok(Some(getpoxinv))
     }
 
-    /// Determine how many blocks to ask for in a GetBlocksInv request to a given neighbor.
-    /// Possibly ask for no blocks -- for example, the neighbor may not have sync'ed the burnchain,
-    /// or may not agree on our PoX view.
+    /// Determine how many blocks to ask for in a GetBlocksInv request to a
+    /// given neighbor. Possibly ask for no blocks -- for example, the
+    /// neighbor may not have sync'ed the burnchain, or may not agree on our
+    /// PoX view.
     fn get_getblocksinv_num_blocks(
         &self,
         sortdb: &SortitionDB,
@@ -1572,7 +1582,8 @@ impl PeerNetwork {
                     .get_peer_sortition_snapshot(sortdb, &tip_burn_block_hash)?
                     .is_none()
             {
-                // we are at least as far along as the remote peer, but we don't know about this remote peer's burnchain tip
+                // we are at least as far along as the remote peer, but we don't know about this
+                // remote peer's burnchain tip
                 if self
                     .get_peer_sortition_snapshot(sortdb, &stable_tip_burn_block_hash)?
                     .is_none()
@@ -1593,8 +1604,8 @@ impl PeerNetwork {
             }
         };
 
-        // ask for all blocks in-between target_block_height and max_burn_block_height in this
-        // reward cycle, inclusive
+        // ask for all blocks in-between target_block_height and max_burn_block_height
+        // in this reward cycle, inclusive
         let num_blocks = if target_block_height
             + (self.burnchain.pox_constants.reward_cycle_length as u64)
             <= max_burn_block_height
@@ -1608,7 +1619,8 @@ impl PeerNetwork {
         };
 
         if num_blocks == 0 {
-            // target_block_height was higher than the highest known height of the remote node
+            // target_block_height was higher than the highest known height of the remote
+            // node
             debug!("{:?}: will not send GetBlocksInv to {:?}, since we are sync'ed up to its highest sortition block (our target reward cycle was {}, height was {})", &self.local_peer, nk, target_block_reward_cycle, target_block_height);
         }
 
@@ -1616,9 +1628,10 @@ impl PeerNetwork {
     }
 
     /// Make a GetBlocksInv request for a given reward cycle.
-    /// Returns Ok(None) if we cannot make a request at this reward cycle (either the remote peer
-    /// is too far behind the burnchain tip, or their PoX inventory disagrees with us, or we're not
-    /// caught up with target_block_reward_cycle).
+    /// Returns Ok(None) if we cannot make a request at this reward cycle
+    /// (either the remote peer is too far behind the burnchain tip, or
+    /// their PoX inventory disagrees with us, or we're not caught up with
+    /// target_block_reward_cycle).
     fn make_getblocksinv(
         &self,
         sortdb: &SortitionDB,
@@ -1693,9 +1706,9 @@ impl PeerNetwork {
 
     /// Is a peer worth talking to?
     fn is_peer_target(&self, nk: &NeighborKey) -> bool {
-        // don't talk to inbound peers; only outbound (and only ones we have the key for)
-        // (we make this check each time we begin a round of requests, since the set of
-        // available peers can change during this time).
+        // don't talk to inbound peers; only outbound (and only ones we have the key
+        // for) (we make this check each time we begin a round of requests,
+        // since the set of available peers can change during this time).
         match self.events.get(nk) {
             Some(event_id) => match self.peers.get(event_id) {
                 Some(convo) => {
@@ -1723,8 +1736,8 @@ impl PeerNetwork {
     }
 
     /// Make a possible GetPoxInv request for this neighbor.
-    /// Returns Some((target-reward-cycle, getpoxinv-request)) if we are to request a PoX
-    /// inventory for this node.
+    /// Returns Some((target-reward-cycle, getpoxinv-request)) if we are to
+    /// request a PoX inventory for this node.
     fn make_next_getpoxinv(
         &self,
         sortdb: &SortitionDB,
@@ -1776,16 +1789,16 @@ impl PeerNetwork {
 
     /// Determine at which reward cycle to begin scanning inventories
     pub(crate) fn get_block_scan_start(&self, sortdb: &SortitionDB) -> u64 {
-        // see if the stacks tip affirmation map and heaviest affirmation map diverge.  If so, then
-        // start scaning at the reward cycle just before that.
+        // see if the stacks tip affirmation map and heaviest affirmation map diverge.
+        // If so, then start scaning at the reward cycle just before that.
         let am_rescan_rc = self
             .stacks_tip_affirmation_map
             .find_inv_search(&self.heaviest_affirmation_map);
 
-        // affirmation maps are compatible, so just resume scanning off of wherever we are at the
-        // tip.
-        // NOTE: This code path only works in Stacks 2.x, but that's okay because this whole state
-        // machine is only used in Stacks 2.x
+        // affirmation maps are compatible, so just resume scanning off of wherever we
+        // are at the tip.
+        // NOTE: This code path only works in Stacks 2.x, but that's okay because this
+        // whole state machine is only used in Stacks 2.x
         let (consensus_hash, _) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
             .unwrap_or((ConsensusHash::empty(), BlockHeaderHash([0u8; 32])));
 
@@ -2086,8 +2099,9 @@ impl PeerNetwork {
             return Ok(false);
         }
 
-        // if we get a blocksinv, then it means the remote peer still agrees with us on PoX state
-        // (otherwise we would have been NACK'ed, and the peer would not be considered online)
+        // if we get a blocksinv, then it means the remote peer still agrees with us on
+        // PoX state (otherwise we would have been NACK'ed, and the peer would
+        // not be considered online)
         let blocks_inv = stats
             .blocks_inv
             .take()
@@ -2180,8 +2194,8 @@ impl PeerNetwork {
         Ok(stats.done)
     }
 
-    /// Refresh our cached PoX bitvector, and invalidate any PoX state if we have since learned
-    /// about a new reward cycle.
+    /// Refresh our cached PoX bitvector, and invalidate any PoX state if we
+    /// have since learned about a new reward cycle.
     /// Call right after PeerNetwork::refresh_burnchain_view()
     pub fn refresh_sortition_view(&mut self, sortdb: &SortitionDB) -> Result<(), net_error> {
         if self.inv_state.is_none() {
@@ -2217,7 +2231,8 @@ impl PeerNetwork {
             );
             for i in 0..num_reward_cycles {
                 if !self.pox_id.has_ith_anchor_block(i) && new_pox_id.has_ith_anchor_block(i) {
-                    // we learned of a new anchor block intermittently.  Invalidate all cached state at and after this reward cycle.
+                    // we learned of a new anchor block intermittently.  Invalidate all cached state
+                    // at and after this reward cycle.
                     inv_state.invalidate_block_inventories(&self.burnchain, i as u64);
 
                     // also clear block header cache (TODO: this is pessimistic -- only invalidated
@@ -2231,7 +2246,8 @@ impl PeerNetwork {
                 }
             }
 
-            // if the PoX bitvector shrinks, then invalidate block inventories that are no longer represented
+            // if the PoX bitvector shrinks, then invalidate block inventories that are no
+            // longer represented
             if new_pox_id.num_inventory_reward_cycles() < self.pox_id.num_inventory_reward_cycles()
             {
                 inv_state.invalidate_block_inventories(&self.burnchain, new_pox_id.len() as u64);
@@ -2682,14 +2698,15 @@ impl PeerNetwork {
         ibd: bool,
         num_reward_cycles_synced: u64,
     ) -> bool {
-        // either not in IBD, and we've sync'ed the highest reward cycle in the PoX vector,
-        // OR,
+        // either not in IBD, and we've sync'ed the highest reward cycle in the PoX
+        // vector, OR,
         // in IBD, and we've sync'ed up to the highest sortition's reward cycle.
         //
-        // The difference is that in the former case, the PoX inventory vector will be as long as
-        // the sortition history, but the number of reward cycles tracked by the inv state machine
-        // may be less when the node is booting up.  So, we preface that check by also checking
-        // that we're in steady-state mode (i.e. not IBD).
+        // The difference is that in the former case, the PoX inventory vector will be
+        // as long as the sortition history, but the number of reward cycles
+        // tracked by the inv state machine may be less when the node is booting
+        // up.  So, we preface that check by also checking that we're in
+        // steady-state mode (i.e. not IBD).
         (!ibd && num_reward_cycles_synced >= self.pox_id.num_inventory_reward_cycles() as u64)
             || (ibd
                 && num_reward_cycles_synced
@@ -2699,7 +2716,8 @@ impl PeerNetwork {
                         .expect("FATAL: sortition has no reward cycle"))
     }
 
-    /// Check to see if an always-allowed peer has performed an epoch 2.x inventory sync
+    /// Check to see if an always-allowed peer has performed an epoch 2.x
+    /// inventory sync
     fn check_always_allowed_peer_inv_sync_epoch2x(&self, ibd: bool) -> bool {
         // only count an inv_sync as passing if there's an always-allowed node
         // in our inv state

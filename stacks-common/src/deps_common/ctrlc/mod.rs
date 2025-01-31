@@ -47,21 +47,22 @@ static INIT: AtomicBool = AtomicBool::new(false);
 /// typically at the start of your program.
 ///
 /// # Warning
-/// On Unix, any existing `SIGINT`, `SIGTERM`, `SIGHUP`, `SIGBUS`, or `SA_SIGINFO`
-/// posix signal handlers will be overwritten. On Windows, multiple handler routines are allowed,
-/// but they are called on a last-registered, first-called basis until the signal is handled.
+/// On Unix, any existing `SIGINT`, `SIGTERM`, `SIGHUP`, `SIGBUS`, or
+/// `SA_SIGINFO` posix signal handlers will be overwritten. On Windows, multiple
+/// handler routines are allowed, but they are called on a last-registered,
+/// first-called basis until the signal is handled.
 ///
-/// On Unix, signal dispositions and signal handlers are inherited by child processes created via
-/// `fork(2)` on, but not by child processes created via `execve(2)`.
-/// Signal handlers are not inherited on Windows.
+/// On Unix, signal dispositions and signal handlers are inherited by child
+/// processes created via `fork(2)` on, but not by child processes created via
+/// `execve(2)`. Signal handlers are not inherited on Windows.
 ///
 /// # Errors
-/// Will return an error if another `ctrlc::set_handler()` handler exists or if a
-/// system error occurred while setting the handler.
+/// Will return an error if another `ctrlc::set_handler()` handler exists or if
+/// a system error occurred while setting the handler.
 ///
 /// # Panics
-/// Any panic in the handler will not be caught and will cause the signal handler thread to stop.
-///
+/// Any panic in the handler will not be caught and will cause the signal
+/// handler thread to stop.
 pub fn set_handler<F>(mut user_handler: F) -> Result<(), Error>
 where
     F: FnMut(SignalId) + 'static + Send,

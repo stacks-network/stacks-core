@@ -757,8 +757,8 @@ fn get_first_block_in_tenure<GTS: GetTenureStartId>(
         }
     };
 
-    // SAFETY: if we reach this point, then `id_bhh` is a Nakamoto block and has a well-defined
-    // tenure-start block ID.
+    // SAFETY: if we reach this point, then `id_bhh` is a Nakamoto block and has a
+    // well-defined tenure-start block ID.
     let ch = consensus_hash
         .expect("Unexpected SQL failure querying block header table for 'consensus_hash'");
 
@@ -938,7 +938,8 @@ impl BurnStateDB for SortitionHandleTx<'_> {
         }
     }
 
-    /// Returns Some if `0 <= height < get_burn_block_height(sorition_id)`, and None otherwise.
+    /// Returns Some if `0 <= height < get_burn_block_height(sorition_id)`, and
+    /// None otherwise.
     fn get_burn_header_hash(
         &self,
         height: u32,

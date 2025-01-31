@@ -67,13 +67,13 @@ use crate::util_lib::db::{DBConn, Error as DBError};
 pub struct WantedTenure {
     /// Consensus hash that identifies the start of the tenure
     pub tenure_id_consensus_hash: ConsensusHash,
-    /// Winning block-commit block ID for this tenure's snapshot (NOTE THAT THIS IS NOT THE
-    /// TENURE-START BLOCK FOR THIS TENURE).
+    /// Winning block-commit block ID for this tenure's snapshot (NOTE THAT THIS
+    /// IS NOT THE TENURE-START BLOCK FOR THIS TENURE).
     pub winning_block_id: StacksBlockId,
     /// burnchain block height of this tenure ID consensus hash
     pub burn_height: u64,
-    /// Whether or not this tenure has been acted upon (i.e. set to true if there's no need to
-    /// download it)
+    /// Whether or not this tenure has been acted upon (i.e. set to true if
+    /// there's no need to download it)
     pub processed: bool,
 }
 
@@ -92,8 +92,8 @@ impl WantedTenure {
     }
 }
 
-/// A tenure's start and end blocks.  This is constructed from a sequence of `WantedTenure`s and a
-/// node's inventory vector over them.
+/// A tenure's start and end blocks.  This is constructed from a sequence of
+/// `WantedTenure`s and a node's inventory vector over them.
 #[derive(Debug, PartialEq, Clone)]
 pub struct TenureStartEnd {
     /// Consensus hash that identifies the start of the tenure
@@ -108,9 +108,9 @@ pub struct TenureStartEnd {
     pub start_block_id: StacksBlockId,
     /// Last block ID
     pub end_block_id: StacksBlockId,
-    /// Whether or not to fetch the end-block of this tenure directly.  This is decided based on
-    /// where the tenure falls in the reward cycle (e.g. if it's the last complete tenure in the
-    /// reward cycle).
+    /// Whether or not to fetch the end-block of this tenure directly.  This is
+    /// decided based on where the tenure falls in the reward cycle (e.g. if
+    /// it's the last complete tenure in the reward cycle).
     pub fetch_end_block: bool,
     /// Reward cycle of the start block
     pub start_reward_cycle: u64,
@@ -148,24 +148,28 @@ impl TenureStartEnd {
         }
     }
 
-    /// Given a list of wanted tenures and a peer's inventory bitvectors over the same range of
-    /// tenures, calculate the list of start/end blocks for each wanted tenure.
+    /// Given a list of wanted tenures and a peer's inventory bitvectors over
+    /// the same range of tenures, calculate the list of start/end blocks
+    /// for each wanted tenure.
     ///
-    /// Recall that in Nakamoto, a block-commit commits to the parent tenure's first block.  So if
-    /// bit i is set (i.e. `wanted_tenures[i]` has tenure data), then it really means that the tenure
-    /// start block is the winning block hash in the _subsequent_ `wanted_tenures` list item for which
-    /// its corresponding bit is 1.  Similarly, the end block is the winning block hash in the
-    /// `wanted_tenures` list item _after that_ whose bit is 1.
+    /// Recall that in Nakamoto, a block-commit commits to the parent tenure's
+    /// first block.  So if bit i is set (i.e. `wanted_tenures[i]` has
+    /// tenure data), then it really means that the tenure start block is
+    /// the winning block hash in the _subsequent_ `wanted_tenures` list item
+    /// for which its corresponding bit is 1.  Similarly, the end block is
+    /// the winning block hash in the `wanted_tenures` list item _after
+    /// that_ whose bit is 1.
     ///
-    /// As such, this algorithm needs to search not only the wanted tenures and inventories for
-    /// this reward cycle, but also the next.
+    /// As such, this algorithm needs to search not only the wanted tenures and
+    /// inventories for this reward cycle, but also the next.
     ///
-    /// The `wanted_tenures` and `next_wanted_tenures` values must be aligned to reward cycle
-    /// boundaries (mod 0).  The code uses this assumption to assign reward cycles to blocks in the
-    /// `TenureStartEnd`s in the returned `AvailableTenures` map.
+    /// The `wanted_tenures` and `next_wanted_tenures` values must be aligned to
+    /// reward cycle boundaries (mod 0).  The code uses this assumption to
+    /// assign reward cycles to blocks in the `TenureStartEnd`s in the
+    /// returned `AvailableTenures` map.
     ///
-    /// Returns the set of available tenures for all tenures in `wanted_tenures` that can be found
-    /// with the available information.
+    /// Returns the set of available tenures for all tenures in `wanted_tenures`
+    /// that can be found with the available information.
     /// Returns None if there is no inventory data for the given reward cycle.
     pub fn from_inventory(
         rc: u64,
@@ -175,11 +179,12 @@ impl TenureStartEnd {
         first_burn_height: u64,
         invs: &NakamotoTenureInv,
     ) -> Option<AvailableTenures> {
-        // if bit i is set, that means that the tenure data for the ith tenure in the sortition
-        // history was present.  But given that block-commits commit to the start block of the
-        // parent tenure, the start-block ID for tenure i would be the StacksBlockId for the
-        // next-available tenure.  Its end-block ID would be the StacksBlockId for the
-        // next-available tenure after that.
+        // if bit i is set, that means that the tenure data for the ith tenure in the
+        // sortition history was present.  But given that block-commits commit
+        // to the start block of the parent tenure, the start-block ID for
+        // tenure i would be the StacksBlockId for the next-available tenure.
+        // Its end-block ID would be the StacksBlockId for the next-available
+        // tenure after that.
         let invbits = invs.tenures_inv.get(&rc)?;
         let mut tenure_block_ids = AvailableTenures::new();
         let mut last_tenure = 0;
@@ -251,8 +256,8 @@ impl TenureStartEnd {
             return Some(tenure_block_ids);
         };
 
-        // `wanted_tenures` was a full reward cycle, so be sure to fetch the tenure-end block of
-        // the last tenure derived from it
+        // `wanted_tenures` was a full reward cycle, so be sure to fetch the tenure-end
+        // block of the last tenure derived from it
         if let Some(last_tenure_ch) = last_tenure_ch.take() {
             if let Some(last_tenure) = tenure_block_ids.get_mut(&last_tenure_ch) {
                 debug!(
@@ -286,9 +291,9 @@ impl TenureStartEnd {
                 continue;
             }
 
-            // search the remainder of `wanted_tenures`, and if we don't find the end-tenure,
-            // search `next_wanted_tenures` until we find the tenure-start wanted tenure for the
-            // ith wanted_tenure
+            // search the remainder of `wanted_tenures`, and if we don't find the
+            // end-tenure, search `next_wanted_tenures` until we find the
+            // tenure-start wanted tenure for the ith wanted_tenure
             let Some((in_next, wt_start_idx, wt_start)) = ((i + iter_start + 1)
                 ..wanted_tenures.len())
                 .find_map(|j| {
@@ -319,9 +324,9 @@ impl TenureStartEnd {
                 break;
             };
 
-            // search after the wanted tenure we just found to get the tenure-end wanted tenure. It
-            // is guaranteed to be in `next_wanted_tenures`, since otherwise we would have already
-            // found it
+            // search after the wanted tenure we just found to get the tenure-end wanted
+            // tenure. It is guaranteed to be in `next_wanted_tenures`, since
+            // otherwise we would have already found it
             let next_start = if in_next { wt_start_idx + 1 } else { 0 };
             let Some(wt_end) = (next_start..next_wanted_tenures.len()).find_map(|k| {
                 let bit = u16::try_from(k).expect("FATAL: more sortitions than u16::MAX");

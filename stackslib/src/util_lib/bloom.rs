@@ -36,7 +36,8 @@ use crate::util_lib::db::{query_expect_row, DBConn, DBTx, Error as db_error};
 struct BitField(Vec<u8>, u32);
 
 impl BitField {
-    /// Make a new bitfield with sz bits represented (rounded up to the nearest byte in space used)
+    /// Make a new bitfield with sz bits represented (rounded up to the nearest
+    /// byte in space used)
     pub fn new(sz: u32) -> BitField {
         BitField(vec![0u8; BITVEC_LEN!(sz) as usize], sz)
     }
@@ -75,7 +76,8 @@ enum BitFieldEncoding {
     Full = 0x02,
 }
 
-/// Encode the inner count array, using a sparse representation if it would save space
+/// Encode the inner count array, using a sparse representation if it would save
+/// space
 fn encode_bitfield<W: Write>(fd: &mut W, bytes: &[u8]) -> Result<(), codec_error> {
     let mut num_filled = 0;
     for bits in bytes.iter() {
@@ -85,7 +87,8 @@ fn encode_bitfield<W: Write>(fd: &mut W, bytes: &[u8]) -> Result<(), codec_error
     }
 
     if num_filled * 5 + 4 < bytes.len() {
-        // more efficient to encode as (4-byte-index, 1-byte-value) pairs, with an extra 4-byte header
+        // more efficient to encode as (4-byte-index, 1-byte-value) pairs, with an extra
+        // 4-byte header
         write_next(fd, &(BitFieldEncoding::Sparse as u8))?;
         write_next(fd, &(bytes.len() as u32))?;
         write_next(fd, &(num_filled as u32))?;
@@ -156,8 +159,8 @@ impl StacksMessageCodec for BitField {
 }
 
 /// A node-specific collection of Bloom function hashes.
-/// Works by using a node-local salt to ensure that the hash functions used to insert data into the
-/// bloom structure will be unique (w.h.p.) to this node.
+/// Works by using a node-local salt to ensure that the hash functions used to
+/// insert data into the bloom structure will be unique (w.h.p.) to this node.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BloomNodeHasher {
     seed: [u8; 32],
@@ -210,8 +213,8 @@ pub trait BloomHash {
     fn pick_bin(&self, count: u32, data: &[u8], num_bins: u32) -> u32;
 }
 
-/// Basic bloom filter with a given hash implementation that can suitably provide a given number of
-/// distinct hash functions.
+/// Basic bloom filter with a given hash implementation that can suitably
+/// provide a given number of distinct hash functions.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BloomFilter<H: BloomHash> {
     hasher: H,
@@ -249,7 +252,8 @@ enum BloomHashID {
 }
 
 impl<H: BloomHash> BloomFilter<H> {
-    /// Make a new bloom filter with a given error rate and expected maximum size
+    /// Make a new bloom filter with a given error rate and expected maximum
+    /// size
     pub fn new(error_rate: f64, max_items: u32, hasher: H) -> BloomFilter<H> {
         let (num_bits, num_hashes) = bloom_hash_count(error_rate, max_items);
         BloomFilter {
@@ -259,7 +263,8 @@ impl<H: BloomHash> BloomFilter<H> {
         }
     }
 
-    /// Add a raw item, represented as a byte array (e.g. a serialized struct, perhaps)
+    /// Add a raw item, represented as a byte array (e.g. a serialized struct,
+    /// perhaps)
     pub fn insert_raw(&mut self, item: &[u8]) -> bool {
         let mut false_positive = true;
         for i in 0..self.num_hashes {
@@ -330,9 +335,9 @@ impl StacksMessageCodec for BloomFilter<BloomNodeHasher> {
     }
 }
 
-/// Disk-backed counting bloom filter with a given set of hash functions.  Uses a sqlite3 blob of
-/// 32-bit bins to count things.  Meant to work alongside an existing database, in its own table
-/// (e.g. the mempool).
+/// Disk-backed counting bloom filter with a given set of hash functions.  Uses
+/// a sqlite3 blob of 32-bit bins to count things.  Meant to work alongside an
+/// existing database, in its own table (e.g. the mempool).
 #[derive(Debug, Clone, PartialEq)]
 pub struct BloomCounter<H: BloomHash + Clone + StacksMessageCodec> {
     hasher: H,
@@ -343,7 +348,8 @@ pub struct BloomCounter<H: BloomHash + Clone + StacksMessageCodec> {
 }
 
 impl<H: BloomHash + Clone + StacksMessageCodec> BloomCounter<H> {
-    /// Make a new bloom counter with the given error rate and expected number of items
+    /// Make a new bloom counter with the given error rate and expected number
+    /// of items
     pub fn new(
         tx: &mut DBTx,
         table_name: &str,
@@ -426,8 +432,9 @@ impl<H: BloomHash + Clone + StacksMessageCodec> BloomCounter<H> {
         Ok(blob)
     }
 
-    /// Get the 32-bit counter at a particular slot.  It's loaded from a big-endian representation
-    /// within the readable handle, at offset 4*slot.
+    /// Get the 32-bit counter at a particular slot.  It's loaded from a
+    /// big-endian representation within the readable handle, at offset
+    /// 4*slot.
     fn get_counts_bin<R: Read + Seek>(counts_blob: &mut R, slot: u32) -> u32 {
         counts_blob
             .seek(SeekFrom::Start((slot as u64) * 4))
@@ -441,8 +448,9 @@ impl<H: BloomHash + Clone + StacksMessageCodec> BloomCounter<H> {
         u32::from_be_bytes(bytes)
     }
 
-    /// Write the 32-bit counter at a particular slot.  It's stored in a big-endian representation
-    /// within the writable handle, at offset 4*slot.
+    /// Write the 32-bit counter at a particular slot.  It's stored in a
+    /// big-endian representation within the writable handle, at offset
+    /// 4*slot.
     fn set_counts_bin<W: Write + Seek>(counts_blob: &mut W, slot: u32, count: u32) {
         counts_blob
             .seek(SeekFrom::Start((slot as u64) * 4))
@@ -454,8 +462,8 @@ impl<H: BloomHash + Clone + StacksMessageCodec> BloomCounter<H> {
             .expect("BUG: failed to write to counts blob");
     }
 
-    /// Add a raw item to the bloom counter, and return the count it likely has (as an upper bound)
-    /// Returns 0 if this item is absolutely new.
+    /// Add a raw item to the bloom counter, and return the count it likely has
+    /// (as an upper bound) Returns 0 if this item is absolutely new.
     /// Returns >0 if this item appears represented already.
     pub fn insert_raw(&self, tx: &mut DBTx, item: &[u8]) -> Result<u32, db_error> {
         let mut count = u32::MAX;
@@ -476,8 +484,9 @@ impl<H: BloomHash + Clone + StacksMessageCodec> BloomCounter<H> {
         Ok(count)
     }
 
-    /// Return the upper bound on the number of times this item has been inserted.
-    /// It will be 0 if it was never inserted (or was inserted and removed).
+    /// Return the upper bound on the number of times this item has been
+    /// inserted. It will be 0 if it was never inserted (or was inserted and
+    /// removed).
     pub fn count_raw(&self, conn: &DBConn, item: &[u8]) -> Result<u32, db_error> {
         let mut count = u32::MAX;
         let mut fd = self.open_counts_blob(conn, false)?;
@@ -499,9 +508,10 @@ impl<H: BloomHash + Clone + StacksMessageCodec> BloomCounter<H> {
         Ok(count)
     }
 
-    /// Remove an item from the bloom filter.  In order to use this correctly, you must ensure that
-    /// it was actually inserted via insert_raw() earlier.  Returns the new lower bound on how many
-    /// times this item was inserted.
+    /// Remove an item from the bloom filter.  In order to use this correctly,
+    /// you must ensure that it was actually inserted via insert_raw()
+    /// earlier.  Returns the new lower bound on how many times this item
+    /// was inserted.
     pub fn remove_raw(&self, tx: &mut DBTx, item: &[u8]) -> Result<u32, db_error> {
         if self.count_raw(tx, item)? == 0 {
             return Ok(0);
@@ -559,13 +569,14 @@ impl<H: BloomHash + Clone + StacksMessageCodec> BloomCounter<H> {
 
 impl BloomHash for BloomNodeHasher {
     /// Pick a bin using the node seed and the count.
-    /// Uses SipHash-2-4, with the count and seed used to set up the hash's initial state (thereby
-    /// ensuring that a different initial state -- tantamount to a different hash function --
-    /// will be used for each of the bloom struct's bins).
-    /// A cryptographic hash isn't helpful here (and would be considerably slower), since the
-    /// number of different bins is small enough that someone who's hell-bent on selecting items to
-    /// create false positives would be able to do so no matter what we do (so why pay a
-    /// performance penalty if it won't help?).
+    /// Uses SipHash-2-4, with the count and seed used to set up the hash's
+    /// initial state (thereby ensuring that a different initial state --
+    /// tantamount to a different hash function -- will be used for each of
+    /// the bloom struct's bins). A cryptographic hash isn't helpful here
+    /// (and would be considerably slower), since the number of different
+    /// bins is small enough that someone who's hell-bent on selecting items to
+    /// create false positives would be able to do so no matter what we do (so
+    /// why pay a performance penalty if it won't help?).
     fn pick_bin(&self, count: u32, data: &[u8], num_bins: u32) -> u32 {
         let mut initial_state = Vec::with_capacity(36 + data.len());
         initial_state.extend_from_slice(&count.to_be_bytes());

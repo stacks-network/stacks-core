@@ -16,7 +16,6 @@
 //!
 //! Bitcoin's script uses a stack-based assembly language. This module defines
 //! all of the opcodes
-//!
 
 #![allow(non_camel_case_types)]
 
@@ -189,11 +188,14 @@ pub enum All {
     OP_PUSHBYTES_74 = 0x4a,
     /// Push the next 75 bytes as an array onto the stack
     OP_PUSHBYTES_75 = 0x4b,
-    /// Read the next byte as N; push the next N bytes as an array onto the stack
+    /// Read the next byte as N; push the next N bytes as an array onto the
+    /// stack
     OP_PUSHDATA1 = 0x4c,
-    /// Read the next 2 bytes as N; push the next N bytes as an array onto the stack
+    /// Read the next 2 bytes as N; push the next N bytes as an array onto the
+    /// stack
     OP_PUSHDATA2 = 0x4d,
-    /// Read the next 4 bytes as N; push the next N bytes as an array onto the stack
+    /// Read the next 4 bytes as N; push the next N bytes as an array onto the
+    /// stack
     OP_PUSHDATA4 = 0x4e,
     /// Push the array [0x81] onto the stack
     OP_PUSHNUM_NEG1 = 0x4f,
@@ -243,12 +245,13 @@ pub enum All {
     OP_VERIF = 0x65,
     /// Fail the script unconditionally, does not even need to be executed
     OP_VERNOTIF = 0x66,
-    /// Execute statements if those after the previous OP_IF were not, and vice-versa.
-    /// If there is no previous OP_IF, this acts as a RETURN.
+    /// Execute statements if those after the previous OP_IF were not, and
+    /// vice-versa. If there is no previous OP_IF, this acts as a RETURN.
     OP_ELSE = 0x67,
     /// Pop and execute the next statements if a zero element was popped
     OP_ENDIF = 0x68,
-    /// If the top value is zero or the stack is empty, fail; otherwise, pop the stack
+    /// If the top value is zero or the stack is empty, fail; otherwise, pop the
+    /// stack
     OP_VERIFY = 0x69,
     /// Fail the script immediately. (Must be executed.)
     OP_RETURN = 0x6a,
@@ -286,11 +289,13 @@ pub enum All {
     OP_PICK = 0x79,
     /// Pop the top stack element as N. Move the Nth stack element to the top
     OP_ROLL = 0x7a,
-    /// Rotate the top three stack items, as [top next1 next2] -> [next2 top next1]
+    /// Rotate the top three stack items, as [top next1 next2] -> [next2 top
+    /// next1]
     OP_ROT = 0x7b,
     /// Swap the top two stack items
     OP_SWAP = 0x7c,
-    /// Copy the top stack item to before the second item, as [top next] -> [top next top]
+    /// Copy the top stack item to before the second item, as [top next] -> [top
+    /// next top]
     OP_TUCK = 0x7d,
     /// Fail the script unconditionally, does not even need to be executed
     OP_CAT = 0x7e,
@@ -352,15 +357,20 @@ pub enum All {
     OP_BOOLAND = 0x9a,
     /// Pop the top two stack items and push 1 if either is nonzero, else push 0
     OP_BOOLOR = 0x9b,
-    /// Pop the top two stack items and push 1 if both are numerically equal, else push 0
+    /// Pop the top two stack items and push 1 if both are numerically equal,
+    /// else push 0
     OP_NUMEQUAL = 0x9c,
-    /// Pop the top two stack items and return success if both are numerically equal, else return failure
+    /// Pop the top two stack items and return success if both are numerically
+    /// equal, else return failure
     OP_NUMEQUALVERIFY = 0x9d,
-    /// Pop the top two stack items and push 0 if both are numerically equal, else push 1
+    /// Pop the top two stack items and push 0 if both are numerically equal,
+    /// else push 1
     OP_NUMNOTEQUAL = 0x9e,
-    /// Pop the top two items; push 1 if the second is less than the top, 0 otherwise
+    /// Pop the top two items; push 1 if the second is less than the top, 0
+    /// otherwise
     OP_LESSTHAN = 0x9f,
-    /// Pop the top two items; push 1 if the second is greater than the top, 0 otherwise
+    /// Pop the top two items; push 1 if the second is greater than the top, 0
+    /// otherwise
     OP_GREATERTHAN = 0xa0,
     /// Pop the top two items; push 1 if the second is <= the top, 0 otherwise
     OP_LESSTHANOREQUAL = 0xa1,
@@ -370,7 +380,8 @@ pub enum All {
     OP_MIN = 0xa3,
     /// Pop the top two items; push the larger
     OP_MAX = 0xa4,
-    /// Pop the top three items; if the top is >= the second and < the third, push 1, otherwise push 0
+    /// Pop the top three items; if the top is >= the second and < the third,
+    /// push 1, otherwise push 0
     OP_WITHIN = 0xa5,
     /// Pop the top stack item and push its RIPEMD160 hash
     OP_RIPEMD160 = 0xa6,
@@ -382,14 +393,16 @@ pub enum All {
     OP_HASH160 = 0xa9,
     /// Pop the top stack item and push its SHA256(SHA256) hash
     OP_HASH256 = 0xaa,
-    /// Ignore this and everything preceding when deciding what to sign when signature-checking
+    /// Ignore this and everything preceding when deciding what to sign when
+    /// signature-checking
     OP_CODESEPARATOR = 0xab,
     /// https://en.bitcoin.it/wiki/OP_CHECKSIG pushing 1/0 for success/failure
     OP_CHECKSIG = 0xac,
     /// https://en.bitcoin.it/wiki/OP_CHECKSIG returning success/failure
     OP_CHECKSIGVERIFY = 0xad,
-    /// Pop N, N pubkeys, M, M signatures, a dummy (due to bug in reference code), and verify that all M signatures are valid.
-    /// Push 1 for "all valid", 0 otherwise
+    /// Pop N, N pubkeys, M, M signatures, a dummy (due to bug in reference
+    /// code), and verify that all M signatures are valid. Push 1 for "all
+    /// valid", 0 otherwise
     OP_CHECKMULTISIG = 0xae,
     /// Like the above but return success/failure
     OP_CHECKMULTISIGVERIFY = 0xaf,

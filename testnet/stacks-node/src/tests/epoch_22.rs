@@ -29,21 +29,22 @@ use crate::{neon, BitcoinRegtestController, BurnchainController};
 
 #[test]
 #[ignore]
-/// Verify that it is acceptable to launch PoX-2 at the end of a reward cycle, and set v1 unlock
-/// height to be at the start of the subsequent reward cycle.
+/// Verify that it is acceptable to launch PoX-2 at the end of a reward cycle,
+/// and set v1 unlock height to be at the start of the subsequent reward cycle.
 ///
-/// Verify that PoX-1 stackers continue to receive PoX payouts after v1 unlock height, and that
-/// PoX-2 stackers only begin receiving rewards at the start of the reward cycle following the one
-/// that contains v1 unlock height.
+/// Verify that PoX-1 stackers continue to receive PoX payouts after v1 unlock
+/// height, and that PoX-2 stackers only begin receiving rewards at the start of
+/// the reward cycle following the one that contains v1 unlock height.
 ///
-/// Verify that both of the above work even if miners do not mine in the same block as the PoX-2
-/// start height or v1 unlock height (e.g. suppose there's a delay).
+/// Verify that both of the above work even if miners do not mine in the same
+/// block as the PoX-2 start height or v1 unlock height (e.g. suppose there's a
+/// delay).
 ///
-/// Verify the (buggy) stacks-increase behavior in PoX-2, and then verify that Epoch-2.2
-///  **disables** PoX after it activates.
+/// Verify the (buggy) stacks-increase behavior in PoX-2, and then verify that
+/// Epoch-2.2  **disables** PoX after it activates.
 ///
-/// Verification works using expected number of slots for burn and various PoX addresses.
-///
+/// Verification works using expected number of slots for burn and various PoX
+/// addresses.
 fn disable_pox() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -80,8 +81,8 @@ fn disable_pox() {
         amount: stacked + 100_000,
     });
 
-    // // create a third initial balance so that there's more liquid ustx than the stacked amount bug.
-    // //  otherwise, it surfaces the DoS vector.
+    // // create a third initial balance so that there's more liquid ustx than the
+    // stacked amount bug. //  otherwise, it surfaces the DoS vector.
     initial_balances.push(InitialBalance {
         address: spender_3_addr,
         amount: stacked + 100_000,
@@ -554,18 +555,18 @@ fn disable_pox() {
 
 #[test]
 #[ignore]
-/// Verify that it is acceptable to launch PoX-2 at the end of a reward cycle, and set v1 unlock
-/// height to be at the start of the subsequent reward cycle.
+/// Verify that it is acceptable to launch PoX-2 at the end of a reward cycle,
+/// and set v1 unlock height to be at the start of the subsequent reward cycle.
 ///
-/// Verify that PoX-1 stackers continue to receive PoX payouts after v1 unlock height, and that
-/// PoX-2 stackers only begin receiving rewards at the start of the reward cycle following the one
-/// that contains v1 unlock height.
+/// Verify that PoX-1 stackers continue to receive PoX payouts after v1 unlock
+/// height, and that PoX-2 stackers only begin receiving rewards at the start of
+/// the reward cycle following the one that contains v1 unlock height.
 ///
-/// Verify that both of the above work even if miners do not mine in the same block as the PoX-2
-/// start height or v1 unlock height (e.g. suppose there's a delay).
+/// Verify that both of the above work even if miners do not mine in the same
+/// block as the PoX-2 start height or v1 unlock height (e.g. suppose there's a
+/// delay).
 ///
 /// Verify that pox-2 locked funds unlock in Epoch-2.2
-///
 fn pox_2_unlock_all() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -926,8 +927,8 @@ fn pox_2_unlock_all() {
         "Spender 2 should have two accepted transactions"
     );
 
-    // and this will mice the bitcoin block containing the first block whose parent has >= unlock burn block
-    //  (which is the criterion for the unlock)
+    // and this will mice the bitcoin block containing the first block whose parent
+    // has >= unlock burn block  (which is the criterion for the unlock)
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let spender_1_account = get_account(&http_origin, &spender_addr);
@@ -1224,9 +1225,10 @@ fn pox_2_unlock_all() {
 
 /// PoX reorg with just one flap. Epoch 2.2 activates during bootup
 /// Miner 0 mines and hides the anchor block for cycle 22.
-/// Miner 1 mines and hides the anchor block for cycle 23, causing a PoX reorg in miner 0.
-/// At the very end, miners stop hiding their blocks, and the test verifies that both miners
-/// converge on having anchor blocks for cycles 22 and 24, but not 23.
+/// Miner 1 mines and hides the anchor block for cycle 23, causing a PoX reorg
+/// in miner 0. At the very end, miners stop hiding their blocks, and the test
+/// verifies that both miners converge on having anchor blocks for cycles 22 and
+/// 24, but not 23.
 #[test]
 #[ignore]
 fn test_pox_reorg_one_flap() {
@@ -1493,8 +1495,8 @@ fn test_pox_reorg_one_flap() {
         })
         .collect();
 
-    // keeps the mempool full, and makes it so miners will spend a nontrivial amount of time
-    // building blocks
+    // keeps the mempool full, and makes it so miners will spend a nontrivial amount
+    // of time building blocks
     let all_txs: Vec<_> = privks
         .iter()
         .enumerate()
@@ -1605,8 +1607,8 @@ fn test_pox_reorg_one_flap() {
         info!("Tip for miner {i}: {tip_info:?}");
 
         // miner 1's history overtakes miner 0's.
-        // Miner 1 didn't see cycle 22's anchor block, but it just mined an anchor block for cycle
-        // 23 and affirmed cycle 22's anchor block's absence.
+        // Miner 1 didn't see cycle 22's anchor block, but it just mined an anchor block
+        // for cycle 23 and affirmed cycle 22's anchor block's absence.
         max_stacks_tip = std::cmp::max(tip_info.stacks_tip_height, max_stacks_tip);
     }
     info!("####################### end of cycle ##############################");

@@ -39,9 +39,9 @@ use crate::vm::{eval, Environment, LocalContext, Value};
 pub enum CallableType {
     UserFunction(DefinedFunction),
     NativeFunction(&'static str, NativeHandle, ClarityCostFunction),
-    /// These native functions have a new method for calculating input size in 2.05
-    /// If the global context's epoch is >= 2.05, the fn field is applied to obtain
-    /// the input to the cost function.
+    /// These native functions have a new method for calculating input size in
+    /// 2.05 If the global context's epoch is >= 2.05, the fn field is
+    /// applied to obtain the input to the cost function.
     NativeFunction205(
         &'static str,
         NativeHandle,
@@ -190,9 +190,11 @@ impl DefinedFunction {
                         TypeSignature::TraitReferenceType(trait_identifier),
                         Value::Principal(PrincipalData::Contract(callee_contract_id)),
                     ) if *env.epoch() < StacksEpochId::Epoch21 => {
-                        // Argument is a trait reference, probably leading to a dynamic contract call
-                        // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
-                        // The code fetching and checking the trait is implemented in the contract_call eval function.
+                        // Argument is a trait reference, probably leading to a dynamic contract
+                        // call We keep a reference of the mapping
+                        // (var-name: (callee_contract_id, trait_id)) in the context.
+                        // The code fetching and checking the trait is implemented in the
+                        // contract_call eval function.
                         context.callable_contracts.insert(
                             name.clone(),
                             CallableData {
@@ -206,9 +208,11 @@ impl DefinedFunction {
                         TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
                         Value::Principal(PrincipalData::Contract(callee_contract_id)),
                     ) if *env.epoch() >= StacksEpochId::Epoch21 => {
-                        // Argument is a trait reference, probably leading to a dynamic contract call
-                        // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
-                        // The code fetching and checking the trait is implemented in the contract_call eval function.
+                        // Argument is a trait reference, probably leading to a dynamic contract
+                        // call We keep a reference of the mapping
+                        // (var-name: (callee_contract_id, trait_id)) in the context.
+                        // The code fetching and checking the trait is implemented in the
+                        // contract_call eval function.
                         context.callable_contracts.insert(
                             name.clone(),
                             CallableData {
@@ -269,8 +273,9 @@ impl DefinedFunction {
                             trait_identifier,
                         }),
                     ) => {
-                        // Argument is a trait reference, probably leading to a dynamic contract call.
-                        // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
+                        // Argument is a trait reference, probably leading to a dynamic contract
+                        // call. We keep a reference of the mapping
+                        // (var-name: (callee_contract_id, trait_id)) in the context.
                         // The trait compatibility has been checked by the type-checker.
                         context.callable_contracts.insert(
                             name.clone(),
@@ -468,7 +473,8 @@ fn clarity2_implicit_cast(type_sig: &TypeSignature, value: &Value) -> Result<Val
                 let to_type = match tuple_type.get_type_map().get(name) {
                     Some(ty) => ty,
                     None => {
-                        // This should be unreachable if the type-checker has already run successfully
+                        // This should be unreachable if the type-checker has already run
+                        // successfully
                         return Err(
                             CheckErrors::TypeValueError(type_sig.clone(), value.clone()).into()
                         );
@@ -673,7 +679,8 @@ mod test {
             assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
         }
 
-        // (optional (list (response uint principal))) -> (optional (list (response uint <trait>)))
+        // (optional (list (response uint principal))) -> (optional (list (response uint
+        // <trait>)))
         let list_res_ty = TypeSignature::list_of(response_err_ty, 4).unwrap();
         let opt_list_res_ty = TypeSignature::new_option(list_res_ty).unwrap();
         let list_res_contract = Value::list_from(vec![

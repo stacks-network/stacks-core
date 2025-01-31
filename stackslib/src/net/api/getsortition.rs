@@ -54,8 +54,8 @@ pub enum QuerySpecifier {
     BurnchainHeaderHash(BurnchainHeaderHash),
     BlockHeight(u64),
     Latest,
-    /// Fetch the latest sortition *which was a winning sortition* and that sortition's
-    ///  last sortition, returning two SortitionInfo structs.
+    /// Fetch the latest sortition *which was a winning sortition* and that
+    /// sortition's  last sortition, returning two SortitionInfo structs.
     LatestAndLast,
 }
 
@@ -72,25 +72,28 @@ pub struct SortitionInfo {
     pub burn_block_height: u64,
     /// The burn block time of the sortition
     pub burn_header_timestamp: u64,
-    /// This sortition ID of the block that triggered this event. This incorporates
-    ///  PoX forking information and the burn block hash to obtain an identifier that is
-    ///  unique across PoX forks and burnchain forks.
+    /// This sortition ID of the block that triggered this event. This
+    /// incorporates  PoX forking information and the burn block hash to
+    /// obtain an identifier that is  unique across PoX forks and burnchain
+    /// forks.
     #[serde(with = "prefix_hex")]
     pub sortition_id: SortitionId,
     /// The parent of this burn block's Sortition ID
     #[serde(with = "prefix_hex")]
     pub parent_sortition_id: SortitionId,
-    /// The consensus hash of the block that triggered this event. This incorporates
-    ///  PoX forking information and burn op information to obtain an identifier that is
-    ///  unique across PoX forks and burnchain forks.
+    /// The consensus hash of the block that triggered this event. This
+    /// incorporates  PoX forking information and burn op information to
+    /// obtain an identifier that is  unique across PoX forks and burnchain
+    /// forks.
     #[serde(with = "prefix_hex")]
     pub consensus_hash: ConsensusHash,
-    /// Boolean indicating whether or not there was a succesful sortition (i.e. a winning
-    ///  block or miner was chosen).
+    /// Boolean indicating whether or not there was a succesful sortition (i.e.
+    /// a winning  block or miner was chosen).
     ///
-    /// This will *also* be true if this sortition corresponds to a shadow block.  This is because
-    /// the signer does not distinguish between shadow blocks and blocks with sortitions, so until
-    /// we can update the signer and this interface, we'll have to report the presence of a shadow
+    /// This will *also* be true if this sortition corresponds to a shadow
+    /// block.  This is because the signer does not distinguish between
+    /// shadow blocks and blocks with sortitions, so until we can update the
+    /// signer and this interface, we'll have to report the presence of a shadow
     /// block tenure in a way that the signer currently understands.
     pub was_sortition: bool,
     /// If sortition occurred, and the miner's VRF key registration
@@ -98,13 +101,14 @@ pub struct SortitionInfo {
     ///  will contain the Hash160 of that mining key.
     #[serde(with = "prefix_opt_hex")]
     pub miner_pk_hash160: Option<Hash160>,
-    /// If sortition occurred, this will be the consensus hash of the burn block corresponding
-    /// to the winning block commit's parent block ptr. In 3.x, this is the consensus hash of
-    /// the tenure that this new burn block's miner will be building off of.
+    /// If sortition occurred, this will be the consensus hash of the burn block
+    /// corresponding to the winning block commit's parent block ptr. In
+    /// 3.x, this is the consensus hash of the tenure that this new burn
+    /// block's miner will be building off of.
     #[serde(with = "prefix_opt_hex")]
     pub stacks_parent_ch: Option<ConsensusHash>,
-    /// If sortition occurred, this will be the consensus hash of the most recent sortition before
-    ///  this one.
+    /// If sortition occurred, this will be the consensus hash of the most
+    /// recent sortition before  this one.
     #[serde(with = "prefix_opt_hex")]
     pub last_sortition_ch: Option<ConsensusHash>,
     #[serde(with = "prefix_opt_hex")]
@@ -217,8 +221,9 @@ impl GetSortitionHandler {
                 // try to figure out what the last snapshot in this fork was with a successful
                 //  sortition.
                 // optimization heuristic: short-circuit the load if its just `stacks_parent_sn`
-                //   if the sortition count incremented by exactly 1 between us and our **stacks** parent,
-                //   then the stacks parent's sortition *must* be the last one with a winner.
+                //   if the sortition count incremented by exactly 1 between us and our
+                // **stacks** parent,   then the stacks parent's sortition
+                // *must* be the last one with a winner.
                 let sortitions_incremented_by_1 =
                     sortition_sn.num_sortitions == stacks_parent_sn.num_sortitions + 1;
                 let last_sortition_ch = if sortitions_incremented_by_1 {
@@ -265,7 +270,8 @@ impl HttpRequest for GetSortitionHandler {
     }
 
     /// Try to decode this request.
-    /// There's nothing to load here, so just make sure the request is well-formed.
+    /// There's nothing to load here, so just make sure the request is
+    /// well-formed.
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
@@ -372,7 +378,8 @@ impl RPCRequestHandler for GetSortitionHandler {
         let last_sortition_ch = block.last_sortition_ch.clone();
         let mut info_list = vec![block];
         if self.query == QuerySpecifier::LatestAndLast {
-            // if latest **and** last are requested, lookup the sortition info for last_sortition_ch
+            // if latest **and** last are requested, lookup the sortition info for
+            // last_sortition_ch
             if let Some(last_sortition_ch) = last_sortition_ch {
                 let result = node.with_node_state(|network, sortdb, chainstate, _, _| {
                     let last_sortition_sn = SortitionDB::get_block_snapshot_consensus(

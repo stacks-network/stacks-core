@@ -450,7 +450,8 @@ impl StacksChainState {
         Ok(blocks_path_str)
     }
 
-    /// Get the path to a block in the chunk store, given the burn header hash and block hash.
+    /// Get the path to a block in the chunk store, given the burn header hash
+    /// and block hash.
     pub fn get_block_path(
         blocks_dir: &str,
         consensus_hash: &ConsensusHash,
@@ -460,7 +461,8 @@ impl StacksChainState {
         StacksChainState::get_index_block_path(blocks_dir, &index_block_hash)
     }
 
-    /// Make a directory tree for storing this block to the chunk store, and return the block's path
+    /// Make a directory tree for storing this block to the chunk store, and
+    /// return the block's path
     fn make_block_dir(
         blocks_dir: &str,
         consensus_hash: &ConsensusHash,
@@ -687,8 +689,9 @@ impl StacksChainState {
             .len();
 
         if sz > 0 {
-            // try make this thread-safe. It's okay if this block gets copied more than once; we
-            // only care that at least one copy survives for further analysis.
+            // try make this thread-safe. It's okay if this block gets copied more than
+            // once; we only care that at least one copy survives for further
+            // analysis.
             let random_bytes = thread_rng().gen::<[u8; 8]>();
             let random_bytes_str = to_hex(&random_bytes);
             let index_block_hash = StacksBlockId::new(consensus_hash, block_header_hash);
@@ -871,8 +874,8 @@ impl StacksChainState {
         StacksChainState::inner_load_block_header(&block_path)
     }
 
-    /// Load up an anchored block header from the chunk store, given the index block hash
-    /// Returns Ok(Some(blockheader)) if found.
+    /// Load up an anchored block header from the chunk store, given the index
+    /// block hash Returns Ok(Some(blockheader)) if found.
     /// Returns Ok(None) if this block was found, but is known to be invalid
     /// Returns Err(...) on not found or I/O error
     pub fn load_block_header_indexed(
@@ -883,7 +886,8 @@ impl StacksChainState {
         StacksChainState::inner_load_block_header(&block_path)
     }
 
-    /// Closure for defaulting to an empty microblock stream if a microblock stream file is not found
+    /// Closure for defaulting to an empty microblock stream if a microblock
+    /// stream file is not found
     fn empty_stream(e: Error) -> Result<Option<Vec<StacksMicroblock>>, Error> {
         if matches!(e, Error::DBError(db_error::NotFoundError)) {
             Ok(Some(vec![]))
@@ -921,8 +925,8 @@ impl StacksChainState {
         Ok(blobs)
     }
 
-    /// Load up a staging block or microblock's bytes, given its hash and which table to use
-    /// Treat an empty array as None.
+    /// Load up a staging block or microblock's bytes, given its hash and which
+    /// table to use Treat an empty array as None.
     fn inner_load_staging_block_bytes(
         block_conn: &DBConn,
         table: &str,
@@ -1004,8 +1008,8 @@ impl StacksChainState {
         }
     }
 
-    /// Load up a preprocessed block from the staging DB, regardless of its processed status.
-    /// Do not load the associated block.
+    /// Load up a preprocessed block from the staging DB, regardless of its
+    /// processed status. Do not load the associated block.
     pub fn load_staging_block_info(
         block_conn: &DBConn,
         index_block_hash: &StacksBlockId,
@@ -1015,7 +1019,8 @@ impl StacksChainState {
         query_row::<StagingBlock, _>(block_conn, sql, args).map_err(Error::DBError)
     }
 
-    /// Get the parent microblock hash of a preprocessed block from the staging DB, regardless of its processed status.
+    /// Get the parent microblock hash of a preprocessed block from the staging
+    /// DB, regardless of its processed status.
     pub fn get_staging_block_parent_microblock_hash(
         block_conn: &DBConn,
         index_block_hash: &StacksBlockId,
@@ -1106,8 +1111,8 @@ impl StacksChainState {
         Ok(Some(pubkey_hash))
     }
 
-    /// Load up a preprocessed microblock's staging info (processed or not), but via
-    /// its parent anchored block's index block hash.
+    /// Load up a preprocessed microblock's staging info (processed or not), but
+    /// via its parent anchored block's index block hash.
     /// Don't load the microblock itself.
     /// Ignores orphaned microblocks.
     pub fn load_staging_microblock_info(
@@ -1120,8 +1125,8 @@ impl StacksChainState {
         query_row::<StagingMicroblock, _>(blocks_conn, sql, args).map_err(Error::DBError)
     }
 
-    /// Load up a preprocessed microblock's staging info (processed or not), via its index
-    /// microblock hash.
+    /// Load up a preprocessed microblock's staging info (processed or not), via
+    /// its index microblock hash.
     /// Don't load the microblock itself.
     /// Ignores orphaned microblocks.
     pub fn load_staging_microblock_info_indexed(
@@ -1145,7 +1150,8 @@ impl StacksChainState {
         Self::load_staging_microblock_indexed(blocks_conn, &parent_index_hash, microblock_hash)
     }
 
-    /// Load up a preprocessed microblock given the index block hash of the anchored parent
+    /// Load up a preprocessed microblock given the index block hash of the
+    /// anchored parent
     pub fn load_staging_microblock_indexed(
         blocks_conn: &DBConn,
         parent_index_hash: &StacksBlockId,
@@ -1170,8 +1176,8 @@ impl StacksChainState {
         }
     }
 
-    /// Load up a microblock stream fork, given its parent block hash and burn header hash.
-    /// Only returns Some(..) if the stream is contiguous.
+    /// Load up a microblock stream fork, given its parent block hash and burn
+    /// header hash. Only returns Some(..) if the stream is contiguous.
     /// If processed_only is true, then only processed microblocks are loaded
     fn inner_load_microblock_stream_fork(
         blocks_conn: &DBConn,
@@ -1267,7 +1273,8 @@ impl StacksChainState {
         Ok(Some(ret))
     }
 
-    /// Load up a microblock stream fork, even if its microblocks blocks aren't processed.
+    /// Load up a microblock stream fork, even if its microblocks blocks aren't
+    /// processed.
     pub fn load_microblock_stream_fork(
         blocks_conn: &DBConn,
         parent_consensus_hash: &ConsensusHash,
@@ -1283,7 +1290,8 @@ impl StacksChainState {
         )
     }
 
-    /// Load up a microblock stream fork, but only if its microblocks are processed.
+    /// Load up a microblock stream fork, but only if its microblocks are
+    /// processed.
     pub fn load_processed_microblock_stream_fork(
         blocks_conn: &DBConn,
         parent_consensus_hash: &ConsensusHash,
@@ -1314,8 +1322,9 @@ impl StacksChainState {
         Ok(res.map(|(microblocks, _)| microblocks))
     }
 
-    /// Load up a block's longest non-forked descendant microblock stream, given its block hash and burn header hash.
-    /// Loads microblocks until a fork junction is found (if any), and drops all microblocks after
+    /// Load up a block's longest non-forked descendant microblock stream, given
+    /// its block hash and burn header hash. Loads microblocks until a fork
+    /// junction is found (if any), and drops all microblocks after
     /// it if found.  Ties are broken arbitrarily.
     ///
     /// DO NOT USE IN CONSENSUS CODE.
@@ -1437,8 +1446,9 @@ impl StacksChainState {
         }
     }
 
-    /// Load up the next block in a microblock stream, assuming there is only one child.
-    /// If there are zero children, or more than one child, then returns None.
+    /// Load up the next block in a microblock stream, assuming there is only
+    /// one child. If there are zero children, or more than one child, then
+    /// returns None.
     ///
     /// DO NOT USE IN CONSENSUS CODE.
     pub fn load_next_descendant_microblock(
@@ -1534,8 +1544,8 @@ impl StacksChainState {
     }
 
     /// Store a preprocessed block, queuing it up for subsequent processing.
-    /// The caller should at least verify that the block is attached to some fork in the burn
-    /// chain.
+    /// The caller should at least verify that the block is attached to some
+    /// fork in the burn chain.
     fn store_staging_block(
         tx: &mut DBTx<'_>,
         blocks_path: &str,
@@ -1560,7 +1570,8 @@ impl StacksChainState {
             StacksBlockHeader::make_index_block_hash(consensus_hash, &block_hash);
 
         let attachable = {
-            // if this block has an unprocessed staging parent, then it's not attachable until its parent is.
+            // if this block has an unprocessed staging parent, then it's not attachable
+            // until its parent is.
             let has_unprocessed_parent_sql = "SELECT anchored_block_hash FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 AND processed = 0 AND orphaned = 0 LIMIT 1";
             let has_parent_sql = "SELECT anchored_block_hash FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 LIMIT 1";
             let has_parent_args = params![block.header.parent_block, parent_consensus_hash];
@@ -1581,7 +1592,8 @@ impl StacksChainState {
             let parent_not_in_staging_blocks =
                 has_parent_rows.is_empty() && block.header.parent_block != FIRST_STACKS_BLOCK_HASH;
             if !has_unprocessed_parent_rows.is_empty() || parent_not_in_staging_blocks {
-                // still have unprocessed parent OR its parent is not in staging_blocks at all -- this block is not attachable
+                // still have unprocessed parent OR its parent is not in staging_blocks at all
+                // -- this block is not attachable
                 debug!(
                     "Store non-attachable anchored block {}/{}",
                     consensus_hash,
@@ -1640,8 +1652,8 @@ impl StacksChainState {
 
         StacksChainState::store_block(blocks_path, consensus_hash, block)?;
 
-        // mark all children of this new block as unattachable -- need to attach this block first!
-        // this should be done across all burnchains.
+        // mark all children of this new block as unattachable -- need to attach this
+        // block first! this should be done across all burnchains.
         let children_sql =
             "UPDATE staging_blocks SET attachable = 0 WHERE parent_anchored_block_hash = ?1";
         let children_args = [&block_hash];
@@ -1652,12 +1664,14 @@ impl StacksChainState {
         Ok(())
     }
 
-    /// Store a preprocessed microblock, queueing it up for subsequent processing.
-    /// The caller should at least verify that this block was signed by the miner of the ancestor
-    /// anchored block that this microblock builds off of.  Because microblocks may arrive out of
+    /// Store a preprocessed microblock, queueing it up for subsequent
+    /// processing. The caller should at least verify that this block was
+    /// signed by the miner of the ancestor anchored block that this
+    /// microblock builds off of.  Because microblocks may arrive out of
     /// order, this method does not check that.
-    /// The consensus_hash and anchored_block_hash correspond to the _parent_ Stacks block.
-    /// Microblocks ought to only be stored if they are first confirmed to have been signed.
+    /// The consensus_hash and anchored_block_hash correspond to the _parent_
+    /// Stacks block. Microblocks ought to only be stored if they are first
+    /// confirmed to have been signed.
     pub fn store_staging_microblock(
         tx: &mut DBTx<'_>,
         parent_consensus_hash: &ConsensusHash,
@@ -1737,8 +1751,8 @@ impl StacksChainState {
     }
 
     /// Do we have a block queued up, and if so, is it being processed?.
-    /// Return Some(processed) if the block is queued up -- true if processed, false if not
-    /// Return None if the block is not queued up
+    /// Return Some(processed) if the block is queued up -- true if processed,
+    /// false if not Return None if the block is not queued up
     pub fn get_staging_block_status(
         blocks_conn: &DBConn,
         consensus_hash: &ConsensusHash,
@@ -1792,9 +1806,9 @@ impl StacksChainState {
     }
 
     /// Do we have a microblock in the DB, and if so, has it been processed?
-    /// The query takes the consensus hash and block hash of a block that _produced_ this stream.
-    /// Return Some(processed) if the microblock is queued up.
-    /// Return None if the microblock is not queued up.
+    /// The query takes the consensus hash and block hash of a block that
+    /// _produced_ this stream. Return Some(processed) if the microblock is
+    /// queued up. Return None if the microblock is not queued up.
     pub fn get_microblock_status(
         &self,
         parent_consensus_hash: &ConsensusHash,
@@ -1816,10 +1830,11 @@ impl StacksChainState {
     }
 
     /// Given an anchor block's index hash, does it confirm any microblocks?
-    /// Due to the way we process microblocks -- i.e. all microblocks between a parent/child anchor
-    /// block are processed atomically -- it is sufficient to check that there exists a microblock
-    /// that is the parent microblock of this block, and is processed.
-    /// Used for RPC where the tail hash isn't known.
+    /// Due to the way we process microblocks -- i.e. all microblocks between a
+    /// parent/child anchor block are processed atomically -- it is
+    /// sufficient to check that there exists a microblock that is the
+    /// parent microblock of this block, and is processed. Used for RPC
+    /// where the tail hash isn't known.
     pub fn has_processed_microblocks(
         &self,
         child_index_block_hash: &StacksBlockId,
@@ -1863,11 +1878,12 @@ impl StacksChainState {
         Ok(res)
     }
 
-    /// Given an anchor block's index hash, and the last microblock hash in a hypothetical tail,
-    /// does this anchor block confirm that tail?
-    /// Due to the way we process microblocks -- i.e. all microblocks between a parent/child anchor
-    /// block are processed atomically -- it is sufficient to check that there exists a microblock
-    /// that is the parent microblock of this block, and is processed.
+    /// Given an anchor block's index hash, and the last microblock hash in a
+    /// hypothetical tail, does this anchor block confirm that tail?
+    /// Due to the way we process microblocks -- i.e. all microblocks between a
+    /// parent/child anchor block are processed atomically -- it is
+    /// sufficient to check that there exists a microblock that is the
+    /// parent microblock of this block, and is processed.
     pub fn has_processed_microblocks_at_tail(
         &self,
         child_index_block_hash: &StacksBlockId,
@@ -1890,8 +1906,9 @@ impl StacksChainState {
     }
 
     /// Generate a blocks inventory message, given the output of
-    /// SortitionDB::get_stacks_header_hashes().  Note that header_hashes must be less than or equal to
-    /// pox_constants.reward_cycle_length, in order to generate a valid BlocksInvData payload.
+    /// SortitionDB::get_stacks_header_hashes().  Note that header_hashes must
+    /// be less than or equal to pox_constants.reward_cycle_length, in order
+    /// to generate a valid BlocksInvData payload.
     pub fn get_blocks_inventory(
         &self,
         header_hashes: &[(ConsensusHash, Option<BlockHeaderHash>)],
@@ -2131,8 +2148,8 @@ impl StacksChainState {
         })
     }
 
-    /// Do we have a staging block?  Return true if the block is present and marked as unprocessed;
-    /// false otherwise
+    /// Do we have a staging block?  Return true if the block is present and
+    /// marked as unprocessed; false otherwise
     pub fn has_staging_block(
         blocks_conn: &DBConn,
         consensus_hash: &ConsensusHash,
@@ -2166,8 +2183,8 @@ impl StacksChainState {
         .is_empty()
     }
 
-    /// Find the canonical affirmation map.  Handle unaffirmed anchor blocks by simply seeing if we
-    /// have the block data for it or not.
+    /// Find the canonical affirmation map.  Handle unaffirmed anchor blocks by
+    /// simply seeing if we have the block data for it or not.
     pub fn find_canonical_affirmation_map<B: BurnchainHeaderReader>(
         burnchain: &Burnchain,
         indexer: &B,
@@ -2179,9 +2196,10 @@ impl StacksChainState {
             burnchain,
             indexer,
             |anchor_block_commit, _anchor_block_metadata| {
-                // if we don't have an unaffirmed anchor block, and we're no longer in the initial block
-                // download, then assume that it's absent.  Otherwise, if we are in the initial block
-                // download but we don't have it yet, assume that it's present.
+                // if we don't have an unaffirmed anchor block, and we're no longer in the
+                // initial block download, then assume that it's absent.
+                // Otherwise, if we are in the initial block download but we
+                // don't have it yet, assume that it's present.
                 StacksChainState::has_stacks_block_for(chainstate.db(), anchor_block_commit)
             },
         )
@@ -2189,8 +2207,8 @@ impl StacksChainState {
     }
 
     /// Get the affirmation map represented by the Stacks chain tip.
-    /// This is the private interface, to avoid having a public function take two db connections of the
-    /// same type.
+    /// This is the private interface, to avoid having a public function take
+    /// two db connections of the same type.
     fn inner_find_stacks_tip_affirmation_map(
         burnchain_conn: &DBConn,
         sort_db_conn: &DBConn,
@@ -2229,7 +2247,8 @@ impl StacksChainState {
     }
 
     /// Get the affirmation map represented by the Stacks chain tip.
-    /// This uses the 2.1 rules exclusively (i.e. only block-commits are considered).
+    /// This uses the 2.1 rules exclusively (i.e. only block-commits are
+    /// considered).
     pub fn find_stacks_tip_affirmation_map(
         burnchain_db: &BurnchainDB,
         sort_db_conn: &DBConn,
@@ -2249,9 +2268,10 @@ impl StacksChainState {
         stacks_tip_affirmation_map: &AffirmationMap,
         heaviest_am: &AffirmationMap,
     ) -> Result<bool, Error> {
-        // NOTE: a.find_divergence(b) will be `Some(..)` even if a and b have the same prefix,
-        // but b happens to be longer.  So, we need to check both `stacks_tip_affirmation_map`
-        // and `heaviest_am` against each other depending on their lengths.
+        // NOTE: a.find_divergence(b) will be `Some(..)` even if a and b have the same
+        // prefix, but b happens to be longer.  So, we need to check both
+        // `stacks_tip_affirmation_map` and `heaviest_am` against each other
+        // depending on their lengths.
         if (stacks_tip_affirmation_map.len() > heaviest_am.len()
             && stacks_tip_affirmation_map
                 .find_divergence(heaviest_am)
@@ -2285,8 +2305,9 @@ impl StacksChainState {
         Ok(())
     }
 
-    /// Mark an anchored block as orphaned and both orphan and delete its descendant microblock data.
-    /// The blocks database will eventually delete all orphaned data.
+    /// Mark an anchored block as orphaned and both orphan and delete its
+    /// descendant microblock data. The blocks database will eventually
+    /// delete all orphaned data.
     fn delete_orphaned_epoch_data(
         tx: &mut DBTx<'_>,
         blocks_path: &str,
@@ -2298,7 +2319,8 @@ impl StacksChainState {
         let update_block_args = params![consensus_hash, anchored_block_hash];
 
         // All descendants of this processed block are never attachable.
-        // Indicate this by marking all children as orphaned (but not procesed), across all burnchain forks.
+        // Indicate this by marking all children as orphaned (but not procesed), across
+        // all burnchain forks.
         let update_children_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 0, attachable = 0 WHERE parent_consensus_hash = ?1 AND parent_anchored_block_hash = ?2";
         let update_children_args = params![consensus_hash, anchored_block_hash];
 
@@ -2344,11 +2366,13 @@ impl StacksChainState {
         Ok(())
     }
 
-    /// Forget that a block and microblock stream was marked as invalid, given a particular consensus hash.
-    /// This is necessary when dealing with PoX reorgs, whereby an epoch can be unprocessible on one
-    /// fork but processable on another (i.e. the same block can show up in two different PoX
-    /// forks, but will only be valid in at most one of them).
-    /// This does not restore any block data; it merely makes it possible to go re-process them.
+    /// Forget that a block and microblock stream was marked as invalid, given a
+    /// particular consensus hash. This is necessary when dealing with PoX
+    /// reorgs, whereby an epoch can be unprocessible on one
+    /// fork but processable on another (i.e. the same block can show up in two
+    /// different PoX forks, but will only be valid in at most one of them).
+    /// This does not restore any block data; it merely makes it possible to go
+    /// re-process them.
     pub fn forget_orphaned_epoch_data(
         tx: &mut DBTx<'_>,
         consensus_hash: &ConsensusHash,
@@ -2456,8 +2480,8 @@ impl StacksChainState {
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         if accept {
-            // if we accepted this block, then children of this processed block are now attachable.
-            // Applies across all burnchain forks
+            // if we accepted this block, then children of this processed block are now
+            // attachable. Applies across all burnchain forks
             let update_children_sql =
                 "UPDATE staging_blocks SET attachable = 1 WHERE parent_anchored_block_hash = ?1"
                     .to_string();
@@ -2484,7 +2508,8 @@ impl StacksChainState {
             }
         } else {
             // Otherwise, all descendants of this processed block are never attachable.
-            // Mark this block's children as orphans, blow away its data, and blow away its descendant microblocks.
+            // Mark this block's children as orphans, blow away its data, and blow away its
+            // descendant microblocks.
             debug!("Orphan block {}/{}", consensus_hash, anchored_block_hash);
             StacksChainState::delete_orphaned_epoch_data(
                 tx,
@@ -2561,8 +2586,9 @@ impl StacksChainState {
         Ok(())
     }
 
-    /// Drop a trail of staging microblocks.  Mark them as orphaned and delete their data.
-    /// Also, orphan any anchored children blocks that build off of the now-orphaned microblocks.
+    /// Drop a trail of staging microblocks.  Mark them as orphaned and delete
+    /// their data. Also, orphan any anchored children blocks that build off
+    /// of the now-orphaned microblocks.
     fn drop_staging_microblocks(
         tx: &mut DBTx<'_>,
         consensus_hash: &ConsensusHash,
@@ -2629,7 +2655,8 @@ impl StacksChainState {
     }
 
     /// Mark a range of a stream of microblocks as confirmed.
-    /// All the corresponding blocks must have been validated and proven contiguous.
+    /// All the corresponding blocks must have been validated and proven
+    /// contiguous.
     fn set_microblocks_processed(
         tx: &mut DBTx<'_>,
         child_consensus_hash: &ConsensusHash,
@@ -2688,8 +2715,8 @@ impl StacksChainState {
         Ok(())
     }
 
-    /// Is a particular microblock stored in the staging DB, given the index anchored block hash of the block
-    /// that confirms it?
+    /// Is a particular microblock stored in the staging DB, given the index
+    /// anchored block hash of the block that confirms it?
     pub fn has_staging_microblock_indexed(
         &self,
         child_index_block_hash: &StacksBlockId,
@@ -2721,8 +2748,9 @@ impl StacksChainState {
             })
     }
 
-    /// Do we have a particular microblock stream given its indexed tail microblock hash?
-    /// Used by the RPC endpoint to determine if we can serve back a stream of microblocks.
+    /// Do we have a particular microblock stream given its indexed tail
+    /// microblock hash? Used by the RPC endpoint to determine if we can
+    /// serve back a stream of microblocks.
     pub fn has_processed_microblocks_indexed(
         conn: &DBConn,
         index_microblock_hash: &StacksBlockId,
@@ -2737,7 +2765,8 @@ impl StacksChainState {
         Ok(res)
     }
 
-    /// Given an index anchor block hash, get the index microblock hash for a confirmed microblock stream.
+    /// Given an index anchor block hash, get the index microblock hash for a
+    /// confirmed microblock stream.
     pub fn get_confirmed_microblock_index_hash(
         &self,
         child_index_block_hash: &StacksBlockId,
@@ -2770,10 +2799,11 @@ impl StacksChainState {
         )))
     }
 
-    /// Do we have any unconfirmed microblocks at or after the given sequence number that descend
-    /// from the anchored block identified by the given parent_index_block_hash?
-    /// Does not consider whether or not they are valid.
-    /// Used mainly for paging through unconfirmed microblocks in the RPC interface.
+    /// Do we have any unconfirmed microblocks at or after the given sequence
+    /// number that descend from the anchored block identified by the given
+    /// parent_index_block_hash? Does not consider whether or not they are
+    /// valid. Used mainly for paging through unconfirmed microblocks in the
+    /// RPC interface.
     pub fn has_any_staging_microblock_indexed(
         &self,
         parent_index_block_hash: &StacksBlockId,
@@ -2785,8 +2815,9 @@ impl StacksChainState {
 
     /// Do we have a given microblock as a descendant of a given anchored block?
     /// Does not consider whether or not it has been processed or is orphaned.
-    /// Used by the relayer to decide whether or not a microblock should be relayed.
-    /// Used by the microblock-preprocessor to decide whether or not to store the microblock.
+    /// Used by the relayer to decide whether or not a microblock should be
+    /// relayed. Used by the microblock-preprocessor to decide whether or
+    /// not to store the microblock.
     pub fn has_descendant_microblock_indexed(
         &self,
         parent_index_block_hash: &StacksBlockId,
@@ -2796,8 +2827,8 @@ impl StacksChainState {
             .map(|processed| !processed.is_empty())
     }
 
-    /// Do we have any microblock available to serve in any capacity, given its parent anchored block's
-    /// index block hash?
+    /// Do we have any microblock available to serve in any capacity, given its
+    /// parent anchored block's index block hash?
     #[cfg(test)]
     fn has_microblocks_indexed(
         &self,
@@ -2836,7 +2867,8 @@ impl StacksChainState {
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))
     }
 
-    /// Given an index block hash, get its consensus hash and block hash if it exists
+    /// Given an index block hash, get its consensus hash and block hash if it
+    /// exists
     pub fn get_block_header_hashes(
         &self,
         index_block_hash: &StacksBlockId,
@@ -2849,7 +2881,8 @@ impl StacksChainState {
         )
     }
 
-    /// Given an index block hash, get the parent consensus hash and block hash if it exists
+    /// Given an index block hash, get the parent consensus hash and block hash
+    /// if it exists
     pub fn get_parent_block_header_hashes(
         blocks_conn: &DBConn,
         index_block_hash: &StacksBlockId,
@@ -2862,8 +2895,8 @@ impl StacksChainState {
         )
     }
 
-    /// Get the sqlite rowid for a staging microblock, given the hash of the microblock.
-    /// Returns None if no such microblock.
+    /// Get the sqlite rowid for a staging microblock, given the hash of the
+    /// microblock. Returns None if no such microblock.
     #[cfg(test)]
     fn stream_microblock_get_rowid(
         blocks_conn: &DBConn,
@@ -2878,8 +2911,9 @@ impl StacksChainState {
         query_row(blocks_conn, sql, args).map_err(Error::DBError)
     }
 
-    /// Load up the metadata on a microblock stream (but don't get the data itself)
-    /// DO NOT USE IN PRODUCTION -- doesn't work for microblock forks.
+    /// Load up the metadata on a microblock stream (but don't get the data
+    /// itself) DO NOT USE IN PRODUCTION -- doesn't work for microblock
+    /// forks.
     #[cfg(test)]
     fn stream_microblock_get_info(
         blocks_conn: &DBConn,
@@ -2972,16 +3006,19 @@ impl StacksChainState {
         signed_microblocks
     }
 
-    /// Given a microblock stream, does it connect the parent and child anchored blocks?
-    /// * verify that the blocks are a contiguous sequence, with no duplicate sequence numbers
+    /// Given a microblock stream, does it connect the parent and child anchored
+    /// blocks?
+    /// * verify that the blocks are a contiguous sequence, with no duplicate
+    ///   sequence numbers
     /// * verify that each microblock is signed by the parent anchor block's key
-    /// The stream must be in order by sequence number, and there must be no duplicates.
-    /// If the stream connects to the anchored block, then
-    /// return the index in the given microblocks vec that corresponds to the highest valid
-    /// block -- i.e. the microblock indicated by the anchored header as the parent.
-    /// If there was a duplicate sequence number, then also return a poison-microblock
-    /// transaction for the two headers with the lowest duplicate sequence number.
-    /// Return None if the stream does not connect to this block (e.g. it's incomplete or the like)
+    /// The stream must be in order by sequence number, and there must be no
+    /// duplicates. If the stream connects to the anchored block, then
+    /// return the index in the given microblocks vec that corresponds to the
+    /// highest valid block -- i.e. the microblock indicated by the anchored
+    /// header as the parent. If there was a duplicate sequence number, then
+    /// also return a poison-microblock transaction for the two headers with
+    /// the lowest duplicate sequence number. Return None if the stream does
+    /// not connect to this block (e.g. it's incomplete or the like)
     pub fn validate_parent_microblock_stream(
         parent_anchored_block_header: &StacksBlockHeader,
         anchored_block_header: &StacksBlockHeader,
@@ -3062,8 +3099,8 @@ impl StacksChainState {
             }
         }
 
-        // sanity check -- all parent block hashes are unique.  If there are duplicates, then the
-        // miner equivocated.
+        // sanity check -- all parent block hashes are unique.  If there are duplicates,
+        // then the miner equivocated.
         let mut parent_hashes: HashMap<BlockHeaderHash, StacksMicroblockHeader> = HashMap::new();
         for i in 0..signed_microblocks.len() {
             let signed_microblock = &signed_microblocks[i];
@@ -3090,8 +3127,9 @@ impl StacksChainState {
             );
         }
 
-        // hashes are contiguous enough -- for each seqnum, there is a microblock with seqnum+1 with the
-        // microblock at seqnum as its parent.  There may be more than one.
+        // hashes are contiguous enough -- for each seqnum, there is a microblock with
+        // seqnum+1 with the microblock at seqnum as its parent.  There may be
+        // more than one.
         for i in 1..signed_microblocks.len() {
             if signed_microblocks[i - 1].header.sequence == signed_microblocks[i].header.sequence
                 && signed_microblocks[i - 1].block_hash() != signed_microblocks[i].block_hash()
@@ -3151,8 +3189,9 @@ impl StacksChainState {
         return Some((end, None));
     }
 
-    /// Determine whether or not a block executed an epoch transition.  That is, did this block
-    /// call `initialize_epoch_XYZ()` for some XYZ when it was processed.
+    /// Determine whether or not a block executed an epoch transition.  That is,
+    /// did this block call `initialize_epoch_XYZ()` for some XYZ when it
+    /// was processed.
     pub fn block_crosses_epoch_boundary(
         block_conn: &DBConn,
         parent_consensus_hash: &ConsensusHash,
@@ -3171,13 +3210,14 @@ impl StacksChainState {
         Ok(res)
     }
 
-    /// Validate an anchored block against the burn chain state.  Determines if this given Stacks
-    /// block can attach to the chainstate.  Called before inserting the block into the staging
-    /// DB.
+    /// Validate an anchored block against the burn chain state.  Determines if
+    /// this given Stacks block can attach to the chainstate.  Called before
+    /// inserting the block into the staging DB.
     ///
     /// Returns Some(commit burn, total burn) if valid
     /// Returns None if not valid
-    /// * consensus_hash is the PoX history hash of the burnchain block whose sortition
+    /// * consensus_hash is the PoX history hash of the burnchain block whose
+    ///   sortition
     /// (ostensibly) selected this block for inclusion.
     fn validate_anchored_block_burnchain(
         blocks_conn: &DBConn,
@@ -3251,8 +3291,8 @@ impl StacksChainState {
             }
         };
 
-        // NEW in 2.1: pass the current epoch, since this determines when new transaction types
-        // become valid (such as coinbase-pay-to-contract)
+        // NEW in 2.1: pass the current epoch, since this determines when new
+        // transaction types become valid (such as coinbase-pay-to-contract)
         let cur_epoch =
             SortitionDB::get_stacks_epoch(db_handle.deref(), burn_chain_tip.block_height)?
                 .expect("FATAL: no epoch defined for current Stacks block");
@@ -3275,9 +3315,9 @@ impl StacksChainState {
         }
 
         // NEW in 2.05
-        // if the parent block marks an epoch transition, then its children necessarily run in a
-        // different Clarity epoch.  Its children therefore are not permitted to confirm any of
-        // their parents' microblocks.
+        // if the parent block marks an epoch transition, then its children necessarily
+        // run in a different Clarity epoch.  Its children therefore are not
+        // permitted to confirm any of their parents' microblocks.
         if StacksChainState::block_crosses_epoch_boundary(
             blocks_conn,
             &parent_stacks_chain_tip.consensus_hash,
@@ -3301,7 +3341,8 @@ impl StacksChainState {
     }
 
     /// Do we already have an anchored block?
-    /// Note that this will return false for an *invalid* block that *not* been processed *yet*
+    /// Note that this will return false for an *invalid* block that *not* been
+    /// processed *yet*
     pub fn has_anchored_block(
         conn: &DBConn,
         blocks_path: &str,
@@ -3347,26 +3388,31 @@ impl StacksChainState {
     /// Pre-process and store an anchored block to staging, queuing it up for
     /// subsequent processing once all of its ancestors have been processed.
     ///
-    /// Caller must have called SortitionDB::expects_stacks_block() to determine if this block belongs
-    /// to the blockchain.  The consensus_hash is the hash of the burnchain block whose sortition
-    /// elected the given Stacks block.
+    /// Caller must have called SortitionDB::expects_stacks_block() to determine
+    /// if this block belongs to the blockchain.  The consensus_hash is the
+    /// hash of the burnchain block whose sortition elected the given Stacks
+    /// block.
     ///
-    /// If we find the same Stacks block in two or more burnchain forks, insert it there too.
+    /// If we find the same Stacks block in two or more burnchain forks, insert
+    /// it there too.
     ///
-    /// (New in 2.05+) If the anchored block descends from a parent anchored block in a different
-    /// system epoch, then it *must not* have a parent microblock stream.
+    /// (New in 2.05+) If the anchored block descends from a parent anchored
+    /// block in a different system epoch, then it *must not* have a parent
+    /// microblock stream.
     ///
-    /// (New in 2.1+) A block must contain only transactions that are valid in the parent block's
-    /// epoch.  If not, then this method will *not* preprocess or store the block.
+    /// (New in 2.1+) A block must contain only transactions that are valid in
+    /// the parent block's epoch.  If not, then this method will *not*
+    /// preprocess or store the block.
     ///
     /// Returns Ok(true) if the block was stored to the staging DB.
     /// Returns Ok(false) if not (i.e. the block is invalid, or already stored)
     /// Returns Err(..) on database errors
     ///
     /// sort_ic: an indexed connection to a sortition DB
-    /// consensus_hash: this is the consensus hash of the sortition that chose this block
-    /// block: the actual block data for this anchored Stacks block
-    /// parent_consensus_hash: this the consensus hash of the sortition that chose this Stack's block's parent
+    /// consensus_hash: this is the consensus hash of the sortition that chose
+    /// this block block: the actual block data for this anchored Stacks
+    /// block parent_consensus_hash: this the consensus hash of the
+    /// sortition that chose this Stack's block's parent
     pub fn preprocess_anchored_block(
         &mut self,
         sort_ic: &SortitionDBConn,
@@ -3387,7 +3433,8 @@ impl StacksChainState {
         let chain_id = self.chain_id;
         let blocks_path = self.blocks_path.clone();
 
-        // optimistic check (before opening a tx): already in queue or already processed?
+        // optimistic check (before opening a tx): already in queue or already
+        // processed?
         if StacksChainState::has_anchored_block(
             self.db(),
             &self.blocks_path,
@@ -3399,7 +3446,8 @@ impl StacksChainState {
 
         let mut block_tx = self.db_tx_begin()?;
 
-        // already in queue or already processed (within the tx; things might have changed)
+        // already in queue or already processed (within the tx; things might have
+        // changed)
         if StacksChainState::has_anchored_block(&block_tx, &blocks_path, consensus_hash, block)? {
             return Ok(false);
         }
@@ -3470,19 +3518,23 @@ impl StacksChainState {
         Ok(true)
     }
 
-    /// Pre-process and store a microblock to staging, queueing it up for subsequent processing
-    /// once all of its ancestors have been processed.
+    /// Pre-process and store a microblock to staging, queueing it up for
+    /// subsequent processing once all of its ancestors have been processed.
     ///
-    /// The anchored block this microblock builds off of must have already been stored somewhere,
-    /// staging or accepted, so we can verify the signature over this block.
+    /// The anchored block this microblock builds off of must have already been
+    /// stored somewhere, staging or accepted, so we can verify the
+    /// signature over this block.
     ///
-    /// This method is `&mut self` to ensure that concurrent renames don't corrupt our chain state.
+    /// This method is `&mut self` to ensure that concurrent renames don't
+    /// corrupt our chain state.
     ///
-    /// If we find the same microblock in multiple burnchain forks, insert it into both.
+    /// If we find the same microblock in multiple burnchain forks, insert it
+    /// into both.
     ///
     /// Return true if we stored the microblock.
-    /// Return false if we did not store it (i.e. we already had it, we don't have its parent)
-    /// Return Err(..) if the microblock is invalid, or we couldn't process it
+    /// Return false if we did not store it (i.e. we already had it, we don't
+    /// have its parent) Return Err(..) if the microblock is invalid, or we
+    /// couldn't process it
     pub fn preprocess_streamed_microblock(
         &mut self,
         parent_consensus_hash: &ConsensusHash,
@@ -3570,8 +3622,8 @@ impl StacksChainState {
         Ok(true)
     }
 
-    /// Given a burnchain snapshot, a Stacks block and a microblock stream, preprocess them all.
-    /// This does not work when forking
+    /// Given a burnchain snapshot, a Stacks block and a microblock stream,
+    /// preprocess them all. This does not work when forking
     #[cfg(test)]
     pub fn preprocess_stacks_epoch(
         &mut self,
@@ -3616,8 +3668,9 @@ impl StacksChainState {
     }
 
     /// Create the block reward.
-    /// `coinbase_reward_ustx` is the total coinbase reward for this block, including any
-    ///    accumulated rewards from missed sortitions or initial mining rewards.
+    /// `coinbase_reward_ustx` is the total coinbase reward for this block,
+    /// including any    accumulated rewards from missed sortitions or
+    /// initial mining rewards.
     pub fn make_scheduled_miner_reward(
         mainnet: bool,
         epoch_id: StacksEpochId,
@@ -3650,9 +3703,10 @@ impl StacksChainState {
             miner_addr.to_account_principal()
         };
 
-        // N.B. a `MinerPaymentSchedule` that pays to a contract can never be created before 2.1,
-        // per the above check (and moreover, a Stacks block with a pay-to-alt-recipient coinbase would
-        // not become valid until after 2.1 activates).
+        // N.B. a `MinerPaymentSchedule` that pays to a contract can never be created
+        // before 2.1, per the above check (and moreover, a Stacks block with a
+        // pay-to-alt-recipient coinbase would not become valid until after 2.1
+        // activates).
         let miner_reward = MinerPaymentSchedule {
             address: miner_addr,
             recipient,
@@ -3675,11 +3729,12 @@ impl StacksChainState {
         Ok(miner_reward)
     }
 
-    /// Given a staging block, load up its parent microblock stream from staging.
-    /// All of the parent anchored block's microblocks will be loaded, if we have them and they're
-    /// not orphaned.
-    /// Return Ok(Some(microblocks)) if we got microblocks (even if it's an empty stream)
-    /// Return Ok(None) if there are no staging microblocks yet
+    /// Given a staging block, load up its parent microblock stream from
+    /// staging. All of the parent anchored block's microblocks will be
+    /// loaded, if we have them and they're not orphaned.
+    /// Return Ok(Some(microblocks)) if we got microblocks (even if it's an
+    /// empty stream) Return Ok(None) if there are no staging microblocks
+    /// yet
     pub fn find_parent_microblock_stream(
         blocks_conn: &DBConn,
         staging_block: &StagingBlock,
@@ -3694,7 +3749,8 @@ impl StacksChainState {
         )
     }
 
-    /// Allow `find_parent_microblock_stream()` to be called without `StagingBlock`
+    /// Allow `find_parent_microblock_stream()` to be called without
+    /// `StagingBlock`
     pub fn inner_find_parent_microblock_stream(
         blocks_conn: &DBConn,
         anchored_block_hash: &BlockHeaderHash,
@@ -3728,10 +3784,10 @@ impl StacksChainState {
         }
     }
 
-    /// Find a block that we accepted to staging, but had a parent that we ended up
-    /// rejecting.  Garbage-collect its data.
-    /// Call this method repeatedly to remove long chains of orphaned blocks and microblocks from
-    /// staging.
+    /// Find a block that we accepted to staging, but had a parent that we ended
+    /// up rejecting.  Garbage-collect its data.
+    /// Call this method repeatedly to remove long chains of orphaned blocks and
+    /// microblocks from staging.
     /// Returns true if an orphan block was processed
     fn process_next_orphaned_staging_block(
         blocks_tx: &mut DBTx<'_>,
@@ -3739,8 +3795,8 @@ impl StacksChainState {
     ) -> Result<bool, Error> {
         test_debug!("Find next orphaned block");
 
-        // go through staging blocks and see if any of them have not been processed yet, but are
-        // orphaned
+        // go through staging blocks and see if any of them have not been processed yet,
+        // but are orphaned
         let sql = "SELECT * FROM staging_blocks WHERE processed = 0 AND orphaned = 1 ORDER BY RANDOM() LIMIT 1";
         let mut rows =
             query_rows::<StagingBlock, _>(blocks_tx, sql, NO_PARAMS).map_err(Error::DBError)?;
@@ -3766,8 +3822,8 @@ impl StacksChainState {
         Ok(true)
     }
 
-    /// How many attachable staging blocks do we have, up to a limit, at or after the given
-    /// timestamp?
+    /// How many attachable staging blocks do we have, up to a limit, at or
+    /// after the given timestamp?
     pub fn count_attachable_staging_blocks(
         blocks_conn: &DBConn,
         limit: u64,
@@ -3783,8 +3839,8 @@ impl StacksChainState {
         Ok(u64::try_from(cnt).expect("more than i64::MAX rows"))
     }
 
-    /// How many processed staging blocks do we have, up to a limit, at or after the given
-    /// timestamp?
+    /// How many processed staging blocks do we have, up to a limit, at or after
+    /// the given timestamp?
     pub fn count_processed_staging_blocks(
         blocks_conn: &DBConn,
         limit: u64,
@@ -3800,8 +3856,8 @@ impl StacksChainState {
         Ok(u64::try_from(cnt).expect("more than i64::MAX rows"))
     }
 
-    /// Measure how long a block waited in-between when it arrived and when it got processed.
-    /// Includes both orphaned and accepted blocks.
+    /// Measure how long a block waited in-between when it arrived and when it
+    /// got processed. Includes both orphaned and accepted blocks.
     pub fn measure_block_wait_time(
         blocks_conn: &DBConn,
         start_height: u64,
@@ -3813,8 +3869,8 @@ impl StacksChainState {
         Ok(list)
     }
 
-    /// Measure how long a block took to be downloaded (for blocks that we downloaded).
-    /// Includes _all_ blocks.
+    /// Measure how long a block took to be downloaded (for blocks that we
+    /// downloaded). Includes _all_ blocks.
     pub fn measure_block_download_time(
         blocks_conn: &DBConn,
         start_height: u64,
@@ -3826,10 +3882,10 @@ impl StacksChainState {
         Ok(list)
     }
 
-    /// Given access to the chain state (headers) and the staging blocks, find a staging block we
-    /// can process, as well as its parent microblocks that it confirms
-    /// Returns Some(microblocks, staging block) if we found a sequence of blocks to process.
-    /// Returns None if not.
+    /// Given access to the chain state (headers) and the staging blocks, find a
+    /// staging block we can process, as well as its parent microblocks that
+    /// it confirms Returns Some(microblocks, staging block) if we found a
+    /// sequence of blocks to process. Returns None if not.
     fn find_next_staging_block(
         blocks_tx: &mut StacksDBTx<'_>,
         blocks_path: &str,
@@ -3839,12 +3895,13 @@ impl StacksChainState {
 
         let mut to_delete = vec![];
 
-        // put this in a block so stmt goes out of scope before we start to delete PoX-orphaned
-        // blocks
+        // put this in a block so stmt goes out of scope before we start to delete
+        // PoX-orphaned blocks
         {
-            // go through staging blocks and see if any of them match headers, are attachable, and are
-            // recent (i.e. less than 10 minutes old)
-            // pick randomly -- don't allow the network sender to choose the processing order!
+            // go through staging blocks and see if any of them match headers, are
+            // attachable, and are recent (i.e. less than 10 minutes old)
+            // pick randomly -- don't allow the network sender to choose the processing
+            // order!
             let sql = "SELECT * FROM staging_blocks WHERE processed = 0 AND attachable = 1 AND orphaned = 0 ORDER BY RANDOM()";
             let mut stmt = blocks_tx
                 .prepare(sql)
@@ -4050,8 +4107,9 @@ impl StacksChainState {
         let mut applied = false;
 
         if let Some(sortition_epoch) = sortition_epoch {
-            // check if the parent stacks block has a different epoch than what the Sortition DB
-            //  thinks should be in place, and apply epoch transitions
+            // check if the parent stacks block has a different epoch than what the
+            // Sortition DB  thinks should be in place, and apply epoch
+            // transitions
             let mut current_epoch = stacks_parent_epoch;
             while current_epoch != sortition_epoch.epoch_id {
                 applied = true;
@@ -4059,7 +4117,8 @@ impl StacksChainState {
                     "new_epoch_id" => %sortition_epoch.epoch_id,
                     "old_epoch_id" => %current_epoch
                 );
-                // this assertion failing means that the _parent_ block was invalid: this is bad and should panic.
+                // this assertion failing means that the _parent_ block was invalid: this is bad
+                // and should panic.
                 assert!(current_epoch < sortition_epoch.epoch_id, "The SortitionDB believes the epoch is earlier than this Stacks block's parent: sortition db epoch = {}, current epoch = {}", sortition_epoch.epoch_id, current_epoch);
                 // time for special cases:
                 match current_epoch {
@@ -4710,8 +4769,8 @@ impl StacksChainState {
             .map_err(Error::ClarityError)
     }
 
-    /// Given the list of matured miners, find the miner reward schedule that produced the parent
-    /// of the block whose coinbase just matured.
+    /// Given the list of matured miners, find the miner reward schedule that
+    /// produced the parent of the block whose coinbase just matured.
     pub fn get_parent_matured_miner(
         conn: &DBConn,
         mainnet: bool,
@@ -4800,11 +4859,12 @@ impl StacksChainState {
         )?;
 
         // Find the *new* transactions -- the ones that we *haven't* seen in this Stacks
-        // fork yet.  Note that we search for the ones that we have seen by searching back
-        // `BURNCHAIN_TX_SEARCH_WINDOW` *Stacks* blocks, whose sortitions may span more
-        // than `BURNCHAIN_TX_SEARCH_WINDOW` burnchain blocks.  The inclusion of txids for
-        // burnchain transactions in the latter query is not a problem, because these txids
-        // are used to *exclude* transactions from the last `BURNCHAIN_TX_SEARCH_WINDOW`
+        // fork yet.  Note that we search for the ones that we have seen by searching
+        // back `BURNCHAIN_TX_SEARCH_WINDOW` *Stacks* blocks, whose sortitions
+        // may span more than `BURNCHAIN_TX_SEARCH_WINDOW` burnchain blocks.
+        // The inclusion of txids for burnchain transactions in the latter query
+        // is not a problem, because these txids are used to *exclude*
+        // transactions from the last `BURNCHAIN_TX_SEARCH_WINDOW`
         // burnchain blocks.  These excluded txids, if they were mined outside of this
         // window, are *already* excluded.
 
@@ -4853,30 +4913,36 @@ impl StacksChainState {
         ))
     }
 
-    /// Get the list of burnchain-hosted stacking and transfer operations to apply when evaluating
-    /// the Stacks block that was selected for this burnchain block.
-    /// The rules are different for different epochs:
+    /// Get the list of burnchain-hosted stacking and transfer operations to
+    /// apply when evaluating the Stacks block that was selected for this
+    /// burnchain block. The rules are different for different epochs:
     ///
-    /// * In Stacks 2.0/2.05, only the operations in the burnchain block will be considered.
-    /// So if a transaction was mined in burnchain block N, it will be processed in the Stacks
-    /// block mined in burnchain block N (if there is one).
+    /// * In Stacks 2.0/2.05, only the operations in the burnchain block will be
+    ///   considered.
+    /// So if a transaction was mined in burnchain block N, it will be processed
+    /// in the Stacks block mined in burnchain block N (if there is one).
     ///
-    /// * In Stacks 2.1+, the operations in the last K burnchain blocks that have not yet been
-    /// considered in this Stacks block's fork will be processed in the order in which they are
-    /// mined in the burnchain.  So if a transaction was mined in an burnchain block between N and
-    /// N-K inclusive, it will be processed in each Stacks fork that contains at least one Stacks
+    /// * In Stacks 2.1+, the operations in the last K burnchain blocks that
+    ///   have not yet been
+    /// considered in this Stacks block's fork will be processed in the order in
+    /// which they are mined in the burnchain.  So if a transaction was
+    /// mined in an burnchain block between N and N-K inclusive, it will be
+    /// processed in each Stacks fork that contains at least one Stacks
     /// block mined in the same burnchain interval.
     ///
-    /// The rationale for the new behavior in Stacks 2.1+ is that burnchain-hosted STX operations
-    /// can get picked up in Stacks blocks that only live on short-lived forks, or get mined in
-    /// burnchain blocks in which there was no sortiton.  In either case, the operation does not
-    /// materialize on the canonical Stacks chain.  This is a bad user
-    /// experience, because the act of sending a PreStxOp plus this StackStxOp / TransferStxOp is a
-    /// time-consuming and tedious process that must then be repeated.
+    /// The rationale for the new behavior in Stacks 2.1+ is that
+    /// burnchain-hosted STX operations can get picked up in Stacks blocks
+    /// that only live on short-lived forks, or get mined in
+    /// burnchain blocks in which there was no sortiton.  In either case, the
+    /// operation does not materialize on the canonical Stacks chain.  This
+    /// is a bad user experience, because the act of sending a PreStxOp plus
+    /// this StackStxOp / TransferStxOp is a time-consuming and tedious
+    /// process that must then be repeated.
     ///
-    /// The change in Stacks 2.1+ makes it so that it's overwhelmingly likely to work
-    /// the first time -- the choice of K is significantly bigger than the length of short-lived
-    /// forks or periods of time with no sortition than have been observed in practice.
+    /// The change in Stacks 2.1+ makes it so that it's overwhelmingly likely to
+    /// work the first time -- the choice of K is significantly bigger than
+    /// the length of short-lived forks or periods of time with no sortition
+    /// than have been observed in practice.
     ///
     /// In epoch 2.5+, the vote-for-aggregate-key op is included
     pub fn get_stacking_and_transfer_and_delegate_burn_ops(
@@ -4938,9 +5004,9 @@ impl StacksChainState {
         }
     }
 
-    /// Check if current PoX reward cycle (as of `burn_tip_height`) has handled any
-    ///  Clarity VM work necessary at the start of the cycle (i.e., processing of accelerated unlocks
-    ///  for failed stackers).
+    /// Check if current PoX reward cycle (as of `burn_tip_height`) has handled
+    /// any  Clarity VM work necessary at the start of the cycle (i.e.,
+    /// processing of accelerated unlocks  for failed stackers).
     /// If it has not yet been handled, then perform that work now.
     pub fn check_and_handle_reward_start(
         burn_tip_height: u64,
@@ -4957,13 +5023,15 @@ impl StacksChainState {
         ).expect("FATAL: Unrecoverable chainstate corruption: Epoch 2.1 code evaluated before first burn block height");
         // Do not try to handle auto-unlocks on pox_reward_cycle 0
         // This cannot even occur in the mainchain, because 2.1 starts much
-        //  after the 1st reward cycle, however, this could come up in mocknets or regtest.
+        //  after the 1st reward cycle, however, this could come up in mocknets or
+        // regtest.
         if pox_reward_cycle <= 1 {
             return Ok(vec![]);
         }
 
-        // do not try to handle auto-unlocks before the reward set has been calculated (at block = 0 of cycle)
-        //  or written to the sortition db (at block = 1 of cycle)
+        // do not try to handle auto-unlocks before the reward set has been calculated
+        // (at block = 0 of cycle)  or written to the sortition db (at block = 1
+        // of cycle)
         if Burnchain::is_before_reward_cycle(
             burn_dbconn.get_burn_start_height().into(),
             burn_tip_height,
@@ -5093,8 +5161,8 @@ impl StacksChainState {
             )?;
 
         // load the execution cost of the parent block if the executor is the follower.
-        // otherwise, if the executor is the miner, only load the parent cost if the parent
-        // microblock stream is non-empty.
+        // otherwise, if the executor is the miner, only load the parent cost if the
+        // parent microblock stream is non-empty.
         let parent_block_cost = if miner_id_opt.is_none() || !parent_microblocks.is_empty() {
             let cost = StacksChainState::get_stacks_block_anchored_cost(
                 chainstate_tx.deref().deref(),
@@ -5160,7 +5228,8 @@ impl StacksChainState {
         let t1 = get_epoch_time_ms();
 
         // process microblock stream.
-        // If we go over-budget, then we can't process this block either (which is by design)
+        // If we go over-budget, then we can't process this block either (which is by
+        // design)
         let (microblock_fees, microblock_burns, microblock_txs_receipts) =
             match StacksChainState::process_microblocks_transactions(
                 &mut clarity_tx,
@@ -5198,8 +5267,8 @@ impl StacksChainState {
             .sub(&parent_block_cost)
             .expect("BUG: block_cost + microblock_cost < block_cost");
 
-        // if we get here, then we need to reset the block-cost back to 0 since this begins the
-        // epoch defined by this miner.
+        // if we get here, then we need to reset the block-cost back to 0 since this
+        // begins the epoch defined by this miner.
         clarity_tx.reset_cost(ExecutionCost::ZERO);
 
         // is this stacks block the first of a new epoch?
@@ -5219,8 +5288,9 @@ impl StacksChainState {
         let evaluated_epoch = clarity_tx.get_epoch();
 
         // Handle signer stackerdb updates
-        // this must happen *before* any state transformations from burn ops, rewards unlocking, etc.
-        // this ensures that the .signers updates will match the PoX anchor block calculation in Epoch 2.5
+        // this must happen *before* any state transformations from burn ops, rewards
+        // unlocking, etc. this ensures that the .signers updates will match the
+        // PoX anchor block calculation in Epoch 2.5
         let first_block_height = burn_dbconn.get_burn_start_height();
         let signer_set_calc;
         if evaluated_epoch >= StacksEpochId::Epoch25 {
@@ -5324,8 +5394,8 @@ impl StacksChainState {
         })
     }
 
-    /// This function is called in both `append_block` in blocks.rs (follower) and
-    /// `mine_anchored_block` in miner.rs.
+    /// This function is called in both `append_block` in blocks.rs (follower)
+    /// and `mine_anchored_block` in miner.rs.
     /// Processes matured miner rewards, alters liquid supply of ustx, processes
     /// stx lock events, and marks the microblock public key as used
     /// Returns stx lockup events.
@@ -5380,11 +5450,12 @@ impl StacksChainState {
     }
 
     /// Process the next pre-processed staging block.
-    /// We've already processed `parent_chain_tip`, whereas `chain_tip` refers to a block we have _not_
-    /// processed yet.
+    /// We've already processed `parent_chain_tip`, whereas `chain_tip` refers
+    /// to a block we have _not_ processed yet.
     ///
-    /// Returns a `StacksEpochReceipt` containing receipts and events from the transactions executed
-    /// in the block, and a `PreCommitClarityBlock` struct.
+    /// Returns a `StacksEpochReceipt` containing receipts and events from the
+    /// transactions executed in the block, and a `PreCommitClarityBlock`
+    /// struct.
     ///
     /// The `StacksEpochReceipts` contains the list of transaction
     /// receipts for the preceeding microblock stream that the
@@ -5437,8 +5508,9 @@ impl StacksChainState {
         let next_block_height = block.header.total_work.work;
 
         // NEW in 2.05
-        // if the parent marked an epoch transition -- i.e. its children necessarily run in
-        // different Clarity epochs -- then this block cannot confirm any of its microblocks.
+        // if the parent marked an epoch transition -- i.e. its children necessarily run
+        // in different Clarity epochs -- then this block cannot confirm any of
+        // its microblocks.
         if StacksChainState::block_crosses_epoch_boundary(
             chainstate_tx.deref(),
             &parent_chain_tip.consensus_hash,
@@ -5582,8 +5654,8 @@ impl StacksChainState {
                     }
                 };
 
-            // validation check -- is this microblock public key hash new to this fork?  It must
-            // be, or this block is invalid.
+            // validation check -- is this microblock public key hash new to this fork?  It
+            // must be, or this block is invalid.
             match StacksChainState::has_microblock_pubkey_hash(
                 &mut clarity_tx,
                 &block.header.microblock_pubkey_hash,
@@ -5650,8 +5722,9 @@ impl StacksChainState {
 
             let block_cost = clarity_tx.cost_so_far();
 
-            // obtain reward info for receipt -- consolidate miner, user, and parent rewards into a
-            // single list, but keep the miner/user/parent/info tuple for advancing the chain tip
+            // obtain reward info for receipt -- consolidate miner, user, and parent rewards
+            // into a single list, but keep the miner/user/parent/info tuple for
+            // advancing the chain tip
             let (matured_rewards, miner_payouts_opt) =
                 if let Some((miner_reward, mut user_rewards, parent_reward, reward_ptr)) =
                     matured_miner_rewards_opt
@@ -5912,7 +5985,8 @@ impl StacksChainState {
         Ok((epoch_receipt, clarity_commit, reward_set_data))
     }
 
-    /// Verify that a Stacks anchored block attaches to its parent anchored block.
+    /// Verify that a Stacks anchored block attaches to its parent anchored
+    /// block.
     /// * checks .header.total_work.work
     /// * checks .header.parent_block
     pub fn check_block_attachment(
@@ -5939,8 +6013,8 @@ impl StacksChainState {
     }
 
     /// Get the parent header info for a block we're processing, if it's known.
-    /// The header info will be pulled from the headers DB, so this method only succeeds if the
-    /// parent block has been processed.
+    /// The header info will be pulled from the headers DB, so this method only
+    /// succeeds if the parent block has been processed.
     /// If it's not known, return None.
     pub fn get_parent_header_info(
         chainstate_tx: &mut ChainstateTx,
@@ -5983,7 +6057,8 @@ impl StacksChainState {
         Ok(Some(parent_block_header_info))
     }
 
-    /// Extract and parse the block from a loaded staging block, and verify its integrity.
+    /// Extract and parse the block from a loaded staging block, and verify its
+    /// integrity.
     pub fn extract_stacks_block(next_staging_block: &StagingBlock) -> Result<StacksBlock, Error> {
         let block = {
             StacksBlock::consensus_deserialize(&mut &next_staging_block.block_data[..])
@@ -6002,10 +6077,11 @@ impl StacksChainState {
         Ok(block)
     }
 
-    /// Given the list of microblocks produced by the given block's parent (and given the parent's
-    /// header info), determine which branch connects to the given block.  If there are multiple
-    /// branches, punish the parent.  Return the portion of the branch that actually connects to
-    /// the given block.
+    /// Given the list of microblocks produced by the given block's parent (and
+    /// given the parent's header info), determine which branch connects to
+    /// the given block.  If there are multiple branches, punish the parent.
+    /// Return the portion of the branch that actually connects to the given
+    /// block.
     pub fn extract_connecting_microblocks(
         parent_block_header_info: &StacksHeaderInfo,
         next_block_consensus_hash: &ConsensusHash,
@@ -6013,8 +6089,8 @@ impl StacksChainState {
         block: &StacksBlock,
         mut next_microblocks: Vec<StacksMicroblock>,
     ) -> Result<Vec<StacksMicroblock>, Error> {
-        // NOTE: since we got the microblocks from staging, where their signatures were already
-        // validated, we don't need to validate them again.
+        // NOTE: since we got the microblocks from staging, where their signatures were
+        // already validated, we don't need to validate them again.
         let Some((microblock_terminus, _)) = StacksChainState::validate_parent_microblock_stream(
             parent_block_header_info
                 .anchored_header
@@ -6030,7 +6106,8 @@ impl StacksChainState {
             return Ok(vec![]);
         };
 
-        // do not consider trailing microblocks that this anchored block does _not_ confirm
+        // do not consider trailing microblocks that this anchored block does _not_
+        // confirm
         if microblock_terminus < next_microblocks.len() {
             debug!(
                 "Truncate microblock stream from parent {}/{} from {} to {} items",
@@ -6048,10 +6125,11 @@ impl StacksChainState {
     // TODO: add tests from mutation testing results #4858
     #[cfg_attr(test, mutants::skip)]
     /// Find and process the next staging block.
-    /// Return the next chain tip if we processed this block, or None if we couldn't.
-    /// Return a poison microblock transaction payload if the microblock stream contains a
-    /// deliberate miner fork (this is NOT consensus-critical information, but is instead meant for
-    /// consumption by future miners).
+    /// Return the next chain tip if we processed this block, or None if we
+    /// couldn't. Return a poison microblock transaction payload if the
+    /// microblock stream contains a deliberate miner fork (this is NOT
+    /// consensus-critical information, but is instead meant for consumption
+    /// by future miners).
     pub fn process_next_staging_block<T: BlockEventDispatcher>(
         &mut self,
         burnchain_dbconn: &DBConn,
@@ -6217,8 +6295,8 @@ impl StacksChainState {
             return Err(Error::InvalidStacksBlock(msg));
         }
 
-        // validation check -- validate parent microblocks and find the ones that connect the
-        // block's parent to this block.
+        // validation check -- validate parent microblocks and find the ones that
+        // connect the block's parent to this block.
         let next_microblocks = StacksChainState::extract_connecting_microblocks(
             &parent_header_info,
             &parent_header_info.consensus_hash,
@@ -6264,8 +6342,9 @@ impl StacksChainState {
         );
 
         // attach the block to the chain state and calculate the next chain tip.
-        // Execute the confirmed microblocks' transactions against the chain state, and then
-        // execute the anchored block's transactions against the chain state.
+        // Execute the confirmed microblocks' transactions against the chain state, and
+        // then execute the anchored block's transactions against the chain
+        // state.
         let pox_constants = sort_tx.context.pox_constants.clone();
         let (epoch_receipt, clarity_commit, reward_set_data) = match StacksChainState::append_block(
             &mut chainstate_tx,
@@ -6289,7 +6368,8 @@ impl StacksChainState {
             Err(e) => {
                 // something's wrong with this epoch -- either a microblock was invalid, or the
                 // anchored block was invalid.  Either way, the anchored block will _never be_
-                // valid, so we can drop it from the chunk store and orphan all of its descendants.
+                // valid, so we can drop it from the chunk store and orphan all of its
+                // descendants.
                 test_debug!(
                     "Failed to append {}/{}",
                     &next_staging_block.consensus_hash,
@@ -6311,8 +6391,9 @@ impl StacksChainState {
 
                 match e {
                     Error::InvalidStacksMicroblock(ref msg, ref header_hash) => {
-                        // specifically, an ancestor microblock was invalid.  Drop any descendant microblocks --
-                        // they're never going to be valid in _any_ fork, even if they have a clone
+                        // specifically, an ancestor microblock was invalid.  Drop any descendant
+                        // microblocks -- they're never going to be valid in
+                        // _any_ fork, even if they have a clone
                         // in a neighboring burnchain fork.
                         error!(
                             "Parent microblock stream from {}/{} is invalid at microblock {}: {}",
@@ -6329,9 +6410,11 @@ impl StacksChainState {
                         )?;
                     }
                     _ => {
-                        // block was invalid, but this means all the microblocks it confirmed are
-                        // still (potentially) valid.  However, they are not confirmed yet, so
-                        // leave them in the staging database.
+                        // block was invalid, but this means all the microblocks
+                        // it confirmed are
+                        // still (potentially) valid.  However, they are not
+                        // confirmed yet, so leave them
+                        // in the staging database.
                     }
                 }
 
@@ -6449,9 +6532,10 @@ impl StacksChainState {
     }
 
     /// Process some staging blocks, up to max_blocks.
-    /// Return new chain tips, and optionally any poison microblock payloads for each chain tip
-    /// found.  For each chain tip produced, return the header info, receipts, parent microblock
-    /// stream execution cost, and block execution cost.  A value of None will be returned for the
+    /// Return new chain tips, and optionally any poison microblock payloads for
+    /// each chain tip found.  For each chain tip produced, return the
+    /// header info, receipts, parent microblock stream execution cost, and
+    /// block execution cost.  A value of None will be returned for the
     /// epoch receipt if the block was invalid.
     pub fn process_blocks<T: BlockEventDispatcher>(
         &mut self,
@@ -6544,8 +6628,8 @@ impl StacksChainState {
 
     /// Get the highest processed block on the canonical burn chain.
     /// Break ties on lexigraphical ordering of the block hash
-    /// (i.e. arbitrarily).  The staging block will be returned, but no block data will be filled
-    /// in.
+    /// (i.e. arbitrarily).  The staging block will be returned, but no block
+    /// data will be filled in.
     pub fn get_stacks_chain_tip(
         &self,
         sortdb: &SortitionDB,
@@ -6604,8 +6688,8 @@ impl StacksChainState {
     }
 
     /// This runs checks for the validity of a transaction that
-    ///   can be performed just by inspecting the transaction itself (i.e., without
-    ///   consulting chain state).
+    ///   can be performed just by inspecting the transaction itself (i.e.,
+    /// without   consulting chain state).
     fn can_admit_mempool_semantic(
         tx: &StacksTransaction,
         is_mainnet: bool,
@@ -6631,9 +6715,10 @@ impl StacksChainState {
         }
     }
 
-    /// Check to see if a transaction can be (potentially) appended on top of a given chain tip.
-    /// Note that this only checks the transaction against the _anchored chain tip_, not the
-    /// unconfirmed microblock stream trailing off of it.
+    /// Check to see if a transaction can be (potentially) appended on top of a
+    /// given chain tip. Note that this only checks the transaction against
+    /// the _anchored chain tip_, not the unconfirmed microblock stream
+    /// trailing off of it.
     pub fn will_admit_mempool_tx(
         &mut self,
         burn_state_db: &dyn BurnStateDB,
@@ -6666,8 +6751,9 @@ impl StacksChainState {
         }
     }
 
-    /// Given an outstanding clarity connection, can we append the tx to the chain state?
-    /// Used when determining whether a transaction can be added to the mempool.
+    /// Given an outstanding clarity connection, can we append the tx to the
+    /// chain state? Used when determining whether a transaction can be
+    /// added to the mempool.
     fn can_include_tx<T: ClarityConnection>(
         clarity_connection: &mut T,
         chainstate_config: &DBConfig,
@@ -6706,7 +6792,8 @@ impl StacksChainState {
                 Ok(x) => x,
                 // if errored, check if MEMPOOL_TX_CHAINING would admit this TX
                 Err((e, (origin, payer))) => {
-                    // if the nonce is less than expected, then TX_CHAINING would not allow in any case
+                    // if the nonce is less than expected, then TX_CHAINING would not allow in any
+                    // case
                     if e.actual < e.expected {
                         return Err(e.into());
                     }
@@ -8342,11 +8429,13 @@ pub mod test {
             &microblocks[0].block_hash(),
         );
 
-        // block should be processed in staging, but the data should not be in the staging DB
+        // block should be processed in staging, but the data should not be in the
+        // staging DB
         assert_block_stored_not_staging(&mut chainstate, &ConsensusHash([2u8; 20]), &block);
         assert_block_stored_not_staging(&mut chainstate, &ConsensusHash([3u8; 20]), &child_block);
 
-        // microblocks should not be in the chunk store, except for block 0 which was confirmed
+        // microblocks should not be in the chunk store, except for block 0 which was
+        // confirmed
         assert_eq!(
             StacksChainState::load_microblock_stream_fork(
                 chainstate.db(),
@@ -8733,7 +8822,8 @@ pub mod test {
             assert!(res.is_none());
         }
 
-        // nonempty stream, but discontiguous first microblock (doesn't connect to parent block)
+        // nonempty stream, but discontiguous first microblock (doesn't connect to
+        // parent block)
         {
             let mut broken_microblocks = microblocks.clone();
             broken_microblocks[0].header.prev_block = BlockHeaderHash([1u8; 32]);
@@ -8983,7 +9073,8 @@ pub mod test {
             );
         }
 
-        // process all blocks, and check that processing a parent makes the child attachable
+        // process all blocks, and check that processing a parent makes the child
+        // attachable
         for (i, (block, consensus_hash)) in blocks.iter().zip(&consensus_hashes).enumerate() {
             // child block is not attachable
             if i + 1 < consensus_hashes.len() {
@@ -9120,7 +9211,8 @@ pub mod test {
             );
         }
 
-        // process all blocks, and check that processing a parent makes the child attachable
+        // process all blocks, and check that processing a parent makes the child
+        // attachable
         for (i, (block, consensus_hash)) in blocks.iter().zip(&consensus_hashes).enumerate() {
             // child block is not attachable
             if i + 1 < consensus_hashes.len() {
@@ -9187,7 +9279,8 @@ pub mod test {
         //            block_2
         //
         // storing block_1 to staging renders block_2 and block_3 unattachable
-        // processing and accepting block_1 renders both block_2 and block_3 attachable again
+        // processing and accepting block_1 renders both block_2 and block_3 attachable
+        // again
 
         block_1.header.parent_block = FIRST_STACKS_BLOCK_HASH;
         block_2.header.parent_block = block_1.block_hash();
@@ -9586,7 +9679,8 @@ pub mod test {
             // confirm that block i is deleted, as are its microblocks
             assert_block_stored_rejected(&mut chainstate, &consensus_hashes[i], block);
 
-            // block i's microblocks should all be marked as processed, orphaned, and deleted
+            // block i's microblocks should all be marked as processed, orphaned, and
+            // deleted
             for mblock in &microblocks[i] {
                 assert!(StacksChainState::load_staging_microblock(
                     chainstate.db(),
@@ -10211,9 +10305,10 @@ pub mod test {
 
         let chainstate_path = peer.chainstate_path.clone();
 
-        // NOTE: first_stacks_block_height is the burnchain height at which the node starts mining.
-        // The burnchain block at this height will have the VRF key register, but no block-commit.
-        // The first burnchain block with a Stacks block is at first_stacks_block_height + 1.
+        // NOTE: first_stacks_block_height is the burnchain height at which the node
+        // starts mining. The burnchain block at this height will have the VRF
+        // key register, but no block-commit. The first burnchain block with a
+        // Stacks block is at first_stacks_block_height + 1.
         let (first_stacks_block_height, canonical_sort_id) = {
             let sn =
                 SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
@@ -10600,7 +10695,8 @@ pub mod test {
                     0,
                 )
                 .unwrap();
-                // Test that the segment returned by get_ancestors_headers (from genesis to chain tip) grows when the chain is growing
+                // Test that the segment returned by get_ancestors_headers (from genesis to
+                // chain tip) grows when the chain is growing
                 assert_eq!(tenure_id, ancestors.len() - 1);
             }
 
@@ -10749,8 +10845,8 @@ pub mod test {
             mblocks_2
         );
 
-        // loading a descendant stream should fail to load any microblocks, since the fork is at
-        // seq 0
+        // loading a descendant stream should fail to load any microblocks, since the
+        // fork is at seq 0
         assert_eq!(
             StacksChainState::load_descendant_staging_microblock_stream(
                 chainstate.db(),
@@ -10769,8 +10865,8 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_microblocks_multiple_forks() {
-        // multiple anchored blocks build off of a microblock stream that gets forked multiple
-        // times
+        // multiple anchored blocks build off of a microblock stream that gets forked
+        // multiple times
         let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
@@ -10905,8 +11001,8 @@ pub mod test {
             );
         }
 
-        // loading a descendant stream should fail to load any microblocks, since the fork is at
-        // seq 1
+        // loading a descendant stream should fail to load any microblocks, since the
+        // fork is at seq 1
         assert_eq!(
             StacksChainState::load_descendant_staging_microblock_stream(
                 chainstate.db(),
@@ -10975,11 +11071,12 @@ pub mod test {
         del_op
     }
 
-    /// Verify that the stacking, transfer, and delegate operations on the burnchain work as expected in
-    /// Stacks 2.1.  That is, they're up for consideration in the 6 subsequent sortiitons after
-    /// they are mined (including the one they are in).  This test verifies that TransferSTX & DelegateSTX
-    /// operations are picked up and applied as expected in the given Stacks fork, even though
-    /// there are empty sortitions.
+    /// Verify that the stacking, transfer, and delegate operations on the
+    /// burnchain work as expected in Stacks 2.1.  That is, they're up for
+    /// consideration in the 6 subsequent sortiitons after they are mined
+    /// (including the one they are in).  This test verifies that TransferSTX &
+    /// DelegateSTX operations are picked up and applied as expected in the
+    /// given Stacks fork, even though there are empty sortitions.
     #[test]
     fn test_get_stacking_and_transfer_and_delegate_burn_ops_v210() {
         let mut peer_config = TestPeerConfig::new(function_name!(), 21315, 21316);
@@ -11057,8 +11154,9 @@ pub mod test {
 
             // For the first 5 burn blocks, sortition a Stacks block.
             // For sortitions 6 and 8, don't sortition any Stacks block.
-            // For sortitions 7 and 9, do sortition a Stacks block, and verify that it includes all
-            // burnchain STX operations that got skipped by the missing sortition.
+            // For sortitions 7 and 9, do sortition a Stacks block, and verify that it
+            // includes all burnchain STX operations that got skipped by the
+            // missing sortition.
             let process_stacks_block = tenure_id <= 5 || tenure_id % 2 != 0;
 
             let (mut burn_ops, stacks_block_opt, microblocks_opt) = if process_stacks_block {
@@ -11247,8 +11345,8 @@ pub mod test {
             peer.sortdb.replace(sortdb);
         }
 
-        // all burnchain transactions mined, even if there was no sortition in the burn block in
-        // which they were mined.
+        // all burnchain transactions mined, even if there was no sortition in the burn
+        // block in which they were mined.
         let sortdb = peer.sortdb.take().unwrap();
 
         // definitely missing some blocks -- there are empty sortitions
@@ -11301,11 +11399,13 @@ pub mod test {
         }
     }
 
-    /// Verify that the stacking, transfer, and delegate operations on the burnchain work as expected in
-    /// Stacks 2.1.  That is, they're up for consideration in the 6 subsequent sortiitons after
-    /// they are mined (including the one they are in).  This test verifies that TransferSTX & DelegateSTX
-    /// operations are only dropped from consideration if there are more than 6 sortitions
-    /// between when they are mined and when the next Stacks block is mined.
+    /// Verify that the stacking, transfer, and delegate operations on the
+    /// burnchain work as expected in Stacks 2.1.  That is, they're up for
+    /// consideration in the 6 subsequent sortiitons after they are mined
+    /// (including the one they are in).  This test verifies that TransferSTX &
+    /// DelegateSTX operations are only dropped from consideration if there
+    /// are more than 6 sortitions between when they are mined and when the
+    /// next Stacks block is mined.
     #[test]
     fn test_get_stacking_and_transfer_and_delegate_burn_ops_v210_expiration() {
         let mut peer_config = TestPeerConfig::new(function_name!(), 21317, 21318);
@@ -11930,8 +12030,8 @@ pub mod test {
             peer.sortdb.replace(sortdb);
         }
 
-        // all burnchain transactions mined, even if there was no sortition in the burn block in
-        // which they were mined.
+        // all burnchain transactions mined, even if there was no sortition in the burn
+        // block in which they were mined.
         let sortdb = peer.sortdb.take().unwrap();
 
         // definitely missing some blocks -- there are empty sortitions
@@ -12014,8 +12114,9 @@ pub mod test {
         }
     }
 
-    // TODO(test): test multiple anchored blocks confirming the same microblock stream (in the same
-    // place, and different places, with/without orphans)
-    // TODO(test): process_next_staging_block
-    // TODO(test): test resource limits -- shouldn't be able to load microblock streams that are too big
+    // TODO(test): test multiple anchored blocks confirming the same microblock
+    // stream (in the same place, and different places, with/without
+    // orphans) TODO(test): process_next_staging_block
+    // TODO(test): test resource limits -- shouldn't be able to load microblock
+    // streams that are too big
 }

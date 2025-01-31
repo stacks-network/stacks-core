@@ -88,7 +88,8 @@ struct GetStackersErrorResp {
 pub struct CurrentAndLastSortition {
     /// the latest winning sortition in the current burnchain fork
     pub current_sortition: SortitionInfo,
-    /// the last winning sortition prior to `current_sortition`, if there was one
+    /// the last winning sortition prior to `current_sortition`, if there was
+    /// one
     pub last_sortition: Option<SortitionInfo>,
 }
 
@@ -108,7 +109,8 @@ impl From<&GlobalConfig> for StacksClient {
 }
 
 impl StacksClient {
-    /// Create a new signer StacksClient with the provided private key, stacks node host endpoint, version, and auth password
+    /// Create a new signer StacksClient with the provided private key, stacks
+    /// node host endpoint, version, and auth password
     pub fn new(
         stacks_private_key: StacksPrivateKey,
         node_host: String,
@@ -135,7 +137,8 @@ impl StacksClient {
         }
     }
 
-    /// Create a new signer StacksClient and attempt to connect to the stacks node to determine the version
+    /// Create a new signer StacksClient and attempt to connect to the stacks
+    /// node to determine the version
     pub fn try_from_host(
         stacks_private_key: StacksPrivateKey,
         node_host: String,
@@ -230,7 +233,8 @@ impl StacksClient {
         self.parse_signer_slots(value)
     }
 
-    /// Helper function  that attempts to deserialize a clarity hext string as a list of signer slots and their associated number of signer slots
+    /// Helper function  that attempts to deserialize a clarity hext string as a
+    /// list of signer slots and their associated number of signer slots
     fn parse_signer_slots(
         &self,
         value: ClarityValue,
@@ -312,7 +316,8 @@ impl StacksClient {
         }
     }
 
-    /// Submit the block proposal to the stacks node. The block will be validated and returned via the HTTP endpoint for Block events.
+    /// Submit the block proposal to the stacks node. The block will be
+    /// validated and returned via the HTTP endpoint for Block events.
     pub fn submit_block_for_validation(&self, block: NakamotoBlock) -> Result<(), ClientError> {
         debug!("StacksClient: Submitting block for validation";
             "signer_sighash" => %block.header.signer_signature_hash(),
@@ -345,7 +350,8 @@ impl StacksClient {
         Ok(())
     }
 
-    /// Get information about the tenures between `chosen_parent` and `last_sortition`
+    /// Get information about the tenures between `chosen_parent` and
+    /// `last_sortition`
     pub fn get_tenure_forking_info(
         &self,
         chosen_parent: &ConsensusHash,
@@ -396,7 +402,8 @@ impl StacksClient {
             "last_sortition" => %last_sortition,
         );
         let path = self.tenure_forking_info_path(chosen_parent, last_sortition);
-        // Use a separate metrics path to allow the same metric for different start and stop hashes
+        // Use a separate metrics path to allow the same metric for different start and
+        // stop hashes
         let metrics_path = format!(
             "{}{RPC_TENURE_FORKING_INFO_PATH}/:start/:stop",
             self.http_origin
@@ -482,7 +489,8 @@ impl StacksClient {
         Ok(peer_info_data)
     }
 
-    /// Get the reward set signers from the stacks node for the given reward cycle
+    /// Get the reward set signers from the stacks node for the given reward
+    /// cycle
     pub fn get_reward_set_signers(
         &self,
         reward_cycle: u64,
@@ -569,7 +577,8 @@ impl StacksClient {
         })
     }
 
-    /// Helper function to retrieve the account info from the stacks node for a specific address
+    /// Helper function to retrieve the account info from the stacks node for a
+    /// specific address
     pub fn get_account_entry(
         &self,
         address: &StacksAddress,
@@ -758,7 +767,8 @@ impl StacksClient {
         format!("{}/v3/tenures/tip/{}", self.http_origin, consensus_hash)
     }
 
-    /// Helper function to create a stacks transaction for a modifying contract call
+    /// Helper function to create a stacks transaction for a modifying contract
+    /// call
     #[allow(clippy::too_many_arguments)]
     pub fn build_unsigned_contract_call_transaction(
         contract_addr: &StacksAddress,
@@ -1056,7 +1066,8 @@ mod tests {
     #[test]
     fn get_node_epoch_should_succeed() {
         let mock = MockServerClient::new();
-        // The burn block height is one BEHIND the activation height of 2.5, therefore is 2.4
+        // The burn block height is one BEHIND the activation height of 2.5, therefore
+        // is 2.4
         let burn_block_height: u64 = 100;
         let pox_response = build_get_pox_data_response(
             None,
@@ -1073,7 +1084,8 @@ mod tests {
         let epoch = h.join().unwrap().expect("Failed to deserialize response");
         assert_eq!(epoch, StacksEpochId::Epoch24);
 
-        // The burn block height is the same as the activation height of 2.5, therefore is 2.5
+        // The burn block height is the same as the activation height of 2.5, therefore
+        // is 2.5
         let pox_response = build_get_pox_data_response(None, None, Some(burn_block_height), None).0;
         let peer_response = build_get_peer_info_response(Some(burn_block_height), None).0;
         let mock = MockServerClient::from_config(mock.config);
@@ -1084,7 +1096,8 @@ mod tests {
         let epoch = h.join().unwrap().expect("Failed to deserialize response");
         assert_eq!(epoch, StacksEpochId::Epoch25);
 
-        // The burn block height is the AFTER as the activation height of 2.5 but BEFORE the activation height of 3.0, therefore is 2.5
+        // The burn block height is the AFTER as the activation height of 2.5 but BEFORE
+        // the activation height of 3.0, therefore is 2.5
         let pox_response = build_get_pox_data_response(
             None,
             None,
@@ -1101,7 +1114,8 @@ mod tests {
         let epoch = h.join().unwrap().expect("Failed to deserialize response");
         assert_eq!(epoch, StacksEpochId::Epoch25);
 
-        // The burn block height is the AFTER as the activation height of 2.5 and the SAME as the activation height of 3.0, therefore is 3.0
+        // The burn block height is the AFTER as the activation height of 2.5 and the
+        // SAME as the activation height of 3.0, therefore is 3.0
         let pox_response = build_get_pox_data_response(
             None,
             None,
@@ -1118,7 +1132,8 @@ mod tests {
         let epoch = h.join().unwrap().expect("Failed to deserialize response");
         assert_eq!(epoch, StacksEpochId::Epoch30);
 
-        // The burn block height is the AFTER as the activation height of 2.5 and AFTER the activation height of 3.0, therefore is 3.0
+        // The burn block height is the AFTER as the activation height of 2.5 and AFTER
+        // the activation height of 3.0, therefore is 3.0
         let pox_response = build_get_pox_data_response(
             None,
             None,

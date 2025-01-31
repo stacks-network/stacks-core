@@ -232,7 +232,8 @@ impl CostStateSummary {
 }
 
 #[derive(Clone)]
-/// This struct holds all of the data required for non-free LimitedCostTracker instances
+/// This struct holds all of the data required for non-free LimitedCostTracker
+/// instances
 pub struct TrackerData {
     cost_function_references: HashMap<&'static ClarityCostFunction, ClarityCostFunctionReference>,
     cost_contracts: HashMap<QualifiedContractIdentifier, ContractContext>,
@@ -242,8 +243,9 @@ pub struct TrackerData {
     limit: ExecutionCost,
     memory: u64,
     memory_limit: u64,
-    /// if the cost tracker is non-free, this holds the StacksEpochId that should be used to evaluate
-    ///  the Clarity cost functions. If the tracker *is* free, then those functions do not need to be
+    /// if the cost tracker is non-free, this holds the StacksEpochId that
+    /// should be used to evaluate  the Clarity cost functions. If the
+    /// tracker *is* free, then those functions do not need to be
     ///  evaluated, so no epoch identifier is necessary.
     epoch: StacksEpochId,
     mainnet: bool,
@@ -405,15 +407,14 @@ fn store_state_summary(
 }
 
 ///
-/// This method loads a cost state summary structure from the currently open stacks chain tip
-///   In doing so, it reads from the cost-voting contract to find any newly confirmed proposals,
-///    checks those proposals for validity, and then applies those changes to the cached set
-///    of cost functions.
+/// This method loads a cost state summary structure from the currently open
+/// stacks chain tip   In doing so, it reads from the cost-voting contract to
+/// find any newly confirmed proposals,    checks those proposals for validity,
+/// and then applies those changes to the cached set    of cost functions.
 ///
-/// `apply_updates` - tells this function to look for any changes in the cost voting contract
-///   which would need to be applied. if `false`, just load the last computed cost state in this
-///   fork.
-///
+/// `apply_updates` - tells this function to look for any changes in the cost
+/// voting contract   which would need to be applied. if `false`, just load the
+/// last computed cost state in this   fork.
 fn load_cost_functions(
     mainnet: bool,
     clarity_db: &mut ClarityDatabase,
@@ -447,7 +448,8 @@ fn load_cost_functions(
            "confirmed_proposal_count" => confirmed_proposals_count,
            "last_processed_count" => last_processed_count);
 
-    // we need to process any confirmed proposals in the range [fetch-start, fetch-end)
+    // we need to process any confirmed proposals in the range [fetch-start,
+    // fetch-end)
     let (fetch_start, fetch_end) = (last_processed_count, confirmed_proposals_count);
     let mut state_summary = load_state_summary(mainnet, clarity_db)?;
     if !apply_updates {
@@ -538,9 +540,10 @@ fn load_cost_functions(
             }
         };
 
-        // Here is where we perform the required validity checks for a confirmed proposal:
-        //  * Replaced contract-calls _must_ be `define-read-only` _or_ refer to one of the boot code
-        //      cost functions
+        // Here is where we perform the required validity checks for a confirmed
+        // proposal:
+        //  * Replaced contract-calls _must_ be `define-read-only` _or_ refer to one of
+        //    the boot code cost functions
         //  * cost-function contracts must be arithmetic only
 
         // make sure the contract is "cost contract eligible" via the
@@ -779,9 +782,9 @@ impl LimitedCostTracker {
 impl TrackerData {
     // TODO: add tests from mutation testing results #4831
     #[cfg_attr(test, mutants::skip)]
-    /// `apply_updates` - tells this function to look for any changes in the cost voting contract
-    ///   which would need to be applied. if `false`, just load the last computed cost state in this
-    ///   fork.
+    /// `apply_updates` - tells this function to look for any changes in the
+    /// cost voting contract   which would need to be applied. if `false`,
+    /// just load the last computed cost state in this   fork.
     fn load_costs(&mut self, clarity_db: &mut ClarityDatabase, apply_updates: bool) -> Result<()> {
         clarity_db.begin();
         let epoch_id = clarity_db
@@ -879,7 +882,8 @@ impl LimitedCostTracker {
     }
     #[allow(clippy::panic)]
     pub fn set_total(&mut self, total: ExecutionCost) {
-        // used by the miner to "undo" the cost of a transaction when trying to pack a block.
+        // used by the miner to "undo" the cost of a transaction when trying to pack a
+        // block.
         match self {
             Self::Limited(ref mut data) => data.total = total,
             Self::Free => panic!("Cannot set total on free tracker"),
@@ -1004,7 +1008,8 @@ fn compute_cost(
 fn add_cost(s: &mut TrackerData, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
     s.total.add(&cost)?;
     if cfg!(feature = "disable-costs") {
-        // Disable check for exceeding the cost limit to allow mining large blocks for profiling purposes.
+        // Disable check for exceeding the cost limit to allow mining large blocks for
+        // profiling purposes.
         return Ok(());
     }
     if s.total.exceeds(&s.limit) {
@@ -1191,7 +1196,8 @@ impl ExecutionCost {
         read_length: 0,
     };
 
-    /// Returns the percentage of self consumed in `numerator`'s largest proportion dimension.
+    /// Returns the percentage of self consumed in `numerator`'s largest
+    /// proportion dimension.
     pub fn proportion_largest_dimension(&self, numerator: &ExecutionCost) -> u64 {
         // max() should always return because there are > 0 elements
         #[allow(clippy::expect_used)]
@@ -1207,9 +1213,9 @@ impl ExecutionCost {
         .expect("BUG: should find maximum")
     }
 
-    /// Returns the dot product of this execution cost with `resolution`/block_limit
-    /// This provides a scalar value representing the cumulative consumption
-    /// of `self` in the provided block_limit.
+    /// Returns the dot product of this execution cost with
+    /// `resolution`/block_limit This provides a scalar value representing
+    /// the cumulative consumption of `self` in the provided block_limit.
     pub fn proportion_dot_product(&self, block_limit: &ExecutionCost, resolution: u64) -> u64 {
         [
             // each field here is calculating `r * self / limit`, using f64

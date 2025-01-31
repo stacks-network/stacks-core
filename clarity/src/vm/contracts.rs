@@ -28,8 +28,8 @@ pub struct Contract {
     pub contract_context: ContractContext,
 }
 
-// AARON: this is an increasingly useless wrapper around a ContractContext struct.
-//          will probably be removed soon.
+// AARON: this is an increasingly useless wrapper around a ContractContext
+// struct.          will probably be removed soon.
 impl Contract {
     pub fn initialize_from_ast(
         contract_identifier: QualifiedContractIdentifier,

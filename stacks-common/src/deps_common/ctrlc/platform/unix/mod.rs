@@ -48,13 +48,15 @@ impl SignalId {
 
 extern "C" fn os_handler(c_sig_id: nix::libc::c_int) {
     let sig_id = SignalId::from_c_signal(c_sig_id) as u8;
-    // Assuming this always succeeds. Can't really handle errors in any meaningful way.
+    // Assuming this always succeeds. Can't really handle errors in any meaningful
+    // way.
     unsafe {
         let _ = unistd::write(PIPE.1, &[sig_id]);
     }
 }
 
-// pipe2(2) is not available on macOS or iOS, so we need to use pipe(2) and fcntl(2)
+// pipe2(2) is not available on macOS or iOS, so we need to use pipe(2) and
+// fcntl(2)
 #[inline]
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 fn pipe2(flags: nix::fcntl::OFlag) -> nix::Result<(RawFd, RawFd)> {
@@ -99,7 +101,6 @@ fn pipe2(flags: nix::fcntl::OFlag) -> nix::Result<(RawFd, RawFd)> {
 ///
 /// # Errors
 /// Will return an error if a system error occurred.
-///
 #[inline]
 pub unsafe fn init_os_handler() -> Result<(), Error> {
     use nix::fcntl;
@@ -171,7 +172,6 @@ pub unsafe fn init_os_handler() -> Result<(), Error> {
 ///
 /// # Errors
 /// Will return an error if a system error occurred.
-///
 #[inline]
 pub unsafe fn block_ctrl_c() -> Result<SignalId, CtrlcError> {
     use std::io;

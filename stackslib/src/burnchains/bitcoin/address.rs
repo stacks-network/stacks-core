@@ -210,7 +210,8 @@ impl LegacyBitcoinAddress {
     }
 
     /// Instantiate a legacy address from a b58check string
-    /// Note that the network type will be 'testnet' if there is a testnet or regtest version byte
+    /// Note that the network type will be 'testnet' if there is a testnet or
+    /// regtest version byte
     pub fn from_b58(addrb58: &str) -> Result<LegacyBitcoinAddress, btc_error> {
         let bytes = base58::from_check(addrb58).map_err(|_e| btc_error::InvalidByteSequence)?;
 
@@ -999,7 +1000,8 @@ mod tests {
             },
             ScriptFixture {
                 // segwit taproot
-                // taken from mainnet tx 33e794d097969002ee05d336686fc03c9e15a597c1b9827669460fac98799036
+                // taken from mainnet tx
+                // 33e794d097969002ee05d336686fc03c9e15a597c1b9827669460fac98799036
                 scriptpubkey: hex_bytes(
                     "5120339ce7e165e67d93adb3fef88a6d4beed33f01fa876f05a225242b82a631abc0",
                 )

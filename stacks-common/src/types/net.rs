@@ -48,7 +48,8 @@ impl std::error::Error for Error {
 /// A container for an IPv4 or IPv6 address.
 /// Rules:
 /// -- If this is an IPv6 address, the octets are in network byte order
-/// -- If this is an IPv4 address, the octets must encode an IPv6-to-IPv4-mapped address
+/// -- If this is an IPv4 address, the octets must encode an IPv6-to-IPv4-mapped
+/// address
 pub struct PeerAddress(pub [u8; 16]);
 impl_array_newtype!(PeerAddress, u8, 16);
 impl_array_hexstring_fmt!(PeerAddress);
@@ -89,7 +90,8 @@ impl PeerAddress {
 
     /// Get the octet representation of this peer address as an IPv4 address.
     /// The last 4 bytes of the list contain the IPv4 address.
-    /// This method returns None if the bytes don't encode a valid IPv4-mapped address (i.e. ::ffff:0:0/96)
+    /// This method returns None if the bytes don't encode a valid IPv4-mapped
+    /// address (i.e. ::ffff:0:0/96)
     pub fn ipv4_octets(&self) -> Option<[u8; 4]> {
         if self.0[0..12]
             != [
@@ -103,8 +105,8 @@ impl PeerAddress {
         Some(ret)
     }
 
-    /// Return the bit representation of this peer address as an IPv4 address, in network byte
-    /// order.  Return None if this is not an IPv4 address.
+    /// Return the bit representation of this peer address as an IPv4 address,
+    /// in network byte order.  Return None if this is not an IPv4 address.
     pub fn ipv4_bits(&self) -> Option<u32> {
         let octets_opt = self.ipv4_octets();
         octets_opt?;
@@ -276,8 +278,8 @@ impl FromStr for PeerHost {
     type Err = Error;
 
     fn from_str(header: &str) -> Result<PeerHost, Error> {
-        // we're looser than the RFC allows for DNS names -- anything that doesn't parse to an IP
-        // address will be parsed to a DNS name.
+        // we're looser than the RFC allows for DNS names -- anything that doesn't parse
+        // to an IP address will be parsed to a DNS name.
         // try as IP:port
         match header.parse::<SocketAddr>() {
             Ok(socketaddr) => Ok(PeerHost::IP(

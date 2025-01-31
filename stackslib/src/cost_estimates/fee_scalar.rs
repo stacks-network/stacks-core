@@ -29,16 +29,18 @@ CREATE TABLE scalar_fee_estimator (
     low NUMBER NOT NULL
 )";
 
-/// This struct estimates fee rates by translating a transaction's `ExecutionCost`
-/// into a scalar using `ExecutionCost::proportion_dot_product` and computing
-/// the subsequent fee rate using the actual paid fee. The 5th, 50th and 95th
-/// percentile fee rates for each block are used as the low, middle, and high
-/// estimates. Estimates are updated via exponential decay windowing.
+/// This struct estimates fee rates by translating a transaction's
+/// `ExecutionCost` into a scalar using `ExecutionCost::proportion_dot_product`
+/// and computing the subsequent fee rate using the actual paid fee. The 5th,
+/// 50th and 95th percentile fee rates for each block are used as the low,
+/// middle, and high estimates. Estimates are updated via exponential decay
+/// windowing.
 pub struct ScalarFeeRateEstimator<M: CostMetric> {
     db: Connection,
     /// how quickly does the current estimate decay
     /// compared to the newly received block estimate
-    ///      new_estimate := (decay_rate) * old_estimate + (1 - decay_rate) * new_measure
+    ///      new_estimate := (decay_rate) * old_estimate + (1 - decay_rate) *
+    /// new_measure
     decay_rate: f64,
     metric: M,
 }
@@ -66,8 +68,8 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
         })
     }
 
-    /// Check if the SQL database was already created. Necessary to avoid races if
-    ///  different threads open an estimator at the same time.
+    /// Check if the SQL database was already created. Necessary to avoid races
+    /// if  different threads open an estimator at the same time.
     fn db_already_instantiated(tx: &SqlTransaction) -> Result<bool, SqliteError> {
         table_exists(tx, "scalar_fee_estimator")
     }
@@ -163,7 +165,8 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
                 }?;
                 let scalar_cost = match payload {
                     TransactionPayload::TokenTransfer(_, _, _) => {
-                        // TokenTransfers *only* contribute tx_len, and just have an empty ExecutionCost.
+                        // TokenTransfers *only* contribute tx_len, and just have an empty
+                        // ExecutionCost.
                         let stx_balance_len = STXBalance::LockedPoxThree {
                             amount_unlocked: 1,
                             amount_locked: 1,
@@ -192,8 +195,9 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
                     | TransactionPayload::ContractCall(_)
                     | TransactionPayload::SmartContract(..)
                     | TransactionPayload::TenureChange(..) => {
-                        // These transaction payload types all "work" the same: they have associated ExecutionCosts
-                        // and contibute to the block length limit with their tx_len
+                        // These transaction payload types all "work" the same: they have associated
+                        // ExecutionCosts and contibute to the block length
+                        // limit with their tx_len
                         self.metric.from_cost_and_len(
                             &tx_receipt.execution_cost,
                             block_limit,

@@ -415,8 +415,8 @@ fn test_process_block_ops() {
         miner_pk_hash: None,
     };
 
-    // multiple possibilities for block 124 -- we'll reorg the chain each time back to 123 and
-    // re-try block 124 to test them all.
+    // multiple possibilities for block 124 -- we'll reorg the chain each time back
+    // to 123 and re-try block 124 to test them all.
     let block_ops_124_possibilities = [
         vec![BlockstackOperationType::LeaderBlockCommit(
             block_commit_1.clone(),
@@ -437,7 +437,8 @@ fn test_process_block_ops() {
 
     let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
 
-    // NOTE: the .txs() method will NOT be called, so we can pass an empty vec![] here
+    // NOTE: the .txs() method will NOT be called, so we can pass an empty vec![]
+    // here
     let block121 = BurnchainBlock::Bitcoin(BitcoinBlock::new(
         121,
         &block_121_hash,
@@ -649,8 +650,8 @@ fn test_process_block_ops() {
 
         // get all winning block commit hashes.
         // There should only be two -- the winning block at height 124, and the genesis
-        // sentinel block hash.  This is because epochs 121, 122, and 123 don't have any block
-        // commits.
+        // sentinel block hash.  This is because epochs 121, 122, and 123 don't have any
+        // block commits.
         let expected_winning_hashes = [
             BlockHeaderHash([0u8; 32]),
             block_124_winners[scenario_idx].block_header_hash.clone(),
@@ -758,7 +759,8 @@ fn test_burn_snapshot_sequence() {
         let parent_burn_block_hash = prev_snapshot.burn_header_hash.clone();
         let parent_index_root = prev_snapshot.index_root.clone();
 
-        // insert block commit paired to previous round's leader key, as well as a user burn
+        // insert block commit paired to previous round's leader key, as well as a user
+        // burn
         if i > 0 {
             let next_block_commit = LeaderBlockCommitOp {
                 sunset_burn: 0,

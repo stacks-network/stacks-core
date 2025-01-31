@@ -33,9 +33,10 @@ use crate::clarity_vm::clarity::{ClarityConnection, ClarityTransactionConnection
 use crate::core::StacksEpochId;
 use crate::util_lib::db::{Error as db_error, *};
 
-/// A record of a coin reward for a miner.  There will be at most two of these for a miner: one for
-/// the coinbase + block-txs + confirmed-mblock-txs, and one for the produced-mblock-txs.  The
-/// latter reward only stores the produced-mblock-txs, and is only ever stored if the microblocks
+/// A record of a coin reward for a miner.  There will be at most two of these
+/// for a miner: one for the coinbase + block-txs + confirmed-mblock-txs, and
+/// one for the produced-mblock-txs.  The latter reward only stores the
+/// produced-mblock-txs, and is only ever stored if the microblocks
 /// are ever confirmed.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MinerReward {
@@ -52,9 +53,9 @@ pub struct MinerReward {
     pub tx_fees_streamed_produced: u128,
     /// microblock transaction fees from transactions *confirmed* by this miner
     pub tx_fees_streamed_confirmed: u128,
-    /// virtual transaction index in the block where these rewards get applied.  the miner's reward
-    /// is applied first (so vtxindex == 0) and user-burn supports would be applied after (so
-    /// vtxindex > 0).
+    /// virtual transaction index in the block where these rewards get applied.
+    /// the miner's reward is applied first (so vtxindex == 0) and user-burn
+    /// supports would be applied after (so vtxindex > 0).
     pub vtxindex: u32,
 }
 
@@ -207,8 +208,9 @@ impl MinerReward {
 }
 
 impl MinerPaymentSchedule {
-    /// If this is a MinerPaymentSchedule for a miner who _confirmed_ a microblock stream, then
-    /// this calculates the percentage of that stream this miner is entitled to
+    /// If this is a MinerPaymentSchedule for a miner who _confirmed_ a
+    /// microblock stream, then this calculates the percentage of that
+    /// stream this miner is entitled to
     pub fn streamed_tx_fees_confirmed(&self) -> u128 {
         let tx_fees_streamed = match self.tx_fees {
             MinerPaymentTxFees::Epoch2 { streamed, .. } => streamed,
@@ -217,8 +219,9 @@ impl MinerPaymentSchedule {
         (tx_fees_streamed * 3) / 5
     }
 
-    /// If this is a MinerPaymentSchedule for a miner who _produced_ a microblock stream, then
-    /// this calculates the percentage of that stream this miner is entitled to
+    /// If this is a MinerPaymentSchedule for a miner who _produced_ a
+    /// microblock stream, then this calculates the percentage of that
+    /// stream this miner is entitled to
     pub fn streamed_tx_fees_produced(&self) -> u128 {
         let tx_fees_streamed = match self.tx_fees {
             MinerPaymentTxFees::Epoch2 { streamed, .. } => streamed,
@@ -358,7 +361,8 @@ impl StacksChainState {
     }
 
     /// Called each time a transaction sends STX to this principal.
-    /// No nonce update is needed, since the transfer action is not taken by the principal.
+    /// No nonce update is needed, since the transfer action is not taken by the
+    /// principal.
     pub fn account_credit(
         clarity_tx: &mut ClarityTransactionConnection,
         principal: &PrincipalData,
@@ -501,15 +505,17 @@ impl StacksChainState {
         Ok(())
     }
 
-    /// Store a matured miner reward for subsequent query in Clarity, without doing any validation
+    /// Store a matured miner reward for subsequent query in Clarity, without
+    /// doing any validation
     fn inner_insert_matured_miner_reward(
         tx: &mut DBTx<'_>,
         parent_block_id: &StacksBlockId,
         child_block_id: &StacksBlockId,
         reward: &MinerReward,
     ) -> Result<(), Error> {
-        // the only time it's okay to re-insert the same reward is if there are two Stacks forks
-        // trying to store the same matured rewards for a common ancestor block.
+        // the only time it's okay to re-insert the same reward is if there are two
+        // Stacks forks trying to store the same matured rewards for a common
+        // ancestor block.
         let cur_rewards = StacksChainState::inner_get_matured_miner_payments(
             tx,
             &(*parent_block_id).into(),
@@ -561,8 +567,9 @@ impl StacksChainState {
         Ok(())
     }
 
-    /// Store a parent block's matured reward.  This is the share of the streamed tx fees produced
-    /// by the miner who mined this block, and nothing else.
+    /// Store a parent block's matured reward.  This is the share of the
+    /// streamed tx fees produced by the miner who mined this block, and
+    /// nothing else.
     pub fn insert_matured_parent_miner_reward(
         tx: &mut DBTx<'_>,
         parent_block_id: &StacksBlockId,
@@ -591,8 +598,9 @@ impl StacksChainState {
         )
     }
 
-    /// Store a child block's matured miner reward.  This is the block's coinbase, anchored tx fees, and
-    /// share of the confirmed streamed tx fees
+    /// Store a child block's matured miner reward.  This is the block's
+    /// coinbase, anchored tx fees, and share of the confirmed streamed tx
+    /// fees
     pub fn insert_matured_child_miner_reward(
         tx: &mut DBTx<'_>,
         parent_block_id: &StacksBlockId,
@@ -621,9 +629,9 @@ impl StacksChainState {
         )
     }
 
-    /// Store a child block's matured user burn-support reward.  This is the share of the
-    /// block's coinbase, anchored tx fees, and share of the confirmed streamed tx fees that go to
-    /// the user burn-support sender
+    /// Store a child block's matured user burn-support reward.  This is the
+    /// share of the block's coinbase, anchored tx fees, and share of the
+    /// confirmed streamed tx fees that go to the user burn-support sender
     pub fn insert_matured_child_user_reward(
         tx: &mut DBTx<'_>,
         parent_block_id: &StacksBlockId,
@@ -722,7 +730,8 @@ impl StacksChainState {
         Ok(rows)
     }
 
-    /// Get the scheduled miner rewards in a particular Stacks fork at a particular height.
+    /// Get the scheduled miner rewards in a particular Stacks fork at a
+    /// particular height.
     pub fn get_scheduled_block_rewards_in_fork_at_height(
         tx: &mut StacksDBTx<'_>,
         tip: &StacksHeaderInfo,
@@ -751,7 +760,8 @@ impl StacksChainState {
         Ok(rows)
     }
 
-    /// Get the scheduled miner rewards in a particular Stacks fork at a particular height.
+    /// Get the scheduled miner rewards in a particular Stacks fork at a
+    /// particular height.
     pub fn get_scheduled_block_rewards(
         tx: &mut StacksDBTx,
         tip: &StacksHeaderInfo,
@@ -801,11 +811,12 @@ impl StacksChainState {
         (coinbase * POISON_MICROBLOCK_COMMISSION_FRACTION) / 100
     }
 
-    /// Calculate a block mining participant's coinbase reward, given the block's miner and list of
-    /// user-burn-supporters.
+    /// Calculate a block mining participant's coinbase reward, given the
+    /// block's miner and list of user-burn-supporters.
     ///
-    /// If poison_reporter_opt is not None, then the returned MinerReward will reward the _poison reporter_,
-    /// not the miner, for reporting the microblock stream fork.
+    /// If poison_reporter_opt is not None, then the returned MinerReward will
+    /// reward the _poison reporter_, not the miner, for reporting the
+    /// microblock stream fork.
     fn calculate_miner_reward(
         mainnet: bool,
         parent_block_epoch: StacksEpochId,
@@ -863,17 +874,17 @@ impl StacksChainState {
             (this_burn_total, burn_total)
         };
 
-        // each participant gets a share of the coinbase proportional to the fraction it burned out
-        // of all participants' burns.
+        // each participant gets a share of the coinbase proportional to the fraction it
+        // burned out of all participants' burns.
         let coinbase_reward = participant
             .coinbase
             .checked_mul(this_burn_total)
             .expect("FATAL: STX coinbase reward overflow")
             / burn_total;
 
-        // process poison -- someone can steal a fraction of the total coinbase if they can present
-        // evidence that the miner forked the microblock stream.  The remainder of the coinbase is
-        // destroyed if this happens.
+        // process poison -- someone can steal a fraction of the total coinbase if they
+        // can present evidence that the miner forked the microblock stream.
+        // The remainder of the coinbase is destroyed if this happens.
         let (child_address, child_recipient, coinbase_reward, punished) =
             if let Some(reporter_address) = poison_reporter_opt {
                 if participant.miner {
@@ -918,14 +929,16 @@ impl StacksChainState {
                         anchored,
                         streamed: _,
                     } => {
-                        // if the payment type is Epoch2, then reward fees according to old Epoch2 rules
+                        // if the payment type is Epoch2, then reward fees according to old Epoch2
+                        // rules
                         let anchored_fees = if !punished { anchored } else { 0 };
                         let parent_streamed_fees = if parent_block_epoch < StacksEpochId::Epoch21 {
                             // this is wrong, per #3140.  It should be
                             // `participant.streamed_tx_fees_produced()`, since
                             // `participant.tx_fees_streamed` contains the sum of the microblock
-                            // transaction fees that `participant` confirmed (and thus `participant`'s
-                            // parent produced).  But we're stuck with it for earlier epochs.
+                            // transaction fees that `participant` confirmed (and thus
+                            // `participant`'s parent produced).  But
+                            // we're stuck with it for earlier epochs.
                             parent.streamed_tx_fees_produced()
                         } else {
                             participant.streamed_tx_fees_produced()
@@ -984,9 +997,10 @@ impl StacksChainState {
         (parent_miner_reward, miner_reward)
     }
 
-    /// Find the latest miner reward to mature, assuming that there are mature rewards.
-    /// Returns a list of payments to make to each address -- miners and user-support burners -- as
-    /// well as an info struct about where the rewards took place on the chain.
+    /// Find the latest miner reward to mature, assuming that there are mature
+    /// rewards. Returns a list of payments to make to each address --
+    /// miners and user-support burners -- as well as an info struct about
+    /// where the rewards took place on the chain.
     pub fn find_mature_miner_rewards(
         clarity_tx: &mut ClarityTx,
         sortdb_conn: &Connection,

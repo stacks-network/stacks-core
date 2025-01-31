@@ -18,8 +18,9 @@ use stacks_common::util::uint::Uint256;
 
 use crate::stacks_common::util::uint::BitArray;
 
-/// A fixed-point numerical representation for ATC.  The integer and fractional parts are both 64
-/// bits.  Internally, this is a Uint256 so that safe addition and multiplication can be done.
+/// A fixed-point numerical representation for ATC.  The integer and fractional
+/// parts are both 64 bits.  Internally, this is a Uint256 so that safe addition
+/// and multiplication can be done.
 ///
 /// Bits 0-63 are the fraction.
 /// Bits 64-127 are the integer.
@@ -28,7 +29,8 @@ use crate::stacks_common::util::uint::BitArray;
 /// The reasons we use this instead of f64 for ATC calculations are as follows:
 /// * This avoids unrepresentable states, like NaN or +/- INF
 /// * This avoids ambiguous states, like +0.0 and -0.0.
-/// * This integrates better into the sortition-sampling system, which uses a u256 to represent a
+/// * This integrates better into the sortition-sampling system, which uses a
+///   u256 to represent a
 /// probability range (which is what this is going to be used for)
 #[derive(Debug, Clone, PartialEq, Copy, Eq, Hash)]
 pub(crate) struct AtcRational(pub(crate) Uint256);
@@ -120,11 +122,13 @@ impl AtcRational {
         self.0
     }
 
-    /// Convert to a BurnSamplePoint probability for use in calculating a sortition
+    /// Convert to a BurnSamplePoint probability for use in calculating a
+    /// sortition
     pub fn into_sortition_probability(self) -> Uint256 {
-        // AtcRational's fractional part is only 64 bits, so we need to scale it up so that it occupies the
-        // upper 64 bits of the burn sample point ranges so as to accurately represent the fraction
-        // of mining power the null miner has.
+        // AtcRational's fractional part is only 64 bits, so we need to scale it up so
+        // that it occupies the upper 64 bits of the burn sample point ranges so
+        // as to accurately represent the fraction of mining power the null
+        // miner has.
         let prob_u256 = if self.inner() >= Self::one().inner() {
             // prevent left-shift overflow
             Self::one_sup().into_inner() << 192
@@ -135,15 +139,17 @@ impl AtcRational {
     }
 }
 
-/// Pre-calculated 1024-member lookup table for the null miner advantage function, as AtcRational
-/// fixed point integers.  The first item corresponds to the value of the function at 0.0, and the
-/// last item corresponds to the function at 1.0 - (1.0 / 1024.0).  The input to a function is the
-/// assumed total commit carryover -- the ratio between what the winning miner paid in this
-/// block-commit to the median of what they historically paid (for an epoch-defined search window
-/// size).  A value greater than 1.0 means that the miner paid all of the assumed commit
-/// carry-over, and the null miner has negligible chances of winning.  A value less than 1.0 means
-/// that the miner underpaid relative to their past performance, and the closer to 0.0 this ratio
-/// is, the more likely the null miner wins and this miner loses.
+/// Pre-calculated 1024-member lookup table for the null miner advantage
+/// function, as AtcRational fixed point integers.  The first item corresponds
+/// to the value of the function at 0.0, and the last item corresponds to the
+/// function at 1.0 - (1.0 / 1024.0).  The input to a function is the
+/// assumed total commit carryover -- the ratio between what the winning miner
+/// paid in this block-commit to the median of what they historically paid (for
+/// an epoch-defined search window size).  A value greater than 1.0 means that
+/// the miner paid all of the assumed commit carry-over, and the null miner has
+/// negligible chances of winning.  A value less than 1.0 means that the miner
+/// underpaid relative to their past performance, and the closer to 0.0 this
+/// ratio is, the more likely the null miner wins and this miner loses.
 ///
 /// This table is generated with `make_null_miner_lookup_table()` above.
 pub(crate) const ATC_LOOKUP: [AtcRational; 1024] = [
@@ -1190,15 +1196,17 @@ mod test {
             ipart + (fpart / (u64::MAX as f64))
         }
 
-        /// Convert from f64 between 0 and 1, panicking on conversion failure.  Scales up the f64 so that its
-        /// fractional parts reside in the lower 64 bits of the AtcRational.
+        /// Convert from f64 between 0 and 1, panicking on conversion failure.
+        /// Scales up the f64 so that its fractional parts reside in the
+        /// lower 64 bits of the AtcRational.
         pub fn from_f64_unit(value: f64) -> Self {
             if value < 0.0 || value >= 1.0 {
                 panic!("only usable for values in [0.0, 1.0) range");
             }
 
             // NOTE: this only changes the exponent, not the mantissa.
-            // Moreover, u128::from(u64::MAX) + 1 has f64 representation 0x43f0000000000000, so these conversions are safe.
+            // Moreover, u128::from(u64::MAX) + 1 has f64 representation 0x43f0000000000000,
+            // so these conversions are safe.
             let scaled_value = value * ((u128::from(u64::MAX) + 1) as f64);
 
             // this is safe, because 0.0 <= value < 1.0, so scaled_value <= u64::MAX
@@ -1386,12 +1394,13 @@ mod test {
             AtcRational::frac(15, 32)
         );
 
-        // we only do stuff with an AtcRational in the range [0..1), since if the ATC-C is greater
-        // than 1.0, then the null miner never wins (and thus there's no need to compute the null
-        // miner probability).
+        // we only do stuff with an AtcRational in the range [0..1), since if the ATC-C
+        // is greater than 1.0, then the null miner never wins (and thus there's
+        // no need to compute the null miner probability).
         //
-        // The only time an AtcRational is greater than 1.0 is when we scale it up to the lookup
-        // table index, which has 1024 items.  We check that here as well.
+        // The only time an AtcRational is greater than 1.0 is when we scale it up to
+        // the lookup table index, which has 1024 items.  We check that here as
+        // well.
         for num_1 in 0..=1 {
             for den_1 in 1..=1024 {
                 test_debug!("{}/{}", num_1, den_1);
@@ -1438,16 +1447,22 @@ mod test {
 
     /// Calculate the logic advantage curve for the null miner.
     /// This function's parameters are chosen such that:
-    /// * if the ATC carryover has diminished by less than 20%, the null miner has negligible
-    /// chances of winning.  This is to avoid punishing honest miners when there are flash blocks.
-    /// * If the ATC carryover has diminished by between 20% and 80%, the null miner has a
-    /// better-than-linear probability of winning.  That is, if the burnchain MEV miner pays less
-    /// than X% of the expected carryover (20% <= X < 80%), then their probability of winning is
-    /// (1) strictly less than X%, and (2) strictly less than any Pr[X% - c] for 0 < c < X.
-    /// * If the ATC carryover is less than 20%, the null miner has an overwhelmingly likely chance
+    /// * if the ATC carryover has diminished by less than 20%, the null miner
+    ///   has negligible
+    /// chances of winning.  This is to avoid punishing honest miners when there
+    /// are flash blocks.
+    /// * If the ATC carryover has diminished by between 20% and 80%, the null
+    ///   miner has a
+    /// better-than-linear probability of winning.  That is, if the burnchain
+    /// MEV miner pays less than X% of the expected carryover (20% <= X <
+    /// 80%), then their probability of winning is (1) strictly less than
+    /// X%, and (2) strictly less than any Pr[X% - c] for 0 < c < X.
+    /// * If the ATC carryover is less than 20%, the null miner has an
+    ///   overwhelmingly likely chance
     /// of winning (>95%).
     ///
-    /// The logistic curve fits the points (atc=0.2, null_prob=0.75) and (atc=0.8, null_prob=0.01).
+    /// The logistic curve fits the points (atc=0.2, null_prob=0.75) and
+    /// (atc=0.8, null_prob=0.01).
     fn null_miner_logistic(atc: f64) -> f64 {
         // recall the inverted logistic function:
         //
@@ -1456,9 +1471,10 @@ mod test {
         //                -k * (x0 - x)
         //           1 + e
         //
-        // It is shaped like a *backwards* "S" -- it approaches L as `x` tends towards negative
-        // infinity, and it approaches 0 as `x` tends towards positive infinity.  This function is
-        // the null miner advantage function, where `x` is the ATC carryover value.
+        // It is shaped like a *backwards* "S" -- it approaches L as `x` tends towards
+        // negative infinity, and it approaches 0 as `x` tends towards positive
+        // infinity.  This function is the null miner advantage function, where
+        // `x` is the ATC carryover value.
         //
         // We need to drive x0 and k from our two points:
         //

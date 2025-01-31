@@ -298,8 +298,8 @@ fn test_epoch_coinbase_reward() {
     }
 }
 
-/// Verifies that the test facility for setting a coinbase schedule in a unit or integration test
-/// actually works.
+/// Verifies that the test facility for setting a coinbase schedule in a unit or
+/// integration test actually works.
 #[test]
 fn test_set_coinbase_intervals() {
     let new_sched = vec![

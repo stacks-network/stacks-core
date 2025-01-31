@@ -113,8 +113,9 @@ pub fn special_stx_balance(
 }
 
 /// Do a "consolidated" STX transfer.
-/// If the 'from' principal has locked STX, and they have unlocked, then process the STX unlock
-/// and update its balance in addition to spending tokens out of it.
+/// If the 'from' principal has locked STX, and they have unlocked, then process
+/// the STX unlock and update its balance in addition to spending tokens out of
+/// it.
 pub fn stx_transfer_consolidated(
     env: &mut Environment,
     from: &PrincipalData,

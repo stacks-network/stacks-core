@@ -324,8 +324,8 @@ impl StackStxOp {
             op_error::InvalidInput
         })?;
 
-        // coerce a hash mode for this address if need be, since we'll need it when we feed this
-        // address into the .pox contract
+        // coerce a hash mode for this address if need be, since we'll need it when we
+        // feed this address into the .pox contract
         let reward_addr = first_output.address.clone().coerce_hash_mode();
 
         // check if we've reached PoX disable

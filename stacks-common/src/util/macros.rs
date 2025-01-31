@@ -517,7 +517,8 @@ macro_rules! impl_byte_array_newtype {
             }
 
             /// Instantiates from a slice of bytes
-            /// Note: if this type is a hashing type, this sets the hash result to `inp` exactly: this method does **not** perform the hash.
+            /// Note: if this type is a hashing type, this sets the hash result to `inp`
+            /// exactly: this method does **not** perform the hash.
             #[allow(dead_code)]
             pub fn from_bytes(inp: &[u8]) -> Option<$thing> {
                 match inp.len() {
@@ -550,7 +551,8 @@ macro_rules! impl_byte_array_newtype {
                 }
             }
 
-            /// Instantiates from a big-endian vector of bytes, converting to host byte order
+            /// Instantiates from a big-endian vector of bytes, converting to host byte
+            /// order
             #[allow(dead_code)]
             pub fn from_vec_be(b: &[u8]) -> Option<$thing> {
                 match b.len() {

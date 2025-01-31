@@ -58,8 +58,8 @@ pub trait SignerSession {
         if chunks.is_empty() {
             return Ok(None);
         }
-        // swap_remove breaks the ordering of latest_chunks, but we don't care because we
-        //  only want the first element anyways.
+        // swap_remove breaks the ordering of latest_chunks, but we don't care because
+        // we  only want the first element anyways.
         Ok(chunks.swap_remove(0))
     }
 
@@ -69,17 +69,18 @@ pub trait SignerSession {
     /// Returns Err(..) on transport error
     fn get_latest_chunk(&mut self, slot_id: u32) -> Result<Option<Vec<u8>>, RPCError> {
         let mut latest_chunks = self.get_latest_chunks(&[slot_id])?;
-        // check if latest_chunks is empty because [0] and remove(0) panic on out-of-bounds
+        // check if latest_chunks is empty because [0] and remove(0) panic on
+        // out-of-bounds
         if latest_chunks.is_empty() {
             return Ok(None);
         }
-        // swap_remove breaks the ordering of latest_chunks, but we don't care because we
-        //  only want the first element anyways.
+        // swap_remove breaks the ordering of latest_chunks, but we don't care because
+        // we  only want the first element anyways.
         Ok(latest_chunks.swap_remove(0))
     }
 
-    /// Get a single latest chunk from the StackerDB and deserialize into `T` using the
-    /// StacksMessageCodec.
+    /// Get a single latest chunk from the StackerDB and deserialize into `T`
+    /// using the StacksMessageCodec.
     fn get_latest<T: StacksMessageCodec>(&mut self, slot_id: u32) -> Result<Option<T>, RPCError> {
         let Some(latest_bytes) = self.get_latest_chunk(slot_id)? else {
             return Ok(None);

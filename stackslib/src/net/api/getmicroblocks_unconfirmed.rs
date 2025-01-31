@@ -83,8 +83,8 @@ impl StacksUnconfirmedMicroblockStream {
         )?
         .ok_or(ChainError::NoSuchBlockError)?;
 
-        // need to send out the consensus_serialize()'ed array length before sending microblocks.
-        // this is exactly what seq tells us, though.
+        // need to send out the consensus_serialize()'ed array length before sending
+        // microblocks. this is exactly what seq tells us, though.
         Ok(StacksUnconfirmedMicroblockStream {
             microblock_hash: mblock_info.block_hash(),
             parent_index_block_hash: parent_block_id.clone(),
@@ -111,7 +111,8 @@ impl HttpRequest for RPCMicroblocksUnconfirmedRequestHandler {
     }
 
     /// Try to decode this request.
-    /// There's nothing to load here, so just make sure the request is well-formed.
+    /// There's nothing to load here, so just make sure the request is
+    /// well-formed.
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
@@ -207,8 +208,8 @@ impl RPCRequestHandler for RPCMicroblocksUnconfirmedRequestHandler {
 
 /// Decode the HTTP response
 impl HttpResponse for RPCMicroblocksUnconfirmedRequestHandler {
-    /// Decode this response from a byte stream.  This is called by the client to decode this
-    /// message
+    /// Decode this response from a byte stream.  This is called by the client
+    /// to decode this message
     fn try_parse_response(
         &self,
         preamble: &HttpResponsePreamble,

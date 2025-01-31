@@ -76,10 +76,11 @@ pub struct BlockCommitMetadata {
     pub block_height: u64,
     pub vtxindex: u32,
     pub affirmation_id: u64,
-    /// if Some(..), then this block-commit is the anchor block for a reward cycle, and the
-    /// reward cycle is represented as the inner u64.
+    /// if Some(..), then this block-commit is the anchor block for a reward
+    /// cycle, and the reward cycle is represented as the inner u64.
     pub anchor_block: Option<u64>,
-    /// If Some(..), then this is the reward cycle which contains the anchor block that this block-commit descends from
+    /// If Some(..), then this is the reward cycle which contains the anchor
+    /// block that this block-commit descends from
     pub anchor_block_descendant: Option<u64>,
 }
 
@@ -339,7 +340,8 @@ impl BurnchainDBTransaction<'_> {
         Ok(())
     }
 
-    /// Add an affirmation map into the database.  Returns the affirmation map ID.
+    /// Add an affirmation map into the database.  Returns the affirmation map
+    /// ID.
     pub fn insert_block_commit_affirmation_map(
         &self,
         affirmation_map: &AffirmationMap,
@@ -357,8 +359,9 @@ impl BurnchainDBTransaction<'_> {
         }
     }
 
-    /// Update a block-commit's affirmation state -- namely, record the reward cycle that this
-    /// block-commit affirms, if any (anchor_block_descendant), and record the affirmation map ID
+    /// Update a block-commit's affirmation state -- namely, record the reward
+    /// cycle that this block-commit affirms, if any
+    /// (anchor_block_descendant), and record the affirmation map ID
     /// for this block-commit (affirmation_id).
     pub fn update_block_commit_affirmation(
         &self,
@@ -383,7 +386,8 @@ impl BurnchainDBTransaction<'_> {
         }
     }
 
-    /// Mark a block-commit as being the anchor block commit for a particular reward cycle.
+    /// Mark a block-commit as being the anchor block commit for a particular
+    /// reward cycle.
     pub fn set_anchor_block(
         &self,
         block_commit: &LeaderBlockCommitOp,
@@ -417,7 +421,8 @@ impl BurnchainDBTransaction<'_> {
         }
     }
 
-    /// Unmark all block-commit(s) that were anchor block(s) for this reward cycle.
+    /// Unmark all block-commit(s) that were anchor block(s) for this reward
+    /// cycle.
     pub fn clear_anchor_block(&self, reward_cycle: u64) -> Result<(), DBError> {
         let sql = "UPDATE block_commit_metadata SET anchor_block = NULL WHERE anchor_block = ?1";
         let args = params![u64_to_sql(reward_cycle)?];
@@ -482,8 +487,8 @@ impl BurnchainDBTransaction<'_> {
         }
         assert_eq!(parent_commits.len(), commits.len());
 
-        // for each parent block-commit and block-commit, calculate the block-commit's new
-        // affirmation map
+        // for each parent block-commit and block-commit, calculate the block-commit's
+        // new affirmation map
         for (parent_commit_opt, commit) in parent_commits.iter().zip(commits.iter()) {
             if let Some(parent_commit) = parent_commit_opt.as_ref() {
                 if get_parent_child_reward_cycles(parent_commit, commit, burnchain).is_some() {
@@ -526,11 +531,12 @@ impl BurnchainDBTransaction<'_> {
         Ok(())
     }
 
-    /// Create a prepare-phase affirmation map.  This is only done at the very end of a reward
-    /// cycle, once the anchor block is chosen and a new reward cycle is about to begin.  This
-    /// method updates the prepare-phase block-commit's affirmation map to reflect what its miner
-    /// believes to be the state of all anchor blocks, _including_ this new reward cycle's anchor
-    /// block.
+    /// Create a prepare-phase affirmation map.  This is only done at the very
+    /// end of a reward cycle, once the anchor block is chosen and a new
+    /// reward cycle is about to begin.  This method updates the
+    /// prepare-phase block-commit's affirmation map to reflect what its miner
+    /// believes to be the state of all anchor blocks, _including_ this new
+    /// reward cycle's anchor block.
     /// Returns the ID of the affirmation map in the database on success.
     /// This can be used to later look up the affirmation map.
     pub fn make_prepare_phase_affirmation_map<B: BurnchainHeaderReader>(
@@ -592,8 +598,8 @@ impl BurnchainDBTransaction<'_> {
                 });
 
         let (am, affirmed_reward_cycle) = if anchor_block.is_some() && descends_from_anchor_block {
-            // this block-commit assumes the affirmation map of the anchor block as a prefix of its
-            // own affirmation map.
+            // this block-commit assumes the affirmation map of the anchor block as a prefix
+            // of its own affirmation map.
             let anchor_block = anchor_block.unwrap();
             let anchor_am_id =
                 BurnchainDB::get_block_commit_affirmation_id(&self.sql_tx, anchor_block)?
@@ -607,8 +613,9 @@ impl BurnchainDBTransaction<'_> {
 
             let num_affirmed = am.len() as u64;
             for rc in (num_affirmed + 1)..reward_cycle {
-                // it's possible that this anchor block is more than one reward cycle back; if so,
-                // then back-fill all of the affirmations made between then and now.
+                // it's possible that this anchor block is more than one reward cycle back; if
+                // so, then back-fill all of the affirmations made between then
+                // and now.
                 if BurnchainDB::has_anchor_block(&self.sql_tx, rc)? {
                     test_debug!(
                         "Commit {},{},{} skips reward cycle {} with anchor block",
@@ -635,8 +642,8 @@ impl BurnchainDBTransaction<'_> {
             am.push(AffirmationMapEntry::PoxAnchorBlockPresent);
             (am, Some(reward_cycle))
         } else {
-            // this block-commit assumes the affirmation map of its parent as a prefix of its own
-            // affirmation map.
+            // this block-commit assumes the affirmation map of its parent as a prefix of
+            // its own affirmation map.
             let (parent_reward_cycle, _) =
                 get_parent_child_reward_cycles(&parent, block_commit, burnchain)
                     .ok_or(BurnchainError::DBError(DBError::NotFoundError))?;
@@ -743,9 +750,10 @@ impl BurnchainDBTransaction<'_> {
         }
     }
 
-    /// Make an affirmation map for a block commit in a reward phase (or an in-progress prepare
-    /// phase).  This is done once per Bitcoin block, as block-commits are stored.  Affirmation
-    /// maps for prepare-phase commits will be recomputed once the reward cycle finishes.
+    /// Make an affirmation map for a block commit in a reward phase (or an
+    /// in-progress prepare phase).  This is done once per Bitcoin block, as
+    /// block-commits are stored.  Affirmation maps for prepare-phase
+    /// commits will be recomputed once the reward cycle finishes.
     fn make_reward_phase_affirmation_map(
         &self,
         burnchain: &Burnchain,
@@ -948,8 +956,9 @@ impl BurnchainDBTransaction<'_> {
 
     // TODO: add tests from mutation testing results #4837
     #[cfg_attr(test, mutants::skip)]
-    /// You'd only do this in network emergencies, where node operators are expected to declare an
-    /// anchor block missing (or present).  Ideally there'd be a smart contract somewhere for this.
+    /// You'd only do this in network emergencies, where node operators are
+    /// expected to declare an anchor block missing (or present).  Ideally
+    /// there'd be a smart contract somewhere for this.
     pub fn set_override_affirmation_map(
         &self,
         reward_cycle: u64,
@@ -1204,8 +1213,9 @@ impl BurnchainDB {
         None
     }
 
-    /// Filter out the burnchain block's transactions that could be blockstack transactions.
-    /// Return the ordered list of blockstack operations by vtxindex
+    /// Filter out the burnchain block's transactions that could be blockstack
+    /// transactions. Return the ordered list of blockstack operations by
+    /// vtxindex
     fn get_blockstack_transactions<B: BurnchainHeaderReader>(
         &self,
         burnchain: &Burnchain,
@@ -1518,8 +1528,8 @@ impl BurnchainDB {
         )
     }
 
-    /// Get the block-commit and block metadata for the anchor block with the heaviest affirmation
-    /// weight.
+    /// Get the block-commit and block metadata for the anchor block with the
+    /// heaviest affirmation weight.
     pub fn get_heaviest_anchor_block<B: BurnchainHeaderReader>(
         conn: &DBConn,
         indexer: &B,
@@ -1550,8 +1560,9 @@ impl BurnchainDB {
         return Ok(None);
     }
 
-    /// Find the affirmation map of the anchor block whose affirmation map is the heaviest.
-    /// In the event of a tie, pick the one from the anchor block of the latest reward cycle.
+    /// Find the affirmation map of the anchor block whose affirmation map is
+    /// the heaviest. In the event of a tie, pick the one from the anchor
+    /// block of the latest reward cycle.
     pub fn get_heaviest_anchor_block_affirmation_map<B: BurnchainHeaderReader>(
         conn: &DBConn,
         burnchain: &Burnchain,
@@ -1610,8 +1621,9 @@ impl BurnchainDB {
     }
 
     /// Load an overridden affirmation map.
-    /// You'd only do this in network emergencies, where node operators are expected to declare an
-    /// anchor block missing (or present).  Ideally there'd be a smart contract somewhere for this.
+    /// You'd only do this in network emergencies, where node operators are
+    /// expected to declare an anchor block missing (or present).  Ideally
+    /// there'd be a smart contract somewhere for this.
     pub fn get_override_affirmation_map(
         conn: &DBConn,
         reward_cycle: u64,
@@ -1628,9 +1640,10 @@ impl BurnchainDB {
         Ok(am_opt)
     }
 
-    /// Get the canonical affirmation map.  This is the heaviest anchor block affirmation map, but
-    /// accounting for any subsequent reward cycles whose anchor blocks either aren't on the
-    /// heaviest anchor block affirmation map, or which have no anchor blocks.
+    /// Get the canonical affirmation map.  This is the heaviest anchor block
+    /// affirmation map, but accounting for any subsequent reward cycles
+    /// whose anchor blocks either aren't on the heaviest anchor block
+    /// affirmation map, or which have no anchor blocks.
     pub fn get_canonical_affirmation_map<F, B>(
         conn: &DBConn,
         burnchain: &Burnchain,

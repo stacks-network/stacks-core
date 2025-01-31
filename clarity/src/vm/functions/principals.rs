@@ -38,8 +38,8 @@ fn version_matches_testnet(version: u8) -> bool {
         || version == C32_ADDRESS_VERSION_TESTNET_SINGLESIG
 }
 
-/// Returns true if `version` indicates an address type that matches the network we are "currently
-/// operating in", as indicated by the GlobalContext.
+/// Returns true if `version` indicates an address type that matches the network
+/// we are "currently operating in", as indicated by the GlobalContext.
 fn version_matches_current_network(version: u8, global_context: &GlobalContext) -> bool {
     let context_is_mainnet = global_context.mainnet;
     let context_is_testnet = !global_context.mainnet;
@@ -70,8 +70,8 @@ pub fn special_is_standard(
     )))
 }
 
-/// Creates a Tuple which is the result of parsing a Principal tuple into a Tuple of its `version`
-/// and `hash-bytes`.
+/// Creates a Tuple which is the result of parsing a Principal tuple into a
+/// Tuple of its `version` and `hash-bytes`.
 fn create_principal_destruct_tuple(
     version: u8,
     hash_bytes: &[u8; 20],
@@ -102,10 +102,12 @@ fn create_principal_destruct_tuple(
     ))
 }
 
-/// Creates Response return type, to wrap an *actual error* result of a `principal-construct`.
+/// Creates Response return type, to wrap an *actual error* result of a
+/// `principal-construct`.
 ///
-/// The response is an error Response, where the `err` value is a tuple `{error_code, parse_tuple}`.
-/// `error_int` is of type `UInt`, `parse_tuple` is None.
+/// The response is an error Response, where the `err` value is a tuple
+/// `{error_code, parse_tuple}`. `error_int` is of type `UInt`, `parse_tuple` is
+/// None.
 fn create_principal_true_error_response(error_int: PrincipalConstructErrorCode) -> Result<Value> {
     Value::error(Value::Tuple(
         TupleData::from_data(vec![
@@ -119,11 +121,12 @@ fn create_principal_true_error_response(error_int: PrincipalConstructErrorCode) 
     })
 }
 
-/// Creates Response return type, to wrap a *return value returned as an error* result of a
-/// `principal-construct`.
+/// Creates Response return type, to wrap a *return value returned as an error*
+/// result of a `principal-construct`.
 ///
-/// The response is an error Response, where the `err` value is a tuple `{error_code, value}`.
-/// `error_int` is of type `UInt`, `value` is of type `Some(Value)`.
+/// The response is an error Response, where the `err` value is a tuple
+/// `{error_code, value}`. `error_int` is of type `UInt`, `value` is of type
+/// `Some(Value)`.
 fn create_principal_value_error_response(
     error_int: PrincipalConstructErrorCode,
     value: Value,
@@ -169,8 +172,8 @@ pub fn special_principal_destruct(
         }
     };
 
-    // `version_byte_is_valid` determines whether the returned `Response` is through the success
-    // channel or the error channel.
+    // `version_byte_is_valid` determines whether the returned `Response` is through
+    // the success channel or the error channel.
     let version_byte_is_valid = version_matches_current_network(version_byte, env.global_context);
 
     let tuple = create_principal_destruct_tuple(version_byte, &hash_bytes, name_opt)?;
@@ -202,7 +205,8 @@ pub fn special_principal_construct(
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => data,
         _ => {
             return {
-                // This is an aborting error because this should have been caught in analysis pass.
+                // This is an aborting error because this should have been caught in analysis
+                // pass.
                 Err(CheckErrors::TypeValueError(BUFF_1.clone(), version).into())
             };
         }
@@ -212,38 +216,41 @@ pub fn special_principal_construct(
         // should have been caught by the type-checker
         return Err(CheckErrors::TypeValueError(BUFF_1.clone(), version).into());
     } else if verified_version.is_empty() {
-        // the type checker does not check the actual length of the buffer, but a 0-length buffer
-        // will type-check to (buff 1)
+        // the type checker does not check the actual length of the buffer, but a
+        // 0-length buffer will type-check to (buff 1)
         return create_principal_true_error_response(PrincipalConstructErrorCode::BUFFER_LENGTH);
     } else {
         (*verified_version)[0]
     };
 
-    // If the version byte is >= 32, this is a runtime error, because it wasn't the job of the
-    // type system.  This is a requirement for c32check encoding.
+    // If the version byte is >= 32, this is a runtime error, because it wasn't the
+    // job of the type system.  This is a requirement for c32check encoding.
     if version_byte >= 32 {
         return create_principal_true_error_response(PrincipalConstructErrorCode::BUFFER_LENGTH);
     }
 
-    // `version_byte_is_valid` determines whether the returned `Response` is through the success
-    // channel or the error channel.
+    // `version_byte_is_valid` determines whether the returned `Response` is through
+    // the success channel or the error channel.
     let version_byte_is_valid = version_matches_current_network(version_byte, env.global_context);
 
     // Check the hash bytes -- they must be a (buff 20).
-    // This is an aborting error because this should have been caught in analysis pass.
+    // This is an aborting error because this should have been caught in analysis
+    // pass.
     let verified_hash_bytes = match hash_bytes {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => data,
         _ => return Err(CheckErrors::TypeValueError(BUFF_20.clone(), hash_bytes).into()),
     };
 
     // This must have been a (buff 20).
-    // This is an aborting error because this should have been caught in analysis pass.
+    // This is an aborting error because this should have been caught in analysis
+    // pass.
     if verified_hash_bytes.len() > 20 {
         return Err(CheckErrors::TypeValueError(BUFF_20.clone(), hash_bytes).into());
     }
 
-    // If the hash-bytes buffer has less than 20 bytes, this is a runtime error, because it
-    // wasn't the job of the type system (i.e. (buff X) for all X < 20 are all also (buff 20))
+    // If the hash-bytes buffer has less than 20 bytes, this is a runtime error,
+    // because it wasn't the job of the type system (i.e. (buff X) for all X <
+    // 20 are all also (buff 20))
     if verified_hash_bytes.len() < 20 {
         return create_principal_true_error_response(PrincipalConstructErrorCode::BUFFER_LENGTH);
     }
@@ -254,8 +261,9 @@ pub fn special_principal_construct(
     let principal_data = StandardPrincipalData::new(version_byte, transfer_buffer)?;
 
     let principal = if let Some(name) = name_opt {
-        // requested a contract principal.  Verify that the `name` is a valid ContractName.
-        // The type-checker will have verified that it's (string-ascii 40), but not long enough.
+        // requested a contract principal.  Verify that the `name` is a valid
+        // ContractName. The type-checker will have verified that it's
+        // (string-ascii 40), but not long enough.
         let name_bytes = match name {
             Value::Sequence(SequenceData::String(CharType::ASCII(ascii_data))) => ascii_data,
             _ => {
@@ -267,7 +275,8 @@ pub fn special_principal_construct(
             }
         };
 
-        // If it's not long enough, then it's a runtime error that warrants an (err ..) response.
+        // If it's not long enough, then it's a runtime error that warrants an (err ..)
+        // response.
         if name_bytes.data.len() < CONTRACT_MIN_NAME_LENGTH {
             return create_principal_true_error_response(
                 PrincipalConstructErrorCode::CONTRACT_NAME,
@@ -283,9 +292,9 @@ pub fn special_principal_construct(
             .into());
         }
 
-        // The type-checker can't verify that the name is a valid ContractName, so we'll need to do
-        // it here at runtime.  If it's not valid, then it warrants this function evaluating to
-        // (err ..).
+        // The type-checker can't verify that the name is a valid ContractName, so we'll
+        // need to do it here at runtime.  If it's not valid, then it warrants
+        // this function evaluating to (err ..).
         let name_string = String::from_utf8(name_bytes.data).map_err(|_| {
             InterpreterError::Expect(
                 "FAIL: could not convert bytes of type (string-ascii 40) back to a UTF-8 string"

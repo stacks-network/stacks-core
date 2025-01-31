@@ -45,8 +45,8 @@ use crate::core::*;
 use crate::util_lib::db::Error as db_error;
 
 impl BlockSnapshot {
-    /// Creates an "empty" (i.e. zeroed out) BlockSnapshot, to make a basis for creating
-    /// `BlockSnapshot` with a few key fields filled.
+    /// Creates an "empty" (i.e. zeroed out) BlockSnapshot, to make a basis for
+    /// creating `BlockSnapshot` with a few key fields filled.
     /// Used for testing
     pub fn empty() -> BlockSnapshot {
         BlockSnapshot {
@@ -125,8 +125,9 @@ impl BlockSnapshot {
         )
     }
 
-    /// Given the weighted burns, VRF seed of the last winner, and sortition hash, pick the next
-    /// winner.  Return the index into the distribution *if there is a sample to take*.
+    /// Given the weighted burns, VRF seed of the last winner, and sortition
+    /// hash, pick the next winner.  Return the index into the distribution
+    /// *if there is a sample to take*.
     fn sample_burn_distribution(
         dist: &[BurnSamplePoint],
         VRF_seed: &VRFSeed,
@@ -159,7 +160,8 @@ impl BlockSnapshot {
     /// Get the last winning miner's VRF seed in this block's fork.
     /// Returns Ok(VRF seed) on success
     /// Returns Err(..) on DB error
-    /// An initial VRF seed value will be returned if there are no prior commits.
+    /// An initial VRF seed value will be returned if there are no prior
+    /// commits.
     fn get_last_vrf_seed(
         sort_tx: &mut SortitionHandleTx,
         block_header: &BurnchainBlockHeader,
@@ -174,7 +176,8 @@ impl BlockSnapshot {
             // this is the sentinal "first-sortition" block
             VRFSeed::initial()
         } else {
-            // there may have been a prior winning block commit.  Use its VRF seed if possible
+            // there may have been a prior winning block commit.  Use its VRF seed if
+            // possible
             sort_tx
                 .get_block_commit(
                     &last_sortition_snapshot.winning_block_txid,
@@ -187,16 +190,18 @@ impl BlockSnapshot {
     }
 
     /// Select the next Stacks block header hash using cryptographic sortition.
-    /// Go through all block commits at this height, find out how many burn tokens
-    /// were spent for them, and select one at random using the relative burn amounts
-    /// to weight the sample.  Use HASH(sortition_hash ++ last_VRF_seed) to pick the
-    /// winning block commit, and by extension, the next VRF seed.
+    /// Go through all block commits at this height, find out how many burn
+    /// tokens were spent for them, and select one at random using the
+    /// relative burn amounts to weight the sample.  Use HASH(sortition_hash
+    /// ++ last_VRF_seed) to pick the winning block commit, and by
+    /// extension, the next VRF seed.
     ///
     /// If there are no block commits outstanding, then no winner is picked.
     ///
     /// Note that the VRF seed is not guaranteed to be the hash of a valid VRF
-    /// proof.  Miners would only build off of leader block commits for which they
-    /// (1) have the associated block data and (2) the proof in that block is valid.
+    /// proof.  Miners would only build off of leader block commits for which
+    /// they (1) have the associated block data and (2) the proof in that
+    /// block is valid.
     fn select_winning_block(
         sort_tx: &mut SortitionHandleTx,
         block_header: &BurnchainBlockHeader,
@@ -292,9 +297,9 @@ impl BlockSnapshot {
         winning_block_sender: &BurnchainSigner,
         miner_frequency: u8,
     ) -> bool {
-        // miner frequency only applies if the window is at least as long as the commit window
-        // sampled from the chain state (e.g. because this window can be 1 during the prepare
-        // phase)
+        // miner frequency only applies if the window is at least as long as the commit
+        // window sampled from the chain state (e.g. because this window can be
+        // 1 during the prepare phase)
         let epoch_frequency_usize =
             usize::try_from(epoch_id.mining_commitment_frequency()).expect("Infallible");
         if usize::from(miner_frequency) < epoch_frequency_usize.min(sampled_window_len) {
@@ -317,17 +322,19 @@ impl BlockSnapshot {
     /// This is ATC = min(1, ----------------------------------- )
     ///                       median-windowed-total-block-spend
     ///
-    /// Now, this value is 1.0 in the "happy path" case where miners commit the same BTC in this
-    /// block as they had done so over the majority of the windowed burnchain blocks.
+    /// Now, this value is 1.0 in the "happy path" case where miners commit the
+    /// same BTC in this block as they had done so over the majority of the
+    /// windowed burnchain blocks.
     ///
     /// It's also 1.0 if miners spend _more_ than this median.
     ///
-    /// It's between 0.0 and 1.0 only if miners spend _less_ than this median.  At this point, it's
-    /// possible that the "null miner" can win sortition, and the probability of that null miner
-    /// winning is a function of (1.0 - ATC).
+    /// It's between 0.0 and 1.0 only if miners spend _less_ than this median.
+    /// At this point, it's possible that the "null miner" can win
+    /// sortition, and the probability of that null miner winning is a
+    /// function of (1.0 - ATC).
     ///
-    /// Returns the ATC value, and whether or not it decreased.  If the ATC decreased, then we must
-    /// invoke the null miner.
+    /// Returns the ATC value, and whether or not it decreased.  If the ATC
+    /// decreased, then we must invoke the null miner.
     fn get_miner_commit_carryover(
         total_burns: Option<u64>,
         windowed_median_burns: Option<u64>,
@@ -378,39 +385,41 @@ impl BlockSnapshot {
             .unwrap_or_else(|| ATC_LOOKUP.last().cloned().expect("infallible"))
     }
 
-    /// Determine the probability that the null miner will win, given the atc shortage.
+    /// Determine the probability that the null miner will win, given the atc
+    /// shortage.
     ///
     /// This is NullP(atc) = (1 - atc) + atc * adv(atc).
     ///
-    /// Where adv(x) is an "advantage function", such that the null miner is more heavily favored
-    /// to win based on how comparatively little commit carryover there is.  Here, adv(x) is a
-    /// logistic function.
+    /// Where adv(x) is an "advantage function", such that the null miner is
+    /// more heavily favored to win based on how comparatively little commit
+    /// carryover there is.  Here, adv(x) is a logistic function.
     ///
-    /// In a linear setting -- i.e. the probability of the null miner winning being proportional to
-    /// the missing carryover -- the probability would simply be (1 - atc).  If miners spent only
-    /// X% of the assumed total commit, then the null miner ought to win with probability (1 - X)%.
-    /// However, the null miner is advantaged more if the missing carryover is smaller.  This is
-    /// captured with the extra `atc * adv(atc)` term.
+    /// In a linear setting -- i.e. the probability of the null miner winning
+    /// being proportional to the missing carryover -- the probability would
+    /// simply be (1 - atc).  If miners spent only X% of the assumed total
+    /// commit, then the null miner ought to win with probability (1 - X)%.
+    /// However, the null miner is advantaged more if the missing carryover is
+    /// smaller.  This is captured with the extra `atc * adv(atc)` term.
     pub(crate) fn null_miner_probability(atc: AtcRational) -> AtcRational {
         // compute min(1.0, (1.0 - atc) + (atc * adv))
         let adv = Self::null_miner_logistic(atc);
         let Some(one_minus_atc) = AtcRational::one().sub(&atc) else {
-            // somehow, ATC > 1.0, then miners spent more than they did in the last sortition.
-            // So, the null miner loses.
+            // somehow, ATC > 1.0, then miners spent more than they did in the last
+            // sortition. So, the null miner loses.
             warn!("ATC > 1.0 ({})", &atc.to_hex());
             return AtcRational::zero();
         };
 
         let Some(atc_prod_adv) = atc.mul(&adv) else {
-            // if this is somehow too big (impossible), it would otherwise imply that the null
-            // miner advantage is overwhelming
+            // if this is somehow too big (impossible), it would otherwise imply that the
+            // null miner advantage is overwhelming
             warn!("ATC * ADV == INF ({} * {})", &atc.to_hex(), &adv.to_hex());
             return AtcRational::one();
         };
 
         let Some(sum) = one_minus_atc.add(&atc_prod_adv) else {
-            // if this is somehow too big (impossible), it would otherwise imply that the null
-            // miner advantage is overwhelming
+            // if this is somehow too big (impossible), it would otherwise imply that the
+            // null miner advantage is overwhelming
             warn!(
                 "(1.0 - ATC) + (ATC * ADV) == INF ({} * {})",
                 &one_minus_atc.to_hex(),
@@ -422,9 +431,9 @@ impl BlockSnapshot {
     }
 
     /// Determine whether or not the null miner has won sortition.
-    /// This works by creating a second burn distribution: one with the winning block-commit, and
-    /// one with the null miner.  The null miner's mining power will be computed as a function of
-    /// their ATC advantage.
+    /// This works by creating a second burn distribution: one with the winning
+    /// block-commit, and one with the null miner.  The null miner's mining
+    /// power will be computed as a function of their ATC advantage.
     fn null_miner_wins(
         sort_tx: &mut SortitionHandleTx,
         block_header: &BurnchainBlockHeader,
@@ -496,7 +505,8 @@ impl BlockSnapshot {
     ///
     /// All of this is rolled into the BlockSnapshot struct.
     ///
-    /// Call this *after* you store all of the block's transactions to the burn db.
+    /// Call this *after* you store all of the block's transactions to the burn
+    /// db.
     pub fn make_snapshot(
         mainnet: bool,
         sort_tx: &mut SortitionHandleTx,
@@ -603,8 +613,8 @@ impl BlockSnapshot {
             return make_snapshot_no_sortition();
         }
 
-        // NOTE: this only counts burns from leader block commits and user burns that match them.
-        // It ignores user burns that don't match any block.
+        // NOTE: this only counts burns from leader block commits and user burns that
+        // match them. It ignores user burns that don't match any block.
         let block_burn_total = match state_transition.total_burns() {
             Some(total) => {
                 if total == 0 {
@@ -626,9 +636,9 @@ impl BlockSnapshot {
             }
         };
 
-        // total burn.  If this ever overflows, then just stall the chain and deny all future
-        // sortitions (at least the chain will remain available to serve queries, but it won't be
-        // able to make progress).
+        // total burn.  If this ever overflows, then just stall the chain and deny all
+        // future sortitions (at least the chain will remain available to serve
+        // queries, but it won't be able to make progress).
         let next_burn_total = match last_burn_total.checked_add(block_burn_total) {
             Some(new_total) => new_total,
             None => {
@@ -648,10 +658,13 @@ impl BlockSnapshot {
         .expect("FATAL: there must be a winner if the burn distribution has 1 or more points");
 
         // in epoch 3.x and later (Nakamoto and later), there's two additional changes:
-        // * if the winning miner didn't mine in more than k of n blocks of the window, then their chances of
+        // * if the winning miner didn't mine in more than k of n blocks of the window,
+        //   then their chances of
         // winning are 0.
-        // * There exists a "null miner" that can win sortition, in which case there is no
-        // sortition.  This happens if the assumed total commit with carry-over is sufficiently low.
+        // * There exists a "null miner" that can win sortition, in which case there is
+        //   no
+        // sortition.  This happens if the assumed total commit with carry-over is
+        // sufficiently low.
         let mut reject_winner_reason = None;
         if epoch_id >= StacksEpochId::Epoch30 {
             if !Self::check_miner_is_active(
@@ -690,8 +703,8 @@ impl BlockSnapshot {
                   "stacks_block_hash" => %winning_block.block_header_hash,
                   "burn_block_hash" => %winning_block.burn_header_hash);
 
-            // N.B. can't use `make_snapshot_no_sortition()` helper here because then `sort_tx`
-            // would be mutably borrowed twice.
+            // N.B. can't use `make_snapshot_no_sortition()` helper here because then
+            // `sort_tx` would be mutably borrowed twice.
             return BlockSnapshot::make_snapshot_no_sortition(
                 sort_tx,
                 my_sortition_id,
@@ -706,8 +719,8 @@ impl BlockSnapshot {
             );
         }
 
-        // mix in the winning block's VRF seed to the sortition hash.  The next block commits must
-        // prove on this final sortition hash.
+        // mix in the winning block's VRF seed to the sortition hash.  The next block
+        // commits must prove on this final sortition hash.
         let final_sortition_hash = next_sortition_hash.mix_VRF_seed(&winning_block.new_seed);
         let next_ops_hash = OpsHash::from_txids(&state_transition.txids());
         let next_ch = ConsensusHash::from_parent_block_data(
@@ -1057,13 +1070,15 @@ mod test {
         );
     }
 
-    /// This test runs 100 sortitions, and in each sortition, it verifies that the null miner will
-    /// win for the range of ATC-C values which put the sortition index into the null miner's
-    /// BurnSamplePoint range.  The ATC-C values directly influence the null miner's
-    /// BurnSamplePoint range, so given a fixed sortition index, we can verify that the
-    /// `null_miner_wins()` function returns `true` exactly when the sortition index falls into the
-    /// null miner's range.  The ATC-C values are sampled through linear interpolation between 0.0
-    /// and 1.0 in steps of 0.01.
+    /// This test runs 100 sortitions, and in each sortition, it verifies that
+    /// the null miner will win for the range of ATC-C values which put the
+    /// sortition index into the null miner's BurnSamplePoint range.  The
+    /// ATC-C values directly influence the null miner's BurnSamplePoint
+    /// range, so given a fixed sortition index, we can verify that the
+    /// `null_miner_wins()` function returns `true` exactly when the sortition
+    /// index falls into the null miner's range.  The ATC-C values are
+    /// sampled through linear interpolation between 0.0 and 1.0 in steps of
+    /// 0.01.
     #[test]
     fn test_null_miner_wins() {
         let first_burn_hash = BurnchainHeaderHash([0xfe; 32]);

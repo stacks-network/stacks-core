@@ -78,7 +78,8 @@ impl HttpRequest for RPCGetStackerDBMetadataRequestHandler {
     }
 
     /// Try to decode this request.
-    /// There's nothing to load here, so just make sure the request is well-formed.
+    /// There's nothing to load here, so just make sure the request is
+    /// well-formed.
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
@@ -146,8 +147,8 @@ impl RPCRequestHandler for RPCGetStackerDBMetadataRequestHandler {
 
 /// Decode the HTTP response
 impl HttpResponse for RPCGetStackerDBMetadataRequestHandler {
-    /// Decode this response from a byte stream.  This is called by the client to decode this
-    /// message
+    /// Decode this response from a byte stream.  This is called by the client
+    /// to decode this message
     fn try_parse_response(
         &self,
         preamble: &HttpResponsePreamble,

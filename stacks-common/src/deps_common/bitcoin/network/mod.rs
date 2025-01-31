@@ -16,7 +16,6 @@
 //!
 //! This module defines support for (de)serialization and network transport
 //! of Bitcoin data and network messages.
-//!
 
 use std::{error, fmt, io};
 

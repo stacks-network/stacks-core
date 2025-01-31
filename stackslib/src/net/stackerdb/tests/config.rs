@@ -62,7 +62,8 @@ fn make_smart_contract(
 /// (define-trait stackerdb-trait
 ///
 ///     ;; Get the list of (signer, num-slots) that make up this DB
-///     (define-public (stackerdb-get-signer-slots) (response (list 4096 { signer: principal, num-slots: uint }) uint))
+///     (define-public (stackerdb-get-signer-slots) (response (list 4096 {
+/// signer: principal, num-slots: uint }) uint))
 ///
 ///     ;; Get the control metadata for this DB
 ///     (define-public (stackerdb-get-config)
@@ -71,8 +72,8 @@ fn make_smart_contract(
 ///             write-freq: uint,
 ///             max-writes: uint,
 ///             max-neighbors: uint,
-///             hint-replicas: (list 128 { addr: (list 16 uint), port: uint, public-key-hash: (buff 20) })
-///         },
+///             hint-replicas: (list 128 { addr: (list 16 uint), port: uint,
+/// public-key-hash: (buff 20) })         },
 ///         uint))
 /// )
 

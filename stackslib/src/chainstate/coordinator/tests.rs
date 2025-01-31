@@ -118,7 +118,8 @@ pub fn next_hash160() -> Hash160 {
     Hash160::from_bytes(&bytes).unwrap()
 }
 
-/// Produce a burn block, insert it into burnchain_db, and insert it into others as well
+/// Produce a burn block, insert it into burnchain_db, and insert it into others
+/// as well
 pub fn produce_burn_block<'a, I: Iterator<Item = &'a mut BurnchainDB>>(
     burnchain_conf: &Burnchain,
     burnchain_db: &mut BurnchainDB,
@@ -1079,8 +1080,8 @@ fn missed_block_commits_2_05() {
 
         let reward_cycle_info = coord.get_reward_cycle_info(&next_mock_header).unwrap();
 
-        // NOTE: this will accidentally succeed -- the calculation for the recipients is wrong for
-        // late block-commits, but 2.05 accepts them anyway.
+        // NOTE: this will accidentally succeed -- the calculation for the recipients is
+        // wrong for late block-commits, but 2.05 accepts them anyway.
         let next_block_recipients = get_rw_sortdb(path, pox_consts.clone())
             .test_get_next_block_recipients(&b, reward_cycle_info.as_ref())
             .unwrap();
@@ -1306,11 +1307,13 @@ fn missed_block_commits_2_05() {
 }
 
 /// Test new epoch 2.1 features for handling missed commits.
-/// The main difference between this and the 2.05 variant is that missed block-commits here
-/// will be rejected if they have different PoX outputs than those expected by their intended
-/// sortition.  This test generates block-commits exactly like the 2.05 test (which creates
-/// block-commits with bad PoX outputs), and verifies that the burn window is adjusted differently
-/// in 2.1 due to the bad missed block-commit *not* counting towards the miner's sortition weight.
+/// The main difference between this and the 2.05 variant is that missed
+/// block-commits here will be rejected if they have different PoX outputs than
+/// those expected by their intended sortition.  This test generates
+/// block-commits exactly like the 2.05 test (which creates block-commits with
+/// bad PoX outputs), and verifies that the burn window is adjusted differently
+/// in 2.1 due to the bad missed block-commit *not* counting towards the miner's
+/// sortition weight.
 #[test]
 fn missed_block_commits_2_1() {
     let path = &test_path("missed_block_commits_2_1");
@@ -1400,8 +1403,8 @@ fn missed_block_commits_2_1() {
 
         let reward_cycle_info = coord.get_reward_cycle_info(&next_mock_header).unwrap();
 
-        // NOTE: these get used in the late block-commit as well, which will make it invalid (new
-        // in 2.1)
+        // NOTE: these get used in the late block-commit as well, which will make it
+        // invalid (new in 2.1)
         let next_block_recipients = get_rw_sortdb(path, pox_consts.clone())
             .test_get_next_block_recipients(&b, reward_cycle_info.as_ref())
             .unwrap();
@@ -1410,9 +1413,9 @@ fn missed_block_commits_2_1() {
         let mut ops = vec![];
         if ix % (MINING_COMMITMENT_WINDOW as usize) == 4 {
             // make a bad op, and deliberately use the wrong recipients.
-            // This will validate if the commit lands in the reward phase (because we're PoB -- all
-            // the outputs are the same), but will fail if it lands in the prepare phase (because
-            // the number of outputs will be wrong).
+            // This will validate if the commit lands in the reward phase (because we're PoB
+            // -- all the outputs are the same), but will fail if it lands in
+            // the prepare phase (because the number of outputs will be wrong).
             let (mut bad_op, _) = make_stacks_block_with_input(
                 &sort_db,
                 &mut chainstate,
@@ -1653,8 +1656,8 @@ fn missed_block_commits_2_1() {
     }
 }
 
-/// Verify that a block-commit that is too late in epoch 2.1 (e.g. miss distance > 1) will break
-/// the UTXO chain
+/// Verify that a block-commit that is too late in epoch 2.1 (e.g. miss distance
+/// > 1) will break the UTXO chain
 #[test]
 fn late_block_commits_2_1() {
     let path = &test_path("late_block_commits_2_1");
@@ -1744,8 +1747,9 @@ fn late_block_commits_2_1() {
 
         let reward_cycle_info = coord.get_reward_cycle_info(&next_mock_header).unwrap();
 
-        // NOTE: this will accidentally succeed -- the calculation for the recipients is wrong, but
-        // it's all PoB here anyway so late block-commits will continue to be accepted.
+        // NOTE: this will accidentally succeed -- the calculation for the recipients is
+        // wrong, but it's all PoB here anyway so late block-commits will
+        // continue to be accepted.
         let next_block_recipients = get_rw_sortdb(path, pox_consts.clone())
             .test_get_next_block_recipients(&b, reward_cycle_info.as_ref())
             .unwrap();
@@ -2254,8 +2258,8 @@ fn test_sortition_with_reward_set() {
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
 
-    // split up the vrf keys and committers so that we have some that will be mining "correctly"
-    //   and some that will be producing bad outputs
+    // split up the vrf keys and committers so that we have some that will be mining
+    // "correctly"   and some that will be producing bad outputs
 
     let BURNER_OFFSET = 50;
     let mut vrf_key_burners = vrf_keys.split_off(50);
@@ -2521,8 +2525,8 @@ fn test_sortition_with_burner_reward_set() {
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
 
-    // split up the vrf keys and committers so that we have some that will be mining "correctly"
-    //   and some that will be producing bad outputs
+    // split up the vrf keys and committers so that we have some that will be mining
+    // "correctly"   and some that will be producing bad outputs
 
     let BURNER_OFFSET = 50;
     let mut vrf_key_burners = vrf_keys.split_off(50);
@@ -3347,8 +3351,8 @@ fn test_stx_transfer_btc_ops() {
 
 // This helper function retrieves the delegation info from the delegate address
 // from the pox-2 contract.
-// Given an address, it retrieves the fields `amount-ustx` and `pox-addr` from the map
-// `delegation-state` in pox-2.
+// Given an address, it retrieves the fields `amount-ustx` and `pox-addr` from
+// the map `delegation-state` in pox-2.
 fn get_delegation_info_pox_2(
     chainstate: &mut StacksChainState,
     burn_dbconn: &dyn BurnStateDB,
@@ -3423,13 +3427,14 @@ fn get_delegation_info_pox_2(
 
 //          1st op sent       2nd op sent
 //              ^                 ^
-// B2 -> .. -> B12 -> B13 -> ... B22 -> B23 -> B24 -> B25 -> B26 -> ... -> B32 -> B33
-// S0 -> .. -> S10 -> S11 -> ... S20 -> S21
+// B2 -> .. -> B12 -> B13 -> ... B22 -> B23 -> B24 -> B25 -> B26 -> ... -> B32
+// -> B33 S0 -> .. -> S10 -> S11 -> ... S20 -> S21
 //                                \ _ _ _ _ _  S22
 //                                \ _ _ _ _ _ _ _ _  S23
 //                                \ _ _ _ _ _ _ _ _ _ _ _ _  S24
 //                                  ....
-//                                \ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ S30 -> S31 -> ...
+//                                \ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ S30 ->
+// S31 -> ...
 #[test]
 fn test_delegate_stx_btc_ops() {
     let path = &test_path("delegate-stx-btc-ops");
@@ -3693,7 +3698,8 @@ fn test_delegate_stx_btc_ops() {
             // blocks fork off of the state from iteration ix=20.
             // Want to ensure that a burnchain operation sent in a burn block
             // is picked up by stacks blocks on the same burnchain block
-            // up to 6 stacks blocks in the future, even if the stacks blockchain is forking.
+            // up to 6 stacks blocks in the future, even if the stacks blockchain is
+            // forking.
             if ix >= 21 && ix <= 27 {
                 assert_eq!(
                     second_delegation_info,
@@ -3816,7 +3822,8 @@ fn test_initial_coinbase_reward_distributions() {
     let initial_missed_blocks = {
         let burnchain = get_burnchain_db(path, pox_consts.clone());
         let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
-        // +1 here, because the # of missed blocks is (first_sortition_height - first_burn_block_height)
+        // +1 here, because the # of missed blocks is (first_sortition_height -
+        // first_burn_block_height)
         burnchain_tip.block_height + 1
     };
 
@@ -3977,9 +3984,10 @@ fn test_initial_coinbase_reward_distributions() {
     );
 }
 
-// This test ensures the epoch transition is applied at the proper block boundaries, and that the
-// epoch transition is only applied once. If it were to be applied more than once, the test would
-// panic when trying to re-create the costs-2 contract.
+// This test ensures the epoch transition is applied at the proper block
+// boundaries, and that the epoch transition is only applied once. If it were to
+// be applied more than once, the test would panic when trying to re-create the
+// costs-2 contract.
 #[test]
 fn test_epoch_switch_cost_contract_instantiation() {
     let path = &test_path("epoch-switch-cost-contract-instantiation");
@@ -4041,9 +4049,9 @@ fn test_epoch_switch_cost_contract_instantiation() {
         let mut burnchain = get_burnchain_db(path, pox_consts.clone());
         let mut chainstate = get_chainstate(path);
 
-        // The line going down represents the epoch boundary. Want to ensure that the costs-2
-        // contract DNE for all blocks before the boundary, and does exist for blocks after the
-        // boundary.
+        // The line going down represents the epoch boundary. Want to ensure that the
+        // costs-2 contract DNE for all blocks before the boundary, and does
+        // exist for blocks after the boundary.
         //        |
         // G  -> A -> B
         //        |\
@@ -4118,7 +4126,8 @@ fn test_epoch_switch_cost_contract_instantiation() {
         let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
         let burn_block_height = tip.block_height;
 
-        // check that the expected stacks epoch ID is equal to the actual stacks epoch ID
+        // check that the expected stacks epoch ID is equal to the actual stacks epoch
+        // ID
         let expected_epoch = match burn_block_height {
             x if x < 4 => StacksEpochId::Epoch20,
             _ => StacksEpochId::Epoch2_05,
@@ -4160,7 +4169,8 @@ fn test_epoch_switch_cost_contract_instantiation() {
             expected_runtime
         );
 
-        // check that costs-2 contract DNE before epoch 2.05, and that it does exist after
+        // check that costs-2 contract DNE before epoch 2.05, and that it does exist
+        // after
         let does_costs_2_contract_exist = chainstate
             .with_read_only_clarity_tx(
                 &sort_db.index_handle_at_tip(),
@@ -4180,9 +4190,10 @@ fn test_epoch_switch_cost_contract_instantiation() {
     }
 }
 
-// This test ensures the epoch transition from 2.05 to 2.1 is applied at the proper block boundaries,
-// and that the epoch transition is only applied once. If it were to be applied more than once,
-// the test would panic when trying to re-create the pox-2 contract.
+// This test ensures the epoch transition from 2.05 to 2.1 is applied at the
+// proper block boundaries, and that the epoch transition is only applied once.
+// If it were to be applied more than once, the test would panic when trying to
+// re-create the pox-2 contract.
 #[test]
 fn test_epoch_switch_pox_2_contract_instantiation() {
     let path = &test_path("epoch-switch-pox-contract-instantiation");
@@ -4244,8 +4255,8 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
         let mut burnchain = get_burnchain_db(path, pox_consts.clone());
         let mut chainstate = get_chainstate(path);
 
-        // Want to ensure that the pox-2 contract DNE for all blocks before the epoch transition height,
-        // and does exist for blocks after the boundary.
+        // Want to ensure that the pox-2 contract DNE for all blocks before the epoch
+        // transition height, and does exist for blocks after the boundary.
         //                              Epoch 2.1 transition
         //                                       ^
         //.. B1 -> B2 -> B3 -> B4 -> B5 -> B6 -> B7 -> B8 -> B9 -> ..
@@ -4321,7 +4332,8 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
         let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
         let burn_block_height = tip.block_height;
 
-        // check that the expected stacks epoch ID is equal to the actual stacks epoch ID
+        // check that the expected stacks epoch ID is equal to the actual stacks epoch
+        // ID
         let expected_epoch = match burn_block_height {
             x if x < 4 => StacksEpochId::Epoch20,
             x if x >= 4 && x < 8 => StacksEpochId::Epoch2_05,
@@ -4386,9 +4398,10 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
     }
 }
 
-// This test ensures the epoch transition from 2.3 to 2.4 is applied at the proper block boundaries,
-// and that the epoch transition is only applied once. If it were to be applied more than once,
-// the test would panic when trying to re-create the pox-3 contract.
+// This test ensures the epoch transition from 2.3 to 2.4 is applied at the
+// proper block boundaries, and that the epoch transition is only applied once.
+// If it were to be applied more than once, the test would panic when trying to
+// re-create the pox-3 contract.
 #[test]
 fn test_epoch_switch_pox_3_contract_instantiation() {
     let path = "/tmp/stacks-blockchain-epoch-switch-pox-3-contract-instantiation";
@@ -4836,7 +4849,8 @@ fn atlas_stop_start() {
         assert!(does_bns_contract_exist.is_ok());
     }
 
-    // okay, we've broadcasted some transactions, lets check that the atlas db has a queue
+    // okay, we've broadcasted some transactions, lets check that the atlas db has a
+    // queue
     let atlas_queue = coord
         .atlas_db
         .as_ref()
@@ -4900,10 +4914,11 @@ fn get_total_stacked_info(
         .unwrap()
 }
 
-// This test verifies that the correct contract is used for PoX for stacking operations.
-// Need to ensure that after v1_unlock_height, stacking operations are executed in the "pox-2" contract.
-// After the transition to Epoch 2.1 but before v1_unlock_height, stacking operations that are
-// sent should occur in the "pox.clar" contract.
+// This test verifies that the correct contract is used for PoX for stacking
+// operations. Need to ensure that after v1_unlock_height, stacking operations
+// are executed in the "pox-2" contract. After the transition to Epoch 2.1 but
+// before v1_unlock_height, stacking operations that are sent should occur in
+// the "pox.clar" contract.
 #[test]
 fn test_epoch_verify_active_pox_contract() {
     let path = &test_path("verify-active-pox-contract");
@@ -4986,8 +5001,9 @@ fn test_epoch_verify_active_pox_contract() {
         // The pox-2 contract should be used for stacking operations at and after B12.
         // Bi represents the ith burn block, and Sj represents the jth stacks block.
         //
-        //                              Epoch 2.1 transition         active pox contract switch
-        //                                       ^                                ^
+        //                              Epoch 2.1 transition         active pox contract
+        // switch                                       ^
+        // ^
         //.. B1 -> B2 -> B3 -> B4 -> B5 -> B6 -> B7 -> B8 -> B9 -> B10 -> B11 -> B12
         //   S0 -> S1 -> S2 -> S3 -> S4 -> S5 -> S6 -> S7 -> S8 -> S9 -> S10  -> S11
         let parent = if ix == 0 {
@@ -5181,7 +5197,8 @@ fn test_epoch_verify_active_pox_contract() {
             assert_eq!(active_pox_contract, POX_2_NAME);
         }
 
-        // Query the pox-2.clar contract to ensure the total stacked amount is as expected
+        // Query the pox-2.clar contract to ensure the total stacked amount is as
+        // expected
         let amount_locked_pox_2_res = get_total_stacked_info(
             &mut chainstate,
             &sort_db.index_handle_at_tip(),
@@ -5194,7 +5211,8 @@ fn test_epoch_verify_active_pox_contract() {
             let amount_locked_pox_2 = amount_locked_pox_2_res
                 .expect("Should be able to query pox-2.clar for total locked ustx");
             if curr_reward_cycle == 3 {
-                // This assertion checks that the burn height is at or after the v1_unlock_height
+                // This assertion checks that the burn height is at or after the
+                // v1_unlock_height
                 assert!(burn_block_height >= pox_v1_unlock_ht as u64);
                 // This is a result of the third stack stx sent.
                 assert_eq!(amount_locked_pox_2, stacked_amt * 4);
@@ -5269,8 +5287,8 @@ fn test_sortition_with_sunset() {
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
 
-    // split up the vrf keys and committers so that we have some that will be mining "correctly"
-    //   and some that will be producing bad outputs
+    // split up the vrf keys and committers so that we have some that will be mining
+    // "correctly"   and some that will be producing bad outputs
 
     let WRONG_OUTS_OFFSET = 100;
     let vrf_key_wrong_outs = vrf_keys.split_off(WRONG_OUTS_OFFSET);
@@ -5322,7 +5340,9 @@ fn test_sortition_with_sunset() {
                         burnchain_tip.block_height,
                         reward_recipients.len()
                     );
-                    assert_eq!(reward_recipients.len(), 6); // still hasn't cleared yet, so still 6
+                    assert_eq!(reward_recipients.len(), 6); // still hasn't
+                                                            // cleared yet, so
+                                                            // still 6
                 } else if burnchain_tip.block_height
                     > last_reward_cycle_block
                         + (pox_consts.as_ref().unwrap().reward_cycle_length as u64)
@@ -5335,7 +5355,9 @@ fn test_sortition_with_sunset() {
                         burnchain_tip.block_height,
                         reward_recipients.len()
                     );
-                    assert_eq!(reward_recipients.len(), 2); // still haven't cleared this yet, so still 2
+                    assert_eq!(reward_recipients.len(), 2); // still haven't
+                                                            // cleared this yet,
+                                                            // so still 2
                 } else {
                     eprintln!(
                         "End of PoX (before sunset height {}): reward set size is {}",
@@ -5577,8 +5599,8 @@ fn test_sortition_with_sunset_and_epoch_switch() {
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
 
-    // split up the vrf keys and committers so that we have some that will be mining "correctly"
-    //   and some that will be producing bad outputs
+    // split up the vrf keys and committers so that we have some that will be mining
+    // "correctly"   and some that will be producing bad outputs
 
     let WRONG_OUTS_OFFSET = 100;
     let vrf_key_wrong_outs = vrf_keys.split_off(WRONG_OUTS_OFFSET);
@@ -5633,7 +5655,9 @@ fn test_sortition_with_sunset_and_epoch_switch() {
                             burnchain_tip.block_height,
                             reward_recipients.len()
                         );
-                        assert_eq!(reward_recipients.len(), 6); // still hasn't cleared yet, so still 6
+                        assert_eq!(reward_recipients.len(), 6); // still hasn't
+                                                                // cleared yet,
+                                                                // so still 6
                     } else if burnchain_tip.block_height
                         > last_reward_cycle_block
                             + (pox_consts.as_ref().unwrap().reward_cycle_length as u64)
@@ -5646,7 +5670,10 @@ fn test_sortition_with_sunset_and_epoch_switch() {
                             burnchain_tip.block_height,
                             reward_recipients.len()
                         );
-                        assert_eq!(reward_recipients.len(), 2); // still haven't cleared this yet, so still 2
+                        assert_eq!(reward_recipients.len(), 2); // still haven't
+                                                                // cleared this
+                                                                // yet, so still
+                                                                // 2
                     } else {
                         eprintln!(
                             "End of PoX (before sunset height {}): reward set size is {}",
@@ -5671,8 +5698,9 @@ fn test_sortition_with_sunset_and_epoch_switch() {
         } else if started_first_reward_cycle
             && burnchain_conf.is_reward_cycle_start(next_mock_header.block_height)
         {
-            // unreachable -- Epoch 2.1 activates at block 50, so we never reach the PoX sunset.
-            // So, we should always have a reward set once we pass the first reward cycle.
+            // unreachable -- Epoch 2.1 activates at block 50, so we never reach the PoX
+            // sunset. So, we should always have a reward set once we pass the
+            // first reward cycle.
             panic!("FATAL: Epoch 2.1 switch did not prevent PoX from disabling");
         }
 
@@ -5929,10 +5957,11 @@ fn test_pox_processable_block_in_different_pox_forks() {
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
 
     // setup:
-    // sort:1                   6                   11                      16                       21
-    //      |----- rc 0 --------|------ rc 1 -------|----- rc 2 ------------|-------- rc 3 ----------|----- rc 4
-    // ix:  X - 0 - 1 - 2 - 3 - 4 - 5 - 6 - 7 - 8 - 9
-    //           \_____________________________________ 10 _ 11 _ 12 _ 13 _ 14 _ 15 _ 16 _ 17 _ 18 _ 19
+    // sort:1                   6                   11                      16
+    // 21      |----- rc 0 --------|------ rc 1 -------|----- rc 2
+    // ------------|-------- rc 3 ----------|----- rc 4 ix:  X - 0 - 1 - 2 - 3 -
+    // 4 - 5 - 6 - 7 - 8 - 9           \_____________________________________ 10
+    // _ 11 _ 12 _ 13 _ 14 _ 15 _ 16 _ 17 _ 18 _ 19
     //
     //
     for (ix, (vrf_key, miner)) in vrf_keys.iter().zip(committers.iter()).enumerate() {
@@ -6097,8 +6126,8 @@ fn test_pox_processable_block_in_different_pox_forks() {
             coord_blind.handle_new_stacks_block().unwrap();
         }
         if ix == 18 {
-            // right at the end of reward cycle 3 -- feed in the blocks from the blinded DB into
-            // the unblinded DB
+            // right at the end of reward cycle 3 -- feed in the blocks from the blinded DB
+            // into the unblinded DB
             for (i, (_, block)) in stacks_blocks.iter().enumerate() {
                 if i >= 10 && i <= ix {
                     eprintln!("Mirror blocks from blinded DB to unblinded DB (simulates downloading them) i={}", i);
@@ -6130,7 +6159,8 @@ fn test_pox_processable_block_in_different_pox_forks() {
     let block_height = eval_at_chain_tip(path_blinded, &sort_db_blind, "block-height");
     assert_eq!(block_height, Value::UInt(11));
 
-    // because of the affirmations, the canonical PoX ID deliberately omits anchor blocks
+    // because of the affirmations, the canonical PoX ID deliberately omits anchor
+    // blocks
     {
         let ic = sort_db_blind.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();

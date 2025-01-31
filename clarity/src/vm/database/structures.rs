@@ -151,7 +151,8 @@ pub enum STXBalance {
 }
 
 /// Lifetime-limited handle to an uncommitted balance structure.
-/// All balance mutations (debits, credits, locks, unlocks) must go through this structure.
+/// All balance mutations (debits, credits, locks, unlocks) must go through this
+/// structure.
 pub struct STXBalanceSnapshot<'db, 'conn> {
     principal: PrincipalData,
     balance: STXBalance,
@@ -577,8 +578,9 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
     }
 
     /// Extend this account's current lock to `unlock_burn_height`.
-    /// After calling, this method will set the balance to a "LockedPoxTwo" balance,
-    ///  because this method is only invoked as a result of PoX2 interactions
+    /// After calling, this method will set the balance to a "LockedPoxTwo"
+    /// balance,  because this method is only invoked as a result of PoX2
+    /// interactions
     pub fn extend_lock_v2(&mut self, unlock_burn_height: u64) -> Result<()> {
         let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
@@ -610,8 +612,9 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
     }
 
     /// Lock `amount_to_lock` tokens on this account until `unlock_burn_height`.
-    /// After calling, this method will set the balance to a "LockedPoxTwo" balance,
-    ///  because this method is only invoked as a result of PoX2 interactions
+    /// After calling, this method will set the balance to a "LockedPoxTwo"
+    /// balance,  because this method is only invoked as a result of PoX2
+    /// interactions
     pub fn lock_tokens_v2(&mut self, amount_to_lock: u128, unlock_burn_height: u64) -> Result<()> {
         let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
@@ -659,8 +662,9 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
     //////////////// Pox-3 //////////////////
 
     /// Lock `amount_to_lock` tokens on this account until `unlock_burn_height`.
-    /// After calling, this method will set the balance to a "LockedPoxThree" balance,
-    ///  because this method is only invoked as a result of PoX3 interactions
+    /// After calling, this method will set the balance to a "LockedPoxThree"
+    /// balance,  because this method is only invoked as a result of PoX3
+    /// interactions
     pub fn lock_tokens_v3(&mut self, amount_to_lock: u128, unlock_burn_height: u64) -> Result<()> {
         let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
@@ -709,8 +713,9 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
     }
 
     /// Extend this account's current lock to `unlock_burn_height`.
-    /// After calling, this method will set the balance to a "LockedPoxThree" balance,
-    ///  because this method is only invoked as a result of PoX3 interactions
+    /// After calling, this method will set the balance to a "LockedPoxThree"
+    /// balance,  because this method is only invoked as a result of PoX3
+    /// interactions
     pub fn extend_lock_v3(&mut self, unlock_burn_height: u64) -> Result<()> {
         let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
@@ -798,8 +803,9 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
     //////////////// Pox-4 //////////////////
 
     /// Lock `amount_to_lock` tokens on this account until `unlock_burn_height`.
-    /// After calling, this method will set the balance to a "LockedPoxFour" balance,
-    ///  because this method is only invoked as a result of PoX4 interactions
+    /// After calling, this method will set the balance to a "LockedPoxFour"
+    /// balance,  because this method is only invoked as a result of PoX4
+    /// interactions
     pub fn lock_tokens_v4(&mut self, amount_to_lock: u128, unlock_burn_height: u64) -> Result<()> {
         let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
@@ -837,8 +843,9 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
     }
 
     /// Extend this account's current lock to `unlock_burn_height`.
-    /// After calling, this method will set the balance to a "LockedPoxFour" balance,
-    ///  because this method is only invoked as a result of PoX3 interactions
+    /// After calling, this method will set the balance to a "LockedPoxFour"
+    /// balance,  because this method is only invoked as a result of PoX3
+    /// interactions
     pub fn extend_lock_v4(&mut self, unlock_burn_height: u64) -> Result<()> {
         let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
@@ -982,7 +989,8 @@ impl Default for STXBalance {
     }
 }
 
-// NOTE: do _not_ add mutation methods to this struct. Put them in STXBalanceSnapshot!
+// NOTE: do _not_ add mutation methods to this struct. Put them in
+// STXBalanceSnapshot!
 impl STXBalance {
     pub const unlocked_and_v1_size: usize = 40;
     pub const v2_to_v4_size: usize = 41;
@@ -1011,9 +1019,10 @@ impl STXBalance {
     }
 
     /// This method returns the datastructure's lazy view of the unlock_height
-    ///  *while* factoring in the PoX 2 early unlock for PoX 1 and PoX 3 early unlock for PoX 2.
-    /// This value is still lazy: this unlock height may be less than the current
-    ///  burn block height, if so it will be updated in a canonicalized view.
+    ///  *while* factoring in the PoX 2 early unlock for PoX 1 and PoX 3 early
+    /// unlock for PoX 2. This value is still lazy: this unlock height may
+    /// be less than the current  burn block height, if so it will be
+    /// updated in a canonicalized view.
     pub fn effective_unlock_height(
         &self,
         v1_unlock_height: u32,
@@ -1059,8 +1068,9 @@ impl STXBalance {
         }
     }
 
-    /// This method returns the datastructure's lazy view of the amount unlocked:
-    ///  this *may* be updated by a canonicalized view of the account
+    /// This method returns the datastructure's lazy view of the amount
+    /// unlocked:  this *may* be updated by a canonicalized view of the
+    /// account
     pub fn amount_unlocked(&self) -> u128 {
         match self {
             STXBalance::Unlocked {
@@ -1135,8 +1145,8 @@ impl STXBalance {
 
     /// Returns a canonicalized STXBalance at a given burn_block_height
     /// (i.e., if burn_block_height >= unlock_height, then return struct where
-    ///   amount_unlocked = 0, unlock_height = 0), and the amount of tokens which
-    ///   are "unlocked" by the canonicalization
+    ///   amount_unlocked = 0, unlock_height = 0), and the amount of tokens
+    /// which   are "unlocked" by the canonicalization
     pub fn canonical_repr_at_block(
         &self,
         burn_block_height: u64,

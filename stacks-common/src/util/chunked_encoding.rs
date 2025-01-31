@@ -20,7 +20,8 @@ use std::{error, fmt, io};
 use crate::codec::MAX_MESSAGE_LEN;
 use crate::deps_common::httparse;
 
-/// NOTE: it is imperative that the given Read and Write impls here _never_ fail with EWOULDBLOCK.
+/// NOTE: it is imperative that the given Read and Write impls here _never_ fail
+/// with EWOULDBLOCK.
 
 #[derive(Debug)]
 pub enum ChunkedError {
@@ -78,7 +79,8 @@ impl HttpChunkedTransferReaderState {
             chunk_read: 0,
             max_size,
             total_size: 0,
-            last_chunk_size: u64::MAX, // if this ever becomes 0, then we should expect chunk boundary '0\r\n\r\n' and EOF
+            last_chunk_size: u64::MAX, /* if this ever becomes 0, then we should expect chunk
+                                        * boundary '0\r\n\r\n' and EOF */
             chunk_buffer: [0u8; 18],
             i: 0,
         }
@@ -166,7 +168,8 @@ impl HttpChunkedTransferReaderState {
         }
 
         // got an offset/len.
-        // offset ought to equal the number of bytes taken by the encoded chunk boundary.
+        // offset ought to equal the number of bytes taken by the encoded chunk
+        // boundary.
         assert_eq!(offset, self.i);
 
         // reset buffers
@@ -272,7 +275,8 @@ impl HttpChunkedTransferReaderState {
     }
 
     /// Read from a Read.
-    /// Returns (number of bytes decoded, number of bytes consumed from the Read)
+    /// Returns (number of bytes decoded, number of bytes consumed from the
+    /// Read)
     pub fn do_read<R: Read>(&mut self, fd: &mut R, buf: &mut [u8]) -> io::Result<(usize, usize)> {
         let mut decoded = 0;
         let mut consumed = 0;
@@ -318,7 +322,8 @@ impl HttpChunkedTransferReaderState {
 
 impl<R: Read> Read for HttpChunkedTransferReader<'_, R> {
     /// Read a HTTP chunk-encoded stream.
-    /// Returns number of decoded bytes (i.e. number of bytes copied to buf, as expected)
+    /// Returns number of decoded bytes (i.e. number of bytes copied to buf, as
+    /// expected)
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.state.do_read(self.fd, buf).map(|(decoded, _)| decoded)
     }

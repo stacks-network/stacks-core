@@ -151,7 +151,8 @@ impl<const MAX_SIZE: u16> Iterator for BitVecIter<'_, MAX_SIZE> {
 }
 
 impl<const MAX_SIZE: u16> BitVec<MAX_SIZE> {
-    /// Construct a new BitVec with all entries set to `false` and total length `len`
+    /// Construct a new BitVec with all entries set to `false` and total length
+    /// `len`
     pub fn zeros(len: u16) -> Result<BitVec<MAX_SIZE>, String> {
         if len > MAX_SIZE {
             return Err(format!(
@@ -162,7 +163,8 @@ impl<const MAX_SIZE: u16> BitVec<MAX_SIZE> {
         Ok(BitVec { data, len })
     }
 
-    /// Construct a new BitVec with all entries set to `true` and total length `len`
+    /// Construct a new BitVec with all entries set to `true` and total length
+    /// `len`
     pub fn ones(len: u16) -> Result<BitVec<MAX_SIZE>, String> {
         let mut bitvec: BitVec<MAX_SIZE> = BitVec::zeros(len)?;
         for i in 0..len {

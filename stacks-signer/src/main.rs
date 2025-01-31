@@ -1,8 +1,6 @@
 //! # stacks-signer: Stacks signer binary for signing block proposals, interacting with stackerdb, and more.
 //!
 //! Usage documentation can be found in the [README]("https://github.com/blockstack/stacks-blockchain/stacks-signer/README.md).
-//!
-//!
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //

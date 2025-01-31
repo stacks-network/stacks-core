@@ -51,12 +51,14 @@ use crate::clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use crate::clarity_vm::clarity::ClarityBlockConnection;
 
 #[test]
-// Here, we set up a basic test to see if we can recover a path from the ClarityTestSim.
+// Here, we set up a basic test to see if we can recover a path from the
+// ClarityTestSim.
 fn test_get_burn_block_info_eval() {
     let mut sim = ClarityTestSim::new();
     sim.epoch_bounds = vec![0, 2, 4];
 
-    // Advance at least one block because 'get-burn-block-info' only works after the first block.
+    // Advance at least one block because 'get-burn-block-info' only works after the
+    // first block.
     sim.execute_next_block(|_env| {});
     // Advance another block so we get to Stacks 2.05.
     sim.execute_next_block_as_conn(|conn| {
@@ -180,7 +182,8 @@ fn test_get_block_info_eval_v210() {
     let mut sim = ClarityTestSim::new();
     sim.epoch_bounds = vec![0, 3, 5];
 
-    // Advance at least one block because 'get-block-info' only works after the first block.
+    // Advance at least one block because 'get-block-info' only works after the
+    // first block.
     sim.execute_next_block(|_env| {});
     // Advance another block so we get to Stacks 2.05.
     sim.execute_next_block(|_env| {});
@@ -1066,7 +1069,8 @@ fn test_block_heights() {
         );
     });
 
-    // Call the contracts in the next block with no new tenure and validate the results
+    // Call the contracts in the next block with no new tenure and validate the
+    // results
     let block_height = sim.block_height as u128;
     let burn_block_height = sim.burn_block_height() as u128;
     let tenure_height = sim.tenure_height as u128;
@@ -1097,7 +1101,8 @@ fn test_block_heights() {
         );
     });
 
-    // Call the contracts in the next block with no new tenure and validate the results
+    // Call the contracts in the next block with no new tenure and validate the
+    // results
     let block_height = sim.block_height as u128;
     let burn_block_height = sim.burn_block_height() as u128;
     let tenure_height = sim.tenure_height as u128;
@@ -1128,7 +1133,8 @@ fn test_block_heights() {
         );
     });
 
-    // Call the contracts in the next block with a new tenure and validate the results
+    // Call the contracts in the next block with a new tenure and validate the
+    // results
     let block_height = sim.block_height as u128;
     let burn_block_height = sim.burn_block_height() as u128;
     let tenure_height = sim.tenure_height as u128;

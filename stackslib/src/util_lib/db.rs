@@ -61,8 +61,8 @@ pub enum Error {
     ReadOnly,
     /// Type error -- can't represent the given data in the database
     TypeError,
-    /// Database is corrupt -- we got data that shouldn't be there, or didn't get data when we
-    /// should have
+    /// Database is corrupt -- we got data that shouldn't be there, or didn't
+    /// get data when we should have
     Corruption,
     /// Serialization error -- can't serialize data
     SerializationError(serde_error),
@@ -361,9 +361,9 @@ fn get_db_path(conn: &Connection) -> Result<String, Error> {
     }
 }
 
-/// Generate debug output to be fed into an external script to examine query plans.
-/// TODO: it uses mocked arguments, which it assumes are strings. This does not always result in a
-/// valid query.
+/// Generate debug output to be fed into an external script to examine query
+/// plans. TODO: it uses mocked arguments, which it assumes are strings. This
+/// does not always result in a valid query.
 #[cfg(test)]
 fn log_sql_eqp(conn: &Connection, sql_query: &str) {
     if std::env::var("BLOCKSTACK_DB_TRACE") != Ok("1".to_string()) {
@@ -497,7 +497,8 @@ where
     Ok(row_data)
 }
 
-/// Boilerplate for querying a single integer (first and only item of the query must be an int)
+/// Boilerplate for querying a single integer (first and only item of the query
+/// must be an int)
 pub fn query_int<P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<i64, Error>
 where
     P: Params,
@@ -528,8 +529,8 @@ where
     query_int(conn, sql_query, sql_args)
 }
 
-/// Run a PRAGMA statement.  This can't always be done via execute(), because it may return a result (and
-/// rusqlite does not like this).
+/// Run a PRAGMA statement.  This can't always be done via execute(), because it
+/// may return a result (and rusqlite does not like this).
 pub fn sql_pragma(
     conn: &Connection,
     pragma_name: &str,
@@ -598,7 +599,8 @@ impl<'a, C, T: MarfTrieId> IndexDBConn<'a, C, T> {
         IndexDBConn { index, context }
     }
 
-    /// Get the ancestor block hash of a block of a given height, given a descendent block hash.
+    /// Get the ancestor block hash of a block of a given height, given a
+    /// descendent block hash.
     pub fn get_ancestor_block_hash(
         &self,
         block_height: u64,
@@ -658,17 +660,19 @@ pub fn tx_busy_handler(run_count: i32) -> bool {
     stacks_common::util::db::tx_busy_handler(run_count)
 }
 
-/// Begin an immediate-mode transaction, and handle busy errors with exponential backoff.
-/// Handling busy errors when the tx begins is preferable to doing it when the tx commits, since
-/// then we don't have to worry about any extra rollback logic.
+/// Begin an immediate-mode transaction, and handle busy errors with exponential
+/// backoff. Handling busy errors when the tx begins is preferable to doing it
+/// when the tx commits, since then we don't have to worry about any extra
+/// rollback logic.
 pub fn tx_begin_immediate(conn: &mut Connection) -> Result<DBTx<'_>, Error> {
     tx_begin_immediate_sqlite(conn).map_err(Error::from)
 }
 
-/// Begin an immediate-mode transaction, and handle busy errors with exponential backoff.
-/// Handling busy errors when the tx begins is preferable to doing it when the tx commits, since
-/// then we don't have to worry about any extra rollback logic.
-/// Sames as `tx_begin_immediate` except that it returns a rusqlite error.
+/// Begin an immediate-mode transaction, and handle busy errors with exponential
+/// backoff. Handling busy errors when the tx begins is preferable to doing it
+/// when the tx commits, since then we don't have to worry about any extra
+/// rollback logic. Sames as `tx_begin_immediate` except that it returns a
+/// rusqlite error.
 pub fn tx_begin_immediate_sqlite(conn: &mut Connection) -> Result<DBTx<'_>, sqlite_error> {
     conn.busy_handler(Some(tx_busy_handler))?;
     let tx = Transaction::new(conn, TransactionBehavior::Immediate)?;
@@ -720,7 +724,8 @@ pub fn sqlite_open<P: AsRef<Path>>(
     Ok(db)
 }
 
-/// Get the ancestor block hash of a block of a given height, given a descendent block hash.
+/// Get the ancestor block hash of a block of a given height, given a descendent
+/// block hash.
 pub fn get_ancestor_block_hash<T: MarfTrieId>(
     index: &MARF<T>,
     block_height: u64,
@@ -845,7 +850,8 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
         Ok(())
     }
 
-    /// Get the ancestor block hash of a block of a given height, given a descendent block hash.
+    /// Get the ancestor block hash of a block of a given height, given a
+    /// descendent block hash.
     pub fn get_ancestor_block_hash(
         &mut self,
         block_height: u64,
@@ -894,8 +900,8 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
     }
 
     /// Put all keys and values in a single MARF transaction, and seal it.
-    /// This is a one-time operation; subsequent calls will panic.  You should follow this up with
-    /// a commit if you want to save the MARF state.
+    /// This is a one-time operation; subsequent calls will panic.  You should
+    /// follow this up with a commit if you want to save the MARF state.
     pub fn put_indexed_all(
         &mut self,
         parent_header_hash: &T,

@@ -111,7 +111,8 @@ fn test_try_make_response() {
     );
     requests.push(request);
 
-    // query non-existent block (with biggest positive u32 value - 1 as MARF enforces it)
+    // query non-existent block (with biggest positive u32 value - 1 as MARF
+    // enforces it)
     let request = StacksHttpRequest::new_get_nakamoto_block_by_height(
         addr.into(),
         0xfffffffe,

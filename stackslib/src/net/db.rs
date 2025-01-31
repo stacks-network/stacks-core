@@ -186,7 +186,8 @@ impl LocalPeer {
         }
     }
 
-    /// Best-effort attempt to calculate a publicly-routable neighbor address for local peer
+    /// Best-effort attempt to calculate a publicly-routable neighbor address
+    /// for local peer
     pub fn to_public_neighbor_addr(&self) -> NeighborAddress {
         if let Some((peer_addr, peer_port)) = self.public_ip_address.as_ref() {
             NeighborAddress {
@@ -307,14 +308,15 @@ impl FromRow<Neighbor> for Neighbor {
     }
 }
 
-// In what is likely an abuse of Sqlite, the peer database is structured such that the `frontier`
-// table stores peers keyed by a deterministically-chosen random "slot," instead of their IP/port.
-// (i.e. the slot is determined by a cryptographic the hash of the IP/port).  The reason for this
-// is to facilitate randomized peer eviction when the frontier table gets too big -- if a peer's
-// possible slots are taken, then the _existing_ peer is pinged to see if it is still online.  If
-// it is still online, the new peer will _not_ be inserted.  If it is offline, then it will be.
-// This is done to ensure that the frontier represents live, long-lived peers to the greatest
-// extent possible.
+// In what is likely an abuse of Sqlite, the peer database is structured such
+// that the `frontier` table stores peers keyed by a deterministically-chosen
+// random "slot," instead of their IP/port. (i.e. the slot is determined by a
+// cryptographic the hash of the IP/port).  The reason for this is to facilitate
+// randomized peer eviction when the frontier table gets too big -- if a peer's
+// possible slots are taken, then the _existing_ peer is pinged to see if it is
+// still online.  If it is still online, the new peer will _not_ be inserted.
+// If it is offline, then it will be. This is done to ensure that the frontier
+// represents live, long-lived peers to the greatest extent possible.
 
 const PEERDB_INITIAL_SCHEMA: &[&str] = &[
     r#"
@@ -471,8 +473,8 @@ impl PeerDB {
             .map_err(db_error::SqliteError)?;
 
         for neighbor in initial_neighbors.iter() {
-            // since this is a neighbor the node operator is declaring exists, we treat it as
-            // freshly-contacted.
+            // since this is a neighbor the node operator is declaring exists, we treat it
+            // as freshly-contacted.
             let mut neighbor = neighbor.clone();
             neighbor.last_contact_time = get_epoch_time_secs();
 
@@ -662,7 +664,8 @@ impl PeerDB {
             }
         } else {
             // can just open
-            // NOTE: we may need to apply some migrations, so always open read-write at this point.
+            // NOTE: we may need to apply some migrations, so always open read-write at this
+            // point.
             OpenFlags::SQLITE_OPEN_READ_WRITE
         };
 
@@ -843,7 +846,8 @@ impl PeerDB {
     ) -> Result<(), db_error> {
         tx.execute(
             "UPDATE local_peer SET addrbytes = ?1, port = ?2",
-            params![to_bin(addrbytes.as_bytes()), port], // TODO: double check if delete as_ref here
+            params![to_bin(addrbytes.as_bytes()), port], /* TODO: double check if delete as_ref
+                                                          * here */
         )
         .map_err(db_error::SqliteError)?;
 
@@ -891,9 +895,9 @@ impl PeerDB {
         PeerDB::get_local_peer(self.conn())
     }
 
-    /// Calculate the "slots" in the peer database where this peer can be inserted.
-    /// Slots are distributed uniformly at random between 0 and 2**24.
-    /// NUM_SLOTS will be returned.
+    /// Calculate the "slots" in the peer database where this peer can be
+    /// inserted. Slots are distributed uniformly at random between 0 and
+    /// 2**24. NUM_SLOTS will be returned.
     pub fn peer_slots(
         conn: &DBConn,
         network_id: u32,
@@ -928,7 +932,8 @@ impl PeerDB {
         Ok(ret)
     }
 
-    /// Group a list of peers by public key, and return the one with the highest last-contact time
+    /// Group a list of peers by public key, and return the one with the highest
+    /// last-contact time
     fn query_peers(
         conn: &Connection,
         qry: &str,
@@ -949,7 +954,8 @@ impl PeerDB {
     }
 
     /// Query a single peer.
-    /// If multiple rows are returned, then only the first-found row is reported.
+    /// If multiple rows are returned, then only the first-found row is
+    /// reported.
     fn query_peer(
         conn: &Connection,
         qry: &str,
@@ -984,7 +990,8 @@ impl PeerDB {
             .unwrap_or(false))
     }
 
-    /// Get peer by port (used in tests where the IP address doesn't really matter)
+    /// Get peer by port (used in tests where the IP address doesn't really
+    /// matter)
     #[cfg(any(test, feature = "testing"))]
     pub fn get_peer_by_port(
         conn: &DBConn,
@@ -1157,7 +1164,8 @@ impl PeerDB {
         Ok(())
     }
 
-    /// Remove a peer from the peer database, as well as its stacker DB contracts
+    /// Remove a peer from the peer database, as well as its stacker DB
+    /// contracts
     pub fn drop_peer(
         tx: &Transaction,
         network_id: u32,
@@ -1307,7 +1315,8 @@ impl PeerDB {
         Ok(())
     }
 
-    /// Update an existing peer's entries.  Does nothing if the peer is not present.
+    /// Update an existing peer's entries.  Does nothing if the peer is not
+    /// present.
     pub fn update_peer(tx: &Transaction, neighbor: &Neighbor) -> Result<(), db_error> {
         let old_peer_opt = PeerDB::get_peer(
             tx,
@@ -1426,9 +1435,9 @@ impl PeerDB {
     }
 
     /// Update an existing peer's stacker DB IDs.
-    /// Calculates the delta between what's in the DB now, and what's in `dbs`, and deletes the
-    /// records absent from `dbs` and adds records not present in the DB.
-    /// Does nothing if the peer is not present.
+    /// Calculates the delta between what's in the DB now, and what's in `dbs`,
+    /// and deletes the records absent from `dbs` and adds records not
+    /// present in the DB. Does nothing if the peer is not present.
     pub fn update_peer_stacker_dbs(
         tx: &Transaction,
         neighbor: &Neighbor,
@@ -1470,9 +1479,10 @@ impl PeerDB {
     }
 
     /// Try to insert a peer at one of its slots.
-    /// Does not insert the peer if it is already present, but will instead try to update it with
-    /// this peer's information.
-    /// If at least one slot was empty, or if the peer is already present and can be updated, then insert/update the peer and return true.
+    /// Does not insert the peer if it is already present, but will instead try
+    /// to update it with this peer's information.
+    /// If at least one slot was empty, or if the peer is already present and
+    /// can be updated, then insert/update the peer and return true.
     /// If all slots are occupied, return false.
     pub fn try_insert_peer(
         tx: &Transaction,
@@ -1604,8 +1614,8 @@ impl PeerDB {
         s
     }
 
-    /// Update the given column to be equal to the given value for all addresses that match the given
-    /// CIDR prefix
+    /// Update the given column to be equal to the given value for all addresses
+    /// that match the given CIDR prefix
     fn apply_cidr_filter(
         tx: &Transaction,
         prefix: &PeerAddress,
@@ -1746,7 +1756,8 @@ impl PeerDB {
     /// Get an randomized initial set of peers.
     /// -- always include all allowed neighbors
     /// -- never include denied neighbors
-    /// -- for neighbors that are neither allowed nor denied, sample them randomly as long as they're fresh.
+    /// -- for neighbors that are neither allowed nor denied, sample them
+    /// randomly as long as they're fresh.
     pub fn get_initial_neighbors(
         conn: &DBConn,
         network_id: u32,
@@ -1794,7 +1805,8 @@ impl PeerDB {
     }
 
     /// Classify an IPv4 address to its AS number.
-    /// This method doesn't have to be particularly efficient since it's off the critical path.
+    /// This method doesn't have to be particularly efficient since it's off the
+    /// critical path.
     pub fn asn4_lookup(conn: &DBConn, addrbits: &PeerAddress) -> Result<Option<u32>, db_error> {
         // must be an IPv4 address
         if !addrbits.is_ipv4() {
@@ -1848,7 +1860,8 @@ impl PeerDB {
 
     /// Find out which peers replicate a particular stacker DB.
     /// Return a randomized list of up to the given size, where all
-    /// peers returned have a last-contact time greater than the given minimum age.
+    /// peers returned have a last-contact time greater than the given minimum
+    /// age.
     pub fn find_stacker_db_replicas(
         conn: &DBConn,
         network_id: u32,
@@ -1896,7 +1909,8 @@ mod test {
         }
     }
 
-    /// Test storage, retrieval, and mutation of LocalPeer, including its stacker DB contract IDs
+    /// Test storage, retrieval, and mutation of LocalPeer, including its
+    /// stacker DB contract IDs
     #[test]
     fn test_local_peer() {
         let mut db =
@@ -1953,8 +1967,9 @@ mod test {
         assert_eq!(local_peer.stacker_dbs, stackerdbs);
     }
 
-    /// Test PeerDB::insert_or_replace_peer() to verify that PeerDB::get_peer() will fetch the
-    /// latest peer's state.  Tests mutation of peer rows as well.
+    /// Test PeerDB::insert_or_replace_peer() to verify that PeerDB::get_peer()
+    /// will fetch the latest peer's state.  Tests mutation of peer rows as
+    /// well.
     #[test]
     fn test_peer_insert_and_retrieval() {
         let neighbor = Neighbor {
@@ -2031,8 +2046,9 @@ mod test {
         }
     }
 
-    /// Verify that PeerDB::insert_or_replace_peer() will maintain each peer's stacker DB contract
-    /// IDs. New peers' contract IDs get added, and dropped peers' contract IDs get removed.
+    /// Verify that PeerDB::insert_or_replace_peer() will maintain each peer's
+    /// stacker DB contract IDs. New peers' contract IDs get added, and
+    /// dropped peers' contract IDs get removed.
     #[test]
     fn test_insert_or_replace_stacker_dbs() {
         let mut db =
@@ -2169,8 +2185,8 @@ mod test {
         assert_eq!(fetched_stackerdbs, vec![]);
     }
 
-    /// Test PeerDB::try_insert_peer() with no stacker DB contracts.  Simply verifies storage and
-    /// retrieval works.
+    /// Test PeerDB::try_insert_peer() with no stacker DB contracts.  Simply
+    /// verifies storage and retrieval works.
     #[test]
     fn test_try_insert_peer() {
         let neighbor = Neighbor {
@@ -2279,8 +2295,9 @@ mod test {
         }
     }
 
-    /// Test PeerDB::try_insert_peer() with different lists of stacker DB contract IDs.
-    /// Verify that the peer's contract IDs are updated on each call to try_insert_peer()
+    /// Test PeerDB::try_insert_peer() with different lists of stacker DB
+    /// contract IDs. Verify that the peer's contract IDs are updated on
+    /// each call to try_insert_peer()
     #[test]
     fn test_try_insert_peer_with_stackerdbs() {
         let neighbor = Neighbor {
@@ -2480,8 +2497,9 @@ mod test {
         assert_eq!(deleted_stackerdbs.len(), 0);
     }
 
-    /// Test PeerDB::find_stacker_db_replicas().  Verifies that we can find a list of neighbors
-    /// that serve a particular stacker DB, given their contract IDs
+    /// Test PeerDB::find_stacker_db_replicas().  Verifies that we can find a
+    /// list of neighbors that serve a particular stacker DB, given their
+    /// contract IDs
     #[test]
     fn test_find_stacker_db_replicas() {
         let neighbor = Neighbor {
@@ -2786,8 +2804,9 @@ mod test {
         assert_eq!(replicas.len(), 0);
     }
 
-    /// Tests DB instantiation with initial neighbors. Verifies that initial neighbors are present in the
-    /// DB, and can be loaded with PeerDB::get_initial_neighbors()
+    /// Tests DB instantiation with initial neighbors. Verifies that initial
+    /// neighbors are present in the DB, and can be loaded with
+    /// PeerDB::get_initial_neighbors()
     #[test]
     fn test_initial_neighbors() {
         let mut initial_neighbors = vec![];
@@ -2886,8 +2905,9 @@ mod test {
         }
     }
 
-    /// Tests DB instantiation with initial neighbors, and verifies that initial neighbors can be
-    /// queried by epoch -- only peers with the current or newer epoch will be fetched.
+    /// Tests DB instantiation with initial neighbors, and verifies that initial
+    /// neighbors can be queried by epoch -- only peers with the current or
+    /// newer epoch will be fetched.
     #[test]
     fn test_get_neighbors_in_current_epoch() {
         let mut initial_neighbors = vec![];
@@ -3008,7 +3028,8 @@ mod test {
         assert_eq!(n20.len(), 0);
     }
 
-    /// Verifies that PeerDB::asn4_lookup() correctly classifies IPv4 address into their AS numbers
+    /// Verifies that PeerDB::asn4_lookup() correctly classifies IPv4 address
+    /// into their AS numbers
     #[test]
     fn asn4_insert_lookup() {
         let asn4_table = vec![
@@ -3099,8 +3120,8 @@ mod test {
         assert_eq!(asn_missing_opt, None);
     }
 
-    /// Verifies that PeerDB::set_deny_peer() and PeerDB::set_allow_peer() will mark peers'
-    /// `denied` and `allowed` columns appropriately.
+    /// Verifies that PeerDB::set_deny_peer() and PeerDB::set_allow_peer() will
+    /// mark peers' `denied` and `allowed` columns appropriately.
     #[test]
     fn test_peer_preemptive_deny_allow() {
         let mut db =
@@ -3147,8 +3168,8 @@ mod test {
         assert_eq!(allow_cidrs, vec![(PeerAddress([0x2; 16]), 96)]);
     }
 
-    /// Verifies that an IPv4 peer will be treated as denied if its IPv4 CIDR prefix is denied.
-    /// Tests PeerDB::is_address_denied()
+    /// Verifies that an IPv4 peer will be treated as denied if its IPv4 CIDR
+    /// prefix is denied. Tests PeerDB::is_address_denied()
     #[test]
     fn test_peer_is_denied() {
         let mut db =
@@ -3227,8 +3248,9 @@ mod test {
         .unwrap());
     }
 
-    /// Verifies that an IPv4 address can be denied and later allowed by a change in denied/allowed CIDR prefixes.
-    /// Tests that a peer will go from having a positive denied value to a negative denied value
+    /// Verifies that an IPv4 address can be denied and later allowed by a
+    /// change in denied/allowed CIDR prefixes. Tests that a peer will go
+    /// from having a positive denied value to a negative denied value
     /// when its CIDR prefix is explicitly allowed.
     #[test]
     fn test_peer_deny_allow_cidr() {
@@ -3375,9 +3397,10 @@ mod test {
         assert_eq!(n2.denied, 67890);
     }
 
-    /// Tests that PeerDB::refresh_allowed() and PeerDB::refresh_denied() re-apply CIDR allow/deny
-    /// rules to the DB.  Peers that match an allowed CIDR prefix remain allowed (or, if not
-    /// allowed, are marked as allowed), and peers that match a denied CIDR prefix remain denied
+    /// Tests that PeerDB::refresh_allowed() and PeerDB::refresh_denied()
+    /// re-apply CIDR allow/deny rules to the DB.  Peers that match an
+    /// allowed CIDR prefix remain allowed (or, if not allowed, are marked
+    /// as allowed), and peers that match a denied CIDR prefix remain denied
     /// (or are marked as denied if the new prefixes require it).
     #[test]
     fn test_peer_refresh_cidr() {
@@ -3499,8 +3522,8 @@ mod test {
         assert_eq!(n2.allowed, 0);
     }
 
-    /// Test PeerDB::connect() with different private keys.  Verify that LocalPeer reflects the
-    /// latest key.
+    /// Test PeerDB::connect() with different private keys.  Verify that
+    /// LocalPeer reflects the latest key.
     #[test]
     fn test_connect_new_key() {
         let key1 = Secp256k1PrivateKey::random();
@@ -3742,7 +3765,8 @@ mod test {
         tx.commit().unwrap();
     }
 
-    /// Verify that multiple peers with the same public key are coalesced by last-contact-time
+    /// Verify that multiple peers with the same public key are coalesced by
+    /// last-contact-time
     #[test]
     fn test_query_peers() {
         let key = Secp256k1PrivateKey::random();

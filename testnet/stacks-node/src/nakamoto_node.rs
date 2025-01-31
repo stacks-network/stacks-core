@@ -59,8 +59,9 @@ pub const BLOCK_PROCESSOR_STACK_SIZE: usize = 32 * 1024 * 1024; // 32 MB
 pub type BlockCommits = HashSet<Txid>;
 
 /// Node implementation for both miners and followers.
-/// This struct is used to set up the node proper and launch the p2p thread and relayer thread.
-/// It is further used by the main thread to communicate with these two threads.
+/// This struct is used to set up the node proper and launch the p2p thread and
+/// relayer thread. It is further used by the main thread to communicate with
+/// these two threads.
 pub struct StacksNode {
     /// Atlas network configuration
     pub atlas_config: AtlasConfig,
@@ -95,7 +96,8 @@ pub enum Error {
     /// Injected testing errors
     #[error("Injected testing errors")]
     FaultInjection,
-    /// This miner was elected, but another sortition occurred before mining started
+    /// This miner was elected, but another sortition occurred before mining
+    /// started
     #[error("This miner was elected, but another sortition occurred before mining started")]
     MissedMiningOpportunity,
     /// Attempted to mine while there was no active VRF key
@@ -155,7 +157,6 @@ impl StacksNode {
     /// assumes Epoch-2.1 rules for the miner address: if the
     /// node is configured for segwit, then the miner address generated
     /// is a segwit address, otherwise it is a p2pkh.
-    ///
     fn set_monitoring_miner_address(keychain: &Keychain, relayer_thread: &RelayerThread) {
         let public_key = keychain.get_pub_key();
         let miner_addr = relayer_thread
@@ -184,8 +185,8 @@ impl StacksNode {
             keychain.set_nakamoto_sk(mining_key);
         }
 
-        // we can call _open_ here rather than _connect_, since connect is first called in
-        //   make_genesis_block
+        // we can call _open_ here rather than _connect_, since connect is first called
+        // in   make_genesis_block
         let mut sortdb = SortitionDB::open(
             &config.get_burn_db_file_path(),
             true,
@@ -277,9 +278,9 @@ impl StacksNode {
         }
     }
 
-    /// Notify the relayer that a new burn block has been processed by the sortition db,
-    ///  telling it to process the block and begin mining if this miner won.
-    /// returns _false_ if the relayer hung up the channel.
+    /// Notify the relayer that a new burn block has been processed by the
+    /// sortition db,  telling it to process the block and begin mining if
+    /// this miner won. returns _false_ if the relayer hung up the channel.
     /// Called from the main thread.
     fn relayer_burnchain_notify(&self, snapshot: BlockSnapshot) -> Result<(), Error> {
         if !self.is_miner {
@@ -311,10 +312,10 @@ impl StacksNode {
         Ok(())
     }
 
-    /// Process a state coming from the burnchain, by extracting the validated KeyRegisterOp
-    /// and inspecting if a sortition was won.
-    /// `ibd`: boolean indicating whether or not we are in the initial block download
-    /// Called from the main thread.
+    /// Process a state coming from the burnchain, by extracting the validated
+    /// KeyRegisterOp and inspecting if a sortition was won.
+    /// `ibd`: boolean indicating whether or not we are in the initial block
+    /// download Called from the main thread.
     pub fn process_burnchain_state(
         &mut self,
         config: &Config,

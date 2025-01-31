@@ -37,11 +37,13 @@ use crate::neon_node::open_chainstate_with_faults;
 use crate::run_loop::nakamoto::{Globals, RunLoop};
 use crate::{Config, EventDispatcher};
 
-/// Thread that runs the network state machine, handling both p2p and http requests.
+/// Thread that runs the network state machine, handling both p2p and http
+/// requests.
 pub struct PeerThread {
     /// Node config
     config: Config,
-    /// instance of the peer network. Made optional in order to trick the borrow checker.
+    /// instance of the peer network. Made optional in order to trick the borrow
+    /// checker.
     net: PeerNetwork,
     /// handle to global inter-thread comms
     globals: Globals,
@@ -56,16 +58,17 @@ pub struct PeerThread {
     /// Buffered network result relayer command.
     /// P2P network results are consolidated into a single directive.
     results_with_data: Option<RelayerDirective>,
-    /// total number of p2p state-machine passes so far. Used to signal when to download the next
-    /// reward cycle of blocks
+    /// total number of p2p state-machine passes so far. Used to signal when to
+    /// download the next reward cycle of blocks
     num_p2p_state_machine_passes: u64,
-    /// total number of inventory state-machine passes so far. Used to signal when to download the
-    /// next reward cycle of blocks.
+    /// total number of inventory state-machine passes so far. Used to signal
+    /// when to download the next reward cycle of blocks.
     num_inv_sync_passes: u64,
-    /// total number of download state-machine passes so far. Used to signal when to download the
-    /// next reward cycle of blocks.
+    /// total number of download state-machine passes so far. Used to signal
+    /// when to download the next reward cycle of blocks.
     num_download_passes: u64,
-    /// last burnchain block seen in the PeerNetwork's chain view since the last run
+    /// last burnchain block seen in the PeerNetwork's chain view since the last
+    /// run
     last_burn_block_height: u64,
 }
 
@@ -90,8 +93,8 @@ impl PeerThread {
                 .unwrap();
         }
 
-        // NOTE: these must be instantiated in the thread context, since it can't be safely sent
-        // between threads
+        // NOTE: these must be instantiated in the thread context, since it can't be
+        // safely sent between threads
         let fee_estimator_opt = self.config.make_fee_estimator();
         let cost_estimator = self
             .config
@@ -138,9 +141,9 @@ impl PeerThread {
     }
 
     /// Instantiate the p2p thread.
-    /// Binds the addresses in the config (which may panic if the port is blocked).
-    /// This is so the node will crash "early" before any new threads start if there's going to be
-    /// a bind error anyway.
+    /// Binds the addresses in the config (which may panic if the port is
+    /// blocked). This is so the node will crash "early" before any new
+    /// threads start if there's going to be a bind error anyway.
     pub fn new(runloop: &RunLoop, net: PeerNetwork) -> PeerThread {
         Self::new_all(
             runloop.get_globals(),
@@ -263,8 +266,8 @@ impl PeerThread {
 
         // do one pass
         let p2p_res = {
-            // NOTE: handler_args must be created such that it outlives the inner net.run() call and
-            // doesn't ref anything within p2p_thread.
+            // NOTE: handler_args must be created such that it outlives the inner net.run()
+            // call and doesn't ref anything within p2p_thread.
             let handler_args = RPCHandlerArgs {
                 exit_at_block_height: self.config.burnchain.process_exit_at_block_height,
                 genesis_chainstate_hash: Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH)
@@ -330,8 +333,8 @@ impl PeerThread {
         };
 
         if let Some(next_result) = self.results_with_data.take() {
-            // have blocks, microblocks, and/or transactions (don't care about anything else),
-            // or a directive to mine microblocks
+            // have blocks, microblocks, and/or transactions (don't care about anything
+            // else), or a directive to mine microblocks
             self.globals.raise_initiative(
                 "PeerThread::run_one_pass() with backlogged network results".to_string(),
             );

@@ -36,8 +36,8 @@ use crate::net::{
     StacksMessage, StacksMessageType, NUM_NEIGHBORS,
 };
 
-/// A trait for representing session state for a set of connected neighbors, for the purposes of executing some P2P
-/// algorithm.
+/// A trait for representing session state for a set of connected neighbors, for
+/// the purposes of executing some P2P algorithm.
 pub trait NeighborComms {
     /// Add a neighbor and its event ID as connecting
     fn add_connecting<NK: ToNeighborKey>(
@@ -128,8 +128,8 @@ pub trait NeighborComms {
             })
     }
 
-    /// Connect to a neighbor if we're not connected yet, and send it a handshake.
-    /// Returns Ok(Some(handle)) if the handshake is now sending
+    /// Connect to a neighbor if we're not connected yet, and send it a
+    /// handshake. Returns Ok(Some(handle)) if the handshake is now sending
     /// Returns Ok(None) if we're still connecting. The caller should try again.
     /// Returns Err(..) if connection or sending failed for some reason.
     fn neighbor_connect_and_handshake<NK: ToNeighborKey>(
@@ -209,16 +209,17 @@ pub trait NeighborComms {
         }
     }
 
-    /// Connect to a remote neighbor, and get back a reply handle which we can use to wait for a
-    /// handshake response.  If the neighbor is already connected, then just send a handshake.
+    /// Connect to a remote neighbor, and get back a reply handle which we can
+    /// use to wait for a handshake response.  If the neighbor is already
+    /// connected, then just send a handshake.
     ///
-    /// Normally, the caller would track the returned reply handle with a call to
-    /// `add_batch_request()`.  However, this is ommitted here for callers who want to do their own
-    /// polling.
+    /// Normally, the caller would track the returned reply handle with a call
+    /// to `add_batch_request()`.  However, this is ommitted here for
+    /// callers who want to do their own polling.
     ///
     /// Return Ok(Some(handle)) if we connected.
-    /// Return Ok(None) if we're in the process of connecting, and should try again.
-    /// Return Err(..) if we fail
+    /// Return Ok(None) if we're in the process of connecting, and should try
+    /// again. Return Err(..) if we fail
     fn neighbor_session_begin_only<NK: ToNeighborKey>(
         &mut self,
         network: &mut PeerNetwork,
@@ -273,11 +274,13 @@ pub trait NeighborComms {
     }
 
     /// Connect to a remote neighbor, optionally connecting to it first.
-    /// If successful, a Handshake message will be sent, and the returned HandshakeAccept or
-    /// HandshakeReject can be obtained with a follow up call to `collect_replies()`
+    /// If successful, a Handshake message will be sent, and the returned
+    /// HandshakeAccept or HandshakeReject can be obtained with a follow up
+    /// call to `collect_replies()`
     ///
     /// Return Ok(true) if we connected.
-    /// Return Ok(false) if we're in the process of connecting, and should try again.
+    /// Return Ok(false) if we're in the process of connecting, and should try
+    /// again.
     fn neighbor_session_begin(
         &mut self,
         network: &mut PeerNetwork,
@@ -301,8 +304,8 @@ pub trait NeighborComms {
     /// Fails if the neighbor is not connected.
     ///
     /// If successful, the caller usually calls `add_batch_request()`.  This
-    /// is not carried out here because the caller may instead want to do a blocking wait
-    /// with the given reply handle (or do its own batching).
+    /// is not carried out here because the caller may instead want to do a
+    /// blocking wait with the given reply handle (or do its own batching).
     fn neighbor_send_only<NK: ToNeighborKey>(
         network: &mut PeerNetwork,
         neighbor_addr: &NK,
@@ -330,8 +333,8 @@ pub trait NeighborComms {
 
     /// Try to receive a message from a peer handle.
     /// On success, consume the reply handle and return the StacksMessage.
-    /// On error, either return the reply handle so we can try again, or return an error if we
-    /// encounter an irrecoverable failure.
+    /// On error, either return the reply handle so we can try again, or return
+    /// an error if we encounter an irrecoverable failure.
     fn neighbor_try_recv(
         &mut self,
         network: &mut PeerNetwork,
@@ -362,10 +365,11 @@ pub trait NeighborComms {
     }
 
     /// Get the next message from the given reply handle option.
-    /// If the next message is obtained, then the reply handle option is set to None.
-    /// If the next message is not obtained, but the reply is still in-flight, then capture and
-    /// preserve the reply handle in the given argument. The caller should try again later.
-    /// If there was an error, then the reply handle option is set to None and an error is
+    /// If the next message is obtained, then the reply handle option is set to
+    /// None. If the next message is not obtained, but the reply is still
+    /// in-flight, then capture and preserve the reply handle in the given
+    /// argument. The caller should try again later. If there was an error,
+    /// then the reply handle option is set to None and an error is
     /// returned. The given NeighborKey is marked as dead.
     fn poll_next_reply<NK: ToNeighborKey>(
         &mut self,
@@ -420,15 +424,18 @@ pub trait NeighborComms {
 /// Transport-level API for peer network state machines.
 /// Prod implementation of NeighborComms.
 pub struct PeerNetworkComms {
-    /// Set of PeerNetwork event IDs that this walk is tracking (so they won't get pruned)
+    /// Set of PeerNetwork event IDs that this walk is tracking (so they won't
+    /// get pruned)
     events: HashSet<usize>,
-    /// Map of neighbors we're currently trying to connect to (binds their addresses to their event IDs)
+    /// Map of neighbors we're currently trying to connect to (binds their
+    /// addresses to their event IDs)
     connecting: HashMap<NeighborKey, usize>,
     /// Set of neighbors that died during our comms session
     dead_connections: HashSet<NeighborKey>,
     /// Set of neighbors who misbehaved during our comms session
     broken_connections: HashSet<NeighborKey>,
-    /// Ongoing batch of p2p requests.  Will be `None` if there are no inflight requests.
+    /// Ongoing batch of p2p requests.  Will be `None` if there are no inflight
+    /// requests.
     ongoing_batch_request: Option<NeighborCommsRequest>,
 }
 
@@ -443,8 +450,9 @@ impl PeerNetworkComms {
         }
     }
 
-    /// Drive socket I/O on all outstanding messages and gather up any received messages.
-    /// Remove handled messages from `state`, and perform the polling (and bookkeeping of dead/broken neighbors) via `neighbor_set`
+    /// Drive socket I/O on all outstanding messages and gather up any received
+    /// messages. Remove handled messages from `state`, and perform the
+    /// polling (and bookkeeping of dead/broken neighbors) via `neighbor_set`
     fn drive_socket_io<NS: NeighborComms>(
         network: &mut PeerNetwork,
         state: &mut HashMap<NeighborAddress, ReplyHandleP2P>,
@@ -515,7 +523,8 @@ impl NeighborComms for PeerNetworkComms {
         self.connecting.remove(&nk.to_neighbor_key(network));
     }
 
-    /// Remove a connecting neighbor due to an error.  The connection will be unpinned.
+    /// Remove a connecting neighbor due to an error.  The connection will be
+    /// unpinned.
     fn remove_connecting_error<NK: ToNeighborKey>(&mut self, network: &PeerNetwork, nk: &NK) {
         let event_id_opt = self.connecting.remove(&nk.to_neighbor_key(network));
         if let Some(event_id) = event_id_opt {
@@ -613,8 +622,8 @@ impl NeighborComms for PeerNetworkComms {
     }
 }
 
-/// This is a helper trait to ensure that a given struct can be turned into a NeighborKey for the
-/// purposes of maintaining the active peer set
+/// This is a helper trait to ensure that a given struct can be turned into a
+/// NeighborKey for the purposes of maintaining the active peer set
 pub trait ToNeighborKey {
     fn to_neighbor_key(&self, network: &PeerNetwork) -> NeighborKey;
 }
@@ -628,10 +637,11 @@ impl ToNeighborKey for NeighborKey {
 impl ToNeighborKey for NeighborAddress {
     fn to_neighbor_key(&self, network: &PeerNetwork) -> NeighborKey {
         // NOTE: PartialEq and Hash for NeighborKey ignore the low bits of peer version
-        // and ignore network ID, and the ConversationP2P ensures that we never even connect
-        // to a node with the wrong network ID or wrong peer version bits anyway, so
-        // it's safe to use the local node's copies of this data to construct a
-        // NeighborKey for the purposes of later disconnecting from it.
+        // and ignore network ID, and the ConversationP2P ensures that we never even
+        // connect to a node with the wrong network ID or wrong peer version
+        // bits anyway, so it's safe to use the local node's copies of this data
+        // to construct a NeighborKey for the purposes of later disconnecting
+        // from it.
         NeighborKey::from_neighbor_address(
             network.bound_neighbor_key().peer_version,
             network.bound_neighbor_key().network_id,
@@ -640,8 +650,8 @@ impl ToNeighborKey for NeighborAddress {
     }
 }
 
-/// This struct represents a batch of in-flight requests to a set of peers, identified by a
-/// neighbor key (or something that converts to it)
+/// This struct represents a batch of in-flight requests to a set of peers,
+/// identified by a neighbor key (or something that converts to it)
 #[derive(Debug)]
 pub struct NeighborCommsRequest {
     state: HashMap<NeighborAddress, ReplyHandleP2P>,
@@ -659,7 +669,8 @@ impl NeighborCommsRequest {
     }
 
     /// Is a given message too stale to be acted upon?
-    /// This would be true if the node's reported burnchain block height is too far in the past.
+    /// This would be true if the node's reported burnchain block height is too
+    /// far in the past.
     pub fn is_message_stale(msg: &StacksMessage, burn_block_height: u64) -> bool {
         msg.preamble.burn_stable_block_height + MAX_NEIGHBOR_BLOCK_DELAY < burn_block_height
     }

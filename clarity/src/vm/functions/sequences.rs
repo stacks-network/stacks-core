@@ -123,8 +123,8 @@ pub fn special_map(
     let function = lookup_function(function_name, env)?;
 
     // Let's consider a function f (f a b c ...)
-    // We will first re-arrange our sequences [a0, a1, ...] [b0, b1, ...] [c0, c1, ...] ...
-    // To get something like: [a0, b0, c0, ...] [a1, b1, c1, ...]
+    // We will first re-arrange our sequences [a0, a1, ...] [b0, b1, ...] [c0, c1,
+    // ...] ... To get something like: [a0, b0, c0, ...] [a1, b1, c1, ...]
     let mut mapped_func_args = vec![];
     let mut min_args_len = usize::MAX;
     for map_arg in args[1..].iter() {
@@ -374,7 +374,8 @@ pub fn special_slice(
                         _ => return Ok(Value::none()),
                     };
 
-                // Perform bound checks. Not necessary to check if positions are less than 0 since the vars are unsigned.
+                // Perform bound checks. Not necessary to check if positions are less than 0
+                // since the vars are unsigned.
                 if left_position as usize >= seq.len() || right_position as usize > seq.len() {
                     return Ok(Value::none());
                 }

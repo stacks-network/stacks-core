@@ -340,8 +340,8 @@ pub mod test_observer {
         Ok(warp::http::StatusCode::OK)
     }
 
-    /// Called by the process listening to events on a mined microblock event. The event is added
-    /// to the mutex-guarded vector `MINED_MICROBLOCKS`.
+    /// Called by the process listening to events on a mined microblock event.
+    /// The event is added to the mutex-guarded vector `MINED_MICROBLOCKS`.
     async fn handle_mined_microblock(
         tx_event: serde_json::Value,
     ) -> Result<impl warp::Reply, Infallible> {
@@ -480,7 +480,8 @@ pub mod test_observer {
         PROPOSAL_RESPONSES.lock().unwrap().clone()
     }
 
-    /// each path here should correspond to one of the paths listed in `event_dispatcher.rs`
+    /// each path here should correspond to one of the paths listed in
+    /// `event_dispatcher.rs`
     async fn serve(port: u16) {
         let new_blocks = warp::path!("new_block")
             .and(warp::post())
@@ -579,8 +580,8 @@ pub mod test_observer {
         PROPOSAL_RESPONSES.lock().unwrap().clear();
     }
 
-    /// Parse the StacksTransactions from a block (does not include burn ops or phantom txs)
-    ///  panics on any failures to parse
+    /// Parse the StacksTransactions from a block (does not include burn ops or
+    /// phantom txs)  panics on any failures to parse
     pub fn parse_transactions(block: &serde_json::Value) -> Vec<StacksTransaction> {
         block
             .get("transactions")
@@ -609,7 +610,8 @@ pub mod test_observer {
     }
 
     /// Get missing burn blocks for a given height range
-    /// Returns Ok(..) if lookup is sucessful, whether there are missing blocks or not
+    /// Returns Ok(..) if lookup is sucessful, whether there are missing blocks
+    /// or not
     pub fn get_missing_burn_blocks(range: impl RangeBounds<u64>) -> Result<Vec<u64>, String> {
         // Get set of all burn block heights
         let burn_block_heights = get_blocks()
@@ -637,7 +639,8 @@ pub mod test_observer {
         Ok(missing)
     }
 
-    /// Similar to `missing_burn_blocks()` but returns `Err(..)` if blocks are missing
+    /// Similar to `missing_burn_blocks()` but returns `Err(..)` if blocks are
+    /// missing
     pub fn contains_burn_block_range(range: impl RangeBounds<u64> + Clone) -> Result<(), String> {
         let missing = self::get_missing_burn_blocks(range.clone())?;
 
@@ -732,8 +735,8 @@ pub fn next_block_and_iterate(
     true
 }
 
-/// This function will call `next_block_and_wait` until the burnchain height underlying `BitcoinRegtestController`
-/// reaches *exactly* `target_height`.
+/// This function will call `next_block_and_wait` until the burnchain height
+/// underlying `BitcoinRegtestController` reaches *exactly* `target_height`.
 ///
 /// Returns `false` if `next_block_and_wait` times out.
 pub fn run_until_burnchain_height(
@@ -775,8 +778,8 @@ pub fn wait_for_runloop(blocks_processed: &Arc<AtomicU64>) {
     }
 }
 
-/// Wait for at least one microblock to be mined, up to a given timeout (in seconds).
-/// Returns true if the microblock was mined; false if we timed out.
+/// Wait for at least one microblock to be mined, up to a given timeout (in
+/// seconds). Returns true if the microblock was mined; false if we timed out.
 pub fn wait_for_microblocks(microblocks_processed: &Arc<AtomicU64>, timeout: u64) -> bool {
     let mut current = microblocks_processed.load(Ordering::SeqCst);
     let start = Instant::now();
@@ -1184,7 +1187,8 @@ fn confirm_unparsed_ongoing_ops() {
     // this block will hold our VRF registration
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    // second bitcoin block will contain the first mined Stacks block, and then issue a 2nd valid commit
+    // second bitcoin block will contain the first mined Stacks block, and then
+    // issue a 2nd valid commit
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // now, let's alter the miner's magic bytes
@@ -1193,8 +1197,9 @@ fn confirm_unparsed_ongoing_ops() {
         .unwrap()
         .replace([b'Z', b'Z']);
 
-    // let's trigger another mining loop: this should create an invalid block commit.
-    // this bitcoin block will contain the valid commit created before (so, a second stacks block)
+    // let's trigger another mining loop: this should create an invalid block
+    // commit. this bitcoin block will contain the valid commit created before
+    // (so, a second stacks block)
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // reset the miner's magic bytes
@@ -1204,14 +1209,14 @@ fn confirm_unparsed_ongoing_ops() {
         .take()
         .unwrap();
 
-    // trigger another mining loop: this will mine the invalid block commit into a bitcoin block
-    //  if the block wasn't created in 25 seconds, just timeout -- the test will fail
-    //  at the final checks
+    // trigger another mining loop: this will mine the invalid block commit into a
+    // bitcoin block  if the block wasn't created in 25 seconds, just timeout --
+    // the test will fail  at the final checks
     // in correct behavior, this will create a 3rd valid block commit
     next_block_and_wait_with_timeout(&mut btc_regtest_controller, &blocks_processed, 25);
 
-    // trigger another mining loop: this will mine the last valid block commit. after this,
-    //  the node *should* see 3 stacks blocks.
+    // trigger another mining loop: this will mine the last valid block commit.
+    // after this,  the node *should* see 3 stacks blocks.
     next_block_and_wait_with_timeout(&mut btc_regtest_controller, &blocks_processed, 25);
 
     // query the miner's account nonce
@@ -1319,8 +1324,8 @@ fn most_recent_utxo_integration_test() {
     assert_ne!(biggest_utxo, last_utxo);
     assert_ne!(biggest_utxo, smallest_utxo);
 
-    // third block will be the second mined Stacks block, and mining it should *not* spend the
-    // biggest UTXO, but should spend the *smallest non-dust* UTXO
+    // third block will be the second mined Stacks block, and mining it should *not*
+    // spend the biggest UTXO, but should spend the *smallest non-dust* UTXO
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let utxos_after = btc_regtest_controller.get_all_utxos(&pubkey);
@@ -1758,8 +1763,8 @@ fn liquid_ustx_integration() {
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    // clear and mine another burnchain block, so that the new winner is seen by the observer
-    //   (the observer is logically "one block behind" the miner
+    // clear and mine another burnchain block, so that the new winner is seen by the
+    // observer   (the observer is logically "one block behind" the miner
     test_observer::clear();
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -1839,7 +1844,8 @@ fn lockup_integration() {
     // 3QsabRcGFfw3B9rNpEcW9rN6twjZGwNz5s,13888888889,1
     // 3QsabRcGFfw3B9rNpEcW9rN6twjZGwNz5s,13888888889,3
     // 3QsabRcGFfw3B9rNpEcW9rN6twjZGwNz5s,13888888889,3
-    // 3QsabRcGFfw3B9rNpEcW9rN6twjZGwNz5s -> SN3Z4MMRJ29FVZB38FGYPE94N1D8ZGF55R7YWH00A
+    // 3QsabRcGFfw3B9rNpEcW9rN6twjZGwNz5s ->
+    // SN3Z4MMRJ29FVZB38FGYPE94N1D8ZGF55R7YWH00A
     let recipient_addr_str = "SN3Z4MMRJ29FVZB38FGYPE94N1D8ZGF55R7YWH00A";
     let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
 
@@ -1873,7 +1879,8 @@ fn lockup_integration() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     assert_eq!(get_balance(&http_origin, &recipient), 13888888889 * 3);
 
-    // now let's ensure that the last block received by the event observer contains the lockup receipt
+    // now let's ensure that the last block received by the event observer contains
+    // the lockup receipt
     let blocks = test_observer::get_blocks();
     let chain_tip = blocks.last().unwrap();
 
@@ -2014,7 +2021,8 @@ fn stx_transfer_btc_integration_test() {
             .is_ok(),
         "Transfer operation should submit successfully"
     );
-    // should be elected in the same block as the transfer, so balances should be unchanged.
+    // should be elected in the same block as the transfer, so balances should be
+    // unchanged.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     assert_eq!(get_balance(&http_origin, &spender_addr), 100300);
     assert_eq!(get_balance(&http_origin, &recipient_addr), 0);
@@ -2027,8 +2035,8 @@ fn stx_transfer_btc_integration_test() {
     assert_eq!(get_balance(&http_origin, &spender_2_addr), 100_300);
 
     // now let's do a pre-stx-op and a transfer op in the same burnchain block...
-    // NOTE: bitcoind really doesn't want to return the utxo from the first op for some reason,
-    //    so we have to get a little creative...
+    // NOTE: bitcoind really doesn't want to return the utxo from the first op for
+    // some reason,    so we have to get a little creative...
 
     // okay, let's send a pre-stx op.
     let pre_stx_op = PreStxOp {
@@ -2083,7 +2091,8 @@ fn stx_transfer_btc_integration_test() {
         )
         .expect("Transfer operation should submit successfully");
 
-    // should be elected in the same block as the transfer, so balances should be unchanged.
+    // should be elected in the same block as the transfer, so balances should be
+    // unchanged.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     assert_eq!(get_balance(&http_origin, &spender_addr), 300);
@@ -2283,7 +2292,8 @@ fn stx_delegate_btc_integration_test() {
         "Delegate operation should submit successfully"
     );
 
-    // the second block should process the delegation, after which the balaces should be unchanged
+    // the second block should process the delegation, after which the balaces
+    // should be unchanged
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -2343,7 +2353,8 @@ fn stx_delegate_btc_integration_test() {
                 assert_eq!(sub_type, "print");
 
                 // Ensure that the function name is as expected
-                // This verifies that there were print events for delegate-stack-stx and delegate-stx
+                // This verifies that there were print events for delegate-stack-stx and
+                // delegate-stx
                 let name_field =
                     &contract_event["value"]["Response"]["data"]["Tuple"]["data_map"]["name"];
                 let name_data = name_field["Sequence"]["String"]["ASCII"]["data"]
@@ -2622,7 +2633,8 @@ fn stack_stx_burn_op_test() {
         "reward_cycle" => reward_cycle,
     );
 
-    // `stacked_ustx` should be large enough to avoid ERR_STACKING_THRESHOLD_NOT_MET from Clarity
+    // `stacked_ustx` should be large enough to avoid ERR_STACKING_THRESHOLD_NOT_MET
+    // from Clarity
     let stack_stx_op_with_some_signer_key = BlockstackOperationType::StackStx(StackStxOp {
         sender: spender_stx_addr_1,
         reward_addr: pox_addr.clone(),
@@ -2681,7 +2693,8 @@ fn stack_stx_burn_op_test() {
 
     info!("Submitted 2 stack STX ops at height {block_height}, mining a few blocks...");
 
-    // the second block should process the vote, after which the balaces should be unchanged
+    // the second block should process the vote, after which the balaces should be
+    // unchanged
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -3038,7 +3051,8 @@ fn vote_for_aggregate_key_burn_op_test() {
 
     info!("Submitted vote for aggregate key op at height {block_height}, mining a few blocks...");
 
-    // the second block should process the vote, after which the vote should be processed
+    // the second block should process the vote, after which the vote should be
+    // processed
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -3140,9 +3154,9 @@ fn bitcoind_resubmission_test() {
     // let's figure out the current chain tip
     let chain_tip = get_chain_tip(&http_origin);
 
-    // HACK: this test relies on manually inserting a bad microblock into the chain state.
-    //  this behavior is not guaranteed to continue to work like this, so at some point this
-    //  test will need to be updated to handle that.
+    // HACK: this test relies on manually inserting a bad microblock into the chain
+    // state.  this behavior is not guaranteed to continue to work like this, so
+    // at some point this  test will need to be updated to handle that.
     {
         let (mut chainstate, _) = StacksChainState::open(
             false,
@@ -3373,10 +3387,16 @@ fn should_fix_2771() {
     // a longer fork with N blocks (as done in the bitcoind_forking_test)
     // we slowly add some more blocks.
     // Without the patch, this behavior ends up crashing the node with errors like:
-    // WARN [1626791307.078061] [src/chainstate/coordinator/mod.rs:535] [chains-coordinator] ChainsCoordinator: could not retrieve  block burnhash=40bdbf0dda349642bdf4dd30dd31af4f0c9979ce12a7c17485245d0a6ddd970b
-    // WARN [1626791307.078098] [src/chainstate/coordinator/mod.rs:308] [chains-coordinator] Error processing new burn block: NonContiguousBurnchainBlock(UnknownBlock(40bdbf0dda349642bdf4dd30dd31af4f0c9979ce12a7c17485245d0a6ddd970b))
-    // And the burnchain db ends up in the same state we ended up while investigating 2771.
-    // With this patch, the node is able to entirely register this new canonical fork, and then able to make progress and finish successfully.
+    // WARN [1626791307.078061] [src/chainstate/coordinator/mod.rs:535]
+    // [chains-coordinator] ChainsCoordinator: could not retrieve  block
+    // burnhash=40bdbf0dda349642bdf4dd30dd31af4f0c9979ce12a7c17485245d0a6ddd970b
+    // WARN [1626791307.078098] [src/chainstate/coordinator/mod.rs:308]
+    // [chains-coordinator] Error processing new burn block:
+    // NonContiguousBurnchainBlock(UnknownBlock(40bdbf0dda349642bdf4dd30dd31af4f0c9979ce12a7c17485245d0a6ddd970b))
+    // And the burnchain db ends up in the same state we ended up while
+    // investigating 2771. With this patch, the node is able to entirely
+    // register this new canonical fork, and then able to make progress and finish
+    // successfully.
     for _i in 0..3 {
         btc_regtest_controller.build_next_block(1);
         thread::sleep(Duration::from_secs(30));
@@ -3385,8 +3405,8 @@ fn should_fix_2771() {
     channel.stop_chains_coordinator();
 }
 
-/// Returns a StacksMicroblock with the given transactions, sequence, and parent block that is
-/// signed with the given private key.
+/// Returns a StacksMicroblock with the given transactions, sequence, and parent
+/// block that is signed with the given private key.
 fn make_signed_microblock(
     block_privk: &StacksPrivateKey,
     txs: Vec<StacksTransaction>,
@@ -3485,8 +3505,8 @@ fn microblock_fork_poison_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     sleep_ms(10_000);
 
-    // turn off the miner for now, so we can ensure both of these get accepted and preprocessed
-    // before we try and mine an anchor block that confirms them
+    // turn off the miner for now, so we can ensure both of these get accepted and
+    // preprocessed before we try and mine an anchor block that confirms them
     eprintln!("Disable miner");
     signal_mining_blocked(miner_status.clone());
     sleep_ms(10_000);
@@ -3574,8 +3594,8 @@ fn microblock_fork_poison_integration_test() {
             &first_microblock.block_hash()
         );
 
-        // NOTE: this microblock conflicts because it has the same parent as the first microblock,
-        // even though it's seq is different.
+        // NOTE: this microblock conflicts because it has the same parent as the first
+        // microblock, even though it's seq is different.
         let second_microblock =
             make_signed_microblock(&privk, vec![second_unconfirmed_tx], stacks_tip, 1);
 
@@ -3760,7 +3780,8 @@ fn microblock_integration_test() {
     info!("Try to mine a microblock-only tx");
 
     // now let's mine a couple blocks, and then check the sender's nonce.
-    // this one wakes up our node, so that it'll mine a microblock _and_ an anchor block.
+    // this one wakes up our node, so that it'll mine a microblock _and_ an anchor
+    // block.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     sleep_ms(10_000);
 
@@ -3935,8 +3956,8 @@ fn microblock_integration_test() {
     let stacks_id_tip =
         StacksBlockHeader::make_index_block_hash(&stacks_tip_consensus_hash, &stacks_tip);
 
-    // todo - pipe in the PoxSyncWatchdog to the RunLoop struct to avoid flakiness here
-    // wait at least two p2p refreshes so it can produce the microblock
+    // todo - pipe in the PoxSyncWatchdog to the RunLoop struct to avoid flakiness
+    // here wait at least two p2p refreshes so it can produce the microblock
     for i in 0..30 {
         info!(
             "wait {} more seconds for microblock miner to find our transaction...",
@@ -4274,8 +4295,8 @@ fn filter_low_fee_tx_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    // First five accounts have a transaction. The miner will consider low fee transactions,
-    //  but rank by estimated fee rate.
+    // First five accounts have a transaction. The miner will consider low fee
+    // transactions,  but rank by estimated fee rate.
     // Last five accounts have transaction
     for spender_addr in &spender_addrs {
         let account = get_account(&http_origin, spender_addr);
@@ -4418,15 +4439,16 @@ fn miner_submit_twice() {
 
     // note: this test depends on timing of how long it takes to assemble a block,
     //  but it won't flake if the miner behaves correctly: a correct miner should
-    //  always be able to mine both transactions by the end of this test. an incorrect
-    //  miner may sometimes pass this test though, if they can successfully mine a
-    //  2-transaction block in 20 ms *OR* if they are slow enough that they mine a
-    //  0-transaction block in that time (because this would trigger a re-attempt, which
-    //  is exactly what this test is measuring).
+    //  always be able to mine both transactions by the end of this test. an
+    // incorrect  miner may sometimes pass this test though, if they can
+    // successfully mine a  2-transaction block in 20 ms *OR* if they are slow
+    // enough that they mine a  0-transaction block in that time (because this
+    // would trigger a re-attempt, which  is exactly what this test is
+    // measuring).
     //
-    // The "fixed" behavior is the corner case where a miner did a "first attempt", which
-    //  included 1 or more transaction, but they could have made a second attempt with
-    //  more transactions.
+    // The "fixed" behavior is the corner case where a miner did a "first attempt",
+    // which  included 1 or more transaction, but they could have made a second
+    // attempt with  more transactions.
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -4590,12 +4612,14 @@ fn size_check_integration_test() {
 
     for i in 0..100 {
         // now let's mine a couple blocks, and then check the sender's nonce.
-        //  at the end of mining three blocks, there should be _at least one_ transaction from the microblock
-        //  only set that got mined (since the block before this one was empty, a microblock can
-        //  be added),
-        //  and a number of transactions from equal to the number anchor blocks will get mined.
+        //  at the end of mining three blocks, there should be _at least one_
+        // transaction from the microblock  only set that got mined (since the
+        // block before this one was empty, a microblock can  be added),
+        //  and a number of transactions from equal to the number anchor blocks will get
+        // mined.
         //
-        // this one wakes up our node, so that it'll mine a microblock _and_ an anchor block.
+        // this one wakes up our node, so that it'll mine a microblock _and_ an anchor
+        // block.
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         // this one will contain the sortition from above anchor block,
         //    which *should* have also confirmed the microblock.
@@ -4635,8 +4659,8 @@ fn size_check_integration_test() {
     channel.stop_chains_coordinator();
 }
 
-// if a microblock consumes the majority of the block budget, then _only_ a microblock will be
-// mined for an epoch.
+// if a microblock consumes the majority of the block budget, then _only_ a
+// microblock will be mined for an epoch.
 #[test]
 #[ignore]
 fn size_overflow_unconfirmed_microblocks_integration_test() {
@@ -4767,12 +4791,14 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     }
 
     // now let's mine a couple blocks, and then check the sender's nonce.
-    //  at the end of mining three blocks, there should be _two_ transactions from the microblock
-    //  only set that got mined (since the block before this one was empty, a microblock can
-    //  be added),
-    //  and _two_ transactions from the two anchor blocks that got mined (and processed)
+    //  at the end of mining three blocks, there should be _two_ transactions from
+    // the microblock  only set that got mined (since the block before this one
+    // was empty, a microblock can  be added),
+    //  and _two_ transactions from the two anchor blocks that got mined (and
+    // processed)
     //
-    // this one wakes up our node, so that it'll mine a microblock _and_ an anchor block.
+    // this one wakes up our node, so that it'll mine a microblock _and_ an anchor
+    // block.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     // this one will contain the sortition from above anchor block,
     //    which *should* have also confirmed the microblock.
@@ -4847,7 +4873,8 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     channel.stop_chains_coordinator();
 }
 
-// mine a stream of microblocks, and verify that the miner won't let us overflow the size
+// mine a stream of microblocks, and verify that the miner won't let us overflow
+// the size
 #[test]
 #[ignore]
 fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
@@ -5024,8 +5051,8 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
     channel.stop_chains_coordinator();
 }
 
-// Mine a too-long microblock stream, and verify that the anchored block miner truncates it down to
-// the longest prefix of the stream that can be mined.
+// Mine a too-long microblock stream, and verify that the anchored block miner
+// truncates it down to the longest prefix of the stream that can be mined.
 #[test]
 #[ignore]
 fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
@@ -5398,12 +5425,14 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
     sleep_ms(150_000);
 
     // now let's mine a couple blocks, and then check the sender's nonce.
-    //  at the end of mining three blocks, there should be _two_ transactions from the microblock
-    //  only set that got mined (since the block before this one was empty, a microblock can
-    //  be added),
-    //  and _two_ transactions from the two anchor blocks that got mined (and processed)
+    //  at the end of mining three blocks, there should be _two_ transactions from
+    // the microblock  only set that got mined (since the block before this one
+    // was empty, a microblock can  be added),
+    //  and _two_ transactions from the two anchor blocks that got mined (and
+    // processed)
     //
-    // this one wakes up our node, so that it'll mine a microblock _and_ an anchor block.
+    // this one wakes up our node, so that it'll mine a microblock _and_ an anchor
+    // block.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     // this one will contain the sortition from above anchor block,
     //    which *should* have also confirmed the microblock.
@@ -5472,9 +5501,9 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
     assert_eq!(max_big_txs_per_block, 1);
 
     // if the mblock stream has a big tx, the anchored block won't (and vice versa)
-    // the changes for miner cost tracking (reset tracker between microblock and block, #2913)
-    // altered this test so that one more big tx ends up in an anchored block and one fewer
-    // ends up in a microblock
+    // the changes for miner cost tracking (reset tracker between microblock and
+    // block, #2913) altered this test so that one more big tx ends up in an
+    // anchored block and one fewer ends up in a microblock
     assert_eq!(total_big_txs_in_blocks, 2);
     assert_eq!(total_big_txs_in_microblocks, 1);
 
@@ -5758,8 +5787,8 @@ fn cost_voting_integration() {
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    // clear and mine another burnchain block, so that the new winner is seen by the observer
-    //   (the observer is logically "one block behind" the miner
+    // clear and mine another burnchain block, so that the new winner is seen by the
+    // observer   (the observer is logically "one block behind" the miner
     test_observer::clear();
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -5809,8 +5838,8 @@ fn cost_voting_integration() {
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    // clear and mine another burnchain block, so that the new winner is seen by the observer
-    //   (the observer is logically "one block behind" the miner
+    // clear and mine another burnchain block, so that the new winner is seen by the
+    // observer   (the observer is logically "one block behind" the miner
     test_observer::clear();
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -5859,8 +5888,8 @@ fn cost_voting_integration() {
     submit_tx(&http_origin, &confirm_proposal);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    // clear and mine another burnchain block, so that the new winner is seen by the observer
-    //   (the observer is logically "one block behind" the miner
+    // clear and mine another burnchain block, so that the new winner is seen by the
+    // observer   (the observer is logically "one block behind" the miner
     test_observer::clear();
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -5904,8 +5933,8 @@ fn cost_voting_integration() {
     submit_tx(&http_origin, &call_le_tx);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    // clear and mine another burnchain block, so that the new winner is seen by the observer
-    //   (the observer is logically "one block behind" the miner
+    // clear and mine another burnchain block, so that the new winner is seen by the
+    // observer   (the observer is logically "one block behind" the miner
     test_observer::clear();
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -6098,7 +6127,8 @@ fn mining_events_integration_test() {
     assert!(mined_block_events.len() >= 3);
 
     // check the tx events in the third mined block
-    // 2 success: 1 coinbase tx event + 1 contract publish, 1 error (duplicate contract)
+    // 2 success: 1 coinbase tx event + 1 contract publish, 1 error (duplicate
+    // contract)
     let third_block_tx_events = &mined_block_events[2].tx_events;
     assert_eq!(third_block_tx_events.len(), 3);
 
@@ -6163,12 +6193,13 @@ fn mining_events_integration_test() {
     channel.stop_chains_coordinator();
 }
 
-/// This test checks that the limit behavior in the miner works as expected for anchored block
-/// building. When we first hit the block limit, the limit behavior switches to
-/// `CONTRACT_LIMIT_HIT`, during which stx transfers are still allowed, and contract related
-/// transactions are skipped.
-/// Note: the test is sensitive to the order in which transactions are mined; it is written
-/// expecting that transactions are traversed in the order tx_1, tx_2, tx_3, and tx_4.
+/// This test checks that the limit behavior in the miner works as expected for
+/// anchored block building. When we first hit the block limit, the limit
+/// behavior switches to `CONTRACT_LIMIT_HIT`, during which stx transfers are
+/// still allowed, and contract related transactions are skipped.
+/// Note: the test is sensitive to the order in which transactions are mined; it
+/// is written expecting that transactions are traversed in the order tx_1,
+/// tx_2, tx_3, and tx_4.
 #[test]
 #[ignore]
 fn block_limit_hit_integration_test() {
@@ -6376,12 +6407,13 @@ fn block_limit_hit_integration_test() {
     channel.stop_chains_coordinator();
 }
 
-/// This test checks that the limit behavior in the miner works as expected during microblock
-/// building. When we first hit the block limit, the limit behavior switches to
-/// `CONTRACT_LIMIT_HIT`, during which stx transfers are still allowed, and contract related
-/// transactions are skipped.
-/// Note: the test is sensitive to the order in which transactions are mined; it is written
-/// expecting that transactions are traversed in the order tx_1, tx_2, tx_3, and tx_4.
+/// This test checks that the limit behavior in the miner works as expected
+/// during microblock building. When we first hit the block limit, the limit
+/// behavior switches to `CONTRACT_LIMIT_HIT`, during which stx transfers are
+/// still allowed, and contract related transactions are skipped.
+/// Note: the test is sensitive to the order in which transactions are mined; it
+/// is written expecting that transactions are traversed in the order tx_1,
+/// tx_2, tx_3, and tx_4.
 #[test]
 #[ignore]
 fn microblock_limit_hit_integration_test() {
@@ -6482,7 +6514,8 @@ fn microblock_limit_hit_integration_test() {
                 write_length: 150000000,
                 write_count: 50000,
                 read_length: 1000000000,
-                read_count: 5000, // make read_count smaller so we hit the read_count limit with a smaller tx.
+                read_count: 5000, /* make read_count smaller so we hit the read_count limit with
+                                   * a smaller tx. */
                 runtime: 100_000_000_000,
             },
             network_epoch: PEER_VERSION_EPOCH_2_0,
@@ -6793,7 +6826,8 @@ fn microblock_large_tx_integration_test_FLAKY() {
             .join(" ")
     );
 
-    // publishing this contract takes up >80% of the read_count budget (which is 50000)
+    // publishing this contract takes up >80% of the read_count budget (which is
+    // 50000)
     let oversize_contract_src = format!(
         "(define-public (f) (begin {} (ok 1))) (begin (f))",
         (0..3500)
@@ -6906,8 +6940,8 @@ fn microblock_large_tx_integration_test_FLAKY() {
     let status = transactions[0].get("status").unwrap().as_str().unwrap();
     assert_eq!(status, "success");
 
-    // Check that the tx that triggered TransactionTooLargeError when being processed is dropped
-    // from the mempool.
+    // Check that the tx that triggered TransactionTooLargeError when being
+    // processed is dropped from the mempool.
     let dropped_txs = test_observer::get_memtx_drops();
     assert_eq!(dropped_txs.len(), 1);
     assert_eq!(&dropped_txs[0].1, "TooExpensive");
@@ -7179,9 +7213,10 @@ fn pox_integration_test() {
                 if contract_call.function_name.as_str() == "stack-stx" {
                     let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
                     let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
-                    // should unlock at height 300 (we're in reward cycle 13, lockup starts in reward cycle
-                    // 14, and goes for 6 blocks, so we unlock in reward cycle 20, which with a reward
-                    // cycle length of 15 blocks, is a burnchain height of 300)
+                    // should unlock at height 300 (we're in reward cycle 13, lockup starts in
+                    // reward cycle 14, and goes for 6 blocks, so we unlock in
+                    // reward cycle 20, which with a reward cycle length of 15
+                    // blocks, is a burnchain height of 300)
                     assert_eq!(parsed.to_string(),
                                format!("(ok (tuple (lock-amount u1000000000000000) (stacker {spender_addr}) (unlock-burn-height u300)))"));
                     tested = true;
@@ -7282,8 +7317,8 @@ fn pox_integration_test() {
     );
     assert_eq!(pox_info.next_reward_cycle_in, 1);
 
-    // we should have received _no_ Bitcoin commitments, because the pox participation threshold
-    //   was not met!
+    // we should have received _no_ Bitcoin commitments, because the pox
+    // participation threshold   was not met!
     let utxos = btc_regtest_controller.get_all_utxos(&pox_pubkey);
     eprintln!("Got UTXOs: {}", utxos.len());
     assert_eq!(
@@ -7316,7 +7351,8 @@ fn pox_integration_test() {
     assert_eq!(pox_info.next_cycle.blocks_until_prepare_phase, -4);
     assert_eq!(pox_info.next_reward_cycle_in, 1);
 
-    // we should have received _seven_ Bitcoin commitments, because our commitment was 7 * threshold
+    // we should have received _seven_ Bitcoin commitments, because our commitment
+    // was 7 * threshold
     let utxos = btc_regtest_controller.get_all_utxos(&pox_pubkey);
 
     eprintln!("Got UTXOs: {}", utxos.len());
@@ -7326,9 +7362,11 @@ fn pox_integration_test() {
         "Should have received outputs during PoX reward cycle"
     );
 
-    // we should have received _seven_ Bitcoin commitments to pox_2_pubkey, because our commitment was 7 * threshold
-    //   note: that if the reward set "summing" isn't implemented, this recipient would only have received _6_ slots,
-    //         because each `stack-stx` call only received enough to get 3 slot individually.
+    // we should have received _seven_ Bitcoin commitments to pox_2_pubkey, because
+    // our commitment was 7 * threshold   note: that if the reward set "summing"
+    // isn't implemented, this recipient would only have received _6_ slots,
+    //         because each `stack-stx` call only received enough to get 3 slot
+    // individually.
     let utxos = btc_regtest_controller.get_all_utxos(&pox_2_pubkey);
 
     eprintln!("Got UTXOs: {}", utxos.len());
@@ -7549,7 +7587,8 @@ fn atlas_integration_test() {
             _ => panic!("Bootstrap node could nod boot. Aborting test."),
         };
 
-        // Let's publish a (1) namespace-preorder, (2) namespace-reveal and (3) name-import in this mempool
+        // Let's publish a (1) namespace-preorder, (2) namespace-reveal and (3)
+        // name-import in this mempool
 
         // (define-public (namespace-preorder (hashed-salted-namespace (buff 20))
         //                            (stx-to-burn uint))
@@ -7818,8 +7857,8 @@ fn atlas_integration_test() {
         .send(Signal::ReplicatingAttachmentsStartTest1)
         .expect("Unable to send signal");
 
-    // The bootstrap node published and mined a transaction that includes an attachment.
-    // Lets observe the attachments replication kicking in.
+    // The bootstrap node published and mined a transaction that includes an
+    // attachment. Lets observe the attachments replication kicking in.
     let target_height = match follower_node_rx.recv() {
         Ok(Signal::ReplicatingAttachmentsCheckTest1(target_height)) => target_height,
         _ => panic!("Bootstrap node could nod boot. Aborting test."),
@@ -7951,9 +7990,11 @@ fn atlas_integration_test() {
         }
     }
 
-    // Ensure that we the attached sidecar was able to receive a total of 10 attachments
-    // This last assertion is flacky for some reason, it does not worth bullying the CI or disabling this whole test
-    // We're using an inequality as a best effort, to make sure that **some** attachments were received.
+    // Ensure that we the attached sidecar was able to receive a total of 10
+    // attachments This last assertion is flacky for some reason, it does not
+    // worth bullying the CI or disabling this whole test We're using an
+    // inequality as a best effort, to make sure that **some** attachments were
+    // received.
     assert!(!test_observer::get_attachments().is_empty());
     test_observer::clear();
     channel.stop_chains_coordinator();
@@ -8322,7 +8363,8 @@ fn atlas_stress_integration_test() {
 
     let mut index_block_hashes = vec![];
 
-    // Let's publish a (1) namespace-preorder, (2) namespace-reveal and (3) name-import in this mempool
+    // Let's publish a (1) namespace-preorder, (2) namespace-reveal and (3)
+    // name-import in this mempool
 
     // (define-public (namespace-preorder (hashed-salted-namespace (buff 20))
     //                            (stx-to-burn uint))
@@ -8955,10 +8997,10 @@ fn atlas_stress_integration_test() {
     test_observer::clear();
 }
 
-/// Run a fixed contract 20 times. Linearly increase the amount paid each time. The cost of the
-/// contract should stay the same, and the fee rate paid should monotonically grow. The value
-/// should grow faster for lower values of `window_size`, because a bigger window slows down the
-/// growth.
+/// Run a fixed contract 20 times. Linearly increase the amount paid each time.
+/// The cost of the contract should stay the same, and the fee rate paid should
+/// monotonically grow. The value should grow faster for lower values of
+/// `window_size`, because a bigger window slows down the growth.
 fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value: f64) {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -8990,7 +9032,8 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
 
     // Set this estimator as special.
     conf.estimation.fee_estimator = Some(FeeEstimatorName::FuzzedWeightedMedianFeeRate);
-    // Use randomness of 0 to keep test constant. Randomness is tested in unit tests.
+    // Use randomness of 0 to keep test constant. Randomness is tested in unit
+    // tests.
     conf.estimation.fee_rate_fuzzer_fraction = 0f64;
     conf.estimation.fee_rate_window_size = window_size;
 
@@ -9036,8 +9079,8 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
     );
     run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, 212, &conf);
 
-    // Loop 20 times. Each time, execute the same transaction, but increase the amount *paid*.
-    // This will exercise the window size.
+    // Loop 20 times. Each time, execute the same transaction, but increase the
+    // amount *paid*. This will exercise the window size.
     let mut response_estimated_costs = vec![];
     let mut response_top_fee_rates = vec![];
     for i in 1..21 {
@@ -9119,16 +9162,18 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
     channel.stop_chains_coordinator();
 }
 
-/// Test the FuzzedWeightedMedianFeeRate with window size 5 and randomness 0. We increase the
-/// amount paid linearly each time. This estimate should grow *faster* than with window size 10.
+/// Test the FuzzedWeightedMedianFeeRate with window size 5 and randomness 0. We
+/// increase the amount paid linearly each time. This estimate should grow
+/// *faster* than with window size 10.
 #[test]
 #[ignore]
 fn fuzzed_median_fee_rate_estimation_test_window5() {
     fuzzed_median_fee_rate_estimation_test(5, 202680.0992)
 }
 
-/// Test the FuzzedWeightedMedianFeeRate with window size 10 and randomness 0. We increase the
-/// amount paid linearly each time. This estimate should grow *slower* than with window size 5.
+/// Test the FuzzedWeightedMedianFeeRate with window size 10 and randomness 0.
+/// We increase the amount paid linearly each time. This estimate should grow
+/// *slower* than with window size 5.
 #[test]
 #[ignore]
 fn fuzzed_median_fee_rate_estimation_test_window10() {
@@ -9138,23 +9183,27 @@ fn fuzzed_median_fee_rate_estimation_test_window10() {
 #[test]
 #[ignore]
 fn use_latest_tip_integration_test() {
-    // The purpose of this test is to check if setting the query parameter `tip` to `latest` is working
-    // as expected. Multiple endpoints accept this parameter, and in this test, we are using the
-    // GetContractSrc method to test it.
+    // The purpose of this test is to check if setting the query parameter `tip` to
+    // `latest` is working as expected. Multiple endpoints accept this
+    // parameter, and in this test, we are using the GetContractSrc method to
+    // test it.
     //
     // The following scenarios are tested here:
-    // - The caller does not specify the tip paramater, and the canonical chain tip is used regardless of the
-    //    state of the unconfirmed microblock stream.
-    // - The caller passes tip=latest with an existing unconfirmed microblock stream, and
-    //   Clarity state from the unconfirmed microblock stream is successfully loaded.
-    // - The caller passes tip=latest with an empty unconfirmed microblock stream, and
-    //   Clarity state from the canonical chain tip is successfully loaded (i.e. you don't
-    //   get a 404 even though the unconfirmed chain tip points to a nonexistent MARF trie).
+    // - The caller does not specify the tip paramater, and the canonical chain tip
+    //   is used regardless of the state of the unconfirmed microblock stream.
+    // - The caller passes tip=latest with an existing unconfirmed microblock
+    //   stream, and Clarity state from the unconfirmed microblock stream is
+    //   successfully loaded.
+    // - The caller passes tip=latest with an empty unconfirmed microblock stream,
+    //   and Clarity state from the canonical chain tip is successfully loaded (i.e.
+    //   you don't get a 404 even though the unconfirmed chain tip points to a
+    //   nonexistent MARF trie).
     //
-    // Note: In this test, we are manually creating a microblock as well as reloading the unconfirmed
-    // state of the chainstate, instead of relying on `next_block_and_wait` to generate
-    // microblocks. We do this because the unconfirmed state is not automatically being initialized
-    // on the node, so attempting to validate any transactions against the expected unconfirmed
+    // Note: In this test, we are manually creating a microblock as well as
+    // reloading the unconfirmed state of the chainstate, instead of relying on
+    // `next_block_and_wait` to generate microblocks. We do this because the
+    // unconfirmed state is not automatically being initialized on the node, so
+    // attempting to validate any transactions against the expected unconfirmed
     // state fails.
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -9337,8 +9386,9 @@ fn use_latest_tip_integration_test() {
     let microblock_events = test_observer::get_microblocks();
     assert_eq!(microblock_events.len(), 1);
 
-    // Don't set the tip parameter, and ask for the source of the contract we just defined in a microblock.
-    // This should fail because the anchored tip would be unaware of this contract.
+    // Don't set the tip parameter, and ask for the source of the contract we just
+    // defined in a microblock. This should fail because the anchored tip would
+    // be unaware of this contract.
     let err_opt = get_contract_src(
         &http_origin,
         spender_stacks_addr,
@@ -9359,8 +9409,8 @@ fn use_latest_tip_integration_test() {
         }
     }
 
-    // Set tip=latest, and ask for the source of the contract defined in the microblock.
-    // This should succeeed.
+    // Set tip=latest, and ask for the source of the contract defined in the
+    // microblock. This should succeeed.
     assert!(get_contract_src(
         &http_origin,
         spender_stacks_addr,
@@ -9386,9 +9436,10 @@ fn use_latest_tip_integration_test() {
     };
     assert!(!trie_exists);
 
-    // Set tip=latest, and ask for the source of the contract defined in the previous epoch.
-    // The underlying MARF trie for the unconfirmed tip does not exist, so the transaction will be
-    // validated against the confirmed chain tip instead of the unconfirmed tip. This should be valid.
+    // Set tip=latest, and ask for the source of the contract defined in the
+    // previous epoch. The underlying MARF trie for the unconfirmed tip does not
+    // exist, so the transaction will be validated against the confirmed chain
+    // tip instead of the unconfirmed tip. This should be valid.
     assert!(get_contract_src(
         &http_origin,
         spender_stacks_addr,
@@ -10011,7 +10062,8 @@ fn test_problematic_blocks_are_not_mined() {
     assert!(all_new_files.is_empty());
 
     // recently-submitted problematic transactions are not in the mempool
-    // (but old ones that were already mined, and thus never considered, could still be present)
+    // (but old ones that were already mined, and thus never considered, could still
+    // be present)
     test_debug!("Problematic tx {tx_high_txid} should be dropped");
     assert!(get_unconfirmed_tx(&http_origin, &tx_high_txid).is_none());
 
@@ -10036,8 +10088,9 @@ fn test_problematic_blocks_are_not_mined() {
 
     eprintln!("\nBooting follower\n");
 
-    // verify that a follower node that boots up with this node as a bootstrap peer will process
-    // all of the blocks available, even if they are problematic, with the checks on.
+    // verify that a follower node that boots up with this node as a bootstrap peer
+    // will process all of the blocks available, even if they are problematic,
+    // with the checks on.
     let (follower_conf, _, pox_sync_comms, follower_channel) = spawn_follower_node(&conf);
 
     eprintln!(
@@ -10055,7 +10108,8 @@ fn test_problematic_blocks_are_not_mined() {
         Ok(follower_tip_info.stacks_tip_height == new_tip_info.stacks_tip_height)
     });
 
-    // make sure we aren't just slow -- wait for the follower to do a few download passes
+    // make sure we aren't just slow -- wait for the follower to do a few download
+    // passes
     let num_download_passes = pox_sync_comms.get_download_passes();
     eprintln!(
         "\nFollower has performed {num_download_passes} download passes; wait for {}\n",
@@ -10314,8 +10368,8 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
     // new rules took effect
     assert_eq!(cur_ast_rules, ASTRules::PrecheckSize);
 
-    // the follower we will soon boot up will start applying the new AST rules at this height.
-    // Make it so the miner does *not* follow the rules
+    // the follower we will soon boot up will start applying the new AST rules at
+    // this height. Make it so the miner does *not* follow the rules
     {
         let sortdb = btc_regtest_controller.sortdb_mut();
         let mut tx = sortdb.tx_begin().unwrap();
@@ -10369,8 +10423,8 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
 
     let tip_info = get_chain_info(&conf);
 
-    // at least one block was mined (hard to say how many due to the raciness between the burnchain
-    // downloader and this thread).
+    // at least one block was mined (hard to say how many due to the raciness
+    // between the burnchain downloader and this thread).
     info!(
         "tip_info.stacks_tip_height = {}, old_tip_info.stacks_tip_height = {}",
         tip_info.stacks_tip_height, old_tip_info.stacks_tip_height
@@ -10406,8 +10460,9 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
 
     eprintln!("\nBooting follower\n");
 
-    // verify that a follower node that boots up with this node as a bootstrap peer will process
-    // all of the blocks available, even if they are problematic, with the checks on.
+    // verify that a follower node that boots up with this node as a bootstrap peer
+    // will process all of the blocks available, even if they are problematic,
+    // with the checks on.
     let (follower_conf, _, pox_sync_comms, follower_channel) = spawn_follower_node(&conf);
 
     eprintln!(
@@ -10430,7 +10485,8 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
         sleep_ms(1000);
     }
 
-    // make sure we aren't just slow -- wait for the follower to do a few download passes
+    // make sure we aren't just slow -- wait for the follower to do a few download
+    // passes
     let num_download_passes = pox_sync_comms.get_download_passes();
     eprintln!(
         "\nFollower has performed {num_download_passes} download passes; wait for {}\n",
@@ -10723,7 +10779,8 @@ fn test_problematic_microblocks_are_not_mined() {
         sleep_ms(5_000);
     }
 
-    // sleep a little longer before checking tip info; this should help with test flakiness
+    // sleep a little longer before checking tip info; this should help with test
+    // flakiness
     wait_for(30, || {
         let tip_info = get_chain_info(&conf);
         Ok(tip_info.stacks_tip_height >= old_tip_info.stacks_tip_height + 5)
@@ -10734,7 +10791,8 @@ fn test_problematic_microblocks_are_not_mined() {
     assert!(all_new_files.is_empty());
 
     // recently-submitted problematic transactions are not in the mempool
-    // (but old ones that were already mined, and thus never considered, could still be present)
+    // (but old ones that were already mined, and thus never considered, could still
+    // be present)
     test_debug!("Problematic tx {tx_high_txid} should be dropped");
     assert!(get_unconfirmed_tx(&http_origin, &tx_high_txid).is_none());
 
@@ -10759,8 +10817,9 @@ fn test_problematic_microblocks_are_not_mined() {
 
     eprintln!("\nBooting follower\n");
 
-    // verify that a follower node that boots up with this node as a bootstrap peer will process
-    // all of the blocks available, even if they are problematic, with the checks on.
+    // verify that a follower node that boots up with this node as a bootstrap peer
+    // will process all of the blocks available, even if they are problematic,
+    // with the checks on.
     let (follower_conf, _, pox_sync_comms, follower_channel) = spawn_follower_node(&conf);
 
     eprintln!(
@@ -10778,7 +10837,8 @@ fn test_problematic_microblocks_are_not_mined() {
         Ok(follower_tip_info.stacks_tip_height == new_tip_info.stacks_tip_height)
     });
 
-    // make sure we aren't just slow -- wait for the follower to do a few download passes
+    // make sure we aren't just slow -- wait for the follower to do a few download
+    // passes
     let num_download_passes = pox_sync_comms.get_download_passes();
     eprintln!(
         "\nFollower has performed {num_download_passes} download passes; wait for {}\n",
@@ -11048,8 +11108,8 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
     // new rules took effect
     assert_eq!(cur_ast_rules, ASTRules::PrecheckSize);
 
-    // the follower we will soon boot up will start applying the new AST rules at this height.
-    // Make it so the miner does *not* follow the rules
+    // the follower we will soon boot up will start applying the new AST rules at
+    // this height. Make it so the miner does *not* follow the rules
     {
         let sortdb = btc_regtest_controller.sortdb_mut();
         let mut tx = sortdb.tx_begin().unwrap();
@@ -11105,7 +11165,8 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
         sleep_ms(5_000);
     }
 
-    // sleep a little longer before checking tip info; this should help with test flakiness
+    // sleep a little longer before checking tip info; this should help with test
+    // flakiness
     wait_for(30, || {
         let tip_info = get_chain_info(&conf);
         Ok(tip_info.stacks_tip_height >= old_tip_info.stacks_tip_height + 5)
@@ -11113,8 +11174,9 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
     .expect("Failed waiting for microblocks to be processed");
 
     // at least one was problematic.
-    // the miner might make multiple microblocks (only some of which are confirmed), so also check
-    // the event observer to see that we actually picked up tx_high
+    // the miner might make multiple microblocks (only some of which are confirmed),
+    // so also check the event observer to see that we actually picked up
+    // tx_high
     assert!(!all_new_files.is_empty());
 
     // tx_high got mined by the miner
@@ -11157,8 +11219,9 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
 
     eprintln!("\nBooting follower\n");
 
-    // verify that a follower node that boots up with this node as a bootstrap peer will process
-    // all of the blocks available, even if they are problematic, with the checks on.
+    // verify that a follower node that boots up with this node as a bootstrap peer
+    // will process all of the blocks available, even if they are problematic,
+    // with the checks on.
     let (follower_conf, _, pox_sync_comms, follower_channel) = spawn_follower_node(&conf);
 
     eprintln!(
@@ -11176,7 +11239,8 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
         Ok(follower_tip_info.stacks_tip_height == new_tip_info.stacks_tip_height)
     });
 
-    // make sure we aren't just slow -- wait for the follower to do a few download passes
+    // make sure we aren't just slow -- wait for the follower to do a few download
+    // passes
     let num_download_passes = pox_sync_comms.get_download_passes();
     eprintln!(
         "\nFollower has performed {num_download_passes} download passes; wait for {}\n",
@@ -11300,7 +11364,8 @@ fn run_with_custom_wallet() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // verify that the event observer got its boot receipts.
-    // If we get this far, then it also means that mining and block-production worked.
+    // If we get this far, then it also means that mining and block-production
+    // worked.
     let blocks = test_observer::get_blocks();
     assert!(blocks.len() > 1);
 
@@ -11665,8 +11730,8 @@ fn test_competing_miners_build_on_same_chain(
     eprintln!("\n\nBegin transactions\n\n");
 
     // blast out lots of expensive transactions.
-    // keeps the mempool full, and makes it so miners will spend a nontrivial amount of time
-    // building blocks
+    // keeps the mempool full, and makes it so miners will spend a nontrivial amount
+    // of time building blocks
     let all_txs: Vec<_> = privks
         .iter()
         .enumerate()
@@ -11698,7 +11763,8 @@ fn test_competing_miners_build_on_same_chain(
     }
 }
 
-// TODO: this needs to run as a smoke test, since they take too long to run in CI
+// TODO: this needs to run as a smoke test, since they take too long to run in
+// CI
 #[test]
 #[ignore]
 fn test_one_miner_build_anchor_blocks_on_same_chain_without_rbf() {
@@ -11716,7 +11782,8 @@ fn test_one_miner_build_anchor_blocks_on_same_chain_without_rbf() {
     test_competing_miners_build_on_same_chain(1, conf, false, 10_000, TxChainStrategy::Random)
 }
 
-// TODO: this needs to run as a smoke test, since they take too long to run in CI
+// TODO: this needs to run as a smoke test, since they take too long to run in
+// CI
 #[test]
 #[ignore]
 fn test_competing_miners_build_anchor_blocks_on_same_chain_without_rbf() {
@@ -11734,7 +11801,8 @@ fn test_competing_miners_build_anchor_blocks_on_same_chain_without_rbf() {
     test_competing_miners_build_on_same_chain(5, conf, false, 10_000, TxChainStrategy::Expensive)
 }
 
-// TODO: this needs to run as a smoke test, since they take too long to run in CI
+// TODO: this needs to run as a smoke test, since they take too long to run in
+// CI
 #[test]
 #[ignore]
 fn test_competing_miners_build_anchor_blocks_and_microblocks_on_same_chain() {
@@ -12257,7 +12325,8 @@ fn bitcoin_reorg_flap() {
 
     info!("\n\nBegin reorg flap from A to B\n\n");
 
-    // carry out the flap to fork B -- new_conf's state was the same as before the reorg
+    // carry out the flap to fork B -- new_conf's state was the same as before the
+    // reorg
     let mut btcd_controller = BitcoinCoreController::new(new_conf.clone());
     let btc_regtest_controller = BitcoinRegtestController::new(new_conf, None);
 
@@ -12468,7 +12537,8 @@ fn bitcoin_reorg_flap_with_follower() {
 
     info!("\n\nBegin reorg flap from A to B\n\n");
 
-    // carry out the flap to fork B -- new_conf's state was the same as before the reorg
+    // carry out the flap to fork B -- new_conf's state was the same as before the
+    // reorg
     let mut btcd_controller = BitcoinCoreController::new(new_conf.clone());
     let btc_regtest_controller = BitcoinRegtestController::new(new_conf, None);
 
@@ -12509,7 +12579,8 @@ fn bitcoin_reorg_flap_with_follower() {
 
 /// Tests the following:
 ///  - Mock miner output to file
-///  - Test replay of mock mined blocks using `stacks-inspect  replay-mock-mining``
+///  - Test replay of mock mined blocks using `stacks-inspect
+///    replay-mock-mining``
 #[test]
 #[ignore]
 fn mock_miner_replay() {

@@ -132,8 +132,8 @@ pub struct Relayer {
 pub struct RelayerStats {
     /// Relayer statistics for the p2p network's ongoing conversations.
     /// Note that we key on (addr, port), not the full NeighborAddress.
-    /// (TODO: Nothing is done with this yet, but one day we'll use it to probe for network
-    /// choke-points).
+    /// (TODO: Nothing is done with this yet, but one day we'll use it to probe
+    /// for network choke-points).
     pub(crate) relay_stats: HashMap<NeighborAddress, RelayStats>,
     pub(crate) relay_updates: BTreeMap<u64, NeighborAddress>,
 
@@ -153,8 +153,9 @@ pub struct ProcessedNetReceipts {
     pub num_new_nakamoto_blocks: u64,
 }
 
-/// A trait for implementing both mempool event observer methods and stackerdb methods.
-/// This is required for event observers to fully report on newly-relayed data.
+/// A trait for implementing both mempool event observer methods and stackerdb
+/// methods. This is required for event observers to fully report on
+/// newly-relayed data.
 pub trait RelayEventDispatcher:
     MemPoolEventDispatcher
     + StackerDBEventDispatcher
@@ -186,8 +187,8 @@ impl<T: RelayEventDispatcher> AsStackerDBEventDispatcher for T {
     }
 }
 
-/// Private trait for keeping track of messages that can be relayed, so we can identify the peers
-/// who frequently send us duplicates.
+/// Private trait for keeping track of messages that can be relayed, so we can
+/// identify the peers who frequently send us duplicates.
 pub trait RelayPayload {
     /// Get a representative digest of this message.
     /// m1.get_digest() == m2.get_digest() --> m1 == m2
@@ -368,12 +369,13 @@ impl RelayerStats {
         self.recent_messages.remove(nk);
         self.relay_stats.remove(&addr);
 
-        // old state in self.recent_updates and self.relay_updates will eventually be removed by
-        // add_relayed_message() and merge_relay_stats()
+        // old state in self.recent_updates and self.relay_updates will
+        // eventually be removed by add_relayed_message() and
+        // merge_relay_stats()
     }
 
-    /// See if anyone has sent this message to us already, and if so, return the set of neighbors
-    /// that did so already (and how many times)
+    /// See if anyone has sent this message to us already, and if so, return the
+    /// set of neighbors that did so already (and how many times)
     pub fn count_relay_dups<R: RelayPayload>(&self, msg: &R) -> HashMap<NeighborKey, usize> {
         let h = msg.get_digest();
         let now = get_epoch_time_secs();
@@ -398,7 +400,8 @@ impl RelayerStats {
         ret
     }
 
-    /// Map neighbors to the frequency of their AS numbers in the given neighbors list
+    /// Map neighbors to the frequency of their AS numbers in the given
+    /// neighbors list
     pub(crate) fn count_ASNs(
         conn: &DBConn,
         neighbors: &[NeighborKey],
@@ -438,11 +441,13 @@ impl RelayerStats {
         Ok(ret)
     }
 
-    /// Get the (non-normalized) probability distribution to use to sample inbound neighbors to
-    /// relay messages to.  The probability of being selected is proportional to how rarely the
-    /// neighbor sends us messages we've already seen before.  The intuition is that if an inbound
-    /// neighbor (e.g. a client) sends us data that we've already seen, then it must be connected
-    /// to some other peer that's already forwarding it data.  Thus, we don't need to do so.
+    /// Get the (non-normalized) probability distribution to use to sample
+    /// inbound neighbors to relay messages to.  The probability of being
+    /// selected is proportional to how rarely the neighbor sends us
+    /// messages we've already seen before.  The intuition is that if an inbound
+    /// neighbor (e.g. a client) sends us data that we've already seen, then it
+    /// must be connected to some other peer that's already forwarding it
+    /// data.  Thus, we don't need to do so.
     pub fn get_inbound_relay_rankings<R: RelayPayload>(
         &self,
         neighbors: &[NeighborKey],
@@ -473,11 +478,13 @@ impl RelayerStats {
         ret
     }
 
-    /// Get the (non-normalized) probability distribution to use to sample outbound neighbors to
-    /// relay messages to.  The probability of being selected is proportional to how rare the
-    /// neighbor's AS number is in our neighbor set.  The intution is that we should try to
-    /// disseminate our data to as many different _networks_ as quickly as possible, so nodes in
-    /// those networks can take care of forwarding them to their inbound peers.
+    /// Get the (non-normalized) probability distribution to use to sample
+    /// outbound neighbors to relay messages to.  The probability of being
+    /// selected is proportional to how rare the neighbor's AS number is in
+    /// our neighbor set.  The intution is that we should try to disseminate
+    /// our data to as many different _networks_ as quickly as possible, so
+    /// nodes in those networks can take care of forwarding them to their
+    /// inbound peers.
     pub fn get_outbound_relay_rankings(
         &self,
         peerdb: &PeerDB,
@@ -501,8 +508,8 @@ impl RelayerStats {
     }
 
     /// Sample a set of neighbors according to our relay data.
-    /// Sampling is done *without* replacement, so the resulting neighbors list will have length
-    /// min(count, rankings.len())
+    /// Sampling is done *without* replacement, so the resulting neighbors list
+    /// will have length min(count, rankings.len())
     pub fn sample_neighbors(
         rankings: HashMap<NeighborKey, usize>,
         count: usize,
@@ -574,7 +581,8 @@ pub enum BlockAcceptResponse {
 }
 
 impl BlockAcceptResponse {
-    /// Does this response indicate that the block was accepted to the staging DB
+    /// Does this response indicate that the block was accepted to the staging
+    /// DB
     pub fn is_accepted(&self) -> bool {
         matches!(self, Self::Accepted)
     }
@@ -603,7 +611,8 @@ impl Relayer {
         self.p2p.clone()
     }
 
-    /// Given Stacks 2.x blocks pushed to us, verify that they correspond to expected block data.
+    /// Given Stacks 2.x blocks pushed to us, verify that they correspond to
+    /// expected block data.
     pub fn validate_blocks_push(
         conn: &SortitionDBConn,
         blocks_data: &BlocksData,
@@ -640,7 +649,8 @@ impl Relayer {
         Ok(())
     }
 
-    /// Given Nakamoto blocks pushed to us, verify that they correspond to expected block data.
+    /// Given Nakamoto blocks pushed to us, verify that they correspond to
+    /// expected block data.
     pub fn validate_nakamoto_blocks_push(
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
@@ -789,8 +799,8 @@ impl Relayer {
         Ok(parent_block_snapshot)
     }
 
-    /// Insert a staging block that got relayed to us somehow -- e.g. uploaded via http, downloaded
-    /// by us, or pushed via p2p.
+    /// Insert a staging block that got relayed to us somehow -- e.g. uploaded
+    /// via http, downloaded by us, or pushed via p2p.
     /// Return Ok(true) if we stored it, Ok(false) if we didn't
     pub fn process_new_anchored_block(
         sort_ic: &SortitionDBConn,
@@ -829,8 +839,8 @@ impl Relayer {
             }
         };
 
-        // don't relay this block if it's using the wrong AST rules (this would render at least one of its
-        // txs problematic).
+        // don't relay this block if it's using the wrong AST rules (this would render
+        // at least one of its txs problematic).
         let ast_rules = SortitionDB::get_ast_rules(sort_ic, block_sn.block_height)?;
         let epoch_id = SortitionDB::get_stacks_epoch(sort_ic, block_sn.block_height)?
             .expect("FATAL: no epoch defined")
@@ -903,12 +913,12 @@ impl Relayer {
         )
     }
 
-    /// Insert a staging Nakamoto block that got relayed to us somehow -- e.g. uploaded via http,
-    /// downloaded by us, or pushed via p2p.
-    /// Return Ok(true) if we should broadcast the block.  If force_broadcast is true, then this
-    /// function will return Ok(true) even if we already have the block.
-    /// Return Ok(false) if we should not broadcast it (e.g. we already have it, it was invalid,
-    /// etc.)
+    /// Insert a staging Nakamoto block that got relayed to us somehow -- e.g.
+    /// uploaded via http, downloaded by us, or pushed via p2p.
+    /// Return Ok(true) if we should broadcast the block.  If force_broadcast is
+    /// true, then this function will return Ok(true) even if we already
+    /// have the block. Return Ok(false) if we should not broadcast it (e.g.
+    /// we already have it, it was invalid, etc.)
     /// Return Err(..) in the following cases, beyond DB errors:
     /// * If the block is from a tenure we don't recognize
     /// * If we're not in the Nakamoto epoch
@@ -934,8 +944,8 @@ impl Relayer {
             "block_id" => %block.header.block_id(),
         );
         if block.is_shadow_block() {
-            // drop, since we can get these from ourselves when downloading a tenure that ends in
-            // a shadow block.
+            // drop, since we can get these from ourselves when downloading a tenure that
+            // ends in a shadow block.
             return Ok(BlockAcceptResponse::AlreadyStored);
         }
 
@@ -981,8 +991,8 @@ impl Relayer {
                 chainstate_error::DBError(db_error::NotFoundError)
             })?;
 
-        // NOTE: it's `+ 1` because the first Nakamoto block is built atop the last epoch 2.x
-        // tenure, right after the last 2.x sortition
+        // NOTE: it's `+ 1` because the first Nakamoto block is built atop the last
+        // epoch 2.x tenure, right after the last 2.x sortition
         // TODO: is this true?
         let epoch_id = SortitionDB::get_stacks_epoch(sort_handle, block_sn.block_height + 1)?
             .expect("FATAL: no epoch defined")
@@ -995,8 +1005,8 @@ impl Relayer {
             )));
         }
 
-        // don't relay this block if it's using the wrong AST rules (this would render at least one of its
-        // txs problematic).
+        // don't relay this block if it's using the wrong AST rules (this would render
+        // at least one of its txs problematic).
         if !Relayer::static_check_problematic_relayed_nakamoto_block(
             chainstate.mainnet,
             epoch_id,
@@ -1134,8 +1144,9 @@ impl Relayer {
         Ok(accepted)
     }
 
-    /// Coalesce a set of microblocks into relayer hints and MicroblocksData messages, as calculated by
-    /// process_new_blocks().  Make sure the messages don't get too big.
+    /// Coalesce a set of microblocks into relayer hints and MicroblocksData
+    /// messages, as calculated by process_new_blocks().  Make sure the
+    /// messages don't get too big.
     fn make_microblocksdata_messages(
         new_microblocks: HashMap<
             StacksBlockId,
@@ -1162,7 +1173,8 @@ impl Relayer {
                         mblocks_buf.len()
                     };
 
-                    assert!(mblock_len <= MAX_PAYLOAD_LEN as usize); // this should always be true, since otherwise we wouldn't have been able to parse it.
+                    assert!(mblock_len <= MAX_PAYLOAD_LEN as usize); // this should always be true, since otherwise we wouldn't have been able to
+                                                                     // parse it.
 
                     let sz = *(mblocks_sizes.get(&anchored_block_hash).unwrap_or(&0));
                     if sz + mblock_len < (MAX_PAYLOAD_LEN as usize) {
@@ -1212,8 +1224,8 @@ impl Relayer {
 
     /// Preprocess all our downloaded blocks.
     /// Does not fail on invalid blocks; just logs a warning.
-    /// Returns the set of consensus hashes for the sortitions that selected these blocks, and the
-    /// blocks themselves
+    /// Returns the set of consensus hashes for the sortitions that selected
+    /// these blocks, and the blocks themselves
     fn preprocess_downloaded_blocks(
         sort_ic: &SortitionDBConn,
         network_result: &mut NetworkResult,
@@ -1317,8 +1329,8 @@ impl Relayer {
     }
 
     /// Preprocess all pushed blocks
-    /// Return consensus hashes for the sortitions that elected the blocks we got, as well as the
-    /// list of peers that served us invalid data.
+    /// Return consensus hashes for the sortitions that elected the blocks we
+    /// got, as well as the list of peers that served us invalid data.
     /// Does not fail; just logs warnings.
     fn preprocess_pushed_blocks(
         sort_ic: &SortitionDBConn,
@@ -1422,7 +1434,8 @@ impl Relayer {
 
     /// Preprocess all downloaded, confirmed microblock streams.
     /// Does not fail on invalid blocks; just logs a warning.
-    /// Returns the consensus hashes for the sortitions that elected the stacks anchored blocks that produced these streams.
+    /// Returns the consensus hashes for the sortitions that elected the stacks
+    /// anchored blocks that produced these streams.
     fn preprocess_downloaded_microblocks(
         sort_ic: &SortitionDBConn,
         network_result: &mut NetworkResult,
@@ -1509,7 +1522,8 @@ impl Relayer {
                 }
             }
 
-            // if we did indeed store this microblock (i.e. we didn't have it), then we can relay it
+            // if we did indeed store this microblock (i.e. we didn't have it), then we can
+            // relay it
             if stored {
                 let index_block_hash =
                     StacksBlockHeader::make_index_block_hash(consensus_hash, &anchored_block_hash);
@@ -1523,8 +1537,9 @@ impl Relayer {
     }
 
     /// Preprocess all unconfirmed microblocks pushed to us.
-    /// Return the list of MicroblockData messages we need to broadcast to our neighbors, as well
-    /// as the list of neighbors we need to ban because they sent us invalid microblocks.
+    /// Return the list of MicroblockData messages we need to broadcast to our
+    /// neighbors, as well as the list of neighbors we need to ban because
+    /// they sent us invalid microblocks.
     fn preprocess_pushed_microblocks(
         sort_ic: &SortitionDBConn,
         network_result: &mut NetworkResult,
@@ -1633,8 +1648,8 @@ impl Relayer {
             }
         }
 
-        // process uploaded microblocks.  We may have already stored them, so just reconstruct the
-        // data we need to forward them to neighbors.
+        // process uploaded microblocks.  We may have already stored them, so just
+        // reconstruct the data we need to forward them to neighbors.
         for uploaded_mblock in network_result.uploaded_microblocks.iter() {
             for mblock in uploaded_mblock.microblocks.iter() {
                 // is this microblock actually stored? i.e. it wasn't problematic?
@@ -1695,8 +1710,8 @@ impl Relayer {
 
     #[cfg_attr(test, mutants::skip)]
     /// Preprocess all pushed Nakamoto blocks
-    /// Return the Nakamoto blocks we can accept (and who relayed them), as well as the
-    /// list of peers that served us invalid data.
+    /// Return the Nakamoto blocks we can accept (and who relayed them), as well
+    /// as the list of peers that served us invalid data.
     pub(crate) fn process_pushed_nakamoto_blocks(
         network_result: &mut NetworkResult,
         burnchain: &Burnchain,
@@ -1805,8 +1820,8 @@ impl Relayer {
         Ok((pushed_blocks, bad_neighbors))
     }
 
-    /// Verify that a relayed transaction is not problematic.  This is a static check -- we only
-    /// look at the tx contents.
+    /// Verify that a relayed transaction is not problematic.  This is a static
+    /// check -- we only look at the tx contents.
     ///
     /// Return true if the check passes -- i.e. it's not problematic
     /// Return false if the check fails -- i.e. it is problematic
@@ -1871,8 +1886,9 @@ impl Relayer {
         Ok(())
     }
 
-    /// Verify that a relayed block is not problematic -- i.e. it doesn't contain any problematic
-    /// transactions.  This is a static check -- we only look at the block contents.
+    /// Verify that a relayed block is not problematic -- i.e. it doesn't
+    /// contain any problematic transactions.  This is a static check -- we
+    /// only look at the block contents.
     ///
     /// Returns true if the check passed -- i.e. no problems.
     /// Returns false if not
@@ -1897,8 +1913,9 @@ impl Relayer {
         true
     }
 
-    /// Verify that a relayed block is not problematic -- i.e. it doesn't contain any problematic
-    /// transactions.  This is a static check -- we only look at the block contents.
+    /// Verify that a relayed block is not problematic -- i.e. it doesn't
+    /// contain any problematic transactions.  This is a static check -- we
+    /// only look at the block contents.
     ///
     /// Returns true if the check passed -- i.e. no problems.
     /// Returns false if not
@@ -1923,9 +1940,9 @@ impl Relayer {
         true
     }
 
-    /// Verify that a relayed microblock is not problematic -- i.e. it doesn't contain any
-    /// problematic transactions. This is a static check -- we only look at the microblock
-    /// contents.
+    /// Verify that a relayed microblock is not problematic -- i.e. it doesn't
+    /// contain any problematic transactions. This is a static check -- we
+    /// only look at the microblock contents.
     ///
     /// Returns true if the check passed -- i.e. no problems.
     /// Returns false if not
@@ -1950,19 +1967,22 @@ impl Relayer {
         true
     }
 
-    /// Should we apply static checks against problematic blocks and microblocks?
+    /// Should we apply static checks against problematic blocks and
+    /// microblocks?
     #[cfg(any(test, feature = "testing"))]
     pub fn do_static_problematic_checks() -> bool {
         std::env::var("STACKS_DISABLE_TX_PROBLEMATIC_CHECK") != Ok("1".into())
     }
 
-    /// Should we apply static checks against problematic blocks and microblocks?
+    /// Should we apply static checks against problematic blocks and
+    /// microblocks?
     #[cfg(not(any(test, feature = "testing")))]
     pub fn do_static_problematic_checks() -> bool {
         true
     }
 
-    /// Should we store and process problematic blocks and microblocks to staging that we mined?
+    /// Should we store and process problematic blocks and microblocks to
+    /// staging that we mined?
     #[cfg(any(test, feature = "testing"))]
     pub fn process_mined_problematic_blocks(
         cur_ast_rules: ASTRules,
@@ -1972,9 +1992,10 @@ impl Relayer {
             || cur_ast_rules != processed_ast_rules
     }
 
-    /// Should we store and process problematic blocks and microblocks to staging that we mined?
-    /// We should do this only if we used a different ruleset than the active one.  If it was
-    /// problematic with the currently-active rules, then obviously it shouldn't be processed.
+    /// Should we store and process problematic blocks and microblocks to
+    /// staging that we mined? We should do this only if we used a different
+    /// ruleset than the active one.  If it was problematic with the
+    /// currently-active rules, then obviously it shouldn't be processed.
     #[cfg(not(any(test, feature = "testing")))]
     pub fn process_mined_problematic_blocks(
         cur_ast_rules: ASTRules,
@@ -1983,11 +2004,16 @@ impl Relayer {
         cur_ast_rules != processed_ast_rules
     }
 
-    /// Process blocks and microblocks that we recieved, both downloaded (confirmed) and streamed
-    /// (unconfirmed). Returns:
-    /// * set of consensus hashes that elected the newly-discovered blocks, and the blocks, so we can turn them into BlocksAvailable / BlocksData messages
-    /// * set of confirmed microblock consensus hashes for newly-discovered microblock streams, and the streams, so we can turn them into MicroblocksAvailable / MicroblocksData messages
-    /// * list of unconfirmed microblocks that got pushed to us, as well as their relayers (so we can forward them)
+    /// Process blocks and microblocks that we recieved, both downloaded
+    /// (confirmed) and streamed (unconfirmed). Returns:
+    /// * set of consensus hashes that elected the newly-discovered blocks, and
+    ///   the blocks, so we can turn them into BlocksAvailable / BlocksData
+    ///   messages
+    /// * set of confirmed microblock consensus hashes for newly-discovered
+    ///   microblock streams, and the streams, so we can turn them into
+    ///   MicroblocksAvailable / MicroblocksData messages
+    /// * list of unconfirmed microblocks that got pushed to us, as well as
+    ///   their relayers (so we can forward them)
     /// * list of neighbors that served us invalid data (so we can ban them)
     pub fn process_new_blocks(
         network_result: &mut NetworkResult,
@@ -2037,9 +2063,9 @@ impl Relayer {
         }
         bad_neighbors.append(&mut new_bad_neighbors);
 
-        // process blocks uploaded to us.  They've already been stored, but we need to report them
-        // as available anyway so the callers of this method can know that they have shown up (e.g.
-        // so they can be relayed).
+        // process blocks uploaded to us.  They've already been stored, but we need to
+        // report them as available anyway so the callers of this method can
+        // know that they have shown up (e.g. so they can be relayed).
         for block_data in network_result.uploaded_blocks.drain(..) {
             for BlocksDatum(consensus_hash, block) in block_data.blocks.into_iter() {
                 // did we actually store it?
@@ -2066,9 +2092,9 @@ impl Relayer {
         let new_confirmed_microblocks =
             Relayer::preprocess_downloaded_microblocks(&sort_ic, network_result, chainstate);
 
-        // process microblocks pushed to us, as well as identify which ones were uploaded via http
-        // (these ones will have already been processed, but we need to report them as
-        // newly-available to the caller nevertheless)
+        // process microblocks pushed to us, as well as identify which ones were
+        // uploaded via http (these ones will have already been processed, but
+        // we need to report them as newly-available to the caller nevertheless)
         let (new_microblocks, mut new_bad_neighbors) =
             Relayer::preprocess_pushed_microblocks(&sort_ic, network_result, chainstate)?;
         bad_neighbors.append(&mut new_bad_neighbors);
@@ -2100,8 +2126,8 @@ impl Relayer {
 
     #[cfg_attr(test, mutants::skip)]
     /// Process new Nakamoto blocks, both pushed and downloaded.
-    /// Returns the list of Nakamoto blocks we stored, as well as the list of bad neighbors that
-    /// sent us invalid blocks.
+    /// Returns the list of Nakamoto blocks we stored, as well as the list of
+    /// bad neighbors that sent us invalid blocks.
     pub fn process_new_nakamoto_blocks(
         connection_opts: &ConnectionOptions,
         network_result: &mut NetworkResult,
@@ -2266,8 +2292,9 @@ impl Relayer {
             .append(&mut filtered_uploaded_transactions);
     }
 
-    /// Store all new transactions we received, and return the list of transactions that we need to
-    /// forward (as well as their relay hints).  Also, garbage-collect the mempool.
+    /// Store all new transactions we received, and return the list of
+    /// transactions that we need to forward (as well as their relay hints).
+    /// Also, garbage-collect the mempool.
     pub(crate) fn process_transactions(
         network_result: &mut NetworkResult,
         sortdb: &SortitionDB,
@@ -2312,8 +2339,8 @@ impl Relayer {
             }
         }
 
-        // uploaded via HTTP, but already stored to the mempool.  If we get them here, it means we
-        // have to forward them.
+        // uploaded via HTTP, but already stored to the mempool.  If we get them here,
+        // it means we have to forward them.
         for tx in network_result.uploaded_transactions.iter() {
             ret.push((vec![], tx.clone()));
         }
@@ -2437,8 +2464,9 @@ impl Relayer {
 
     /// Process HTTP-uploaded stackerdb chunks.
     /// They're already stored by the RPC handler, so all we have to do
-    /// is forward events for them and rebroadcast them (i.e. the fact that we stored them and got
-    /// this far at all means that they were novel, and thus potentially novel to our neighbors).
+    /// is forward events for them and rebroadcast them (i.e. the fact that we
+    /// stored them and got this far at all means that they were novel, and
+    /// thus potentially novel to our neighbors).
     pub fn process_uploaded_stackerdb_chunks(
         &mut self,
         rc_consensus_hash: &ConsensusHash,
@@ -2480,8 +2508,8 @@ impl Relayer {
     }
 
     /// Process newly-arrived chunks obtained from a peer stackerdb replica.
-    /// Chunks that we store will be broadcast, since successful storage implies that they were new
-    /// to us (and thus might be new to our neighbors)
+    /// Chunks that we store will be broadcast, since successful storage implies
+    /// that they were new to us (and thus might be new to our neighbors)
     pub fn process_stacker_db_chunks(
         &mut self,
         rc_consensus_hash: &ConsensusHash,
@@ -2489,7 +2517,8 @@ impl Relayer {
         sync_results: Vec<StackerDBSyncResult>,
         event_observer: Option<&dyn StackerDBEventDispatcher>,
     ) -> Result<(), Error> {
-        // sort stacker results by contract, so as to minimize the number of transactions.
+        // sort stacker results by contract, so as to minimize the number of
+        // transactions.
         let mut sync_results_map: HashMap<QualifiedContractIdentifier, Vec<StackerDBSyncResult>> =
             HashMap::new();
         for sync_result in sync_results.into_iter() {
@@ -2511,8 +2540,9 @@ impl Relayer {
                         let md = chunk.get_slot_metadata();
                         if let Err(e) = tx.try_replace_chunk(&sc, &md, &chunk.data) {
                             if matches!(e, Error::StaleChunk { .. }) {
-                                // This is a common and expected message, so log it as a debug and with a sep message
-                                // to distinguish it from other message types.
+                                // This is a common and expected message, so log it as a debug and
+                                // with a sep message to distinguish
+                                // it from other message types.
                                 debug!(
                                     "Dropping stale StackerDB chunk";
                                     "stackerdb_contract_id" => &format!("{}", &sync_result.contract_id),
@@ -2612,7 +2642,8 @@ impl Relayer {
             }
         }
 
-        // have the p2p thread tell our neighbors about newly-discovered confirmed microblock streams
+        // have the p2p thread tell our neighbors about newly-discovered confirmed
+        // microblock streams
         let new_mblock_chs = new_confirmed_microblocks.keys().cloned().collect();
         let mblocks_available =
             Relayer::load_blocks_available_data(sortdb, new_mblock_chs).unwrap_or_default();
@@ -2655,7 +2686,8 @@ impl Relayer {
     #[cfg_attr(test, mutants::skip)]
     /// Process epoch2 block data.
     /// Relays blocks and microblocks as needed
-    /// Returns (num new blocks, num new confirmed microblocks, num new unconfirmed microblocks)
+    /// Returns (num new blocks, num new confirmed microblocks, num new
+    /// unconfirmed microblocks)
     fn process_new_epoch2_blocks(
         &mut self,
         _local_peer: &LocalPeer,
@@ -2713,7 +2745,8 @@ impl Relayer {
     }
 
     #[cfg_attr(test, mutants::skip)]
-    /// Get the last N sortitions, in order from the sortition tip to the n-1st ancestor
+    /// Get the last N sortitions, in order from the sortition tip to the n-1st
+    /// ancestor
     pub fn get_last_n_sortitions(
         sortdb: &SortitionDB,
         n: u64,
@@ -2947,14 +2980,16 @@ impl Relayer {
 
     /// Given a network result, consume and store all data.
     /// * Add all blocks and microblocks to staging.
-    /// * Forward BlocksAvailable messages to neighbors for newly-discovered anchored blocks
-    /// * Forward MicroblocksAvailable messages to neighbors for newly-discovered confirmed microblock streams
+    /// * Forward BlocksAvailable messages to neighbors for newly-discovered
+    ///   anchored blocks
+    /// * Forward MicroblocksAvailable messages to neighbors for
+    ///   newly-discovered confirmed microblock streams
     /// * Forward along unconfirmed microblocks that we didn't already have
     /// * Add all transactions to the mempool.
     /// * Forward transactions we didn't already have.
     /// * Reload the unconfirmed state, if necessary.
-    /// Mask errors from invalid data -- all errors due to invalid blocks and invalid data should be captured, and
-    /// turned into peer bans.
+    /// Mask errors from invalid data -- all errors due to invalid blocks and
+    /// invalid data should be captured, and turned into peer bans.
     pub fn process_network_result(
         &mut self,
         local_peer: &LocalPeer,
@@ -3049,10 +3084,11 @@ impl Relayer {
 }
 
 impl PeerNetwork {
-    /// Find out which neighbors need at least one (micro)block from the availability set.
-    /// For outbound neighbors (i.e. ones we have inv data for), send (Micro)BlocksData messages if
-    /// we can; fall back to (Micro)BlocksAvailable messages if we can't.
-    /// For inbound neighbors (i.e. ones we don't have inv data for), pick a random set and send them
+    /// Find out which neighbors need at least one (micro)block from the
+    /// availability set. For outbound neighbors (i.e. ones we have inv data
+    /// for), send (Micro)BlocksData messages if we can; fall back to
+    /// (Micro)BlocksAvailable messages if we can't. For inbound neighbors
+    /// (i.e. ones we don't have inv data for), pick a random set and send them
     /// the full (Micro)BlocksAvailable message.
     fn find_block_recipients(
         &mut self,
@@ -3070,9 +3106,9 @@ impl PeerNetwork {
             recipients
         })?;
 
-        // make a normalized random sample of inbound recipients, but don't send to an inbound peer
-        // if it's already represented in the outbound set, or its reciprocal conversation is
-        // represented in the outbound set.
+        // make a normalized random sample of inbound recipients, but don't send to an
+        // inbound peer if it's already represented in the outbound set, or its
+        // reciprocal conversation is represented in the outbound set.
         let mut inbound_recipients_set = HashSet::new();
         for (event_id, convo) in self.peers.iter() {
             if !convo.is_authenticated() {
@@ -3111,7 +3147,8 @@ impl PeerNetwork {
     }
 
     /// Announce the availability of a set of blocks or microblocks to a peer.
-    /// Break the availability into (Micro)BlocksAvailable messages and queue them for transmission.
+    /// Break the availability into (Micro)BlocksAvailable messages and queue
+    /// them for transmission.
     fn advertize_to_peer<S>(
         &mut self,
         recipient: &NeighborKey,
@@ -3275,9 +3312,9 @@ impl PeerNetwork {
         })
     }
 
-    /// Announce microblocks that we have to an outbound peer that doesn't have them.
-    /// If we were given the microblock stream, send the stream itself.
-    /// Otherwise, send a MicroblocksAvailable.
+    /// Announce microblocks that we have to an outbound peer that doesn't have
+    /// them. If we were given the microblock stream, send the stream
+    /// itself. Otherwise, send a MicroblocksAvailable.
     fn advertize_or_push_microblocks_to_outbound_peer(
         &mut self,
         recipient: &NeighborKey,
@@ -3317,9 +3354,9 @@ impl PeerNetwork {
         })
     }
 
-    /// Announce blocks that we have to an inbound peer that might not have them.
-    /// Send all available blocks and microblocks, since we don't know what the inbound peer has
-    /// already.
+    /// Announce blocks that we have to an inbound peer that might not have
+    /// them. Send all available blocks and microblocks, since we don't know
+    /// what the inbound peer has already.
     fn advertize_to_inbound_peer<S>(
         &mut self,
         recipient: &NeighborKey,
@@ -3339,12 +3376,16 @@ impl PeerNetwork {
     }
 
     /// Announce blocks that we have to a subset of inbound and outbound peers.
-    /// * Outbound peers receive announcements for blocks that we know they don't have, based on
-    /// the inv state we synchronized from them.  We send the blocks themselves, if we have them.
-    /// * Inbound peers are chosen uniformly at random to receive a full announcement, since we
-    /// don't track their inventory state.  We send blocks-available messages to them, since they
-    /// can turn around and ask us for the block data.
-    /// Return the number of inbound and outbound neighbors that have received it
+    /// * Outbound peers receive announcements for blocks that we know they
+    ///   don't have, based on
+    /// the inv state we synchronized from them.  We send the blocks themselves,
+    /// if we have them.
+    /// * Inbound peers are chosen uniformly at random to receive a full
+    ///   announcement, since we
+    /// don't track their inventory state.  We send blocks-available messages to
+    /// them, since they can turn around and ask us for the block data.
+    /// Return the number of inbound and outbound neighbors that have received
+    /// it
     pub fn advertize_blocks(
         &mut self,
         availability_data: BlocksAvailableMap,
@@ -3390,12 +3431,16 @@ impl PeerNetwork {
         Ok((num_inbound, num_outbound))
     }
 
-    /// Announce confirmed microblocks that we have to a subset of inbound and outbound peers.
-    /// * Outbound peers receive announcements for confirmed microblocks that we know they don't have, based on
+    /// Announce confirmed microblocks that we have to a subset of inbound and
+    /// outbound peers.
+    /// * Outbound peers receive announcements for confirmed microblocks that we
+    ///   know they don't have, based on
     /// the inv state we synchronized from them.
-    /// * Inbound peers are chosen uniformly at random to receive a full announcement, since we
+    /// * Inbound peers are chosen uniformly at random to receive a full
+    ///   announcement, since we
     /// don't track their inventory state.
-    /// Return the number of inbound and outbound neighbors that have received it
+    /// Return the number of inbound and outbound neighbors that have received
+    /// it
     pub fn advertize_microblocks(
         &mut self,
         availability_data: BlocksAvailableMap,
@@ -3435,8 +3480,9 @@ impl PeerNetwork {
         Ok((num_inbound, num_outbound))
     }
 
-    /// Update accounting information for relayed messages from a network result.
-    /// This influences selecting next-hop neighbors to get data from us.
+    /// Update accounting information for relayed messages from a network
+    /// result. This influences selecting next-hop neighbors to get data
+    /// from us.
     pub fn update_relayer_stats(&mut self, network_result: &NetworkResult) {
         // synchronize
         for (_, convo) in self.peers.iter_mut() {

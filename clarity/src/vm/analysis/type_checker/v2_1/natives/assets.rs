@@ -86,7 +86,8 @@ pub fn check_special_mint_asset(
         .contract_context
         .get_nft_type(asset_name)
         .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?
-        .clone(); // this clone shouldn't be strictly necessary, but to use `type_check_expects` with this, it would have to be.
+        .clone(); // this clone shouldn't be strictly necessary, but to use `type_check_expects`
+                  // with this, it would have to be.
 
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
@@ -273,7 +274,8 @@ pub fn check_special_burn_asset(
         .contract_context
         .get_nft_type(asset_name)
         .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?
-        .clone(); // this clone shouldn't be strictly necessary, but to use `type_check_expects` with this, it would have to be.
+        .clone(); // this clone shouldn't be strictly necessary, but to use `type_check_expects`
+                  // with this, it would have to be.
 
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,

@@ -413,7 +413,8 @@ impl BitcoinRegtestController {
         }
     }
 
-    /// Creates a dummy bitcoin regtest controller, with the given ongoing block-commits
+    /// Creates a dummy bitcoin regtest controller, with the given ongoing
+    /// block-commits
     pub fn new_ongoing_dummy(config: Config, ongoing: Option<OngoingBlockCommit>) -> Self {
         let mut ret = Self::new_dummy(config);
         ret.ongoing_block_commit = ongoing;
@@ -554,7 +555,8 @@ impl BitcoinRegtestController {
                         )?;
                     }
 
-                    // NOTE: This is the latest _sortition_ on the canonical sortition history, not the latest burnchain block!
+                    // NOTE: This is the latest _sortition_ on the canonical sortition history, not
+                    // the latest burnchain block!
                     let sort_tip =
                         SortitionDB::get_canonical_burn_chain_tip(self.sortdb_ref().conn())
                             .expect("Sortition DB error.");
@@ -794,8 +796,9 @@ impl BitcoinRegtestController {
             let (_, network) = self.config.burnchain.get_bitcoin_network();
             loop {
                 if let BitcoinNetworkType::Regtest = network {
-                    // Performing this operation on Mainnet / Testnet is very expensive, and can be longer than bitcoin block time.
-                    // Assuming that miners are in charge of correctly operating their bitcoind nodes sounds
+                    // Performing this operation on Mainnet / Testnet is very expensive, and can be
+                    // longer than bitcoin block time. Assuming that miners are
+                    // in charge of correctly operating their bitcoind nodes sounds
                     // reasonable to me.
                     // $ bitcoin-cli importaddress mxVFsFW5N4mu1HPkxPttorvocvzeZ7KZyk
                     let _result = BitcoinRPCRequest::import_public_key(&self.config, &pubk);
@@ -963,9 +966,11 @@ impl BitcoinRegtestController {
     /// Build a transfer stacks tx.
     ///   this *only* works if the only existant UTXO is from a PreStx Op
     ///   this is okay for testing, but obviously not okay for actual use.
-    ///   The reason for this constraint is that the bitcoin_regtest_controller's UTXO
-    ///     and signing logic are fairly intertwined, and untangling the two seems excessive
-    ///     for a functionality that won't be implemented for production via this controller.
+    ///   The reason for this constraint is that the
+    /// bitcoin_regtest_controller's UTXO     and signing logic are fairly
+    /// intertwined, and untangling the two seems excessive
+    ///     for a functionality that won't be implemented for production via
+    /// this controller.
     fn build_transfer_stacks_tx(
         &mut self,
         epoch_id: StacksEpochId,
@@ -1046,9 +1051,11 @@ impl BitcoinRegtestController {
     /// Build a delegate stacks tx.
     ///   this *only* works if the only existant UTXO is from a PreStx Op
     ///   this is okay for testing, but obviously not okay for actual use.
-    ///   The reason for this constraint is that the bitcoin_regtest_controller's UTXO
-    ///     and signing logic are fairly intertwined, and untangling the two seems excessive
-    ///     for a functionality that won't be implemented for production via this controller.
+    ///   The reason for this constraint is that the
+    /// bitcoin_regtest_controller's UTXO     and signing logic are fairly
+    /// intertwined, and untangling the two seems excessive
+    ///     for a functionality that won't be implemented for production via
+    /// this controller.
     fn build_delegate_stacks_tx(
         &mut self,
         epoch_id: StacksEpochId,
@@ -1536,7 +1543,8 @@ impl BitcoinRegtestController {
         let burnchain_db = self.burnchain_db.as_ref().expect("BurnchainDB not opened");
 
         for txid in ongoing_op.txids.iter() {
-            // check if ongoing_op is in the burnchain_db *or* has been confirmed via the bitcoin RPC
+            // check if ongoing_op is in the burnchain_db *or* has been confirmed via the
+            // bitcoin RPC
             let mined_op = burnchain_db.find_burnchain_op(&self.indexer, txid);
             let ongoing_tx_confirmed = mined_op.is_some()
                 || matches!(
@@ -1560,7 +1568,8 @@ impl BitcoinRegtestController {
             };
         }
 
-        // Did a re-org occur since we fetched our UTXOs, or are the UTXOs so stale that they should be abandoned?
+        // Did a re-org occur since we fetched our UTXOs, or are the UTXOs so stale that
+        // they should be abandoned?
         let mut traversal_depth = 0;
         let mut burn_chain_tip = burnchain_db
             .get_canonical_chain_tip()
@@ -1592,7 +1601,8 @@ impl BitcoinRegtestController {
             return res;
         }
 
-        // Stop as soon as the fee_rate is ${self.config.burnchain.max_rbf} percent higher, stop RBF
+        // Stop as soon as the fee_rate is ${self.config.burnchain.max_rbf} percent
+        // higher, stop RBF
         if ongoing_op.fees.fee_rate
             > (get_satoshis_per_byte(&self.config) * get_max_rbf(&self.config) / 100)
         {
@@ -1604,13 +1614,17 @@ impl BitcoinRegtestController {
             return Err(BurnchainControllerError::MaxFeeRateExceeded);
         }
 
-        // An ongoing operation is in the mempool and we received a new block. The desired behaviour is the following:
-        // 1) If the ongoing and the incoming operation are **strictly** identical, we will be idempotent and discard the incoming.
-        // 2) If the 2 operations are different, we will try to avoid wasting UTXOs, and attempt to RBF the outgoing transaction:
+        // An ongoing operation is in the mempool and we received a new block. The
+        // desired behaviour is the following:
+        // 1) If the ongoing and the incoming operation are **strictly** identical, we
+        //    will be idempotent and discard the incoming.
+        // 2) If the 2 operations are different, we will try to avoid wasting UTXOs, and
+        //    attempt to RBF the outgoing transaction:
         //  i) If UTXOs are insufficient,
-        //    a) If no other UTXOs, we'll have to wait on the ongoing operation to be mined before resuming operation.
-        //    b) If we have some other UTXOs, drop the ongoing operation, and track the new one.
-        //  ii) If UTXOs initially used are sufficient for paying for a fee bump, then RBF
+        //    a) If no other UTXOs, we'll have to wait on the ongoing operation to be
+        // mined before resuming operation.    b) If we have some other UTXOs,
+        // drop the ongoing operation, and track the new one.  ii) If UTXOs
+        // initially used are sufficient for paying for a fee bump, then RBF
 
         // Let's start by early returning 1)
         if payload == ongoing_op.payload {
@@ -1738,8 +1752,8 @@ impl BitcoinRegtestController {
         signer: &mut BurnchainOpSigner,
         force_change_output: bool,
     ) {
-        // spend UTXOs in order by confirmations.  Spend the least-confirmed UTXO first, and in the
-        // event of a tie, spend the smallest-value UTXO first.
+        // spend UTXOs in order by confirmations.  Spend the least-confirmed UTXO first,
+        // and in the event of a tie, spend the smallest-value UTXO first.
         utxos_set.utxos.sort_by(|u1, u2| {
             if u1.confirmations != u2.confirmations {
                 u1.confirmations.cmp(&u2.confirmations)
@@ -1752,8 +1766,9 @@ impl BitcoinRegtestController {
         });
 
         let tx_size = {
-            // We will be calling 2 times serialize_tx, the first time with an estimated size,
-            // Second time with the actual size, computed thanks to the 1st attempt.
+            // We will be calling 2 times serialize_tx, the first time with an estimated
+            // size, Second time with the actual size, computed thanks to the
+            // 1st attempt.
             let estimated_rbf = if spent_in_rbf == 0 {
                 0
             } else {
@@ -1789,10 +1804,10 @@ impl BitcoinRegtestController {
         signer.dispose();
     }
 
-    /// Sign and serialize a tx, consuming the UTXOs in utxo_set and spending total_to_spend
-    /// satoshis.  Uses the key in signer.
-    /// If self.config.miner.segwit is true, the transaction's change address will be a p2wpkh
-    /// output. Otherwise, it will be a p2pkh output.
+    /// Sign and serialize a tx, consuming the UTXOs in utxo_set and spending
+    /// total_to_spend satoshis.  Uses the key in signer.
+    /// If self.config.miner.segwit is true, the transaction's change address
+    /// will be a p2wpkh output. Otherwise, it will be a p2pkh output.
     fn serialize_tx(
         &mut self,
         epoch_id: StacksEpochId,
@@ -1846,7 +1861,8 @@ impl BitcoinRegtestController {
             };
             tx.output.push(change_output);
         } else {
-            // Instead of leaving that change to the BTC miner, we could / should bump the sortition fee
+            // Instead of leaving that change to the BTC miner, we could / should bump the
+            // sortition fee
             debug!("Not enough change to clear dust limit. Not adding change address.");
         }
 
@@ -1910,8 +1926,8 @@ impl BitcoinRegtestController {
         true
     }
 
-    /// Send a serialized tx to the Bitcoin node.  Return Some(txid) on successful send; None on
-    /// failure.
+    /// Send a serialized tx to the Bitcoin node.  Return Some(txid) on
+    /// successful send; None on failure.
     pub fn send_transaction(
         &self,
         transaction: SerializedTx,
@@ -2094,8 +2110,9 @@ impl BitcoinRegtestController {
         tx
     }
 
-    /// Produce `num_blocks` regtest bitcoin blocks, sending the bitcoin coinbase rewards
-    ///  to the bitcoin single sig addresses corresponding to `pks` in a round robin fashion.
+    /// Produce `num_blocks` regtest bitcoin blocks, sending the bitcoin
+    /// coinbase rewards  to the bitcoin single sig addresses corresponding
+    /// to `pks` in a round robin fashion.
     #[cfg(test)]
     pub fn bootstrap_chain_to_pks(&mut self, num_blocks: usize, pks: &[Secp256k1PublicKey]) {
         info!("Creating wallet if it does not exist");
@@ -2732,7 +2749,8 @@ impl BitcoinRPCRequest {
         Ok(())
     }
 
-    /// Calls `listwallets` method through RPC call and returns wallet names as a vector of Strings
+    /// Calls `listwallets` method through RPC call and returns wallet names as
+    /// a vector of Strings
     pub fn list_wallets(config: &Config) -> RPCResult<Vec<String>> {
         let payload = BitcoinRPCRequest {
             method: "listwallets".to_string(),
@@ -2832,9 +2850,10 @@ mod tests {
         assert_eq!(get_satoshis_per_byte(&config), 51);
     }
 
-    /// Verify that we can build a valid Bitcoin transaction with multiple UTXOs.
-    /// Taken from production data.
-    /// Tests `serialize_tx()` and `send_block_commit_operation_at_burnchain_height()`
+    /// Verify that we can build a valid Bitcoin transaction with multiple
+    /// UTXOs. Taken from production data.
+    /// Tests `serialize_tx()` and
+    /// `send_block_commit_operation_at_burnchain_height()`
     #[test]
     fn test_multiple_inputs() {
         let spend_utxos = vec![

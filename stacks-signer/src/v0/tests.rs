@@ -27,18 +27,22 @@ use stacks_common::{info, warn};
 use super::signer::Signer;
 use crate::signerdb::BlockInfo;
 
-/// A global variable that can be used to reject all block proposals if the signer's public key is in the provided list
+/// A global variable that can be used to reject all block proposals if the
+/// signer's public key is in the provided list
 pub static TEST_REJECT_ALL_BLOCK_PROPOSAL: LazyLock<TestFlag<Vec<StacksPublicKey>>> =
     LazyLock::new(TestFlag::default);
 
-/// A global variable that can be used to ignore block proposals if the signer's public key is in the provided list
+/// A global variable that can be used to ignore block proposals if the signer's
+/// public key is in the provided list
 pub static TEST_IGNORE_ALL_BLOCK_PROPOSALS: LazyLock<TestFlag<Vec<StacksPublicKey>>> =
     LazyLock::new(TestFlag::default);
 
-/// A global variable that can be used to pause broadcasting the block to the network
+/// A global variable that can be used to pause broadcasting the block to the
+/// network
 pub static TEST_PAUSE_BLOCK_BROADCAST: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
-/// A global variable that can be used to skip broadcasting the block to the network
+/// A global variable that can be used to skip broadcasting the block to the
+/// network
 pub static TEST_SKIP_BLOCK_BROADCAST: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
 /// A global variable that can be used to pause the block validation submission
@@ -71,7 +75,8 @@ impl Signer {
         false
     }
 
-    /// Reject block proposals if the TEST_REJECT_ALL_BLOCK_PROPOSAL flag is set for the signer's public key
+    /// Reject block proposals if the TEST_REJECT_ALL_BLOCK_PROPOSAL flag is set
+    /// for the signer's public key
     pub fn test_reject_block_proposal(
         &mut self,
         block_proposal: &BlockProposal,
@@ -92,9 +97,10 @@ impl Signer {
                     warn!("{self}: Failed to mark block as locally rejected: {e:?}");
                 }
             };
-            // We must insert the block into the DB to prevent subsequent repeat proposals being accepted (should reject
-            // as invalid since we rejected in a prior round if this crops up again)
-            // in case this is the first time we saw this block. Safe to do since this is testing case only.
+            // We must insert the block into the DB to prevent subsequent repeat proposals
+            // being accepted (should reject as invalid since we rejected in a
+            // prior round if this crops up again) in case this is the first
+            // time we saw this block. Safe to do since this is testing case only.
             self.signer_db
                 .insert_block(block_info)
                 .unwrap_or_else(|e| self.handle_insert_block_error(e));
@@ -122,7 +128,8 @@ impl Signer {
         }
     }
 
-    /// Ignore block proposals if the TEST_IGNORE_ALL_BLOCK_PROPOSALS flag is set for the signer's public key
+    /// Ignore block proposals if the TEST_IGNORE_ALL_BLOCK_PROPOSALS flag is
+    /// set for the signer's public key
     pub fn test_ignore_all_block_proposals(&self, block_proposal: &BlockProposal) -> bool {
         let public_keys = TEST_IGNORE_ALL_BLOCK_PROPOSALS.get();
         if public_keys.contains(
@@ -138,7 +145,8 @@ impl Signer {
         false
     }
 
-    /// Stall the block validation submission if the TEST_STALL_BLOCK_VALIDATION_SUBMISSION flag is set
+    /// Stall the block validation submission if the
+    /// TEST_STALL_BLOCK_VALIDATION_SUBMISSION flag is set
     pub fn test_stall_block_validation_submission(&self) {
         if TEST_STALL_BLOCK_VALIDATION_SUBMISSION.get() {
             // Do an extra check just so we don't log EVERY time.

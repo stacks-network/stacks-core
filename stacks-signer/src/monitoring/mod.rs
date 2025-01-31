@@ -72,7 +72,8 @@ pub mod actions {
 
     /// Start a new RPC call timer.
     /// The `origin` parameter is the base path of the RPC call, e.g. `http://node.com`.
-    /// The `origin` parameter is removed from `full_path` when storing in prometheus.
+    /// The `origin` parameter is removed from `full_path` when storing in
+    /// prometheus.
     pub fn new_rpc_call_timer(full_path: &str, origin: &str) -> HistogramTimer {
         let path = super::remove_origin_from_path(full_path, origin);
         let histogram = SIGNER_RPC_CALL_LATENCIES_HISTOGRAM.with_label_values(&[&path]);
@@ -93,7 +94,8 @@ pub mod actions {
             .observe(diff as f64 / 1000.0);
     }
 
-    /// Record the time taken to validate a block, as reported by the Stacks node.
+    /// Record the time taken to validate a block, as reported by the Stacks
+    /// node.
     pub fn record_block_validation_latency(latency_ms: u64) {
         SIGNER_BLOCK_VALIDATION_LATENCIES_HISTOGRAM
             .with_label_values(&[])
@@ -101,7 +103,8 @@ pub mod actions {
     }
 
     /// Start serving monitoring metrics.
-    /// This will only serve the metrics if the `monitoring_prom` feature is enabled.
+    /// This will only serve the metrics if the `monitoring_prom` feature is
+    /// enabled.
     pub fn start_serving_monitoring_metrics(config: GlobalConfig) -> Result<(), String> {
         if config.metrics_endpoint.is_none() {
             return Ok(());
@@ -147,10 +150,12 @@ pub mod actions {
     /// Update the signer nonce metric
     pub fn update_signer_nonce(_nonce: u64) {}
 
-    /// NoOp timer uses for monitoring when the monitoring feature is not enabled.
+    /// NoOp timer uses for monitoring when the monitoring feature is not
+    /// enabled.
     pub struct NoOpTimer;
     impl NoOpTimer {
-        /// NoOp method to stop recording when the monitoring feature is not enabled.
+        /// NoOp method to stop recording when the monitoring feature is not
+        /// enabled.
         pub fn stop_and_record(&self) {}
     }
 
@@ -165,11 +170,13 @@ pub mod actions {
     /// Call this right after broadcasting a BlockResponse
     pub fn record_block_response_latency(_block: &NakamotoBlock) {}
 
-    /// Record the time taken to validate a block, as reported by the Stacks node.
+    /// Record the time taken to validate a block, as reported by the Stacks
+    /// node.
     pub fn record_block_validation_latency(_latency_ms: u64) {}
 
     /// Start serving monitoring metrics.
-    /// This will only serve the metrics if the `monitoring_prom` feature is enabled.
+    /// This will only serve the metrics if the `monitoring_prom` feature is
+    /// enabled.
     pub fn start_serving_monitoring_metrics(config: GlobalConfig) -> Result<(), String> {
         if config.metrics_endpoint.is_some() {
             info!("`metrics_endpoint` is configured for the signer, but the monitoring_prom feature is not enabled. Not starting monitoring metrics server.");
@@ -181,7 +188,8 @@ pub mod actions {
 // Allow dead code because this is only used in the `monitoring_prom` feature
 // but we want to run it in a test
 #[allow(dead_code)]
-/// Remove the origin from the full path to avoid duplicate metrics for different origins
+/// Remove the origin from the full path to avoid duplicate metrics for
+/// different origins
 fn remove_origin_from_path(full_path: &str, origin: &str) -> String {
     full_path.replace(origin, "")
 }

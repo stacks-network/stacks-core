@@ -371,7 +371,8 @@ fn pox_extend_transition() {
         );
 
         assert!(cur_reward_cycle >= first_v2_cycle as u128);
-        // v2 reward cycles have begun, so reward addrs should be read from PoX2 which is Bob + Alice
+        // v2 reward cycles have begun, so reward addrs should be read from PoX2 which
+        // is Bob + Alice
         assert_eq!(reward_addrs.len(), 2);
         assert_eq!(
             (reward_addrs[0].0).version(),
@@ -606,7 +607,8 @@ fn pox_extend_transition() {
         get_tip(peer.sortdb.as_ref()).block_height
     );
 
-    // check that the "raw" reward set will contain entries for alice at the cycle start
+    // check that the "raw" reward set will contain entries for alice at the cycle
+    // start
     for cycle_number in first_v4_cycle..(first_v4_cycle + 4) {
         let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
         let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
@@ -701,7 +703,8 @@ fn pox_extend_transition() {
 
     latest_block = peer.tenure_with_txs(&[bob_lockup, alice_lockup], &mut coinbase_nonce);
 
-    // check that the "raw" reward set will contain entries for alice at the cycle start
+    // check that the "raw" reward set will contain entries for alice at the cycle
+    // start
     for cycle_number in first_v4_cycle..(first_v4_cycle + 1) {
         let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
         let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
@@ -1026,7 +1029,8 @@ fn pox_lock_unlock() {
         info!("Checking we have 2 stackers for cycle {cycle}");
         for i in 0..reward_blocks {
             latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
-            // only the first 2 reward blocks contain pox outputs, because there are 6 slots and only 4 are occuppied
+            // only the first 2 reward blocks contain pox outputs, because there are 6 slots
+            // and only 4 are occuppied
             if i < 2 {
                 assert_latest_was_pox(&mut peer)
                     .into_iter()
@@ -1312,7 +1316,8 @@ fn pox_3_unlocks() {
         info!("Checking STX locked for cycle {cycle}");
         for i in 0..reward_blocks {
             latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
-            // only the first 2 reward blocks contain pox outputs, because there are 6 slots and only 4 are occuppied
+            // only the first 2 reward blocks contain pox outputs, because there are 6 slots
+            // and only 4 are occuppied
             if i < 2 {
                 assert_latest_was_pox(&mut peer)
                     .into_iter()
@@ -1372,11 +1377,12 @@ fn pox_3_unlocks() {
     }
 }
 
-// This test calls most pox-4 Clarity functions to check the existence of `start-cycle-id` and `end-cycle-id`
-// in emitted pox events.
-// In this set up, Steph is a solo stacker and invokes `stack-stx`, `stack-increase` and `stack-extend` functions
-// Alice delegates to Bob via `delegate-stx`
-// Bob as the delegate, invokes 'delegate-stack-stx' and 'stack-aggregation-commit-indexed'
+// This test calls most pox-4 Clarity functions to check the existence of
+// `start-cycle-id` and `end-cycle-id` in emitted pox events.
+// In this set up, Steph is a solo stacker and invokes `stack-stx`,
+// `stack-increase` and `stack-extend` functions Alice delegates to Bob via
+// `delegate-stx` Bob as the delegate, invokes 'delegate-stack-stx' and
+// 'stack-aggregation-commit-indexed'
 #[test]
 fn pox_4_check_cycle_id_range_in_print_events_pool() {
     // Config for this test
@@ -1646,7 +1652,8 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
     assert_eq!(steph_stack_increase_tx_events.len() as u64, 2);
     let steph_stack_increase_tx_event = &steph_stack_increase_tx_events[0];
     let steph_stack_increase_op_data = HashMap::from([
-        // `stack-increase` is in the same block as `stack-stx`, so we essentially want to be able to override the first event
+        // `stack-increase` is in the same block as `stack-stx`, so we essentially want to be able
+        // to override the first event
         ("start-cycle-id", Value::UInt(next_reward_cycle)),
         (
             "end-cycle-id",
@@ -1763,11 +1770,13 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
     );
 }
 
-// This test calls most pox-4 Clarity functions to check the existence of `start-cycle-id` and `end-cycle-id`
-// in emitted pox events. This tests for the correct offset in the prepare phase.
-// In this set up, Steph is a solo stacker and invokes `stack-stx`, `stack-increase` and `stack-extend` functions
+// This test calls most pox-4 Clarity functions to check the existence of
+// `start-cycle-id` and `end-cycle-id` in emitted pox events. This tests for the
+// correct offset in the prepare phase. In this set up, Steph is a solo stacker
+// and invokes `stack-stx`, `stack-increase` and `stack-extend` functions
 // Alice delegates to Bob via `delegate-stx`
-// Bob as the delegate, invokes 'delegate-stack-stx' and 'stack-aggregation-commit-indexed'
+// Bob as the delegate, invokes 'delegate-stack-stx' and
+// 'stack-aggregation-commit-indexed'
 #[test]
 fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     // Config for this test
@@ -1828,7 +1837,8 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
-    // produce blocks until the we're in the prepare phase (first block of prepare-phase was mined, i.e. pox-set for next cycle determined)
+    // produce blocks until the we're in the prepare phase (first block of
+    // prepare-phase was mined, i.e. pox-set for next cycle determined)
     while !burnchain.is_in_prepare_phase(get_tip(peer.sortdb.as_ref()).block_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
@@ -2041,7 +2051,8 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     assert_eq!(steph_stack_increase_tx_events.len() as u64, 2);
     let steph_stack_increase_tx_event = &steph_stack_increase_tx_events[0];
     let steph_stack_increase_op_data = HashMap::from([
-        // `stack-increase` is in the same block as `stack-stx`, so we essentially want to be able to override the first event
+        // `stack-increase` is in the same block as `stack-stx`, so we essentially want to be able
+        // to override the first event
         ("start-cycle-id", Value::UInt(next_reward_cycle + 1)),
         (
             "end-cycle-id",
@@ -2146,7 +2157,9 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
         ("start-cycle-id", Value::UInt(next_reward_cycle + 1)),
         (
             "end-cycle-id",
-            Value::some(Value::UInt(next_reward_cycle + 1)).unwrap(), // end is same as start, which means this missed the pox-set
+            Value::some(Value::UInt(next_reward_cycle + 1)).unwrap(), /* end is same as start,
+                                                                       * which means this missed
+                                                                       * the pox-set */
         ),
     ]);
     let common_data = PoxPrintFields {
@@ -2192,11 +2205,13 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     });
 }
 
-// This test calls most pox-4 Clarity functions to check the existence of `start-cycle-id` and `end-cycle-id`
-// in emitted pox events. This tests for the correct offset in the prepare phase, when skipping a cycle for commit.
+// This test calls most pox-4 Clarity functions to check the existence of
+// `start-cycle-id` and `end-cycle-id` in emitted pox events. This tests for the
+// correct offset in the prepare phase, when skipping a cycle for commit.
 // In this set up, Alice delegates to Bob via `delegate-stx`
-// Bob as the delegate, invokes 'delegate-stack-stx' and 'stack-aggregation-commit-indexed'
-// for one after the next cycle, so there should be no prepare-offset in the commit start.
+// Bob as the delegate, invokes 'delegate-stack-stx' and
+// 'stack-aggregation-commit-indexed' for one after the next cycle, so there
+// should be no prepare-offset in the commit start.
 #[test]
 fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase_skip_cycle() {
     // Config for this test
@@ -2244,7 +2259,8 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase_skip_cycle()
     while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
-    // produce blocks until the we're in the prepare phase (first block of prepare-phase was mined, i.e. pox-set for next cycle determined)
+    // produce blocks until the we're in the prepare phase (first block of
+    // prepare-phase was mined, i.e. pox-set for next cycle determined)
     while !burnchain.is_in_prepare_phase(get_tip(peer.sortdb.as_ref()).block_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
@@ -2406,7 +2422,8 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase_skip_cycle()
     assert_eq!(bob_aggregation_commit_tx_events.len() as u64, 1);
     let bob_aggregation_commit_tx_event = &bob_aggregation_commit_tx_events[0];
     let bob_aggregation_commit_tx_op_data = HashMap::from([
-        ("start-cycle-id", Value::UInt(target_cycle)), // no prepare-offset, since target is not next cycle
+        ("start-cycle-id", Value::UInt(target_cycle)), /* no prepare-offset, since target is not
+                                                        * next cycle */
         (
             "end-cycle-id",
             Value::some(Value::UInt(target_cycle + 1)).unwrap(),
@@ -2426,9 +2443,10 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase_skip_cycle()
     );
 }
 
-// This test calls some pox-4 Clarity functions to check the existence of `start-cycle-id` and `end-cycle-id`
-// in emitted pox events. This test checks that the prepare-offset isn't used before its time.
-// In this setup, Steph solo stacks in the prepare phase
+// This test calls some pox-4 Clarity functions to check the existence of
+// `start-cycle-id` and `end-cycle-id` in emitted pox events. This test checks
+// that the prepare-offset isn't used before its time. In this setup, Steph solo
+// stacks in the prepare phase
 #[test]
 fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
     // Config for this test
@@ -2472,7 +2490,9 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
     while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
-    // produce blocks until the we're 1 before the prepare phase (first block of prepare-phase not yet mined, whatever txs we create now won't be included in the reward set)
+    // produce blocks until the we're 1 before the prepare phase (first block of
+    // prepare-phase not yet mined, whatever txs we create now won't be included in
+    // the reward set)
     while !burnchain.is_in_prepare_phase(get_tip(peer.sortdb.as_ref()).block_height + 1) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
@@ -2529,7 +2549,9 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
     let steph_stacking_receipt = txs.get(&steph_stacking.txid()).unwrap().clone();
     assert_eq!(steph_stacking_receipt.events.len(), 2);
     let steph_stacking_op_data = HashMap::from([
-        ("start-cycle-id", Value::UInt(next_cycle + 1)), // +1 because steph stacked in the block before the prepare phase (too late)
+        ("start-cycle-id", Value::UInt(next_cycle + 1)), /* +1 because steph stacked in the
+                                                          * block before the prepare phase (too
+                                                          * late) */
         (
             "end-cycle-id",
             Value::some(Value::UInt(next_cycle + steph_lock_period)).unwrap(),
@@ -2549,9 +2571,10 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
     );
 }
 
-// This test calls some pox-4 Clarity functions to check the existence of `start-cycle-id` and `end-cycle-id`
-// in emitted pox events. This test checks that the prepare-offset is used for the pox-anchor-block.
-// In this setup, Steph solo stacks in the prepare phase
+// This test calls some pox-4 Clarity functions to check the existence of
+// `start-cycle-id` and `end-cycle-id` in emitted pox events. This test checks
+// that the prepare-offset is used for the pox-anchor-block. In this setup,
+// Steph solo stacks in the prepare phase
 #[test]
 fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
     // Config for this test
@@ -2595,7 +2618,8 @@ fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
     while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
-    // produce blocks until the we're in the prepare phase (first block of prepare-phase was mined, i.e. pox-set for next cycle determined)
+    // produce blocks until the we're in the prepare phase (first block of
+    // prepare-phase was mined, i.e. pox-set for next cycle determined)
     while !burnchain.is_in_prepare_phase(get_tip(peer.sortdb.as_ref()).block_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
@@ -2652,7 +2676,8 @@ fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
     let steph_stacking_receipt = txs.get(&steph_stacking.txid()).unwrap().clone();
     assert_eq!(steph_stacking_receipt.events.len(), 2);
     let steph_stacking_op_data = HashMap::from([
-        ("start-cycle-id", Value::UInt(next_cycle + 1)), // +1 because steph stacked during the prepare phase
+        ("start-cycle-id", Value::UInt(next_cycle + 1)), /* +1 because steph stacked during the
+                                                          * prepare phase */
         (
             "end-cycle-id",
             Value::some(Value::UInt(next_cycle + steph_lock_period)).unwrap(),
@@ -4249,8 +4274,9 @@ impl StackerSignerInfo {
     }
 }
 
-/// Helper function to advance to a specific block height with the passed txs as the first in the block
-/// Returns a tuple of the tip and the observed block that should contain the provided txs
+/// Helper function to advance to a specific block height with the passed txs as
+/// the first in the block Returns a tuple of the tip and the observed block
+/// that should contain the provided txs
 fn advance_to_block_height(
     peer: &mut TestPeer,
     observer: &TestEventObserver,
@@ -4292,8 +4318,9 @@ fn advance_to_block_height(
 #[test]
 /// Test for verifying that the stacker aggregation works as expected
 ///   with new signature parameters. In this test Alice is the service signer,
-///   Bob is the pool operator, Carl & Dave are delegates for pool 1, Eve is a late
-///   delegate for pool 1, Frank is a delegate for pool 2, & Grace is a delegate for pool 2.
+///   Bob is the pool operator, Carl & Dave are delegates for pool 1, Eve is a
+/// late   delegate for pool 1, Frank is a delegate for pool 2, & Grace is a
+/// delegate for pool 2.
 fn stack_agg_increase() {
     // Alice service signer setup
     let alice = StackerSignerInfo::new();
@@ -4641,7 +4668,8 @@ fn stack_agg_increase() {
         &mut None,
     );
 
-    // Fetch the error aggregate increase result & check that the err is ERR_INVALID_SIGNER_KEY
+    // Fetch the error aggregate increase result & check that the err is
+    // ERR_INVALID_SIGNER_KEY
     let bob_err_increase_result_actual = &tx_block
         .receipts
         .get(3)
@@ -5219,8 +5247,8 @@ fn stack_stx_signer_key(use_nakamoto: bool) {
     let reward_cycle = get_current_reward_cycle(&peer, &burnchain);
 
     // (define-public (stack-stx (amount-ustx uint)
-    //                       (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
-    //                       (start-burn-ht uint)
+    //                       (pox-addr (tuple (version (buff 1)) (hashbytes (buff
+    // 32))))                       (start-burn-ht uint)
     //                       (lock-period uint)
     //                       (signer-key (buff 33)))
     let pox_addr = pox_addr_from(stacker_key);
@@ -6023,7 +6051,8 @@ fn delegate_stack_stx_signer_key(use_nakamoto: bool) {
     // (define-public (delegate-stx (amount-ustx uint)
     //                          (delegate-to principal)
     //                          (until-burn-ht (optional uint))
-    //                          (pox-addr (optional { version: (buff 1), hashbytes: (buff 32) })))
+    //                          (pox-addr (optional { version: (buff 1), hashbytes:
+    // (buff 32) })))
     let pox_addr = pox_addr_from(stacker_key);
     let pox_addr_val = Value::Tuple(pox_addr.as_clarity_tuple().unwrap());
     let signer_sk = Secp256k1PrivateKey::from_seed(&[1, 1, 1]);
@@ -6488,7 +6517,8 @@ fn stack_increase(use_nakamoto: bool) {
     check_pox_print_event(increase_event, common_data, increase_op_data);
 
     // Testing stack_increase response is equal to expected response
-    // Test is straightforward because 'stack-increase' in PoX-4 is the same as PoX-3
+    // Test is straightforward because 'stack-increase' in PoX-4 is the same as
+    // PoX-3
     assert_eq!(actual_result, expected_result);
 
     let next_reward_cycle = 1 + burnchain
@@ -6572,7 +6602,8 @@ fn delegate_stack_increase(use_nakamoto: bool) {
         lock_period,
     );
 
-    // Initial tx arr includes a delegate_stx & delegate_stack_stx pox_4 helper found in mod.rs
+    // Initial tx arr includes a delegate_stx & delegate_stack_stx pox_4 helper
+    // found in mod.rs
     let txs = vec![delegate_stx, delegate_stack_stx];
 
     let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
@@ -6631,7 +6662,8 @@ fn delegate_stack_increase(use_nakamoto: bool) {
     .unwrap();
 
     // Testing stack_increase response is equal to expected response
-    // Test is straightforward because 'stack-increase' in PoX-4 is the same as PoX-3
+    // Test is straightforward because 'stack-increase' in PoX-4 is the same as
+    // PoX-3
     assert_eq!(actual_result, expected_result);
 
     // test that the reward set contains the increased amount and the expected key
@@ -6987,7 +7019,8 @@ fn test_scenario_one(use_nakamoto: bool) {
         bob_stack,
     ];
 
-    // Commit tx & advance to the reward set calculation height (2nd block of the prepare phase)
+    // Commit tx & advance to the reward set calculation height (2nd block of the
+    // prepare phase)
     let target_height = peer
         .config
         .burnchain
@@ -7197,7 +7230,8 @@ fn test_scenario_one(use_nakamoto: bool) {
     }
 
     let target_reward_cycle = next_reward_cycle + 1;
-    // Commit vote txs & advance to the first burn block of reward cycle 8 (block 161)
+    // Commit vote txs & advance to the first burn block of reward cycle 8 (block
+    // 161)
     let mut target_height = peer
         .config
         .burnchain
@@ -7249,7 +7283,8 @@ fn test_scenario_one(use_nakamoto: bool) {
     );
     let txs = vec![alice_stack_replay, bob_stack_replay];
 
-    // Commit replay txs & advance to the second burn block of reward cycle 8 (block 162)
+    // Commit replay txs & advance to the second burn block of reward cycle 8 (block
+    // 162)
     target_height += 1;
     let (latest_block, tx_block, receipts) = advance_to_block_height(
         &mut peer,
@@ -7434,7 +7469,8 @@ fn test_deser_abort() {
         bob_stack,
     ];
 
-    // Commit tx & advance to the reward set calculation height (2nd block of the prepare phase)
+    // Commit tx & advance to the reward set calculation height (2nd block of the
+    // prepare phase)
     let target_height = peer
         .config
         .burnchain
@@ -7759,7 +7795,8 @@ fn test_scenario_two(use_nakamoto: bool) {
         dave_stack,
     ];
 
-    // Commit tx & advance to the reward set calculation height (2nd block of the prepare phase for reward cycle 6)
+    // Commit tx & advance to the reward set calculation height (2nd block of the
+    // prepare phase for reward cycle 6)
     let target_height = peer
         .config
         .burnchain
@@ -7787,7 +7824,8 @@ fn test_scenario_two(use_nakamoto: bool) {
     assert_eq!(first_reward_cycle, next_reward_cycle);
     assert_eq!(pox_address, dave.pox_address);
 
-    // Check Carl's malformed signature stack transaction (err 35 - INVALID_SIGNATURE_PUBKEY)
+    // Check Carl's malformed signature stack transaction (err 35 -
+    // INVALID_SIGNATURE_PUBKEY)
     let carl_tx_result_err = receipts
         .get(2)
         .unwrap()
@@ -7927,7 +7965,8 @@ fn test_scenario_two(use_nakamoto: bool) {
     ];
 
     let target_reward_cycle = next_reward_cycle;
-    // Commit vote txs & advance to the first burn block of reward cycle 8 (block 161)
+    // Commit vote txs & advance to the first burn block of reward cycle 8 (block
+    // 161)
     let target_height = peer
         .config
         .burnchain
@@ -7983,8 +8022,9 @@ fn test_scenario_two(use_nakamoto: bool) {
 }
 
 #[apply(nakamoto_cases)]
-// In this scenario, two solo stacker-signers (Alice, Bob), one service signer (Carl),
-//  one stacking pool operator (Dave), & three pool stackers (Eve, Frank, Grace).
+// In this scenario, two solo stacker-signers (Alice, Bob), one service signer
+// (Carl),  one stacking pool operator (Dave), & three pool stackers (Eve,
+// Frank, Grace).
 fn test_scenario_three(use_nakamoto: bool) {
     // Alice stacker signer setup
     let mut alice = StackerSignerInfo::new();
@@ -8270,7 +8310,8 @@ fn test_scenario_three(use_nakamoto: bool) {
         davids_aggregate_commit_index_tx,
     ]);
 
-    // Commit txs in next block & advance to reward set calculation of the next reward cycle
+    // Commit txs in next block & advance to reward set calculation of the next
+    // reward cycle
     let target_height = peer
         .config
         .burnchain
@@ -8326,7 +8367,8 @@ fn test_scenario_three(use_nakamoto: bool) {
         .clone();
     assert_eq!(signer_key_expected, signer_key_actual);
 
-    // 3. Check that Bob can't stack with a signature that points to a reward cycle in the past
+    // 3. Check that Bob can't stack with a signature that points to a reward cycle
+    //    in the past
     let bob_stack_tx_err = receipts
         .get(3)
         .unwrap()
@@ -8357,7 +8399,8 @@ fn test_scenario_three(use_nakamoto: bool) {
     let signer_key_actual = bob_stack_tx_ok.data_map.get("signer-key").unwrap().clone();
     assert_eq!(signer_key_actual, signer_key_actual);
 
-    // 5. Check that David can't delegate-stack-stx Eve if delegation expires during lock period
+    // 5. Check that David can't delegate-stack-stx Eve if delegation expires during
+    //    lock period
     let eve_delegate_stx_to_david_err = receipts
         .get(9)
         .unwrap()
@@ -8435,7 +8478,8 @@ fn test_scenario_three(use_nakamoto: bool) {
         .unwrap();
     assert_eq!(alice_delegate_stx_to_david_err, Value::Int(3));
 
-    // 9. Check that David can't aggregate-commit-indexed if pointing to a reward cycle in the future
+    // 9. Check that David can't aggregate-commit-indexed if pointing to a reward
+    //    cycle in the future
     let david_aggregate_commit_indexed_err = receipts
         .get(13)
         .unwrap()
@@ -8445,7 +8489,8 @@ fn test_scenario_three(use_nakamoto: bool) {
         .unwrap();
     assert_eq!(david_aggregate_commit_indexed_err, Value::Int(35));
 
-    // 10. Check that David can aggregate-commit-indexed if using the incorrect signature topic
+    // 10. Check that David can aggregate-commit-indexed if using the incorrect
+    //     signature topic
     let david_aggregate_commit_indexed_err = receipts
         .get(14)
         .unwrap()
@@ -8457,7 +8502,8 @@ fn test_scenario_three(use_nakamoto: bool) {
 
     let david_index = if use_nakamoto { 3 } else { 2 };
 
-    // 11. Check that David can aggregate-commit-indexed successfully, checking stacking index = 2
+    // 11. Check that David can aggregate-commit-indexed successfully, checking
+    //     stacking index = 2
     let david_aggregate_commit_indexed_ok = receipts
         .get(15)
         .unwrap()
@@ -8584,7 +8630,8 @@ fn test_scenario_four(use_nakamoto: bool) {
 
     let txs = vec![alice_stack, bob_stack];
 
-    // Commit tx & advance to the reward set calculation height (2nd block of the prepare phase for reward cycle 6)
+    // Commit tx & advance to the reward set calculation height (2nd block of the
+    // prepare phase for reward cycle 6)
     let target_height = peer
         .config
         .burnchain
@@ -8815,8 +8862,8 @@ fn test_scenario_four(use_nakamoto: bool) {
 }
 
 // In this test case, Alice delegates twice the stacking minimum to Bob.
-//  Bob stacks Alice's funds, and then immediately tries to stacks-aggregation-increase.
-//  This should return a clarity user error.
+//  Bob stacks Alice's funds, and then immediately tries to
+// stacks-aggregation-increase.  This should return a clarity user error.
 #[apply(nakamoto_cases)]
 fn delegate_stack_increase_err(use_nakamoto: bool) {
     let lock_period: u128 = 2;
@@ -9358,9 +9405,9 @@ pub fn get_last_block_sender_transactions(
         .collect::<Vec<_>>()
 }
 
-/// In this test case, two Stackers, Alice and Bob stack in PoX 4. Alice stacks enough
-///  to qualify for slots, but Bob does not. In PoX-2 and PoX-3, this would result
-///  in an auto unlock, but PoX-4 it should not.
+/// In this test case, two Stackers, Alice and Bob stack in PoX 4. Alice stacks
+/// enough  to qualify for slots, but Bob does not. In PoX-2 and PoX-3, this
+/// would result  in an auto unlock, but PoX-4 it should not.
 #[test]
 fn missed_slots_no_unlock() {
     let EXPECTED_FIRST_V2_CYCLE = 8;
@@ -9407,7 +9454,8 @@ fn missed_slots_no_unlock() {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
-    // perform lockups so we can test that pox-4 does not exhibit unlock-on-miss behavior
+    // perform lockups so we can test that pox-4 does not exhibit unlock-on-miss
+    // behavior
     let tip = get_tip(peer.sortdb.as_ref());
 
     let alice_lockup =
@@ -9438,8 +9486,8 @@ fn missed_slots_no_unlock() {
         );
     }
 
-    // we'll produce blocks until the next reward cycle gets through the "handled start" code
-    //  this is one block after the reward cycle starts
+    // we'll produce blocks until the next reward cycle gets through the "handled
+    // start" code  this is one block after the reward cycle starts
     let height_target = burnchain.reward_cycle_to_block_height(first_v4_cycle) + 1;
     let auto_unlock_coinbase = height_target - 1 - EMPTY_SORTITIONS;
 
@@ -9455,7 +9503,8 @@ fn missed_slots_no_unlock() {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
-    // check that the "raw" reward sets for all cycles contain entries for alice and bob still!
+    // check that the "raw" reward sets for all cycles contain entries for alice and
+    // bob still!
     for cycle_number in first_v4_cycle..(first_v4_cycle + 6) {
         let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
         let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
@@ -9586,7 +9635,8 @@ fn missed_slots_no_unlock() {
 
     assert_eq!(alice_txs.len(), 1);
     assert_eq!(bob_txs.len(), 1);
-    // only mined one 2.5 reward cycle, but make sure it was picked up in the events loop above
+    // only mined one 2.5 reward cycle, but make sure it was picked up in the events
+    // loop above
     assert_eq!(reward_cycles_in_2_5, 1);
 
     //  all should have committedd okay
@@ -9598,10 +9648,11 @@ fn missed_slots_no_unlock() {
         "Bob tx0 should have committed okay"
     );
 
-    // Check that the event produced by "handle-unlock" has a well-formed print event
-    // and that this event is included as part of the coinbase tx
+    // Check that the event produced by "handle-unlock" has a well-formed print
+    // event and that this event is included as part of the coinbase tx
     for unlock_coinbase_index in [auto_unlock_coinbase] {
-        // expect the unlock to occur 1 block after the handle-unlock method was invoked.
+        // expect the unlock to occur 1 block after the handle-unlock method was
+        // invoked.
         let expected_unlock_height = unlock_coinbase_index + EMPTY_SORTITIONS + 1;
         let expected_cycle = pox_constants
             .block_height_to_reward_cycle(0, expected_unlock_height)
@@ -9613,7 +9664,8 @@ fn missed_slots_no_unlock() {
     }
 }
 
-/// In this test case, we lockup enough to get participation to be non-zero, but not enough to qualify for a reward slot.
+/// In this test case, we lockup enough to get participation to be non-zero, but
+/// not enough to qualify for a reward slot.
 #[test]
 fn no_lockups_2_5() {
     let EXPECTED_FIRST_V2_CYCLE = 8;
@@ -9682,8 +9734,8 @@ fn no_lockups_2_5() {
         );
     }
 
-    // we'll produce blocks until the next reward cycle gets through the "handled start" code
-    //  this is one block after the reward cycle starts
+    // we'll produce blocks until the next reward cycle gets through the "handled
+    // start" code  this is one block after the reward cycle starts
     let height_target = burnchain.reward_cycle_to_block_height(first_v4_cycle + 1) + 1;
     let auto_unlock_coinbase = height_target - 1 - EMPTY_SORTITIONS;
 
@@ -9709,18 +9761,24 @@ fn no_lockups_2_5() {
     }
 }
 
-// In this scenario, two service signers (Alice, Bob), one stacker-signer (Carl), two stacking pool operators (Dave, Eve), & six pool stackers (Frank, Grace, Heidi, Ivan, Judy, Mallory).
+// In this scenario, two service signers (Alice, Bob), one stacker-signer
+// (Carl), two stacking pool operators (Dave, Eve), & six pool stackers (Frank,
+// Grace, Heidi, Ivan, Judy, Mallory).
 
 // First Nakamoto Reward Cycle
 // First Nakamoto Tenure
 
-// 1. Franks stacks for 1 reward cycle, Grace stacks for 2 reward cycles & so on…Mallory stacks for 6 reward cycles: (so 6 wallets stacking n, n+1, n+2… cycles)
+// 1. Franks stacks for 1 reward cycle, Grace stacks for 2 reward cycles & so
+//    on…Mallory stacks for 6 reward cycles: (so 6 wallets stacking n, n+1, n+2…
+//    cycles)
 // 2. Dave asks Alice for 3 signatures
 // 3. Eve asks Bob for 3 set-authorizations
 // 4. Ivan - Mallory ask Bob to set-approval-authorization
 // 5. Carl stx-stacks & self-signs for 3 reward cycle
-// 6. In Carl's second reward cycle, he calls stx-extend for 3 more reward cycles
-// 7. In Carl's third reward cycle, he calls stx-increase and should fail as he is straddling 2 keys
+// 6. In Carl's second reward cycle, he calls stx-extend for 3 more reward
+//    cycles
+// 7. In Carl's third reward cycle, he calls stx-increase and should fail as he
+//    is straddling 2 keys
 #[apply(nakamoto_cases)]
 fn test_scenario_five(use_nakamoto: bool) {
     // Alice service signer setup
@@ -9833,7 +9891,8 @@ fn test_scenario_five(use_nakamoto: bool) {
         .reward_cycle_to_block_height(next_reward_cycle.wrapping_add(mallory_lock_period) as u64)
         as u128;
 
-    // The pool operators should delegate their signing power for as long as their longest stacker
+    // The pool operators should delegate their signing power for as long as their
+    // longest stacker
     let david_lock_period = heidi_lock_period;
     let eve_lock_period = mallory_lock_period;
 
@@ -9967,7 +10026,8 @@ fn test_scenario_five(use_nakamoto: bool) {
                 amount,
                 eve.pox_address.clone(),
                 burn_block_height as u128,
-                *lock_period, // Must be called every reward cycle, therefore only ever lasts for 1 lock period
+                *lock_period, /* Must be called every reward cycle, therefore only ever lasts
+                               * for 1 lock period */
             );
             eve.nonce += 1;
             tx
@@ -10132,7 +10192,8 @@ fn test_scenario_five(use_nakamoto: bool) {
     alice.nonce += 1;
     bob.nonce += 1;
     carl.nonce += 1;
-    // Mine vote txs & advance to the reward set calculation of the next reward cycle
+    // Mine vote txs & advance to the reward set calculation of the next reward
+    // cycle
     let target_height = peer
         .config
         .burnchain
@@ -10167,7 +10228,8 @@ fn test_scenario_five(use_nakamoto: bool) {
         .expect("No approved key found");
     assert_eq!(approved_key, peer_config.aggregate_public_key.unwrap());
 
-    // Stack for following reward cycle again and then advance to epoch 3.0 activation boundary
+    // Stack for following reward cycle again and then advance to epoch 3.0
+    // activation boundary
     let reward_cycle = peer.get_reward_cycle() as u128;
     let next_reward_cycle = reward_cycle.wrapping_add(1);
     let carl_lock_period = carl_lock_period.wrapping_add(3); // Carl's total lock period is now 5

@@ -130,8 +130,8 @@ impl StacksMessageCodec for StacksString {
 
 impl StacksMessageCodec for UrlString {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        // UrlString can't be longer than vm::representations::MAX_STRING_LEN, which itself is
-        // a u8, so we should be good here.
+        // UrlString can't be longer than vm::representations::MAX_STRING_LEN, which
+        // itself is a u8, so we should be good here.
         if self.as_bytes().len() > CLARITY_MAX_STRING_LENGTH as usize {
             return Err(codec_error::SerializeError(
                 "Failed to serialize URL string: too long".to_string(),
@@ -239,11 +239,12 @@ impl StacksString {
 }
 
 impl UrlString {
-    /// Determine that the UrlString parses to something that can be used to fetch blocks via HTTP(S).
-    /// A block URL must be an HTTP(S) URL without a query or fragment, and without a login.
+    /// Determine that the UrlString parses to something that can be used to
+    /// fetch blocks via HTTP(S). A block URL must be an HTTP(S) URL without
+    /// a query or fragment, and without a login.
     pub fn parse_to_block_url(&self) -> Result<url::Url, codec_error> {
-        // even though this code uses from_utf8_unchecked() internally, we've already verified that
-        // the bytes in this string are all ASCII.
+        // even though this code uses from_utf8_unchecked() internally, we've already
+        // verified that the bytes in this string are all ASCII.
         let url = url::Url::parse(&self.to_string())
             .map_err(|e| codec_error::DeserializeError(format!("Invalid URL: {:?}", &e)))?;
 
@@ -432,7 +433,8 @@ mod test {
             .find("fragments are not supported")
             .is_some());
 
-        // don't need to cover the happy path too much, since the rust-url package already tests it.
+        // don't need to cover the happy path too much, since the rust-url package
+        // already tests it.
         let url = UrlString::try_from("http://127.0.0.1:1234/v2/info")
             .unwrap()
             .parse_to_block_url()

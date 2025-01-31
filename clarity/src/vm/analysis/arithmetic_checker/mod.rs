@@ -36,7 +36,6 @@ mod tests;
 /// Cost-function defining contracts may not use contract-call,
 ///  any database operations, traits, or iterating operations (e.g., list
 ///  operations)
-///
 pub struct ArithmeticOnlyChecker<'a> {
     clarity_version: &'a ClarityVersion,
 }

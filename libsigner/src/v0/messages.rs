@@ -16,9 +16,10 @@
 
 //! Messages in the signer-miner interaction have a multi-level hierarchy.
 //! Signers send messages to each other through Packet messages. These messages,
-//! as well as `BlockResponse`, `Transactions`, and `DkgResults` messages are stored
-//! StackerDBs based on the `MessageSlotID` for the particular message type. This is a
-//! shared identifier space between the four message kinds and their subtypes.
+//! as well as `BlockResponse`, `Transactions`, and `DkgResults` messages are
+//! stored StackerDBs based on the `MessageSlotID` for the particular message
+//! type. This is a shared identifier space between the four message kinds and
+//! their subtypes.
 //!
 //! These four message kinds are differentiated with a `SignerMessageTypePrefix`
 //! and the `SignerMessage` enum.
@@ -136,7 +137,8 @@ impl MessageSlotID {
         NakamotoSigners::make_signers_db_contract_id(reward_cycle, self.to_u32(), mainnet)
     }
 
-    /// Return the u32 identifier for the message slot (used to index the contract that stores it)
+    /// Return the u32 identifier for the message slot (used to index the
+    /// contract that stores it)
     pub fn to_u32(self) -> u32 {
         self.to_u8().into()
     }
@@ -190,9 +192,9 @@ pub enum SignerMessage {
 }
 
 impl SignerMessage {
-    /// Helper function to determine the slot ID for the provided stacker-db writer id
-    ///  Not every message has a `MessageSlotID`: messages from the miner do not
-    ///   broadcast over `.signers-0-X` contracts.
+    /// Helper function to determine the slot ID for the provided stacker-db
+    /// writer id  Not every message has a `MessageSlotID`: messages from
+    /// the miner do not   broadcast over `.signers-0-X` contracts.
     #[cfg_attr(test, mutants::skip)]
     pub fn msg_id(&self) -> Option<MessageSlotID> {
         match self {
@@ -200,7 +202,7 @@ impl SignerMessage {
             | Self::BlockPushed(_)
             | Self::MockProposal(_)
             | Self::MockBlock(_) => None,
-            Self::BlockResponse(_) | Self::MockSignature(_) => Some(MessageSlotID::BlockResponse), // Mock signature uses the same slot as block response since its exclusively for epoch 2.5 testing
+            Self::BlockResponse(_) | Self::MockSignature(_) => Some(MessageSlotID::BlockResponse), /* Mock signature uses the same slot as block response since its exclusively for epoch 2.5 testing */
         }
     }
 }
@@ -255,7 +257,8 @@ impl StacksMessageCodec for SignerMessage {
     }
 }
 
-/// Work around for the fact that a lot of the structs being desierialized are not defined in messages.rs
+/// Work around for the fact that a lot of the structs being desierialized are
+/// not defined in messages.rs
 pub trait StacksMessageCodecExtensions: Sized {
     /// Serialize the struct to the provided writer
     fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError>;
@@ -328,14 +331,16 @@ impl StacksMessageCodec for PeerInfo {
 /// A mock block proposal for Epoch 2.5 mock signing
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MockProposal {
-    /// The view of the stacks node peer information at the time of the mock proposal
+    /// The view of the stacks node peer information at the time of the mock
+    /// proposal
     pub peer_info: PeerInfo,
     /// The miner's signature across the peer info
     signature: MessageSignature,
 }
 
 impl MockProposal {
-    /// Create a new mock proposal data struct from the provided peer info, chain id, and private key.
+    /// Create a new mock proposal data struct from the provided peer info,
+    /// chain id, and private key.
     pub fn new(peer_info: PeerInfo, stacks_private_key: &StacksPrivateKey) -> Self {
         let mut sig = Self {
             signature: MessageSignature::empty(),
@@ -436,7 +441,8 @@ impl StacksMessageCodec for MockProposal {
 }
 
 /// A mock signature for the stacks node to be used for mock signing.
-/// This is only used by Epoch 2.5 signers to simulate the signing of a block for every sortition.
+/// This is only used by Epoch 2.5 signers to simulate the signing of a block
+/// for every sortition.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MockSignature {
     /// The signer's signature across the mock proposal
@@ -448,7 +454,8 @@ pub struct MockSignature {
 }
 
 impl MockSignature {
-    /// Create a new mock signature from the provided proposal and signer private key.
+    /// Create a new mock signature from the provided proposal and signer
+    /// private key.
     pub fn new(mock_proposal: MockProposal, stacks_private_key: &StacksPrivateKey) -> Self {
         let mut sig = Self {
             signature: MessageSignature::empty(),
@@ -499,7 +506,8 @@ impl StacksMessageCodec for MockSignature {
     }
 }
 
-/// The mock block data for epoch 2.5 miners to broadcast to simulate block signing
+/// The mock block data for epoch 2.5 miners to broadcast to simulate block
+/// signing
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MockBlock {
     /// The mock proposal that was signed across
@@ -641,7 +649,8 @@ impl std::fmt::Display for BlockResponse {
 }
 
 impl BlockResponse {
-    /// Create a new accepted BlockResponse for the provided block signer signature hash and signature
+    /// Create a new accepted BlockResponse for the provided block signer
+    /// signature hash and signature
     pub fn accepted(
         signer_signature_hash: Sha512Trunc256Sum,
         signature: MessageSignature,
@@ -655,7 +664,9 @@ impl BlockResponse {
         })
     }
 
-    /// Create a new rejected BlockResponse for the provided block signer signature hash and rejection code and sign it with the provided private key
+    /// Create a new rejected BlockResponse for the provided block signer
+    /// signature hash and rejection code and sign it with the provided private
+    /// key
     pub fn rejected(
         hash: Sha512Trunc256Sum,
         reject_code: RejectCode,
@@ -811,7 +822,8 @@ pub struct BlockResponseData {
 }
 
 impl BlockResponseData {
-    /// Create a new BlockResponseData for the provided tenure extend timestamp and unknown bytes
+    /// Create a new BlockResponseData for the provided tenure extend timestamp
+    /// and unknown bytes
     pub fn new(tenure_extend_timestamp: u64) -> Self {
         Self {
             version: BLOCK_RESPONSE_DATA_VERSION,
@@ -825,7 +837,8 @@ impl BlockResponseData {
         Self::new(u64::MAX)
     }
 
-    /// Serialize the "inner" block response data. Used to determine the bytes length of the serialized block response data
+    /// Serialize the "inner" block response data. Used to determine the bytes
+    /// length of the serialized block response data
     fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.tenure_extend_timestamp)?;
         // write_next(fd, &self.unknown_bytes)?;
@@ -839,8 +852,8 @@ impl StacksMessageCodec for BlockResponseData {
     /// Serialize the block response data.
     /// When creating a new version of the block response data, we are only ever
     /// appending new bytes to the end of the struct. When serializing, we use
-    /// `bytes_len` to ensure that older versions of the code can read through the
-    /// end of the serialized bytes.
+    /// `bytes_len` to ensure that older versions of the code can read through
+    /// the end of the serialized bytes.
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.version)?;
         let mut inner_bytes = vec![];
@@ -852,7 +865,8 @@ impl StacksMessageCodec for BlockResponseData {
     /// Deserialize the block response data in a backwards-compatible manner.
     /// When creating a new version of the block response data, we are only ever
     /// appending new bytes to the end of the struct. When deserializing, we use
-    /// `bytes_len` to ensure that we read through the end of the serialized bytes.
+    /// `bytes_len` to ensure that we read through the end of the serialized
+    /// bytes.
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
         let Ok(version) = read_next(fd) else {
             return Ok(Self::empty());
@@ -905,7 +919,8 @@ impl StacksMessageCodec for BlockAccepted {
 }
 
 impl BlockAccepted {
-    /// Create a new BlockAccepted for the provided block signer signature hash and signature
+    /// Create a new BlockAccepted for the provided block signer signature hash
+    /// and signature
     pub fn new(
         signer_signature_hash: Sha512Trunc256Sum,
         signature: MessageSignature,
@@ -1068,7 +1083,8 @@ impl StacksMessageCodec for BlockRejection {
 impl StacksMessageCodec for RejectCode {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &(RejectCodeTypePrefix::from(self) as u8))?;
-        // Do not do a single match here as we may add other variants in the future and don't want to miss adding it
+        // Do not do a single match here as we may add other variants in the future and
+        // don't want to miss adding it
         match self {
             RejectCode::ValidationFailed(code) => write_next(fd, &(*code as u8))?,
             RejectCode::ConnectivityIssues
@@ -1488,7 +1504,8 @@ mod test {
         response_data.unknown_bytes = vec![1, 2, 3, 4];
         let mut bytes = vec![];
         response_data.consensus_serialize(&mut bytes).unwrap();
-        // 1 byte version + 4 bytes (bytes_len) + 8 bytes tenure_extend_timestamp + 4 bytes unknown_bytes
+        // 1 byte version + 4 bytes (bytes_len) + 8 bytes tenure_extend_timestamp + 4
+        // bytes unknown_bytes
         assert_eq!(bytes.len(), 17);
         let deserialized_data = read_next::<BlockResponseData, _>(&mut &bytes[..])
             .expect("Failed to deserialize BlockResponseData");
@@ -1497,7 +1514,8 @@ mod test {
         let response_data = BlockResponseData::new(2);
         let mut bytes = vec![];
         response_data.consensus_serialize(&mut bytes).unwrap();
-        // 1 byte version + 4 bytes (bytes_len) + 8 bytes tenure_extend_timestamp + 0 bytes unknown_bytes
+        // 1 byte version + 4 bytes (bytes_len) + 8 bytes tenure_extend_timestamp + 0
+        // bytes unknown_bytes
         assert_eq!(bytes.len(), 13);
         let deserialized_data = read_next::<BlockResponseData, _>(&mut &bytes[..])
             .expect("Failed to deserialize BlockResponseData");
@@ -1559,8 +1577,8 @@ mod test {
         assert_eq!(deserialized_data, deserialized_data_2);
     }
 
-    /// Test using an older version of BlockAccepted to verify that we can deserialize
-    /// future versions
+    /// Test using an older version of BlockAccepted to verify that we can
+    /// deserialize future versions
 
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
     pub struct BlockAcceptedOld {

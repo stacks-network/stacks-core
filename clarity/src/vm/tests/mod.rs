@@ -109,13 +109,15 @@ macro_rules! clarity_template {
     }
 }
 
-// Define two rstest templates for Clarity tests: `test_epochs` and `test_clarity_versions`
-//  these templates test all epochs (except 1.0) and all valid epoch/clarity-version pairs.
+// Define two rstest templates for Clarity tests: `test_epochs` and
+// `test_clarity_versions`  these templates test all epochs (except 1.0) and all
+// valid epoch/clarity-version pairs.
 //
-// The macro definitions ensure that we get compile time errors in testing if there is a
-//  non-covered case in the rstest template. This *could* have been written as a derive macro,
-//  but then it would need to be defined in the `stacks-common` library (where it would have to
-//  get a `testing` feature flag). This seems less obtuse.
+// The macro definitions ensure that we get compile time errors in testing if
+// there is a  non-covered case in the rstest template. This *could* have been
+// written as a derive macro,  but then it would need to be defined in the
+// `stacks-common` library (where it would have to  get a `testing` feature
+// flag). This seems less obtuse.
 epochs_template! {
     Epoch20,
     Epoch2_05,
@@ -201,15 +203,17 @@ impl TopLevelMemoryEnvironmentGenerator {
     }
 }
 
-/// Determine whether or not to use the testnet or mainnet chain ID, given whether or not the
-/// caller expects to use mainnet or testnet.
+/// Determine whether or not to use the testnet or mainnet chain ID, given
+/// whether or not the caller expects to use mainnet or testnet.
 ///
-/// WARNING TO THE READER:  This is *test-only* code.  The existence of this method does *not*
-/// imply that there is a canonical, supported way to convert a `bool` into a chain ID.  The fact
-/// that Stacks has a separate chain ID for its testnet (0x80000000) is an accident.  In general, a
-/// Stacks blockchain instance only needs _one_ chain ID, and can use the mainnet/testnet field in
-/// its transactions to determine whether or not a transaction should be mined in a given chain.
-/// Going forward, you should *never* use a different chain ID for your testnet.
+/// WARNING TO THE READER:  This is *test-only* code.  The existence of this
+/// method does *not* imply that there is a canonical, supported way to convert
+/// a `bool` into a chain ID.  The fact that Stacks has a separate chain ID for
+/// its testnet (0x80000000) is an accident.  In general, a Stacks blockchain
+/// instance only needs _one_ chain ID, and can use the mainnet/testnet field in
+/// its transactions to determine whether or not a transaction should be mined
+/// in a given chain. Going forward, you should *never* use a different chain ID
+/// for your testnet.
 ///
 /// So, do *not* refactor this code to use this conversion in production.
 pub fn test_only_mainnet_to_chain_id(mainnet: bool) -> u32 {

@@ -48,7 +48,8 @@ impl Neighbor {
 
     /// Update this peer in the DB.
     /// If there's no DB entry for this peer, then do nothing.
-    /// Updates last-contact-time to now, since this is only called when we get back a Handshake
+    /// Updates last-contact-time to now, since this is only called when we get
+    /// back a Handshake
     pub fn save_update(
         &mut self,
         tx: &DBTx<'_>,
@@ -63,9 +64,10 @@ impl Neighbor {
     }
 
     /// Save to the peer DB, inserting it if it isn't already there.
-    /// Updates last-contact-time to now, since this is only called when we get back a Handshake
-    /// Return true if saved.
-    /// Return false if not saved -- i.e. the frontier is full and we should try evicting neighbors.
+    /// Updates last-contact-time to now, since this is only called when we get
+    /// back a Handshake Return true if saved.
+    /// Return false if not saved -- i.e. the frontier is full and we should try
+    /// evicting neighbors.
     pub fn save(
         &mut self,
         tx: &DBTx<'_>,
@@ -75,10 +77,12 @@ impl Neighbor {
         PeerDB::try_insert_peer(tx, self, stacker_dbs.unwrap_or(&[])).map_err(net_error::DBError)
     }
 
-    /// Attempt to load a neighbor from our peer DB, given its NeighborAddress reported by another
-    /// peer.  Returns a neighbor in the peer DB if it matches the neighbor address and has a fresh public key
-    /// (where "fresh" means "the public key hash matches the neighbor address")  If the neighbor
-    /// is not present in the peer DB, then None will be returned.
+    /// Attempt to load a neighbor from our peer DB, given its NeighborAddress
+    /// reported by another peer.  Returns a neighbor in the peer DB if it
+    /// matches the neighbor address and has a fresh public key
+    /// (where "fresh" means "the public key hash matches the neighbor address")
+    /// If the neighbor is not present in the peer DB, then None will be
+    /// returned.
     pub fn load_by_address(
         conn: &DBConn,
         network_id: u32,
@@ -118,18 +122,21 @@ impl Neighbor {
     /// Weighted _undirected_ degree estimate.  This is a random sample between
     /// min(in-degree, out-degree) and max(in-degree, out-degree).
     ///
-    /// The reason it's a random sample is as follows.  Any two routable nodes are just as likely
-    /// to be inbound neighbors as outbound neighbors, because when one queries the other, the
-    /// other queries it back.  The only time when there's a very large, permanent discrepancy
-    /// between in-degree and out-degree is when a node has a lot of NAT'ed clients.  In this case,
-    /// our node would be given a list of neighbor nodes that it cannot connect to.
+    /// The reason it's a random sample is as follows.  Any two routable nodes
+    /// are just as likely to be inbound neighbors as outbound neighbors,
+    /// because when one queries the other, the other queries it back.  The
+    /// only time when there's a very large, permanent discrepancy
+    /// between in-degree and out-degree is when a node has a lot of NAT'ed
+    /// clients.  In this case, our node would be given a list of neighbor
+    /// nodes that it cannot connect to.
     ///
-    /// If this were an undirected peer graph, the lower bound of a peer's degree would be
-    /// min(in-degree, out-degree), and the upper bound would be max(in-degree, out-degree).
-    /// Considering that "P1 points to P2" is just as likely as "P2 points to P1", this means that
-    /// Pr["P1 points to P2" | "P2 points to P1"] == Pr["P2 points to P1" | "P1 points to P2"].
-    /// So, we can estimate the undirected degree as being a random value between the lower and
-    /// upper bound.
+    /// If this were an undirected peer graph, the lower bound of a peer's
+    /// degree would be min(in-degree, out-degree), and the upper bound
+    /// would be max(in-degree, out-degree). Considering that "P1 points to
+    /// P2" is just as likely as "P2 points to P1", this means that
+    /// Pr["P1 points to P2" | "P2 points to P1"] == Pr["P2 points to P1" | "P1
+    /// points to P2"]. So, we can estimate the undirected degree as being a
+    /// random value between the lower and upper bound.
     pub fn degree(&self) -> u64 {
         let mut rng = thread_rng();
         let min = cmp::min(self.in_degree, self.out_degree);

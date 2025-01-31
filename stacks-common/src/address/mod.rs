@@ -89,10 +89,11 @@ impl error::Error for Error {
     }
 }
 
-/// Serialization modes for public keys to addresses.  These apply to Stacks addresses, which
-/// correspond to legacy Bitcoin addresses -- legacy Bitcoin address can be converted directly
-/// into a Stacks address, permitting a Bitcoin address to be represented directly on Stacks.
-/// These *do not apply* to Bitcoin segwit addresses.
+/// Serialization modes for public keys to addresses.  These apply to Stacks
+/// addresses, which correspond to legacy Bitcoin addresses -- legacy Bitcoin
+/// address can be converted directly into a Stacks address, permitting a
+/// Bitcoin address to be represented directly on Stacks. These *do not apply*
+/// to Bitcoin segwit addresses.
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Hash, Eq, Copy, Serialize, Deserialize)]
 pub enum AddressHashMode {
@@ -100,7 +101,8 @@ pub enum AddressHashMode {
     SerializeP2PKH = 0x00,  // hash160(public-key), same as bitcoin's p2pkh
     SerializeP2SH = 0x01,   // hash160(multisig-redeem-script), same as bitcoin's multisig p2sh
     SerializeP2WPKH = 0x02, // hash160(segwit-program-00(p2pkh)), same as bitcoin's p2sh-p2wpkh
-    SerializeP2WSH = 0x03,  // hash160(segwit-program-00(public-keys)), same as bitcoin's p2sh-p2wsh
+    SerializeP2WSH = 0x03,  /* hash160(segwit-program-00(public-keys)), same as bitcoin's
+                             * p2sh-p2wsh */
 }
 
 impl AddressHashMode {
@@ -200,9 +202,10 @@ fn to_bits_p2sh_p2wsh<K: PublicKey>(num_sigs: usize, pubkeys: &Vec<K>) -> Hash16
     Hash160::from_data(ws.as_bytes())
 }
 
-/// Convert a number of required signatures and a list of public keys into a byte-vec to hash to an
-/// address.  Validity of the hash_flag vis a vis the num_sigs and pubkeys will _NOT_ be checked.
-/// This is a low-level method.  Consider using StacksAdress::from_public_keys() if you can.
+/// Convert a number of required signatures and a list of public keys into a
+/// byte-vec to hash to an address.  Validity of the hash_flag vis a vis the
+/// num_sigs and pubkeys will _NOT_ be checked. This is a low-level method.
+/// Consider using StacksAdress::from_public_keys() if you can.
 pub fn public_keys_to_address_hash<K: PublicKey>(
     hash_flag: &AddressHashMode,
     num_sigs: usize,

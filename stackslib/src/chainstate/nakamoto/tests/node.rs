@@ -112,8 +112,8 @@ impl TestStacker {
         StacksPublicKey::from_private(&self.signer_private_key)
     }
 
-    /// make a set of stackers who will share a single signing key and stack with
-    /// `Self::DEFAULT_STACKER_AMOUNT`
+    /// make a set of stackers who will share a single signing key and stack
+    /// with `Self::DEFAULT_STACKER_AMOUNT`
     pub fn common_signing_set() -> (TestSigners, Vec<TestStacker>) {
         let num_keys: u32 = 10;
         let mut signing_key_seed = num_keys.to_be_bytes().to_vec();
@@ -139,7 +139,8 @@ impl TestStacker {
     /// `key_distribution.len()` stackers will be created
     /// `key_distribution[i]` is the ID of key that the ith stacker will use.
     /// The ID is opaque -- it's used as a seed to generate the key.
-    /// Each set of stackers with the same key ID will be given its own PoX address
+    /// Each set of stackers with the same key ID will be given its own PoX
+    /// address
     pub fn multi_signing_set(key_distribution: &[u8]) -> (TestSigners, Vec<TestStacker>) {
         let stackers = key_distribution
             .iter()
@@ -161,7 +162,8 @@ impl TestStacker {
             })
             .collect::<Vec<_>>();
 
-        // N.B. the .to_hex() is needed because Secp256k1PrivateKey does not implement Hash
+        // N.B. the .to_hex() is needed because Secp256k1PrivateKey does not implement
+        // Hash
         let unique_signers: HashSet<_> = stackers
             .iter()
             .map(|st| st.signer_private_key.to_hex())
@@ -367,8 +369,8 @@ impl TestStacksNode {
     }
 
     /// Begin the next nakamoto tenure by triggering a tenure-change.
-    /// Follow this call with a call to self.add_nakamoto_tenure_blocks() to add the corresponding
-    /// blocks, once they've been generated.
+    /// Follow this call with a call to self.add_nakamoto_tenure_blocks() to add
+    /// the corresponding blocks, once they've been generated.
     pub fn make_nakamoto_tenure_commitment(
         &mut self,
         sortdb: &SortitionDB,
@@ -429,8 +431,8 @@ impl TestStacksNode {
 
         if expect_success {
             // NOTE: self.nakamoto_commit_ops[block_header_hash] now contains an index into
-            // self.nakamoto_blocks that doesn't exist.  The caller needs to follow this call with a
-            // call to self.add_nakamoto_tenure_blocks()
+            // self.nakamoto_blocks that doesn't exist.  The caller needs to follow this
+            // call with a call to self.add_nakamoto_tenure_blocks()
             self.nakamoto_commit_ops
                 .insert(last_tenure_id.clone(), self.nakamoto_blocks.len());
         } else {
@@ -467,8 +469,8 @@ impl TestStacksNode {
     }
 
     /// Begin the next Nakamoto tenure.
-    /// Create a block-commit, as well as a tenure change and VRF proof for use in a follow-on call
-    /// to make_nakamoto_tenure_blocks()
+    /// Create a block-commit, as well as a tenure change and VRF proof for use
+    /// in a follow-on call to make_nakamoto_tenure_blocks()
     pub fn begin_nakamoto_tenure(
         &mut self,
         sortdb: &SortitionDB,
@@ -603,8 +605,8 @@ impl TestStacksNode {
             panic!("Neither Nakamoto nor epoch2 parent found");
         };
 
-        // the tenure-change contains a pointer to the end of the last tenure, which is currently
-        // the canonical tip unless overridden
+        // the tenure-change contains a pointer to the end of the last tenure, which is
+        // currently the canonical tip unless overridden
         let (previous_tenure_end, previous_tenure_consensus_hash, previous_tenure_blocks) =
             if let Some(nakamoto_parent_tenure) = parent_nakamoto_tenure.as_ref() {
                 let start_block = nakamoto_parent_tenure.first().clone().unwrap();
@@ -679,17 +681,18 @@ impl TestStacksNode {
     }
 
     /// Construct or extend a full Nakamoto tenure with the given block builder.
-    /// After block assembly, invoke `after_block` before signing and then processing.
-    /// If `after_block` returns false, do not attempt to process the block, instead just
-    /// add it to the result Vec and exit the block building loop (the block builder cannot
+    /// After block assembly, invoke `after_block` before signing and then
+    /// processing. If `after_block` returns false, do not attempt to
+    /// process the block, instead just add it to the result Vec and exit
+    /// the block building loop (the block builder cannot
     /// build any subsequent blocks without processing the prior block)
     ///
     /// The first block will contain a coinbase, if coinbase is Some(..)
     /// Process the blocks via the chains coordinator as we produce them.
     ///
-    /// If malleablize is true, then malleablized blocks will be created by varying the number of
-    /// signatures. Each malleablized block will be processed and stored if its signatures clear
-    /// the signing threshold.
+    /// If malleablize is true, then malleablized blocks will be created by
+    /// varying the number of signatures. Each malleablized block will be
+    /// processed and stored if its signatures clear the signing threshold.
     ///
     /// Returns a list of
     ///     * the block
@@ -1054,7 +1057,8 @@ impl TestStacksNode {
                             debug!("Block budget exceeded on tx {}", &tx.txid());
                         }
                         ChainstateError::InvalidStacksTransaction(_emsg, true) => {
-                            // if we have an invalid transaction that was quietly ignored, don't warn here either
+                            // if we have an invalid transaction that was quietly ignored, don't
+                            // warn here either
                             test_debug!(
                                 "Failed to apply tx {}: InvalidStacksTransaction '{:?}'",
                                 &tx.txid(),
@@ -1087,9 +1091,10 @@ impl TestStacksNode {
 }
 
 impl TestPeer<'_> {
-    /// Get the Nakamoto parent linkage data for building atop the last-produced tenure or
-    /// Stacks 2.x block.
-    /// Returns (last-tenure-id, epoch2-parent, nakamoto-parent-tenure, parent-sortition)
+    /// Get the Nakamoto parent linkage data for building atop the last-produced
+    /// tenure or Stacks 2.x block.
+    /// Returns (last-tenure-id, epoch2-parent, nakamoto-parent-tenure,
+    /// parent-sortition)
     fn get_nakamoto_parent(
         miner: &TestMiner,
         stacks_node: &TestStacksNode,
@@ -1163,8 +1168,8 @@ impl TestPeer<'_> {
     }
 
     /// Start the next Nakamoto tenure.
-    /// This generates the VRF key and block-commit txs, as well as the TenureChange and
-    /// leader key this commit references
+    /// This generates the VRF key and block-commit txs, as well as the
+    /// TenureChange and leader key this commit references
     pub fn begin_nakamoto_tenure(
         &mut self,
         tenure_change_cause: TenureChangeCause,
@@ -1416,9 +1421,10 @@ impl TestPeer<'_> {
         }
     }
 
-    /// Produce and process a Nakamoto tenure, after processing the block-commit from
-    /// begin_nakamoto_tenure().  You'd process the burnchain ops from begin_nakamoto_tenure(),
-    /// take the consensus hash, and feed it in here.
+    /// Produce and process a Nakamoto tenure, after processing the block-commit
+    /// from begin_nakamoto_tenure().  You'd process the burnchain ops from
+    /// begin_nakamoto_tenure(), take the consensus hash, and feed it in
+    /// here.
     ///
     /// Returns the blocks, their sizes, and runtime costs
     pub fn make_nakamoto_tenure<F>(
@@ -1447,9 +1453,10 @@ impl TestPeer<'_> {
         .unwrap()
     }
 
-    /// Produce and process a Nakamoto tenure, after processing the block-commit from
-    /// begin_nakamoto_tenure().  You'd process the burnchain ops from begin_nakamoto_tenure(),
-    /// take the consensus hash, and feed it in here.
+    /// Produce and process a Nakamoto tenure, after processing the block-commit
+    /// from begin_nakamoto_tenure().  You'd process the burnchain ops from
+    /// begin_nakamoto_tenure(), take the consensus hash, and feed it in
+    /// here.
     ///
     /// Returns the blocks, their sizes, and runtime costs
     pub fn make_nakamoto_tenure_and<S, F, G>(
@@ -1522,10 +1529,11 @@ impl TestPeer<'_> {
     }
 
     /// Produce and process a Nakamoto tenure extension.
-    /// `tenure_change_payload` is the original tenure-change payload for this tenure.
-    /// `last_tenure_block_header` is the final block's header produced in the last batch of blocks
-    /// `num_blocks_so_far` is the number of blocks produced so far in this tenure,
-    /// Returns the blocks, their sizes, and runtime costs
+    /// `tenure_change_payload` is the original tenure-change payload for this
+    /// tenure. `last_tenure_block_header` is the final block's header
+    /// produced in the last batch of blocks `num_blocks_so_far` is the
+    /// number of blocks produced so far in this tenure, Returns the blocks,
+    /// their sizes, and runtime costs
     pub fn make_nakamoto_tenure_extension<F>(
         &mut self,
         tenure_extend_tx: StacksTransaction,
@@ -1612,7 +1620,8 @@ impl TestPeer<'_> {
         block_data
     }
 
-    /// Accept a new Nakamoto tenure via the relayer, and then try to process them.
+    /// Accept a new Nakamoto tenure via the relayer, and then try to process
+    /// them.
     pub fn process_nakamoto_tenure(&mut self, blocks: Vec<NakamotoBlock>) {
         debug!("Peer will process {} Nakamoto blocks", blocks.len());
 
@@ -1653,7 +1662,8 @@ impl TestPeer<'_> {
         self.stacks_node = Some(node);
     }
 
-    /// Get the tenure-start block of the parent tenure of `tenure_id_consensus_hash`
+    /// Get the tenure-start block of the parent tenure of
+    /// `tenure_id_consensus_hash`
     fn get_parent_tenure_start_header(
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
@@ -1705,8 +1715,8 @@ impl TestPeer<'_> {
         prev_tenure_start_header
     }
 
-    /// Get the block-commit for a tenure. It corresponds to the tenure-start block of
-    /// its parent tenure.
+    /// Get the block-commit for a tenure. It corresponds to the tenure-start
+    /// block of its parent tenure.
     fn get_tenure_block_commit(
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
@@ -1735,12 +1745,14 @@ impl TestPeer<'_> {
         block_commit
     }
 
-    /// Load up all blocks from the given block back to the last tenure-change block-found tx
+    /// Load up all blocks from the given block back to the last tenure-change
+    /// block-found tx
     fn load_nakamoto_tenure(
         chainstate: &StacksChainState,
         tip_block_id: &StacksBlockId,
     ) -> Vec<NakamotoBlock> {
-        // count up the number of blocks between `tip_block_id` and its ancestral tenure-change
+        // count up the number of blocks between `tip_block_id` and its ancestral
+        // tenure-change
         let mut ancestors = vec![];
         let mut cursor = tip_block_id.clone();
         loop {
@@ -1761,8 +1773,8 @@ impl TestPeer<'_> {
         ancestors
     }
 
-    /// Check various properties of the chainstate regarding this nakamoto block.
-    /// Tests:
+    /// Check various properties of the chainstate regarding this nakamoto
+    /// block. Tests:
     /// * get_coinbase_height
     /// * get_tenure_start_block_header
     /// * get_nakamoto_tenure_start_block_header
@@ -1791,8 +1803,8 @@ impl TestPeer<'_> {
         };
 
         // get_coinbase_height
-        // Verify that it only increases if the given block has a tenure-change block-found
-        // transaction
+        // Verify that it only increases if the given block has a tenure-change
+        // block-found transaction
         let block_coinbase_height = NakamotoChainState::get_coinbase_height(
             &mut chainstate.index_conn(),
             &block.block_id(),
@@ -1824,8 +1836,8 @@ impl TestPeer<'_> {
         };
 
         // get_nakamoto_tenure_start_block_header
-        // Verify that if this tenure_start_header is a Nakamoto block, then we can load it.
-        // Otherwise, we shouldn't be able to load it
+        // Verify that if this tenure_start_header is a Nakamoto block, then we can load
+        // it. Otherwise, we shouldn't be able to load it
         if tenure_start_header
             .anchored_header
             .as_stacks_nakamoto()
@@ -1851,7 +1863,8 @@ impl TestPeer<'_> {
             .is_none());
         }
 
-        // only blocks with a tenure-change block-found transaction are tenure-start blocks
+        // only blocks with a tenure-change block-found transaction are tenure-start
+        // blocks
         if block.get_tenure_change_tx_payload().is_some() {
             assert_eq!(
                 &block.header,
@@ -1913,8 +1926,9 @@ impl TestPeer<'_> {
         };
 
         // get_nakamoto_tenure_vrf_proof
-        // if this is the tenure-start block, then the block VRF proof must be the VRF proof stored in the headers
-        // DB fo it.  Otherwise, there must not be a VRF proof for this block.
+        // if this is the tenure-start block, then the block VRF proof must be the VRF
+        // proof stored in the headers DB fo it.  Otherwise, there must not be a
+        // VRF proof for this block.
         if block.get_tenure_change_tx_payload().is_some() {
             let Ok(Some(block_vrf_proof)) = NakamotoChainState::get_nakamoto_tenure_vrf_proof(
                 chainstate.db(),
@@ -1938,7 +1952,8 @@ impl TestPeer<'_> {
         }
 
         // get_parent_vrf_proof
-        // The parent VRF proof needs to be the same as the VRF proof for the parent tenure
+        // The parent VRF proof needs to be the same as the VRF proof for the parent
+        // tenure
         let parent_tenure_start = Self::get_parent_tenure_start_header(
             sortdb,
             chainstate,
@@ -2485,7 +2500,8 @@ impl TestPeer<'_> {
     }
 
     /// Add a shadow tenure on a given tip.
-    /// * Advance the burnchain and create an empty sortition (so we have a new consensus hash)
+    /// * Advance the burnchain and create an empty sortition (so we have a new
+    ///   consensus hash)
     /// * Generate a shadow block for the empty sortition
     /// * Store the shadow block to the staging DB
     /// * Process it

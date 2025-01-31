@@ -474,8 +474,8 @@ fn test_secp256k1() {
 
 #[test]
 fn test_principal_of_fix() {
-    // There is a bug with principal-of in Clarity1. The address returned is always testnet. In Clarity2, we fix this.
-    // So, we need to test that:
+    // There is a bug with principal-of in Clarity1. The address returned is always
+    // testnet. In Clarity2, we fix this. So, we need to test that:
     //   1) In Clarity1, the returned address is always a testnet address.
     //   2) In Clarity2, the returned address is a function of the network type.
     let principal_of_program =
@@ -532,7 +532,8 @@ fn test_principal_of_fix() {
         .unwrap()
     );
 
-    // Clarity1, mainnet, should have a test principal (this is the bug that we need to preserve).
+    // Clarity1, mainnet, should have a test principal (this is the bug that we need
+    // to preserve).
     assert_eq!(
         Value::Principal(testnet_principal.clone()),
         execute_with_parameters(
@@ -978,7 +979,8 @@ fn test_sequence_comparisons_clarity2() {
 
 #[test]
 fn test_sequence_comparisons_mismatched_types() {
-    // Tests that comparing objects of different types results in an error in Clarity1.
+    // Tests that comparing objects of different types results in an error in
+    // Clarity1.
     let error_tests = ["(> 0 u1)", "(< 0 u1)"];
     let v1_error_expectations: &[Error] = &[
         CheckErrors::UnionTypeValueError(
@@ -1033,7 +1035,8 @@ fn test_sequence_comparisons_mismatched_types() {
             assert_eq!(*expectation, vm_execute_v2(program).unwrap_err())
         });
 
-    // Tests that comparing objects of different types results in an error in Clarity2.
+    // Tests that comparing objects of different types results in an error in
+    // Clarity2.
     let error_tests = ["(> \"baa\" u\"aaa\")", "(> \"baa\" 0x0001)"];
     let error_expectations: &[Error] = &[
         CheckErrors::UnionTypeValueError(
@@ -1257,8 +1260,10 @@ fn test_stx_ops_errors() {
 
 #[test]
 fn test_bitwise() {
-    // NOTE: Type safety checks (e.g. that the 2nd argument to bit-shift-left and bit-shift-right must be uint) are not included in this test.
-    // Tests for the type checker are included in analysis/type_checker/tests/mod.rs instead.
+    // NOTE: Type safety checks (e.g. that the 2nd argument to bit-shift-left and
+    // bit-shift-right must be uint) are not included in this test.
+    // Tests for the type checker are included in analysis/type_checker/tests/mod.rs
+    // instead.
 
     let tests = [
         "(bit-and 24 16)",                                                     // 16
@@ -1287,9 +1292,9 @@ fn test_bitwise() {
         "(bit-xor 1 2 4 -1)", // -8
         "(bit-shift-right u123 u9999999999)", // u0
         "(bit-shift-left u123 u9999999999)", // u170141183460469231731687303715884105728
-        "(bit-shift-right u240282366920938463463374607431768211327 u2402823)", // u1877205991569831745807614120560689150
-        "(bit-shift-left u240282366920938463463374607431768211327 u2402823)", // u130729942995661611608235082407192018816
-        "(bit-shift-left u340282366920938463463374607431768211455 u1)", // u340282366920938463463374607431768211454
+        "(bit-shift-right u240282366920938463463374607431768211327 u2402823)", /* u1877205991569831745807614120560689150 */
+        "(bit-shift-left u240282366920938463463374607431768211327 u2402823)", /* u130729942995661611608235082407192018816 */
+        "(bit-shift-left u340282366920938463463374607431768211455 u1)", /* u340282366920938463463374607431768211454 */
         "(bit-shift-left -1 u7)",                                       // -128
         "(bit-shift-left -1 u128)",                                     // -1
         "(bit-shift-right -128 u7)",                                    // -1
@@ -1327,19 +1332,21 @@ fn test_bitwise() {
         Ok(Value::Int(24)),   // (bit-and 28 24 -1)
         Ok(Value::Int(-8)),   // (bit-xor 1 2 4 -1)
         Ok(Value::UInt(0)),   // (bit-shift-right u123 u9999999999)
-        Ok(Value::UInt(u128::try_from(i128::MAX).unwrap() + 1)), // (bit-shift-left u123 u9999999999)
+        Ok(Value::UInt(u128::try_from(i128::MAX).unwrap() + 1)), /* (bit-shift-left u123
+                               * u9999999999) */
         Ok(Value::UInt(1877205991569831745807614120560689150)),
         Ok(Value::UInt(130729942995661611608235082407192018816)),
-        Ok(Value::UInt(u128::MAX - 1)), // (bit-shift-left u340282366920938463463374607431768211455 u1)
-        Ok(Value::Int(-128)),           // (bit-shift-left -1 7)
-        Ok(Value::Int(-1)),             // (bit-shift-left -1 128)
-        Ok(Value::Int(-1)),             // (bit-shift-right -128 u7)
-        Ok(Value::Int(-128)),           // (bit-shift-right -256 64)
-        Ok(Value::Int(1)),              // (bit-shift-right 5 u2)
-        Ok(Value::Int(-2)),             // (bit-shift-right -5 u2)
-        Ok(Value::Int(i128::MIN)),      // (bit-shift-left 123 u9999999999)
-        Ok(Value::Int(0)),              // (bit-shift-right 123 u9999999999)
-        Ok(Value::Int(i128::MIN)),      // (bit-shift-left -64 u121)
+        Ok(Value::UInt(u128::MAX - 1)), /* (bit-shift-left
+                                         * u340282366920938463463374607431768211455 u1) */
+        Ok(Value::Int(-128)),      // (bit-shift-left -1 7)
+        Ok(Value::Int(-1)),        // (bit-shift-left -1 128)
+        Ok(Value::Int(-1)),        // (bit-shift-right -128 u7)
+        Ok(Value::Int(-128)),      // (bit-shift-right -256 64)
+        Ok(Value::Int(1)),         // (bit-shift-right 5 u2)
+        Ok(Value::Int(-2)),        // (bit-shift-right -5 u2)
+        Ok(Value::Int(i128::MIN)), // (bit-shift-left 123 u9999999999)
+        Ok(Value::Int(0)),         // (bit-shift-right 123 u9999999999)
+        Ok(Value::Int(i128::MIN)), // (bit-shift-left -64 u121)
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {

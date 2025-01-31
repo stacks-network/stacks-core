@@ -69,8 +69,8 @@ use crate::net::tests::relay::epoch2x::broadcast_message;
 use crate::net::{Error as NetError, *};
 use crate::util_lib::test::*;
 
-/// Everything in a TestPeer, except the coordinator (which is encumbered by the lifetime of its
-/// chains coordinator's event observer)
+/// Everything in a TestPeer, except the coordinator (which is encumbered by the
+/// lifetime of its chains coordinator's event observer)
 struct ExitedPeer {
     pub config: TestPeerConfig,
     pub network: PeerNetwork,
@@ -99,7 +99,8 @@ impl ExitedPeer {
         }
     }
 
-    /// Run the network stack of the exited peer, but no more block processing will take place.
+    /// Run the network stack of the exited peer, but no more block processing
+    /// will take place.
     pub fn run_with_ibd(
         &mut self,
         ibd: bool,
@@ -188,16 +189,20 @@ struct SeedComms {
 struct SeedNode {}
 
 impl SeedNode {
-    /// Have `peer` produce two reward cycles of length `rc_len`, and forward all sortitions and
-    /// Nakamoto blocks back to the unit test.  This consumes `peer`.
+    /// Have `peer` produce two reward cycles of length `rc_len`, and forward
+    /// all sortitions and Nakamoto blocks back to the unit test.  This
+    /// consumes `peer`.
     ///
-    /// The `peer` will process its blocks locally, and _push_ them to one or more followers.  The
-    /// `peer` will wait for there to be at least one network conversation open before advancing,
-    /// thereby ensuring reliable delivery of the Nakamoto blocks to at least one follower.  In
-    /// addition, the blocks and sortitions will be sent to the unit test via `comms`.
+    /// The `peer` will process its blocks locally, and _push_ them to one or
+    /// more followers.  The `peer` will wait for there to be at least one
+    /// network conversation open before advancing, thereby ensuring
+    /// reliable delivery of the Nakamoto blocks to at least one follower.  In
+    /// addition, the blocks and sortitions will be sent to the unit test via
+    /// `comms`.
     ///
-    /// The contents of `peer` will be sent back to the unit test via an `ExitedPeer` struct, so
-    /// the unit test can query it or even run its networking stack.
+    /// The contents of `peer` will be sent back to the unit test via an
+    /// `ExitedPeer` struct, so the unit test can query it or even run its
+    /// networking stack.
     pub fn main(mut peer: TestPeer, rc_len: u64, comms: SeedComms) {
         let private_key = StacksPrivateKey::from_seed(&[2]);
         let addr = StacksAddress::from_public_keys(
@@ -338,7 +343,8 @@ impl SeedNode {
 
         let exited_peer = ExitedPeer::from_test_peer(peer);
 
-        // inform the follower that we're done, and pass along the final state of the peer
+        // inform the follower that we're done, and pass along the final state of the
+        // peer
         if comms.data_sender.send(SeedData::Exit(exited_peer)).is_err() {
             panic!("Follower disconnected");
         }
@@ -349,7 +355,8 @@ impl SeedNode {
         };
     }
 
-    /// Instantiate bidirectional communication channels between the unit test and seed node
+    /// Instantiate bidirectional communication channels between the unit test
+    /// and seed node
     pub fn comms() -> (SeedComms, FollowerComms) {
         let (data_sender, data_receiver) = sync_channel(1024);
         let (command_sender, command_receiver) = sync_channel(1024);
@@ -547,8 +554,8 @@ fn test_buffer_data_message() {
         .buffer_stacks_data_message(0, &peer_nk, stackerdb_chunk));
 }
 
-/// Verify that Nakmaoto blocks whose sortitions are known will *not* be buffered, but instead
-/// forwarded to the relayer for processing.
+/// Verify that Nakmaoto blocks whose sortitions are known will *not* be
+/// buffered, but instead forwarded to the relayer for processing.
 #[test]
 fn test_no_buffer_ready_nakamoto_blocks() {
     let observer = TestEventObserver::new();
@@ -798,8 +805,8 @@ fn test_no_buffer_ready_nakamoto_blocks() {
     });
 }
 
-/// Verify that Nakamoto blocks whose sortitions are not yet known will be buffered, and sent to
-/// the relayer once the burnchain advances.
+/// Verify that Nakamoto blocks whose sortitions are not yet known will be
+/// buffered, and sent to the relayer once the burnchain advances.
 #[test]
 fn test_buffer_nonready_nakamoto_blocks() {
     let observer = TestEventObserver::new();
@@ -1035,9 +1042,9 @@ fn test_buffer_nonready_nakamoto_blocks() {
     });
 }
 
-/// Boot a follower off of a seed node by having the seed node push its blocks to the follower via
-/// the p2p stack.  The follower will buffer up Nakamoto blocks and forward them to its relayer as
-/// needed.
+/// Boot a follower off of a seed node by having the seed node push its blocks
+/// to the follower via the p2p stack.  The follower will buffer up Nakamoto
+/// blocks and forward them to its relayer as needed.
 #[test]
 fn test_nakamoto_boot_node_from_block_push() {
     let observer = TestEventObserver::new();

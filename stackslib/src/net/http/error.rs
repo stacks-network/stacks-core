@@ -24,8 +24,8 @@ use stacks_common::util::retry::BoundReader;
 use crate::net::http::response::HttpResponse;
 use crate::net::http::{Error, HttpContentType, HttpResponsePayload, HttpResponsePreamble};
 
-/// Default implementation of `try_parse_response()` for an HTTP error message that implements
-/// `HttpReqeust`.
+/// Default implementation of `try_parse_response()` for an HTTP error message
+/// that implements `HttpReqeust`.
 pub fn try_parse_error_response(
     status_code: u16,
     content_type: HttpContentType,
@@ -165,8 +165,8 @@ impl HttpErrorResponse for HttpBadRequest {
     }
     fn payload(&self) -> HttpResponsePayload {
         if self.content_type == HttpContentType::JSON {
-            // the inner error_text is serialized from a JSON value, so it should always parse
-            // back to JSON.
+            // the inner error_text is serialized from a JSON value, so it should always
+            // parse back to JSON.
             return HttpResponsePayload::JSON(serde_json::from_str(&self.error_text)
                                                 .unwrap_or(serde_json::from_str(
                                                             "{\"error\": \"Failed to decode serialized JSON text. This is a bug in the Stacks node or in serde_json.\"}"

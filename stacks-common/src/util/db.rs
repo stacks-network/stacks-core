@@ -30,12 +30,14 @@ use crate::util::sleep_ms;
 ///  - **value:** Lock holder (thread name + timestamp)
 ///
 /// This uses a `Mutex` inside of `LazyLock` because:
-///  - Using `Mutex` alone, it can't be statically initialized because `HashMap::new()` isn't `const`
+///  - Using `Mutex` alone, it can't be statically initialized because
+///    `HashMap::new()` isn't `const`
 ///  - Using `LazyLock` alone doesn't allow interior mutability
 static LOCK_TABLE: LazyLock<Mutex<HashMap<String, String>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 /// Generate timestanps for use in `LOCK_TABLE`
-/// `Instant` is preferable to `SystemTime` because it uses `CLOCK_MONOTONIC` and is not affected by NTP adjustments
+/// `Instant` is preferable to `SystemTime` because it uses `CLOCK_MONOTONIC`
+/// and is not affected by NTP adjustments
 static LOCK_TABLE_TIMER: LazyLock<Instant> = LazyLock::new(Instant::now);
 
 /// Call when using an operation which locks a database
@@ -57,7 +59,8 @@ pub fn tx_busy_handler(run_count: i32) -> bool {
     //   5min * 60s/min * 1_000ms/s / 100ms
     const ERROR_COUNT: u32 = 3_000;
 
-    // First, check if this is taking unreasonably long. If so, it's probably a deadlock
+    // First, check if this is taking unreasonably long. If so, it's probably a
+    // deadlock
     let run_count = run_count.unsigned_abs();
     if run_count > 0 && run_count % ERROR_COUNT == 0 {
         error!("Deadlock detected. Waited 5 minutes (estimated) for database lock.";

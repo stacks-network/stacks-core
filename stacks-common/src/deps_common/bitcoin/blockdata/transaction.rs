@@ -17,11 +17,12 @@
 //! A transaction describes a transfer of money. It consumes previously-unspent
 //! transaction outputs and produces new ones, satisfying the condition to spend
 //! the old outputs (typically a digital signature with a specific key must be
-//! provided) and defining the condition to spend the new ones. The use of digital
-//! signatures ensures that coins cannot be spent by unauthorized parties.
+//! provided) and defining the condition to spend the new ones. The use of
+//! digital signatures ensures that coins cannot be spent by unauthorized
+//! parties.
 //!
-//! This module provides the structures and functions needed to support transactions.
-//!
+//! This module provides the structures and functions needed to support
+//! transactions.
 
 use std::fmt;
 use std::io::Write;
@@ -104,10 +105,10 @@ pub struct TxIn {
     /// the miner behaviour cannot be enforced.
     pub sequence: u32,
     /// Witness data: an array of byte-arrays.
-    /// Note that this field is *not* (de)serialized with the rest of the TxIn in
-    /// ConsensusEncodable/ConsennsusDecodable, as it is (de)serialized at the end of the full
-    /// Transaction. It *is* (de)serialized with the rest of the TxIn in other (de)serializationn
-    /// routines.
+    /// Note that this field is *not* (de)serialized with the rest of the TxIn
+    /// in ConsensusEncodable/ConsennsusDecodable, as it is (de)serialized
+    /// at the end of the full Transaction. It *is* (de)serialized with the
+    /// rest of the TxIn in other (de)serializationn routines.
     pub witness: Vec<Vec<u8>>,
 }
 serde_struct_impl!(TxIn, previous_output, script_sig, sequence, witness);
@@ -170,9 +171,9 @@ impl Transaction {
     }
 
     /// Computes the txid. For non-segwit transactions this will be identical
-    /// to the output of `BitcoinHash::bitcoin_hash()`, but for segwit transactions,
-    /// this will give the correct txid (not including witnesses) while `bitcoin_hash`
-    /// will also hash witnesses.
+    /// to the output of `BitcoinHash::bitcoin_hash()`, but for segwit
+    /// transactions, this will give the correct txid (not including
+    /// witnesses) while `bitcoin_hash` will also hash witnesses.
     pub fn txid(&self) -> Sha256dHash {
         use crate::deps_common::bitcoin::util::hash::Sha256dEncoder;
 
@@ -184,19 +185,19 @@ impl Transaction {
         enc.into_hash()
     }
 
-    /// Computes a signature hash for a given input index with a given sighash flag.
-    /// To actually produce a scriptSig, this hash needs to be run through an
-    /// ECDSA signer, the SigHashType appended to the resulting sig, and a
-    /// script written around this, but this is the general (and hard) part.
+    /// Computes a signature hash for a given input index with a given sighash
+    /// flag. To actually produce a scriptSig, this hash needs to be run
+    /// through an ECDSA signer, the SigHashType appended to the resulting
+    /// sig, and a script written around this, but this is the general (and
+    /// hard) part.
     ///
     /// *Warning* This does NOT attempt to support OP_CODESEPARATOR. In general
-    /// this would require evaluating `script_pubkey` to determine which separators
-    /// get evaluated and which don't, which we don't have the information to
-    /// determine.
+    /// this would require evaluating `script_pubkey` to determine which
+    /// separators get evaluated and which don't, which we don't have the
+    /// information to determine.
     ///
     /// # Panics
     /// Panics if `input_index` is greater than or equal to `self.input.len()`
-    ///
     pub fn signature_hash(
         &self,
         input_index: usize,
@@ -287,8 +288,8 @@ impl Transaction {
             // per bip-143, this must be all 0's
             Sha256dHash([0u8; 32])
         } else {
-            // sha256d of the concatenation of the previous outpoints, which are each the concatenation
-            // of the previous txid and output index
+            // sha256d of the concatenation of the previous outpoints, which are each the
+            // concatenation of the previous txid and output index
             let mut raw_vec = vec![];
             for inp in self.input.iter() {
                 let mut prev_output_bytes = serialize(&inp.previous_output)
@@ -392,15 +393,15 @@ impl Transaction {
         sighash_u32: u32,
     ) -> Sha256dHash {
         // Double SHA256 of the serialization of:
-        // 1.  nVersion of the transaction (4-byte little endian)
-        // 2.  hashPrevouts (32-byte hash)
-        // 3.  hashSequence (32-byte hash)
-        // 4.  outpoint (32-byte hash + 4-byte little endian)
-        // 5.  scriptCode of the input (serialized as scripts inside CTxOuts)
-        // 6.  value of the output spent by this input (8-byte little endian)
-        // 7.  nSequence of the input (4-byte little endian)
-        // 8.  hashOutputs (32-byte hash)
-        // 9.  nLocktime of the transaction (4-byte little endian)
+        // 1. nVersion of the transaction (4-byte little endian)
+        // 2. hashPrevouts (32-byte hash)
+        // 3. hashSequence (32-byte hash)
+        // 4. outpoint (32-byte hash + 4-byte little endian)
+        // 5. scriptCode of the input (serialized as scripts inside CTxOuts)
+        // 6. value of the output spent by this input (8-byte little endian)
+        // 7. nSequence of the input (4-byte little endian)
+        // 8. hashOutputs (32-byte hash)
+        // 9. nLocktime of the transaction (4-byte little endian)
         // 10. sighash type of the signature (4-byte little endian)
         let mut raw_vec = vec![];
 
@@ -446,10 +447,11 @@ impl Transaction {
         Sha256dHash::from_data(&raw_vec)
     }
 
-    /// Gets the "weight" of this transaction, as defined by BIP141. For transactions with an empty
-    /// witness, this is simply the consensus-serialized size times 4. For transactions with a
-    /// witness, this is the non-witness consensus-serialized size multiplied by 3 plus the
-    /// with-witness consensus-serialized size.
+    /// Gets the "weight" of this transaction, as defined by BIP141. For
+    /// transactions with an empty witness, this is simply the
+    /// consensus-serialized size times 4. For transactions with a
+    /// witness, this is the non-witness consensus-serialized size multiplied by
+    /// 3 plus the with-witness consensus-serialized size.
     #[inline]
     pub fn get_weight(&self) -> u64 {
         let mut input_weight = 0;
@@ -624,21 +626,24 @@ pub enum SigHashType {
     All = 0x01,
     /// 0x2: Sign no outputs --- anyone can choose the destination
     None = 0x02,
-    /// 0x3: Sign the output whose index matches this input's index. If none exists,
-    /// sign the hash `0000000000000000000000000000000000000000000000000000000000000001`.
-    /// (This rule is probably an unintentional C++ism, but it's consensus so we have
-    /// to follow it.)
+    /// 0x3: Sign the output whose index matches this input's index. If none
+    /// exists, sign the hash
+    /// `0000000000000000000000000000000000000000000000000000000000000001`.
+    /// (This rule is probably an unintentional C++ism, but it's consensus so we
+    /// have to follow it.)
     Single = 0x03,
     /// 0x81: Sign all outputs but only this input
     AllPlusAnyoneCanPay = 0x81,
     /// 0x82: Sign no outputs and only this input
     NonePlusAnyoneCanPay = 0x82,
-    /// 0x83: Sign one output and only this input (see `Single` for what "one output" means)
+    /// 0x83: Sign one output and only this input (see `Single` for what "one
+    /// output" means)
     SinglePlusAnyoneCanPay = 0x83,
 }
 
 impl SigHashType {
-    /// Break the sighash flag into the "real" sighash flag and the ANYONECANPAY boolean
+    /// Break the sighash flag into the "real" sighash flag and the ANYONECANPAY
+    /// boolean
     fn split_anyonecanpay_flag(&self) -> (SigHashType, bool) {
         match *self {
             SigHashType::All => (SigHashType::All, false),
@@ -704,12 +709,13 @@ mod tests {
         let tx: Result<Transaction, _> = deserialize(&hex_tx);
         assert!(tx.is_ok());
         let realtx = tx.unwrap();
-        // All these tests aren't really needed because if they fail, the hash check at the end
-        // will also fail. But these will show you where the failure is so I'll leave them in.
+        // All these tests aren't really needed because if they fail, the hash check at
+        // the end will also fail. But these will show you where the failure is
+        // so I'll leave them in.
         assert_eq!(realtx.version, 1);
         assert_eq!(realtx.input.len(), 1);
-        // In particular this one is easy to get backward -- in bitcoin hashes are encoded
-        // as little-endian 256-bit numbers rather than as data strings.
+        // In particular this one is easy to get backward -- in bitcoin hashes are
+        // encoded as little-endian 256-bit numbers rather than as data strings.
         assert_eq!(
             realtx.input[0].previous_output.txid.be_hex_string(),
             "ce9ea9f6f5e422c6a9dbcddb3b9a14d1c78fab9ab520cb281aa2a74a09575da1".to_string()
@@ -745,7 +751,8 @@ mod tests {
 
     #[test]
     fn test_txid() {
-        // segwit tx from Liquid integration tests, txid/hash from Core decoderawtransaction
+        // segwit tx from Liquid integration tests, txid/hash from Core
+        // decoderawtransaction
         let hex_tx = hex_bytes(
             "01000000000102ff34f95a672bb6a4f6ff4a7e90fa8c7b3be7e70ffc39bc99be3bda67942e836c00000000\
              23220020cde476664d3fa347b8d54ef3aee33dcb686a65ced2b5207cbf4ec5eda6b9b46e4f414d4c934ad8\
@@ -826,9 +833,10 @@ mod tests {
         assert_eq!(actual_result, expected_result);
     }
 
-    // These test vectors were stolen from libbtc, which is Copyright 2014 Jonas Schnelli MIT
-    // They were transformed by replacing {...} with run_test_sighash(...), then the ones containing
-    // OP_CODESEPARATOR in their pubkeys were removed
+    // These test vectors were stolen from libbtc, which is Copyright 2014 Jonas
+    // Schnelli MIT They were transformed by replacing {...} with
+    // run_test_sighash(...), then the ones containing OP_CODESEPARATOR in their
+    // pubkeys were removed
     #[test]
     fn test_sighash() {
         run_test_sighash("907c2bc503ade11cc3b04eb2918b6f547b0630ab569273824748c87ea14b0696526c66ba740200000004ab65ababfd1f9bdd4ef073c7afc4ae00da8a66f429c917a0081ad1e1dabce28d373eab81d8628de802000000096aab5253ab52000052ad042b5f25efb33beec9f3364e8a9139e8439d9d7e26529c3c30b6c3fd89f8684cfd68ea0200000009ab53526500636a52ab599ac2fe02a526ed040000000008535300516352515164370e010000000003006300ab2ec229", "", 2, 1864164639, "31af167a6cf3f9d5f6875caa4d31704ceb0eba078d132b78dab52c3b8997317e");

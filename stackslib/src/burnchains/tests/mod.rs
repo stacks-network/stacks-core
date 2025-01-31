@@ -42,8 +42,9 @@ use crate::cost_estimates::{CostEstimator, FeeEstimator};
 use crate::stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
 use crate::util_lib::db::*;
 
-// all SPV headers will have this timestamp, so that multiple burnchain nodes will always have the
-// same SPV header timestamps regardless of when they are instantiated.
+// all SPV headers will have this timestamp, so that multiple burnchain nodes
+// will always have the same SPV header timestamps regardless of when they are
+// instantiated.
 pub const BURNCHAIN_TEST_BLOCK_TIME: u64 = 1629739098;
 
 impl Txid {
@@ -122,7 +123,8 @@ pub struct TestMiner {
     pub id: usize,
     pub nonce: u64,
     pub spent_at_nonce: HashMap<u64, u128>, // how much uSTX this miner paid in a given tx's nonce
-    pub test_with_tx_fees: bool, // set to true to make certain helper methods attach a pre-defined tx fee
+    pub test_with_tx_fees: bool,            /* set to true to make certain helper methods attach
+                                             * a pre-defined tx fee */
     pub chain_id: u32,
 }
 
@@ -762,8 +764,9 @@ impl TestBurnchainFork {
         };
 
         for mut block in self.pending_blocks.drain(..) {
-            // fill in consensus hash and block hash, which we may not have known at the call
-            // to next_block (since we can call next_block() many times without mining blocks)
+            // fill in consensus hash and block hash, which we may not have known at the
+            // call to next_block (since we can call next_block() many times
+            // without mining blocks)
             block.patch_from_chain_tip(&snapshot);
 
             snapshot = block.mine(db, burnchain);
@@ -798,8 +801,9 @@ impl TestBurnchainFork {
         };
 
         for mut block in self.pending_blocks.drain(..) {
-            // fill in consensus hash and block hash, which we may not have known at the call
-            // to next_block (since we can call next_block() many times without mining blocks)
+            // fill in consensus hash and block hash, which we may not have known at the
+            // call to next_block (since we can call next_block() many times
+            // without mining blocks)
             block.patch_from_chain_tip(&snapshot);
 
             snapshot = block.mine_pox(db, burnchain, coord);
@@ -1153,9 +1157,9 @@ fn mine_10_stacks_blocks_2_forks_disjoint_same_blocks() {
         miners_2.push(m);
     }
 
-    // two disjoint forks for 5 blocks, but miners in each fork mine the same blocks.
-    // This tests that we can accept two burnchain forks that each contain the same stacks
-    // block history.
+    // two disjoint forks for 5 blocks, but miners in each fork mine the same
+    // blocks. This tests that we can accept two burnchain forks that each
+    // contain the same stacks block history.
     for i in 5..10 {
         let mut next_block_hashes_1 = vec![];
         for j in 0..miners_1.len() {

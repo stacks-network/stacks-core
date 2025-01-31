@@ -70,7 +70,8 @@ impl HttpRequest for RPCGetStxTransferCostRequestHandler {
     }
 
     /// Try to decode this request.
-    /// There's nothing to load here, so just make sure the request is well-formed.
+    /// There's nothing to load here, so just make sure the request is
+    /// well-formed.
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
@@ -98,8 +99,9 @@ impl RPCRequestHandler for RPCGetStxTransferCostRequestHandler {
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
-        // NOTE: The estimated length isn't needed per se because we're returning a fee rate, but
-        // we do need an absolute length to use the estimator (so supply a common one).
+        // NOTE: The estimated length isn't needed per se because we're returning a fee
+        // rate, but we do need an absolute length to use the estimator (so
+        // supply a common one).
         let estimated_len = SINGLESIG_TX_TRANSFER_LEN;
 
         let fee_resp = node.with_node_state(|_network, sortdb, _chainstate, _mempool, rpc_args| {

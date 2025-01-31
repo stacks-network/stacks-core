@@ -91,8 +91,9 @@ pub struct UnconfirmedState {
 }
 
 impl UnconfirmedState {
-    /// Make a new unconfirmed state, but don't do anything with it yet.  Caller should immediately
-    /// call .refresh() to instatiate and store the underlying state trie.
+    /// Make a new unconfirmed state, but don't do anything with it yet.  Caller
+    /// should immediately call .refresh() to instatiate and store the
+    /// underlying state trie.
     fn new(chainstate: &StacksChainState, tip: StacksBlockId) -> Result<UnconfirmedState, Error> {
         let marf = MarfedKV::open_unconfirmed(
             &chainstate.clarity_state_index_root,
@@ -131,8 +132,9 @@ impl UnconfirmedState {
         })
     }
 
-    /// Make a read-only copy of this unconfirmed state.  The resulting unconfiremd state cannot
-    /// be refreshed, but it will represent a snapshot of the existing unconfirmed state.
+    /// Make a read-only copy of this unconfirmed state.  The resulting
+    /// unconfiremd state cannot be refreshed, but it will represent a
+    /// snapshot of the existing unconfirmed state.
     pub fn make_readonly_owned(&self) -> Result<UnconfirmedState, Error> {
         let marf = MarfedKV::open_unconfirmed(
             &self.clarity_state_index_root,
@@ -168,7 +170,8 @@ impl UnconfirmedState {
         })
     }
 
-    /// Make a new unconfirmed state, but don't do anything with it yet, and deny refreshes.
+    /// Make a new unconfirmed state, but don't do anything with it yet, and
+    /// deny refreshes.
     fn new_readonly(
         chainstate: &StacksChainState,
         tip: StacksBlockId,
@@ -211,9 +214,9 @@ impl UnconfirmedState {
     }
 
     /// Append a sequence of microblocks to this unconfirmed state.
-    /// Microblocks with sequence less than the self.last_mblock_seq will be silently ignored.
-    /// Produce the total fees, total burns, and total list of transaction receipts.
-    /// Updates internal cost_so_far count.
+    /// Microblocks with sequence less than the self.last_mblock_seq will be
+    /// silently ignored. Produce the total fees, total burns, and total
+    /// list of transaction receipts. Updates internal cost_so_far count.
     /// Idempotent.
     fn append_microblocks(
         &mut self,
@@ -263,8 +266,8 @@ impl UnconfirmedState {
             let cur_cost = self.cost_so_far.clone();
 
             // NOTE: we *must* commit the clarity_tx now that it's begun.
-            // Otherwise, microblock miners can leave the MARF in a partially-initialized state,
-            // leading to a node crash.
+            // Otherwise, microblock miners can leave the MARF in a partially-initialized
+            // state, leading to a node crash.
             let mut clarity_tx = StacksChainState::chainstate_begin_unconfirmed(
                 db_config,
                 &headers_db,
@@ -368,7 +371,8 @@ impl UnconfirmedState {
         })
     }
 
-    /// Load up the Stacks microblock stream to process, composed of only the new microblocks
+    /// Load up the Stacks microblock stream to process, composed of only the
+    /// new microblocks
     fn load_child_microblocks(
         &self,
         chainstate: &StacksChainState,
@@ -389,8 +393,9 @@ impl UnconfirmedState {
         )
     }
 
-    /// Update the view of the current confiremd chain tip's unconfirmed microblock state
-    /// Returns ProcessedUnconfirmedState for the microblocks newly added to the unconfirmed state
+    /// Update the view of the current confiremd chain tip's unconfirmed
+    /// microblock state Returns ProcessedUnconfirmedState for the
+    /// microblocks newly added to the unconfirmed state
     pub fn refresh(
         &mut self,
         chainstate: &StacksChainState,
@@ -422,8 +427,8 @@ impl UnconfirmedState {
         !self.dirty
     }
 
-    /// Mark this unconfirmed state as "dirty", forcing it to be re-instantiated on the next read
-    /// or write
+    /// Mark this unconfirmed state as "dirty", forcing it to be re-instantiated
+    /// on the next read or write
     pub fn set_dirty(&mut self, dirty: bool) {
         self.dirty = dirty;
     }
@@ -454,8 +459,8 @@ impl UnconfirmedState {
         }
     }
 
-    /// Try returning the unconfirmed chain tip. Only return the tip if the underlying MARF trie
-    /// exists, otherwise return None.
+    /// Try returning the unconfirmed chain tip. Only return the tip if the
+    /// underlying MARF trie exists, otherwise return None.
     pub fn get_unconfirmed_state_if_exists(&mut self) -> Result<Option<StacksBlockId>, String> {
         if self.is_readable() {
             let trie_exists = match self
@@ -528,8 +533,9 @@ impl StacksChainState {
     }
 
     /// Reload the unconfirmed view from a new chain tip.
-    /// -- if the canonical chain tip hasn't changed, then just apply any new microblocks that have arrived.
-    /// -- if the canonical chain tip has changed, then drop the current view, make a new view, and
+    /// -- if the canonical chain tip hasn't changed, then just apply any new
+    /// microblocks that have arrived. -- if the canonical chain tip has
+    /// changed, then drop the current view, make a new view, and
     /// process that new view's unconfirmed microblocks.
     /// Call after storing all microblocks from the network.
     pub fn reload_unconfirmed_state(
@@ -562,8 +568,8 @@ impl StacksChainState {
             }
         }
 
-        // tip changed, or we don't have unconfirmed state yet, or we do and it's dirty, or it was
-        // never instantiated anyway
+        // tip changed, or we don't have unconfirmed state yet, or we do and it's dirty,
+        // or it was never instantiated anyway
         if let Some(unconfirmed_state) = self.unconfirmed_state.take() {
             self.drop_unconfirmed_state(unconfirmed_state);
         }
@@ -613,8 +619,8 @@ impl StacksChainState {
     }
 
     /// Instantiate a read-only view of unconfirmed state.
-    /// Use from a dedicated chainstate handle that will only do read-only operations on it (such
-    /// as the p2p network thread)
+    /// Use from a dedicated chainstate handle that will only do read-only
+    /// operations on it (such as the p2p network thread)
     pub fn refresh_unconfirmed_readonly(
         &mut self,
         canonical_tip: StacksBlockId,
@@ -1011,7 +1017,8 @@ mod test {
             let recv_addr =
                 StacksAddress::from_string("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();
 
-            // build microblock stream iteratively, and test balances at each additional microblock
+            // build microblock stream iteratively, and test balances at each additional
+            // microblock
             let sortdb = peer.sortdb.take().unwrap();
             let microblocks = {
                 let sort_iconn = sortdb

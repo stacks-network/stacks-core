@@ -152,8 +152,8 @@ impl MarfTrieId for BurnchainHeaderHash {}
 impl MarfTrieId for BlockHeaderHash {}
 
 /// Structure that holds the actual data in a MARF leaf node.
-/// It only stores the hash of some value string, but we add 8 extra bytes for future extensions.
-/// If not used (the rule today), then they should all be 0.
+/// It only stores the hash of some value string, but we add 8 extra bytes for
+/// future extensions. If not used (the rule today), then they should all be 0.
 pub struct MARFValue(pub [u8; 40]);
 impl_array_newtype!(MARFValue, u8, 40);
 impl_array_hexstring_fmt!(MARFValue);
@@ -213,7 +213,8 @@ impl MARFValue {
         MARFValue::from_value_hash_bytes(h.as_bytes())
     }
 
-    /// Construct from a String that encodes a value inserted into the underlying data store
+    /// Construct from a String that encodes a value inserted into the
+    /// underlying data store
     pub fn from_value(s: &str) -> MARFValue {
         let mut tmp = [0u8; 32];
 

@@ -34,8 +34,9 @@ use crate::net::http::{
     HttpResponsePreamble, HttpVersion,
 };
 
-/// HTTP request preamble.  This captures "control plane" data for an HTTP request, and contains
-/// everything of use to us from the HTTP requests's headers.
+/// HTTP request preamble.  This captures "control plane" data for an HTTP
+/// request, and contains everything of use to us from the HTTP requests's
+/// headers.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HttpRequestPreamble {
     /// HTTP version (1.0 or 1.1)
@@ -136,9 +137,9 @@ impl HttpRequestPreamble {
         req
     }
 
-    /// Add a header to the given request.  If it's a reserved header, then handle it accordingly
-    /// by setting the special-purpose field in the premable.  Otherwise, put it into
-    /// `self.headers`.
+    /// Add a header to the given request.  If it's a reserved header, then
+    /// handle it accordingly by setting the special-purpose field in the
+    /// premable.  Otherwise, put it into `self.headers`.
     pub fn add_header(&mut self, key: String, value: String) {
         let hdr = key.to_lowercase();
         if HttpReservedHeader::is_reserved(&hdr) {
@@ -221,9 +222,9 @@ impl HttpRequestPreamble {
     }
 }
 
-/// Read from a stream until we see '\r\n\r\n', with the purpose of reading a HTTP preamble.
-/// It's gonna be important here that R does some bufferring, since this reads byte by byte.
-/// EOF if we read 0 bytes.
+/// Read from a stream until we see '\r\n\r\n', with the purpose of reading a
+/// HTTP preamble. It's gonna be important here that R does some bufferring,
+/// since this reads byte by byte. EOF if we read 0 bytes.
 fn read_to_crlf2<R: Read>(fd: &mut R) -> Result<Vec<u8>, CodecError> {
     let mut ret = Vec::with_capacity(HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize);
     while ret.len() < HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize {
@@ -482,8 +483,8 @@ impl HttpRequestPayload {
     }
 
     /// Deduce the content length.
-    /// This can fail if we're sending a JSON payload and it cannot be encoded (which itself
-    /// indicates a bug in the caller).
+    /// This can fail if we're sending a JSON payload and it cannot be encoded
+    /// (which itself indicates a bug in the caller).
     pub fn content_length(&self) -> Result<u32, Error> {
         match self {
             Self::Empty => Ok(0),
@@ -507,10 +508,10 @@ impl HttpRequestPayload {
     }
 }
 
-/// Http request contents.  This is "data plane" stuff -- all the app-specific data that the client
-/// sends -- the request path, query string, and body.  The request handler constructs this when
-/// decoding an inbound HTTP request.  The instance will then be fed into the corresponding
-/// HTTP response handler.
+/// Http request contents.  This is "data plane" stuff -- all the app-specific
+/// data that the client sends -- the request path, query string, and body.  The
+/// request handler constructs this when decoding an inbound HTTP request.  The
+/// instance will then be fed into the corresponding HTTP response handler.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HttpRequestContents {
     /// payload consumed from the connection buffer
@@ -546,7 +547,8 @@ impl HttpRequestContents {
             .unwrap_or_default()
     }
 
-    /// chain constructor -- add a query strings' values to the existing values, and also
+    /// chain constructor -- add a query strings' values to the existing values,
+    /// and also
     pub fn query_string(mut self, qs: Option<&str>) -> Self {
         let new_kv = Self::parse_qs(qs);
         self.query_args.extend(new_kv);
@@ -687,7 +689,8 @@ pub trait HttpRequest: Send + HttpRequestClone {
     fn verb(&self) -> &'static str;
     /// What is the path regex that this request honors?
     fn path_regex(&self) -> Regex;
-    /// Decode a request into the contents that this request handler cares about.
+    /// Decode a request into the contents that this request handler cares
+    /// about.
     fn try_parse_request(
         &mut self,
         request_preamble: &HttpRequestPreamble,

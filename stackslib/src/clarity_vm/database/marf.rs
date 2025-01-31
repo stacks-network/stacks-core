@@ -29,10 +29,11 @@ use crate::util_lib::db::{Error as DatabaseError, IndexDBConn};
 
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
 ///   for use as a K/V store for ClarityDB or the AnalysisDB.
-/// The Clarity VM and type checker do not "know" to begin/commit the block they are currently processing:
-///   each instantiation of the VM simply executes one transaction. So the block handling
-///   loop will need to invoke these two methods (begin + commit) outside of the context of the VM.
-///   NOTE: Clarity will panic if you try to execute it from a non-initialized MarfedKV context.
+/// The Clarity VM and type checker do not "know" to begin/commit the block they
+/// are currently processing:   each instantiation of the VM simply executes one
+/// transaction. So the block handling   loop will need to invoke these two
+/// methods (begin + commit) outside of the context of the VM.   NOTE: Clarity
+/// will panic if you try to execute it from a non-initialized MarfedKV context.
 ///   (See: vm::tests::with_marfed_environment())
 pub struct MarfedKV {
     chain_tip: StacksBlockId,
@@ -188,12 +189,13 @@ impl MarfedKV {
 
     /// begin, commit, rollback a save point identified by key
     ///    this is used to clean up any data from aborted blocks
-    ///     (NOT aborted transactions that is handled by the clarity vm directly).
-    /// The block header hash is used for identifying savepoints.
-    ///     this _cannot_ be used to rollback to arbitrary prior block hash, because that
-    ///     blockhash would already have committed and no longer exist in the save point stack.
-    /// this is a "lower-level" rollback than the roll backs performed in
-    ///   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
+    ///     (NOT aborted transactions that is handled by the clarity vm
+    /// directly). The block header hash is used for identifying savepoints.
+    ///     this _cannot_ be used to rollback to arbitrary prior block hash,
+    /// because that     blockhash would already have committed and no
+    /// longer exist in the save point stack. this is a "lower-level"
+    /// rollback than the roll backs performed in   ClarityDatabase or
+    /// AnalysisDatabase -- this is done at the backing store level.
 
     pub fn begin<'a>(
         &'a mut self,
@@ -308,7 +310,8 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
         Some(&handle_contract_call_special_cases)
     }
 
-    /// Sets the chain tip at which queries will happen.  Used for `(at-block ..)`
+    /// Sets the chain tip at which queries will happen.  Used for `(at-block
+    /// ..)`
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> InterpreterResult<StacksBlockId> {
         self.marf
             .check_ancestor_block_hash(&bhh)
@@ -604,9 +607,10 @@ impl WritableMarfStore<'_> {
         );
         // rollback the side_store
         //    the side_store shouldn't commit data for blocks that won't be
-        //    included in the processed chainstate (like a block constructed during mining)
-        //    _if_ for some reason, we do want to be able to access that mined chain state in the future,
-        //    we should probably commit the data to a different table which does not have uniqueness constraints.
+        //    included in the processed chainstate (like a block constructed during
+        // mining)    _if_ for some reason, we do want to be able to access that
+        // mined chain state in the future,    we should probably commit the
+        // data to a different table which does not have uniqueness constraints.
         SqliteConnection::drop_metadata(self.marf.sqlite_tx(), &self.chain_tip)?;
         let _ = self.marf.commit_mined(will_move_to).map_err(|e| {
             error!(

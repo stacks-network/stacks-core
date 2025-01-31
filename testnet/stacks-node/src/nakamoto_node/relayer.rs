@@ -79,21 +79,23 @@ use crate::BitcoinRegtestController;
 pub static TEST_MINER_THREAD_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
 #[cfg(test)]
-/// Mutex to stall the miner thread right after it starts up (does not block the relayer thread)
+/// Mutex to stall the miner thread right after it starts up (does not block the
+/// relayer thread)
 pub static TEST_MINER_THREAD_START_STALL: LazyLock<TestFlag<bool>> =
     LazyLock::new(TestFlag::default);
 
 /// Command types for the Nakamoto relayer thread, issued to it by other threads
 #[allow(clippy::large_enum_variant)]
 pub enum RelayerDirective {
-    /// Handle some new data that arrived on the network (such as blocks, transactions, and
+    /// Handle some new data that arrived on the network (such as blocks,
+    /// transactions, and
     HandleNetResult(NetworkResult),
-    /// A new burn block has been processed by the SortitionDB, check if this miner won sortition,
-    ///  and if so, start the miner thread
+    /// A new burn block has been processed by the SortitionDB, check if this
+    /// miner won sortition,  and if so, start the miner thread
     ProcessedBurnBlock(ConsensusHash, BurnchainHeaderHash, BlockHeaderHash),
-    /// Either a new burn block has been processed (without a miner active yet) or a
-    ///  nakamoto tenure's first block has been processed, so the relayer should issue
-    ///  a block commit
+    /// Either a new burn block has been processed (without a miner active yet)
+    /// or a  nakamoto tenure's first block has been processed, so the
+    /// relayer should issue  a block commit
     IssueBlockCommit(ConsensusHash, BlockHeaderHash),
     /// Try to register a VRF public key
     RegisterKey(BlockSnapshot),
@@ -191,8 +193,8 @@ impl LastCommit {
 
 pub type MinerThreadJoinHandle = JoinHandle<Result<(), NakamotoNodeError>>;
 
-/// Miner thread join handle, as well as an "abort" flag to force the miner thread to exit when it
-/// is blocked.
+/// Miner thread join handle, as well as an "abort" flag to force the miner
+/// thread to exit when it is blocked.
 pub struct MinerStopHandle {
     /// The join handle itself
     join_handle: MinerThreadJoinHandle,
@@ -219,7 +221,8 @@ impl MinerStopHandle {
     }
 
     /// Stop the inner miner thread.
-    /// Blocks the miner, and sets the abort flag so that a blocked miner will error out.
+    /// Blocks the miner, and sets the abort flag so that a blocked miner will
+    /// error out.
     pub fn stop(self, globals: &Globals) -> Result<(), NakamotoNodeError> {
         let my_id = thread::current().id();
         let prior_thread_id = self.inner_thread().id();
@@ -255,7 +258,8 @@ impl MinerStopHandle {
 /// * forwards new blocks, microblocks, and transactions to the p2p thread
 /// * issues (and re-issues) block commits to participate as a miner
 /// * processes burnchain state to determine if selected as a miner
-/// * if mining, runs the miner and broadcasts blocks (via a subordinate MinerThread)
+/// * if mining, runs the miner and broadcasts blocks (via a subordinate
+///   MinerThread)
 pub struct RelayerThread {
     /// Node config
     pub(crate) config: Config,
@@ -273,7 +277,8 @@ pub struct RelayerThread {
     pub(crate) burnchain: Burnchain,
     /// height of last VRF key registration request
     last_vrf_key_burn_height: Option<u64>,
-    /// Set of blocks that we have mined, but are still potentially-broadcastable
+    /// Set of blocks that we have mined, but are still
+    /// potentially-broadcastable
     // TODO: this field is a slow leak!
     pub(crate) last_commits: BlockCommits,
     /// client to the burnchain (used only for sending block-commits)
@@ -282,27 +287,31 @@ pub struct RelayerThread {
     pub(crate) event_dispatcher: EventDispatcher,
     /// copy of the local peer state
     local_peer: LocalPeer,
-    /// last observed burnchain block height from the p2p thread (obtained from network results)
+    /// last observed burnchain block height from the p2p thread (obtained from
+    /// network results)
     last_network_block_height: u64,
-    /// time at which we observed a change in the network block height (epoch time in millis)
+    /// time at which we observed a change in the network block height (epoch
+    /// time in millis)
     last_network_block_height_ts: u128,
-    /// last observed number of downloader state-machine passes from the p2p thread (obtained from
-    /// network results)
+    /// last observed number of downloader state-machine passes from the p2p
+    /// thread (obtained from network results)
     last_network_download_passes: u64,
-    /// last observed number of inventory state-machine passes from the p2p thread (obtained from
-    /// network results)
+    /// last observed number of inventory state-machine passes from the p2p
+    /// thread (obtained from network results)
     last_network_inv_passes: u64,
-    /// minimum number of downloader state-machine passes that must take place before mining (this
-    /// is used to ensure that the p2p thread attempts to download new Stacks block data before
-    /// this thread tries to mine a block)
+    /// minimum number of downloader state-machine passes that must take place
+    /// before mining (this is used to ensure that the p2p thread attempts
+    /// to download new Stacks block data before this thread tries to mine a
+    /// block)
     min_network_download_passes: u64,
-    /// minimum number of inventory state-machine passes that must take place before mining (this
-    /// is used to ensure that the p2p thread attempts to download new Stacks block data before
-    /// this thread tries to mine a block)
+    /// minimum number of inventory state-machine passes that must take place
+    /// before mining (this is used to ensure that the p2p thread attempts
+    /// to download new Stacks block data before this thread tries to mine a
+    /// block)
     min_network_inv_passes: u64,
 
-    /// Inner relayer instance for forwarding broadcasted data back to the p2p thread for dispatch
-    /// to neighbors
+    /// Inner relayer instance for forwarding broadcasted data back to the p2p
+    /// thread for dispatch to neighbors
     relayer: Relayer,
 
     /// handle to the subordinate miner thread
@@ -310,16 +319,19 @@ pub struct RelayerThread {
     /// miner thread's burn view
     miner_thread_burn_view: Option<BlockSnapshot>,
 
-    /// The relayer thread reads directives from the relay_rcv, but it also periodically wakes up
-    ///  to check if it should issue a block commit or try to register a VRF key
+    /// The relayer thread reads directives from the relay_rcv, but it also
+    /// periodically wakes up  to check if it should issue a block commit or
+    /// try to register a VRF key
     next_initiative: Instant,
     is_miner: bool,
-    /// Information about the last-sent block commit, and the relayer's view of the chain at the
-    /// time it was sent.
+    /// Information about the last-sent block commit, and the relayer's view of
+    /// the chain at the time it was sent.
     last_committed: Option<LastCommit>,
-    /// Timeout for waiting for the first block in a tenure before submitting a block commit
+    /// Timeout for waiting for the first block in a tenure before submitting a
+    /// block commit
     new_tenure_timeout: Option<Instant>,
-    /// Timeout for waiting for a BlockFound in a subsequent tenure before trying to extend our own
+    /// Timeout for waiting for a BlockFound in a subsequent tenure before
+    /// trying to extend our own
     tenure_extend_timeout: Option<Instant>,
 }
 
@@ -389,8 +401,8 @@ impl RelayerThread {
         self.relayer.get_p2p_handle()
     }
 
-    /// have we waited for the right conditions under which to start mining a block off of our
-    /// chain tip?
+    /// have we waited for the right conditions under which to start mining a
+    /// block off of our chain tip?
     fn has_waited_for_latest_blocks(&self) -> bool {
         // a network download pass took place
         self.min_network_download_passes <= self.last_network_download_passes
@@ -400,7 +412,8 @@ impl RelayerThread {
         || !self.config.miner.wait_for_block_download
     }
 
-    /// Handle a NetworkResult from the p2p/http state machine.  Usually this is the act of
+    /// Handle a NetworkResult from the p2p/http state machine.  Usually this is
+    /// the act of
     /// * preprocessing and storing new blocks and microblocks
     /// * relaying blocks, microblocks, and transacctions
     /// * updating unconfirmed state views
@@ -434,8 +447,8 @@ impl RelayerThread {
             .expect("BUG: failure processing network results");
 
         if net_receipts.num_new_blocks > 0 {
-            // if we received any new block data that could invalidate our view of the chain tip,
-            // then stop mining until we process it
+            // if we received any new block data that could invalidate our view of the chain
+            // tip, then stop mining until we process it
             debug!("Relayer: block mining to process newly-arrived blocks or microblocks");
             signal_mining_blocked(self.globals.get_miner_status());
         }
@@ -464,37 +477,44 @@ impl RelayerThread {
 
     /// Choose a miner directive based on the outcome of a sortition.
     ///
-    /// The decision process is a little tricky, because the right decision depends on:
+    /// The decision process is a little tricky, because the right decision
+    /// depends on:
     /// * whether or not we won the _given_ sortition (`sn`)
-    /// * whether or not we won the sortition that started the ongoing Stacks tenure
+    /// * whether or not we won the sortition that started the ongoing Stacks
+    ///   tenure
     /// * whether or not we won the last sortition with a winner
     /// * whether or not the last sortition winner has produced a Stacks block
-    /// * whether or not the ongoing Stacks tenure is at or descended from the last-winning
+    /// * whether or not the ongoing Stacks tenure is at or descended from the
+    ///   last-winning
     /// sortition
     ///
     /// Specifically:
     ///
-    /// If we won the given sortition `sn`, then we can start mining immediately with a `BlockFound`
-    /// tenure-change.  Otherwise, if we won the tenure which started the ongoing Stacks tenure
-    /// (i.e. we're the active miner), then we _may_ start mining after a timeout _if_ the winning
-    /// miner (not us) fails to submit a `BlockFound` tenure-change block for `sn`.
+    /// If we won the given sortition `sn`, then we can start mining immediately
+    /// with a `BlockFound` tenure-change.  Otherwise, if we won the tenure
+    /// which started the ongoing Stacks tenure (i.e. we're the active
+    /// miner), then we _may_ start mining after a timeout _if_ the winning
+    /// miner (not us) fails to submit a `BlockFound` tenure-change block for
+    /// `sn`.
     ///
-    /// Otherwise, if the given sortition `sn` has no winner, the find out who won the last sortition
-    /// with a winner.  If it was us, and if we haven't yet submitted a `BlockFound` tenure-change
-    /// for it (which can happen if this given sortition is from a flash block), then start mining
-    /// immediately with a "late" `BlockFound` tenure, _and_ prepare to start mining right afterwards
-    /// with an `Extended` tenure-change so as to represent the given sortition `sn`'s burn view in
-    /// the Stacks chain.
+    /// Otherwise, if the given sortition `sn` has no winner, the find out who
+    /// won the last sortition with a winner.  If it was us, and if we
+    /// haven't yet submitted a `BlockFound` tenure-change for it (which can
+    /// happen if this given sortition is from a flash block), then start mining
+    /// immediately with a "late" `BlockFound` tenure, _and_ prepare to start
+    /// mining right afterwards with an `Extended` tenure-change so as to
+    /// represent the given sortition `sn`'s burn view in the Stacks chain.
     ///
-    /// Otherwise, if this sortition has no winner, and we did not win the last-winning sortition,
-    /// then check to see if we're the ongoing Stack's tenure's miner. If so, then we _may_ start
-    /// mining after a timeout _if_ the winner of the last-good sortition (not us) fails to submit
-    /// a `BlockFound` tenure-change block.  This can happen if `sn` was a flash block, and the
-    /// remote miner has yet to process it.
+    /// Otherwise, if this sortition has no winner, and we did not win the
+    /// last-winning sortition, then check to see if we're the ongoing
+    /// Stack's tenure's miner. If so, then we _may_ start mining after a
+    /// timeout _if_ the winner of the last-good sortition (not us) fails to
+    /// submit a `BlockFound` tenure-change block.  This can happen if `sn`
+    /// was a flash block, and the remote miner has yet to process it.
     ///
-    /// We won't always be able to mine -- for example, this could be an empty sortition, but the
-    /// parent block could be an epoch 2 block.  In this case, the right thing to do is to wait for
-    /// the next block-commit.
+    /// We won't always be able to mine -- for example, this could be an empty
+    /// sortition, but the parent block could be an epoch 2 block.  In this
+    /// case, the right thing to do is to wait for the next block-commit.
     pub(crate) fn choose_miner_directive(
         &mut self,
         sn: BlockSnapshot,
@@ -554,8 +574,8 @@ impl RelayerThread {
 
         // no sortition happened.
         // find out what epoch the Stacks tip is in.
-        // If it's in epoch 2.x, then we must always begin a new tenure, but we can't do so
-        // right now since this sortition has no winner.
+        // If it's in epoch 2.x, then we must always begin a new tenure, but we can't do
+        // so right now since this sortition has no winner.
         let stacks_tip_sn =
             SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), &cur_stacks_tip_ch)
                 .expect("FATAL: failed to query sortiiton DB for epoch")
@@ -591,9 +611,10 @@ impl RelayerThread {
                 &last_winning_snapshot.consensus_hash
             );
 
-            // we won the last non-empty sortition. Has there been a BlockFound issued for it?
-            // This would be true if the stacks tip's tenure is at or descends from this snapshot.
-            // If there has _not_ been a BlockFound, then we should issue one.
+            // we won the last non-empty sortition. Has there been a BlockFound issued for
+            // it? This would be true if the stacks tip's tenure is at or
+            // descends from this snapshot. If there has _not_ been a
+            // BlockFound, then we should issue one.
             let ih = self
                 .sortdb
                 .index_handle(&last_winning_snapshot.sortition_id);
@@ -687,11 +708,12 @@ impl RelayerThread {
         return None;
     }
 
-    /// Given the pointer to a recently processed sortition, see if we won the sortition, and
-    /// determine what miner action (if any) to take.
+    /// Given the pointer to a recently processed sortition, see if we won the
+    /// sortition, and determine what miner action (if any) to take.
     ///
-    /// Returns a directive to the relayer thread to either start, stop, or continue a tenure, if
-    /// this sortition matches the sortition tip and we have a parent to build atop.
+    /// Returns a directive to the relayer thread to either start, stop, or
+    /// continue a tenure, if this sortition matches the sortition tip and
+    /// we have a parent to build atop.
     ///
     /// Otherwise, returns None, meaning no action will be taken.
     // This method is covered by the e2e bitcoind tests, which do not show up
@@ -725,7 +747,8 @@ impl RelayerThread {
         self.globals.counters.bump_blocks_processed();
         self.globals.counters.bump_sortitions_processed();
 
-        // there may be a bufferred stacks block to process, so wake up the coordinator to check
+        // there may be a bufferred stacks block to process, so wake up the coordinator
+        // to check
         self.globals.coord_comms.announce_new_stacks_block();
 
         info!(
@@ -814,8 +837,8 @@ impl RelayerThread {
     ///
     /// Takes the Nakamoto chain tip (consensus hash, block header hash).
     ///
-    /// Returns the (the most recent burn snapshot, the most recent stakcs tip, the commit-op) on success
-    /// Returns None if we fail somehow.
+    /// Returns the (the most recent burn snapshot, the most recent stakcs tip,
+    /// the commit-op) on success Returns None if we fail somehow.
     ///
     /// TODO: unit test
     pub(crate) fn make_block_commit(
@@ -848,8 +871,8 @@ impl RelayerThread {
             NakamotoNodeError::ParentNotFound
         })?;
 
-        // load the VRF proof generated in this tenure, so we can use it to seed the VRF in the
-        // upcoming tenure.  This may be an epoch2x VRF proof.
+        // load the VRF proof generated in this tenure, so we can use it to seed the VRF
+        // in the upcoming tenure.  This may be an epoch2x VRF proof.
         let tip_vrf_proof = NakamotoChainState::get_block_vrf_proof(
             &mut self.chainstate.index_conn(),
             &stacks_tip,
@@ -886,10 +909,10 @@ impl RelayerThread {
             RewardSetInfo::into_commit_outs(recipients, self.config.is_mainnet())
         };
 
-        // find the sortition that kicked off this tenure (it may be different from the sortition
-        // tip, such as when there is no sortition or when the miner of the current sortition never
-        // produces a block).  This is used to find the parent block-commit of the block-commit
-        // we'll submit.
+        // find the sortition that kicked off this tenure (it may be different from the
+        // sortition tip, such as when there is no sortition or when the miner
+        // of the current sortition never produces a block).  This is used to
+        // find the parent block-commit of the block-commit we'll submit.
         let Ok(Some(tip_tenure_sortition)) =
             SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), tip_block_ch)
         else {
@@ -897,8 +920,9 @@ impl RelayerThread {
             return Err(NakamotoNodeError::ParentNotFound);
         };
 
-        // find the parent block-commit of this commit, so we can find the parent vtxindex
-        // if the parent is a shadow block, then the vtxindex would be 0.
+        // find the parent block-commit of this commit, so we can find the parent
+        // vtxindex if the parent is a shadow block, then the vtxindex would be
+        // 0.
         let commit_parent_block_burn_height = tip_tenure_sortition.block_height;
         let commit_parent_winning_vtxindex = if let Ok(Some(parent_winning_tx)) =
             SortitionDB::get_block_commit(
@@ -933,7 +957,8 @@ impl RelayerThread {
             0
         };
 
-        // epoch in which this commit will be sent (affects how the burnchain client processes it)
+        // epoch in which this commit will be sent (affects how the burnchain client
+        // processes it)
         let Ok(Some(target_epoch)) =
             SortitionDB::get_stacks_epoch(self.sortdb.conn(), sort_tip.block_height + 1)
         else {
@@ -944,8 +969,9 @@ impl RelayerThread {
         // amount of burnchain tokens (e.g. sats) we'll spend across the PoX outputs
         let burn_fee_cap = get_mining_spend_amount(self.globals.get_miner_status());
 
-        // let's commit, but target the current burnchain tip with our modulus so the commit is
-        // only valid if it lands in the targeted burnchain block height
+        // let's commit, but target the current burnchain tip with our modulus so the
+        // commit is only valid if it lands in the targeted burnchain block
+        // height
         let burn_parent_modulus = u8::try_from(sort_tip.block_height % BURN_BLOCK_MINED_AT_MODULUS)
             .map_err(|_| {
                 error!("Relayer: Block mining modulus is not u8");
@@ -1048,7 +1074,9 @@ impl RelayerThread {
     /// * last_burn_block corresponds to the canonical sortition DB's chain tip
     /// * the time of issuance is sufficiently recent
     /// * there are no unprocessed stacks blocks in the staging DB
-    /// * the relayer has already tried a download scan that included this sortition (which, if a block was found, would have placed it into the staging DB and marked it as unprocessed)
+    /// * the relayer has already tried a download scan that included this
+    ///   sortition (which, if a block was found, would have placed it into the
+    ///   staging DB and marked it as unprocessed)
     /// * a miner thread is not running already
     fn create_block_miner(
         &mut self,
@@ -1113,7 +1141,8 @@ impl RelayerThread {
         burn_tip_at_start: &ConsensusHash,
     ) -> Result<(), NakamotoNodeError> {
         // when starting a new tenure, block the mining thread if its currently running.
-        // the new mining thread will join it (so that the new mining thread stalls, not the relayer)
+        // the new mining thread will join it (so that the new mining thread stalls, not
+        // the relayer)
         let prior_tenure_thread = self.miner_thread.take();
         self.miner_thread_burn_view = None;
 
@@ -1170,8 +1199,9 @@ impl RelayerThread {
     }
 
     fn stop_tenure(&mut self) -> Result<(), NakamotoNodeError> {
-        // when stopping a tenure, block the mining thread if its currently running, then join it.
-        // do this in a new thread will (so that the new thread stalls, not the relayer)
+        // when stopping a tenure, block the mining thread if its currently running,
+        // then join it. do this in a new thread will (so that the new thread
+        // stalls, not the relayer)
         let Some(prior_tenure_thread) = self.miner_thread.take() else {
             debug!("Relayer: no tenure thread to stop");
             return Ok(());
@@ -1219,8 +1249,9 @@ impl RelayerThread {
     }
 
     /// Is the given sortition a valid sortition?
-    /// I.e. whose winning commit's parent tenure ID is on the canonical Stacks history,
-    /// and whose consensus hash corresponds to the ongoing tenure or a confirmed tenure?
+    /// I.e. whose winning commit's parent tenure ID is on the canonical Stacks
+    /// history, and whose consensus hash corresponds to the ongoing tenure
+    /// or a confirmed tenure?
     fn is_valid_sortition(
         chain_state: &mut StacksChainState,
         stacks_tip_id: &StacksBlockId,
@@ -1249,8 +1280,8 @@ impl RelayerThread {
         }
 
         if sn.consensus_hash == *burn_tip_ch {
-            // sn is the sortition tip, so this sortition must commit to the tenure start block of
-            // the ongoing Stacks tenure.
+            // sn is the sortition tip, so this sortition must commit to the tenure start
+            // block of the ongoing Stacks tenure.
             let highest_tenure_start_block_header = NakamotoChainState::get_tenure_start_block_header(
                 &mut ic,
                 stacks_tip_id,
@@ -1275,15 +1306,15 @@ impl RelayerThread {
         Ok(true)
     }
 
-    /// Determine the highest valid sortition higher than `elected_tenure_id`, but no higher than
-    /// `sort_tip`.
+    /// Determine the highest valid sortition higher than `elected_tenure_id`,
+    /// but no higher than `sort_tip`.
     ///
     /// This is the highest non-empty sortition (up to and including `sort_tip`)
     /// whose winning commit's parent tenure ID matches the
     /// Stacks tip, and whose consensus hash matches the Stacks tip's tenure ID.
     ///
-    /// Returns Ok(Some(..)) if such a sortition is found, and is higher than that of
-    /// `elected_tenure_id`.
+    /// Returns Ok(Some(..)) if such a sortition is found, and is higher than
+    /// that of `elected_tenure_id`.
     /// Returns Ok(None) if no such sortition is found.
     /// Returns Err(..) on DB errors.
     fn find_highest_valid_sortition(
@@ -1292,8 +1323,8 @@ impl RelayerThread {
         sort_tip: &BlockSnapshot,
         elected_tenure_id: &ConsensusHash,
     ) -> Result<Option<BlockSnapshot>, NakamotoNodeError> {
-        // sanity check -- if sort_tip is the elected_tenure_id sortition, then there are no higher
-        // valid sortitions.
+        // sanity check -- if sort_tip is the elected_tenure_id sortition, then there
+        // are no higher valid sortitions.
         if sort_tip.consensus_hash == *elected_tenure_id {
             return Ok(None);
         }
@@ -1342,16 +1373,17 @@ impl RelayerThread {
         }
     }
 
-    /// Determine if the miner can contine an existing tenure with the new sortition (identified
-    /// by `new_burn_view`)
+    /// Determine if the miner can contine an existing tenure with the new
+    /// sortition (identified by `new_burn_view`)
     ///
-    /// Assumes that the caller has already checked that the given miner has _not_ won the new
-    /// sortition.
+    /// Assumes that the caller has already checked that the given miner has
+    /// _not_ won the new sortition.
     ///
-    /// Returns Ok(Some(stacks-tip-election-snapshot)) if the last-winning miner needs to extend.
-    /// For now, this only happens if the miner's election snapshot was the last-known valid and
-    /// non-empty snapshot.  In the future, this function may return Ok(Some(..)) if the node
-    /// determines that a subsequent miner won sortition, but never came online.
+    /// Returns Ok(Some(stacks-tip-election-snapshot)) if the last-winning miner
+    /// needs to extend. For now, this only happens if the miner's election
+    /// snapshot was the last-known valid and non-empty snapshot.  In the
+    /// future, this function may return Ok(Some(..)) if the node determines
+    /// that a subsequent miner won sortition, but never came online.
     ///
     /// Returns OK(None) if the last-winning miner should not extend its tenure.
     ///
@@ -1407,12 +1439,13 @@ impl RelayerThread {
             return Ok(None);
         }
 
-        // For now, only allow the miner to extend its tenure if won the highest valid sortition.
-        // There cannot be any higher sortitions that are valid (as defined above).
+        // For now, only allow the miner to extend its tenure if won the highest valid
+        // sortition. There cannot be any higher sortitions that are valid (as
+        // defined above).
         //
-        // In the future, the miner will be able to extend its tenure even if there are higher
-        // valid sortitions, but only if it determines that the miners of those sortitions are
-        // offline.
+        // In the future, the miner will be able to extend its tenure even if there are
+        // higher valid sortitions, but only if it determines that the miners of
+        // those sortitions are offline.
         if let Some(highest_valid_sortition) = Self::find_highest_valid_sortition(
             sortdb,
             chain_state,
@@ -1427,11 +1460,12 @@ impl RelayerThread {
     }
 
     /// Attempt to continue a miner's tenure into the next burn block.
-    /// This is allowed if the miner won the last good sortition -- that is, the sortition which
-    /// elected the local view of the canonical Stacks fork's ongoing tenure.
+    /// This is allowed if the miner won the last good sortition -- that is, the
+    /// sortition which elected the local view of the canonical Stacks
+    /// fork's ongoing tenure.
     ///
-    /// This function assumes that the caller has checked that the sortition referred to by
-    /// `new_burn_view` does not have a sortition winner.
+    /// This function assumes that the caller has checked that the sortition
+    /// referred to by `new_burn_view` does not have a sortition winner.
     fn continue_tenure(&mut self, new_burn_view: ConsensusHash) -> Result<(), NakamotoNodeError> {
         if let Err(e) = self.stop_tenure() {
             error!("Relayer: Failed to stop tenure: {e:?}");
@@ -1648,8 +1682,10 @@ impl RelayerThread {
     /// Determine what the relayer should do to advance the chain.
     /// * If this isn't a miner, then it's always nothing.
     /// * Otherwise, if we haven't done so already, go register a VRF public key
-    /// * If the stacks chain tip or burnchain tip has changed, then issue a block-commit
-    /// * If the last burn view we started a miner for is not the canonical burn view, then
+    /// * If the stacks chain tip or burnchain tip has changed, then issue a
+    ///   block-commit
+    /// * If the last burn view we started a miner for is not the canonical burn
+    ///   view, then
     /// try and start a new tenure (or continue an existing one).
     fn initiative(&mut self) -> Option<RelayerDirective> {
         if !self.is_miner {
@@ -1750,7 +1786,8 @@ impl RelayerThread {
             }
         }
 
-        // burnchain view or highest-tenure view changed, so we need to send (or RBF) a commit
+        // burnchain view or highest-tenure view changed, so we need to send (or RBF) a
+        // commit
         Some(RelayerDirective::IssueBlockCommit(
             stacks_tip_ch,
             stacks_tip_bh,
@@ -1758,9 +1795,9 @@ impl RelayerThread {
     }
 
     /// Try to start up a tenure-extend.
-    /// Only do this if the miner won the highest valid sortition but the burn view has changed.
-    /// In the future, the miner will also try to extend its tenure if a subsequent miner appears
-    /// to be offline.
+    /// Only do this if the miner won the highest valid sortition but the burn
+    /// view has changed. In the future, the miner will also try to extend
+    /// its tenure if a subsequent miner appears to be offline.
     fn try_continue_tenure(&mut self) {
         if self.tenure_extend_timeout.is_none() {
             return;
@@ -1787,12 +1824,12 @@ impl RelayerThread {
             return;
         }
 
-        // reset timer so we can try again if for some reason a miner was already running (e.g. a
-        // blockfound from earlier).
+        // reset timer so we can try again if for some reason a miner was already
+        // running (e.g. a blockfound from earlier).
         self.tenure_extend_timeout = Some(Instant::now());
 
-        // try to extend, but only if we aren't already running a thread for the current or newer
-        // burnchain view
+        // try to extend, but only if we aren't already running a thread for the current
+        // or newer burnchain view
         let Ok(sn) =
             SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn()).inspect_err(|e| {
                 error!("Relayer: failed to read canonical burnchain sortition: {e:?}");
@@ -1802,8 +1839,8 @@ impl RelayerThread {
         };
 
         if let Some(miner_thread_burn_view) = self.miner_thread_burn_view.as_ref() {
-            // a miner thread is already running.  If its burn view is the same as the canonical
-            // tip, then do nothing
+            // a miner thread is already running.  If its burn view is the same as the
+            // canonical tip, then do nothing
             if sn.consensus_hash == miner_thread_burn_view.consensus_hash {
                 info!("Relayer: will not try to start a tenure extend -- the current miner thread's burn view matches the sortition tip"; "sortition tip" => %sn.consensus_hash);
                 return;
@@ -1821,7 +1858,8 @@ impl RelayerThread {
     /// Main loop of the relayer.
     /// Runs in a separate thread.
     /// Continuously receives from `relay_rcv`.
-    /// Wakes up once per second to see if we need to continue mining an ongoing tenure.
+    /// Wakes up once per second to see if we need to continue mining an ongoing
+    /// tenure.
     pub fn main(mut self, relay_rcv: Receiver<RelayerDirective>) {
         debug!("relayer thread ID is {:?}", std::thread::current().id());
 
@@ -1961,7 +1999,8 @@ impl RelayerThread {
                     StacksBlockId(block_header_hash.0),
                 )
             }
-            // These are triggered by the relayer waking up, seeing a new consensus hash *or* a new first tenure block
+            // These are triggered by the relayer waking up, seeing a new consensus hash *or* a new
+            // first tenure block
             RelayerDirective::IssueBlockCommit(consensus_hash, block_hash) => {
                 if !self.is_miner {
                     return true;

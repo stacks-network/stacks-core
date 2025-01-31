@@ -117,8 +117,9 @@ fn advance_to_2_1(
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     // give one coinbase to the miner, and then burn the rest
-    // if segwit is supported, then give one coinbase to the segwit address as well as the legacy
-    // address. This is needed to allow the miner to boot up into 2.1 through epochs 2.0 and 2.05.
+    // if segwit is supported, then give one coinbase to the segwit address as well
+    // as the legacy address. This is needed to allow the miner to boot up into
+    // 2.1 through epochs 2.0 and 2.05.
     let mining_pubkey = if conf.miner.segwit {
         btc_regtest_controller.set_use_segwit(false);
         btc_regtest_controller.bootstrap_chain(1);
@@ -147,8 +148,9 @@ fn advance_to_2_1(
     btc_regtest_controller.bootstrap_chain(epoch_2_05 - 7);
 
     // only one UTXO for our mining pubkey (which is uncompressed, btw)
-    // NOTE: if we're using segwit, then the mining pubkey will be compressed for the segwit UTXO
-    // generation (i.e. it'll be treated as different from the uncompressed public key).
+    // NOTE: if we're using segwit, then the mining pubkey will be compressed for
+    // the segwit UTXO generation (i.e. it'll be treated as different from the
+    // uncompressed public key).
     let utxos = btc_regtest_controller
         .get_all_utxos(&Secp256k1PublicKey::from_hex(&mining_pubkey).unwrap());
 
@@ -279,8 +281,8 @@ fn transition_adds_burn_block_height() {
         return;
     }
 
-    // very simple test to verify that after the 2.1 transition, get-burn-block-info? works as
-    // expected
+    // very simple test to verify that after the 2.1 transition,
+    // get-burn-block-info? works as expected
 
     let spender_sk = StacksPrivateKey::random();
     let spender_addr = PrincipalData::from(to_addr(&spender_sk));
@@ -298,9 +300,10 @@ fn transition_adds_burn_block_height() {
         );
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
-    // post epoch 2.1 -- we should be able to query any/all burnchain headers after the first
-    // burnchain block height (not the genesis burnchain height, mind you, but the first burnchain
-    // block height at which the Stacks blockchain begins).
+    // post epoch 2.1 -- we should be able to query any/all burnchain headers after
+    // the first burnchain block height (not the genesis burnchain height, mind
+    // you, but the first burnchain block height at which the Stacks blockchain
+    // begins).
     let contract = "
     (define-private (test-burn-headers-cls (height uint) (base uint))
         (begin
@@ -478,8 +481,9 @@ fn transition_adds_pay_to_alt_recipient_contract() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
-    // very simple test to verify that the miner will automatically start sending block rewards to
-    // a contract in the config file when it mines after epoch 2.1.
+    // very simple test to verify that the miner will automatically start sending
+    // block rewards to a contract in the config file when it mines after epoch
+    // 2.1.
     let target_contract_address =
         QualifiedContractIdentifier::parse("ST000000000000000000002AMW42H.bns").unwrap();
     let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
@@ -511,8 +515,9 @@ fn transition_adds_pay_to_alt_recipient_principal() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
-    // very simple test to verify that the miner will automatically start sending block rewards to
-    // an alternative principal in the config file when it mines after epoch 2.1.
+    // very simple test to verify that the miner will automatically start sending
+    // block rewards to an alternative principal in the config file when it
+    // mines after epoch 2.1.
     let target_principal_address =
         PrincipalData::parse("ST34CV1214XJF9S8WPT09TJNYJTM8GM4W6N7ZGKDF").unwrap();
     let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
@@ -651,7 +656,8 @@ fn transition_fixes_bitcoin_rigidity() {
     let tip_info = get_chain_info(&conf);
     assert_eq!(tip_info.burn_block_height, epoch_2_05 + 1);
 
-    // okay, let's send a pre-stx op for a transfer-stx op that will get mined before the 2.1 epoch
+    // okay, let's send a pre-stx op for a transfer-stx op that will get mined
+    // before the 2.1 epoch
     let pre_stx_op = PreStxOp {
         output: spender_stx_addr,
         // to be filled in
@@ -678,10 +684,11 @@ fn transition_fixes_bitcoin_rigidity() {
     // mine it
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    // let's fire off a transfer op that will not land in the Stacks 2.1 epoch.  It should not be
-    // applied, even though it's within 6 blocks of the next Stacks block, which will be in epoch
-    // 2.1.  This verifies that the new burnchain consideration window only applies to sortitions
-    // that happen in Stacks 2.1.
+    // let's fire off a transfer op that will not land in the Stacks 2.1 epoch.  It
+    // should not be applied, even though it's within 6 blocks of the next
+    // Stacks block, which will be in epoch 2.1.  This verifies that the new
+    // burnchain consideration window only applies to sortitions that happen in
+    // Stacks 2.1.
     let recipient_sk = StacksPrivateKey::random();
     let recipient_addr = to_addr(&recipient_sk);
     let transfer_stx_op = TransferStxOp {
@@ -862,13 +869,14 @@ fn transition_fixes_bitcoin_rigidity() {
         "Transfer operation should submit successfully"
     );
 
-    // build a couple bitcoin blocks without a stacks block to mine it, up to the edge of the
-    // window
+    // build a couple bitcoin blocks without a stacks block to mine it, up to the
+    // edge of the window
     for _i in 0..BURNCHAIN_TX_SEARCH_WINDOW {
         btc_regtest_controller.build_next_block(1);
     }
 
-    // this block should process the transfer, even though it was mined in a sortition-less block
+    // this block should process the transfer, even though it was mined in a
+    // sortition-less block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -877,8 +885,8 @@ fn transition_fixes_bitcoin_rigidity() {
     assert_eq!(get_balance(&http_origin, &spender_2_addr), 100_300);
 
     // now let's do a pre-stx-op and a transfer op in the same burnchain block...
-    // NOTE: bitcoind really doesn't want to return the utxo from the first op for some reason,
-    //    so we have to get a little creative...
+    // NOTE: bitcoind really doesn't want to return the utxo from the first op for
+    // some reason,    so we have to get a little creative...
 
     // okay, let's send a pre-stx op.
     let pre_stx_op = PreStxOp {
@@ -933,8 +941,8 @@ fn transition_fixes_bitcoin_rigidity() {
         )
         .expect("Transfer operation should submit successfully");
 
-    // build a couple bitcoin blocks without a stacks block to mine it, up to the edge of the
-    // window
+    // build a couple bitcoin blocks without a stacks block to mine it, up to the
+    // edge of the window
     for _i in 0..BURNCHAIN_TX_SEARCH_WINDOW {
         btc_regtest_controller.build_next_block(1);
     }
@@ -999,8 +1007,8 @@ fn transition_fixes_bitcoin_rigidity() {
         )
         .expect("Transfer operation should submit successfully");
 
-    // build a couple bitcoin blocks without a stacks block to mine it, up to the edge of the
-    // window and then past it
+    // build a couple bitcoin blocks without a stacks block to mine it, up to the
+    // edge of the window and then past it
     for _i in 0..(BURNCHAIN_TX_SEARCH_WINDOW + 1) {
         btc_regtest_controller.build_next_block(1);
     }
@@ -1024,8 +1032,8 @@ fn transition_adds_get_pox_addr_recipients() {
         return;
     }
 
-    // very simple test to verify that when STX are stacked, the PoX address is recoverable from
-    // `get-burn-block-info?`
+    // very simple test to verify that when STX are stacked, the PoX address is
+    // recoverable from `get-burn-block-info?`
 
     let reward_cycle_len = 10;
     let prepare_phase_len = 4;
@@ -1403,8 +1411,8 @@ fn transition_adds_mining_from_segwit() {
         tip_info_after.stacks_tip_height
     );
 
-    // that block-commit we just sent consumed a segwit p2wpkh utxo and emitted a segwit p2wpkh
-    // utxo
+    // that block-commit we just sent consumed a segwit p2wpkh utxo and emitted a
+    // segwit p2wpkh utxo
     let sortdb = btc_regtest_controller.sortdb_mut();
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     let commits =
@@ -1605,9 +1613,9 @@ fn transition_removes_pox_sunset() {
 
     let pox_info = get_pox_info(&http_origin).unwrap();
 
-    // pox is still "active" despite unlock, because there's enough participation, and also even
-    // though the v1 block height has passed, the pox-2 contract won't be managing reward sets
-    // until the next reward cycle
+    // pox is still "active" despite unlock, because there's enough participation,
+    // and also even though the v1 block height has passed, the pox-2 contract
+    // won't be managing reward sets until the next reward cycle
     eprintln!("pox_info in pox-2 = {pox_info:?}");
     assert!(pox_info.current_cycle.is_pox_active);
     assert_eq!(&pox_info.contract_id, "ST000000000000000000002AMW42H.pox-2");
@@ -1721,9 +1729,9 @@ fn transition_removes_pox_sunset() {
 #[test]
 #[ignore]
 fn transition_empty_blocks() {
-    // very simple test to verify that the miner will keep making valid (empty) blocks after the
-    // transition.  Really tests that the block-commits are well-formed before and after the epoch
-    // transition.
+    // very simple test to verify that the miner will keep making valid (empty)
+    // blocks after the transition.  Really tests that the block-commits are
+    // well-formed before and after the epoch transition.
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -1820,8 +1828,8 @@ fn transition_empty_blocks() {
 
     // these should all succeed across the epoch boundary
     for _i in 0..30 {
-        // also, make *huge* block-commits with invalid marker bytes once we reach the new
-        // epoch, and verify that it fails.
+        // also, make *huge* block-commits with invalid marker bytes once we reach the
+        // new epoch, and verify that it fails.
         let tip_info = get_chain_info(&conf);
         let pox_info = get_pox_info(&http_origin).unwrap();
 
@@ -1981,10 +1989,11 @@ pub fn wait_pox_stragglers(confs: &[Config], max_stacks_tip: u64, block_time_ms:
 
 /// PoX reorg with three flaps.
 /// Miner 0 mines and hides the anchor block for cycles 22.
-/// Miner 1 mines and hides the anchor block for cycles 23 and 24, causing a PoX reorg in miner 0.
-/// Miner 0 mines and hides the anchor block for cycles 25, 26, and 27, causing a PoX reorg in miner 1.
-/// At the very end, miners stop hiding their blocks, and the test verifies that both miners
-/// converge on having anchor blocks for cycles 22, 25, 26, and 27, but not 23 and 24.
+/// Miner 1 mines and hides the anchor block for cycles 23 and 24, causing a PoX
+/// reorg in miner 0. Miner 0 mines and hides the anchor block for cycles 25,
+/// 26, and 27, causing a PoX reorg in miner 1. At the very end, miners stop
+/// hiding their blocks, and the test verifies that both miners converge on
+/// having anchor blocks for cycles 22, 25, 26, and 27, but not 23 and 24.
 #[test]
 #[ignore]
 fn test_pox_reorgs_three_flaps() {
@@ -2246,8 +2255,8 @@ fn test_pox_reorgs_three_flaps() {
         })
         .collect();
 
-    // keeps the mempool full, and makes it so miners will spend a nontrivial amount of time
-    // building blocks
+    // keeps the mempool full, and makes it so miners will spend a nontrivial amount
+    // of time building blocks
     let all_txs: Vec<_> = privks
         .iter()
         .enumerate()
@@ -2300,7 +2309,8 @@ fn test_pox_reorgs_three_flaps() {
         let tip_info = get_chain_info(c);
         info!("Tip for miner {i}: {tip_info:?}");
 
-        //assert_eq!(tip_info.affirmations.heaviest, AffirmationMap::decode("nnnnnnnnnnnnnnnnnnnnp").unwrap());
+        //assert_eq!(tip_info.affirmations.heaviest,
+        // AffirmationMap::decode("nnnnnnnnnnnnnnnnnnnnp").unwrap());
     }
     info!("####################### end of cycle ##############################");
 
@@ -2359,8 +2369,9 @@ fn test_pox_reorgs_three_flaps() {
         info!("Tip for miner {i}: {tip_info:?}");
 
         // miner 1's history overtakes miner 0's.
-        // Miner 1 didn't see cycle 22's anchor block, but it just mined an anchor block for cycle
-        // 23 and affirmed cycle 22's anchor block's absence.
+        // Miner 1 didn't see cycle 22's anchor block, but it just mined an
+        // anchor block for cycle 23 and affirmed cycle 22's anchor
+        // block's absence.
     }
     info!("####################### end of cycle ##############################");
 
@@ -2388,8 +2399,9 @@ fn test_pox_reorgs_three_flaps() {
         info!("Tip for miner {i}: {tip_info:?}");
 
         // miner 1's history continues to overtake miner 0's.
-        // Miner 1 didn't see cycle 22's anchor block, but it just mined an anchor block for cycle
-        // 23 and cycle 24 which both affirm cycle 22's anchor block's absence.
+        // Miner 1 didn't see cycle 22's anchor block, but it just mined an
+        // anchor block for cycle 23 and cycle 24 which both affirm
+        // cycle 22's anchor block's absence.
     }
     info!("####################### end of cycle ##############################");
 
@@ -2416,7 +2428,8 @@ fn test_pox_reorgs_three_flaps() {
         let tip_info = get_chain_info(c);
         info!("Tip for miner {i}: {tip_info:?}");
 
-        // miner 0 may have won here, but its affirmation map isn't yet the heaviest.
+        // miner 0 may have won here, but its affirmation map isn't yet the
+        // heaviest.
     }
     info!("####################### end of cycle ##############################");
 
@@ -2502,9 +2515,10 @@ fn test_pox_reorgs_three_flaps() {
 
 /// PoX reorg with just one flap.
 /// Miner 0 mines and hides the anchor block for cycle 22.
-/// Miner 1 mines and hides the anchor block for cycle 23, causing a PoX reorg in miner 0.
-/// At the very end, miners stop hiding their blocks, and the test verifies that both miners
-/// converge on having anchor blocks for cycles 22 and 24, but not 23.
+/// Miner 1 mines and hides the anchor block for cycle 23, causing a PoX reorg
+/// in miner 0. At the very end, miners stop hiding their blocks, and the test
+/// verifies that both miners converge on having anchor blocks for cycles 22 and
+/// 24, but not 23.
 #[test]
 #[ignore]
 fn test_pox_reorg_one_flap() {
@@ -2764,8 +2778,8 @@ fn test_pox_reorg_one_flap() {
         })
         .collect();
 
-    // keeps the mempool full, and makes it so miners will spend a nontrivial amount of time
-    // building blocks
+    // keeps the mempool full, and makes it so miners will spend a nontrivial amount
+    // of time building blocks
     let all_txs: Vec<_> = privks
         .iter()
         .enumerate()
@@ -2876,8 +2890,8 @@ fn test_pox_reorg_one_flap() {
         info!("Tip for miner {i}: {tip_info:?}");
 
         // miner 1's history overtakes miner 0's.
-        // Miner 1 didn't see cycle 22's anchor block, but it just mined an anchor block for cycle
-        // 23 and affirmed cycle 22's anchor block's absence.
+        // Miner 1 didn't see cycle 22's anchor block, but it just mined an anchor block
+        // for cycle 23 and affirmed cycle 22's anchor block's absence.
         max_stacks_tip = std::cmp::max(tip_info.stacks_tip_height, max_stacks_tip);
     }
     info!("####################### end of cycle ##############################");
@@ -2907,8 +2921,8 @@ fn test_pox_reorg_one_flap() {
 }
 
 /// PoX reorg tests where two miners take turn mining hidden anchor blocks.
-/// Both miners mine in the reward phase, and in doing so, confirm their hidden anchor blocks.
-/// The heaviest affirmation map grows as n+pppa+
+/// Both miners mine in the reward phase, and in doing so, confirm their hidden
+/// anchor blocks. The heaviest affirmation map grows as n+pppa+
 #[test]
 #[ignore]
 fn test_pox_reorg_flap_duel() {
@@ -3171,8 +3185,8 @@ fn test_pox_reorg_flap_duel() {
         })
         .collect();
 
-    // keeps the mempool full, and makes it so miners will spend a nontrivial amount of time
-    // building blocks
+    // keeps the mempool full, and makes it so miners will spend a nontrivial amount
+    // of time building blocks
     let all_txs: Vec<_> = privks
         .iter()
         .enumerate()
@@ -3225,13 +3239,14 @@ fn test_pox_reorg_flap_duel() {
         let tip_info = get_chain_info(c);
         info!("Tip for miner {i}: {tip_info:?}");
 
-        //assert_eq!(tip_info.affirmations.heaviest, AffirmationMap::decode("nnnnnnnnnnnnnnnnnnnnp").unwrap());
+        //assert_eq!(tip_info.affirmations.heaviest,
+        // AffirmationMap::decode("nnnnnnnnnnnnnnnnnnnnp").unwrap());
     }
     info!("####################### end of cycle ##############################");
 
     // prevent Stacks at these heights from propagating.
-    // This means that both nodes affirm the absence of each others' anchor blocks, and the
-    // heaviest affirmation map will always look like n+pppa+
+    // This means that both nodes affirm the absence of each others' anchor blocks,
+    // and the heaviest affirmation map will always look like n+pppa+
     env::set_var(
         "STACKS_HIDE_BLOCKS_AT_HEIGHT",
         "[226,227,228,229,230,236,237,238,239,240,246,247,248,249,250,256,257,258,259,260,266,267,268,269,270,276,277,278,279,280,286,287,288,289,290]"
@@ -3240,7 +3255,8 @@ fn test_pox_reorg_flap_duel() {
     let mut max_stacks_tip = 0;
 
     // miners 0 and 1 take turns mining anchor blocks.
-    // this should cause them both to flip/flop their sortition histories multiple times
+    // this should cause them both to flip/flop their sortition histories multiple
+    // times
     for _c in 0..3 {
         // miner 0 mines a prepare phase and confirms a hidden anchor block.
         // miner 1 is disabled for these prepare phases
@@ -3292,8 +3308,8 @@ fn test_pox_reorg_flap_duel() {
             info!("Tip for miner {i}: {tip_info:?}");
 
             // miner 1's history overtakes miner 0's.
-            // Miner 1 didn't see cycle 22's anchor block, but it just mined an anchor block for cycle
-            // 23 and affirmed cycle 22's anchor block's absence.
+            // Miner 1 didn't see cycle 22's anchor block, but it just mined an anchor block
+            // for cycle 23 and affirmed cycle 22's anchor block's absence.
             max_stacks_tip = std::cmp::max(tip_info.stacks_tip_height, max_stacks_tip);
         }
         info!("####################### end of cycle ##############################");
@@ -3313,9 +3329,10 @@ fn test_pox_reorg_flap_duel() {
     env::set_var("STACKS_HIDE_BLOCKS_AT_HEIGHT", "[]");
 
     // wait for all blocks to propagate
-    // NOTE: the stacks affirmation maps will differ from the heaviest affirmation map, because the
-    // act of flapping back and forth so much will have caused these nodes to forget about some of
-    // their anchor blocks.  This is an artifact of the test.
+    // NOTE: the stacks affirmation maps will differ from the heaviest affirmation
+    // map, because the act of flapping back and forth so much will have caused
+    // these nodes to forget about some of their anchor blocks.  This is an
+    // artifact of the test.
     eprintln!("Wait for all blocks to propagate; stacks tip height is {max_stacks_tip}");
     wait_pox_stragglers(&confs, max_stacks_tip, block_time_ms);
 
@@ -3327,7 +3344,8 @@ fn test_pox_reorg_flap_duel() {
 }
 
 /// PoX reorg tests where two miners take turn mining hidden reward cycles.
-/// Miners take turn mining entire reward cycles, and deny each other to build on them.
+/// Miners take turn mining entire reward cycles, and deny each other to build
+/// on them.
 #[test]
 #[ignore]
 fn test_pox_reorg_flap_reward_cycles() {
@@ -3587,8 +3605,8 @@ fn test_pox_reorg_flap_reward_cycles() {
         })
         .collect();
 
-    // keeps the mempool full, and makes it so miners will spend a nontrivial amount of time
-    // building blocks
+    // keeps the mempool full, and makes it so miners will spend a nontrivial amount
+    // of time building blocks
     let all_txs: Vec<_> = privks
         .iter()
         .enumerate()
@@ -3653,7 +3671,8 @@ fn test_pox_reorg_flap_reward_cycles() {
     let mut max_stacks_tip = 0;
 
     // miners 0 and 1 take turns mining anchor blocks.
-    // this should cause them both to flip/flop their sortition histories multiple times
+    // this should cause them both to flip/flop their sortition histories multiple
+    // times
     for _c in 0..2 {
         // miner 0 mines two reward cycles and confirms a hidden anchor block.
         // miner 1 is disabled for this reward cycle
@@ -3699,8 +3718,8 @@ fn test_pox_reorg_flap_reward_cycles() {
             info!("Tip for miner {i}: {tip_info:?}");
 
             // miner 1's history overtakes miner 0's.
-            // Miner 1 didn't see cycle 22's anchor block, but it just mined an anchor block for cycle
-            // 23 and affirmed cycle 22's anchor block's absence.
+            // Miner 1 didn't see cycle 22's anchor block, but it just mined an anchor block
+            // for cycle 23 and affirmed cycle 22's anchor block's absence.
             max_stacks_tip = std::cmp::max(tip_info.stacks_tip_height, max_stacks_tip);
         }
         info!("####################### end of cycle ##############################");
@@ -3720,9 +3739,10 @@ fn test_pox_reorg_flap_reward_cycles() {
     env::set_var("STACKS_HIDE_BLOCKS_AT_HEIGHT", "[]");
 
     // wait for all blocks to propagate
-    // NOTE: the stacks affirmation maps will differ from the heaviest affirmation map, because the
-    // act of flapping back and forth so much will have caused these nodes to forget about some of
-    // their anchor blocks.  This is an artifact of the test.
+    // NOTE: the stacks affirmation maps will differ from the heaviest affirmation
+    // map, because the act of flapping back and forth so much will have caused
+    // these nodes to forget about some of their anchor blocks.  This is an
+    // artifact of the test.
     eprintln!("Wait for all blocks to propagate; stacks tip height is {max_stacks_tip}");
     wait_pox_stragglers(&confs, max_stacks_tip, block_time_ms);
 
@@ -3736,8 +3756,9 @@ fn test_pox_reorg_flap_reward_cycles() {
 /// Make sure the node can boot despite missing a ton of anchor blocks.
 /// Miner 0 mines anchor blocks for cycles 22, 23, 24, 25, 26 and hides them.
 /// Miner 1 doesn't see them until the start of cycle 27
-/// The test verifies that miner 1 is still able to sync with miner 0, despite having mined in the
-/// absence of these anchor blocks while miner 1 was hiding blocks.
+/// The test verifies that miner 1 is still able to sync with miner 0, despite
+/// having mined in the absence of these anchor blocks while miner 1 was hiding
+/// blocks.
 #[test]
 #[ignore]
 fn test_pox_missing_five_anchor_blocks() {
@@ -3997,8 +4018,8 @@ fn test_pox_missing_five_anchor_blocks() {
         })
         .collect();
 
-    // keeps the mempool full, and makes it so miners will spend a nontrivial amount of time
-    // building blocks
+    // keeps the mempool full, and makes it so miners will spend a nontrivial amount
+    // of time building blocks
     let all_txs: Vec<_> = privks
         .iter()
         .enumerate()
@@ -4114,9 +4135,9 @@ fn test_pox_missing_five_anchor_blocks() {
 
 #[test]
 #[ignore]
-/// Verify that if the sortition AM declares that an anchor block is present in epoch 2.05, but the
-/// heaviest AM declares it absent, that this is _not_ treated as a divergence of this behavior
-/// manifests in epoch 2.05.
+/// Verify that if the sortition AM declares that an anchor block is present in
+/// epoch 2.05, but the heaviest AM declares it absent, that this is _not_
+/// treated as a divergence of this behavior manifests in epoch 2.05.
 fn test_sortition_divergence_pre_21() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -4379,8 +4400,8 @@ fn test_sortition_divergence_pre_21() {
         })
         .collect();
 
-    // keeps the mempool full, and makes it so miners will spend a nontrivial amount of time
-    // building blocks
+    // keeps the mempool full, and makes it so miners will spend a nontrivial amount
+    // of time building blocks
     let all_txs: Vec<_> = privks
         .iter()
         .enumerate()
@@ -4443,8 +4464,8 @@ fn test_sortition_divergence_pre_21() {
         "[223,224,225,226,227,228,229,230]",
     );
 
-    // mine a reward cycle in which the 2.05 rules choose a PoX anchor block, but the 2.1 rules do
-    // not.
+    // mine a reward cycle in which the 2.05 rules choose a PoX anchor block, but
+    // the 2.1 rules do not.
     for i in 0..10 {
         eprintln!("\n\nBuild block {i}\n\n");
         btc_regtest_controller.build_next_block(1);
@@ -4546,7 +4567,8 @@ fn test_sortition_divergence_pre_21() {
 #[test]
 #[ignore]
 /// test to verify that a 2.05 contract which use a pre-2.1 trait
-///  can be invoked by a post-2.1 contract through *static* and *dynamic* invocation
+///  can be invoked by a post-2.1 contract through *static* and *dynamic*
+/// invocation
 fn trait_invocation_cross_epoch() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -4787,12 +4809,12 @@ fn trait_invocation_cross_epoch() {
 
 #[test]
 #[ignore]
-/// Verify that it is acceptable to launch PoX-2 at the end of a reward cycle, and set v1 unlock
-/// height to be at the start of the subsequent reward cycle.
+/// Verify that it is acceptable to launch PoX-2 at the end of a reward cycle,
+/// and set v1 unlock height to be at the start of the subsequent reward cycle.
 ///
-/// Verify that PoX-1 stackers continue to receive PoX payouts after v1 unlock height, and that
-/// PoX-2 stackers only begin receiving rewards at the start of the reward cycle following the one
-/// that contains v1 unlock height.
+/// Verify that PoX-1 stackers continue to receive PoX payouts after v1 unlock
+/// height, and that PoX-2 stackers only begin receiving rewards at the start of
+/// the reward cycle following the one that contains v1 unlock height.
 fn test_v1_unlock_height_with_current_stackers() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -5037,15 +5059,16 @@ fn test_v1_unlock_height_with_current_stackers() {
 
 #[test]
 #[ignore]
-/// Verify that it is acceptable to launch PoX-2 at the end of a reward cycle, and set v1 unlock
-/// height to be at the start of the subsequent reward cycle.
+/// Verify that it is acceptable to launch PoX-2 at the end of a reward cycle,
+/// and set v1 unlock height to be at the start of the subsequent reward cycle.
 ///
-/// Verify that PoX-1 stackers continue to receive PoX payouts after v1 unlock height, and that
-/// PoX-2 stackers only begin receiving rewards at the start of the reward cycle following the one
-/// that contains v1 unlock height.
+/// Verify that PoX-1 stackers continue to receive PoX payouts after v1 unlock
+/// height, and that PoX-2 stackers only begin receiving rewards at the start of
+/// the reward cycle following the one that contains v1 unlock height.
 ///
-/// Verify that both of the above work even if miners do not mine in the same block as the PoX-2
-/// start height or v1 unlock height (e.g. suppose there's a delay).
+/// Verify that both of the above work even if miners do not mine in the same
+/// block as the PoX-2 start height or v1 unlock height (e.g. suppose there's a
+/// delay).
 fn test_v1_unlock_height_with_delay_and_current_stackers() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;

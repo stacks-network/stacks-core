@@ -157,12 +157,14 @@ impl BurnchainParameters {
     }
 }
 
-/// This is an opaque representation of the underlying burnchain-specific principal that signed
-/// this transaction.  It may not even map to an address, given that even in "simple" VMs like
-/// bitcoin script, the "signer" may be only a part of a complex script.
+/// This is an opaque representation of the underlying burnchain-specific
+/// principal that signed this transaction.  It may not even map to an address,
+/// given that even in "simple" VMs like bitcoin script, the "signer" may be
+/// only a part of a complex script.
 ///
-/// The purpose of this struct is to capture a loggable representation of a principal that signed
-/// this transaction.  It's not meant for use with consensus-critical code.
+/// The purpose of this struct is to capture a loggable representation of a
+/// principal that signed this transaction.  It's not meant for use with
+/// consensus-critical code.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BurnchainSigner(pub String);
 
@@ -224,8 +226,8 @@ impl BurnchainTransaction {
     }
 
     /// Get the BurnchainRecipients we are able to decode.
-    /// A `None` value at slot `i` means "there is a recipient at slot `i`, but we don't know how
-    /// to decode it`.
+    /// A `None` value at slot `i` means "there is a recipient at slot `i`, but
+    /// we don't know how to decode it`.
     pub fn get_recipients(&self) -> Vec<Option<BurnchainRecipient>> {
         match *self {
             BurnchainTransaction::Bitcoin(ref btc) => btc
@@ -287,7 +289,8 @@ pub struct PoxConstants {
     /// the length (in burn blocks) of the prepare phase
     pub prepare_length: u32,
     /// the number of confirmations a PoX anchor block must
-    ///  receive in order to become the anchor. must be at least > prepare_length/2
+    ///  receive in order to become the anchor. must be at least >
+    /// prepare_length/2
     pub anchor_threshold: u32,
     /// fraction of liquid STX that must vote to reject PoX for
     /// it to revert to PoB in the next reward cycle
@@ -299,9 +302,9 @@ pub struct PoxConstants {
     pub sunset_end: u64,
     /// first block height of sunset phase
     pub sunset_start: u64,
-    /// The auto unlock height for PoX v1 lockups before transition to PoX v2. This
-    /// also defines the burn height at which PoX reward sets are calculated using
-    /// PoX v2 rather than v1
+    /// The auto unlock height for PoX v1 lockups before transition to PoX v2.
+    /// This also defines the burn height at which PoX reward sets are
+    /// calculated using PoX v2 rather than v1
     pub v1_unlock_height: u32,
     /// The auto unlock height for PoX v2 lockups during Epoch 2.2
     pub v2_unlock_height: u32,
@@ -372,7 +375,8 @@ impl PoxConstants {
     #[cfg(test)]
     /// Create a PoX constants used in tests with 5-block cycles,
     ///  3-block prepare phases, a threshold of 3, rejection fraction of 25%,
-    ///  a participation threshold of 5% and no sunset or transition to pox-2 or beyond.
+    ///  a participation threshold of 5% and no sunset or transition to pox-2 or
+    /// beyond.
     pub(crate) fn test_20_no_sunset() -> PoxConstants {
         PoxConstants::new(
             5,
@@ -509,7 +513,8 @@ impl PoxConstants {
 
     /// Returns true if the burn height falls into the PoX sunset period.
     /// Returns false if not, or if the sunset isn't active in this epoch
-    /// (Note that this is true if burn_block_height is beyond the sunset height)
+    /// (Note that this is true if burn_block_height is beyond the sunset
+    /// height)
     pub fn is_after_pox_sunset_start(
         &self,
         burn_block_height: u64,
@@ -522,7 +527,8 @@ impl PoxConstants {
         }
     }
 
-    /// The first block of the prepare phase during `reward_cycle`. This is the prepare phase _for the next cycle_.
+    /// The first block of the prepare phase during `reward_cycle`. This is the
+    /// prepare phase _for the next cycle_.
     pub fn prepare_phase_start(&self, first_block_height: u64, reward_cycle: u64) -> u64 {
         let reward_cycle_start =
             self.reward_cycle_to_block_height(first_block_height, reward_cycle);
@@ -532,8 +538,8 @@ impl PoxConstants {
     }
 
     /// Is this the first block to receive rewards in its cycle?
-    /// This is the mod 1 block. Note: in nakamoto, the signer set for cycle N signs
-    ///  the mod 0 block.
+    /// This is the mod 1 block. Note: in nakamoto, the signer set for cycle N
+    /// signs  the mod 0 block.
     pub fn is_reward_cycle_start(&self, first_block_height: u64, burn_height: u64) -> bool {
         let effective_height = burn_height - first_block_height;
         // first block of the new reward cycle
@@ -551,13 +557,13 @@ impl PoxConstants {
     /// return the first burn block which receives reward in `reward_cycle`.
     /// this is the modulo 1 block
     pub fn reward_cycle_to_block_height(&self, first_block_height: u64, reward_cycle: u64) -> u64 {
-        // NOTE: the `+ 1` is because the height of the first block of a reward cycle is mod 1, not
-        // mod 0.
+        // NOTE: the `+ 1` is because the height of the first block of a reward cycle is
+        // mod 1, not mod 0.
         first_block_height + reward_cycle * u64::from(self.reward_cycle_length) + 1
     }
 
-    /// the first burn block that must be *signed* by the signer set of `reward_cycle`.
-    /// this is the modulo 0 block
+    /// the first burn block that must be *signed* by the signer set of
+    /// `reward_cycle`. this is the modulo 0 block
     pub fn nakamoto_first_block_of_cycle(&self, first_block_height: u64, reward_cycle: u64) -> u64 {
         first_block_height + reward_cycle * u64::from(self.reward_cycle_length)
     }
@@ -579,8 +585,9 @@ impl PoxConstants {
         )
     }
 
-    /// Return the reward cycle that the current prepare phase corresponds to if `block_height` is _in_ a prepare
-    /// phase. If it is not in a prepare phase, return None.
+    /// Return the reward cycle that the current prepare phase corresponds to if
+    /// `block_height` is _in_ a prepare phase. If it is not in a prepare
+    /// phase, return None.
     pub fn reward_cycle_of_prepare_phase(
         &self,
         first_block_height: u64,
@@ -589,12 +596,14 @@ impl PoxConstants {
         if !self.is_in_prepare_phase(first_block_height, block_height) {
             return None;
         }
-        // the None branches here should be unreachable, because if `first_block_height > block_height`,
-        //   `is_in_prepare_phase` would have returned false, but no need to be unsafe anyways.
+        // the None branches here should be unreachable, because if `first_block_height
+        // > block_height`,   `is_in_prepare_phase` would have returned false,
+        // but no need to be unsafe anyways.
         let effective_height = block_height.checked_sub(first_block_height)?;
         let current_cycle = self.block_height_to_reward_cycle(first_block_height, block_height)?;
         if effective_height % u64::from(self.reward_cycle_length) == 0 {
-            // if this is the "mod 0" block of a prepare phase, its corresponding reward cycle is the current one
+            // if this is the "mod 0" block of a prepare phase, its corresponding reward
+            // cycle is the current one
             Some(current_cycle)
         } else {
             // otherwise, the corresponding reward cycle is actually the _next_ reward cycle
@@ -627,8 +636,9 @@ impl PoxConstants {
             // NOTE: first block in reward cycle is mod 1, so mod 0 is the last block in the
             // prepare phase.
             // TODO: I *think* the logic of `== 0` here requires some further digging.
-            //  `mod 0` may not have any rewards, but it does not behave like "prepare phase" blocks:
-            //  is it already a member of reward cycle "N" where N = block_height / reward_cycle_len
+            //  `mod 0` may not have any rewards, but it does not behave like "prepare
+            // phase" blocks:  is it already a member of reward cycle "N" where
+            // N = block_height / reward_cycle_len
             reward_index == 0 || reward_index > reward_cycle_length - prepare_length
         }
     }
@@ -663,7 +673,8 @@ impl PoxConstants {
     }
 
     /// Returns the active reward cycle at the given burn block height
-    /// * `first_block_ht` - the first burn block height that the Stacks network monitored
+    /// * `first_block_ht` - the first burn block height that the Stacks network
+    ///   monitored
     /// * `reward_cycle_len` - the length of each reward cycle in the network.
     pub fn static_block_height_to_reward_cycle(
         block_ht: u64,
@@ -688,7 +699,8 @@ pub struct BurnchainView {
     pub burn_stable_block_height: u64,
     /// latest stable burn block hash
     pub burn_stable_block_hash: BurnchainHeaderHash,
-    /// map all block heights from burn_block_height back to the oldest one we'll take for considering the peer a neighbor
+    /// map all block heights from burn_block_height back to the oldest one
+    /// we'll take for considering the peer a neighbor
     pub last_burn_block_hashes: HashMap<u64, BurnchainHeaderHash>,
     /// consensus hash of the current reward cycle's start block
     pub rc_consensus_hash: ConsensusHash,

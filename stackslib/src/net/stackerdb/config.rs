@@ -14,8 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-/// This file implements the interface to the StackerDB smart contract for loading the DB's config.
-/// The smart contract must conform to this trait:
+/// This file implements the interface to the StackerDB smart contract for
+/// loading the DB's config. The smart contract must conform to this trait:
 ///
 /// ```clarity,ignore
 /// ;; Any StackerDB smart contract must conform to this trait.
@@ -123,9 +123,10 @@ lazy_static! {
 }
 
 impl StackerDBConfig {
-    /// Check that a smart contract is consistent with being a StackerDB controller.
-    /// Returns Ok(..) if the contract is valid
-    /// Returns Err(reason) if the contract is invalid.  A human-readable reason will be given.
+    /// Check that a smart contract is consistent with being a StackerDB
+    /// controller. Returns Ok(..) if the contract is valid
+    /// Returns Err(reason) if the contract is invalid.  A human-readable reason
+    /// will be given.
     fn is_contract_valid(epoch: &StacksEpochId, analysis: ContractAnalysis) -> Result<(), String> {
         for (name, expected_args, expected_return) in REQUIRED_FUNCTIONS.iter() {
             let func = if let Some(f) = analysis.read_only_function_types.get(name) {
@@ -504,8 +505,8 @@ impl StackerDBConfig {
         })
     }
 
-    /// Load up the DB config from the controlling smart contract as of the current Stacks chain
-    /// tip
+    /// Load up the DB config from the controlling smart contract as of the
+    /// current Stacks chain tip
     pub fn from_smart_contract(
         chainstate: &mut StacksChainState,
         sortition_db: &SortitionDB,

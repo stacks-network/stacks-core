@@ -16,7 +16,6 @@
 //!
 //! This module defines the structures and functions needed to encode
 //! network addresses in Bitcoin messages.
-//!
 
 use std::net::{Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::{fmt, io};
@@ -51,7 +50,8 @@ impl Address {
     }
 
     /// extract socket address from an address message
-    /// This will return io::Error ErrorKind::AddrNotAvailable if the message contains a Tor address.
+    /// This will return io::Error ErrorKind::AddrNotAvailable if the message
+    /// contains a Tor address.
     pub fn socket_addr(&self) -> Result<SocketAddr, io::Error> {
         let addr = &self.address;
         if addr[0..3] == ONION {

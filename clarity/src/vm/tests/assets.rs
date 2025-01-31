@@ -293,8 +293,8 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     assert_eq!(asset_map.to_table().len(), 0);
 
     // test 5: overflow
-    //  NOTE: this tested behavior is no longer reachable: the total liquid ustx supply
-    //    will overflow before such an overflowing transfer is allowed.
+    //  NOTE: this tested behavior is no longer reachable: the total liquid ustx
+    // supply    will overflow before such an overflowing transfer is allowed.
     // assert_eq!(
     //     execute_transaction(
     //         &mut owned_env,
@@ -760,7 +760,8 @@ fn test_simple_token_system(
     .unwrap();
     assert_eq!(result, Value::UInt(10104));
 
-    // Burn 9101 tokens from p2's balance (out of 9100) - Should fail with error code 1
+    // Burn 9101 tokens from p2's balance (out of 9100) - Should fail with error
+    // code 1
     let (result, _asset_map, _events) = execute_transaction(
         &mut owned_env,
         p2_principal.clone(),
@@ -786,8 +787,8 @@ fn test_simple_token_system(
     assert!(!is_committed(&result));
     assert!(is_err_code(&result, 1));
 
-    // Try to burn 1 tokens from p2's balance (out of 9100) - Should pass even though
-    // sender != tx sender
+    // Try to burn 1 tokens from p2's balance (out of 9100) - Should pass even
+    // though sender != tx sender
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
         p1_principal.clone(),
@@ -1316,7 +1317,8 @@ fn test_simple_naming_system(
     assert!(is_committed(&result));
     assert_eq!(asset_map.to_table().len(), 0);
 
-    // p2 burning 8 (which belongs to p1) should succeed even though sender != tx_sender.
+    // p2 burning 8 (which belongs to p1) should succeed even though sender !=
+    // tx_sender.
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
         p2_principal.clone(),

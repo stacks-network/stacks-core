@@ -33,9 +33,10 @@ use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::variables::NativeVariables;
 use crate::vm::ClarityVersion;
 
-/// Checks whether or not a contract only contains arithmetic expressions (for example, defining a
-/// map would not pass this check).
-/// This check is useful in determining the validity of new potential cost functions.
+/// Checks whether or not a contract only contains arithmetic expressions (for
+/// example, defining a map would not pass this check).
+/// This check is useful in determining the validity of new potential cost
+/// functions.
 fn arithmetic_check(
     contract: &str,
     version: ClarityVersion,
@@ -196,7 +197,8 @@ fn test_variables_fail_arithmetic_check_clarity2() {
 
 #[test]
 fn test_functions_clarity1() {
-    // Tests all functions against Clarity1 VM. Results should be different for Clarity1 vs Clarity2 functions.
+    // Tests all functions against Clarity1 VM. Results should be different for
+    // Clarity1 vs Clarity2 functions.
     let tests = [
         // Clarity1 functions.
         ("(define-private (foo) (at-block 0x0202020202020202020202020202020202020202020202020202020202020202 (+ 1 2)))",
@@ -335,7 +337,8 @@ fn test_functions_clarity1() {
 
 #[test]
 fn test_functions_clarity2() {
-    // Tests functions against Clarity2 VM. The Clarity1 functions should still cause an error.
+    // Tests functions against Clarity2 VM. The Clarity1 functions should still
+    // cause an error.
     let tests = [
         // Clarity2 functions.
         (r#"(stx-transfer-memo? u100 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 0x010203)"#,

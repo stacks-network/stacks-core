@@ -17,7 +17,6 @@
 //! This module defines the `Serializable` trait which is used for
 //! (de)serializing Bitcoin objects for transmission on the network.
 //! It also defines (de)serialization routines for many primitives.
-//!
 
 use std::io::{Cursor, Read, Write};
 use std::{error, fmt, io};

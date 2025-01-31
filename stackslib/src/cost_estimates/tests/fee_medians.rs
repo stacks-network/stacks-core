@@ -31,7 +31,8 @@ fn is_close_f64(a: f64, b: f64) -> bool {
     error < 0.001
 }
 
-/// Returns `true` iff each value in `left` "close" to its counterpart in `right`.
+/// Returns `true` iff each value in `left` "close" to its counterpart in
+/// `right`.
 fn is_close(left: FeeRateEstimate, right: FeeRateEstimate) -> bool {
     let is_ok = is_close_f64(left.high, right.high)
         && is_close_f64(left.middle, right.middle)
@@ -149,8 +150,8 @@ fn test_empty_block_returns_minimum() {
     ));
 }
 
-/// A block that is only a very small minority filled should reflect the paid value,
-/// but be dominated by the padded fee rate.
+/// A block that is only a very small minority filled should reflect the paid
+/// value, but be dominated by the padded fee rate.
 #[test]
 fn test_one_block_partially_filled() {
     let metric = ProportionalDotProduct::new(10_000);
@@ -166,8 +167,8 @@ fn test_one_block_partially_filled() {
         .expect("Should be able to process block receipt");
 
     // The higher fee is 10, because of the operation paying 10f per cost.
-    // The middle fee should be near 1, because the block is mostly empty, and dominated by the
-    // minimum fee rate padding.
+    // The middle fee should be near 1, because the block is mostly empty, and
+    // dominated by the minimum fee rate padding.
     // The lower fee is 1 because of the minimum fee rate padding.
     assert!(is_close(
         estimator
@@ -181,8 +182,8 @@ fn test_one_block_partially_filled() {
     ));
 }
 
-/// A block that is mostly filled should create an estimate dominated by the transactions paid, and
-/// the padding should only affect `low`.
+/// A block that is mostly filled should create an estimate dominated by the
+/// transactions paid, and the padding should only affect `low`.
 #[test]
 fn test_one_block_mostly_filled() {
     let metric = ProportionalDotProduct::new(10_000);
@@ -215,8 +216,8 @@ fn test_one_block_mostly_filled() {
     ));
 }
 
-/// Tests the effect of adding blocks over time. We add five blocks with an easy to calculate
-/// median.
+/// Tests the effect of adding blocks over time. We add five blocks with an easy
+/// to calculate median.
 ///
 /// We add 5 blocks with window size 5 so none should be forgotten.
 #[test]
@@ -249,8 +250,8 @@ fn test_window_size_forget_nothing() {
     ));
 }
 
-/// Tests the effect of adding blocks over time. We add five blocks with an easy to calculate
-/// median.
+/// Tests the effect of adding blocks over time. We add five blocks with an easy
+/// to calculate median.
 ///
 /// We add 10 blocks with window size 5 so the first 5 should be forgotten.
 #[test]

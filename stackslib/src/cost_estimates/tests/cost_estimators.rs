@@ -177,9 +177,9 @@ fn test_cost_estimator_notify_block() {
 /// This tests the PessimisticEstimator as a unit (i.e., separate
 /// from the trait auto-impl method) by providing payload inputs
 /// to produce the expected pessimistic result (i.e., mean over a 10-sample
-/// window, where the window only updates if the new entry would make a dimension
-/// worse). This tests that the average can decline when the window is still
-/// being filled
+/// window, where the window only updates if the new entry would make a
+/// dimension worse). This tests that the average can decline when the window is
+/// still being filled
 fn test_pessimistic_cost_estimator_declining_average() {
     let mut estimator = instantiate_test_db();
     estimator
@@ -249,8 +249,8 @@ fn test_pessimistic_cost_estimator_declining_average() {
 /// This tests the PessimisticEstimator as a unit (i.e., separate
 /// from the trait auto-impl method) by providing payload inputs
 /// to produce the expected pessimistic result (i.e., mean over a 10-sample
-/// window, where the window only updates if the new entry would make a dimension
-/// worse).
+/// window, where the window only updates if the new entry would make a
+/// dimension worse).
 fn pessimistic_estimator_contract_owner_separation() {
     let mut estimator = instantiate_test_db();
     let cc_payload_0 = TransactionPayload::ContractCall(TransactionContractCall {
@@ -347,8 +347,8 @@ fn pessimistic_estimator_contract_owner_separation() {
 /// This tests the PessimisticEstimator as a unit (i.e., separate
 /// from the trait auto-impl method) by providing payload inputs
 /// to produce the expected pessimistic result (i.e., mean over a 10-sample
-/// window, where the window only updates if the new entry would make a dimension
-/// worse).
+/// window, where the window only updates if the new entry would make a
+/// dimension worse).
 fn test_pessimistic_cost_estimator() {
     let mut estimator = instantiate_test_db();
     estimator
@@ -659,7 +659,8 @@ fn test_pessimistic_cost_estimator() {
         )
         .expect("Should be able to process event");
 
-    // should just be equal to the repeated cost, because all of the costs in the window are equal
+    // should just be equal to the repeated cost, because all of the costs in the
+    // window are equal
     assert_eq!(
         estimator
             .estimate_cost(
@@ -691,8 +692,8 @@ fn test_pessimistic_cost_estimator() {
         )
         .expect("Should be able to process event");
 
-    // should still be equal to the repeated cost, because the new event will be ignored
-    //  by the pessimistic estimator
+    // should still be equal to the repeated cost, because the new event will be
+    // ignored  by the pessimistic estimator
     assert_eq!(
         estimator
             .estimate_cost(
@@ -710,7 +711,8 @@ fn test_pessimistic_cost_estimator() {
     );
 }
 
-/// Test that we forget the "learnings" from previous Stacks epoch on next epoch.
+/// Test that we forget the "learnings" from previous Stacks epoch on next
+/// epoch.
 #[test]
 fn test_cost_estimator_forget_previous() {
     // Setup: Do "notify" in Epoch20.
@@ -804,7 +806,8 @@ fn test_cost_estimator_dont_affect_previous() {
     );
 }
 
-/// Test that updates to Stacks 2.0 and Stacks 2.05 can be recorded and recovered independently.
+/// Test that updates to Stacks 2.0 and Stacks 2.05 can be recorded and
+/// recovered independently.
 #[test]
 fn test_cost_estimator_epochs_independent() {
     let contract_name = "contract-1";

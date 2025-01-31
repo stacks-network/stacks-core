@@ -158,7 +158,6 @@ mod platform {
     ///
     /// This breaks rust's stdout pre 1.18.0. Rust used to
     /// [cache the std handles](https://github.com/rust-lang/rust/pull/40516)
-    ///
     pub unsafe fn setup() -> io::Result<()> {
         let old_out = Output::new()?;
 

@@ -39,7 +39,8 @@ pub enum ConfigurationError {
     /// The stackerdb signer config is not yet updated
     #[error("The stackerdb config is not yet updated")]
     StackerDBNotUpdated,
-    /// The signer binary is configured as dry-run, but is also registered for this cycle
+    /// The signer binary is configured as dry-run, but is also registered for
+    /// this cycle
     #[error("The signer binary is configured as dry-run, but is also registered for this cycle")]
     DryRunStackerIsRegistered,
 }
@@ -107,7 +108,8 @@ impl RewardCycleInfo {
         blocks_mined / self.reward_cycle_length
     }
 
-    /// Check if the provided burnchain block height is in the prepare phase of the next cycle
+    /// Check if the provided burnchain block height is in the prepare phase of
+    /// the next cycle
     pub fn is_in_next_prepare_phase(&self, burnchain_block_height: u64) -> bool {
         let effective_height = burnchain_block_height - self.first_burnchain_block_height;
         let reward_index = effective_height % self.reward_cycle_length;
@@ -127,8 +129,8 @@ where
 {
     /// Signer is registered for the cycle and ready to process messages
     RegisteredSigner(Signer),
-    /// The signer runloop isn't registered for this cycle (i.e., we've checked the
-    ///   the signer set and we're not in it)
+    /// The signer runloop isn't registered for this cycle (i.e., we've checked
+    /// the   the signer set and we're not in it)
     NotRegistered {
         /// the cycle number we're not registered for
         cycle: u64,
@@ -151,8 +153,8 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> std::
 impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
     ConfiguredSigner<Signer, T>
 {
-    /// Create a `NotRegistered` instance of the enum (so that callers do not need
-    ///  to supply phantom_state data).
+    /// Create a `NotRegistered` instance of the enum (so that callers do not
+    /// need  to supply phantom_state data).
     pub fn not_registered(cycle: u64) -> Self {
         Self::NotRegistered {
             cycle,
@@ -222,7 +224,8 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         Ok(Some(entries))
     }
 
-    /// Get a signer configuration for a specific reward cycle from the stacks node
+    /// Get a signer configuration for a specific reward cycle from the stacks
+    /// node
     fn get_signer_config(
         &mut self,
         reward_cycle: u64,
@@ -237,7 +240,8 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             }
         };
 
-        // Ensure that the stackerdb has been updated for the reward cycle before proceeding
+        // Ensure that the stackerdb has been updated for the reward cycle before
+        // proceeding
         let last_calculated_reward_cycle =
             self.stacks_client.get_last_set_cycle().map_err(|e| {
                 warn!(
@@ -350,7 +354,8 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         })?;
         let current_reward_cycle = reward_cycle_info.reward_cycle;
         self.refresh_signer_config(current_reward_cycle);
-        // We should only attempt to initialize the next reward cycle signer if we are in the prepare phase of the next reward cycle
+        // We should only attempt to initialize the next reward cycle signer if we are
+        // in the prepare phase of the next reward cycle
         if reward_cycle_info.is_in_next_prepare_phase(reward_cycle_info.last_burnchain_block_height)
         {
             self.refresh_signer_config(current_reward_cycle.saturating_add(1));
@@ -407,8 +412,9 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         );
 
         // Check if we need to refresh the signers:
-        //   need to refresh the current signer if we are not configured for the current reward cycle
-        //   need to refresh the next signer if we're not configured for the next reward cycle, and we're in the prepare phase
+        //   need to refresh the current signer if we are not configured for the current
+        // reward cycle   need to refresh the next signer if we're not
+        // configured for the next reward cycle, and we're in the prepare phase
         if !Self::is_configured_for_cycle(&self.stacks_signers, current_reward_cycle) {
             self.refresh_signer_config(current_reward_cycle);
         }
@@ -596,7 +602,8 @@ mod tests {
     fn is_in_reward_cycle_info() {
         let rand_byte: u8 = std::cmp::max(1, thread_rng().gen());
         let prepare_phase_block_length = rand_byte as u64;
-        // Ensure the reward cycle is not close to u64 Max to prevent overflow when adding prepare phase len
+        // Ensure the reward cycle is not close to u64 Max to prevent overflow when
+        // adding prepare phase len
         let reward_cycle_length = (std::cmp::max(
             prepare_phase_block_length.wrapping_add(1),
             thread_rng().next_u32() as u64,
@@ -670,7 +677,8 @@ mod tests {
 
         let rand_byte: u8 = std::cmp::max(1, thread_rng().gen());
         let prepare_phase_block_length = rand_byte as u64;
-        // Ensure the reward cycle is not close to u64 Max to prevent overflow when adding prepare phase len
+        // Ensure the reward cycle is not close to u64 Max to prevent overflow when
+        // adding prepare phase len
         let reward_cycle_length = (std::cmp::max(
             prepare_phase_block_length.wrapping_add(1),
             thread_rng().next_u32() as u64,

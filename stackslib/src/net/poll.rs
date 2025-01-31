@@ -61,7 +61,8 @@ pub struct NetworkState {
     event_capacity: usize,
     servers: Vec<NetworkServerState>,
     count: usize,
-    event_map: HashMap<usize, usize>, // map socket events to their registered server socket (including server sockets)
+    event_map: HashMap<usize, usize>, /* map socket events to their registered server socket
+                                       * (including server sockets) */
 }
 
 impl NetworkState {
@@ -125,7 +126,8 @@ impl NetworkState {
     }
 
     /// Bind to the given socket address.
-    /// Returns the handle to the poll state and the bound address, used to key network poll events.
+    /// Returns the handle to the poll state and the bound address, used to key
+    /// network poll events.
     pub fn bind(&mut self, addr: &SocketAddr) -> Result<(usize, SocketAddr), net_error> {
         let server = NetworkState::bind_address(addr)?;
         let next_server_event = self.next_event_id()?;
@@ -142,8 +144,9 @@ impl NetworkState {
                 net_error::BindError
             })?;
 
-        // N.B. the port for `addr` might be 0, in which case, `local_addr` may not be equal to
-        // `addr` since the port will be system-assigned.  Use `local_adddr`.
+        // N.B. the port for `addr` might be 0, in which case, `local_addr` may not be
+        // equal to `addr` since the port will be system-assigned.  Use
+        // `local_adddr`.
         let local_addr = server.local_addr().map_err(|e| {
             error!("Failed to get local address for server: {:?}", &e);
             net_error::BindError
@@ -167,8 +170,8 @@ impl NetworkState {
     }
 
     /// Register a socket for read/write notifications with this poller.
-    /// Try to use the given hint_event_id value, but generate a different event ID if it's been
-    /// taken.
+    /// Try to use the given hint_event_id value, but generate a different event
+    /// ID if it's been taken.
     /// Return the actual event ID used (it may be different than hint_event_id)
     pub fn register(
         &mut self,
@@ -299,8 +302,8 @@ impl NetworkState {
     }
 
     /// Connect to a remote peer, but don't register it with the poll handle.
-    /// The underlying connect(2) is _asynchronous_, so the caller will need to register it with a
-    /// poll handle and wait for it to be connected.
+    /// The underlying connect(2) is _asynchronous_, so the caller will need to
+    /// register it with a poll handle and wait for it to be connected.
     pub fn connect(
         addr: &SocketAddr,
         socket_send_buffer: u32,
@@ -326,8 +329,9 @@ impl NetworkState {
             net_error::ConnectionError
         })?;
 
-        // Make sure keep-alive is on, since at least in p2p messages, we keep sockets around
-        // for a while.  Linux default is 7200 seconds, so make sure we keep it here.
+        // Make sure keep-alive is on, since at least in p2p messages, we keep sockets
+        // around for a while.  Linux default is 7200 seconds, so make sure we
+        // keep it here.
         stream
             .set_keepalive(Some(time::Duration::from_millis(7200 * 1000)))
             .map_err(|e| {
@@ -368,7 +372,8 @@ impl NetworkState {
     }
 
     /// Poll all server sockets.
-    /// Returns a map between network server handles (returned by bind()) and their new polling state
+    /// Returns a map between network server handles (returned by bind()) and
+    /// their new polling state
     pub fn poll(&mut self, timeout: u64) -> Result<HashMap<usize, NetworkPollState>, net_error> {
         self.events.clear();
         self.poll

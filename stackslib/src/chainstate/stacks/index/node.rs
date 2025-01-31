@@ -60,8 +60,8 @@ impl error::Error for CursorError {
 }
 
 // All numeric values of a Trie node when encoded.
-// They are all 7-bit numbers -- the 8th bit is used to indicate whether or not the value
-// identifies a back-pointer to be followed.
+// They are all 7-bit numbers -- the 8th bit is used to indicate whether or not
+// the value identifies a back-pointer to be followed.
 define_u8_enum!(TrieNodeID {
     Empty = 0,
     Leaf = 1,
@@ -121,11 +121,12 @@ pub trait TrieNode {
     /// Return true if inserted, false if the slot is already filled
     fn insert(&mut self, ptr: &TriePtr) -> bool;
 
-    /// Replace an existing child pointer with a new one.  Returns true if replaced; false if the
-    /// child does not exist.
+    /// Replace an existing child pointer with a new one.  Returns true if
+    /// replaced; false if the child does not exist.
     fn replace(&mut self, ptr: &TriePtr) -> bool;
 
-    /// Read an encoded instance of this node from a byte stream and instantiate it.
+    /// Read an encoded instance of this node from a byte stream and instantiate
+    /// it.
     fn from_bytes<R: Read>(r: &mut R) -> Result<Self, Error>
     where
         Self: std::marker::Sized;
@@ -194,10 +195,13 @@ impl<T: TrieNode, M: BlockMap> ConsensusSerializable<M> for T {
 /// Child pointer
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TriePtr {
-    pub id: u8, // ID of the child.  Will have bit 0x80 set if the child is a back-pointer (in which case, back_block will be nonzero)
+    pub id: u8,  /* ID of the child.  Will have bit 0x80 set if the child is a back-pointer (in
+                  * which case, back_block will be nonzero) */
     pub chr: u8, // Path character at which this child resides
-    pub ptr: u32, // Storage-specific pointer to where the child's encoded bytes can be found
-    pub back_block: u32, // Pointer back to the block that contains the child, if it's not in this trie
+    pub ptr: u32, /* Storage-specific pointer to where the child's encoded bytes can be
+                  * found */
+    pub back_block: u32, /* Pointer back to the block that contains the child, if it's not in
+                          * this trie */
 }
 
 pub const TRIEPTR_SIZE: usize = 10; // full size of a TriePtr
@@ -276,9 +280,9 @@ impl TriePtr {
         Ok(())
     }
 
-    /// The parts of a child pointer that are relevant for consensus are only its ID, path
-    /// character, and referred-to block hash.  The software doesn't care about the details of how/where
-    /// nodes are stored.
+    /// The parts of a child pointer that are relevant for consensus are only
+    /// its ID, path character, and referred-to block hash.  The software
+    /// doesn't care about the details of how/where nodes are stored.
     pub fn write_consensus_bytes<W: Write, M: BlockMap>(
         &self,
         block_map: &mut M,
@@ -316,19 +320,21 @@ impl TriePtr {
     }
 }
 
-/// Cursor structure for walking down one or more Tries.  This structure helps other parts of the
-/// codebase remember which nodes were visited, which blocks they came from, and which pointers
-/// were walked.  In particular, it's useful for figuring out where to insert a new node, and which
-/// nodes to visit when updating the root node hash.
+/// Cursor structure for walking down one or more Tries.  This structure helps
+/// other parts of the codebase remember which nodes were visited, which blocks
+/// they came from, and which pointers were walked.  In particular, it's useful
+/// for figuring out where to insert a new node, and which nodes to visit when
+/// updating the root node hash.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrieCursor<T: MarfTrieId> {
-    pub path: TrieHash,                  // the path to walk
-    pub index: usize,                    // index into the path
-    pub node_path_index: usize,          // index into the currently-visited node's compressed path
-    pub nodes: Vec<TrieNodeType>,        // list of nodes this cursor visits
-    pub node_ptrs: Vec<TriePtr>,         // list of ptr branches this cursor has taken
-    pub block_hashes: Vec<T>, // list of Tries we've visited.  block_hashes[i] corresponds to node_ptrs[i]
-    pub last_error: Option<CursorError>, // last error encountered while walking (used to make sure the client calls the right "recovery" method)
+    pub path: TrieHash,           // the path to walk
+    pub index: usize,             // index into the path
+    pub node_path_index: usize,   // index into the currently-visited node's compressed path
+    pub nodes: Vec<TrieNodeType>, // list of nodes this cursor visits
+    pub node_ptrs: Vec<TriePtr>,  // list of ptr branches this cursor has taken
+    pub block_hashes: Vec<T>,     /* list of Tries we've visited.  block_hashes[i]
+                                   * corresponds to node_ptrs[i] */
+    pub last_error: Option<CursorError>, /* last error encountered while walking (used to make sure the client calls the right "recovery" method) */
 }
 
 impl<T: MarfTrieId> TrieCursor<T> {
@@ -396,23 +402,26 @@ impl<T: MarfTrieId> TrieCursor<T> {
         }
     }
 
-    /// Walk to the next node, following its compressed path as far as we can and then walking to
-    /// its child pointer.  If we successfully follow the path, then return the pointer we reached.
-    /// Otherwise, if we reach the end of the path, return None.  If the path diverges or a node
+    /// Walk to the next node, following its compressed path as far as we can
+    /// and then walking to its child pointer.  If we successfully follow
+    /// the path, then return the pointer we reached. Otherwise, if we reach
+    /// the end of the path, return None.  If the path diverges or a node
     /// cannot be found, then return an Err.
     ///
-    /// This method does not follow back-pointers, and will return Err if a back-pointer is
-    /// reached.  The caller will need to manually call walk() on the last node visited to get the
-    /// back-pointer, shunt to the node it points to, and then call walk_backptr_step_backptr() to
-    /// record the back-pointer that was followed.  Once the back-pointer has been followed,
-    /// caller should call walk_backptr_step_finish().  This is specifically relevant to the MARF,
-    /// not to the individual tries.
+    /// This method does not follow back-pointers, and will return Err if a
+    /// back-pointer is reached.  The caller will need to manually call
+    /// walk() on the last node visited to get the back-pointer, shunt to
+    /// the node it points to, and then call walk_backptr_step_backptr() to
+    /// record the back-pointer that was followed.  Once the back-pointer has
+    /// been followed, caller should call walk_backptr_step_finish().  This
+    /// is specifically relevant to the MARF, not to the individual tries.
     pub fn walk(
         &mut self,
         node: &TrieNodeType,
         block_hash: &T,
     ) -> Result<Option<TriePtr>, CursorError> {
-        // can only be called if we called the appropriate "repair" method or if there is no error
+        // can only be called if we called the appropriate "repair" method or if there
+        // is no error
         assert!(self.last_error.is_none());
 
         trace!("cursor: walk: node = {:?} block = {:?}", node, block_hash);
@@ -457,8 +466,9 @@ impl<T: MarfTrieId> TrieCursor<T> {
                         true
                     } else {
                         // the caller will need to follow the backptr, and call
-                        // repair_backptr_step_backptr() for each node visited, and then repair_backptr_finish()
-                        // once the final ptr and block_hash are discovered.
+                        // repair_backptr_step_backptr() for each node visited, and then
+                        // repair_backptr_finish() once the final ptr and
+                        // block_hash are discovered.
                         self.last_error = Some(CursorError::BackptrEncountered(ptr));
                         false
                     }
@@ -492,12 +502,13 @@ impl<T: MarfTrieId> TrieCursor<T> {
         }
     }
 
-    /// Replace the last-visited node and ptr within this trie.  Used when doing a copy-on-write or
-    /// promoting a node, so the cursor state accurately reflects the nodes and tries visited.
+    /// Replace the last-visited node and ptr within this trie.  Used when doing
+    /// a copy-on-write or promoting a node, so the cursor state accurately
+    /// reflects the nodes and tries visited.
     #[inline]
     pub fn repair_retarget(&mut self, node: &TrieNodeType, ptr: &TriePtr, hash: &T) {
-        // this can only be called if we failed to walk to a node (this method _should not_ be
-        // called if we walked to a backptr).
+        // this can only be called if we failed to walk to a node (this method _should
+        // not_ be called if we walked to a backptr).
         if Some(CursorError::ChrNotFound) != self.last_error
             && Some(CursorError::PathDiverged) != self.last_error
         {

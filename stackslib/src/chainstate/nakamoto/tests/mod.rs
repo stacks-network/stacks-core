@@ -335,7 +335,8 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         false
     ); // empty blocks not allowed
 
-    // syntactically invalid block if there's a sortition-inducing tenure change but no coinbase
+    // syntactically invalid block if there's a sortition-inducing tenure change but
+    // no coinbase
     let block = NakamotoBlock {
         header: header.clone(),
         txs: vec![tenure_change_tx.clone()],
@@ -367,8 +368,8 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         false
     );
 
-    // syntactically invalid block if there's a coinbase and tenure change, but the coinbase is
-    // missing a proof
+    // syntactically invalid block if there's a coinbase and tenure change, but the
+    // coinbase is missing a proof
     let block = NakamotoBlock {
         header: header.clone(),
         txs: vec![tenure_change_tx.clone(), invalid_coinbase_tx],
@@ -460,8 +461,8 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         false
     );
 
-    // syntactically valid tenure-start block only if we have a syntactically valid tenure change and a syntactically
-    // valid coinbase
+    // syntactically valid tenure-start block only if we have a syntactically valid
+    // tenure change and a syntactically valid coinbase
     let block = NakamotoBlock {
         header: header.clone(),
         txs: vec![tenure_change_tx.clone(), coinbase_tx.clone()],
@@ -480,8 +481,9 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         true
     );
 
-    // syntactically valid non-tenure-start block only if we have a syntactically valid tenure change which is not sortition-induced,
-    // or we don't have one at all.
+    // syntactically valid non-tenure-start block only if we have a syntactically
+    // valid tenure change which is not sortition-induced, or we don't have one
+    // at all.
     let block = NakamotoBlock {
         header: header.clone(),
         txs: vec![tenure_extend_tx.clone()],
@@ -500,8 +502,9 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         true
     );
 
-    // syntactically valid non-tenure-start block only if we have a syntactically valid tenure change which is not sortition-induced,
-    // or we don't have one at all.
+    // syntactically valid non-tenure-start block only if we have a syntactically
+    // valid tenure change which is not sortition-induced, or we don't have one
+    // at all.
     let block = NakamotoBlock {
         header: header.clone(),
         txs: vec![tenure_extend_tx.clone(), stx_transfer.clone()],
@@ -985,7 +988,8 @@ pub fn test_load_store_update_nakamoto_blocks() {
             0
         );
 
-        // but, this upcoming tenure-change payload should be the first-ever tenure-change payload!
+        // but, this upcoming tenure-change payload should be the first-ever
+        // tenure-change payload!
         assert!(NakamotoChainState::check_first_nakamoto_tenure_change(
             &tx,
             &tenure_change_payload
@@ -1175,9 +1179,10 @@ pub fn test_load_store_update_nakamoto_blocks() {
         None
     );
 
-    // nakamoto block should be treated as processed because even though the processed flag is not
-    // set, the header is present (meaning that we're in-between processing the block and marking
-    // it processed in the staging DB)
+    // nakamoto block should be treated as processed because even though the
+    // processed flag is not set, the header is present (meaning that we're
+    // in-between processing the block and marking it processed in the staging
+    // DB)
     assert_eq!(
         NakamotoChainState::get_nakamoto_block_status(
             chainstate.nakamoto_blocks_db(),
@@ -1326,8 +1331,8 @@ pub fn test_load_store_update_nakamoto_blocks() {
         );
     }
 
-    // set nakamoto block processed, and store a processed children, and verify that we'll still
-    // accept siblings with higher signing power.
+    // set nakamoto block processed, and store a processed children, and verify that
+    // we'll still accept siblings with higher signing power.
     {
         let (tx, staging_tx) = chainstate.headers_and_staging_tx_begin().unwrap();
 
@@ -1461,8 +1466,9 @@ pub fn test_load_store_update_nakamoto_blocks() {
             (true, true)
         );
 
-        // can't store a sibling with the same sighash either, since if a block with the given sighash is orphaned, then
-        // it doesn't matter how many signers it has
+        // can't store a sibling with the same sighash either, since if a block with the
+        // given sighash is orphaned, then it doesn't matter how many signers it
+        // has
         assert!(!NakamotoChainState::store_block_if_better(
             &staging_tx,
             &nakamoto_block_3,
@@ -1608,8 +1614,8 @@ pub fn test_load_store_update_nakamoto_blocks() {
         None
     );
 
-    // next ready nakamoto block is None unless both the burn block and stacks parent block have
-    // been processed
+    // next ready nakamoto block is None unless both the burn block and stacks
+    // parent block have been processed
     {
         let (tx, staging_tx) = chainstate.headers_and_staging_tx_begin().unwrap();
         let staging_conn = staging_tx.conn();
@@ -2030,8 +2036,8 @@ fn test_nakamoto_block_static_verification() {
 }
 
 /// Test that we can generate a .miners stackerdb config.
-/// The config must be stable across sortitions -- if a miner is given slot i, then it continues
-/// to have slot i in subsequent sortitions.
+/// The config must be stable across sortitions -- if a miner is given slot i,
+/// then it continues to have slot i in subsequent sortitions.
 #[test]
 fn test_make_miners_stackerdb_config() {
     let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
@@ -2281,7 +2287,8 @@ fn test_make_miners_stackerdb_config() {
     assert!(stackerdb_chunks[5].verify(&miner_addrs[8]).unwrap());
 
     // There is no block commit associated with the first ever sortition.
-    // Both the first and second writers will be the same miner (the default for the test peer)
+    // Both the first and second writers will be the same miner (the default for the
+    // test peer)
     assert_eq!(miner_hashbytes[0].0, naka_miner_hash160);
     assert_eq!(miner_hashbytes[0].1, naka_miner_hash160);
     assert_eq!(miner_hashbytes[1].1, naka_miner_hash160);

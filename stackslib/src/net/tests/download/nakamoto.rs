@@ -67,19 +67,21 @@ impl NakamotoTenureDownloadState {
 }
 
 impl NakamotoDownloadStateMachine {
-    /// Find the list of wanted tenures for the given reward cycle.  The reward cycle must
-    /// be complete already.  Used for testing.
+    /// Find the list of wanted tenures for the given reward cycle.  The reward
+    /// cycle must be complete already.  Used for testing.
     ///
     /// Returns a reward cycle's wanted tenures.
-    /// Returns a DB error if the snapshot does not correspond to a full reward cycle.
+    /// Returns a DB error if the snapshot does not correspond to a full reward
+    /// cycle.
     #[cfg(test)]
     pub(crate) fn load_wanted_tenures_for_reward_cycle(
         cur_rc: u64,
         tip: &BlockSnapshot,
         sortdb: &SortitionDB,
     ) -> Result<Vec<WantedTenure>, NetError> {
-        // careful -- need .saturating_sub(1) since this calculation puts the reward cycle start at
-        // block height 1 mod reward cycle len, but we really want 0 mod reward cycle len
+        // careful -- need .saturating_sub(1) since this calculation puts the reward
+        // cycle start at block height 1 mod reward cycle len, but we really
+        // want 0 mod reward cycle len
         let first_block_height = sortdb
             .pox_constants
             .reward_cycle_to_block_height(sortdb.first_block_height, cur_rc)
@@ -637,8 +639,8 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         );
     }
 
-    // we've processed the first block in the unconfirmed tenure, but not the tip, so we transition to
-    // the GetUnconfirmedTenureBlocks(..) state.
+    // we've processed the first block in the unconfirmed tenure, but not the tip,
+    // so we transition to the GetUnconfirmedTenureBlocks(..) state.
     {
         let mid_tip_block_id = unconfirmed_tenure.first().as_ref().unwrap().block_id();
 
@@ -696,8 +698,8 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
 
         assert!(utd.unconfirmed_tenure_start_block.is_some());
 
-        // because we already have processed the start-block of this unconfirmed tenure, we'll
-        // advance straight to getting more unconfirmed tenure blocks
+        // because we already have processed the start-block of this unconfirmed tenure,
+        // we'll advance straight to getting more unconfirmed tenure blocks
         assert_eq!(
             utd.state,
             NakamotoUnconfirmedDownloadState::GetUnconfirmedTenureBlocks(
@@ -712,8 +714,8 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
                 .try_accept_unconfirmed_tenure_blocks(vec![block.clone()])
                 .unwrap();
             if i == 0 {
-                // res won't contain the first block because it stopped processing once it reached
-                // a block that the node knew
+                // res won't contain the first block because it stopped processing once it
+                // reached a block that the node knew
                 assert_eq!(res.unwrap(), unconfirmed_tenure[1..].to_vec());
                 break;
             } else {
@@ -736,8 +738,8 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         );
     }
 
-    // we've processed the middle block in the unconfirmed tenure, but not the tip, so we transition to
-    // the GetUnconfirmedTenureBlocks(..) state.
+    // we've processed the middle block in the unconfirmed tenure, but not the tip,
+    // so we transition to the GetUnconfirmedTenureBlocks(..) state.
     {
         let mid_tip_block_id = unconfirmed_tenure.get(5).unwrap().block_id();
 
@@ -795,8 +797,8 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
 
         assert!(utd.unconfirmed_tenure_start_block.is_some());
 
-        // because we already have processed the start-block of this unconfirmed tenure, we'll
-        // advance straight to getting more unconfirmed tenure blocks
+        // because we already have processed the start-block of this unconfirmed tenure,
+        // we'll advance straight to getting more unconfirmed tenure blocks
         assert_eq!(
             utd.state,
             NakamotoUnconfirmedDownloadState::GetUnconfirmedTenureBlocks(
@@ -1321,8 +1323,8 @@ fn test_tenure_start_end_from_inventory() {
     }
 }
 
-/// Test all of the functionality needed to transform a peer's reported tenure inventory into a
-/// tenure downloader and download schedule.
+/// Test all of the functionality needed to transform a peer's reported tenure
+/// inventory into a tenure downloader and download schedule.
 #[test]
 fn test_make_tenure_downloaders() {
     let observer = TestEventObserver::new();
@@ -2000,7 +2002,8 @@ fn test_make_tenure_downloaders() {
             assert_eq!(addrs.len(), (rc_len as usize) - i + 1);
         }
 
-        // pretend nakamoto_start is 0 for now, so we can treat this like a full reward cycle
+        // pretend nakamoto_start is 0 for now, so we can treat this like a full reward
+        // cycle
         let mut ibd_schedule = NakamotoDownloadStateMachine::make_ibd_download_schedule(
             0,
             &rc_wanted_tenures,
@@ -2101,8 +2104,9 @@ fn test_nakamoto_download_run_2_peers() {
         vec![true, true, true, true, true, true, true, true, true, true],
         // alternating reward cycle, but with a full prepare phase
         vec![true, false, true, false, true, true, true, true, true, true],
-        // minimum viable reward cycle -- empty reward phase, an anchor block sortition, and two subsequent
-        // sortitions to ensure that the anchor block's start/end blocks are written to the burnchain.
+        // minimum viable reward cycle -- empty reward phase, an anchor block sortition, and two
+        // subsequent sortitions to ensure that the anchor block's start/end blocks are
+        // written to the burnchain.
         vec![
             false, false, false, false, true, true, false, true, false, false,
         ],
@@ -2324,8 +2328,9 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
     boot_dns_thread_handle.join().unwrap();
 }
 
-/// Test the case where one or more blocks from tenure _T_ get orphend by a tenure-start block in
-/// tenure _T + 1_.  The unconfirmed downloader should be able to handle this case.
+/// Test the case where one or more blocks from tenure _T_ get orphend by a
+/// tenure-start block in tenure _T + 1_.  The unconfirmed downloader should be
+/// able to handle this case.
 #[test]
 fn test_nakamoto_microfork_download_run_2_peers() {
     let sender_key = StacksPrivateKey::random();
@@ -2504,8 +2509,8 @@ fn test_nakamoto_microfork_download_run_2_peers() {
     boot_dns_thread_handle.join().unwrap();
 }
 
-/// Test booting up a node where there is one shadow block in the prepare phase, as well as some
-/// blocks that mine atop it.
+/// Test booting up a node where there is one shadow block in the prepare phase,
+/// as well as some blocks that mine atop it.
 #[test]
 fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
     let observer = TestEventObserver::new();

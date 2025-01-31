@@ -36,8 +36,9 @@ use crate::util_lib::db::{DBConn, Error as db_error};
 
 impl PeerNetwork {
     /// Find out which organizations have which of our outbound neighbors.
-    /// Gives back a map from the organization ID to the list of (neighbor, neighbor-stats) tuples.
-    /// Connections in `preserve` are not considered in the distribution.
+    /// Gives back a map from the organization ID to the list of (neighbor,
+    /// neighbor-stats) tuples. Connections in `preserve` are not considered
+    /// in the distribution.
     fn org_neighbor_distribution(
         &self,
         peer_dbconn: &DBConn,
@@ -104,11 +105,11 @@ impl PeerNetwork {
         Ok(org_neighbor)
     }
 
-    /// Sort function for a neighbor list in order to compare by by uptime and health.
-    /// Bucket uptime geometrically by powers of 2 -- a node that's been up for X seconds is
-    /// likely to be up for X more seconds, so we only really want to distinguish between nodes that
-    /// have wildly different uptimes.
-    /// Within uptime buckets, sort by health.
+    /// Sort function for a neighbor list in order to compare by by uptime and
+    /// health. Bucket uptime geometrically by powers of 2 -- a node that's
+    /// been up for X seconds is likely to be up for X more seconds, so we
+    /// only really want to distinguish between nodes that have wildly
+    /// different uptimes. Within uptime buckets, sort by health.
     fn compare_neighbor_uptime_health(stats1: &NeighborStats, stats2: &NeighborStats) -> Ordering {
         let now = get_epoch_time_secs();
         let uptime_1 = (now - stats1.first_contact_time) as f64;
@@ -168,9 +169,10 @@ impl PeerNetwork {
         unreachable!();
     }
 
-    /// If we have an overabundance of outbound connections, then remove ones from overrepresented
-    /// organizations that are unhealthy or very-recently discovered.
-    /// Returns the list of neighbor keys to remove.
+    /// If we have an overabundance of outbound connections, then remove ones
+    /// from overrepresented organizations that are unhealthy or
+    /// very-recently discovered. Returns the list of neighbor keys to
+    /// remove.
     fn prune_frontier_outbound_orgs(
         &mut self,
         preserve: &HashSet<usize>,
@@ -192,10 +194,10 @@ impl PeerNetwork {
 
         for org in orgs.iter() {
             // sort each neighbor list by uptime and health.
-            // bucket uptime geometrically by powers of 2 -- a node that's been up for X seconds is
-            // likely to be up for X more seconds, so we only really want to distinguish between nodes that
-            // have wildly different uptimes.
-            // Within uptime buckets, sort by health.
+            // bucket uptime geometrically by powers of 2 -- a node that's been up for X
+            // seconds is likely to be up for X more seconds, so we only really
+            // want to distinguish between nodes that have wildly different
+            // uptimes. Within uptime buckets, sort by health.
             match org_neighbors.get_mut(org) {
                 None => {}
                 Some(ref mut neighbor_infos) => {
@@ -305,8 +307,8 @@ impl PeerNetwork {
         Ok(ret)
     }
 
-    /// Prune inbound peers by IP address -- can't have too many from the same IP.
-    /// Returns the list of IPs to remove.
+    /// Prune inbound peers by IP address -- can't have too many from the same
+    /// IP. Returns the list of IPs to remove.
     /// Removes them in reverse order they are added
     fn prune_frontier_inbound_ip(&mut self, preserve: &HashSet<usize>) -> Vec<NeighborKey> {
         let num_inbound =

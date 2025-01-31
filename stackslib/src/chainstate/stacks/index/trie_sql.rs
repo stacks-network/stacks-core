@@ -252,10 +252,10 @@ pub fn write_trie_blob<T: MarfTrieId>(
 }
 
 /// Write the offset/length of a trie blob that was stored to an external file.
-/// Do this only once the trie is actually stored, since only the presence of this information is
-/// what guarantees that the blob is persisted.
-/// If block_id is Some(..), then an existing block ID's metadata will be updated.  Otherwise, a
-/// new row will be created.
+/// Do this only once the trie is actually stored, since only the presence of
+/// this information is what guarantees that the blob is persisted.
+/// If block_id is Some(..), then an existing block ID's metadata will be
+/// updated.  Otherwise, a new row will be created.
 fn inner_write_external_trie_blob<T: MarfTrieId>(
     conn: &Connection,
     block_hash: &T,
@@ -310,8 +310,8 @@ fn inner_write_external_trie_blob<T: MarfTrieId>(
     Ok(block_id)
 }
 
-/// Update the row for an external trie blob -- i.e. we're migrating blobs from sqlite storage to
-/// file storage.
+/// Update the row for an external trie blob -- i.e. we're migrating blobs from
+/// sqlite storage to file storage.
 pub fn update_external_trie_blob<T: MarfTrieId>(
     conn: &Connection,
     block_hash: &T,
@@ -322,9 +322,9 @@ pub fn update_external_trie_blob<T: MarfTrieId>(
     inner_write_external_trie_blob(conn, block_hash, offset, length, Some(block_id))
 }
 
-/// Add a new row for an external trie blob -- i.e. we're creating a new trie whose blob will be
-/// stored in an external file, but its metadata will be in the DB.
-/// Returns the new row ID
+/// Add a new row for an external trie blob -- i.e. we're creating a new trie
+/// whose blob will be stored in an external file, but its metadata will be in
+/// the DB. Returns the new row ID
 pub fn write_external_trie_blob<T: MarfTrieId>(
     conn: &Connection,
     block_hash: &T,
@@ -520,7 +520,8 @@ pub fn get_external_trie_offset_length(
     Ok((offset, length))
 }
 
-/// Get the offset of a trie blob in the blobs file, given its block header hash.
+/// Get the offset of a trie blob in the blobs file, given its block header
+/// hash.
 pub fn get_external_trie_offset_length_by_bhh<T: MarfTrieId>(
     conn: &Connection,
     bhh: &T,
@@ -531,8 +532,8 @@ pub fn get_external_trie_offset_length_by_bhh<T: MarfTrieId>(
     Ok((offset, length))
 }
 
-/// Determine the offset in the blobs file at which the last trie ends.  This is also the offset at
-/// which the next trie will be appended.
+/// Determine the offset in the blobs file at which the last trie ends.  This is
+/// also the offset at which the next trie will be appended.
 pub fn get_external_blobs_length(conn: &Connection) -> Result<u64, Error> {
     let qry = "SELECT (external_offset + external_length) AS blobs_length FROM marf_data ORDER BY external_offset DESC LIMIT 1";
     let max_len = query_row(conn, qry, NO_PARAMS)?.unwrap_or(0);
@@ -540,8 +541,8 @@ pub fn get_external_blobs_length(conn: &Connection) -> Result<u64, Error> {
 }
 
 /// Do we have a partially-migrated database?
-/// Either all tries have offset and length 0, or they all don't.  If we have a mixture, then we're
-/// corrupted.
+/// Either all tries have offset and length 0, or they all don't.  If we have a
+/// mixture, then we're corrupted.
 pub fn detect_partial_migration(conn: &Connection) -> Result<bool, Error> {
     let migrated_version = get_migrated_version(conn);
     let schema_version = get_schema_version(conn);

@@ -17,18 +17,21 @@
 use std::time::SystemTime;
 
 /// Fine-grained profiling data for Trie storage ops.
-/// The implementation is only active when compiled for tests; nothing happens in production.
+/// The implementation is only active when compiled for tests; nothing happens
+/// in production.
 #[derive(Debug, Clone)]
 pub struct TrieBenchmark {
     /// Total number of nanoseconds spent reading a node from storage
     total_read_nodetype_time_ns: u128,
     /// Total number of nanoseconds spent reading a node's hash from storage
     total_read_node_hash_time_ns: u128,
-    /// Total number of nanoseconds spent calculating a node's hash (i.e. hashing its children)
+    /// Total number of nanoseconds spent calculating a node's hash (i.e.
+    /// hashing its children)
     total_write_children_hashes_time_ns: u128,
     /// Total number of nanoseconds spent seeking to a block
     total_open_block_time_ns: u128,
-    /// Total number of nanoseconds spent copying out a node's hash from storage, with the cache
+    /// Total number of nanoseconds spent copying out a node's hash from
+    /// storage, with the cache
     total_get_block_hash_caching_time_ns: u128,
 
     /// Total number of calls to read_nodetype()
@@ -45,41 +48,43 @@ pub struct TrieBenchmark {
     cache_hits_read_nodetype: u128,
     /// Total number of cache hits in calls to read_node_hash()
     cache_hits_read_node_hash: u128,
-    /// Total number of calls to write_children_hashes(), where the node in question was part of a
-    /// TrieRAM (uncommitted state)
+    /// Total number of calls to write_children_hashes(), where the node in
+    /// question was part of a TrieRAM (uncommitted state)
     write_children_hashes_ram: u128,
 
-    /// Total number of calls within write_children_hashes() where the node's child slot was empty
+    /// Total number of calls within write_children_hashes() where the node's
+    /// child slot was empty
     total_write_children_hashes_empty: u128,
-    /// Total number of calls within write_children_hashes() where the node's child slot pointed to
-    /// a node in the same block
+    /// Total number of calls within write_children_hashes() where the node's
+    /// child slot pointed to a node in the same block
     total_write_children_hashes_same_block: u128,
-    /// Total number of calls within write_children_hashes() where the node's child slot pointed to
-    /// a node in an anestor block
+    /// Total number of calls within write_children_hashes() where the node's
+    /// child slot pointed to a node in an anestor block
     total_write_children_hashes_ancestor_block: u128,
 
-    /// Total number of nanoseconds spent within write_children_hashes() where the node's child
-    /// slot was empty
+    /// Total number of nanoseconds spent within write_children_hashes() where
+    /// the node's child slot was empty
     total_write_children_hashes_empty_time_ns: u128,
-    /// Total number of nanoseconds spent within write_children_hashes() where the node's child
-    /// slot pointed to a node in the same trie
+    /// Total number of nanoseconds spent within write_children_hashes() where
+    /// the node's child slot pointed to a node in the same trie
     total_write_children_hashes_same_block_time_ns: u128,
-    /// Total number of seconds spent within write_children_hashes() where the node's child slot
-    /// pointed to a node in an ancestor trie
+    /// Total number of seconds spent within write_children_hashes() where the
+    /// node's child slot pointed to a node in an ancestor trie
     total_write_children_hashes_ancestor_block_time_ns: u128,
 
-    /// Total number of naonseconds spent in calls to the inner loop of MARF::walk_from(), which
-    /// handles walking down a MARF path.  Does not include the time taken to load the trie root or
-    /// open the trie to walk from.
+    /// Total number of naonseconds spent in calls to the inner loop of
+    /// MARF::walk_from(), which handles walking down a MARF path.  Does not
+    /// include the time taken to load the trie root or open the trie to
+    /// walk from.
     total_marf_walk_from_time_ns: u128,
     /// Total number of nanoseconds spent in calls to MARF::walk_backptr()
     total_marf_walk_backptr_time_ns: u128,
-    /// Total number of nanoseconds spent in calls to Trie::walk_backptr() where the backptr needed
-    /// to be resolved.
+    /// Total number of nanoseconds spent in calls to Trie::walk_backptr() where
+    /// the backptr needed to be resolved.
     total_marf_walk_find_backptr_node_time_ns: u128,
 
-    /// Temporary timestamps used to hold when the caller began measuring a particular MARF
-    /// operation
+    /// Temporary timestamps used to hold when the caller began measuring a
+    /// particular MARF operation
     read_nodetype_start_time: SystemTime,
     read_node_hash_start_time: SystemTime,
     open_block_start_time: SystemTime,
@@ -209,8 +214,8 @@ impl TrieBenchmark {
         self.read_nodetype_start_time = SystemTime::now();
     }
 
-    /// Finish measuring a call to read_nodetype().  Record whether or not the node and hash were
-    /// cached with `cache_hit`.
+    /// Finish measuring a call to read_nodetype().  Record whether or not the
+    /// node and hash were cached with `cache_hit`.
     pub fn read_nodetype_finish(&mut self, cache_hit: bool) {
         if let Ok(elapsed) = self.read_nodetype_start_time.elapsed() {
             let total_time = elapsed.as_nanos();
@@ -230,8 +235,8 @@ impl TrieBenchmark {
         self.read_node_hash_start_time = SystemTime::now();
     }
 
-    /// Finish measuring a call to read_node_hash().  Record whether or not the hash was cached
-    /// with `cache_hit`.
+    /// Finish measuring a call to read_node_hash().  Record whether or not the
+    /// hash was cached with `cache_hit`.
     pub fn read_node_hash_finish(&mut self, cache_hit: bool) {
         if let Ok(elapsed) = self.read_node_hash_start_time.elapsed() {
             let total_time = elapsed.as_nanos();
@@ -246,14 +251,15 @@ impl TrieBenchmark {
         }
     }
 
-    /// Start measuring a call to write_children_hashes().  Returns a `SystemTime` that must be
-    /// passed into `write_children_hashes_finish()`.
+    /// Start measuring a call to write_children_hashes().  Returns a
+    /// `SystemTime` that must be passed into
+    /// `write_children_hashes_finish()`.
     pub fn write_children_hashes_start(&mut self) -> SystemTime {
         SystemTime::now()
     }
 
-    /// Finish measuring a call to write_children_hashes().  Record whether or not the caller was
-    /// invoking this method on a TrieRAM via `in_ram`.
+    /// Finish measuring a call to write_children_hashes().  Record whether or
+    /// not the caller was invoking this method on a TrieRAM via `in_ram`.
     pub fn write_children_hashes_finish(&mut self, start_time: SystemTime, in_ram: bool) {
         if let Ok(elapsed) = start_time.elapsed() {
             let total_time = elapsed.as_nanos();
@@ -268,13 +274,15 @@ impl TrieBenchmark {
         }
     }
 
-    /// Start measuring the code path in write_children_hashes() where the node's child is empty.
-    /// Returns a `SystemTime` that must be passed to write_children_hashes_empty_finish().
+    /// Start measuring the code path in write_children_hashes() where the
+    /// node's child is empty. Returns a `SystemTime` that must be passed to
+    /// write_children_hashes_empty_finish().
     pub fn write_children_hashes_empty_start(&mut self) -> SystemTime {
         SystemTime::now()
     }
 
-    /// Finish measuring the code path in write_children_hashes() where the node's child is empty.
+    /// Finish measuring the code path in write_children_hashes() where the
+    /// node's child is empty.
     pub fn write_children_hashes_empty_finish(&mut self, start_time: SystemTime) {
         if let Ok(elapsed) = start_time.elapsed() {
             let total_time = elapsed.as_nanos();
@@ -286,15 +294,15 @@ impl TrieBenchmark {
         }
     }
 
-    /// Start measuring the code path in write_children_hashes() where the node's child is in the
-    /// smae trie.  Returns a `SystemTime` that must be passed to
-    /// write_children_hashes_same_block_finish().
+    /// Start measuring the code path in write_children_hashes() where the
+    /// node's child is in the smae trie.  Returns a `SystemTime` that must
+    /// be passed to write_children_hashes_same_block_finish().
     pub fn write_children_hashes_same_block_start(&mut self) -> SystemTime {
         SystemTime::now()
     }
 
-    /// Finish measuring the code path in write_children_hashes() where the node's child is in the
-    /// same trie.
+    /// Finish measuring the code path in write_children_hashes() where the
+    /// node's child is in the same trie.
     pub fn write_children_hashes_same_block_finish(&mut self, start_time: SystemTime) {
         if let Ok(elapsed) = start_time.elapsed() {
             let total_time = elapsed.as_nanos();
@@ -306,15 +314,16 @@ impl TrieBenchmark {
         }
     }
 
-    /// Start measuring the code path in write_children_hashes() where the node's child is in an
-    /// ancestor trie.  Returns a `SystemTime` that must be passed to
-    /// write_children_hashes_ancestor_block_finish()
+    /// Start measuring the code path in write_children_hashes() where the
+    /// node's child is in an ancestor trie.  Returns a `SystemTime` that
+    /// must be passed to write_children_hashes_ancestor_block_finish()
     pub fn write_children_hashes_ancestor_block_start(&mut self) -> SystemTime {
         SystemTime::now()
     }
 
-    /// Finish measuring the code path in write_children_hashes() where the node's child is in an
-    /// ancestor trie.  Pass `true` to `cache_hit` if the hash was cached.
+    /// Finish measuring the code path in write_children_hashes() where the
+    /// node's child is in an ancestor trie.  Pass `true` to `cache_hit` if
+    /// the hash was cached.
     pub fn write_children_hashes_ancestor_block_finish(&mut self, start_time: SystemTime) {
         if let Ok(elapsed) = start_time.elapsed() {
             let total_time = elapsed.as_nanos();
@@ -364,12 +373,14 @@ impl TrieBenchmark {
         }
     }
 
-    /// Start recording the time taken to call one pass of the walk loop in MARF::walk_from()
+    /// Start recording the time taken to call one pass of the walk loop in
+    /// MARF::walk_from()
     pub fn marf_walk_from_start(&mut self) {
         self.marf_walk_from_start_time = SystemTime::now();
     }
 
-    /// Finish recording the time taken to call one pass of the walk loop in MARF::walk_from()
+    /// Finish recording the time taken to call one pass of the walk loop in
+    /// MARF::walk_from()
     pub fn marf_walk_from_finish(&mut self) {
         if let Ok(elapsed) = self.marf_walk_from_start_time.elapsed() {
             let total_time = elapsed.as_nanos();
@@ -394,12 +405,14 @@ impl TrieBenchmark {
         }
     }
 
-    /// Start recording the time taken to resolve a backptr in Trie::walk_backptr()
+    /// Start recording the time taken to resolve a backptr in
+    /// Trie::walk_backptr()
     pub fn marf_find_backptr_node_start(&mut self) {
         self.marf_walk_find_backptr_node_start_time = SystemTime::now();
     }
 
-    /// Finish recording the time taken to resolve a backptr in Trie::walk_backptr()
+    /// Finish recording the time taken to resolve a backptr in
+    /// Trie::walk_backptr()
     pub fn marf_find_backptr_node_finish(&mut self) {
         if let Ok(elapsed) = self.marf_walk_find_backptr_node_start_time.elapsed() {
             let total_time = elapsed.as_nanos();

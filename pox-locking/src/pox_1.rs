@@ -28,8 +28,8 @@ use stacks_common::debug;
 
 use crate::LockingError;
 
-/// Parse the returned value from PoX `stack-stx` and `delegate-stack-stx` functions
-///  from pox.clar into a format more readily digestible in rust.
+/// Parse the returned value from PoX `stack-stx` and `delegate-stack-stx`
+/// functions  from pox.clar into a format more readily digestible in rust.
 /// Panics if the supplied value doesn't match the expected tuple structure
 fn parse_pox_stacking_result_v1(
     result: &Value,
@@ -40,7 +40,8 @@ fn parse_pox_stacking_result_v1(
         .expect("FATAL: unexpected clarity value")
     {
         Ok(res) => {
-            // should have gotten back (ok (tuple (stacker principal) (lock-amount uint) (unlock-burn-height uint)))
+            // should have gotten back (ok (tuple (stacker principal) (lock-amount uint)
+            // (unlock-burn-height uint)))
             let tuple_data = res.expect_tuple().expect("FATAL: unexpected clarity value");
             let stacker = tuple_data
                 .get("stacker")
@@ -158,10 +159,10 @@ pub fn handle_contract_call(
         }
     };
 
-    // in most cases, if this fails, then there's a bug in the contract (since it already does
-    // the necessary checks), but with v2 introduction, that's no longer true -- if someone
-    // locks on PoX v2, and then tries to lock again in PoX v1, that's not captured by the v1
-    // contract.
+    // in most cases, if this fails, then there's a bug in the contract (since it
+    // already does the necessary checks), but with v2 introduction, that's no
+    // longer true -- if someone locks on PoX v2, and then tries to lock again
+    // in PoX v1, that's not captured by the v1 contract.
     match pox_lock_v1(
         &mut global_context.database,
         &stacker,

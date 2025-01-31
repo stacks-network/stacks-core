@@ -39,7 +39,8 @@ use crate::net::{Error as net_error, *};
 
 #[derive(Debug)]
 pub struct HttpPeer {
-    /// ongoing http conversations (either they reached out to us, or we to them)
+    /// ongoing http conversations (either they reached out to us, or we to
+    /// them)
     pub peers: HashMap<usize, ConversationHttp>,
     pub sockets: HashMap<usize, mio_net::TcpStream>,
 
@@ -87,7 +88,8 @@ impl HttpPeer {
         self.http_server_addr = addr;
     }
 
-    /// Is there a HTTP conversation open to this data_url that is not in progress?
+    /// Is there a HTTP conversation open to this data_url that is not in
+    /// progress?
     #[cfg_attr(test, mutants::skip)]
     pub fn find_free_conversation(&self, data_url: &UrlString) -> Option<usize> {
         for (event_id, convo) in self.peers.iter() {
@@ -120,10 +122,11 @@ impl HttpPeer {
         )
     }
 
-    /// Connect to a new remote HTTP endpoint, given the data URL and a (resolved) socket address to
-    /// its origin.  Once connected, optionally send the given request.
-    /// Idempotent -- will not re-connect if already connected and there is a free conversation channel open
-    /// (will return Error::AlreadyConnected with the event ID)
+    /// Connect to a new remote HTTP endpoint, given the data URL and a
+    /// (resolved) socket address to its origin.  Once connected, optionally
+    /// send the given request. Idempotent -- will not re-connect if already
+    /// connected and there is a free conversation channel open (will return
+    /// Error::AlreadyConnected with the event ID)
     pub fn connect_http(
         &mut self,
         network_state: &mut NetworkState,
@@ -209,9 +212,10 @@ impl HttpPeer {
         Ok(())
     }
 
-    /// Low-level method to register a socket/event pair on the p2p network interface.
-    /// Call only once the socket is connected (called once the socket triggers ready).
-    /// Will destroy the socket if we can't register for whatever reason.
+    /// Low-level method to register a socket/event pair on the p2p network
+    /// interface. Call only once the socket is connected (called once the
+    /// socket triggers ready). Will destroy the socket if we can't register
+    /// for whatever reason.
     #[cfg_attr(test, mutants::skip)]
     fn register_http(
         &mut self,
@@ -343,8 +347,8 @@ impl HttpPeer {
         }
     }
 
-    /// Saturate a conversation's socket -- either sends the whole request, or fills the socket
-    /// buffer.
+    /// Saturate a conversation's socket -- either sends the whole request, or
+    /// fills the socket buffer.
     pub fn saturate_http_socket(
         client_sock: &mut mio::net::TcpStream,
         convo: &mut ConversationHttp,
@@ -418,8 +422,8 @@ impl HttpPeer {
     }
 
     /// Process network traffic on a HTTP conversation.
-    /// Returns whether or not the convo is still alive, as well as any message(s) that need to be
-    /// forwarded to the peer network.
+    /// Returns whether or not the convo is still alive, as well as any
+    /// message(s) that need to be forwarded to the peer network.
     fn process_http_conversation(
         node_state: &mut StacksNodeState,
         event_id: usize,
@@ -481,9 +485,9 @@ impl HttpPeer {
             Ok(_) => {}
         }
 
-        // react to inbound messages -- do we need to send something out, or fulfill requests
-        // to other threads?  Try to chat even if the recv() failed, since we'll want to at
-        // least drain the conversation inbox.
+        // react to inbound messages -- do we need to send something out, or fulfill
+        // requests to other threads?  Try to chat even if the recv() failed,
+        // since we'll want to at least drain the conversation inbox.
         let msgs = match convo.chat(node_state) {
             Ok(msgs) => msgs,
             Err(e) => {
@@ -497,8 +501,8 @@ impl HttpPeer {
         };
 
         if !convo_dead {
-            // (continue) sending out data in this conversation, if the conversation is still
-            // ongoing
+            // (continue) sending out data in this conversation, if the conversation is
+            // still ongoing
             if let Err(e) = HttpPeer::saturate_http_socket(client_sock, convo) {
                 debug!(
                     "Failed to send HTTP data to event {} (socket {:?}): {:?}",
@@ -547,10 +551,10 @@ impl HttpPeer {
         }
     }
 
-    /// Process sockets that are ready, but specifically inbound or outbound only.
-    /// Advance the state of all such conversations with remote peers.
-    /// Return the list of events that correspond to failed conversations, as well as the list of
-    /// peer network messages we'll need to forward
+    /// Process sockets that are ready, but specifically inbound or outbound
+    /// only. Advance the state of all such conversations with remote peers.
+    /// Return the list of events that correspond to failed conversations, as
+    /// well as the list of peer network messages we'll need to forward
     #[cfg_attr(test, mutants::skip)]
     fn process_ready_sockets(
         &mut self,
@@ -602,7 +606,8 @@ impl HttpPeer {
 
     /// Flush outgoing replies, but don't block.
     /// Drop broken handles.
-    /// Return the list of conversation event IDs to close (i.e. they're broken, or the request is done)
+    /// Return the list of conversation event IDs to close (i.e. they're broken,
+    /// or the request is done)
     #[cfg_attr(test, mutants::skip)]
     fn flush_conversations(&mut self) -> Vec<usize> {
         let mut close = vec![];
@@ -642,7 +647,8 @@ impl HttpPeer {
         // set up connected sockets
         self.process_connecting_sockets(network_state, node_state, &mut poll_state);
 
-        // run existing conversations, clear out broken ones, and get back messages forwarded to us
+        // run existing conversations, clear out broken ones, and get back messages
+        // forwarded to us
         let (stacks_msgs, error_events) = self.process_ready_sockets(&mut poll_state, node_state);
         for error_event in error_events {
             debug!("Failed HTTP connection on event {}", error_event);

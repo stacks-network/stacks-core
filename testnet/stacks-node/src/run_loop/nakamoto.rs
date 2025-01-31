@@ -56,7 +56,8 @@ use crate::{
 pub const STDERR: i32 = 2;
 pub type Globals = GenericGlobals<nakamoto_node::relayer::RelayerDirective>;
 
-/// Coordinating a node running in nakamoto mode. This runloop operates very similarly to the neon runloop.
+/// Coordinating a node running in nakamoto mode. This runloop operates very
+/// similarly to the neon runloop.
 pub struct RunLoop {
     config: Config,
     globals: Option<Globals>,
@@ -69,8 +70,9 @@ pub struct RunLoop {
     is_miner: Option<bool>,       // not known until .start() is called
     burnchain: Option<Burnchain>, // not known until .start() is called
     pox_watchdog_comms: PoxSyncWatchdogComms,
-    /// NOTE: this is duplicated in self.globals, but it needs to be accessible before globals is
-    /// instantiated (namely, so the test framework can access it).
+    /// NOTE: this is duplicated in self.globals, but it needs to be accessible
+    /// before globals is instantiated (namely, so the test framework can
+    /// access it).
     miner_status: Arc<Mutex<MinerStatus>>,
     monitoring_thread: Option<JoinHandle<Result<(), MonitoringError>>>,
 }
@@ -269,9 +271,9 @@ impl RunLoop {
         chain_state_db
     }
 
-    /// Instantiate the Stacks chain state and start the chains coordinator thread.
-    /// Returns the coordinator thread handle, and the receiving end of the coordinator's atlas
-    /// attachment channel.
+    /// Instantiate the Stacks chain state and start the chains coordinator
+    /// thread. Returns the coordinator thread handle, and the receiving end
+    /// of the coordinator's atlas attachment channel.
     fn spawn_chains_coordinator(
         &mut self,
         burnchain_config: &Burnchain,
@@ -290,7 +292,8 @@ impl RunLoop {
 
         let chain_state_db = self.boot_chainstate(burnchain_config);
 
-        // NOTE: re-instantiate AtlasConfig so we don't have to keep the genesis attachments around
+        // NOTE: re-instantiate AtlasConfig so we don't have to keep the genesis
+        // attachments around
         let moved_atlas_config = self.config.atlas.clone();
         let moved_config = self.config.clone();
         let moved_burnchain_config = burnchain_config.clone();
@@ -364,8 +367,8 @@ impl RunLoop {
         self.monitoring_thread.replace(monitoring_thread);
     }
 
-    /// Get the sortition DB's highest block height, aligned to a reward cycle boundary, and the
-    /// highest sortition.
+    /// Get the sortition DB's highest block height, aligned to a reward cycle
+    /// boundary, and the highest sortition.
     /// Returns (height at rc start, sortition)
     fn get_reward_cycle_sortition_db_height(
         sortdb: &SortitionDB,
@@ -413,7 +416,8 @@ impl RunLoop {
             .take()
             .expect("Run loop already started, can only start once after initialization.");
 
-        // setup the termination handler, allow it to error if a prior runloop already set it
+        // setup the termination handler, allow it to error if a prior runloop already
+        // set it
         neon::RunLoop::setup_termination_handler(self.should_keep_running.clone(), true);
 
         let burnchain_result = neon::RunLoop::instantiate_burnchain_state(
@@ -472,7 +476,8 @@ impl RunLoop {
         // stored during a previous session.
         globals.coord().announce_new_burn_block();
 
-        // Make sure at least one sortition has happened, and make sure it's globally available
+        // Make sure at least one sortition has happened, and make sure it's globally
+        // available
         let sortdb = burnchain.sortdb_mut();
         let (rc_aligned_height, sn) =
             RunLoop::get_reward_cycle_sortition_db_height(sortdb, &burnchain_config);
@@ -489,8 +494,9 @@ impl RunLoop {
 
         globals.set_last_sortition(burnchain_tip_snapshot);
 
-        // Boot up the p2p network and relayer, and figure out how many sortitions we have so far
-        // (it could be non-zero if the node is resuming from chainstate)
+        // Boot up the p2p network and relayer, and figure out how many sortitions we
+        // have so far (it could be non-zero if the node is resuming from
+        // chainstate)
         let mut node = StacksNode::spawn(self, globals.clone(), relay_recv, data_from_neon);
 
         // Wait for all pending sortitions to process
@@ -565,10 +571,11 @@ impl RunLoop {
                 0.0
             };
 
-            // Download each burnchain block and process their sortitions.  This, in turn, will
-            // cause the node's p2p and relayer threads to go fetch and download Stacks blocks and
-            // process them.  This loop runs for one reward cycle, so that the next pass of the
-            // runloop will cause the PoX sync watchdog to wait until it believes that the node has
+            // Download each burnchain block and process their sortitions.  This, in turn,
+            // will cause the node's p2p and relayer threads to go fetch and
+            // download Stacks blocks and process them.  This loop runs for one
+            // reward cycle, so that the next pass of the runloop will cause the
+            // PoX sync watchdog to wait until it believes that the node has
             // obtained all the Stacks blocks it can.
             debug!(
                 "Runloop: Download burnchain blocks up to reward cycle #{} (height {target_burnchain_block_height})",
@@ -623,7 +630,8 @@ impl RunLoop {
                     debug!("Runloop: block mining until we process all sortitions");
                     signal_mining_blocked(globals.get_miner_status());
 
-                    // first, let's process all blocks in (sortition_db_height, next_sortition_height]
+                    // first, let's process all blocks in (sortition_db_height,
+                    // next_sortition_height]
                     for block_to_process in (sortition_db_height + 1)..(next_sortition_height + 1) {
                         // stop mining so we can advance the sortition DB and so our
                         // ProcessTenure() directive (sent by relayer_sortition_notify() below)
@@ -643,7 +651,8 @@ impl RunLoop {
 
                         let sortition_id = &block.sortition_id;
 
-                        // Have the node process the new block, that can include, or not, a sortition.
+                        // Have the node process the new block, that can include, or not, a
+                        // sortition.
                         if let Err(e) = node.process_burnchain_state(
                             self.config(),
                             burnchain.sortdb_mut(),
@@ -681,8 +690,9 @@ impl RunLoop {
             }
 
             // advance one reward cycle at a time.
-            // If we're still downloading, then this is simply target_burnchain_block_height + reward_cycle_len.
-            // Otherwise, this is burnchain_tip + reward_cycle_len
+            // If we're still downloading, then this is simply target_burnchain_block_height
+            // + reward_cycle_len. Otherwise, this is burnchain_tip +
+            // reward_cycle_len
             let next_target_burnchain_block_height = cmp::min(
                 burnchain_config.reward_cycle_to_block_height(
                     burnchain_config

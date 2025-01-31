@@ -56,9 +56,10 @@ pub fn is_read_only(func_name: &str) -> bool {
         || "get-total-pox-rejection" == func_name
 }
 
-/// Parse the returned value from PoX `stack-stx` and `delegate-stack-stx` functions
-///  from pox-2.clar or pox-3.clar into a format more readily digestible in rust.
-/// Panics if the supplied value doesn't match the expected tuple structure
+/// Parse the returned value from PoX `stack-stx` and `delegate-stack-stx`
+/// functions  from pox-2.clar or pox-3.clar into a format more readily
+/// digestible in rust. Panics if the supplied value doesn't match the expected
+/// tuple structure
 pub fn parse_pox_stacking_result(
     result: &Value,
 ) -> std::result::Result<(PrincipalData, u128, u64), i128> {
@@ -68,7 +69,8 @@ pub fn parse_pox_stacking_result(
         .expect("FATAL: unexpected clarity value")
     {
         Ok(res) => {
-            // should have gotten back (ok { stacker: principal, lock-amount: uint, unlock-burn-height: uint .. } .. })))
+            // should have gotten back (ok { stacker: principal, lock-amount: uint,
+            // unlock-burn-height: uint .. } .. })))
             let tuple_data = res.expect_tuple().expect("FATAL: unexpected clarity value");
             let stacker = tuple_data
                 .get("stacker")
@@ -99,9 +101,10 @@ pub fn parse_pox_stacking_result(
     }
 }
 
-/// Parse the returned value from PoX2 or PoX3 `stack-extend` and `delegate-stack-extend` functions
-///  into a format more readily digestible in rust.
-/// Panics if the supplied value doesn't match the expected tuple structure
+/// Parse the returned value from PoX2 or PoX3 `stack-extend` and
+/// `delegate-stack-extend` functions  into a format more readily digestible in
+/// rust. Panics if the supplied value doesn't match the expected tuple
+/// structure
 pub fn parse_pox_extend_result(result: &Value) -> std::result::Result<(PrincipalData, u64), i128> {
     match result
         .clone()
@@ -109,7 +112,8 @@ pub fn parse_pox_extend_result(result: &Value) -> std::result::Result<(Principal
         .expect("FATAL: unexpected clarity value")
     {
         Ok(res) => {
-            // should have gotten back (ok { stacker: principal, unlock-burn-height: uint .. } .. })
+            // should have gotten back (ok { stacker: principal, unlock-burn-height: uint ..
+            // } .. })
             let tuple_data = res.expect_tuple().expect("FATAL: unexpected clarity value");
             let stacker = tuple_data
                 .get("stacker")
@@ -144,7 +148,8 @@ pub fn parse_pox_increase(result: &Value) -> std::result::Result<(PrincipalData,
         .expect("FATAL: unexpected clarity value")
     {
         Ok(res) => {
-            // should have gotten back (ok { stacker: principal, total-locked: uint .. } .. })
+            // should have gotten back (ok { stacker: principal, total-locked: uint .. } ..
+            // })
             let tuple_data = res.expect_tuple().expect("FATAL: unexpected clarity value");
             let stacker = tuple_data
                 .get("stacker")
@@ -173,9 +178,9 @@ pub fn parse_pox_increase(result: &Value) -> std::result::Result<(PrincipalData,
 /// Returns Ok( account snapshot ) when successful
 ///
 /// # Errors
-/// - Returns Error::PoxExtendNotLocked if this function was called on an account
-///     which isn't locked. This *should* have been checked by the PoX v2 contract,
-///     so this should surface in a panic.
+/// - Returns Error::PoxExtendNotLocked if this function was called on an
+///   account which isn't locked. This *should* have been checked by the PoX v2
+///   contract, so this should surface in a panic.
 pub fn pox_lock_increase_v2(
     db: &mut ClarityDatabase,
     principal: &PrincipalData,
@@ -226,9 +231,9 @@ pub fn pox_lock_increase_v2(
 /// Returns Ok(lock_amount) when successful
 ///
 /// # Errors
-/// - Returns Error::PoxExtendNotLocked if this function was called on an account
-///     which isn't locked. This *should* have been checked by the PoX v2 contract,
-///     so this should surface in a panic.
+/// - Returns Error::PoxExtendNotLocked if this function was called on an
+///   account which isn't locked. This *should* have been checked by the PoX v2
+///   contract, so this should surface in a panic.
 pub fn pox_lock_extend_v2(
     db: &mut ClarityDatabase,
     principal: &PrincipalData,
@@ -290,7 +295,8 @@ fn pox_lock_v2(
     Ok(())
 }
 
-/// Handle responses from stack-stx and delegate-stack-stx -- functions that *lock up* STX
+/// Handle responses from stack-stx and delegate-stack-stx -- functions that
+/// *lock up* STX
 #[allow(clippy::needless_return)]
 fn handle_stack_lockup_pox_v2(
     global_context: &mut GlobalContext,
@@ -354,8 +360,8 @@ fn handle_stack_lockup_pox_v2(
     }
 }
 
-/// Handle responses from stack-extend and delegate-stack-extend -- functions that *extend
-/// already-locked* STX.
+/// Handle responses from stack-extend and delegate-stack-extend -- functions
+/// that *extend already-locked* STX.
 #[allow(clippy::needless_return)]
 fn handle_stack_lockup_extension_pox_v2(
     global_context: &mut GlobalContext,
@@ -363,9 +369,10 @@ fn handle_stack_lockup_extension_pox_v2(
     value: &Value,
 ) -> Result<Option<StacksTransactionEvent>, ClarityError> {
     // in this branch case, the PoX-2 contract has stored the extension information
-    //  and performed the extension checks. Now, the VM needs to update the account locks
-    //  (because the locks cannot be applied directly from the Clarity code itself)
-    // applying a pox lock at this point is equivalent to evaluating a transfer
+    //  and performed the extension checks. Now, the VM needs to update the account
+    // locks  (because the locks cannot be applied directly from the Clarity
+    // code itself) applying a pox lock at this point is equivalent to
+    // evaluating a transfer
     debug!(
         "Handle special-case contract-call to {:?} {} (which returned {:?})",
         boot_code_id("pox-2", global_context.mainnet),
@@ -418,8 +425,8 @@ fn handle_stack_lockup_extension_pox_v2(
     }
 }
 
-/// Handle responses from stack-increase and delegate-stack-increase -- functions that *increase
-/// already-locked* STX amounts.
+/// Handle responses from stack-increase and delegate-stack-increase --
+/// functions that *increase already-locked* STX amounts.
 #[allow(clippy::needless_return)]
 fn handle_stack_lockup_increase_pox_v2(
     global_context: &mut GlobalContext,
@@ -427,9 +434,10 @@ fn handle_stack_lockup_increase_pox_v2(
     value: &Value,
 ) -> Result<Option<StacksTransactionEvent>, ClarityError> {
     // in this branch case, the PoX-2 contract has stored the increase information
-    //  and performed the increase checks. Now, the VM needs to update the account locks
-    //  (because the locks cannot be applied directly from the Clarity code itself)
-    // applying a pox lock at this point is equivalent to evaluating a transfer
+    //  and performed the increase checks. Now, the VM needs to update the account
+    // locks  (because the locks cannot be applied directly from the Clarity
+    // code itself) applying a pox lock at this point is equivalent to
+    // evaluating a transfer
     debug!(
         "Handle special-case contract-call";
         "contract" => ?boot_code_id("pox-2", global_context.mainnet),
@@ -493,10 +501,10 @@ pub fn handle_contract_call(
     // Generate a synthetic print event for all functions that alter stacking state
     let print_event_opt = if let Value::Response(response) = value {
         if response.committed {
-            // method succeeded.  Synthesize event info, but default to no event report if we fail
-            // for some reason.
-            // Failure to synthesize an event due to a bug is *NOT* an excuse to crash the whole
-            // network!  Event capture is not consensus-critical.
+            // method succeeded.  Synthesize event info, but default to no event report if
+            // we fail for some reason.
+            // Failure to synthesize an event due to a bug is *NOT* an excuse to crash the
+            // whole network!  Event capture is not consensus-critical.
             let event_info_opt = match synthesize_pox_event_info(
                 global_context,
                 contract_id,
@@ -539,7 +547,8 @@ pub fn handle_contract_call(
         None
     };
 
-    // append the lockup event, so it looks as if the print event happened before the lock-up
+    // append the lockup event, so it looks as if the print event happened before
+    // the lock-up
     if let Some(batch) = global_context.event_batches.last_mut() {
         if let Some(print_event) = print_event_opt {
             batch.events.push(print_event);

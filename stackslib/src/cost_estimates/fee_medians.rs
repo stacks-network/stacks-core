@@ -33,19 +33,21 @@ const MINIMUM_TX_FEE_RATE: f64 = 1f64;
 
 /// FeeRateEstimator with the following properties:
 ///
-/// 1) We use a "weighted" percentile approach for calculating the percentile values. Described
-///    below, larger transactions contribute more to the ranking than small transactions.
-/// 2) Use "windowed" decay instead of exponential decay. This allows outliers to be forgotten
-///    faster, and so reduces the influence of outliers.
-/// 3) "Pad" the block, so that any unused spaces is considered to have an associated fee rate of
-///    1f, the minimum. Ignoring the amount of empty space leads to over-estimates because it
-///    ignores the fact that there was still space in the block.
+/// 1) We use a "weighted" percentile approach for calculating the percentile
+///    values. Described below, larger transactions contribute more to the
+///    ranking than small transactions.
+/// 2) Use "windowed" decay instead of exponential decay. This allows outliers
+///    to be forgotten faster, and so reduces the influence of outliers.
+/// 3) "Pad" the block, so that any unused spaces is considered to have an
+///    associated fee rate of 1f, the minimum. Ignoring the amount of empty
+///    space leads to over-estimates because it ignores the fact that there was
+///    still space in the block.
 pub struct WeightedMedianFeeRateEstimator<M: CostMetric> {
     db: Connection,
     /// We only look back `window_size` fee rates when averaging past estimates.
     window_size: u32,
-    /// The weight of a "full block" in abstract scalar cost units. This is the weight of
-    /// a block that is filled *one single* dimension.
+    /// The weight of a "full block" in abstract scalar cost units. This is the
+    /// weight of a block that is filled *one single* dimension.
     full_block_weight: u64,
     /// Use this cost metric in fee rate calculations.
     metric: M,
@@ -82,8 +84,8 @@ impl<M: CostMetric> WeightedMedianFeeRateEstimator<M> {
         })
     }
 
-    /// Check if the SQL database was already created. Necessary to avoid races if
-    ///  different threads open an estimator at the same time.
+    /// Check if the SQL database was already created. Necessary to avoid races
+    /// if  different threads open an estimator at the same time.
     fn db_already_instantiated(tx: &SqlTransaction) -> Result<bool, SqliteError> {
         table_exists(tx, "median_fee_estimator")
     }
@@ -104,7 +106,8 @@ impl<M: CostMetric> WeightedMedianFeeRateEstimator<M> {
             "SELECT high, middle, low FROM median_fee_estimator ORDER BY measure_key DESC LIMIT ?";
         let mut stmt = conn.prepare(sql).expect("SQLite failure");
 
-        // shuttle high, low, middle estimates into these lists, and then sort and find median.
+        // shuttle high, low, middle estimates into these lists, and then sort and find
+        // median.
         let mut highs = Vec::with_capacity(window_size as usize);
         let mut mids = Vec::with_capacity(window_size as usize);
         let mut lows = Vec::with_capacity(window_size as usize);
@@ -221,8 +224,8 @@ impl<M: CostMetric> FeeEstimator for WeightedMedianFeeRateEstimator<M> {
     }
 }
 
-/// Computes a `FeeRateEstimate` based on `sorted_fee_rates` using a "weighted percentile" method
-/// described in https://en.wikipedia.org/wiki/Percentile#Weighted_percentile
+/// Computes a `FeeRateEstimate` based on `sorted_fee_rates` using a "weighted
+/// percentile" method described in https://en.wikipedia.org/wiki/Percentile#Weighted_percentile
 ///
 /// The percentiles computed are [0.05, 0.5, 0.95].
 ///
@@ -278,8 +281,8 @@ pub fn fee_rate_estimate_from_sorted_weighted_fees(
     }
 }
 
-/// If the weights in `working_rates` do not add up to `full_block_weight`, add a new entry **in
-/// place** that takes up the remaining space.
+/// If the weights in `working_rates` do not add up to `full_block_weight`, add
+/// a new entry **in place** that takes up the remaining space.
 fn maybe_add_minimum_fee_rate(working_rates: &mut Vec<FeeRateAndWeight>, full_block_weight: u64) {
     let mut total_weight = 0u64;
     for rate_and_weight in working_rates.into_iter() {
@@ -314,7 +317,8 @@ fn fee_rate_and_weight_from_receipt(
     }?;
     let scalar_cost = match payload {
         TransactionPayload::TokenTransfer(..) => {
-            // TokenTransfers *only* contribute tx_len, and just have an empty ExecutionCost.
+            // TokenTransfers *only* contribute tx_len, and just have an empty
+            // ExecutionCost.
             metric.from_len(tx_size)
         }
         TransactionPayload::Coinbase(..) => {
@@ -325,8 +329,9 @@ fn fee_rate_and_weight_from_receipt(
         | TransactionPayload::ContractCall(..)
         | TransactionPayload::SmartContract(..)
         | TransactionPayload::TenureChange(..) => {
-            // These transaction payload types all "work" the same: they have associated ExecutionCosts
-            // and contibute to the block length limit with their tx_len
+            // These transaction payload types all "work" the same: they have associated
+            // ExecutionCosts and contibute to the block length limit with their
+            // tx_len
             metric.from_cost_and_len(&tx_receipt.execution_cost, block_limit, tx_size)
         }
     };

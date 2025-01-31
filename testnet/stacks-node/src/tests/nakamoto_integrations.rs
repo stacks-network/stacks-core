@@ -201,10 +201,10 @@ pub struct TestSigningChannel {
 }
 
 impl TestSigningChannel {
-    /// If the integration test has instantiated the singleton TEST_SIGNING channel,
-    ///  wait for a signature from the blind-signer.
-    /// Returns None if the singleton isn't instantiated and the miner should coordinate
-    ///  a real signer set signature.
+    /// If the integration test has instantiated the singleton TEST_SIGNING
+    /// channel,  wait for a signature from the blind-signer.
+    /// Returns None if the singleton isn't instantiated and the miner should
+    /// coordinate  a real signer set signature.
     /// Panics if the blind-signer times out.
     pub fn get_signature() -> Option<Vec<MessageSignature>> {
         let mut signer = TEST_SIGNING.lock().unwrap();
@@ -359,9 +359,11 @@ pub fn blind_signer(
 }
 
 /// Spawn a blind signing thread listening to potentially multiple stacks nodes.
-/// `signer` is the private key  of the individual signer who broadcasts the response to the StackerDB.
-/// The thread will check each node's proposal counter in order to wake up, but will only read from the first
-///  node's StackerDB (it will read all of the StackerDBs to provide logging information, though).
+/// `signer` is the private key  of the individual signer who broadcasts the
+/// response to the StackerDB. The thread will check each node's proposal
+/// counter in order to wake up, but will only read from the first
+///  node's StackerDB (it will read all of the StackerDBs to provide logging
+/// information, though).
 pub fn blind_signer_multinode(
     signers: &TestSigners,
     configs: &[&Config],
@@ -586,7 +588,8 @@ pub fn read_and_sign_block_proposal(
     Ok(signer_sig_hash)
 }
 
-/// Return a working nakamoto-neon config and the miner's bitcoin address to fund
+/// Return a working nakamoto-neon config and the miner's bitcoin address to
+/// fund
 pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
 
@@ -740,8 +743,8 @@ pub fn next_block_and_mine_commit(
     )
 }
 
-/// Mine a bitcoin block, and wait until a block-commit has been issued, **or** a timeout occurs
-/// (timeout_secs)
+/// Mine a bitcoin block, and wait until a block-commit has been issued, **or**
+/// a timeout occurs (timeout_secs)
 pub fn next_block_and_commits_only(
     btc_controller: &mut BitcoinRegtestController,
     timeout_secs: u64,
@@ -758,9 +761,9 @@ pub fn next_block_and_commits_only(
 }
 
 /// Mine a bitcoin block, and wait until:
-///  (1) a new block has been processed by the coordinator (if `wait_for_stacks_block` is true)
-///  (2) 2 block commits have been issued ** or ** more than 10 seconds have
-///      passed since (1) occurred
+///  (1) a new block has been processed by the coordinator (if
+/// `wait_for_stacks_block` is true)  (2) 2 block commits have been issued ** or
+/// ** more than 10 seconds have      passed since (1) occurred
 /// This waits for this check to pass on *all* supplied channels
 pub fn next_block_and_wait_for_commits(
     btc_controller: &mut BitcoinRegtestController,
@@ -827,8 +830,8 @@ pub fn next_block_and_wait_for_commits(
             let commits_sent = commits_submitted[i].load(Ordering::SeqCst);
 
             if blocks_processed > blocks_processed_before[i] {
-                // either we don't care about the stacks block count, or the block count advanced.
-                // Check the block-commits.
+                // either we don't care about the stacks block count, or the block count
+                // advanced. Check the block-commits.
                 let block_processed_time = block_processed_time[i]
                     .as_ref()
                     .ok_or("TEST-ERROR: Processed block time wasn't set")?;
@@ -871,8 +874,8 @@ pub fn setup_stacker(naka_conf: &mut Config) -> Secp256k1PrivateKey {
 }
 
 ///
-/// * `stacker_sks` - must be a private key for sending a large `stack-stx` transaction in order
-///   for pox-4 to activate
+/// * `stacker_sks` - must be a private key for sending a large `stack-stx`
+///   transaction in order for pox-4 to activate
 pub fn boot_to_epoch_3(
     naka_conf: &Config,
     blocks_processed: &Arc<AtomicU64>,
@@ -965,7 +968,8 @@ pub fn boot_to_epoch_3(
         signers.signer_keys = signer_sks.to_vec();
     }
 
-    // the reward set is generally calculated in the first block of the prepare phase hence the + 1
+    // the reward set is generally calculated in the first block of the prepare
+    // phase hence the + 1
     let reward_set_calculation = btc_regtest_controller
         .get_burnchain()
         .pox_constants
@@ -1029,11 +1033,13 @@ pub fn boot_to_epoch_3(
     info!("Bootstrapped to Epoch-3.0 boundary, Epoch2x miner should stop");
 }
 
-/// Boot the chain to just before the Epoch 3.0 boundary to allow for flash blocks
-/// This function is similar to `boot_to_epoch_3`, but it stops at epoch 3 start height - 2,
-/// allowing for flash blocks to occur when the epoch changes.
+/// Boot the chain to just before the Epoch 3.0 boundary to allow for flash
+/// blocks This function is similar to `boot_to_epoch_3`, but it stops at epoch
+/// 3 start height - 2, allowing for flash blocks to occur when the epoch
+/// changes.
 ///
-/// * `stacker_sks` - private keys for sending large `stack-stx` transactions to activate pox-4
+/// * `stacker_sks` - private keys for sending large `stack-stx` transactions to
+///   activate pox-4
 /// * `signer_sks` - corresponding signer keys for the stackers
 pub fn boot_to_pre_epoch_3_boundary(
     naka_conf: &Config,
@@ -1127,7 +1133,8 @@ pub fn boot_to_pre_epoch_3_boundary(
         signers.signer_keys = signer_sks.to_vec();
     }
 
-    // the reward set is generally calculated in the first block of the prepare phase hence the + 1
+    // the reward set is generally calculated in the first block of the prepare
+    // phase hence the + 1
     let reward_set_calculation = btc_regtest_controller
         .get_burnchain()
         .pox_constants
@@ -1263,7 +1270,8 @@ pub fn get_key_for_cycle(
     }
 }
 
-/// Use the read-only to check if the aggregate key is set for a given reward cycle
+/// Use the read-only to check if the aggregate key is set for a given reward
+/// cycle
 pub fn is_key_set_for_cycle(
     reward_cycle: u64,
     is_mainnet: bool,
@@ -1362,8 +1370,8 @@ pub fn setup_epoch_3_reward_set(
 }
 
 ///
-/// * `stacker_sks` - must be a private key for sending a large `stack-stx` transaction in order
-///   for pox-4 to activate
+/// * `stacker_sks` - must be a private key for sending a large `stack-stx`
+///   transaction in order for pox-4 to activate
 /// * `signer_pks` - must be the same size as `stacker_sks`
 pub fn boot_to_epoch_3_reward_set_calculation_boundary(
     naka_conf: &Config,
@@ -1409,8 +1417,8 @@ pub fn boot_to_epoch_3_reward_set_calculation_boundary(
 }
 
 ///
-/// * `stacker_sks` - must be a private key for sending a large `stack-stx` transaction in order
-///   for pox-4 to activate
+/// * `stacker_sks` - must be a private key for sending a large `stack-stx`
+///   transaction in order for pox-4 to activate
 /// * `signer_pks` - must be the same size as `stacker_sks`
 pub fn boot_to_epoch_25(
     naka_conf: &Config,
@@ -1450,8 +1458,8 @@ pub fn boot_to_epoch_25(
 }
 
 ///
-/// * `stacker_sks` - must be a private key for sending a large `stack-stx` transaction in order
-///   for pox-4 to activate
+/// * `stacker_sks` - must be a private key for sending a large `stack-stx`
+///   transaction in order for pox-4 to activate
 /// * `signer_pks` - must be the same size as `stacker_sks`
 pub fn boot_to_epoch_3_reward_set(
     naka_conf: &Config,
@@ -1491,11 +1499,12 @@ fn wait_for_first_naka_block_commit(timeout_secs: u64, naka_commits_submitted: &
 #[test]
 #[ignore]
 /// This test spins up a nakamoto-neon node.
-/// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
-///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
-///  struct handles the epoch-2/3 tear-down and spin-up.
+/// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then
+/// switches  to Nakamoto operation (activating pox-4 by submitting a stack-stx
+/// tx). The BootLoop  struct handles the epoch-2/3 tear-down and spin-up.
 /// This test makes three assertions:
-///  * 30 blocks are mined after 3.0 starts. This is enough to mine across 2 reward cycles
+///  * 30 blocks are mined after 3.0 starts. This is enough to mine across 2
+///    reward cycles
 ///  * A transaction submitted to the mempool in 3.0 will be mined in 3.0
 ///  * The final chain tip is a nakamoto block
 fn simple_neon_integration() {
@@ -1661,7 +1670,8 @@ fn simple_neon_integration() {
         .unwrap();
     }
 
-    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    // load the chain tip, and assert that it is a nakamoto block and at least 30
+    // blocks have advanced in epoch 3
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
@@ -1692,10 +1702,11 @@ fn simple_neon_integration() {
     let bhh = u64::from(tip.burn_header_height);
     let missing = test_observer::get_missing_burn_blocks(220..=bhh).unwrap();
 
-    // This test was flakey because it was sometimes missing burn block 230, which is right at the Nakamoto transition
-    // So it was possible to miss a burn block during the transition
-    // But I don't it matters at this point since the Nakamoto transition has already happened on mainnet
-    // So just print a warning instead, don't count it as an error
+    // This test was flakey because it was sometimes missing burn block 230, which
+    // is right at the Nakamoto transition So it was possible to miss a burn
+    // block during the transition But I don't it matters at this point since
+    // the Nakamoto transition has already happened on mainnet So just print a
+    // warning instead, don't count it as an error
     let missing_is_error: Vec<_> = missing
         .into_iter()
         .filter(|i| match i {
@@ -1924,7 +1935,8 @@ fn restarting_miner() {
         .unwrap();
     }
 
-    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    // load the chain tip, and assert that it is a nakamoto block and at least 30
+    // blocks have advanced in epoch 3
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
@@ -1942,10 +1954,11 @@ fn restarting_miner() {
     //  nakamoto block in it.
     let missing = test_observer::get_missing_burn_blocks(220..=bhh).unwrap();
 
-    // This test was flakey because it was sometimes missing burn block 230, which is right at the Nakamoto transition
-    // So it was possible to miss a burn block during the transition
-    // But I don't it matters at this point since the Nakamoto transition has already happened on mainnet
-    // So just print a warning instead, don't count it as an error
+    // This test was flakey because it was sometimes missing burn block 230, which
+    // is right at the Nakamoto transition So it was possible to miss a burn
+    // block during the transition But I don't it matters at this point since
+    // the Nakamoto transition has already happened on mainnet So just print a
+    // warning instead, don't count it as an error
     let missing_is_error: Vec<_> = missing
         .into_iter()
         .filter(|i| match i {
@@ -1970,11 +1983,12 @@ fn restarting_miner() {
 #[ignore]
 /// This test spins up a nakamoto-neon node.
 /// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0,
-/// having flash blocks when epoch updates and expects everything to work normally,
-/// then switches to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
-///  struct handles the epoch-2/3 tear-down and spin-up.
-/// This test makes three assertions:
-///  * 30 blocks are mined after 3.0 starts. This is enough to mine across 2 reward cycles
+/// having flash blocks when epoch updates and expects everything to work
+/// normally, then switches to Nakamoto operation (activating pox-4 by
+/// submitting a stack-stx tx). The BootLoop  struct handles the epoch-2/3
+/// tear-down and spin-up. This test makes three assertions:
+///  * 30 blocks are mined after 3.0 starts. This is enough to mine across 2
+///    reward cycles
 ///  * A transaction submitted to the mempool in 3.0 will be mined in 3.0
 ///  * The final chain tip is a nakamoto block
 fn flash_blocks_on_epoch_3() {
@@ -2039,8 +2053,9 @@ fn flash_blocks_on_epoch_3() {
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     let block_height_before_mining = tip.block_height;
 
-    // Mine 3 Bitcoin blocks rapidly without waiting for Stacks blocks to be processed.
-    // These blocks won't be considered "mined" until the next_block_and_wait call.
+    // Mine 3 Bitcoin blocks rapidly without waiting for Stacks blocks to be
+    // processed. These blocks won't be considered "mined" until the
+    // next_block_and_wait call.
     for _i in 0..3 {
         btc_regtest_controller.build_next_block(1);
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
@@ -2145,7 +2160,8 @@ fn flash_blocks_on_epoch_3() {
         .unwrap();
     }
 
-    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    // load the chain tip, and assert that it is a nakamoto block and at least 30
+    // blocks have advanced in epoch 3
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
@@ -2173,7 +2189,8 @@ fn flash_blocks_on_epoch_3() {
     assert!(tip.stacks_block_height >= block_height_pre_3_0 + 30);
 
     // Check that we have the expected burn blocks
-    // We expect to have around the blocks 220-230 and 234 onwards, with a gap of 3 blocks for the flash blocks
+    // We expect to have around the blocks 220-230 and 234 onwards, with a gap of 3
+    // blocks for the flash blocks
     let bhh = u64::from(tip.burn_header_height);
 
     // Get the Epoch 3.0 activation height (in terms of Bitcoin block height)
@@ -2227,9 +2244,9 @@ fn flash_blocks_on_epoch_3() {
 #[test]
 #[ignore]
 /// This test spins up a nakamoto-neon node.
-/// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
-///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
-///  struct handles the epoch-2/3 tear-down and spin-up.
+/// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then
+/// switches  to Nakamoto operation (activating pox-4 by submitting a stack-stx
+/// tx). The BootLoop  struct handles the epoch-2/3 tear-down and spin-up.
 /// This test makes three assertions:
 ///  * 5 tenures are mined after 3.0 starts
 ///  * Each tenure has 10 blocks (the coinbase block and 9 interim blocks)
@@ -2374,7 +2391,8 @@ fn mine_multiple_per_tenure_integration() {
         }
     }
 
-    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    // load the chain tip, and assert that it is a nakamoto block and at least 30
+    // blocks have advanced in epoch 3
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
@@ -2405,9 +2423,9 @@ fn mine_multiple_per_tenure_integration() {
 #[test]
 #[ignore]
 /// This test spins up two nakamoto nodes, both configured to mine.
-/// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
-///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
-///  struct handles the epoch-2/3 tear-down and spin-up.
+/// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then
+/// switches  to Nakamoto operation (activating pox-4 by submitting a stack-stx
+/// tx). The BootLoop  struct handles the epoch-2/3 tear-down and spin-up.
 /// This test makes three assertions:
 ///  * 15 tenures are mined after 3.0 starts
 ///  * Each tenure has 6 blocks (the coinbase block and 5 interim blocks)
@@ -2570,7 +2588,8 @@ fn multiple_miners() {
     info!("Neighbors 1"; "neighbors" => ?get_neighbors(&naka_conf));
     info!("Neighbors 2"; "neighbors" => ?get_neighbors(&conf_node_2));
 
-    // Wait one block to confirm the VRF register, wait until a block commit is submitted
+    // Wait one block to confirm the VRF register, wait until a block commit is
+    // submitted
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // Mine `tenure_count` nakamoto tenures
@@ -2624,7 +2643,8 @@ fn multiple_miners() {
         .unwrap();
     }
 
-    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    // load the chain tip, and assert that it is a nakamoto block and at least 30
+    // blocks have advanced in epoch 3
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
@@ -2987,7 +3007,8 @@ fn correct_burn_outs() {
         );
         assert_eq!(signers.len(), 1, "There should be exactly 1 signer");
 
-        // the signer should have 1 "slot", because they stacked the minimum stacking amount
+        // the signer should have 1 "slot", because they stacked the minimum stacking
+        // amount
         let signer_weight = signers[0]["weight"].as_u64().unwrap();
         assert_eq!(signer_weight, 1, "The signer should have a weight of 1, indicating they stacked the minimum stacking amount");
     }
@@ -3363,11 +3384,11 @@ fn block_proposal_api_endpoint() {
 
 #[test]
 #[ignore]
-/// This test spins up a nakamoto-neon node and attempts to mine a single Nakamoto block.
-/// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
-///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
-///  struct handles the epoch-2/3 tear-down and spin-up.
-/// This test makes the following assertions:
+/// This test spins up a nakamoto-neon node and attempts to mine a single
+/// Nakamoto block. It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0,
+/// and then switches  to Nakamoto operation (activating pox-4 by submitting a
+/// stack-stx tx). The BootLoop  struct handles the epoch-2/3 tear-down and
+/// spin-up. This test makes the following assertions:
 ///  * The proposed Nakamoto block is written to the .miners stackerdb
 fn miner_writes_proposed_block_to_stackerdb() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
@@ -3987,7 +4008,8 @@ fn follower_bootup_simple() {
         debug!("follower_bootup: Block commit submitted");
     }
 
-    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    // load the chain tip, and assert that it is a nakamoto block and at least 30
+    // blocks have advanced in epoch 3
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
@@ -4036,8 +4058,8 @@ fn follower_bootup_simple() {
     follower_thread.join().unwrap();
 }
 
-/// This test boots a follower node using the block downloader, but the follower will be multiple
-/// Nakamoto reward cycles behind.
+/// This test boots a follower node using the block downloader, but the follower
+/// will be multiple Nakamoto reward cycles behind.
 #[test]
 #[ignore]
 fn follower_bootup_across_multiple_cycles() {
@@ -4144,7 +4166,8 @@ fn follower_bootup_across_multiple_cycles() {
 
     info!("Nakamoto miner has advanced two reward cycles");
 
-    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    // load the chain tip, and assert that it is a nakamoto block and at least 30
+    // blocks have advanced in epoch 3
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
@@ -4509,7 +4532,8 @@ fn follower_bootup_custom_chain_id() {
         debug!("follower_bootup: Block commit submitted");
     }
 
-    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    // load the chain tip, and assert that it is a nakamoto block and at least 30
+    // blocks have advanced in epoch 3
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
@@ -4977,7 +5001,8 @@ fn burn_ops_integration_test() {
     info!("Submitted 2 stack STX ops at height {block_height}, mining a few blocks...");
 
     // the second block should process the ops
-    // Also mine 2 interim blocks to ensure the stack-stx ops are not processed in them
+    // Also mine 2 interim blocks to ensure the stack-stx ops are not processed in
+    // them
     for _i in 0..2 {
         next_block_and_mine_commit(
             &mut btc_regtest_controller,
@@ -5182,13 +5207,14 @@ fn burn_ops_integration_test() {
 #[test]
 #[ignore]
 /// This test spins up a nakamoto-neon node.
-/// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
-///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
-///  struct handles the epoch-2/3 tear-down and spin-up.
+/// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then
+/// switches  to Nakamoto operation (activating pox-4 by submitting a stack-stx
+/// tx). The BootLoop  struct handles the epoch-2/3 tear-down and spin-up.
 /// Miner A mines a regular tenure, its last block being block a_x.
-/// Miner B starts its tenure, Miner B produces a Stacks block b_0, but miner C submits its block commit before b_0 is broadcasted.
-/// Bitcoin block C, containing Miner C's block commit, is mined BEFORE miner C has a chance to update their block commit with b_0's information.
-/// This test asserts:
+/// Miner B starts its tenure, Miner B produces a Stacks block b_0, but miner C
+/// submits its block commit before b_0 is broadcasted. Bitcoin block C,
+/// containing Miner C's block commit, is mined BEFORE miner C has a chance to
+/// update their block commit with b_0's information. This test asserts:
 ///  * tenure C ignores b_0, and correctly builds off of block a_x.
 fn forked_tenure_is_ignored() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
@@ -5296,8 +5322,9 @@ fn forked_tenure_is_ignored() {
 
     info!("Tenure A block: {}", &block_tenure_a.index_block_hash());
 
-    // For the next tenure, submit the commit op but do not allow any stacks blocks to be broadcasted.
-    // Stall the miner thread; only wait until the number of submitted commits increases.
+    // For the next tenure, submit the commit op but do not allow any stacks blocks
+    // to be broadcasted. Stall the miner thread; only wait until the number of
+    // submitted commits increases.
     TEST_BROADCAST_STALL.set(true);
     TEST_BLOCK_ANNOUNCE_STALL.set(true);
 
@@ -5314,8 +5341,8 @@ fn forked_tenure_is_ignored() {
 
     info!("Commit op is submitted; unpause Tenure B's block");
 
-    // Unpause the broadcast of Tenure B's block, do not submit commits, and do not allow blocks to
-    // be processed
+    // Unpause the broadcast of Tenure B's block, do not submit commits, and do not
+    // allow blocks to be processed
     test_skip_commit_op.set(true);
     TEST_BROADCAST_STALL.set(false);
 
@@ -5361,7 +5388,8 @@ fn forked_tenure_is_ignored() {
     sleep_ms(2000);
 
     // Submit a block commit op for tenure C.
-    // It should also build on block A, since the node has paused processing of block B.
+    // It should also build on block A, since the node has paused processing of
+    // block B.
     let commits_before = commits_submitted.load(Ordering::SeqCst);
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let blocks_processed_before = coord_channel
@@ -5394,13 +5422,15 @@ fn forked_tenure_is_ignored() {
     info!("Tenure C last block: {}", &block_c.block_id);
     assert_ne!(block_tenure_b.block_id(), block_tenure_c.index_block_hash());
 
-    // Block C was built AFTER Block B was built, but BEFORE it was broadcasted (processed), so it should be built off of Block A
+    // Block C was built AFTER Block B was built, but BEFORE it was broadcasted
+    // (processed), so it should be built off of Block A
     assert_eq!(
         block_tenure_c.stacks_block_height,
         block_tenure_a.stacks_block_height + 1
     );
 
-    // Now let's produce a second block for tenure C and ensure it builds off of block C.
+    // Now let's produce a second block for tenure C and ensure it builds off of
+    // block C.
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let blocks_processed_before = coord_channel
         .lock()
@@ -5492,7 +5522,8 @@ fn forked_tenure_is_ignored() {
         block_tenure_a.index_block_hash().to_string()
     );
 
-    // Block C was built AFTER Block B was built, but BEFORE it was broadcasted, so it should be built off of Block A
+    // Block C was built AFTER Block B was built, but BEFORE it was broadcasted, so
+    // it should be built off of Block A
     assert_eq!(
         block_tenure_c.stacks_block_height,
         block_tenure_a.stacks_block_height + 1
@@ -5538,9 +5569,9 @@ fn forked_tenure_is_ignored() {
 #[test]
 #[ignore]
 /// This test spins up a nakamoto-neon node.
-/// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
-///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
-///  struct handles the epoch-2/3 tear-down and spin-up.
+/// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then
+/// switches  to Nakamoto operation (activating pox-4 by submitting a stack-stx
+/// tx). The BootLoop  struct handles the epoch-2/3 tear-down and spin-up.
 /// This test makes three assertions:
 ///  * 5 tenures are mined after 3.0 starts
 ///  * Each tenure has 10 blocks (the coinbase block and 9 interim blocks)
@@ -5808,8 +5839,8 @@ fn check_block_heights() {
             .expect_u128()
             .unwrap();
         let expected_height = if tenure_ix == 0 {
-            // tenure 0 will include an interim block at this point because of the contract publish
-            //  txs
+            // tenure 0 will include an interim block at this point because of the contract
+            // publish  txs
             last_stacks_block_height + 2
         } else {
             last_stacks_block_height + 1
@@ -5935,7 +5966,8 @@ fn check_block_heights() {
         }
     }
 
-    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    // load the chain tip, and assert that it is a nakamoto block and at least 30
+    // blocks have advanced in epoch 3
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
@@ -5992,7 +6024,8 @@ fn nakamoto_attempt_time() {
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
-    // We'll need a lot of accounts for one subtest to avoid MAXIMUM_MEMPOOL_TX_CHAINING
+    // We'll need a lot of accounts for one subtest to avoid
+    // MAXIMUM_MEMPOOL_TX_CHAINING
     struct Account {
         nonce: u64,
         privk: Secp256k1PrivateKey,
@@ -6287,8 +6320,8 @@ fn nakamoto_attempt_time() {
 /// contracts access the state of the current burn block.
 /// We should verify:
 /// - `burn-block-height` in epoch 3.x is the burn block of the Stacks block
-/// - `get-burn-block-info` is able to access info of the current burn block
-///   in epoch 3.x
+/// - `get-burn-block-info` is able to access info of the current burn block in
+///   epoch 3.x
 fn clarity_burn_state() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -6392,7 +6425,8 @@ fn clarity_burn_state() {
     for tenure_ix in 0..tenure_count {
         info!("Mining tenure {tenure_ix}");
 
-        // Don't submit this tx on the first iteration, because the contract is not published yet.
+        // Don't submit this tx on the first iteration, because the contract is not
+        // published yet.
         if tenure_ix > 0 {
             // Call the read-only function and see if we see the correct burn block height
             let result = call_read_only(
@@ -6404,9 +6438,11 @@ fn clarity_burn_state() {
             );
             result.expect_result_ok().expect("Read-only call failed");
 
-            // Pause mining to prevent the stacks block from being mined before the tenure change is processed
+            // Pause mining to prevent the stacks block from being mined before the tenure
+            // change is processed
             TEST_MINE_STALL.set(true);
-            // Submit a tx for the next block (the next block will be a new tenure, so the burn block height will increment)
+            // Submit a tx for the next block (the next block will be a new tenure, so the
+            // burn block height will increment)
             let call_tx = tests::make_contract_call(
                 &sender_sk,
                 sender_nonce,
@@ -6677,7 +6713,8 @@ fn signer_chainstate() {
     //  check that they get rejected by the sortitions_view
     let mut last_tenures_proposals: Option<(StacksPublicKey, NakamotoBlock, Vec<NakamotoBlock>)> =
         None;
-    // hold the first and last blocks of the first tenure. we'll use this to submit reorging proposals
+    // hold the first and last blocks of the first tenure. we'll use this to submit
+    // reorging proposals
     let mut first_tenure_blocks: Option<Vec<NakamotoBlock>> = None;
     for i in 0..15 {
         next_block_and_mine_commit(
@@ -6727,8 +6764,8 @@ fn signer_chainstate() {
             }
         }
 
-        // make sure we're getting a proposal from the current sortition (not 100% guaranteed by
-        //  `next_block_and_mine_commit`) by looping
+        // make sure we're getting a proposal from the current sortition (not 100%
+        // guaranteed by  `next_block_and_mine_commit`) by looping
         let time_start = Instant::now();
         let proposal = loop {
             let proposal = get_latest_block_proposal(&naka_conf, &sortdb).unwrap();
@@ -6976,7 +7013,8 @@ fn signer_chainstate() {
         "A sibling of a previously approved block must be rejected."
     );
 
-    // Case: the block contains a tenure change, but it doesn't confirm all the blocks of the parent tenure
+    // Case: the block contains a tenure change, but it doesn't confirm all the
+    // blocks of the parent tenure
     let reorg_to_block = first_tenure_blocks.as_ref().unwrap().first().unwrap();
     let mut sibling_block_header = NakamotoBlockHeader {
         version: 1,
@@ -7041,7 +7079,8 @@ fn signer_chainstate() {
 
     // Case: the block contains a tenure change, but the parent tenure is a reorg
     let reorg_to_block = first_tenure_blocks.as_ref().unwrap().last().unwrap();
-    // make the sortition_view *think* that our block commit pointed at this old tenure
+    // make the sortition_view *think* that our block commit pointed at this old
+    // tenure
     sortitions_view.cur_sortition.parent_tenure_id = reorg_to_block.header.consensus_hash;
     let mut sibling_block_header = NakamotoBlockHeader {
         version: 1,
@@ -7140,12 +7179,12 @@ fn signer_chainstate() {
 #[test]
 #[ignore]
 /// This test spins up a nakamoto-neon node.
-/// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
-///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
-///  struct handles the epoch-2/3 tear-down and spin-up. It mines a regular Nakamoto tenure
-///  before pausing the commit op to produce an empty sortition, forcing a tenure extend.
-///  Commit ops are resumed, and an additional 15 nakamoto tenures mined.
-/// This test makes three assertions:
+/// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then
+/// switches  to Nakamoto operation (activating pox-4 by submitting a stack-stx
+/// tx). The BootLoop  struct handles the epoch-2/3 tear-down and spin-up. It
+/// mines a regular Nakamoto tenure  before pausing the commit op to produce an
+/// empty sortition, forcing a tenure extend.  Commit ops are resumed, and an
+/// additional 15 nakamoto tenures mined. This test makes three assertions:
 ///  * 15 blocks are mined after 3.0 starts.
 ///  * A transaction submitted to the mempool in 3.0 will be mined in 3.0
 ///  * A tenure extend transaction was successfully mined in 3.0
@@ -7416,7 +7455,8 @@ fn continue_tenure_extend() {
         sleep_ms(5_000);
     }
 
-    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    // load the chain tip, and assert that it is a nakamoto block and at least 30
+    // blocks have advanced in epoch 3
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
@@ -7650,7 +7690,8 @@ fn get_block_times(
 
 #[test]
 #[ignore]
-/// Verify the timestamps using `get-block-info?`, `get-stacks-block-info?`, and `get-tenure-info?`.
+/// Verify the timestamps using `get-block-info?`, `get-stacks-block-info?`, and
+/// `get-tenure-info?`.
 fn check_block_times() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -8047,7 +8088,8 @@ fn parse_block_id(optional_buff32: &Value) -> StacksBlockId {
 
 #[test]
 #[ignore]
-/// Verify all properties in `get-block-info?`, `get-stacks-block-info?`, and `get-tenure-info?`.
+/// Verify all properties in `get-block-info?`, `get-stacks-block-info?`, and
+/// `get-tenure-info?`.
 fn check_block_info() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -8318,7 +8360,8 @@ fn check_block_info() {
     assert_eq!(cur_stacks_block_height, last_stacks_block_height + 1);
     assert_eq!(cur_tenure_height, last_tenure_height + 1);
 
-    // first checks: get-block-info with the current tenure height should return None
+    // first checks: get-block-info with the current tenure height should return
+    // None
     let c0_cur_tenure = get_block_info(contract0_name, cur_tenure_height);
     let c1_cur_tenure = get_block_info(contract1_name, cur_tenure_height);
     // contract 3 uses the current stacks block height rather than current tenure.
@@ -8375,7 +8418,8 @@ fn check_block_info() {
     for (key, value) in c3_last_tenure_ti.iter() {
         assert_eq!(&c0_last_tenure[key], value);
     }
-    // c0 and c1 should have the same header hash data as the *block info* lookup in c3 using last tenure start block ht
+    // c0 and c1 should have the same header hash data as the *block info* lookup in
+    // c3 using last tenure start block ht
     for key in ["header-hash", "id-header-hash"] {
         assert_eq!(&c0_last_tenure[key], &c3_last_tenure_start_bi[key]);
     }
@@ -8385,8 +8429,9 @@ fn check_block_info() {
         last_tenure_start_block_id
     );
 
-    // Now we want to test the behavior of a new nakamoto block within the same tenure
-    // We'll force a nakamoto block by submitting a transfer, then waiting for the nonce to bump
+    // Now we want to test the behavior of a new nakamoto block within the same
+    // tenure We'll force a nakamoto block by submitting a transfer, then
+    // waiting for the nonce to bump
     info!("Mining an interim nakamoto block");
     let transfer_tx = make_stacks_transfer(
         &sender_sk,
@@ -8426,7 +8471,8 @@ fn check_block_info() {
     assert_eq!(interim_tenure_start_block_id, cur_tenure_start_block_id);
     assert_eq!(interim_stacks_block_height, cur_stacks_block_height + 1);
 
-    // querying the same block heights that returned data before should yield the identical result
+    // querying the same block heights that returned data before should yield the
+    // identical result
     assert_eq!(
         c0_last_tenure,
         get_block_info(contract0_name, last_tenure_height)
@@ -8455,8 +8501,9 @@ fn check_block_info() {
     assert_block_info(&c1_cur_tenure, &miner, &miner_spend);
     assert_eq!(c0_cur_tenure, c1_cur_tenure);
 
-    // c0 and c1 should have the same header hash data as the *block info* lookup in c3 using cur_stacks_block
-    //  (because cur_stacks_tip == cur_tenure_start_block_id, as was asserted before)
+    // c0 and c1 should have the same header hash data as the *block info* lookup in
+    // c3 using cur_stacks_block  (because cur_stacks_tip ==
+    // cur_tenure_start_block_id, as was asserted before)
     for key in ["header-hash", "id-header-hash"] {
         assert_eq!(&c0_cur_tenure[key], &c3_cur_tenure[key]);
     }
@@ -8484,8 +8531,8 @@ fn check_block_info() {
         .unwrap()
         .is_none());
 
-    // Now we'll mine one more interim block so that we can test that the stacks-block-info outputs update
-    //  again.
+    // Now we'll mine one more interim block so that we can test that the
+    // stacks-block-info outputs update  again.
     info!("Mining a second interim nakamoto block");
     let transfer_tx = make_stacks_transfer(
         &sender_sk,
@@ -8593,11 +8640,13 @@ fn check_block_info() {
 
         if is_nakamoto_block {
             if block_has_tenure_change {
-                // tenure change block should have tenure height 1 more than the last tenure height
+                // tenure change block should have tenure height 1 more than the last tenure
+                // height
                 assert_eq!(last_tenture_height + 1, tenure_height);
                 last_tenture_height = tenure_height;
             } else {
-                // tenure extend block should have the same tenure height as the last tenure height
+                // tenure extend block should have the same tenure height as the last tenure
+                // height
                 assert_eq!(last_tenture_height, tenure_height);
             }
         } else {
@@ -9115,7 +9164,8 @@ fn mock_mining() {
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, proposals_submitted);
 
-    // Wait one block to confirm the VRF register, wait until a block commit is submitted
+    // Wait one block to confirm the VRF register, wait until a block commit is
+    // submitted
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
     let mut follower_conf = naka_conf.clone();
@@ -9258,7 +9308,8 @@ fn mock_mining() {
         });
     }
 
-    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    // load the chain tip, and assert that it is a nakamoto block and at least 30
+    // blocks have advanced in epoch 3
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
@@ -9454,7 +9505,8 @@ fn utxo_check_on_startup_recover() {
 
 /// Test `/v3/signer` API endpoint
 ///
-/// This endpoint returns a count of how many blocks a signer has signed during a given reward cycle
+/// This endpoint returns a count of how many blocks a signer has signed during
+/// a given reward cycle
 #[test]
 #[ignore]
 fn v3_signer_api_endpoint() {
@@ -9927,9 +9979,9 @@ fn nakamoto_lockup_events() {
 #[test]
 #[ignore]
 /// This test spins up a nakamoto-neon node.
-/// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
-///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
-///  struct handles the epoch-2/3 tear-down and spin-up.
+/// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then
+/// switches  to Nakamoto operation (activating pox-4 by submitting a stack-stx
+/// tx). The BootLoop  struct handles the epoch-2/3 tear-down and spin-up.
 /// This test asserts that a long running transaction doesn't get mined,
 ///  but that the stacks-node continues to make progress
 fn skip_mining_long_tx() {
@@ -10033,8 +10085,8 @@ fn skip_mining_long_tx() {
             //  but we disable the block broadcast, so the tx doesn't end up included in a
             //  confirmed block, even though its been evaluated.
             // once we've seen the miner increment the mined counter, we allow it to start
-            //  broadcasting (because at this point, any future blocks produced will skip the long
-            //  running tx because they have an estimate).
+            //  broadcasting (because at this point, any future blocks produced will skip
+            // the long  running tx because they have an estimate).
             wait_for(30, || {
                 Ok(mined_naka_blocks.load(Ordering::SeqCst) > mined_before)
             })
@@ -10090,7 +10142,8 @@ fn skip_mining_long_tx() {
     let sender_1_nonce = get_account(&http_origin, &sender_1_addr).nonce;
     let sender_2_nonce = get_account(&http_origin, &sender_2_addr).nonce;
 
-    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    // load the chain tip, and assert that it is a nakamoto block and at least 30
+    // blocks have advanced in epoch 3
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
         .unwrap();
@@ -10120,8 +10173,8 @@ fn skip_mining_long_tx() {
     run_loop_thread.join().unwrap();
 }
 
-/// Verify that a node in which there is no prepare-phase block can be recovered by
-/// live-instantiating shadow tenures in the prepare phase
+/// Verify that a node in which there is no prepare-phase block can be recovered
+/// by live-instantiating shadow tenures in the prepare phase
 #[test]
 #[ignore]
 fn test_shadow_recovery() {
@@ -10464,7 +10517,8 @@ fn sip029_coinbase_change() {
             "Coinbase at {} {}: {}",
             sn.block_height, &sn.consensus_hash, coinbase
         );
-        // use >= for coinbases since a missed sortition can lead to coinbase accumulation
+        // use >= for coinbases since a missed sortition can lead to coinbase
+        // accumulation
         if sn.block_height < 245 {
             if prev_sortition {
                 assert_eq!(coinbase, 1_000_000_000 + initial_mining_bonus);
@@ -10513,8 +10567,9 @@ fn sip029_coinbase_change() {
 }
 
 /// This test is testing that the clarity cost spend down works as expected,
-/// spreading clarity contract calls across the tenure instead of all in the first block.
-/// It also ensures that the clarity cost resets at the start of each tenure.
+/// spreading clarity contract calls across the tenure instead of all in the
+/// first block. It also ensures that the clarity cost resets at the start of
+/// each tenure.
 #[test]
 #[ignore]
 fn clarity_cost_spend_down() {
@@ -10907,9 +10962,10 @@ fn consensus_hash_event_dispatcher() {
 /// Relayer processes sortition N
 /// Miner wins sortition at Bitcoin height N+1
 /// Transactions that depend on the burn view get submitted to the mempool
-/// A flash block at height N+2 happens before the miner can publish its block-found for N+1
-/// The miner mines these transactions with a burn view for height N+2
-/// Result: the miner issues a tenure-extend from N+1 with burn view for N+2
+/// A flash block at height N+2 happens before the miner can publish its
+/// block-found for N+1 The miner mines these transactions with a burn view for
+/// height N+2 Result: the miner issues a tenure-extend from N+1 with burn view
+/// for N+2
 #[test]
 #[ignore]
 fn test_tenure_extend_from_flashblocks() {
@@ -11083,7 +11139,8 @@ fn test_tenure_extend_from_flashblocks() {
     assert!(sort_tip.sortition);
     assert_eq!(sort_tip.consensus_hash, election_tip.consensus_hash);
 
-    // stop the relayer thread from starting a miner thread, and stop the miner thread from mining
+    // stop the relayer thread from starting a miner thread, and stop the miner
+    // thread from mining
     TEST_MINE_STALL.set(true);
     TEST_MINER_THREAD_STALL.set(true);
 
@@ -11116,7 +11173,8 @@ fn test_tenure_extend_from_flashblocks() {
     assert!(!sort_tip.sortition);
     // canonical stacks tip burn view has not advanced
     assert_eq!(new_canonical_stacks_tip_ch, canonical_stacks_tip_ch);
-    // the sortition that elected the ongoing tenure is not the canonical sortition tip
+    // the sortition that elected the ongoing tenure is not the canonical sortition
+    // tip
     assert_ne!(sort_tip.consensus_hash, election_tip.consensus_hash);
 
     // we can, however, continue the tenure
@@ -11130,8 +11188,8 @@ fn test_tenure_extend_from_flashblocks() {
     .unwrap();
     assert_eq!(canonical_stacks_tip, election_tip);
 
-    // if we didn't win the last block -- tantamount to the sortition winner miner key being
-    // different -- then we can't continue the tenure.
+    // if we didn't win the last block -- tantamount to the sortition winner miner
+    // key being different -- then we can't continue the tenure.
     assert!(RelayerThread::can_continue_tenure(
         &sortdb,
         &mut chainstate,
@@ -11352,8 +11410,9 @@ fn test_tenure_extend_from_flashblocks() {
     follower_thread.join().unwrap();
 }
 
-/// Mine a smart contract transaction with a call to `from-consensus-buff?` that would decode to an
-/// invalid Principal. Verify that this transaction is dropped from the mempool.
+/// Mine a smart contract transaction with a call to `from-consensus-buff?` that
+/// would decode to an invalid Principal. Verify that this transaction is
+/// dropped from the mempool.
 #[test]
 #[ignore]
 fn mine_invalid_principal_from_consensus_buff() {

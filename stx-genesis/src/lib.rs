@@ -4,14 +4,16 @@ use std::io::{self, BufReader, Cursor, Lines};
 use libflate::deflate::{self, Decoder};
 
 pub struct GenesisAccountBalance {
-    /// A STX or BTC address (BTC addresses should be converted to STX when used).
+    /// A STX or BTC address (BTC addresses should be converted to STX when
+    /// used).
     pub address: String,
     /// Balance in microSTX.
     pub amount: u64,
 }
 
 pub struct GenesisAccountLockup {
-    /// A STX or BTC address (BTC addresses should be converted to STX when used).
+    /// A STX or BTC address (BTC addresses should be converted to STX when
+    /// used).
     pub address: String,
     /// Locked amount in microSTX.
     pub amount: u64,

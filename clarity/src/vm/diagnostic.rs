@@ -18,8 +18,9 @@ use std::fmt;
 
 use crate::vm::representations::Span;
 
-/// In a near future, we can go further in our static analysis and provide different levels
-/// of diagnostics, such as warnings, hints, best practices, etc.
+/// In a near future, we can go further in our static analysis and provide
+/// different levels of diagnostics, such as warnings, hints, best practices,
+/// etc.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub enum Level {
     Note,

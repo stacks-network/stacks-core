@@ -33,11 +33,11 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
 use crate::util_lib::boot::boot_code_id;
 
-/// Implements AtlasDB and associated API. Stores information about attachments and attachment
-/// instances.
+/// Implements AtlasDB and associated API. Stores information about attachments
+/// and attachment instances.
 pub mod db;
-/// Implements `AttachmentsDownloader`, which attempts to download the requested batch of
-/// attachment instances from peers.
+/// Implements `AttachmentsDownloader`, which attempts to download the requested
+/// batch of attachment instances from peers.
 pub mod download;
 
 pub const MAX_ATTACHMENT_INV_PAGES_PER_REQUEST: usize = 8;

@@ -313,10 +313,11 @@ fn check_proposal_invalid_status() {
 
     view.cur_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
     block.header.consensus_hash = view.last_sortition.as_ref().unwrap().consensus_hash;
-    // this block passes the signer state checks, even though it doesn't have a tenure change tx.
-    // this is because the signer state does not perform the tenure change logic checks: it needs
-    // the stacks-node to do that (because the stacks-node actually knows whether or not their
-    // parent blocks have been seen before, while the signer state checks are only reasoning about
+    // this block passes the signer state checks, even though it doesn't have a
+    // tenure change tx. this is because the signer state does not perform the
+    // tenure change logic checks: it needs the stacks-node to do that (because
+    // the stacks-node actually knows whether or not their parent blocks have
+    // been seen before, while the signer state checks are only reasoning about
     // stacks blocks seen by the signer, which may be a subset)
     assert!(view
         .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk, false)

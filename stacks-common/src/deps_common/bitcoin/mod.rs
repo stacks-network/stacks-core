@@ -1,4 +1,5 @@
-// This code is derived from the Rust Bitcoin Library.  Copyright notices appear below.
+// This code is derived from the Rust Bitcoin Library.  Copyright notices appear
+// below.
 
 // Rust Bitcoin Library
 // Written in 2014 by
@@ -16,14 +17,13 @@
 
 //! # Rust Bitcoin Library
 //!
-//! This is a library for which supports the Bitcoin network protocol and associated
-//! primitives. It is designed for Rust programs built to work with the Bitcoin
-//! network.
+//! This is a library for which supports the Bitcoin network protocol and
+//! associated primitives. It is designed for Rust programs built to work with
+//! the Bitcoin network.
 //!
-//! It is also written entirely in Rust to illustrate the benefits of strong type
-//! safety, including ownership and lifetime, for financial and/or cryptographic
-//! software.
-//!
+//! It is also written entirely in Rust to illustrate the benefits of strong
+//! type safety, including ownership and lifetime, for financial and/or
+//! cryptographic software.
 
 // Clippy flags
 #![allow(clippy::needless_range_loop)] // suggests making a big mess of array newtypes

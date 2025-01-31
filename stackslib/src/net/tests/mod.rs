@@ -370,7 +370,8 @@ impl NakamotoBootPlan {
         // reward cycles are 5 blocks long
         // first 25 blocks are boot-up
         // reward cycle 6 instantiates pox-3
-        // we stack in reward cycle 7 so pox-3 is evaluated to find reward set participation
+        // we stack in reward cycle 7 so pox-3 is evaluated to find reward set
+        // participation
         peer_config
             .stacker_dbs
             .push(boot_code_id(MINERS_NAME, false));
@@ -920,8 +921,8 @@ impl NakamotoBootPlan {
         );
 
         // verify all transactions succeeded.
-        // already checked that `all_blocks` matches the boot plan, so just check that each
-        // transaction in `all_blocks` ran to completion
+        // already checked that `all_blocks` matches the boot plan, so just check that
+        // each transaction in `all_blocks` ran to completion
         if let Some(observer) = observer {
             let mut observed_blocks = observer.get_blocks();
             let mut block_idx = (peer.config.burnchain.pox_constants.pox_4_activation_height
@@ -1557,7 +1558,8 @@ fn test_network_result_update() {
     network_result_union
         .uploaded_nakamoto_blocks
         .append(&mut n1.uploaded_nakamoto_blocks);
-    // stackerdb chunks from n1 get dropped since their rc_consensus_hash no longer matches
+    // stackerdb chunks from n1 get dropped since their rc_consensus_hash no longer
+    // matches
     network_result_union
         .synced_transactions
         .append(&mut n1.synced_transactions);

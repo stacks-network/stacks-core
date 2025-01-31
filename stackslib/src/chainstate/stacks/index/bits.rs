@@ -14,7 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-/// This file contains low-level methods for reading and manipulating Trie node data.
+/// This file contains low-level methods for reading and manipulating Trie node
+/// data.
 use std::fmt;
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::{error, io};
@@ -34,8 +35,8 @@ use crate::chainstate::stacks::index::node::{
 use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
 use crate::chainstate::stacks::index::{BlockMap, Error, MarfTrieId, TrieLeaf};
 
-/// Get the size of a Trie path (note that a Trie path is 32 bytes long, and can definitely _not_
-/// be over 255 bytes).
+/// Get the size of a Trie path (note that a Trie path is 32 bytes long, and can
+/// definitely _not_ be over 255 bytes).
 pub fn get_path_byte_len(p: &[u8]) -> usize {
     assert!(p.len() < 255);
     let path_len_byte_len = 1;
@@ -100,14 +101,15 @@ pub fn node_id_to_ptr_count(node_id: u8) -> usize {
     }
 }
 
-/// Helper to determine how many bytes a Trie node's child pointers will take to encode.
+/// Helper to determine how many bytes a Trie node's child pointers will take to
+/// encode.
 pub fn get_ptrs_byte_len(ptrs: &[TriePtr]) -> usize {
     let node_id_len = 1;
     node_id_len + TRIEPTR_SIZE * ptrs.len()
 }
 
-/// Read a Trie node's children from a Readable object, and write them to the given ptrs_buf slice.
-/// Returns the Trie node ID detected.
+/// Read a Trie node's children from a Readable object, and write them to the
+/// given ptrs_buf slice. Returns the Trie node ID detected.
 pub fn ptrs_from_bytes<R: Read>(
     node_id: u8,
     r: &mut R,
@@ -212,8 +214,9 @@ pub fn get_nodetype_hash_bytes<T: MarfTrieId, M: BlockMap>(
     }
 }
 
-/// Low-level method for reading a TrieHash into a byte buffer from a Read-able and Seek-able struct.
-/// The byte buffer must have sufficient space to hold the hash, or this program panics.
+/// Low-level method for reading a TrieHash into a byte buffer from a Read-able
+/// and Seek-able struct. The byte buffer must have sufficient space to hold the
+/// hash, or this program panics.
 pub fn read_hash_bytes<F: Read>(f: &mut F) -> Result<[u8; TRIEHASH_ENCODED_SIZE], Error> {
     let mut hashbytes = [0u8; TRIEHASH_ENCODED_SIZE];
     f.read_exact(&mut hashbytes).map_err(|e| {
@@ -248,8 +251,9 @@ pub fn read_block_identifier<F: Read + Seek>(f: &mut F) -> Result<u32, Error> {
     Ok(u32::from_le_bytes(bytes))
 }
 
-/// Low-level method for reading a node's hash bytes into a buffer from a Read-able and Seek-able struct.
-/// The byte buffer must have sufficient space to hold the hash, or this program panics.
+/// Low-level method for reading a node's hash bytes into a buffer from a
+/// Read-able and Seek-able struct. The byte buffer must have sufficient space
+/// to hold the hash, or this program panics.
 pub fn read_node_hash_bytes<F: Read + Seek>(
     f: &mut F,
     ptr: &TriePtr,
@@ -265,7 +269,8 @@ pub fn read_root_hash<T: MarfTrieId>(s: &mut TrieStorageConnection<T>) -> Result
     Ok(s.read_node_hash_bytes(&ptr)?)
 }
 
-/// count the number of allocated children in a list of a node's children pointers.
+/// count the number of allocated children in a list of a node's children
+/// pointers.
 pub fn count_children(children: &[TriePtr]) -> usize {
     let mut cnt = 0;
     for i in 0..children.len() {
@@ -382,8 +387,8 @@ pub fn get_node_byte_len(node: &TrieNodeType) -> usize {
     hash_len + node_byte_len
 }
 
-/// write all the bytes for a node, including its hash, to the given Writeable object.
-/// Returns the number of bytes written.
+/// write all the bytes for a node, including its hash, to the given Writeable
+/// object. Returns the number of bytes written.
 pub fn write_nodetype_bytes<F: Write + Seek>(
     f: &mut F,
     node: &TrieNodeType,

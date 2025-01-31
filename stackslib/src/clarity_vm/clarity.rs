@@ -73,23 +73,25 @@ use crate::util_lib::strings::StacksString;
 ///
 /// ClarityInstance takes ownership of a MARF + Sqlite store used for
 ///   it's data operations.
-/// The ClarityInstance defines a `begin_block(bhh, bhh, bhh) -> ClarityBlockConnection`
-///    function.
-/// ClarityBlockConnections are used for executing transactions within the context of
-///    a single block.
-/// Only one ClarityBlockConnection may be open at a time (enforced by the borrow checker)
-///   and ClarityBlockConnections must be `commit_block`ed or `rollback_block`ed before discarding
-///   begining the next connection (enforced by runtime panics).
+/// The ClarityInstance defines a `begin_block(bhh, bhh, bhh) ->
+/// ClarityBlockConnection`    function.
+/// ClarityBlockConnections are used for executing transactions within the
+/// context of    a single block.
+/// Only one ClarityBlockConnection may be open at a time (enforced by the
+/// borrow checker)   and ClarityBlockConnections must be `commit_block`ed or
+/// `rollback_block`ed before discarding   begining the next connection
+/// (enforced by runtime panics).
 ///
-/// Note on generics and abstracting the structs in `clarity_vm::clarity` into `libclarity`: while
-///   multiple consumers of `libclarity` may need a high-level interface like
-///   instance -> block -> transaction, their lifetime parameters make the use of rust traits very
-///   difficult (in all likelihood, it would require higher-ordered traits, which is a
-///   discussed-but-not-yet-implemented feature of rust). Instead, consumers of `libclarity` which
-///   wish to benefit from some abstraction of high-level interfaces should implement the
-///   `TransactionConnection` trait, which contains auto implementations for the typical transaction
-///   types in a Clarity-based blockchain.
-///
+/// Note on generics and abstracting the structs in `clarity_vm::clarity` into
+/// `libclarity`: while   multiple consumers of `libclarity` may need a
+/// high-level interface like   instance -> block -> transaction, their lifetime
+/// parameters make the use of rust traits very   difficult (in all likelihood,
+/// it would require higher-ordered traits, which is a
+///   discussed-but-not-yet-implemented feature of rust). Instead, consumers of
+/// `libclarity` which   wish to benefit from some abstraction of high-level
+/// interfaces should implement the   `TransactionConnection` trait, which
+/// contains auto implementations for the typical transaction   types in a
+/// Clarity-based blockchain.
 pub struct ClarityInstance {
     datastore: MarfedKV,
     mainnet: bool,
@@ -106,7 +108,6 @@ pub struct ClarityInstance {
 /// This is necessary to allow callers complete other operations like
 /// preparing a commitment to the chainstate headers MARF, and
 /// issuring event dispatches, before the Clarity database commits.
-///
 pub struct PreCommitClarityBlock<'a> {
     datastore: WritableMarfStore<'a>,
     commit_to: StacksBlockId,
@@ -114,7 +115,6 @@ pub struct PreCommitClarityBlock<'a> {
 
 ///
 /// A high-level interface for Clarity VM interactions within a single block.
-///
 pub struct ClarityBlockConnection<'a, 'b> {
     datastore: WritableMarfStore<'a>,
     header_db: &'b dyn HeadersDB,
@@ -194,8 +194,9 @@ impl ClarityBlockConnection<'_, '_> {
         }
     }
 
-    /// Reset the block's total execution to the given cost, if there is a cost tracker at all.
-    /// Used by the miner to "undo" applying a transaction that exceeded the budget.
+    /// Reset the block's total execution to the given cost, if there is a cost
+    /// tracker at all. Used by the miner to "undo" applying a transaction
+    /// that exceeded the budget.
     pub fn reset_block_cost(&mut self, cost: ExecutionCost) {
         if let Some(ref mut cost_tracker) = self.cost_track {
             cost_tracker.set_total(cost);
@@ -234,8 +235,8 @@ impl ClarityBlockConnection<'_, '_> {
         burn_state_db: &dyn BurnStateDB,
     ) -> Result<StacksEpochId, Error> {
         let mut db = self.datastore.as_clarity_db(self.header_db, burn_state_db);
-        // NOTE: the begin/roll_back shouldn't be necessary with how this gets used in practice,
-        // but is put here defensively.
+        // NOTE: the begin/roll_back shouldn't be necessary with how this gets used in
+        // practice, but is put here defensively.
         db.begin();
         let result = db.get_clarity_epoch_version();
         db.roll_back()?;
@@ -574,8 +575,8 @@ impl ClarityInstance {
         }
     }
 
-    /// Open a read-only connection at `at_block`. This will be evaluated in the Stacks epoch that
-    ///  was active *during* the evaluation of `at_block`
+    /// Open a read-only connection at `at_block`. This will be evaluated in the
+    /// Stacks epoch that  was active *during* the evaluation of `at_block`
     pub fn read_only_connection<'a>(
         &'a mut self,
         at_block: &StacksBlockId,
@@ -586,8 +587,8 @@ impl ClarityInstance {
             .unwrap_or_else(|_| panic!("BUG: failed to open block {}", at_block))
     }
 
-    /// Open a read-only connection at `at_block`. This will be evaluated in the Stacks epoch that
-    ///  was active *during* the evaluation of `at_block`
+    /// Open a read-only connection at `at_block`. This will be evaluated in the
+    /// Stacks epoch that  was active *during* the evaluation of `at_block`
     pub fn read_only_connection_checked<'a>(
         &'a mut self,
         at_block: &StacksBlockId,
@@ -616,8 +617,8 @@ impl ClarityInstance {
         datastore.trie_exists_for_block(bhh)
     }
 
-    /// Evaluate program read-only at `at_block`. This will be evaluated in the Stacks epoch that
-    ///  was active *during* the evaluation of `at_block`
+    /// Evaluate program read-only at `at_block`. This will be evaluated in the
+    /// Stacks epoch that  was active *during* the evaluation of `at_block`
     pub fn eval_read_only(
         &mut self,
         at_block: &StacksBlockId,
@@ -648,7 +649,8 @@ impl ClarityInstance {
 }
 
 impl ClarityConnection for ClarityBlockConnection<'_, '_> {
-    /// Do something with ownership of the underlying DB that involves only reading.
+    /// Do something with ownership of the underlying DB that involves only
+    /// reading.
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where
         F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase),
@@ -679,7 +681,8 @@ impl ClarityConnection for ClarityBlockConnection<'_, '_> {
 }
 
 impl ClarityConnection for ClarityReadOnlyConnection<'_> {
-    /// Do something with ownership of the underlying DB that involves only reading.
+    /// Do something with ownership of the underlying DB that involves only
+    /// reading.
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where
         F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase),
@@ -726,7 +729,8 @@ impl<'a> ClarityBlockConnection<'a, '_> {
     /// (2) rolling back side-storage
     pub fn rollback_block(self) {
         // this is a "lower-level" rollback than the roll backs performed in
-        //   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
+        //   ClarityDatabase or AnalysisDatabase -- this is done at the backing store
+        // level.
         debug!("Rollback Clarity datastore");
         self.datastore.rollback_block();
     }
@@ -736,7 +740,8 @@ impl<'a> ClarityBlockConnection<'a, '_> {
     /// (2) rolling back side-storage
     pub fn rollback_unconfirmed(self) {
         // this is a "lower-level" rollback than the roll backs performed in
-        //   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
+        //   ClarityDatabase or AnalysisDatabase -- this is done at the backing store
+        // level.
         debug!("Rollback unconfirmed Clarity datastore");
         self.datastore
             .rollback_unconfirmed()
@@ -794,8 +799,9 @@ impl<'a> ClarityBlockConnection<'a, '_> {
     /// Save all unconfirmed state by
     /// (1) committing the current unconfirmed MARF to storage,
     /// (2) committing side-storage
-    /// Unconfirmed data has globally-unique block hashes that are cryptographically derived from a
-    /// confirmed block hash, so they're exceedingly unlikely to conflict with existing blocks.
+    /// Unconfirmed data has globally-unique block hashes that are
+    /// cryptographically derived from a confirmed block hash, so they're
+    /// exceedingly unlikely to conflict with existing blocks.
     pub fn commit_unconfirmed(self) -> LimitedCostTracker {
         debug!("Save unconfirmed Clarity datastore");
         self.datastore.commit_unconfirmed();
@@ -969,8 +975,8 @@ impl<'a> ClarityBlockConnection<'a, '_> {
             let pox_2_contract_tx =
                 StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
 
-            // upgrade epoch before starting transaction-processing, since .pox-2 needs clarity2
-            // features
+            // upgrade epoch before starting transaction-processing, since .pox-2 needs
+            // clarity2 features
             self.epoch = StacksEpochId::Epoch21;
             let pox_2_initialization_receipt = self.as_transaction(|tx_conn| {
                 // bump the epoch in the Clarity DB
@@ -1639,7 +1645,8 @@ impl<'a> ClarityBlockConnection<'a, '_> {
 }
 
 impl ClarityConnection for ClarityTransactionConnection<'_, '_> {
-    /// Do something with ownership of the underlying DB that involves only reading.
+    /// Do something with ownership of the underlying DB that involves only
+    /// reading.
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where
         F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase),
@@ -2384,8 +2391,9 @@ mod tests {
             conn.rollback_block();
         }
 
-        // contract is still there, in unconfirmed status, even though the conn got explicitly
-        // rolled back (but that should only drop the current TrieRAM)
+        // contract is still there, in unconfirmed status, even though the conn got
+        // explicitly rolled back (but that should only drop the current
+        // TrieRAM)
         {
             let mut conn = clarity_instance.begin_unconfirmed(
                 &StacksBlockId([0; 32]),
@@ -2757,8 +2765,8 @@ mod tests {
             }
 
             fn get_stacks_epoch(&self, _height: u32) -> Option<StacksEpoch> {
-                // Note: We return this StacksEpoch for every input, because this test is not exercising
-                // this method.
+                // Note: We return this StacksEpoch for every input, because this test is not
+                // exercising this method.
                 Some(StacksEpoch {
                     epoch_id: StacksEpochId::Epoch20,
                     start_height: 0,

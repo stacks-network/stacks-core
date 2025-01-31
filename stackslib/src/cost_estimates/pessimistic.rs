@@ -18,9 +18,11 @@ use crate::util_lib::db::{
     sql_pragma, sqlite_open, table_exists, tx_begin_immediate_sqlite, u64_to_sql,
 };
 
-/// This struct pessimistically estimates the `ExecutionCost` of transaction payloads.
+/// This struct pessimistically estimates the `ExecutionCost` of transaction
+/// payloads.
 ///
-/// Each operation has a string-valued key (see `PessimisticEstimator::get_estimate_key`).
+/// Each operation has a string-valued key (see
+/// `PessimisticEstimator::get_estimate_key`).
 ///
 /// For each pair of 1) operation key, and 2) dimension of
 /// ExecutionCost, the PessimisticEstimator retains a set of the top
@@ -93,9 +95,10 @@ impl Samples {
         JsonValue::from(self.items.as_slice())
     }
 
-    /// Add a new sample to this struct. The pessimistic sampler only adds to the sample set
-    ///  if the sample set is less than SAMPLE_SIZE or the new sample is greater than the current min.
-    /// Boolean return indicates whether or not the sample was included.
+    /// Add a new sample to this struct. The pessimistic sampler only adds to
+    /// the sample set  if the sample set is less than SAMPLE_SIZE or the
+    /// new sample is greater than the current min. Boolean return indicates
+    /// whether or not the sample was included.
     fn update_with(&mut self, sample: u64) -> bool {
         if self.items.len() < SAMPLE_SIZE {
             self.items.push(sample);
@@ -192,8 +195,8 @@ impl PessimisticEstimator {
         Ok(PessimisticEstimator { db, log_error })
     }
 
-    /// Check if the SQL database was already created. Necessary to avoid races if
-    ///  different threads open an estimator at the same time.
+    /// Check if the SQL database was already created. Necessary to avoid races
+    /// if  different threads open an estimator at the same time.
     fn db_already_instantiated(tx: &SqliteTransaction) -> Result<bool, SqliteError> {
         table_exists(tx, "pessimistic_estimator")
     }

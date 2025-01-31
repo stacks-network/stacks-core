@@ -27,7 +27,6 @@
 //! critical differences from the network format, e.g. scripts come
 //! with an opcode decode, hashes are big-endian, numbers are typically
 //! big-endian decimals, etc.)
-//!
 
 use std::hash::Hash;
 use std::mem;

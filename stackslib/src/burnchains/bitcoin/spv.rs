@@ -78,9 +78,10 @@ const SPV_INITIAL_SCHEMA: &[&str] = &[
 ];
 
 // store the running chain work totals for each difficulty interval.
-// unlike the `headers` table, this table will never be deleted from, since we use it to determine
-// whether or not newly-arrived headers represent a better chain than the best-known chain.  The
-// only way to _replace_ a row is to find a header difficulty interval with a _higher_ work score.
+// unlike the `headers` table, this table will never be deleted from, since we
+// use it to determine whether or not newly-arrived headers represent a better
+// chain than the best-known chain.  The only way to _replace_ a row is to find
+// a header difficulty interval with a _higher_ work score.
 const SPV_SCHEMA_2: &[&str] = &[r#"
     CREATE TABLE chain_work(
         interval INTEGER PRIMARY KEY,
@@ -378,7 +379,8 @@ impl SpvClient {
     }
 
     /// Find the highest interval for which we have a chain work score.
-    /// The interval corresponds to blocks (interval - 1) * 2016 ... interval * 2016
+    /// The interval corresponds to blocks (interval - 1) * 2016 ... interval *
+    /// 2016
     pub fn find_highest_work_score_interval(&self) -> Result<u64, btc_error> {
         let max_interval_opt: Option<i64> = self
             .conn()
@@ -408,8 +410,8 @@ impl SpvClient {
     }
 
     /// Store an interval's running total work.
-    /// The interval must not yet have an interval work score, or must be less than or equal to the
-    /// currently-stored interval.
+    /// The interval must not yet have an interval work score, or must be less
+    /// than or equal to the currently-stored interval.
     pub fn store_interval_work(&mut self, interval: u64, work: Uint256) -> Result<(), btc_error> {
         if let Some(cur_work) = self.find_interval_work(interval)? {
             if cur_work > work {
@@ -433,8 +435,8 @@ impl SpvClient {
         Ok(())
     }
 
-    /// Update the total chain work table up to a given interval (even if partial).
-    /// This method is idempotent.
+    /// Update the total chain work table up to a given interval (even if
+    /// partial). This method is idempotent.
     /// Returns the total work.
     pub fn update_chain_work(&mut self) -> Result<Uint256, btc_error> {
         let highest_interval = self.find_highest_work_score_interval()?;
@@ -487,7 +489,8 @@ impl SpvClient {
     }
 
     /// Get the total chain work.
-    /// You will have needed to call update_chain_work() prior to this after inserting new headers.
+    /// You will have needed to call update_chain_work() prior to this after
+    /// inserting new headers.
     pub fn get_chain_work(&self) -> Result<Uint256, btc_error> {
         let highest_full_interval = self.find_highest_work_score_interval()?;
         let highest_interval_work = if highest_full_interval == 0 {
@@ -561,8 +564,9 @@ impl SpvClient {
         return Ok(());
     }
 
-    /// Verify that the given headers have the correct amount of work to be appended to our
-    /// local header chain.  Checks the difficulty between [interval, interval+1]
+    /// Verify that the given headers have the correct amount of work to be
+    /// appended to our local header chain.  Checks the difficulty between
+    /// [interval, interval+1]
     fn validate_header_work(
         &self,
         interval_start: u64,
@@ -638,7 +642,8 @@ impl SpvClient {
         return Ok(());
     }
 
-    /// Report how many block headers (+ 1) we have downloaded to the given path.
+    /// Report how many block headers (+ 1) we have downloaded to the given
+    /// path.
     pub fn get_headers_height(&self) -> Result<u64, btc_error> {
         let max = self.get_highest_header_height()?;
         Ok(max + 1)
@@ -662,7 +667,8 @@ impl SpvClient {
     }
 
     /// Read the block header at a particular height
-    /// Returns None if the requested block height is beyond the end of the headers file
+    /// Returns None if the requested block height is beyond the end of the
+    /// headers file
     pub fn read_block_header(
         &self,
         block_height: u64,
@@ -678,7 +684,8 @@ impl SpvClient {
         }))
     }
 
-    /// Find a block header height with a given burnchain header hash, if it is present
+    /// Find a block header height with a given burnchain header hash, if it is
+    /// present
     pub fn find_block_header_height(
         &self,
         burn_header_hash: &BurnchainHeaderHash,
@@ -692,11 +699,11 @@ impl SpvClient {
     }
 
     /// Get a range of block headers from a file.
-    /// If the range falls of the end of the headers file, then the returned array will be
-    /// truncated to not include them (note that this method can return an empty list of the
-    /// start_block is off the end of the file).
-    /// If the range does _not_ include start_block, then this method returns an empty array (even
-    /// if there are headers in the range).
+    /// If the range falls of the end of the headers file, then the returned
+    /// array will be truncated to not include them (note that this method
+    /// can return an empty list of the start_block is off the end of the
+    /// file). If the range does _not_ include start_block, then this method
+    /// returns an empty array (even if there are headers in the range).
     pub fn read_block_headers(
         &self,
         start_block: u64,
@@ -809,8 +816,9 @@ impl SpvClient {
     /// Handle a Headers message
     /// -- validate them
     /// -- store them
-    /// Can error if there has been a reorg, or if the headers don't correspond to headers we asked
-    /// for, or if the new chain has less total work than the old chain.
+    /// Can error if there has been a reorg, or if the headers don't correspond
+    /// to headers we asked for, or if the new chain has less total work
+    /// than the old chain.
     fn handle_headers(
         &mut self,
         insert_height: u64,
@@ -915,8 +923,8 @@ impl SpvClient {
     }
 
     /// Insert block headers into the headers DB.
-    /// Verify that the first header's parent exists and connects with this header chain, and verify that
-    /// the headers are themselves contiguous.
+    /// Verify that the first header's parent exists and connects with this
+    /// header chain, and verify that the headers are themselves contiguous.
     /// start_height refers to the _parent block_ of the given header stream.
     pub fn insert_block_headers_after(
         &mut self,
@@ -962,8 +970,9 @@ impl SpvClient {
     }
 
     /// Insert block headers into the headers DB.
-    /// If the last header's child exists, verify that it connects with the given header chain.
-    /// start_height refers to the _parent block_ of the given header stream
+    /// If the last header's child exists, verify that it connects with the
+    /// given header chain. start_height refers to the _parent block_ of the
+    /// given header stream
     pub fn insert_block_headers_before(
         &mut self,
         start_height: u64,
@@ -1063,12 +1072,14 @@ impl SpvClient {
         (bits, target)
     }
 
-    /// Determine the target difficult over a given difficulty adjustment interval
-    /// the `interval` parameter is the difficulty interval -- a 2016-block interval.
-    /// * On mainnet, `headers_in_range` can be empty. If it's not empty, then the 0th element is
-    /// treated as the parent of `current_header`.  On testnet, `headers_in_range` must be a range
-    /// of headers in the given `interval`.
-    /// Returns (new bits, new target)
+    /// Determine the target difficult over a given difficulty adjustment
+    /// interval the `interval` parameter is the difficulty interval -- a
+    /// 2016-block interval.
+    /// * On mainnet, `headers_in_range` can be empty. If it's not empty, then
+    ///   the 0th element is
+    /// treated as the parent of `current_header`.  On testnet,
+    /// `headers_in_range` must be a range of headers in the given
+    /// `interval`. Returns (new bits, new target)
     pub fn get_target(
         &self,
         current_header_height: u64,
@@ -1117,8 +1128,8 @@ impl SpvClient {
         if current_header_height % BLOCK_DIFFICULTY_CHUNK_SIZE != 0
             && self.network_id == BitcoinNetworkType::Testnet
         {
-            // In Testnet mode, if the new block's timestamp is more than 2 * 60 * 10 minutes
-            // then allow mining of a min-difficulty block.
+            // In Testnet mode, if the new block's timestamp is more than 2 * 60 * 10
+            // minutes then allow mining of a min-difficulty block.
             if current_header.time > parent_header.time + 10 * 60 * 2 {
                 return Ok(Some((max_target_bits, max_target)));
             }
@@ -1150,7 +1161,8 @@ impl SpvClient {
         )))
     }
 
-    /// Ask for the next batch of headers (note that this will return the maximal size of headers)
+    /// Ask for the next batch of headers (note that this will return the
+    /// maximal size of headers)
     pub fn send_next_getheaders(
         &mut self,
         indexer: &mut BitcoinIndexer,
@@ -1666,7 +1678,8 @@ mod test {
         // update chain work
         let total_work_before = spv_client.update_chain_work().unwrap();
 
-        // fake block headers for mainnet 40319-40320, which is on a difficulty adjustment boundary
+        // fake block headers for mainnet 40319-40320, which is on a difficulty
+        // adjustment boundary
         let bad_headers = vec![
             LoneBlockHeader {
                 header: BlockHeader {

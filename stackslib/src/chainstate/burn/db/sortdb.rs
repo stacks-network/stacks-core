@@ -695,7 +695,8 @@ const SORTITION_DB_SCHEMA_4: &[&str] = &[
 ];
 
 /// The changes for version five *just* replace the existing epochs table
-///  by deleting all the current entries and inserting the new epochs definition.
+///  by deleting all the current entries and inserting the new epochs
+/// definition.
 const SORTITION_DB_SCHEMA_5: &[&str] = &[r#"
      DELETE FROM epochs;"#];
 
@@ -779,27 +780,33 @@ const SORTITION_DB_INDEXES: &[&str] = &[
 ];
 
 /// Handle to the sortition database, a MARF'ed sqlite DB on disk.
-/// It stores information pertaining to cryptographic sortitions performed in each Bitcoin block --
-/// either to select the next Stacks block (in epoch 2.5 and earlier), or to choose the next Stacks
-/// miner (epoch 3.0 and later).
+/// It stores information pertaining to cryptographic sortitions performed in
+/// each Bitcoin block -- either to select the next Stacks block (in epoch 2.5
+/// and earlier), or to choose the next Stacks miner (epoch 3.0 and later).
 pub struct SortitionDB {
-    /// Whether or not write operations are permitted.  Pertains to whether or not transaction
-    /// objects can be created or schema migrations can happen on this SortitionDB instance.
+    /// Whether or not write operations are permitted.  Pertains to whether or
+    /// not transaction objects can be created or schema migrations can
+    /// happen on this SortitionDB instance.
     pub readwrite: bool,
-    /// If true, then while write operations will be permitted, they will not be committed (and may
-    /// even be skipped).  This is not used in production; it's used in the `stacks-inspect` tool
-    /// to simulate what could happen (e.g. to replay sortitions with different anti-MEV strategies
-    /// without corrupting the underlying DB).
+    /// If true, then while write operations will be permitted, they will not be
+    /// committed (and may even be skipped).  This is not used in
+    /// production; it's used in the `stacks-inspect` tool to simulate what
+    /// could happen (e.g. to replay sortitions with different anti-MEV
+    /// strategies without corrupting the underlying DB).
     pub dryrun: bool,
-    /// Handle to the MARF which stores an index over each burnchain and PoX fork.
+    /// Handle to the MARF which stores an index over each burnchain and PoX
+    /// fork.
     pub marf: MARF<SortitionId>,
-    /// First burnchain block height at which sortitions will be considered.  All Stacks epochs
-    /// besides epoch 1.0 must start at or after this height.
+    /// First burnchain block height at which sortitions will be considered.
+    /// All Stacks epochs besides epoch 1.0 must start at or after this
+    /// height.
     pub first_block_height: u64,
-    /// Hash of the first burnchain block at which sortitions will be considered.
+    /// Hash of the first burnchain block at which sortitions will be
+    /// considered.
     pub first_burn_header_hash: BurnchainHeaderHash,
-    /// PoX constants that pertain to this DB, for purposes of (but not limited to) evaluating PoX
-    /// reward cycles and evaluating block-commit validity within a PoX reward cycle
+    /// PoX constants that pertain to this DB, for purposes of (but not limited
+    /// to) evaluating PoX reward cycles and evaluating block-commit
+    /// validity within a PoX reward cycle
     pub pox_constants: PoxConstants,
     /// Path on disk from which this DB was opened (caller-given; not resolved).
     pub path: String,
@@ -829,14 +836,12 @@ pub type SortitionDBTx<'a> = IndexDBTx<'a, SortitionDBTxContext, SortitionId>;
 ///   and a chain tip. This mostly just makes the job of callers
 ///   much simpler, because they don't have to worry about passing
 ///   around the open chain tip everywhere.
-///
 pub type SortitionHandleConn<'a> = IndexDBConn<'a, SortitionHandleContext, SortitionId>;
 pub type SortitionHandleTx<'a> = IndexDBTx<'a, SortitionHandleContext, SortitionId>;
 
 ///
 /// This trait is used for functions that
 ///  can accept either a SortitionHandleConn or a SortitionDBConn
-///
 pub trait SortitionContext: Clone {
     fn first_block_height(&self) -> u64;
 }
@@ -889,8 +894,9 @@ pub fn get_ancestor_sort_id_tx<C: SortitionContext>(
     ic.get_ancestor_block_hash(adjusted_height, tip_block_hash)
 }
 
-/// Returns the difference between `block_height` and `context.first_block_height()`, if this
-/// is non-negative. Otherwise returns None.
+/// Returns the difference between `block_height` and
+/// `context.first_block_height()`, if this is non-negative. Otherwise returns
+/// None.
 fn get_adjusted_block_height<C: SortitionContext>(context: &C, block_height: u64) -> Option<u64> {
     let first_block_height = context.first_block_height();
     if block_height < first_block_height {
@@ -902,7 +908,8 @@ fn get_adjusted_block_height<C: SortitionContext>(context: &C, block_height: u64
 
 struct db_keys;
 impl db_keys {
-    /// store an entry that maps from a PoX anchor's <stacks-block-header-hash> to <sortition-id of last block in prepare phase that chose it>
+    /// store an entry that maps from a PoX anchor's <stacks-block-header-hash>
+    /// to <sortition-id of last block in prepare phase that chose it>
     pub fn pox_anchor_to_prepare_end(block_hash: &BlockHeaderHash) -> String {
         format!("sortition_db::pox_anchor_to_prepare_end::{}", block_hash)
     }
@@ -952,7 +959,8 @@ impl db_keys {
         addrs_and_payout
     }
 
-    /// store an entry for retrieving the PoX identifier (i.e., the PoX bitvector) for this PoX fork
+    /// store an entry for retrieving the PoX identifier (i.e., the PoX
+    /// bitvector) for this PoX fork
     pub fn pox_identifier() -> &'static str {
         "sortition_db::pox_identifier"
     }
@@ -1048,8 +1056,8 @@ pub trait SortitionHandle {
     ///  a transaction, this should point to the open transaction.
     fn sqlite(&self) -> &Connection;
 
-    /// Returns the snapshot of the burnchain block at burnchain height `block_height`.
-    /// Returns None if there is no block at this height.
+    /// Returns the snapshot of the burnchain block at burnchain height
+    /// `block_height`. Returns None if there is no block at this height.
     fn get_block_snapshot_by_height(
         &mut self,
         block_height: u64,
@@ -1065,13 +1073,14 @@ pub trait SortitionHandle {
     fn tip(&self) -> SortitionId;
 
     /// Get the highest-processed Nakamoto block on this sortition history.
-    /// Returns Ok(Some(nakamoto-tip-ch, nakamoto-tip-bhh, nakamoto-tip-height))) on success, if
-    /// there was a tip found
-    /// Returns Ok(None) if no Nakamoto blocks are present on this sortition history
-    /// Returns Err(..) on DB errors
+    /// Returns Ok(Some(nakamoto-tip-ch, nakamoto-tip-bhh,
+    /// nakamoto-tip-height))) on success, if there was a tip found
+    /// Returns Ok(None) if no Nakamoto blocks are present on this sortition
+    /// history Returns Err(..) on DB errors
     fn get_nakamoto_tip(&self) -> Result<Option<(ConsensusHash, BlockHeaderHash, u64)>, db_error>;
 
-    /// Get the block ID of the highest-processed Nakamoto block on this history.
+    /// Get the block ID of the highest-processed Nakamoto block on this
+    /// history.
     fn get_nakamoto_tip_block_id(&self) -> Result<Option<StacksBlockId>, db_error> {
         let Some((ch, bhh, _)) = self.get_nakamoto_tip()? else {
             return Ok(None);
@@ -1080,7 +1089,8 @@ pub trait SortitionHandle {
     }
 
     /// is the given block a descendant of `potential_ancestor`?
-    ///  * block_at_burn_height: the burn height of the sortition that chose the stacks block to check
+    ///  * block_at_burn_height: the burn height of the sortition that chose the
+    ///    stacks block to check
     ///  * potential_ancestor: the stacks block hash of the potential ancestor
     fn descended_from(
         &mut self,
@@ -1177,7 +1187,8 @@ impl<'a> SortitionHandleTx<'a> {
 
     /// Uses the handle's current fork identifier to get a block snapshot by
     ///   burnchain block header
-    /// If the burn header hash is _not_ in the current fork, then this will return Ok(None)
+    /// If the burn header hash is _not_ in the current fork, then this will
+    /// return Ok(None)
     pub fn get_block_snapshot(
         &mut self,
         burn_header_hash: &BurnchainHeaderHash,
@@ -1192,10 +1203,10 @@ impl<'a> SortitionHandleTx<'a> {
         SortitionDB::get_block_snapshot(self.tx(), &sortition_id)
     }
 
-    /// Get a leader key at a specific location in the burn chain's fork history, given the
-    /// matching block commit's fork index root (block_height and vtxindex are the leader's
-    /// calculated location in this fork).
-    /// Returns None if there is no leader key at this location.
+    /// Get a leader key at a specific location in the burn chain's fork
+    /// history, given the matching block commit's fork index root
+    /// (block_height and vtxindex are the leader's calculated location in
+    /// this fork). Returns None if there is no leader key at this location.
     pub fn get_leader_key_at(
         &mut self,
         key_block_height: u64,
@@ -1225,9 +1236,9 @@ impl<'a> SortitionHandleTx<'a> {
         })
     }
 
-    /// Find the VRF public keys consumed by each block candidate in the given list.
-    /// The burn DB should have a key for each candidate; otherwise the candidate would not have
-    /// been accepted.
+    /// Find the VRF public keys consumed by each block candidate in the given
+    /// list. The burn DB should have a key for each candidate; otherwise
+    /// the candidate would not have been accepted.
     pub fn get_consumed_leader_keys(
         &mut self,
         parent_tip: &BlockSnapshot,
@@ -1257,7 +1268,8 @@ impl<'a> SortitionHandleTx<'a> {
         Ok(leader_keys)
     }
 
-    /// Get a block commit by its content-addressed location in a specific sortition.
+    /// Get a block commit by its content-addressed location in a specific
+    /// sortition.
     pub fn get_block_commit(
         &self,
         txid: &Txid,
@@ -1280,7 +1292,8 @@ impl<'a> SortitionHandleTx<'a> {
     }
 
     /// Do we expect a stacks block in this particular fork?
-    /// i.e. is this block hash part of the fork history identified by tip_block_hash?
+    /// i.e. is this block hash part of the fork history identified by
+    /// tip_block_hash?
     pub fn expects_stacks_block_in_fork(
         &mut self,
         block_hash: &BlockHeaderHash,
@@ -1292,7 +1305,8 @@ impl<'a> SortitionHandleTx<'a> {
 
     /// Get the latest block snapshot on this fork where a sortition occured.
     /// Search snapshots up to (but excluding) the given block height.
-    /// Will always return a snapshot -- even if it's the initial sentinel snapshot.
+    /// Will always return a snapshot -- even if it's the initial sentinel
+    /// snapshot.
     pub fn get_last_snapshot_with_sortition(
         &mut self,
         burn_block_height: u64,
@@ -1337,8 +1351,8 @@ impl<'a> SortitionHandleTx<'a> {
             })
     }
 
-    /// Determine whether or not a leader key has been consumed by a subsequent block commitment in
-    /// this fork's history.
+    /// Determine whether or not a leader key has been consumed by a subsequent
+    /// block commitment in this fork's history.
     /// Will return false if the leader key does not exist.
     pub fn is_leader_key_consumed(
         &mut self,
@@ -1369,8 +1383,9 @@ impl<'a> SortitionHandleTx<'a> {
         Ok(key_status)
     }
 
-    /// Get a parent block commit at a specific location in the burn chain on a particular fork.
-    /// Returns None if there is no block commit at this location.
+    /// Get a parent block commit at a specific location in the burn chain on a
+    /// particular fork. Returns None if there is no block commit at this
+    /// location.
     pub fn get_block_commit_parent(
         &mut self,
         block_height: u64,
@@ -1443,7 +1458,8 @@ impl<'a> SortitionHandleTx<'a> {
         return Ok(false);
     }
 
-    /// Find out whether or not a given consensus hash is "recent" enough to be used in this fork.
+    /// Find out whether or not a given consensus hash is "recent" enough to be
+    /// used in this fork.
     pub fn is_fresh_consensus_hash(
         &mut self,
         consensus_hash_lifetime: u64,
@@ -1454,8 +1470,8 @@ impl<'a> SortitionHandleTx<'a> {
         })
     }
 
-    /// Find out whether or not a given consensus hash is "recent" enough to be used in this fork.
-    /// This function only checks the first 19 bytes
+    /// Find out whether or not a given consensus hash is "recent" enough to be
+    /// used in this fork. This function only checks the first 19 bytes
     pub fn is_fresh_consensus_hash_check_19b(
         &mut self,
         consensus_hash_lifetime: u64,
@@ -1561,15 +1577,20 @@ impl SortitionHandleTx<'_> {
         Ok(())
     }
 
-    /// Get the expected PoX recipients (reward set) for the next sortition, either by querying information
-    ///  from the current reward cycle, or if `next_pox_info` is provided, by querying information
-    ///  for the next reward cycle.
+    /// Get the expected PoX recipients (reward set) for the next sortition,
+    /// either by querying information  from the current reward cycle, or if
+    /// `next_pox_info` is provided, by querying information  for the next
+    /// reward cycle.
     ///
     /// Returns None if:
-    ///   * The reward cycle had an anchor block, but it isn't known by this node.
+    ///   * The reward cycle had an anchor block, but it isn't known by this
+    ///     node.
     ///   * The reward cycle did not have anchor block
-    ///   * The block is in the prepare phase of a reward cycle, in which case miners must burn
-    ///   * The Stacking recipient set is empty (either because this reward cycle has already exhausted the set of addresses or because no one ever Stacked).
+    ///   * The block is in the prepare phase of a reward cycle, in which case
+    ///     miners must burn
+    ///   * The Stacking recipient set is empty (either because this reward
+    ///     cycle has already exhausted the set of addresses or because no one
+    ///     ever Stacked).
     fn pick_recipients(
         &mut self,
         burnchain: &Burnchain,
@@ -1790,15 +1811,19 @@ impl SortitionHandleTx<'_> {
         Ok(())
     }
 
-    /// Mark an existing snapshot's stacks block as accepted at a particular burn chain tip within a PoX fork (identified by the consensus hash),
+    /// Mark an existing snapshot's stacks block as accepted at a particular
+    /// burn chain tip within a PoX fork (identified by the consensus hash),
     /// and calculate and store its arrival index.
-    /// If this Stacks block extends the canonical stacks chain tip, then also update the memoized canonical
-    /// stacks chain tip metadata on the burn chain tip.
-    // TODO: this method's inner call to get_indexed() can occur within a MARF transaction, which
-    // means it will clone() the underlying TrieRAM.  Until this is rectified, care should be taken
-    // to ensure that no keys are inserted until after this method is called.  This should already
-    // be the case, since the only time keys are inserted into the sortition DB MARF is when the
-    // next snapshot is processed (whereas this method is called when a Stacks epoch is processed).
+    /// If this Stacks block extends the canonical stacks chain tip, then also
+    /// update the memoized canonical stacks chain tip metadata on the burn
+    /// chain tip.
+    // TODO: this method's inner call to get_indexed() can occur within a MARF
+    // transaction, which means it will clone() the underlying TrieRAM.  Until
+    // this is rectified, care should be taken to ensure that no keys are
+    // inserted until after this method is called.  This should already
+    // be the case, since the only time keys are inserted into the sortition DB MARF
+    // is when the next snapshot is processed (whereas this method is called
+    // when a Stacks epoch is processed).
     fn set_stacks_block_accepted_at_tip(
         &mut self,
         burn_tip: &BlockSnapshot,
@@ -1821,21 +1846,22 @@ impl SortitionHandleTx<'_> {
             // Nakamoto blocks are always processed in order since the chain can't fork
             // arbitrarily.
             //
-            // However, a "benign" fork can arise when a late tenure-change is processed.  This
-            // would happen if
+            // However, a "benign" fork can arise when a late tenure-change is processed.
+            // This would happen if
             //
             // 1. miner A wins sortition and produces a tenure-change;
             // 2. miner B wins sortition, and signers sign its tenure-change;
             // 3. miner C wins sortition by confirming miner A's last-block
             //
-            // Depending on the timing of things, signers could end up signing both miner B and
-            // miner C's tenure-change blocks, which are in conflict.  The Stacks node must be able
-            // to handle this case; it does so simply by processing both blocks (as Stacks forks),
-            // and letting signers figure out which one is canonical.
+            // Depending on the timing of things, signers could end up signing both miner B
+            // and miner C's tenure-change blocks, which are in conflict.  The
+            // Stacks node must be able to handle this case; it does so simply
+            // by processing both blocks (as Stacks forks), and letting signers
+            // figure out which one is canonical.
             //
-            // As a result, only update the canonical Nakamoto tip if the given block is higher
-            // than the existing tip for this sortiton (because it represents more overall signer
-            // votes).
+            // As a result, only update the canonical Nakamoto tip if the given block is
+            // higher than the existing tip for this sortiton (because it
+            // represents more overall signer votes).
             let current_sortition_tip : Option<(ConsensusHash, BlockHeaderHash, u64)> = self.query_row_and_then(
                 "SELECT consensus_hash,block_hash,block_height FROM stacks_chain_tips WHERE sortition_id = ?1 ORDER BY block_height DESC LIMIT 1",
                 rusqlite::params![&burn_tip.sortition_id],
@@ -1907,9 +1933,9 @@ impl SortitionHandleTx<'_> {
             burn_tip.block_height
         );
 
-        // NOTE: in Nakamoto, this may return zero rows since blocks are no longer coupled to
-        // snapshots.  However, it will update at least one row if the block is a tenure-start
-        // block.
+        // NOTE: in Nakamoto, this may return zero rows since blocks are no longer
+        // coupled to snapshots.  However, it will update at least one row if
+        // the block is a tenure-start block.
         self.execute("UPDATE snapshots SET stacks_block_accepted = 1, stacks_block_height = ?1, arrival_index = ?2 WHERE consensus_hash = ?3 AND winning_stacks_block_hash = ?4", args)?;
 
         // update arrival data across all Stacks forks
@@ -2051,7 +2077,8 @@ impl<'a> SortitionHandleConn<'a> {
 
     /// Uses the handle's current fork identifier to get a block snapshot by
     ///   burnchain block header
-    /// If the burn header hash is _not_ in the current fork, then this will return Ok(None)
+    /// If the burn header hash is _not_ in the current fork, then this will
+    /// return Ok(None)
     pub fn get_block_snapshot(
         &self,
         burn_header_hash: &BurnchainHeaderHash,
@@ -2104,14 +2131,15 @@ impl<'a> SortitionHandleConn<'a> {
     ) -> Result<Option<BlockSnapshot>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
 
-        // Note: This would return None if `block_height` were the height of `chain_tip`.
+        // Note: This would return None if `block_height` were the height of
+        // `chain_tip`.
         SortitionDB::get_ancestor_snapshot(self, block_height, &self.context.chain_tip)
     }
 
-    /// Get the block snapshot of the parent stacks block of the given stacks block.
-    /// The returned block-commit is for the given (consensus_hash, block_hash).
-    /// The returned BlockSnapshot is for the parent of the block identified by (consensus_hash,
-    /// block_hash).
+    /// Get the block snapshot of the parent stacks block of the given stacks
+    /// block. The returned block-commit is for the given (consensus_hash,
+    /// block_hash). The returned BlockSnapshot is for the parent of the
+    /// block identified by (consensus_hash, block_hash).
     pub fn get_block_snapshot_of_parent_stacks_block(
         &self,
         consensus_hash: &ConsensusHash,
@@ -2169,7 +2197,8 @@ impl<'a> SortitionHandleConn<'a> {
 
     /// Get the latest block snapshot on this fork where a sortition occured.
     /// Search snapshots up to (but excluding) the given block height.
-    /// Will always return a snapshot -- even if it's the initial sentinel snapshot.
+    /// Will always return a snapshot -- even if it's the initial sentinel
+    /// snapshot.
     pub fn get_last_snapshot_with_sortition(
         &self,
         burn_block_height: u64,
@@ -2254,9 +2283,10 @@ impl<'a> SortitionHandleConn<'a> {
         SortitionDB::get_block_commit_parent(self, block_height, vtxindex, &self.context.chain_tip)
     }
 
-    /// Get a block commit by txid. In the event of a burnchain fork, this may not be unique.
-    ///   this function simply returns one of those block commits: only use data that is
-    ///   immutable across burnchain/pox forks, e.g., parent block ptr,
+    /// Get a block commit by txid. In the event of a burnchain fork, this may
+    /// not be unique.   this function simply returns one of those block
+    /// commits: only use data that is   immutable across burnchain/pox
+    /// forks, e.g., parent block ptr,
     pub fn get_block_commit_by_txid(
         &self,
         sort_id: &SortitionId,
@@ -2265,8 +2295,9 @@ impl<'a> SortitionHandleConn<'a> {
         get_block_commit_by_txid(self.conn(), sort_id, txid)
     }
 
-    /// Return a vec of sortition winner's burn header hash and stacks header hash, ordered by
-    ///   increasing block height in the range (block_height_begin, block_height_end]
+    /// Return a vec of sortition winner's burn header hash and stacks header
+    /// hash, ordered by   increasing block height in the range
+    /// (block_height_begin, block_height_end]
     fn get_sortition_winners_in_fork(
         &self,
         block_height_begin: u32,
@@ -2292,14 +2323,14 @@ impl<'a> SortitionHandleConn<'a> {
         Ok(result)
     }
 
-    /// Helper method to get the burn block height of the end of a prepare phase block.
-    /// Returns Ok(Some((effective_height, absolute_height))) on success
-    /// Returns Ok(None) if the effective height of this block was 0, meaning that it's the first
-    /// block.
-    /// Returns Err(BurnchainError::MissingParentBlock) if we couldn't find the sortition for this
-    /// burnchain block hash
-    /// Returns Err(CoordiantorError::NotPrepareEndBlock) if this wasn't the last block in a
-    /// prepare phase.
+    /// Helper method to get the burn block height of the end of a prepare phase
+    /// block. Returns Ok(Some((effective_height, absolute_height))) on
+    /// success Returns Ok(None) if the effective height of this block was
+    /// 0, meaning that it's the first block.
+    /// Returns Err(BurnchainError::MissingParentBlock) if we couldn't find the
+    /// sortition for this burnchain block hash
+    /// Returns Err(CoordiantorError::NotPrepareEndBlock) if this wasn't the
+    /// last block in a prepare phase.
     fn get_heights_for_prepare_phase_end_block(
         &self,
         prepare_end_bhh: &BurnchainHeaderHash,
@@ -2339,23 +2370,27 @@ impl<'a> SortitionHandleConn<'a> {
         Ok(Some((effective_height, block_height)))
     }
 
-    /// Get the chosen PoX anchor block for a reward cycle, given the last block of its prepare
-    /// phase.
+    /// Get the chosen PoX anchor block for a reward cycle, given the last block
+    /// of its prepare phase.
     ///
-    /// In epochs 2.05 and earlier, this was the Stacks block that received F*w confirmations.
+    /// In epochs 2.05 and earlier, this was the Stacks block that received F*w
+    /// confirmations.
     ///
-    /// In epoch 2.1 and later, this was the Stacks block whose block-commit received not only F*w
-    /// confirmations from subsequent block-commits in the prepare phase, but also the most BTC
-    /// burnt from all such candidates (and if there is still a tie, then the higher block-commit
-    /// is chosen).  In particular, the block-commit is not required to be the winning block-commit
-    /// or even a valid block-commit, unlike in 2.05.  However, this will be a winning block-commit
-    /// if at least 20% of the BTC was spent honestly.
+    /// In epoch 2.1 and later, this was the Stacks block whose block-commit
+    /// received not only F*w confirmations from subsequent block-commits in
+    /// the prepare phase, but also the most BTC burnt from all such
+    /// candidates (and if there is still a tie, then the higher block-commit
+    /// is chosen).  In particular, the block-commit is not required to be the
+    /// winning block-commit or even a valid block-commit, unlike in 2.05.
+    /// However, this will be a winning block-commit if at least 20% of the
+    /// BTC was spent honestly.
     ///
-    /// Here, instead of reasoning about which epoch we're in, the caller will instead supply an
-    /// optional handle to the burnchain database.  If it's `Some(..)`, then the epoch 2.1 rules
-    /// are used -- the PoX anchor block will be determined from block-commits.  If it's `None`,
-    /// then the epoch 2.05 rules are used -- the PoX anchor block will be determined from present
-    /// Stacks blocks.
+    /// Here, instead of reasoning about which epoch we're in, the caller will
+    /// instead supply an optional handle to the burnchain database.  If
+    /// it's `Some(..)`, then the epoch 2.1 rules are used -- the PoX anchor
+    /// block will be determined from block-commits.  If it's `None`,
+    /// then the epoch 2.05 rules are used -- the PoX anchor block will be
+    /// determined from present Stacks blocks.
     pub fn get_chosen_pox_anchor(
         &self,
         burnchain_db_conn: Option<&DBConn>,
@@ -2369,13 +2404,15 @@ impl<'a> SortitionHandleConn<'a> {
     }
 
     /// Use the epoch 2.1 method for choosing a PoX anchor block.
-    /// The PoX anchor block corresponds to the block-commit that received F*w confirmations in its
-    /// prepare phase, and had the most BTC of all such candidates, and was the highest of all such
-    /// candidates.  This information is stored in the burnchain DB.
+    /// The PoX anchor block corresponds to the block-commit that received F*w
+    /// confirmations in its prepare phase, and had the most BTC of all such
+    /// candidates, and was the highest of all such candidates.  This
+    /// information is stored in the burnchain DB.
     ///
-    /// Note that it does not matter if the anchor block-commit does not correspond to a valid
-    /// Stacks block, or even won sortition.  The result is the same for the honest network
-    /// participants: they mark the anchor block as absent in their affirmation maps, and this PoX
+    /// Note that it does not matter if the anchor block-commit does not
+    /// correspond to a valid Stacks block, or even won sortition.  The
+    /// result is the same for the honest network participants: they mark
+    /// the anchor block as absent in their affirmation maps, and this PoX
     /// fork's quality is degraded as such.
     pub fn get_chosen_pox_anchor_v210(
         &self,
@@ -2450,9 +2487,10 @@ impl<'a> SortitionHandleConn<'a> {
         let anchor_sn = SortitionDB::get_block_snapshot(self, &anchor_sort_id)?
             .ok_or(BurnchainError::MissingParentBlock)?;
 
-        // the sortition does not even need to have picked this anchor block; all that matters is
-        // that miners confirmed it.  If the winning block hash doesn't even correspond to a Stacks
-        // block, then the honest miners in the network will affirm that it's absent.
+        // the sortition does not even need to have picked this anchor block; all that
+        // matters is that miners confirmed it.  If the winning block hash
+        // doesn't even correspond to a Stacks block, then the honest miners in
+        // the network will affirm that it's absent.
         let ch = anchor_sn.consensus_hash;
         Ok(Some((
             ch,
@@ -2461,13 +2499,14 @@ impl<'a> SortitionHandleConn<'a> {
         )))
     }
 
-    /// This is the method for calculating the PoX anchor block for a reward cycle in epoch 2.05 and earlier.
-    /// Return identifying information for a PoX anchor block for the reward cycle that
-    ///   begins the block after `prepare_end_bhh`.
-    /// If a PoX anchor block is chosen, this returns Some, if a PoX anchor block was not
-    ///   selected, return `None`
-    /// `prepare_end_bhh`: this is the burn block which is the last block in the prepare phase
-    ///                 for the corresponding reward cycle
+    /// This is the method for calculating the PoX anchor block for a reward
+    /// cycle in epoch 2.05 and earlier. Return identifying information for
+    /// a PoX anchor block for the reward cycle that   begins the block
+    /// after `prepare_end_bhh`. If a PoX anchor block is chosen, this
+    /// returns Some, if a PoX anchor block was not   selected, return
+    /// `None` `prepare_end_bhh`: this is the burn block which is the last
+    /// block in the prepare phase                 for the corresponding
+    /// reward cycle
     fn get_chosen_pox_anchor_v205(
         &self,
         prepare_end_bhh: &BurnchainHeaderHash,
@@ -2480,8 +2519,9 @@ impl<'a> SortitionHandleConn<'a> {
         }
     }
 
-    /// This is the method for calculating the PoX anchor block for a reward cycle in epoch 2.05 and earlier.
-    /// If no PoX anchor block is found, it returns Ok(Err(maximum confirmations of all candidates))
+    /// This is the method for calculating the PoX anchor block for a reward
+    /// cycle in epoch 2.05 and earlier. If no PoX anchor block is found, it
+    /// returns Ok(Err(maximum confirmations of all candidates))
     pub fn get_chosen_pox_anchor_check_position_v205(
         &self,
         prepare_end_bhh: &BurnchainHeaderHash,
@@ -2550,8 +2590,9 @@ impl<'a> SortitionHandleConn<'a> {
                 continue;
             }
             // this is the burn block height of the sortition that chose the
-            //   highest ancestor of winner_stacks_bh whose sortition occurred before prepare_begin
-            //  the winner of that sortition is the PoX anchor block candidate that winner_stacks_bh is "voting for"
+            //   highest ancestor of winner_stacks_bh whose sortition occurred before
+            // prepare_begin  the winner of that sortition is the PoX anchor
+            // block candidate that winner_stacks_bh is "voting for"
             let highest_ancestor = cursor.2;
             memoized_candidates.insert(winner_block_height, cursor);
             if let Some(x) = candidate_anchors.get_mut(&highest_ancestor) {
@@ -2616,10 +2657,10 @@ impl<'a> SortitionHandleConn<'a> {
         Ok(pox_addrs)
     }
 
-    /// Is a consensus hash's sortition valid on the fork represented by this handle?
-    /// Return Ok(true) if so
-    /// Return Ok(false) if not (including if there is no sortition with this consensus hash)
-    /// Return Err(..) on DB error
+    /// Is a consensus hash's sortition valid on the fork represented by this
+    /// handle? Return Ok(true) if so
+    /// Return Ok(false) if not (including if there is no sortition with this
+    /// consensus hash) Return Err(..) on DB error
     pub fn has_consensus_hash(&self, consensus_hash: &ConsensusHash) -> Result<bool, db_error> {
         let Some(sn) = SortitionDB::get_block_snapshot_consensus(self, consensus_hash)? else {
             // no sortition with this consensus hash
@@ -2630,7 +2671,8 @@ impl<'a> SortitionHandleConn<'a> {
             get_ancestor_sort_id(self, sn.block_height, &self.context.chain_tip)?
         else {
             // no ancestor at this sortition height relative to this chain tip
-            // (e.g. perhaps this consensus hash is in the "future" relative to this chain tip)
+            // (e.g. perhaps this consensus hash is in the "future" relative to this chain
+            // tip)
             return Ok(false);
         };
 
@@ -2747,8 +2789,9 @@ impl SortitionDB {
     }
 
     /// Open the database on disk.  It must already exist and be instantiated.
-    /// It's best not to call this if you are able to call connect().  If you must call this, do so
-    /// after you call connect() somewhere else, since connect() performs additional validations.
+    /// It's best not to call this if you are able to call connect().  If you
+    /// must call this, do so after you call connect() somewhere else, since
+    /// connect() performs additional validations.
     pub fn open(
         path: &str,
         readwrite: bool,
@@ -2935,8 +2978,9 @@ impl SortitionDB {
         Ok(())
     }
 
-    /// Validates given StacksEpochs (will runtime panic if there is any invalid StacksEpoch structuring) and
-    ///  inserts them into the SortitionDB's epochs table.
+    /// Validates given StacksEpochs (will runtime panic if there is any invalid
+    /// StacksEpoch structuring) and  inserts them into the SortitionDB's
+    /// epochs table.
     fn validate_and_insert_epochs(
         db_tx: &Transaction,
         epochs: &[StacksEpoch],
@@ -2958,8 +3002,9 @@ impl SortitionDB {
         Ok(())
     }
 
-    /// Validates given StacksEpochs (will runtime panic if there is any invalid StacksEpoch structuring) and
-    /// replaces them into the SortitionDB's epochs table
+    /// Validates given StacksEpochs (will runtime panic if there is any invalid
+    /// StacksEpoch structuring) and replaces them into the SortitionDB's
+    /// epochs table
     fn validate_and_replace_epochs(
         db_tx: &Transaction,
         epochs: &[StacksEpoch],
@@ -2987,8 +3032,8 @@ impl SortitionDB {
                 );
             });
 
-        // can't retcon epochs -- all epochs up to (but excluding) the tip's epoch in both epoch
-        // lists must be the same.
+        // can't retcon epochs -- all epochs up to (but excluding) the tip's epoch in
+        // both epoch lists must be the same.
         for i in 0..existing_epoch_idx.min(new_epoch_idx) {
             if existing_epochs[i] != epochs[i] {
                 panic!(
@@ -3032,7 +3077,8 @@ impl SortitionDB {
         Ok(())
     }
 
-    /// Get a block commit by its content-addressed location in a specific sortition.
+    /// Get a block commit by its content-addressed location in a specific
+    /// sortition.
     pub fn get_block_commit(
         conn: &Connection,
         txid: &Txid,
@@ -3055,13 +3101,15 @@ impl SortitionDB {
         query_row(conn, qry, args)
     }
 
-    /// Load up all snapshots, in ascending order by block height.  Great for testing!
+    /// Load up all snapshots, in ascending order by block height.  Great for
+    /// testing!
     pub fn get_all_snapshots(&self) -> Result<Vec<BlockSnapshot>, db_error> {
         let qry = "SELECT * FROM snapshots ORDER BY block_height ASC";
         query_rows(self.conn(), qry, NO_PARAMS)
     }
 
-    /// Get all snapshots for a burn block hash, even if they're not on the canonical PoX fork.
+    /// Get all snapshots for a burn block hash, even if they're not on the
+    /// canonical PoX fork.
     pub fn get_all_snapshots_for_burn_block(
         conn: &DBConn,
         bhh: &BurnchainHeaderHash,
@@ -3070,7 +3118,8 @@ impl SortitionDB {
         query_rows(conn, qry, &[bhh])
     }
 
-    /// Get all snapshots for a burn block height, even if they're not on the canonical PoX fork
+    /// Get all snapshots for a burn block height, even if they're not on the
+    /// canonical PoX fork
     pub fn get_all_snapshots_by_burn_height(
         conn: &DBConn,
         height: u64,
@@ -3097,7 +3146,8 @@ impl SortitionDB {
         Ok(ret)
     }
 
-    /// Get the height of a consensus hash, even if it's not on the canonical PoX fork.
+    /// Get the height of a consensus hash, even if it's not on the canonical
+    /// PoX fork.
     #[cfg_attr(test, mutants::skip)]
     pub fn get_consensus_hash_height(&self, ch: &ConsensusHash) -> Result<Option<u64>, db_error> {
         let qry = "SELECT block_height FROM snapshots WHERE consensus_hash = ?1";
@@ -3276,7 +3326,8 @@ impl SortitionDB {
         Ok(())
     }
 
-    /// Apply just the table creation/alterations for schema 8.  Don't attempt migration yet.
+    /// Apply just the table creation/alterations for schema 8.  Don't attempt
+    /// migration yet.
     fn apply_schema_8_tables(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
         if table_exists(tx, "stacks_chain_tips")? {
             info!("Schema 8 tables appear to have been created already; skipping this step");
@@ -3360,12 +3411,14 @@ impl SortitionDB {
     }
 
     /// Apply schema 8 migration.  Call after `apply_schema_8_tables()`.
-    /// This migration path is different from the others in that it manages sortition DB
-    /// transactions on its own (namely, it needs access to the SortitionDB MARF).
+    /// This migration path is different from the others in that it manages
+    /// sortition DB transactions on its own (namely, it needs access to the
+    /// SortitionDB MARF).
     ///
-    /// To _migrate_ the sortition DB from schema 7, it needs access to the Stacks chainstate in
-    /// order to obtain prior reward sets.  This is encapsulated in the `SortitionDBMigrator`
-    /// implementation.  However, to _instantiate_ the sortition DB, no migrator is needed (since
+    /// To _migrate_ the sortition DB from schema 7, it needs access to the
+    /// Stacks chainstate in order to obtain prior reward sets.  This is
+    /// encapsulated in the `SortitionDBMigrator` implementation.  However,
+    /// to _instantiate_ the sortition DB, no migrator is needed (since
     /// the chainstate will also be empty).
     fn apply_schema_8_migration(
         &mut self,
@@ -3428,10 +3481,10 @@ impl SortitionDB {
         }
     }
 
-    /// Migrate the sortition DB to its latest version, given the set of system epochs.
-    /// The `migrator` should only be `None` if the DB is being instantiated, or if the DB is
-    /// instantiated and migrated to the latest schema.
-    /// Otherwise, it should be `Some(..)`.
+    /// Migrate the sortition DB to its latest version, given the set of system
+    /// epochs. The `migrator` should only be `None` if the DB is being
+    /// instantiated, or if the DB is instantiated and migrated to the
+    /// latest schema. Otherwise, it should be `Some(..)`.
     fn check_schema_version_and_update(
         &mut self,
         epochs: &[StacksEpoch],
@@ -3507,8 +3560,8 @@ impl SortitionDB {
         epochs: &[StacksEpoch],
         migrator: SortitionDBMigrator,
     ) -> Result<(), db_error> {
-        // NOTE: the sortition DB created here will not be used for anything, so it's safe to use
-        // the mainnet_default PoX constants
+        // NOTE: the sortition DB created here will not be used for anything, so it's
+        // safe to use the mainnet_default PoX constants
         if let Err(db_error::OldSchema(_)) =
             SortitionDB::open(path, false, PoxConstants::mainnet_default())
         {
@@ -3532,8 +3585,8 @@ impl SortitionDB {
 
     fn add_indexes(&mut self) -> Result<(), db_error> {
         // do we need to instantiate indexes?
-        // only do a transaction if we need to, since this gets called each time the sortition DB
-        // is opened.
+        // only do a transaction if we need to, since this gets called each time the
+        // sortition DB is opened.
         let exists: i64 = query_row(
             self.conn(),
             "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?1",
@@ -3617,8 +3670,9 @@ impl SortitionDB {
     /// Figure out the reward cycle for `tip` and lookup the preprocessed
     /// reward set (if it exists) for the active reward cycle during `tip`.
     /// Returns the reward cycle info on success.
-    /// Returns Error on DB errors, as well as if the reward set is not yet processed.
-    /// Wrapper around SortitionDBConn::get_preprocessed_reward_set_for_reward_cycle().
+    /// Returns Error on DB errors, as well as if the reward set is not yet
+    /// processed. Wrapper around
+    /// SortitionDBConn::get_preprocessed_reward_set_for_reward_cycle().
     pub fn get_preprocessed_reward_set_for_reward_cycle(
         &self,
         tip: &SortitionId,
@@ -3636,8 +3690,9 @@ impl SortitionDB {
     /// Figure out the reward cycle for `tip` and lookup the preprocessed
     /// reward set (if it exists) for the active reward cycle during `tip`.
     /// Returns the reward cycle info on success.
-    /// Returns Error on DB errors, as well as if the reward set is not yet processed.
-    /// Wrapper around SortitionDBConn::get_preprocessed_reward_set_of().
+    /// Returns Error on DB errors, as well as if the reward set is not yet
+    /// processed. Wrapper around
+    /// SortitionDBConn::get_preprocessed_reward_set_of().
     pub fn get_preprocessed_reward_set_of(
         &self,
         tip: &SortitionId,
@@ -3668,8 +3723,8 @@ impl SortitionDB {
         Ok(rc_info)
     }
 
-    /// Get the number of entries in the reward set, given a sortition ID within the reward cycle
-    /// for which this set is active.
+    /// Get the number of entries in the reward set, given a sortition ID within
+    /// the reward cycle for which this set is active.
     pub fn get_preprocessed_reward_set_size(&self, tip: &SortitionId) -> Option<u16> {
         let Ok(reward_info) = &self.get_preprocessed_reward_set_of(tip) else {
             return None;
@@ -3706,8 +3761,8 @@ impl SortitionDBTx<'_> {
             None => AffirmationMap::empty(),
         };
 
-        // remove the first entry -- it's always `n` based on the way we construct it, while the
-        // heaviest affirmation map just has nothing.
+        // remove the first entry -- it's always `n` based on the way we construct it,
+        // while the heaviest affirmation map just has nothing.
         Ok(match affirmation_map.as_slice() {
             [] => AffirmationMap::empty(),
             a => AffirmationMap::new(a[1..].to_vec()),
@@ -3730,11 +3785,12 @@ impl SortitionDBConn<'_> {
 
     /// Given a burnchain consensus hash,
     /// go get the last N Stacks block headers that won sortition
-    /// leading up to the given header hash.  The ith slot in the vector will be Some(...) if there
-    /// was a sortition, and None if not.
+    /// leading up to the given header hash.  The ith slot in the vector will be
+    /// Some(...) if there was a sortition, and None if not.
     /// Returns up to num_headers prior block header hashes.
-    /// The list of hashes will be in ascending order -- the lowest-height block is item 0.
-    /// The last hash will be the hash for the given consensus hash.
+    /// The list of hashes will be in ascending order -- the lowest-height block
+    /// is item 0. The last hash will be the hash for the given consensus
+    /// hash.
     pub fn get_stacks_header_hashes(
         &self,
         num_headers: u64,
@@ -3788,7 +3844,8 @@ impl SortitionDBConn<'_> {
                 )
             });
 
-            // this can happen if this call is interleaved with a PoX invalidation transaction
+            // this can happen if this call is interleaved with a PoX invalidation
+            // transaction
             if !ancestor_snapshot.pox_valid {
                 warn!("Consensus hash {:?} corresponds to a sortition that is not on the canonical PoX fork", ancestor_consensus_hash);
                 return Err(db_error::InvalidPoxSortition);
@@ -3905,7 +3962,8 @@ impl SortitionDBConn<'_> {
     /// Figure out the reward cycle for `tip` and lookup the preprocessed
     /// reward set (if it exists) for the active reward cycle during `tip`.
     /// Returns the reward cycle info on success.
-    /// Returns Error on DB errors, as well as if the reward set is not yet processed.
+    /// Returns Error on DB errors, as well as if the reward set is not yet
+    /// processed.
     pub fn get_preprocessed_reward_set_of(
         &self,
         pox_constants: &PoxConstants,
@@ -3933,9 +3991,10 @@ impl SortitionDBConn<'_> {
         .map(|(reward_cycle_info, _anchor_sortition_id)| reward_cycle_info)
     }
 
-    /// Get the prepare phase start sortition ID of a reward cycle.  This is the first prepare
-    /// phase sortition for the prepare phase that began this reward cycle (i.e. the returned
-    /// sortition will be in the preceding reward cycle)
+    /// Get the prepare phase start sortition ID of a reward cycle.  This is the
+    /// first prepare phase sortition for the prepare phase that began this
+    /// reward cycle (i.e. the returned sortition will be in the preceding
+    /// reward cycle)
     pub fn get_prepare_phase_start_sortition_id_for_reward_cycle(
         &self,
         pox_constants: &PoxConstants,
@@ -3962,12 +4021,13 @@ impl SortitionDBConn<'_> {
         Ok(first_sortition)
     }
 
-    /// Get the reward set for a reward cycle, given the reward cycle tip.  The reward cycle info
-    /// will be returned for the reward set in which `tip` belongs (i.e. the reward set calculated
-    /// in the preceding reward cycle).
-    /// Return the reward cycle info for this reward cycle, as well as the first prepare-phase
-    /// sortition ID under which this reward cycle info is stored.
-    /// Returns Error on DB Error, or if the reward cycle info is not processed yet.
+    /// Get the reward set for a reward cycle, given the reward cycle tip.  The
+    /// reward cycle info will be returned for the reward set in which `tip`
+    /// belongs (i.e. the reward set calculated in the preceding reward
+    /// cycle). Return the reward cycle info for this reward cycle, as well
+    /// as the first prepare-phase sortition ID under which this reward
+    /// cycle info is stored. Returns Error on DB Error, or if the reward
+    /// cycle info is not processed yet.
     pub fn get_preprocessed_reward_set_for_reward_cycle(
         &self,
         pox_constants: &PoxConstants,
@@ -4061,8 +4121,8 @@ impl SortitionDB {
         })
     }
 
-    /// Mark a Stacks block snapshot as valid again, but update its memoized canonical Stacks tip
-    /// height and block-accepted flag.
+    /// Mark a Stacks block snapshot as valid again, but update its memoized
+    /// canonical Stacks tip height and block-accepted flag.
     #[cfg_attr(test, mutants::skip)]
     pub fn revalidate_snapshot_with_block(
         tx: &DBTx,
@@ -4099,10 +4159,11 @@ impl SortitionDB {
         Ok(())
     }
 
-    /// Invalidate all block snapshots that descend from the given burnchain block, and for each
-    /// invalidated snapshot, apply `cls` to it with the given sortition DB transaction, the
-    /// current burnchain block being considered, and the list of burnchain blocks still to be
-    /// considered.  That last argument will have length 0 on the last call to `cls`.
+    /// Invalidate all block snapshots that descend from the given burnchain
+    /// block, and for each invalidated snapshot, apply `cls` to it with the
+    /// given sortition DB transaction, the current burnchain block being
+    /// considered, and the list of burnchain blocks still to be considered.
+    /// That last argument will have length 0 on the last call to `cls`.
     ///
     /// Run `after` with the sorition handle tx right before committing.
     pub fn invalidate_descendants_with_closures<F, G>(
@@ -4170,9 +4231,10 @@ impl SortitionDB {
         self.invalidate_descendants_with_closures(burn_block, |_tx, _bhh, _queue| {}, |_tx| {})
     }
 
-    /// Find all sortition IDs with memoized canonical stacks block pointers that are higher than the
-    /// given height.  This is used to identify "dirty" but still valid snapshots whose memoized
-    /// pointers are no longer valid.
+    /// Find all sortition IDs with memoized canonical stacks block pointers
+    /// that are higher than the given height.  This is used to identify
+    /// "dirty" but still valid snapshots whose memoized pointers are no
+    /// longer valid.
     pub fn find_snapshots_with_dirty_canonical_block_pointers(
         conn: &DBConn,
         canonical_stacks_height: u64,
@@ -4181,8 +4243,9 @@ impl SortitionDB {
         Ok(dirty_sortitions)
     }
 
-    /// Get the last sortition in the prepare phase that chose a particular Stacks block as the anchor,
-    ///   or if the anchor is not expected, return None
+    /// Get the last sortition in the prepare phase that chose a particular
+    /// Stacks block as the anchor,   or if the anchor is not expected,
+    /// return None
     pub fn get_prepare_end_for(
         &mut self,
         sortition_tip: &SortitionId,
@@ -4256,7 +4319,8 @@ impl SortitionDB {
         next_pox
     }
 
-    /// Calculate the next sortition ID, given the PoX ID so far and the reward info
+    /// Calculate the next sortition ID, given the PoX ID so far and the reward
+    /// info
     pub fn make_next_sortition_id(
         parent_pox: PoxId,
         this_block_hash: &BurnchainHeaderHash,
@@ -4267,18 +4331,21 @@ impl SortitionDB {
         next_sortition_id
     }
 
-    /// Evaluate the sortition (SIP-001 miner block election) in the burnchain block defined by
-    /// `burn_header`. Returns the new snapshot and burnchain state
-    /// transition.
+    /// Evaluate the sortition (SIP-001 miner block election) in the burnchain
+    /// block defined by `burn_header`. Returns the new snapshot and
+    /// burnchain state transition.
     ///
     /// # Arguments
     /// * `burn_header` - the burnchain block header to process sortition for
-    /// * `ops` - the parsed blockstack operations (will be validated in this function)
+    /// * `ops` - the parsed blockstack operations (will be validated in this
+    ///   function)
     /// * `burnchain` - a reference to the burnchain information struct
     /// * `from_tip` - tip of the "sortition chain" that is being built on
-    /// * `next_pox_info` - iff this sortition is the first block in a reward cycle, this should be Some
-    /// * `announce_to` - a function that will be invoked with the calculated reward set before this method
-    ///                   commits its results. This is used to post the calculated reward set to an event observer.
+    /// * `next_pox_info` - iff this sortition is the first block in a reward
+    ///   cycle, this should be Some
+    /// * `announce_to` - a function that will be invoked with the calculated
+    ///   reward set before this method commits its results. This is used to
+    ///   post the calculated reward set to an event observer.
     pub fn evaluate_sortition<F: FnOnce(Option<RewardSetInfo>, ConsensusHash)>(
         &mut self,
         mainnet: bool,
@@ -4442,7 +4509,8 @@ impl SortitionDB {
     }
 
     /// Get a burn blockchain snapshot, given a burnchain configuration struct.
-    /// Used mainly by the network code to determine what the chain tip currently looks like.
+    /// Used mainly by the network code to determine what the chain tip
+    /// currently looks like.
     pub fn get_burnchain_view(
         conn: &SortitionDBConn,
         burnchain: &Burnchain,
@@ -4537,8 +4605,9 @@ impl SortitionDB {
 
 // Querying methods
 impl SortitionDB {
-    /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
-    /// Break ties deterministically by ordering on burnchain block hash.
+    /// Get the canonical burn chain tip -- the tip of the longest burn chain we
+    /// know about. Break ties deterministically by ordering on burnchain
+    /// block hash.
     pub fn get_canonical_burn_chain_tip(conn: &Connection) -> Result<BlockSnapshot, db_error> {
         let qry = "SELECT * FROM snapshots WHERE pox_valid = 1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
         query_row(conn, qry, NO_PARAMS)
@@ -4553,8 +4622,9 @@ impl SortitionDB {
         query_row(conn, qry, NO_PARAMS).map(|opt| opt.expect("CORRUPTION: No burnchain tips"))
     }
 
-    /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
-    /// Break ties deterministically by ordering on burnchain block hash.
+    /// Get the canonical burn chain tip -- the tip of the longest burn chain we
+    /// know about. Break ties deterministically by ordering on burnchain
+    /// block hash.
     pub fn get_canonical_chain_tip_bhh(conn: &Connection) -> Result<BurnchainHeaderHash, db_error> {
         let qry = "SELECT burn_header_hash FROM snapshots WHERE pox_valid = 1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
         match conn.query_row(qry, NO_PARAMS, |row| row.get(0)).optional() {
@@ -4563,8 +4633,9 @@ impl SortitionDB {
         }
     }
 
-    /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
-    /// Break ties deterministically by ordering on burnchain block hash.
+    /// Get the canonical burn chain tip -- the tip of the longest burn chain we
+    /// know about. Break ties deterministically by ordering on burnchain
+    /// block hash.
     ///
     /// Returns Err if the underlying SQLite call fails.
     pub fn get_canonical_sortition_tip(conn: &Connection) -> Result<SortitionId, db_error> {
@@ -4583,8 +4654,8 @@ impl SortitionDB {
         let ih = self.index_handle(tip_id);
         let am = ih.get_sortition_affirmation_map()?;
 
-        // remove the first entry -- it's always `n` based on the way we construct it, while the
-        // heaviest affirmation map just has nothing.
+        // remove the first entry -- it's always `n` based on the way we construct it,
+        // while the heaviest affirmation map just has nothing.
         if am.is_empty() {
             Ok(AffirmationMap::empty())
         } else {
@@ -4592,9 +4663,9 @@ impl SortitionDB {
         }
     }
 
-    /// Get the list of Stack-STX operations processed in a given burnchain block.
-    /// This will be the same list in each PoX fork; it's up to the Stacks block-processing logic
-    /// to reject them.
+    /// Get the list of Stack-STX operations processed in a given burnchain
+    /// block. This will be the same list in each PoX fork; it's up to the
+    /// Stacks block-processing logic to reject them.
     pub fn get_stack_stx_ops(
         conn: &Connection,
         burn_header_hash: &BurnchainHeaderHash,
@@ -4606,9 +4677,9 @@ impl SortitionDB {
         )
     }
 
-    /// Get the list of Delegate-STX operations processed in a given burnchain block.
-    /// This will be the same list in each PoX fork; it's up to the Stacks block-processing logic
-    /// to reject them.
+    /// Get the list of Delegate-STX operations processed in a given burnchain
+    /// block. This will be the same list in each PoX fork; it's up to the
+    /// Stacks block-processing logic to reject them.
     pub fn get_delegate_stx_ops(
         conn: &Connection,
         burn_header_hash: &BurnchainHeaderHash,
@@ -4620,9 +4691,9 @@ impl SortitionDB {
         )
     }
 
-    /// Get the list of `vote-for-aggregate-key` operations processed in a given burnchain block.
-    /// This will be the same list in each PoX fork; it's up to the Stacks block-processing logic
-    /// to reject them.
+    /// Get the list of `vote-for-aggregate-key` operations processed in a given
+    /// burnchain block. This will be the same list in each PoX fork; it's
+    /// up to the Stacks block-processing logic to reject them.
     pub fn get_vote_for_aggregate_key_ops(
         conn: &Connection,
         burn_header_hash: &BurnchainHeaderHash,
@@ -4634,9 +4705,9 @@ impl SortitionDB {
         )
     }
 
-    /// Get the list of Transfer-STX operations processed in a given burnchain block.
-    /// This will be the same list in each PoX fork; it's up to the Stacks block-processing logic
-    /// to reject them.
+    /// Get the list of Transfer-STX operations processed in a given burnchain
+    /// block. This will be the same list in each PoX fork; it's up to the
+    /// Stacks block-processing logic to reject them.
     pub fn get_transfer_stx_ops(
         conn: &Connection,
         burn_header_hash: &BurnchainHeaderHash,
@@ -4657,8 +4728,8 @@ impl SortitionDB {
         let args = params![burnchain_header_hash];
         let mut rows = query_rows::<BurnchainHeaderHash, _>(conn, sql, args)?;
 
-        // there can be more than one if there was a PoX reorg.  If so, make sure they're _all the
-        // same_ (otherwise we have corruption and must panic)
+        // there can be more than one if there was a PoX reorg.  If so, make sure
+        // they're _all the same_ (otherwise we have corruption and must panic)
         if let Some(bhh) = rows.pop() {
             for row in rows.into_iter() {
                 if row != bhh {
@@ -4674,8 +4745,8 @@ impl SortitionDB {
         }
     }
 
-    /// Get the last N ancestor burnchain header hashes, given a burnchain header hash.
-    /// This is done without regards to PoX forks.
+    /// Get the last N ancestor burnchain header hashes, given a burnchain
+    /// header hash. This is done without regards to PoX forks.
     ///
     /// The returned list will be formatted as follows:
     ///
@@ -4710,7 +4781,9 @@ impl SortitionDB {
         Ok(ret)
     }
 
-    /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
+    /// DO NOT CALL during Stacks block processing (including during Clarity VM
+    /// evaluation). This function returns the latest data known to the node,
+    /// which may not have been at the time of original block assembly.
     pub fn index_handle_at_tip(&self) -> SortitionHandleConn<'_> {
         let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn()).unwrap();
         self.index_handle(&sortition_id)
@@ -4728,7 +4801,9 @@ impl SortitionDB {
     }
 
     /// Open a tx handle at the burn chain tip
-    /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
+    /// DO NOT CALL during Stacks block processing (including during Clarity VM
+    /// evaluation). This function returns the latest data known to the node,
+    /// which may not have been at the time of original block assembly.
     pub fn tx_begin_at_tip(&mut self) -> SortitionHandleTx<'_> {
         let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn()).unwrap();
         self.tx_handle_begin(&sortition_id).unwrap()
@@ -4738,7 +4813,9 @@ impl SortitionDB {
     /// Returns Ok(Some(tip info)) on success
     /// Returns Ok(None) if there are no Nakamoto blocks in this tip
     /// Returns Err(..) on other DB error
-    /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
+    /// DO NOT CALL during Stacks block processing (including during Clarity VM
+    /// evaluation). This function returns the latest data known to the node,
+    /// which may not have been at the time of original block assembly.
     pub fn get_canonical_nakamoto_tip_hash_and_height(
         conn: &Connection,
         tip: &BlockSnapshot,
@@ -4762,8 +4839,11 @@ impl SortitionDB {
         }
     }
 
-    /// Get the canonical Stacks chain tip -- this gets memoized on the canonical burn chain tip.
-    /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
+    /// Get the canonical Stacks chain tip -- this gets memoized on the
+    /// canonical burn chain tip. DO NOT CALL during Stacks block processing
+    /// (including during Clarity VM evaluation). This function returns the
+    /// latest data known to the node, which may not have been at the time of
+    /// original block assembly.
     pub fn get_canonical_stacks_chain_tip_hash_and_height(
         conn: &Connection,
     ) -> Result<(ConsensusHash, BlockHeaderHash, u64), db_error> {
@@ -4778,7 +4858,8 @@ impl SortitionDB {
 
         if cur_epoch.epoch_id >= StacksEpochId::Epoch30 {
             // nakamoto behavior -- look to the stacks_chain_tip table
-            //  if the chain tip of the current sortition hasn't been set, have to iterate to parent
+            //  if the chain tip of the current sortition hasn't been set, have to iterate
+            // to parent
             return Self::get_canonical_nakamoto_tip_hash_and_height(conn, &sn)?
                 .ok_or(db_error::NotFoundError);
         }
@@ -4790,8 +4871,11 @@ impl SortitionDB {
         Ok((consensus_hash, stacks_block_hash, stacks_block_height))
     }
 
-    /// Get the canonical Stacks chain tip -- this gets memoized on the canonical burn chain tip.
-    /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
+    /// Get the canonical Stacks chain tip -- this gets memoized on the
+    /// canonical burn chain tip. DO NOT CALL during Stacks block processing
+    /// (including during Clarity VM evaluation). This function returns the
+    /// latest data known to the node, which may not have been at the time of
+    /// original block assembly.
     pub fn get_canonical_stacks_chain_tip_hash(
         conn: &Connection,
     ) -> Result<(ConsensusHash, BlockHeaderHash), db_error> {
@@ -4814,7 +4898,8 @@ impl SortitionDB {
         }
     }
 
-    /// Get a snapshot with an arrived block (i.e. a block that was marked as processed)
+    /// Get a snapshot with an arrived block (i.e. a block that was marked as
+    /// processed)
     fn get_snapshot_by_arrival_index(
         conn: &Connection,
         arrival_index: u64,
@@ -4855,8 +4940,8 @@ impl SortitionDB {
         })
     }
 
-    /// Get a snapshot for an existing burn chain block given its consensus hash.
-    /// The snapshot may not be valid.
+    /// Get a snapshot for an existing burn chain block given its consensus
+    /// hash. The snapshot may not be valid.
     pub fn get_block_snapshot_consensus(
         conn: &Connection,
         consensus_hash: &ConsensusHash,
@@ -4958,9 +5043,9 @@ impl SortitionDB {
                 })?,
         );
 
-        // N.B. the reward cycle start height is 1 + (reward_cycle_number * reward_cycle_length),
-        // which can be bigger than block.block_height. If this is true, then we really meant the
-        // last reward cycle
+        // N.B. the reward cycle start height is 1 + (reward_cycle_number *
+        // reward_cycle_length), which can be bigger than block.block_height. If
+        // this is true, then we really meant the last reward cycle
         if reward_start_height > block.block_height && block.block_height > 0 {
             reward_start_height = burnchain.reward_cycle_to_block_height(
                 burnchain
@@ -4989,7 +5074,8 @@ impl SortitionDB {
         Ok(handle.get_reward_set_size_at(&sort_id_of_start)? > 0)
     }
 
-    /// Find out how any burn tokens were destroyed in a given block on a given fork.
+    /// Find out how any burn tokens were destroyed in a given block on a given
+    /// fork.
     pub fn get_block_burn_amount(
         conn: &Connection,
         block_snapshot: &BlockSnapshot,
@@ -5006,8 +5092,9 @@ impl SortitionDB {
         Ok(burn_total)
     }
 
-    /// Get all block commitments registered in a block on the burn chain's history in this fork.
-    /// Returns the list of block commits in order by vtxindex.
+    /// Get all block commitments registered in a block on the burn chain's
+    /// history in this fork. Returns the list of block commits in order by
+    /// vtxindex.
     pub fn get_block_commits_by_block(
         conn: &Connection,
         sortition: &SortitionId,
@@ -5018,8 +5105,8 @@ impl SortitionDB {
         query_rows(conn, qry, args)
     }
 
-    /// Get all the missed block commits that were intended to be included in the given
-    ///  block but were not
+    /// Get all the missed block commits that were intended to be included in
+    /// the given  block but were not
     pub fn get_missed_commits_by_intended(
         conn: &Connection,
         sortition: &SortitionId,
@@ -5030,8 +5117,8 @@ impl SortitionDB {
         query_rows(conn, qry, args)
     }
 
-    /// Get all leader keys registered in a block on the burn chain's history in this fork.
-    /// Returns the list of leader keys in order by vtxindex.
+    /// Get all leader keys registered in a block on the burn chain's history in
+    /// this fork. Returns the list of leader keys in order by vtxindex.
     pub fn get_leader_keys_by_block(
         conn: &Connection,
         sortition: &SortitionId,
@@ -5057,8 +5144,9 @@ impl SortitionDB {
             .map_err(db_error::from)
     }
 
-    /// Given the fork index hash of a chain tip, and a block height that is an ancestor of the last
-    /// block in this fork, find the snapshot of the block at that height.
+    /// Given the fork index hash of a chain tip, and a block height that is an
+    /// ancestor of the last block in this fork, find the snapshot of the
+    /// block at that height.
     ///
     /// Returns None if there is no ancestor at this height.
     pub fn get_ancestor_snapshot<C: SortitionContext>(
@@ -5082,8 +5170,9 @@ impl SortitionDB {
         SortitionDB::get_block_snapshot(ic, &ancestor)
     }
 
-    /// Given the fork index hash of a chain tip, and a block height that is an ancestor of the last
-    /// block in this fork, find the snapshot of the block at that height.
+    /// Given the fork index hash of a chain tip, and a block height that is an
+    /// ancestor of the last block in this fork, find the snapshot of the
+    /// block at that height.
     pub fn get_ancestor_snapshot_tx<C: SortitionContext>(
         ic: &mut IndexDBTx<'_, C, SortitionId>,
         ancestor_block_height: u64,
@@ -5105,8 +5194,9 @@ impl SortitionDB {
         SortitionDB::get_block_snapshot(ic.tx(), &ancestor)
     }
 
-    /// Get a parent block commit at a specific location in the burn chain on a particular fork.
-    /// Returns None if there is no block commit at this location.
+    /// Get a parent block commit at a specific location in the burn chain on a
+    /// particular fork. Returns None if there is no block commit at this
+    /// location.
     pub fn get_block_commit_parent<C: SortitionContext>(
         ic: &IndexDBConn<'_, C, SortitionId>,
         block_height: u64,
@@ -5142,10 +5232,10 @@ impl SortitionDB {
         })
     }
 
-    /// Get a leader key at a specific location in the burn chain's fork history, given the
-    /// matching block commit's fork index root (block_height and vtxindex are the leader's
-    /// calculated location in this fork).
-    /// Returns None if there is no leader key at this location.
+    /// Get a leader key at a specific location in the burn chain's fork
+    /// history, given the matching block commit's fork index root
+    /// (block_height and vtxindex are the leader's calculated location in
+    /// this fork). Returns None if there is no leader key at this location.
     pub fn get_leader_key_at<C: SortitionContext>(
         ic: &IndexDBConn<'_, C, SortitionId>,
         key_block_height: u64,
@@ -5177,7 +5267,8 @@ impl SortitionDB {
 
     /// Get a block commit by its committed block.
     /// For Stacks 2.x, `block_hash` is just the hash of the block
-    /// For Nakamoto, `block_hash` is the StacksBlockId of the last tenure's first block
+    /// For Nakamoto, `block_hash` is the StacksBlockId of the last tenure's
+    /// first block
     pub fn get_block_commit_for_stacks_block(
         conn: &Connection,
         consensus_hash: &ConsensusHash,
@@ -5206,7 +5297,8 @@ impl SortitionDB {
         })
     }
 
-    /// Get a block snapshot for a winning block hash in a given burn chain fork.
+    /// Get a block snapshot for a winning block hash in a given burn chain
+    /// fork.
     pub fn get_block_snapshot_for_winning_stacks_block(
         ic: &SortitionDBConn,
         tip: &SortitionId,
@@ -5263,8 +5355,8 @@ impl SortitionDB {
         query_row(conn, sql, args)
     }
 
-    /// Get all sortition IDs at the given burnchain block height (including ones that aren't on
-    /// the canonical PoX fork)
+    /// Get all sortition IDs at the given burnchain block height (including
+    /// ones that aren't on the canonical PoX fork)
     pub fn get_sortition_ids_at_height(
         conn: &DBConn,
         height: u64,
@@ -5335,7 +5427,8 @@ impl SortitionDB {
 
     /// Get the latest block snapshot on this fork where a sortition occured.
     /// Search snapshots up to (but excluding) the given block height.
-    /// Will always return a snapshot -- even if it's the initial sentinel snapshot.
+    /// Will always return a snapshot -- even if it's the initial sentinel
+    /// snapshot.
     pub fn get_last_snapshot_with_sortition_tx(
         tx: &mut SortitionDBTx,
         burn_block_height: u64,
@@ -5383,10 +5476,11 @@ impl SortitionDB {
 }
 
 impl SortitionHandleTx<'_> {
-    /// Append a snapshot to a chain tip, and update various chain tip statistics.
-    /// Returns the new state root of this fork.
-    /// `initialize_bonus` - if Some(..), then this snapshot is the first mined snapshot,
-    ///    and this method should initialize the `initial_mining_bonus` fields in the sortition db.
+    /// Append a snapshot to a chain tip, and update various chain tip
+    /// statistics. Returns the new state root of this fork.
+    /// `initialize_bonus` - if Some(..), then this snapshot is the first mined
+    /// snapshot,    and this method should initialize the
+    /// `initial_mining_bonus` fields in the sortition db.
     pub fn append_chain_tip_snapshot(
         &mut self,
         parent_snapshot: &BlockSnapshot,
@@ -5630,8 +5724,9 @@ impl SortitionHandleTx<'_> {
     }
 
     /// Insert a leader key registration.
-    /// No validity checking will be done, beyond what is encoded in the leader_keys table
-    /// constraints.  That is, type mismatches and serialization issues will be caught, but nothing else.
+    /// No validity checking will be done, beyond what is encoded in the
+    /// leader_keys table constraints.  That is, type mismatches and
+    /// serialization issues will be caught, but nothing else.
     /// The corresponding snapshot must already be inserted
     fn insert_leader_key(
         &mut self,
@@ -5738,8 +5833,9 @@ impl SortitionHandleTx<'_> {
     }
 
     /// Insert a leader block commitment.
-    /// No validity checking will be done, beyond what is encoded in the block_commits table
-    /// constraints.  That is, type mismatches and serialization issues will be caught, but nothing else.
+    /// No validity checking will be done, beyond what is encoded in the
+    /// block_commits table constraints.  That is, type mismatches and
+    /// serialization issues will be caught, but nothing else.
     /// The corresponding snapshot must already be inserted
     fn insert_block_commit(
         &mut self,
@@ -5757,8 +5853,9 @@ impl SortitionHandleTx<'_> {
             .map_err(db_error::SerializationError)?;
 
         // find parent block commit's snapshot's sortition ID.
-        // If the parent_block_ptr doesn't point to a valid snapshot, then store an empty
-        // sortition.  If we're not testing, then this should never happen.
+        // If the parent_block_ptr doesn't point to a valid snapshot, then store an
+        // empty sortition.  If we're not testing, then this should never
+        // happen.
         let parent_sortition_id = self
             .get_block_snapshot_by_height(block_commit.parent_block_ptr as u64)?
             .map(|parent_commit_sn| parent_commit_sn.sortition_id)
@@ -5807,8 +5904,8 @@ impl SortitionHandleTx<'_> {
         );
         let res = self.execute("INSERT INTO block_commit_parents (block_commit_sortition_id, block_commit_txid, parent_sortition_id) VALUES (?1, ?2, ?3)", parent_args);
 
-        // in tests, this table doesn't always exist.  Do nothing in that case, but in prod, error
-        // out if this fails.
+        // in tests, this table doesn't always exist.  Do nothing in that case, but in
+        // prod, error out if this fails.
         if !cfg!(test) {
             res?;
         }
@@ -5839,7 +5936,8 @@ impl SortitionHandleTx<'_> {
     }
 
     /// Insert a snapshots row from a block's-worth of operations.
-    /// Do not call directly -- use append_chain_tip_snapshot to preserve the fork table structure.
+    /// Do not call directly -- use append_chain_tip_snapshot to preserve the
+    /// fork table structure.
     fn insert_block_snapshot(
         &self,
         snapshot: &BlockSnapshot,
@@ -5927,11 +6025,13 @@ impl SortitionHandleTx<'_> {
         op_num_outputs
     }
 
-    /// Given all of a snapshot's block ops, calculate how many burnchain tokens were sent to each
-    /// PoX payout.  Note that this value is *per payout*:
-    /// * in a reward phase, multiply this by OUTPUTS_PER_COMMIT to get the total amount of tokens
+    /// Given all of a snapshot's block ops, calculate how many burnchain tokens
+    /// were sent to each PoX payout.  Note that this value is *per payout*:
+    /// * in a reward phase, multiply this by OUTPUTS_PER_COMMIT to get the
+    ///   total amount of tokens
     /// sent across all miners.
-    /// * in a prepare phase, where there is only one output, this value is the total amount of
+    /// * in a prepare phase, where there is only one output, this value is the
+    ///   total amount of
     /// tokens sent across all miners.
     fn get_pox_payout_per_output(&self, block_ops: &[BlockstackOperationType]) -> u128 {
         let mut total = 0u128;
@@ -5947,23 +6047,35 @@ impl SortitionHandleTx<'_> {
         total
     }
 
-    /// Record fork information to the index and calculate the new fork index root hash.
-    /// * sortdb::vrf::${VRF_PUBLIC_KEY} --> 0 or 1 (1 if available, 0 if consumed), for each VRF public key we process
-    /// * sortdb::last_sortition --> $BURN_BLOCK_HASH, for each block that had a sortition
-    /// * sortdb::sortition_block_hash::${STACKS_BLOCK_HASH} --> $BURN_BLOCK_HASH for each winning block sortition
-    /// * sortdb::stacks::block::${STACKS_BLOCK_HASH} --> ${STACKS_BLOCK_HEIGHT} for each block that has been accepted so far
-    /// * sortdb::stacks::block::max_arrival_index --> ${ARRIVAL_INDEX} to set the maximum arrival index processed in this fork
-    /// * sortdb::pox_reward_set::${n} --> recipient Bitcoin address, to track the reward set as the permutation progresses
+    /// Record fork information to the index and calculate the new fork index
+    /// root hash.
+    /// * sortdb::vrf::${VRF_PUBLIC_KEY} --> 0 or 1 (1 if available, 0 if
+    ///   consumed), for each VRF public key we process
+    /// * sortdb::last_sortition --> $BURN_BLOCK_HASH, for each block that had a
+    ///   sortition
+    /// * sortdb::sortition_block_hash::${STACKS_BLOCK_HASH} -->
+    ///   $BURN_BLOCK_HASH for each winning block sortition
+    /// * sortdb::stacks::block::${STACKS_BLOCK_HASH} --> ${STACKS_BLOCK_HEIGHT}
+    ///   for each block that has been accepted so far
+    /// * sortdb::stacks::block::max_arrival_index --> ${ARRIVAL_INDEX} to set
+    ///   the maximum arrival index processed in this fork
+    /// * sortdb::pox_reward_set::${n} --> recipient Bitcoin address, to track
+    ///   the reward set as the permutation progresses
     ///
-    /// `recipient_info` is used to pass information to this function about which reward set addresses were consumed
-    ///   during this sortition. this object will be None in the following cases:
-    ///    * The reward cycle had an anchor block, but it isn't known by this node.
+    /// `recipient_info` is used to pass information to this function about
+    /// which reward set addresses were consumed   during this sortition.
+    /// this object will be None in the following cases:
+    ///    * The reward cycle had an anchor block, but it isn't known by this
+    ///      node.
     ///    * The reward cycle did not have anchor block
-    ///    * The Stacking recipient set is empty (either because this reward cycle has already exhausted the set of addresses or because no one ever Stacked).
+    ///    * The Stacking recipient set is empty (either because this reward
+    ///      cycle has already exhausted the set of addresses or because no one
+    ///      ever Stacked).
     ///
-    /// NOTE: the resulting index root must be globally unique.  This is guaranteed because each
-    /// burn block hash is unique, no matter what fork it's on (and this index uses burn block
-    /// hashes as its index's block hash data).
+    /// NOTE: the resulting index root must be globally unique.  This is
+    /// guaranteed because each burn block hash is unique, no matter what
+    /// fork it's on (and this index uses burn block hashes as its index's
+    /// block hash data).
     fn index_add_fork_info(
         &mut self,
         parent_snapshot: &mut BlockSnapshot,
@@ -5989,7 +6101,10 @@ impl SortitionHandleTx<'_> {
         for block_op in block_ops.iter() {
             if let BlockstackOperationType::LeaderKeyRegister(ref data) = block_op {
                 keys.push(db_keys::vrf_key_status(&data.public_key));
-                values.push("1".to_string()); // the value is no longer used, but the key needs to exist to figure whether a key was registered
+                values.push("1".to_string()); // the value is no longer used,
+                                              // but the key needs to exist to
+                                              // figure whether a key was
+                                              // registered
             }
         }
 
@@ -5997,7 +6112,8 @@ impl SortitionHandleTx<'_> {
         keys.push(db_keys::sortition_id_for_bhh(&snapshot.burn_header_hash));
         values.push(snapshot.sortition_id.to_hex());
 
-        // if this commit has a sortition, record its burn block hash and stacks block hash
+        // if this commit has a sortition, record its burn block hash and stacks block
+        // hash
         if snapshot.sortition {
             keys.push(db_keys::last_sortition().to_string());
             values.push(snapshot.burn_header_hash.to_hex());
@@ -6118,7 +6234,8 @@ impl SortitionHandleTx<'_> {
                             .map(|(addr, ix)| (addr.clone(), *ix))
                             .collect();
                         recipients_to_remove.sort_unstable_by(|(_, a), (_, b)| b.cmp(a));
-                        // remove from the reward set any consumed addresses in this first reward block
+                        // remove from the reward set any consumed addresses in this first reward
+                        // block
                         let mut addrs = vec![];
                         for (addr, ix) in recipients_to_remove.iter() {
                             addrs.push(addr.clone());
@@ -6197,21 +6314,24 @@ impl SortitionHandleTx<'_> {
                                 "Supplied index should never be greater than recipient set size"
                             );
                         } else if index + 1 == current_len {
-                            // selected index is the last element: no need to swap, just decrement len
+                            // selected index is the last element: no need to swap, just decrement
+                            // len
                             current_len -= 1;
                         } else {
                             let replacement = current_len - 1; // if current_len were 0, we would already have panicked.
                             let replace_with = if let Some((_prior_ix, replace_with)) =
                                 remapped_entries.remove_entry(&replacement)
                             {
-                                // the entry to swap in was itself swapped, so let's use the new value instead
+                                // the entry to swap in was itself swapped, so let's use the new
+                                // value instead
                                 replace_with
                             } else {
                                 self.get_reward_set_entry(replacement)?
                             };
 
-                            // NOTE: we have to have a hash mode for the address -- i.e. we have to be
-                            // able to conver it to a clarity tuple -- since this data must be available
+                            // NOTE: we have to have a hash mode for the address -- i.e. we have to
+                            // be able to conver it to a clarity tuple
+                            // -- since this data must be available
                             // via `get-burn-block-info?`.
                             assert!(
                                 replace_with.as_clarity_tuple().is_some(),
@@ -6280,9 +6400,9 @@ impl SortitionHandleTx<'_> {
         // pox payout addrs must include burn addresses
         let num_pox_payouts = self.get_num_pox_payouts(snapshot.block_height);
         while pox_payout_addrs.len() < num_pox_payouts {
-            // NOTE: while this coerces mainnet, it's totally fine in practice because the address
-            // version is not exposed to Clarity.  Clarity only sees a PoX-specific version and the
-            // hash.
+            // NOTE: while this coerces mainnet, it's totally fine in practice because the
+            // address version is not exposed to Clarity.  Clarity only sees a
+            // PoX-specific version and the hash.
             pox_payout_addrs.push(PoxAddress::standard_burn_address(true));
         }
 
@@ -6291,10 +6411,12 @@ impl SortitionHandleTx<'_> {
     }
 
     /// Resolve ties between blocks at the same height.
-    /// Hashes the given snapshot's sortition hash with the index block hash for each block
-    /// (calculated from `new_block_arrivals`' consensus hash and block header hash), and chooses
-    /// the block in `new_block_arrivals` whose resulting hash is lexographically the smallest.
-    /// Returns the index into `new_block_arrivals` for the block whose hash is the smallest.
+    /// Hashes the given snapshot's sortition hash with the index block hash for
+    /// each block (calculated from `new_block_arrivals`' consensus hash and
+    /// block header hash), and chooses the block in `new_block_arrivals`
+    /// whose resulting hash is lexographically the smallest. Returns the
+    /// index into `new_block_arrivals` for the block whose hash is the
+    /// smallest.
     fn break_canonical_stacks_tip_tie(
         tip: &BlockSnapshot,
         best_height: u64,
@@ -6315,8 +6437,8 @@ impl SortitionHandleTx<'_> {
             return Some(tied[0].1);
         }
 
-        // break ties by hashing the index block hash with the snapshot's sortition hash, and
-        // picking the lexicographically smallest one
+        // break ties by hashing the index block hash with the snapshot's sortition
+        // hash, and picking the lexicographically smallest one
         let mut hash_tied = vec![];
         let mut mapping = HashMap::new();
         for (block_id, arrival_idx) in tied.into_iter() {
@@ -6341,9 +6463,10 @@ impl SortitionHandleTx<'_> {
         Some(winner_index)
     }
 
-    /// Find the new Stacks block arrivals as of the given tip `parent_tip`, and returns
-    /// the highest Stacks chain tip and maximum arrival index.
-    /// Used for both discovering the new arrivals and processing them with new snapshots.
+    /// Find the new Stacks block arrivals as of the given tip `parent_tip`, and
+    /// returns the highest Stacks chain tip and maximum arrival index.
+    /// Used for both discovering the new arrivals and processing them with new
+    /// snapshots.
     ///
     /// Returns Ok((
     ///     stacks tip consensus hash,
@@ -6476,8 +6599,8 @@ impl SortitionHandleTx<'_> {
         ))
     }
 
-    /// Find the new Stacks block arrivals as of the given tip `tip`, and return the highest chain
-    /// tip discovered.
+    /// Find the new Stacks block arrivals as of the given tip `tip`, and return
+    /// the highest chain tip discovered.
     ///
     /// Used in conjunction with update_new_block_arrivals().
     ///
@@ -6521,10 +6644,11 @@ impl SortitionHandleTx<'_> {
         Ok(())
     }
 
-    /// Find all stacks blocks that were processed since parent_tip had been processed, and generate MARF
-    /// key/value pairs for the subset that arrived on ancestor blocks of the parent.  Update the
-    /// given parent chain tip to have the correct memoized canonical chain tip present in the fork
-    /// it represents.
+    /// Find all stacks blocks that were processed since parent_tip had been
+    /// processed, and generate MARF key/value pairs for the subset that
+    /// arrived on ancestor blocks of the parent.  Update the given parent
+    /// chain tip to have the correct memoized canonical chain tip present in
+    /// the fork it represents.
     fn process_new_block_arrivals(
         &mut self,
         parent_tip: &mut BlockSnapshot,
@@ -6764,8 +6888,8 @@ pub mod tests {
                 db_tx.index_add_fork_info(&mut first_sn, &first_snapshot, &[], None, None, None)?;
             first_snapshot.index_root = index_root;
 
-            // manually insert the first block snapshot in instantiate_v1 testing code, because
-            //  SCHEMA_8 adds a new column
+            // manually insert the first block snapshot in instantiate_v1 testing code,
+            // because  SCHEMA_8 adds a new column
             let pox_payouts_json = serde_json::to_string(&pox_payout)
                 .expect("FATAL: could not encode `total_pox_payouts` as JSON");
 
@@ -6834,8 +6958,8 @@ pub mod tests {
             Ok(())
         }
 
-        /// Given the last_tenure_id (e.g. in a block-commit in Nakamoto), find its sortition in the
-        /// given sortition fork.
+        /// Given the last_tenure_id (e.g. in a block-commit in Nakamoto), find
+        /// its sortition in the given sortition fork.
         pub fn get_block_snapshot_for_winning_nakamoto_tenure(
             ic: &SortitionDBConn,
             tip: &SortitionId,
@@ -6876,7 +7000,8 @@ pub mod tests {
             Ok(None)
         }
 
-        /// Load up all stacks chain tips, in ascending order by block height.  Great for testing!
+        /// Load up all stacks chain tips, in ascending order by block height.
+        /// Great for testing!
         pub fn get_all_stacks_chain_tips(
             &self,
         ) -> Result<Vec<(SortitionId, ConsensusHash, BlockHeaderHash, u64)>, db_error> {
@@ -6950,7 +7075,8 @@ pub mod tests {
         assert!(SortitionDB::open(&db_path_dir, true, PoxConstants::test_default()).is_err());
 
         // create a v2 sortition DB at the same path as the v1 DB.
-        // the schema migration should be successfully applied, and the epochs table should exist.
+        // the schema migration should be successfully applied, and the epochs table
+        // should exist.
         let db = SortitionDB::connect(
             &db_path_dir,
             first_block_height,
@@ -7283,7 +7409,8 @@ pub mod tests {
             );
         }
 
-        // test get_consumed_leader_keys() (should be doable at any subsequent index root)
+        // test get_consumed_leader_keys() (should be doable at any subsequent index
+        // root)
         {
             let mut ic = SortitionHandleTx::begin(&mut db, &snapshot.sortition_id).unwrap();
             let keys = ic
@@ -7292,8 +7419,8 @@ pub mod tests {
             assert_eq!(keys, vec![leader_key.clone()]);
         }
 
-        // make a fork between the leader key and block commit, and verify that the key is
-        // unconsumed
+        // make a fork between the leader key and block commit, and verify that the key
+        // is unconsumed
         let fork_snapshot = {
             let mut sn = SortitionDB::get_block_snapshot(db.conn(), &snapshot.sortition_id)
                 .unwrap()
@@ -7320,7 +7447,8 @@ pub mod tests {
             sn
         };
 
-        // test get_consumed_leader_keys() and is_leader_key_consumed() against this new fork
+        // test get_consumed_leader_keys() and is_leader_key_consumed() against this new
+        // fork
         {
             let mut ic = SortitionHandleTx::begin(&mut db, &snapshot.sortition_id).unwrap();
             let keys = ic
@@ -8147,9 +8275,9 @@ pub mod tests {
         assert_eq!(snapshot_with_sortition, next_snapshot_2);
     }
 
-    /// Verify that the snapshots in a fork are well-formed -- i.e. the block heights are
-    /// sequential and the parent block hash of the ith block is equal to the block hash of the
-    /// (i-1)th block.
+    /// Verify that the snapshots in a fork are well-formed -- i.e. the block
+    /// heights are sequential and the parent block hash of the ith block is
+    /// equal to the block hash of the (i-1)th block.
     fn verify_fork_integrity(db: &mut SortitionDB, tip: &SortitionId) {
         let mut child = SortitionDB::get_block_snapshot(db.conn(), tip)
             .unwrap()
@@ -8206,10 +8334,10 @@ pub mod tests {
         //
         //    ...etc...
         //
-        // Then, append a block to fork 9, and confirm that it switches places with fork 0.
-        // Append 2 blocks to fork 8, and confirm that it switches places with fork 0.
-        // Append 3 blocks to fork 7, and confirm that it switches places with fork 0.
-        // ... etc.
+        // Then, append a block to fork 9, and confirm that it switches places with fork
+        // 0. Append 2 blocks to fork 8, and confirm that it switches places
+        // with fork 0. Append 3 blocks to fork 7, and confirm that it switches
+        // places with fork 0. ... etc.
         //
         let first_burn_hash = BurnchainHeaderHash([0x00; 32]);
         let first_block_height = 100;
@@ -9107,7 +9235,8 @@ pub mod tests {
             .unwrap()
             .unwrap();
 
-        // before materializing new arrivals to the MARF, we should still have the canonical tip
+        // before materializing new arrivals to the MARF, we should still have the
+        // canonical tip
         assert_eq!(last_snapshot.canonical_stacks_tip_height, 4);
         assert_eq!(
             last_snapshot.canonical_stacks_tip_consensus_hash,
@@ -9121,7 +9250,8 @@ pub mod tests {
         // materialize all block arrivals in the MARF
         make_fork_run(&mut db, &last_snapshot, 1, 0);
 
-        // verify that all Stacks block in this fork can be looked up from this chain tip
+        // verify that all Stacks block in this fork can be looked up from this chain
+        // tip
         last_snapshot = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
         {
             let ic = db.index_conn();
@@ -9176,14 +9306,16 @@ pub mod tests {
                 tx.commit().unwrap();
             }
 
-            // chain tip is memoized to the current burn chain tip, since it's the longest stacks fork
+            // chain tip is memoized to the current burn chain tip, since it's the longest
+            // stacks fork
             let (block_consensus_hash, block_bhh) =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(db.conn()).unwrap();
             assert_eq!(block_consensus_hash, consensus_hash);
             assert_eq!(block_bhh, stacks_block_hash);
         }
 
-        // chain tip is _still_ memoized to the last materialized chain tip (i.e. stacks block 7)
+        // chain tip is _still_ memoized to the last materialized chain tip (i.e. stacks
+        // block 7)
         last_snapshot = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
         assert_eq!(
             last_snapshot.burn_header_hash,
@@ -9199,8 +9331,8 @@ pub mod tests {
         );
         assert_eq!(last_snapshot.canonical_stacks_tip_height, 6);
 
-        // when the blocks for burn blocks 6 and 8 arrive, the canonical fork is still at stacks
-        // block 7.  The two stacks forks will be:
+        // when the blocks for burn blocks 6 and 8 arrive, the canonical fork is still
+        // at stacks block 7.  The two stacks forks will be:
         // * 1,2,3,4,5,7
         // * 1,2,3,4,6,8
         for (i, height) in [6, 8].iter().zip([5, 6].iter()) {
@@ -9214,8 +9346,9 @@ pub mod tests {
                 tx.commit().unwrap();
             }
 
-            // chain tip is memoized to the current burn chain tip, since it's the longest stacks fork.
-            // BUT! the tie-breaking logic will cause the canonical fork to *flip*
+            // chain tip is memoized to the current burn chain tip, since it's the longest
+            // stacks fork. BUT! the tie-breaking logic will cause the canonical
+            // fork to *flip*
             let (block_consensus_hash, block_bhh) =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(db.conn()).unwrap();
 
@@ -9258,7 +9391,8 @@ pub mod tests {
                 tx.commit().unwrap();
             }
 
-            // we've overtaken the longest fork with a different longest fork on this burn chain fork
+            // we've overtaken the longest fork with a different longest fork on this burn
+            // chain fork
             let (block_consensus_hash, block_bhh) =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(db.conn()).unwrap();
             assert_eq!(block_consensus_hash, consensus_hash);
@@ -9281,8 +9415,8 @@ pub mod tests {
         );
         assert_eq!(last_snapshot.canonical_stacks_tip_height, 7);
 
-        // fork the burn chain at 0x4, producing a longer burnchain fork.  There are now two
-        // burnchain forks, where the first one has two stacks forks:
+        // fork the burn chain at 0x4, producing a longer burnchain fork.  There are now
+        // two burnchain forks, where the first one has two stacks forks:
         // stx:      1,    2,    3,    4,          6,          8,    9
         // stx:      1,    2,    3,    4,    5,          7,
         // burn:  0x01, 0x02, 0x03, 0x04, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8a
@@ -9294,8 +9428,8 @@ pub mod tests {
             .unwrap();
         make_fork_run(&mut db, &last_snapshot, 7, 0x40);
 
-        // canonical stacks chain tip is now stacks block 4, since the burn chain fork ending on
-        // 0x4b has overtaken the burn chain fork ending on 0x8a
+        // canonical stacks chain tip is now stacks block 4, since the burn chain fork
+        // ending on 0x4b has overtaken the burn chain fork ending on 0x8a
         last_snapshot = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
         assert_eq!(
             last_snapshot.burn_header_hash,
@@ -9338,8 +9472,8 @@ pub mod tests {
         );
         assert_eq!(last_snapshot.canonical_stacks_tip_height, 5);
 
-        // fork the burn chain at 0x48, producing a shorter burnchain fork.  There are now three
-        // burnchain forks:
+        // fork the burn chain at 0x48, producing a shorter burnchain fork.  There are
+        // now three burnchain forks:
         // stx:      1,    2,    3,    4,          6,          8,    9
         // stx:      1,    2,    3,    4,    5,          7,
         // burn:  0x01, 0x02, 0x03, 0x04, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8a
@@ -9417,7 +9551,8 @@ pub mod tests {
         // stx:      1,    2,    3,    4,                            5,    6
         // burn:  0x01, 0x02, 0x03, 0x04, 0x45, 0x46, 0x47, 0x48, 0x29, 0x2a
 
-        // canonical stacks chain off of non-canonical burn chain fork 0x2a should have been updated
+        // canonical stacks chain off of non-canonical burn chain fork 0x2a should have
+        // been updated
         last_snapshot = SortitionDB::get_block_snapshot(db.conn(), &SortitionId([0x2a; 32]))
             .unwrap()
             .unwrap();
@@ -9451,8 +9586,9 @@ pub mod tests {
         );
         assert_eq!(last_snapshot.canonical_stacks_tip_height, 5);
 
-        // insert stacks blocks #6, #7, #8, #9 off of the burn chain tip starting at 0x4b (i.e. the
-        // canonical burn chain tip), on blocks 0x45, 0x46, and 0x47
+        // insert stacks blocks #6, #7, #8, #9 off of the burn chain tip starting at
+        // 0x4b (i.e. the canonical burn chain tip), on blocks 0x45, 0x46, and
+        // 0x47
         {
             let mut tx = db.tx_begin_at_tip();
             tx.set_stacks_block_accepted(
@@ -9511,8 +9647,8 @@ pub mod tests {
         );
         assert_eq!(last_snapshot.canonical_stacks_tip_height, 8);
 
-        // LIMITATION: the burn chain tipped at 0x2a will _not_ be updated, since it is not the
-        // canonical burn chain tip.
+        // LIMITATION: the burn chain tipped at 0x2a will _not_ be updated, since it is
+        // not the canonical burn chain tip.
         last_snapshot = SortitionDB::get_block_snapshot(db.conn(), &SortitionId([0x2a; 32]))
             .unwrap()
             .unwrap();
@@ -9530,8 +9666,8 @@ pub mod tests {
         );
         assert_eq!(last_snapshot.canonical_stacks_tip_height, 6);
 
-        // BUT, when the burn chain tipped by 0x2a overtakes the one tipped by 0x4b, then all blocks
-        // will show up.
+        // BUT, when the burn chain tipped by 0x2a overtakes the one tipped by 0x4b,
+        // then all blocks will show up.
         make_fork_run(&mut db, &last_snapshot, 2, 0x20);
 
         // new state of the world:
@@ -9564,8 +9700,9 @@ pub mod tests {
         assert_eq!(last_snapshot.canonical_stacks_tip_height, 8);
     }
 
-    /// Verify that the highest Stacks pointer written remains so, even if blocks from lower
-    /// heights arrive. Verify that the pointer changes even if no new sortitions are added.
+    /// Verify that the highest Stacks pointer written remains so, even if
+    /// blocks from lower heights arrive. Verify that the pointer changes
+    /// even if no new sortitions are added.
     #[test]
     fn test_stacks_block_accepted_out_of_order() {
         let first_burn_hash = BurnchainHeaderHash::from_hex(
@@ -9608,7 +9745,8 @@ pub mod tests {
             .unwrap()
             .unwrap();
 
-        // before materializing new arrivals to the MARF, we should still have the canonical tip
+        // before materializing new arrivals to the MARF, we should still have the
+        // canonical tip
         assert_eq!(last_snapshot.canonical_stacks_tip_height, 4);
         assert_eq!(
             last_snapshot.canonical_stacks_tip_consensus_hash,
@@ -9716,7 +9854,8 @@ pub mod tests {
         .unwrap();
 
         let mut cur_snapshot = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
-        // In this loop, we will advance the height, and check if the stacks epoch id is advancing as expected.
+        // In this loop, we will advance the height, and check if the stacks epoch id is
+        // advancing as expected.
         for i in 0..20 {
             debug!("Get epoch for block height {}", cur_snapshot.block_height);
             let cur_epoch = SortitionDB::get_stacks_epoch(db.conn(), cur_snapshot.block_height)
@@ -10343,8 +10482,8 @@ pub mod tests {
         );
 
         for i in 0..2 {
-            // do this battery of tests twice -- once with the block commit parent descendancy
-            // information, and once without.
+            // do this battery of tests twice -- once with the block commit parent
+            // descendancy information, and once without.
             if i == 0 {
                 debug!("Test descended_from with block_commit_parents");
             } else {
@@ -10781,7 +10920,8 @@ pub mod tests {
             good_ops[3]
         );
 
-        // if the same ops get mined in a different burnchain block, they will still be available
+        // if the same ops get mined in a different burnchain block, they will still be
+        // available
         let good_ops_2 = vec![
             BlockstackOperationType::TransferStx(TransferStxOp {
                 sender: StacksAddress::new(1, Hash160([1u8; 20])).unwrap(),

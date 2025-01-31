@@ -40,8 +40,8 @@ use crate::net::{
     NUM_NEIGHBORS,
 };
 
-/// This struct represents a batch of in-flight RPCs to a set of peers, identified by a
-/// neighbor key (or something that converts to it)
+/// This struct represents a batch of in-flight RPCs to a set of peers,
+/// identified by a neighbor key (or something that converts to it)
 #[derive(Debug)]
 pub struct NeighborRPC {
     state: HashMap<NeighborAddress, (usize, Option<StacksHttpRequest>)>,
@@ -96,7 +96,8 @@ impl NeighborRPC {
 
     /// Collect all in-flight replies into a vec.
     /// This also pushes data into each connection's socket write buffer,
-    /// so the client of this module should eagerly call this over and over again.
+    /// so the client of this module should eagerly call this over and over
+    /// again.
     pub fn collect_replies(
         &mut self,
         network: &mut PeerNetwork,
@@ -160,7 +161,8 @@ impl NeighborRPC {
 
     /// Send an HTTP request to the given neighbor's HTTP endpoint.
     /// Returns Ok(()) if we successfully queue the request.
-    /// Returns Err(..) if we fail to connect to the remote peer for some reason.
+    /// Returns Err(..) if we fail to connect to the remote peer for some
+    /// reason.
     pub fn send_request(
         &mut self,
         network: &mut PeerNetwork,
@@ -214,14 +216,15 @@ impl NeighborRPC {
     }
 
     /// Drive I/O on a given network conversation.
-    /// Send the HTTP request if we haven't already done so, saturate the underlying TCP socket
-    /// with bytes, and poll the event loop for any completed messages.  If we get one, then return
-    /// it.
+    /// Send the HTTP request if we haven't already done so, saturate the
+    /// underlying TCP socket with bytes, and poll the event loop for any
+    /// completed messages.  If we get one, then return it.
     ///
     /// Returns Ok(Some(response)) if the HTTP request completed
-    /// Returns Ok(None) if we are still connecting to the remote peer, or waiting for it to reply
-    /// Returns Err(NetError::WaitingForDNS) if we're still waiting to resolve the peer's data URL
-    /// Returns Err(..) if we fail to connect, or if we are unable to receive a reply.
+    /// Returns Ok(None) if we are still connecting to the remote peer, or
+    /// waiting for it to reply Returns Err(NetError::WaitingForDNS) if
+    /// we're still waiting to resolve the peer's data URL Returns Err(..)
+    /// if we fail to connect, or if we are unable to receive a reply.
     fn poll_next_reply(
         network: &mut PeerNetwork,
         event_id: usize,

@@ -41,10 +41,10 @@ fn rollback_value_check(_value: &str, _check: &RollbackValueCheck) {}
 fn rollback_edits_push<T>(edits: &mut Vec<(T, RollbackValueCheck)>, key: T, _value: &str) {
     edits.push((key, ()));
 }
-// this function is used to check the lookup map when committing at the "bottom" of the
-//   wrapper -- i.e., when committing to the underlying store. for the _unchecked_ implementation
-//   this is used to get the edit _value_ out of the lookupmap, for used in the subsequent `put_all`
-//   command.
+// this function is used to check the lookup map when committing at the "bottom"
+// of the   wrapper -- i.e., when committing to the underlying store. for the
+// _unchecked_ implementation   this is used to get the edit _value_ out of the
+// lookupmap, for used in the subsequent `put_all`   command.
 #[cfg(not(feature = "rollback_value_check"))]
 fn rollback_check_pre_bottom_commit<T>(
     edits: Vec<(T, RollbackValueCheck)>,
@@ -80,8 +80,8 @@ where
 {
     edits.push((key, value.to_owned()));
 }
-// this function is used to check the lookup map when committing at the "bottom" of the
-//   wrapper -- i.e., when committing to the underlying store.
+// this function is used to check the lookup map when committing at the "bottom"
+// of the   wrapper -- i.e., when committing to the underlying store.
 #[cfg(feature = "rollback_value_check")]
 fn rollback_check_pre_bottom_commit<T>(
     edits: Vec<(T, RollbackValueCheck)>,
@@ -337,26 +337,26 @@ impl RollbackWrapper<'_> {
     }
 
     ///
-    /// `query_pending_data` indicates whether the rollback wrapper should query the rollback
-    ///    wrapper's pending data on reads. This is set to `false` during (at-block ...) closures,
-    ///    and `true` otherwise.
-    ///
+    /// `query_pending_data` indicates whether the rollback wrapper should query
+    /// the rollback    wrapper's pending data on reads. This is set to
+    /// `false` during (at-block ...) closures,    and `true` otherwise.
     pub fn set_block_hash(
         &mut self,
         bhh: StacksBlockId,
         query_pending_data: bool,
     ) -> InterpreterResult<StacksBlockId> {
         self.store.set_block_hash(bhh).inspect(|_| {
-            // use and_then so that query_pending_data is only set once set_block_hash succeeds
-            //  this doesn't matter in practice, because a set_block_hash failure always aborts
-            //  the transaction with a runtime error (destroying its environment), but it's much
-            //  better practice to do this, especially if the abort behavior changes in the future.
+            // use and_then so that query_pending_data is only set once set_block_hash
+            // succeeds  this doesn't matter in practice, because a
+            // set_block_hash failure always aborts  the transaction with a
+            // runtime error (destroying its environment), but it's much  better
+            // practice to do this, especially if the abort behavior changes in the future.
             self.query_pending_data = query_pending_data;
         })
     }
 
-    /// this function will only return commitment proofs for values _already_ materialized
-    ///  in the underlying store. otherwise it returns None.
+    /// this function will only return commitment proofs for values _already_
+    /// materialized  in the underlying store. otherwise it returns None.
     pub fn get_data_with_proof<T>(&mut self, key: &str) -> InterpreterResult<Option<(T, Vec<u8>)>>
     where
         T: ClarityDeserializable<T>,
@@ -367,8 +367,8 @@ impl RollbackWrapper<'_> {
             .transpose()
     }
 
-    /// this function will only return commitment proofs for values _already_ materialized
-    ///  in the underlying store. otherwise it returns None.
+    /// this function will only return commitment proofs for values _already_
+    /// materialized  in the underlying store. otherwise it returns None.
     pub fn get_data_with_proof_by_hash<T>(
         &mut self,
         hash: &TrieHash,
@@ -407,11 +407,11 @@ impl RollbackWrapper<'_> {
 
     /// DO NOT USE IN CONSENSUS CODE.
     ///
-    /// Load data directly from the underlying store, given its trie hash.  The lookup map will not
-    /// be used.
+    /// Load data directly from the underlying store, given its trie hash.  The
+    /// lookup map will not be used.
     ///
-    /// This should never be called from within the Clarity VM, or via block-processing.  It's only
-    /// meant to be used by the RPC system.
+    /// This should never be called from within the Clarity VM, or via
+    /// block-processing.  It's only meant to be used by the RPC system.
     pub fn get_data_by_hash<T>(&mut self, hash: &TrieHash) -> InterpreterResult<Option<T>>
     where
         T: ClarityDeserializable<T>,
@@ -438,7 +438,8 @@ impl RollbackWrapper<'_> {
     }
 
     /// Get a Clarity value from the underlying Clarity KV store.
-    /// Returns Some if found, with the Clarity Value and the serialized byte length of the value.
+    /// Returns Some if found, with the Clarity Value and the serialized byte
+    /// length of the value.
     pub fn get_value(
         &mut self,
         key: &str,
@@ -465,12 +466,14 @@ impl RollbackWrapper<'_> {
         }
     }
 
-    /// This is the height we are currently constructing. It comes from the MARF.
+    /// This is the height we are currently constructing. It comes from the
+    /// MARF.
     pub fn get_current_block_height(&mut self) -> u32 {
         self.store.get_current_block_height()
     }
 
-    /// Is None if `block_height` >= the "currently" under construction Stacks block height.
+    /// Is None if `block_height` >= the "currently" under construction Stacks
+    /// block height.
     pub fn get_block_header_hash(&mut self, block_height: u32) -> Option<StacksBlockId> {
         self.store.get_block_at_height(block_height)
     }

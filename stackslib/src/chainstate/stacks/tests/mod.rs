@@ -263,7 +263,8 @@ impl TestMinerTrace {
 pub struct TestStacksNode {
     pub chainstate: StacksChainState,
     pub prev_keys: Vec<LeaderKeyRegisterOp>, // _all_ keys generated
-    pub key_ops: HashMap<VRFPublicKey, usize>, // map VRF public keys to their locations in the prev_keys array
+    pub key_ops: HashMap<VRFPublicKey, usize>, /* map VRF public keys to their locations in the
+                                              * prev_keys array */
     pub anchored_blocks: Vec<StacksBlock>,
     pub microblocks: Vec<Vec<StacksMicroblock>>,
     pub nakamoto_blocks: Vec<Vec<NakamotoBlock>>,
@@ -714,8 +715,8 @@ impl TestStacksNode {
     }
 }
 
-/// Return Some(bool) to indicate whether or not the anchored block was accepted into the queue.
-/// Return None if the block was not submitted at all.
+/// Return Some(bool) to indicate whether or not the anchored block was accepted
+/// into the queue. Return None if the block was not submitted at all.
 pub fn preprocess_stacks_block_data(
     node: &mut TestStacksNode,
     burn_node: &mut TestBurnchainNode,
@@ -810,7 +811,8 @@ pub fn preprocess_stacks_block_data(
     Some(block_res)
 }
 
-/// Verify that the stacks block's state root matches the state root in the chain state
+/// Verify that the stacks block's state root matches the state root in the
+/// chain state
 pub fn check_block_state_index_root(
     chainstate: &mut StacksChainState,
     consensus_hash: &ConsensusHash,

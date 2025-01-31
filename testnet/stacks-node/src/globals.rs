@@ -25,7 +25,8 @@ pub type NeonGlobals = Globals<RelayerDirective>;
 /// Command types for the relayer thread, issued to it by other threads
 #[allow(clippy::large_enum_variant)]
 pub enum RelayerDirective {
-    /// Handle some new data that arrived on the network (such as blocks, transactions, and
+    /// Handle some new data that arrived on the network (such as blocks,
+    /// transactions, and
     HandleNetResult(NetworkResult),
     /// Announce a new sortition.  Process and broadcast the block if we won.
     ProcessTenure(ConsensusHash, BurnchainHeaderHash, BlockHeaderHash),
@@ -59,7 +60,8 @@ pub struct Globals<T> {
     pub sync_comms: PoxSyncWatchdogComms,
     /// Global flag to see if we should keep running
     pub should_keep_running: Arc<AtomicBool>,
-    /// Status of our VRF key registration state (shared between the main thread and the relayer)
+    /// Status of our VRF key registration state (shared between the main thread
+    /// and the relayer)
     pub leader_key_registration_state: Arc<Mutex<LeaderKeyRegistrationState>>,
     /// Last miner config loaded
     last_miner_config: Arc<Mutex<Option<MinerConfig>>>,
@@ -179,9 +181,10 @@ impl<T> Globals<T> {
         self.counters.clone()
     }
 
-    /// Called by the relayer to pass unconfirmed txs to the p2p thread, so the p2p thread doesn't
-    /// need to do the disk I/O needed to instantiate the unconfirmed state trie they represent.
-    /// Clears the unconfirmed transactions, and replaces them with the chainstate's.
+    /// Called by the relayer to pass unconfirmed txs to the p2p thread, so the
+    /// p2p thread doesn't need to do the disk I/O needed to instantiate the
+    /// unconfirmed state trie they represent. Clears the unconfirmed
+    /// transactions, and replaces them with the chainstate's.
     pub fn send_unconfirmed_txs(&self, chainstate: &StacksChainState) {
         let Some(ref unconfirmed) = chainstate.unconfirmed_state else {
             return;
@@ -195,8 +198,8 @@ impl<T> Globals<T> {
         txs.extend(unconfirmed.mined_txs.clone());
     }
 
-    /// Called by the p2p thread to accept the unconfirmed tx state processed by the relayer.
-    /// Puts the shared unconfirmed transactions to chainstate.
+    /// Called by the p2p thread to accept the unconfirmed tx state processed by
+    /// the relayer. Puts the shared unconfirmed transactions to chainstate.
     pub fn recv_unconfirmed_txs(&self, chainstate: &mut StacksChainState) {
         let Some(ref mut unconfirmed) = chainstate.unconfirmed_state else {
             return;
@@ -255,8 +258,8 @@ impl<T> Globals<T> {
         *key_state = new_state;
     }
 
-    /// Advance the leader key registration state to pending, given a txid we just sent.
-    /// Only the relayer thread calls this.
+    /// Advance the leader key registration state to pending, given a txid we
+    /// just sent. Only the relayer thread calls this.
     pub fn set_pending_leader_key_registration(&self, target_block_height: u64, txid: Txid) {
         let mut key_state = self
             .leader_key_registration_state
@@ -268,8 +271,8 @@ impl<T> Globals<T> {
         *key_state = LeaderKeyRegistrationState::Pending(target_block_height, txid);
     }
 
-    /// Advance the leader key registration state to active, given the VRF key registration ops
-    /// we've discovered in a given snapshot.
+    /// Advance the leader key registration state to active, given the VRF key
+    /// registration ops we've discovered in a given snapshot.
     /// The runloop thread calls this whenever it processes a sortition.
     pub fn try_activate_leader_key_registration(
         &self,

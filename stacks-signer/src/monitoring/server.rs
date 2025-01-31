@@ -106,10 +106,11 @@ impl MonitoringServer {
     }
 
     // /// Start and run the metrics server
-    // pub fn run(endpoint: SocketAddr, stacks_client: StacksClient) -> Result<(), MonitoringError> {
-    //     let http_server = HttpServer::http(endpoint).map_err(|_| MonitoringError::AlreadyBound)?;
-    //     let mut server = PrometheusMetrics::new(http_server, endpoint, stacks_client);
-    //     server.main_loop()
+    // pub fn run(endpoint: SocketAddr, stacks_client: StacksClient) -> Result<(),
+    // MonitoringError> {     let http_server =
+    // HttpServer::http(endpoint).map_err(|_| MonitoringError::AlreadyBound)?;
+    //     let mut server = PrometheusMetrics::new(http_server, endpoint,
+    // stacks_client);     server.main_loop()
     // }
 
     /// Main listener loop of metrics server

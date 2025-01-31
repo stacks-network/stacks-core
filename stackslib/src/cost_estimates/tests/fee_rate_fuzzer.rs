@@ -60,7 +60,8 @@ fn test_fuzzing_seed1() {
     );
 }
 
-/// Test the fuzzer using a fixed random seed. Uses a different seed than test_fuzzing_seed1.
+/// Test the fuzzer using a fixed random seed. Uses a different seed than
+/// test_fuzzing_seed1.
 #[test]
 fn test_fuzzing_seed2() {
     let mock_estimator = ConstantFeeEstimator {};
@@ -88,8 +89,8 @@ struct CountingFeeEstimator {
     counter: u64,
 }
 
-/// This class "counts" the number of times `notify_block` has been called, and returns this as the
-/// estimate.
+/// This class "counts" the number of times `notify_block` has been called, and
+/// returns this as the estimate.
 impl FeeEstimator for CountingFeeEstimator {
     fn notify_block(
         &mut self,
@@ -129,8 +130,8 @@ fn test_notify_pass_through() {
         .notify_block(&receipt, &ExecutionCost::max_value())
         .expect("notify_block should succeed here.");
 
-    // We've called `notify_block` twice, so the values returned are 2f, with some noise from the
-    // fuzzer.
+    // We've called `notify_block` twice, so the values returned are 2f, with some
+    // noise from the fuzzer.
     assert_eq!(
         fuzzed_estimator
             .get_rate_estimates()

@@ -1378,7 +1378,8 @@ fn test_response_inference() {
                        (let ((z (unwrap! x 1))) z)))
                  (check (ok 1))",
         // tests top-level `unwrap!` type-check behavior
-        // (i.e., let it default to anything, since it will always cause a tx abort if the expectation is unmet.)
+        // (i.e., let it default to anything, since it will always cause a tx abort if the
+        // expectation is unmet.)
         "(unwrap! (ok 2) true)",
     ];
 

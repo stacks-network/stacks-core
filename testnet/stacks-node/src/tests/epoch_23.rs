@@ -31,7 +31,8 @@ use crate::{neon, BitcoinRegtestController, BurnchainController};
 #[ignore]
 /// Test the trait invocation behavior for contracts instantiated in epoch 2.05
 ///  * in epoch 2.1: the trait invocation works
-///  * in epoch 2.2: trait invocation is broken, and returns a runtime error, even when wrapped
+///  * in epoch 2.2: trait invocation is broken, and returns a runtime error,
+///    even when wrapped
 ///  * in epoch 2.3: the trait invocation works
 fn trait_invocation_behavior() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {

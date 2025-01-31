@@ -67,9 +67,10 @@ use crate::net::server::HttpPeer;
 use crate::net::{Error as NetError, Neighbor, NeighborAddress, NeighborKey};
 use crate::util_lib::db::{DBConn, Error as DBError};
 
-/// Download states for a unconfirmed tenures.  These include the ongoing tenure, as well as the
-/// last complete tenure whose tenure-end block hash has not yet been written to the burnchain (but
-/// the tenure-start hash has -- it was done so in the block-commit for the ongoing tenure).
+/// Download states for a unconfirmed tenures.  These include the ongoing
+/// tenure, as well as the last complete tenure whose tenure-end block hash has
+/// not yet been written to the burnchain (but the tenure-start hash has -- it
+/// was done so in the block-commit for the ongoing tenure).
 #[derive(Debug, Clone, PartialEq)]
 pub enum NakamotoUnconfirmedDownloadState {
     /// Getting the tenure tip information
@@ -80,8 +81,9 @@ pub enum NakamotoUnconfirmedDownloadState {
     /// Receiving unconfirmed tenure blocks.
     /// The inner value is the block ID of the next block to fetch.
     GetUnconfirmedTenureBlocks(StacksBlockId),
-    /// We have gotten all the unconfirmed blocks for this tenure, and we now have the end block
-    /// for the highest complete tenure (which can now be obtained via `NakamotoTenureDownloadState`).
+    /// We have gotten all the unconfirmed blocks for this tenure, and we now
+    /// have the end block for the highest complete tenure (which can now be
+    /// obtained via `NakamotoTenureDownloadState`).
     Done,
 }
 
@@ -91,16 +93,17 @@ impl fmt::Display for NakamotoUnconfirmedDownloadState {
     }
 }
 
-/// Download state machine for the unconfirmed tenures.  It operates in the following steps:
+/// Download state machine for the unconfirmed tenures.  It operates in the
+/// following steps:
 ///
 /// 1. Get /v3/tenures/info to learn the unconfirmed chain tip
 /// 2. Get the tenure-start block for the unconfirmed chain tip
-/// 3. Get the unconfirmed blocks, starting with the one identified by step (1) and ending with the
-///    immediate child of the one obtained in (2)
+/// 3. Get the unconfirmed blocks, starting with the one identified by step (1)
+///    and ending with the immediate child of the one obtained in (2)
 ///
-/// Once this state-machine finishes execution, the tenure-start block is used to construct a
-/// `NakamotoTenureDownloader` state machine for the highest-confirmed tenure.
-///
+/// Once this state-machine finishes execution, the tenure-start block is used
+/// to construct a `NakamotoTenureDownloader` state machine for the
+/// highest-confirmed tenure.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NakamotoUnconfirmedTenureDownloader {
     /// state of this machine
@@ -127,8 +130,9 @@ pub struct NakamotoUnconfirmedTenureDownloader {
 }
 
 impl NakamotoUnconfirmedTenureDownloader {
-    /// Make a new downloader which will download blocks from the tip back down to the optional
-    /// `highest_processed_block_id` (so we don't re-download the same blocks over and over).
+    /// Make a new downloader which will download blocks from the tip back down
+    /// to the optional `highest_processed_block_id` (so we don't
+    /// re-download the same blocks over and over).
     pub fn new(naddr: NeighborAddress, highest_processed_block_id: Option<StacksBlockId>) -> Self {
         Self {
             state: NakamotoUnconfirmedDownloadState::GetTenureInfo,
@@ -143,17 +147,17 @@ impl NakamotoUnconfirmedTenureDownloader {
         }
     }
 
-    /// What's the tenure ID of the ongoing tenure?  This is learned from /v3/tenure/info, which is
-    /// checked upon receipt against the burnchain state (so we're not blindly trusting the remote
-    /// node).
+    /// What's the tenure ID of the ongoing tenure?  This is learned from
+    /// /v3/tenure/info, which is checked upon receipt against the burnchain
+    /// state (so we're not blindly trusting the remote node).
     pub fn unconfirmed_tenure_id(&self) -> Option<&ConsensusHash> {
         self.tenure_tip.as_ref().map(|tt| &tt.consensus_hash)
     }
 
     /// Set the highest-processed block.
-    /// This can be performed by the downloader itself in order to inform ongoing requests for
-    /// unconfirmed tenures of newly-processed blocks, so they don't re-download blocks this node
-    /// has already handled.
+    /// This can be performed by the downloader itself in order to inform
+    /// ongoing requests for unconfirmed tenures of newly-processed blocks,
+    /// so they don't re-download blocks this node has already handled.
     pub fn set_highest_processed_block(
         &mut self,
         highest_processed_block_id: StacksBlockId,
@@ -163,22 +167,24 @@ impl NakamotoUnconfirmedTenureDownloader {
         self.highest_processed_block_height = Some(highest_processed_block_height);
     }
 
-    /// Try and accept the tenure info.  It will be validated against the sortition DB and its tip.
+    /// Try and accept the tenure info.  It will be validated against the
+    /// sortition DB and its tip.
     ///
-    /// * tenure_tip.consensus_hash
-    ///     This is the consensus hash of the remote node's ongoing tenure. It may not be the
-    ///     sortition tip, e.g. if the tenure spans multiple sortitions.
-    /// * tenure_tip.tenure_start_block_id
-    ///     This is the first block ID of the ongoing unconfirmed tenure.
-    /// * tenure_tip.parent_consensus_hash
-    ///     This is the consensus hash of the parent of the ongoing tenure. It's the node's highest
-    ///     complete tenure, for which we know the start and end block IDs.
-    /// * tenure_tip.parent_tenure_start_block_id
-    ///     This is the tenure start block for the highest complete tenure.  It should be equal to
-    ///     the winning Stacks block hash of the snapshot for the ongoing tenure.
+    /// * tenure_tip.consensus_hash This is the consensus hash of the remote
+    ///   node's ongoing tenure. It may not be the sortition tip, e.g. if the
+    ///   tenure spans multiple sortitions.
+    /// * tenure_tip.tenure_start_block_id This is the first block ID of the
+    ///   ongoing unconfirmed tenure.
+    /// * tenure_tip.parent_consensus_hash This is the consensus hash of the
+    ///   parent of the ongoing tenure. It's the node's highest complete tenure,
+    ///   for which we know the start and end block IDs.
+    /// * tenure_tip.parent_tenure_start_block_id This is the tenure start block
+    ///   for the highest complete tenure.  It should be equal to the winning
+    ///   Stacks block hash of the snapshot for the ongoing tenure.
     ///  
-    /// We may already have the tenure-start block for the unconfirmed tenure. If so, then don't go
-    /// fetch it again; just get the new unconfirmed blocks.
+    /// We may already have the tenure-start block for the unconfirmed tenure.
+    /// If so, then don't go fetch it again; just get the new unconfirmed
+    /// blocks.
     pub fn try_accept_tenure_info(
         &mut self,
         sortdb: &SortitionDB,
@@ -270,8 +276,8 @@ impl NakamotoUnconfirmedTenureDownloader {
             return Err(NetError::InvalidMessage);
         }
 
-        // parent tenure start block ID must be the winning block hash for the ongoing tenure's
-        // snapshot
+        // parent tenure start block ID must be the winning block hash for the ongoing
+        // tenure's snapshot
         if local_tenure_sn.winning_stacks_block_hash.0
             != remote_tenure_tip.parent_tenure_start_block_id.0
         {
@@ -299,9 +305,9 @@ impl NakamotoUnconfirmedTenureDownloader {
                 || highest_processed_block_height > remote_tenure_tip.tip_height
             {
                 // nothing to do -- we're at or ahead of the remote peer, so finish up.
-                // If we don't have the tenure-start block for the confirmed tenure that the remote
-                // peer claims to have, then the remote peer has sent us invalid data and we should
-                // treat it as such.
+                // If we don't have the tenure-start block for the confirmed tenure that the
+                // remote peer claims to have, then the remote peer has sent us
+                // invalid data and we should treat it as such.
                 let unconfirmed_tenure_start_block = chainstate
                     .nakamoto_blocks_db()
                     .get_nakamoto_block(&remote_tenure_tip.tenure_start_block_id)?
@@ -332,7 +338,8 @@ impl NakamotoUnconfirmedTenureDownloader {
         )
         .expect("FATAL: sortition from before system start");
 
-        // get reward set info for the unconfirmed tenure and highest-complete tenure sortitions
+        // get reward set info for the unconfirmed tenure and highest-complete tenure
+        // sortitions
         let Some(Some(confirmed_reward_set)) = current_reward_sets
             .get(&parent_tenure_rc)
             .map(|cycle_info| cycle_info.reward_set())
@@ -393,9 +400,10 @@ impl NakamotoUnconfirmedTenureDownloader {
         Ok(())
     }
 
-    /// Validate and accept the unconfirmed tenure-start block.  If accepted, then advance the state.
-    /// Returns Ok(()) if the unconfirmed tenure start block was valid
-    /// Returns Err(..) if it was not valid, or if this function was called out of sequence.
+    /// Validate and accept the unconfirmed tenure-start block.  If accepted,
+    /// then advance the state. Returns Ok(()) if the unconfirmed tenure
+    /// start block was valid Returns Err(..) if it was not valid, or if
+    /// this function was called out of sequence.
     pub fn try_accept_unconfirmed_tenure_start_block(
         &mut self,
         unconfirmed_tenure_start_block: NakamotoBlock,
@@ -457,11 +465,12 @@ impl NakamotoUnconfirmedTenureDownloader {
 
     /// Add downloaded unconfirmed tenure blocks.
     /// If we have collected all tenure blocks, then return them.
-    /// Returns Ok(Some(list-of-blocks)) on success, in which case, `list-of-blocks` is the
-    /// height-ordered sequence of blocks in this tenure, and includes only the blocks that come
+    /// Returns Ok(Some(list-of-blocks)) on success, in which case,
+    /// `list-of-blocks` is the height-ordered sequence of blocks in this
+    /// tenure, and includes only the blocks that come
     /// after the highest-processed block (if set).
-    /// Returns Ok(None) if there are still blocks to fetch, in which case, the caller should call
-    /// `send_next_download_request()`
+    /// Returns Ok(None) if there are still blocks to fetch, in which case, the
+    /// caller should call `send_next_download_request()`
     /// Returns Err(..) on invalid state or invalid block.
     pub fn try_accept_unconfirmed_tenure_blocks(
         &mut self,
@@ -513,8 +522,9 @@ impl NakamotoUnconfirmedTenureDownloader {
                 return Err(NetError::InvalidMessage);
             }
 
-            // we may or may not need the tenure-start block for the unconfirmed tenure.  But if we
-            // do, make sure it's valid, and it's the last block we receive.
+            // we may or may not need the tenure-start block for the unconfirmed tenure.
+            // But if we do, make sure it's valid, and it's the last block we
+            // receive.
             let Ok(is_tenure_start) = block.is_wellformed_tenure_start_block() else {
                 warn!("Invalid tenure-start block";
                       "tenure_id" => %tenure_tip.consensus_hash,
@@ -549,8 +559,8 @@ impl NakamotoUnconfirmedTenureDownloader {
 
             debug!("Got unconfirmed tenure block {}", &block.header.block_id());
 
-            // NOTE: this field can get updated by the downloader while this state-machine is in
-            // this state.
+            // NOTE: this field can get updated by the downloader while this state-machine
+            // is in this state.
             if let Some(highest_processed_block_id) = self.highest_processed_block_id.as_ref() {
                 if expected_block_id == highest_processed_block_id {
                     // got all the blocks we asked for
@@ -561,8 +571,8 @@ impl NakamotoUnconfirmedTenureDownloader {
                 }
             }
 
-            // NOTE: this field can get updated by the downloader while this state-machine is in
-            // this state.
+            // NOTE: this field can get updated by the downloader while this state-machine
+            // is in this state.
             if let Some(highest_processed_block_height) =
                 self.highest_processed_block_height.as_ref()
             {
@@ -629,13 +639,14 @@ impl NakamotoUnconfirmedTenureDownloader {
         Ok(None)
     }
 
-    /// Once this machine runs to completion, examine its state to see if we still need to fetch
-    /// the highest complete tenure.  We may not need to, especially if we're just polling for new
-    /// unconfirmed blocks.
+    /// Once this machine runs to completion, examine its state to see if we
+    /// still need to fetch the highest complete tenure.  We may not need
+    /// to, especially if we're just polling for new unconfirmed blocks.
     ///
     /// Return Ok(true) if we need it still
     /// Return Ok(false) if we already have it
-    /// Return Err(..) if we encounter a DB error or if this function was called out of sequence.
+    /// Return Err(..) if we encounter a DB error or if this function was called
+    /// out of sequence.
     pub fn need_highest_complete_tenure(
         &self,
         chainstate: &StacksChainState,
@@ -648,8 +659,9 @@ impl NakamotoUnconfirmedTenureDownloader {
             return Err(NetError::InvalidState);
         };
 
-        // if we've processed the unconfirmed tenure-start block already, then we've necessarily
-        // downloaded and processed the highest-complete tenure already.
+        // if we've processed the unconfirmed tenure-start block already, then we've
+        // necessarily downloaded and processed the highest-complete tenure
+        // already.
         Ok(!NakamotoChainState::has_block_header(
             chainstate.db(),
             &unconfirmed_tenure_start_block.header.block_id(),
@@ -658,7 +670,8 @@ impl NakamotoUnconfirmedTenureDownloader {
     }
 
     /// Determine if we can produce a highest-complete tenure request.
-    /// This can be false if the tenure tip isn't present, or it doesn't point to a Nakamoto tenure
+    /// This can be false if the tenure tip isn't present, or it doesn't point
+    /// to a Nakamoto tenure
     pub fn can_make_highest_complete_tenure_downloader(
         &self,
         sortdb: &SortitionDB,
@@ -707,9 +720,9 @@ impl NakamotoUnconfirmedTenureDownloader {
         Ok(true)
     }
 
-    /// Create a NakamotoTenureDownloader for the highest complete tenure.  We already have the
-    /// tenure-end block (which will be supplied to the downloader), but we'll still want to go get
-    /// its tenure-start block.
+    /// Create a NakamotoTenureDownloader for the highest complete tenure.  We
+    /// already have the tenure-end block (which will be supplied to the
+    /// downloader), but we'll still want to go get its tenure-start block.
     ///
     /// Returns Ok(downloader) on success
     /// Returns Err(..) if we call this function out of sequence.
@@ -747,8 +760,8 @@ impl NakamotoUnconfirmedTenureDownloader {
         Ok(ntd)
     }
 
-    /// Produce the next HTTP request that, when successfully executed, will advance this state
-    /// machine.
+    /// Produce the next HTTP request that, when successfully executed, will
+    /// advance this state machine.
     ///
     /// Returns Some(request) if a request must be sent.
     /// Returns None if we're done
@@ -772,16 +785,17 @@ impl NakamotoUnconfirmedTenureDownloader {
                 ));
             }
             NakamotoUnconfirmedDownloadState::Done => {
-                // got all unconfirmed blocks!  Next step is to turn this downloader into a confirmed
-                // tenure downloader using the earliest unconfirmed tenure block.
+                // got all unconfirmed blocks!  Next step is to turn this downloader into a
+                // confirmed tenure downloader using the earliest unconfirmed
+                // tenure block.
                 return None;
             }
         }
     }
 
     /// Advance the state of the downloader from chainstate, if possible.
-    /// For example, a tenure-start block may have been pushed to us already (or it
-    /// may be a shadow block)
+    /// For example, a tenure-start block may have been pushed to us already (or
+    /// it may be a shadow block)
     pub fn try_advance_from_chainstate(
         &mut self,
         chainstate: &StacksChainState,
@@ -818,9 +832,10 @@ impl NakamotoUnconfirmedTenureDownloader {
     }
 
     /// Begin the next download request for this state machine.
-    /// Returns Ok(()) if we sent the request, or there's already an in-flight request.  The
-    /// caller should try this again until it gets one of the other possible return values.  It's
-    /// up to the caller to determine when it's appropriate to convert this state machine into a
+    /// Returns Ok(()) if we sent the request, or there's already an in-flight
+    /// request.  The caller should try this again until it gets one of the
+    /// other possible return values.  It's up to the caller to determine
+    /// when it's appropriate to convert this state machine into a
     /// `NakamotoTenureDownloader`.
     /// Returns Err(..) if the neighbor is dead or broken.
     pub fn send_next_download_request(
@@ -843,9 +858,9 @@ impl NakamotoUnconfirmedTenureDownloader {
         };
 
         let Some(request) = self.make_next_download_request(peerhost) else {
-            // treat this downloader as still in-flight since the overall state machine will need
-            // to keep it around long enough to convert it into a tenure downloader for the highest
-            // complete tenure.
+            // treat this downloader as still in-flight since the overall state machine will
+            // need to keep it around long enough to convert it into a tenure
+            // downloader for the highest complete tenure.
             return Ok(());
         };
 
@@ -856,9 +871,9 @@ impl NakamotoUnconfirmedTenureDownloader {
     /// Handle a received StacksHttpResponse and advance this machine's state
     /// If we get the full tenure, return it.
     ///
-    /// Returns Ok(Some(blocks)) if we finished downloading the unconfirmed tenure
-    /// Returns Ok(None) if we're still working, in which case the caller should call
-    /// `send_next_download_request()`
+    /// Returns Ok(Some(blocks)) if we finished downloading the unconfirmed
+    /// tenure Returns Ok(None) if we're still working, in which case the
+    /// caller should call `send_next_download_request()`
     /// Returns Err(..) on unrecoverable failure to advance state
     pub fn handle_next_download_response(
         &mut self,

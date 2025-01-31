@@ -43,10 +43,11 @@ use crate::util_lib::db::{DBConn, Error as DBError};
 
 #[derive(Clone)]
 pub struct RPCNakamotoTenureRequestHandler {
-    /// Block to start streaming from. It and its ancestors will be incrementally streamed until one of
-    /// hte following happens:
+    /// Block to start streaming from. It and its ancestors will be
+    /// incrementally streamed until one of hte following happens:
     /// * we reach the first block in the tenure
-    /// * we would exceed MAX_PAYLOAD_LEN bytes transmitted if we started sending the next block
+    /// * we would exceed MAX_PAYLOAD_LEN bytes transmitted if we started
+    ///   sending the next block
     pub block_id: Option<StacksBlockId>,
     /// What's the final block ID to stream from?
     /// Passed as `stop=` query parameter
@@ -92,10 +93,10 @@ impl NakamotoTenureStream {
         })
     }
 
-    /// Start streaming the next block (i.e. the parent of the block we last streamed).
-    /// Return Ok(true) if we can fit the block into the stream.
-    /// Return Ok(false) if not. The caller will need to call this RPC method again with the block
-    /// ID of the last block it received.
+    /// Start streaming the next block (i.e. the parent of the block we last
+    /// streamed). Return Ok(true) if we can fit the block into the stream.
+    /// Return Ok(false) if not. The caller will need to call this RPC method
+    /// again with the block ID of the last block it received.
     /// Return Err(..) on DB error
     pub fn next_block(&mut self) -> Result<bool, ChainError> {
         let parent_header = NakamotoChainState::get_block_header(
@@ -160,7 +161,8 @@ impl HttpRequest for RPCNakamotoTenureRequestHandler {
     }
 
     /// Try to decode this request.
-    /// There's nothing to load here, so just make sure the request is well-formed.
+    /// There's nothing to load here, so just make sure the request is
+    /// well-formed.
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
@@ -277,8 +279,8 @@ impl RPCRequestHandler for RPCNakamotoTenureRequestHandler {
 
 /// Decode the HTTP response
 impl HttpResponse for RPCNakamotoTenureRequestHandler {
-    /// Decode this response from a byte stream.  This is called by the client to decode this
-    /// message
+    /// Decode this response from a byte stream.  This is called by the client
+    /// to decode this message
     fn try_parse_response(
         &self,
         preamble: &HttpResponsePreamble,

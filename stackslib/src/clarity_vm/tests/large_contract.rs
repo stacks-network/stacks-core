@@ -1181,7 +1181,8 @@ fn test_deep_tuples() {
 
         let _res = block.as_transaction(|tx| {
             //  basically, without the new stack depth checks in the lexer/parser,
-            //    and without the VaryStackDepthChecker, this next call will return a checkerror
+            //    and without the VaryStackDepthChecker, this next call will return a
+            // checkerror
             let analysis_resp = tx.analyze_smart_contract(
                 &contract_identifier,
                 *version,
@@ -1203,7 +1204,8 @@ fn test_deep_tuples() {
             }
 
             //  basically, without the new stack depth checks in the lexer/parser,
-            //    and without the VaryStackDepthChecker, this next call will return a checkerror
+            //    and without the VaryStackDepthChecker, this next call will return a
+            // checkerror
             let analysis_resp = tx.analyze_smart_contract(
                 &contract_identifier,
                 *version,
@@ -1272,7 +1274,8 @@ fn test_deep_tuples_ast_precheck() {
                 assert_eq!(tx.get_epoch(), StacksEpochId::Epoch2_05);
             }
             //  basically, without the new stack depth checks in the lexer/parser,
-            //    and without the VaryStackDepthChecker, this next call will return a checkerror
+            //    and without the VaryStackDepthChecker, this next call will return a
+            // checkerror
             let analysis_resp = tx.analyze_smart_contract(
                 &contract_identifier,
                 *version,
@@ -1347,7 +1350,8 @@ fn test_deep_type_nesting() {
                 assert_eq!(tx.get_epoch(), StacksEpochId::Epoch2_05);
             }
             //  basically, without the new stack depth checks in the lexer/parser,
-            //    and without the VaryStackDepthChecker, this next call will return a checkerror
+            //    and without the VaryStackDepthChecker, this next call will return a
+            // checkerror
             let analysis_resp = tx.analyze_smart_contract(
                 &contract_identifier,
                 *version,

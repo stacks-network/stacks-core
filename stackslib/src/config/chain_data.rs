@@ -59,7 +59,8 @@ const DEADBEEF: [u8; 32] = [
 ];
 
 impl MinerStats {
-    /// Find the burn distribution for a single sortition's block-commits and missed-commits
+    /// Find the burn distribution for a single sortition's block-commits and
+    /// missed-commits
     fn get_burn_distribution<SH: SortitionHandle>(
         sort_handle: &mut SH,
         burnchain: &Burnchain,
@@ -143,8 +144,8 @@ impl MinerStats {
             }
         }
 
-        // not all commits in windowed_block_commits have been confirmed, so make sure that they
-        // are in the right order
+        // not all commits in windowed_block_commits have been confirmed, so make sure
+        // that they are in the right order
         let mut block_height_at_index = None;
         for (index, commits) in windowed_block_commits.iter_mut().enumerate() {
             let index = index as u64;
@@ -160,7 +161,8 @@ impl MinerStats {
         }
 
         // calculate the burn distribution from these operations.
-        // The resulting distribution will contain the user burns that match block commits
+        // The resulting distribution will contain the user burns that match block
+        // commits
         let burn_dist = BurnSamplePoint::make_min_median_distribution(
             if burnchain.is_in_prepare_phase(burn_block_height) {
                 1
@@ -300,8 +302,8 @@ impl MinerStats {
         Ok(unconfirmed_spends)
     }
 
-    /// Convert a list of burn sample points into a probability distribution by candidate's
-    /// apparent sender (e.g. miner address).
+    /// Convert a list of burn sample points into a probability distribution by
+    /// candidate's apparent sender (e.g. miner address).
     pub fn burn_dist_to_prob_dist(burn_dist: &[BurnSamplePoint]) -> HashMap<String, f64> {
         if burn_dist.is_empty() {
             return HashMap::new();
@@ -328,7 +330,8 @@ impl MinerStats {
     }
 
     /// Get the spend distribution and total spend.
-    /// If the miner has both a confirmed and unconfirmed spend, then take the latter.
+    /// If the miner has both a confirmed and unconfirmed spend, then take the
+    /// latter.
     pub fn get_spend_distribution(
         active_miners_and_commits: &[(String, LeaderBlockCommitOp)],
         unconfirmed_block_commits: &[LeaderBlockCommitOp],
@@ -376,8 +379,8 @@ impl MinerStats {
         (dist, total_spend)
     }
 
-    /// Get the probability distribution for the Bitcoin block 6+ blocks in the future, assuming
-    /// all block-commit spends remain the same.
+    /// Get the probability distribution for the Bitcoin block 6+ blocks in the
+    /// future, assuming all block-commit spends remain the same.
     pub fn get_future_win_distribution(
         active_miners_and_commits: &[(String, LeaderBlockCommitOp)],
         unconfirmed_block_commits: &[LeaderBlockCommitOp],
@@ -400,9 +403,10 @@ impl MinerStats {
         probs
     }
 
-    /// Get the burn distribution for the _next_ Bitcoin block, assuming that the given list of
-    /// block-commit data will get mined.  For miners that are known to the system but who do not
-    /// have unconfirmed block-commits, infer that they'll just mine the same block-commit value
+    /// Get the burn distribution for the _next_ Bitcoin block, assuming that
+    /// the given list of block-commit data will get mined.  For miners that
+    /// are known to the system but who do not have unconfirmed
+    /// block-commits, infer that they'll just mine the same block-commit value
     /// again.
     pub fn get_unconfirmed_burn_distribution(
         &self,
@@ -492,8 +496,8 @@ impl MinerStats {
         )
     }
 
-    /// Given the sortition DB, get the list of all miners in the past MINING_COMMITMENT_WINDOW
-    /// blocks, as well as their last block-commits
+    /// Given the sortition DB, get the list of all miners in the past
+    /// MINING_COMMITMENT_WINDOW blocks, as well as their last block-commits
     pub fn get_active_miners(
         sortdb: &SortitionDB,
         at_burn_block: Option<u64>,

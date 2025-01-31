@@ -95,8 +95,9 @@ pub enum PoxAnchorBlockStatus {
 }
 
 /// The possible outcomes of processing a burnchain block.
-/// Indicates whether or not we're ready to process Stacks blocks, or if not, whether or not we're
-/// blocked on a Stacks 2.x anchor block or a Nakamoto anchor block
+/// Indicates whether or not we're ready to process Stacks blocks, or if not,
+/// whether or not we're blocked on a Stacks 2.x anchor block or a Nakamoto
+/// anchor block
 pub enum NewBurnchainBlockStatus {
     /// Ready to process Stacks blocks
     Ready,
@@ -107,9 +108,10 @@ pub enum NewBurnchainBlockStatus {
 }
 
 impl NewBurnchainBlockStatus {
-    /// Test helper to convert this status into the optional hash of the missing PoX anchor block.
-    /// Because there are unit tests that expect a Some(..) result if PoX cannot proceed, the
-    /// missing Nakamoto anchor block case is converted into a placeholder Some(..) value
+    /// Test helper to convert this status into the optional hash of the missing
+    /// PoX anchor block. Because there are unit tests that expect a
+    /// Some(..) result if PoX cannot proceed, the missing Nakamoto anchor
+    /// block case is converted into a placeholder Some(..) value
     #[cfg(test)]
     pub fn into_missing_block_hash(self) -> Option<BlockHeaderHash> {
         match self {
@@ -199,14 +201,16 @@ pub trait BlockEventDispatcher {
 }
 
 pub struct ChainsCoordinatorConfig {
-    /// true: assume all anchor blocks are present, and block chain sync until they arrive
-    /// false: process sortitions in reward cycles without anchor blocks
+    /// true: assume all anchor blocks are present, and block chain sync until
+    /// they arrive false: process sortitions in reward cycles without
+    /// anchor blocks
     pub assume_present_anchor_blocks: bool,
     /// true: use affirmation maps before 2.1
     /// false: only use affirmation maps in 2.1 or later
     pub always_use_affirmation_maps: bool,
-    /// true: always wait for canonical anchor blocks, even if it stalls the chain
-    /// false: proceed to process new chain history even if we're missing an anchor block.
+    /// true: always wait for canonical anchor blocks, even if it stalls the
+    /// chain false: proceed to process new chain history even if we're
+    /// missing an anchor block.
     pub require_affirmed_anchor_blocks: bool,
 }
 
@@ -345,11 +349,12 @@ impl<T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider<'_,
         //   updates to .signers
         // `self.get_reward_set_epoch2` reads the reward set from the `.pox-*` contract
         //
-        //  Data **cannot** be read from `.signers` in epoch 2.5 because the write occurs
-        //   in the first block of the prepare phase, but the PoX anchor block is *before*
-        //   the prepare phase. Therefore, we fetch the reward set in the 2.x style, and then
-        //   apply the necessary nakamoto assertions if the reward set is going to be
-        //   active in Nakamoto (i.e., check for signer set existence).
+        //  Data **cannot** be read from `.signers` in epoch 2.5 because the write
+        // occurs   in the first block of the prepare phase, but the PoX anchor
+        // block is *before*   the prepare phase. Therefore, we fetch the reward
+        // set in the 2.x style, and then   apply the necessary nakamoto
+        // assertions if the reward set is going to be   active in Nakamoto
+        // (i.e., check for signer set existence).
 
         let is_nakamoto_reward_set = match SortitionDB::get_stacks_epoch_by_epoch_id(
             sortdb.conn(),
@@ -398,7 +403,8 @@ impl<T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider<'_,
 impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
     fn get_reward_set_epoch2(
         &self,
-        // Todo: `current_burn_height` is a misleading name: should be the `cycle_start_burn_height`
+        // Todo: `current_burn_height` is a misleading name: should be the
+        // `cycle_start_burn_height`
         current_burn_height: u64,
         chainstate: &mut StacksChainState,
         burnchain: &Burnchain,
@@ -424,10 +430,11 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
                     .active_pox_contract(current_burn_height)
                     != POX_3_NAME
                 {
-                    // Note: this should not happen in mainnet or testnet, because the no reward cycle start height
-                    //        exists between Epoch 2.4's instantiation height and the pox-3 activation height.
-                    //  However, this *will* happen in testing if Epoch 2.4's instantiation height is set == a reward cycle
-                    //   start height
+                    // Note: this should not happen in mainnet or testnet, because the no reward
+                    // cycle start height        exists between Epoch 2.4's
+                    // instantiation height and the pox-3 activation height.
+                    //  However, this *will* happen in testing if Epoch 2.4's instantiation height
+                    // is set == a reward cycle   start height
                     info!("PoX reward cycle defaulting to burn in Epoch 2.4 because cycle start is before PoX-3 activation");
                     return Ok(RewardSet::empty());
                 }
@@ -439,10 +446,11 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
                     .active_pox_contract(current_burn_height)
                     != POX_4_NAME
                 {
-                    // Note: this should not happen in mainnet or testnet, because the no reward cycle start height
-                    //        exists between Epoch 2.5's instantiation height and the pox-4 activation height.
-                    //  However, this *will* happen in testing if Epoch 2.5's instantiation height is set == a reward cycle
-                    //   start height
+                    // Note: this should not happen in mainnet or testnet, because the no reward
+                    // cycle start height        exists between Epoch 2.5's
+                    // instantiation height and the pox-4 activation height.
+                    //  However, this *will* happen in testing if Epoch 2.5's instantiation height
+                    // is set == a reward cycle   start height
                     info!("PoX reward cycle defaulting to burn in Epoch 2.5 because cycle start is before PoX-4 activation");
                     return Ok(RewardSet::empty());
                 }
@@ -582,9 +590,9 @@ impl<
         }
     }
 
-    /// This is the Stacks 2.x coordinator loop body, which handles communications
-    /// from the given `comms`.  It returns `true` if the coordinator is still running, and `false`
-    /// if not.
+    /// This is the Stacks 2.x coordinator loop body, which handles
+    /// communications from the given `comms`.  It returns `true` if the
+    /// coordinator is still running, and `false` if not.
     pub fn handle_comms_epoch2(&mut self, bits: u8, miner_status: Arc<Mutex<MinerStatus>>) -> bool {
         // timeout so that we handle Ctrl-C a little gracefully
         if (bits & (CoordinatorEvents::NEW_STACKS_BLOCK as u8)) != 0 {
@@ -747,8 +755,8 @@ pub fn get_next_recipients<U: RewardSetProvider>(
 }
 
 /// returns None if this burnchain block is _not_ the start of a reward cycle
-///         otherwise, returns the required reward cycle info for this burnchain block
-///                     in our current sortition view:
+///         otherwise, returns the required reward cycle info for this burnchain
+/// block                     in our current sortition view:
 ///           * PoX anchor block
 ///           * Was PoX anchor block known?
 pub fn get_reward_cycle_info<U: RewardSetProvider>(
@@ -846,9 +854,10 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
             }
         };
 
-    // cache the reward cycle info as of the first sortition in the prepare phase, so that
-    // the first Nakamoto epoch can go find it later.  Subsequent Nakamoto epochs will use the
-    // reward set stored to the Nakamoto chain state.
+    // cache the reward cycle info as of the first sortition in the prepare phase,
+    // so that the first Nakamoto epoch can go find it later.  Subsequent
+    // Nakamoto epochs will use the reward set stored to the Nakamoto chain
+    // state.
     let ic = sort_db.index_handle(sortition_tip);
     let prev_reward_cycle = burnchain
         .block_height_to_reward_cycle(burn_height)
@@ -866,13 +875,14 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
         let preprocessed_reward_set =
             SortitionDB::get_preprocessed_reward_set(&tx, &first_prepare_sn.sortition_id)?;
 
-        // It's possible that we haven't processed the PoX anchor block at the time we have
-        // processed the burnchain block which commits to it.  In this case, the PoX anchor block
-        // status would be SelectedAndUnknown.  However, it's overwhelmingly likely (and in
-        // Nakamoto, _required_) that the PoX anchor block will be processed shortly thereafter.
-        // When this happens, we need to _update_ the sortition DB with the newly-processed reward
-        // set.  This code performs this check to determine whether or not we need to store this
-        // calculated reward set.
+        // It's possible that we haven't processed the PoX anchor block at the time we
+        // have processed the burnchain block which commits to it.  In this
+        // case, the PoX anchor block status would be SelectedAndUnknown.
+        // However, it's overwhelmingly likely (and in Nakamoto, _required_)
+        // that the PoX anchor block will be processed shortly thereafter.
+        // When this happens, we need to _update_ the sortition DB with the
+        // newly-processed reward set.  This code performs this check to
+        // determine whether or not we need to store this calculated reward set.
         let need_to_store = if let Some(reward_cycle_info) = preprocessed_reward_set {
             // overwrite if we have an unknown anchor block
             !reward_cycle_info.is_reward_info_known()
@@ -904,8 +914,8 @@ pub struct PaidRewards {
     pub burns: u64,
 }
 
-/// Determine the rewards paid for a given set of burnchain operations.  All of these operations
-/// ought to be from the same burnchain block.
+/// Determine the rewards paid for a given set of burnchain operations.  All of
+/// these operations ought to be from the same burnchain block.
 pub fn calculate_paid_rewards(ops: &[BlockstackOperationType]) -> PaidRewards {
     let mut reward_recipients: HashMap<_, u64> = HashMap::new();
     let mut burn_amt = 0;
@@ -959,8 +969,8 @@ pub fn dispatcher_announce_burn_ops<T: BlockEventDispatcher>(
     );
 }
 
-/// Forget that all Stacks blocks that were mined on descendants of `burn_header` are orphaned.
-/// They may be valid again, after a PoX reorg.
+/// Forget that all Stacks blocks that were mined on descendants of
+/// `burn_header` are orphaned. They may be valid again, after a PoX reorg.
 fn forget_orphan_stacks_blocks(
     sort_conn: &DBConn,
     chainstate_db_tx: &mut DBTx,
@@ -985,11 +995,13 @@ fn forget_orphan_stacks_blocks(
 
 /// Consolidate affirmation maps.
 /// `sort_am` will be the prefix of the resulting AM.
-/// If `given_am` represents more reward cycles than `last_2_05_rc`, then its affirmations will be
-/// appended to `sort_am` to compute the consolidated affirmation map.
+/// If `given_am` represents more reward cycles than `last_2_05_rc`, then its
+/// affirmations will be appended to `sort_am` to compute the consolidated
+/// affirmation map.
 ///
-/// This way, the affirmation map reflects affirmations made under the 2.05 rules during epoch 2.05
-/// reward cycles, and affirmations made under the 2.1 rules during epoch 2.1.
+/// This way, the affirmation map reflects affirmations made under the 2.05
+/// rules during epoch 2.05 reward cycles, and affirmations made under the 2.1
+/// rules during epoch 2.1.
 fn consolidate_affirmation_maps(
     given_am: AffirmationMap,
     sort_am: &AffirmationMap,
@@ -1012,7 +1024,8 @@ fn consolidate_affirmation_maps(
 
 /// Get the heaviest affirmation map, when considering epochs.
 /// * In epoch 2.05 and prior, the heaviest AM was the sortition AM.
-/// * In epoch 2.1, the reward cycles prior to the 2.1 boundary remain the sortition AM.
+/// * In epoch 2.1, the reward cycles prior to the 2.1 boundary remain the
+///   sortition AM.
 pub fn static_get_heaviest_affirmation_map<B: BurnchainHeaderReader>(
     burnchain: &Burnchain,
     indexer: &B,
@@ -1039,7 +1052,8 @@ pub fn static_get_heaviest_affirmation_map<B: BurnchainHeaderReader>(
 
 /// Get the canonical affirmation map, when considering epochs.
 /// * In epoch 2.05 and prior, the heaviest AM was the sortition AM.
-/// * In epoch 2.1, the reward cycles prior to the 2.1 boundary remain the sortition AM.
+/// * In epoch 2.1, the reward cycles prior to the 2.1 boundary remain the
+///   sortition AM.
 pub fn static_get_canonical_affirmation_map<B: BurnchainHeaderReader>(
     burnchain: &Burnchain,
     indexer: &B,
@@ -1092,7 +1106,8 @@ fn inner_static_get_stacks_tip_affirmation_map(
 
 /// Get the canonical Stacks tip affirmation map, when considering epochs.
 /// * In epoch 2.05 and prior, the heaviest AM was the sortition AM.
-/// * In epoch 2.1, the reward cycles prior to the 2.1 boundary remain the sortition AM
+/// * In epoch 2.1, the reward cycles prior to the 2.1 boundary remain the
+///   sortition AM
 pub fn static_get_stacks_tip_affirmation_map(
     burnchain_blocks_db: &BurnchainDB,
     sortition_db: &SortitionDB,
@@ -1121,8 +1136,8 @@ impl<
         B: BurnchainHeaderReader,
     > ChainsCoordinator<'_, T, N, U, CE, FE, B>
 {
-    /// Process new Stacks blocks.  If we get stuck for want of a missing PoX anchor block, return
-    /// its hash.
+    /// Process new Stacks blocks.  If we get stuck for want of a missing PoX
+    /// anchor block, return its hash.
     pub fn handle_new_stacks_block(&mut self) -> Result<Option<BlockHeaderHash>, Error> {
         debug!("Handle new Stacks block");
         if let Some(pox_anchor) = self.process_ready_blocks()? {
@@ -1132,7 +1147,8 @@ impl<
         }
     }
 
-    /// Get all block snapshots and their affirmation maps at a given burnchain block height.
+    /// Get all block snapshots and their affirmation maps at a given burnchain
+    /// block height.
     fn get_snapshots_and_affirmation_maps_at_height(
         &self,
         height: u64,
@@ -1180,8 +1196,8 @@ impl<
         )
     }
 
-    /// Find the canonical Stacks tip at a given sortition, whose affirmation map is compatible
-    /// with the heaviest affirmation map.
+    /// Find the canonical Stacks tip at a given sortition, whose affirmation
+    /// map is compatible with the heaviest affirmation map.
     fn find_highest_stacks_block_with_compatible_affirmation_map(
         heaviest_am: &AffirmationMap,
         sort_tip: &SortitionId,
@@ -1334,12 +1350,14 @@ impl<
         return Ok((FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, 0));
     }
 
-    /// Did the network affirm a different history of sortitions than what our sortition DB and
-    /// stacks DB indicate?  This checks both the affirmation map represented by the Stacks chain
-    /// tip and the affirmation map represented by the sortition tip against the heaviest
-    /// affirmation map.  Both checks are necessary, because both Stacks and sortition state may
-    /// need to be invalidated in order to process the new set of sortitions and Stacks blocks that
-    /// are consistent with the heaviest affirmation map.
+    /// Did the network affirm a different history of sortitions than what our
+    /// sortition DB and stacks DB indicate?  This checks both the
+    /// affirmation map represented by the Stacks chain tip and the
+    /// affirmation map represented by the sortition tip against the heaviest
+    /// affirmation map.  Both checks are necessary, because both Stacks and
+    /// sortition state may need to be invalidated in order to process the
+    /// new set of sortitions and Stacks blocks that are consistent with the
+    /// heaviest affirmation map.
     ///
     /// If so, then return the reward cycle at which they diverged.
     /// If not, return None.
@@ -1381,9 +1399,10 @@ impl<
             &canonical_affirmation_map,
         );
 
-        // NOTE: a.find_divergence(b) will be `Some(..)` even if a and b have the same prefix,
-        // but b happens to be longer.  So, we need to check both `stacks_tip_affirmation_map`
-        // and `heaviest_am` against each other depending on their lengths.
+        // NOTE: a.find_divergence(b) will be `Some(..)` even if a and b have the same
+        // prefix, but b happens to be longer.  So, we need to check both
+        // `stacks_tip_affirmation_map` and `heaviest_am` against each other
+        // depending on their lengths.
         let stacks_changed_reward_cycle_opt = {
             if heaviest_am.len() <= stacks_tip_affirmation_map.len() {
                 stacks_tip_affirmation_map.find_divergence(&heaviest_am)
@@ -1453,9 +1472,10 @@ impl<
         Ok(None)
     }
 
-    /// Find valid sortitions between two given heights, and given the correct affirmation map.
-    /// Returns a height-sorted list of block snapshots whose affirmation maps are cosnistent with
-    /// the correct affirmation map.
+    /// Find valid sortitions between two given heights, and given the correct
+    /// affirmation map. Returns a height-sorted list of block snapshots
+    /// whose affirmation maps are cosnistent with the correct affirmation
+    /// map.
     fn find_valid_sortitions(
         &self,
         compare_am: &AffirmationMap,
@@ -1505,17 +1525,20 @@ impl<
         Ok((last_invalidate_start_block, valid_sortitions))
     }
 
-    /// Find out which sortitions will need to be invalidated as part of a PoX reorg, and which
-    /// ones will need to be re-validated.
+    /// Find out which sortitions will need to be invalidated as part of a PoX
+    /// reorg, and which ones will need to be re-validated.
     ///
-    /// Returns (first-invalidation-height, last-invalidation-height, revalidation-sort-ids).
-    /// * All sortitions in the range [first-invalidation-height, last-invalidation-height) must be
-    /// invalidated, since they are no longer consistent with the heaviest affirmation map.  These
-    /// heights fall into the reward cycles identified by `changed_reward_cycle` and
-    /// `current_reward_cycle`.
-    /// * The sortitions identified by `revalidate-sort-ids` are sortitions whose heights come
-    /// at or after `last-invalidation-height` but are now valid again (i.e. because they are
-    /// consistent with the heaviest affirmation map).
+    /// Returns (first-invalidation-height, last-invalidation-height,
+    /// revalidation-sort-ids).
+    /// * All sortitions in the range [first-invalidation-height,
+    ///   last-invalidation-height) must be
+    /// invalidated, since they are no longer consistent with the heaviest
+    /// affirmation map.  These heights fall into the reward cycles
+    /// identified by `changed_reward_cycle` and `current_reward_cycle`.
+    /// * The sortitions identified by `revalidate-sort-ids` are sortitions
+    ///   whose heights come
+    /// at or after `last-invalidation-height` but are now valid again (i.e.
+    /// because they are consistent with the heaviest affirmation map).
     fn find_invalid_and_revalidated_sortitions(
         &self,
         compare_am: &AffirmationMap,
@@ -1629,9 +1652,10 @@ impl<
         }
     }
 
-    /// Forget that stacks blocks for now-invalidated sortitions are orphaned, because they might
-    /// now be valid.  In particular, this applies to a Stacks block that got mined in two PoX
-    /// forks.  This can happen at most once between the two forks, but we need to ensure that the
+    /// Forget that stacks blocks for now-invalidated sortitions are orphaned,
+    /// because they might now be valid.  In particular, this applies to a
+    /// Stacks block that got mined in two PoX forks.  This can happen at
+    /// most once between the two forks, but we need to ensure that the
     /// block can be re-processed in that event.
     fn undo_stacks_block_orphaning(
         burnchain_conn: &DBConn,
@@ -1671,46 +1695,58 @@ impl<
         Ok(())
     }
 
-    /// Compare the coordinator's heaviest affirmation map to the heaviest affirmation map in the
-    /// burnchain DB.  If they are different, then invalidate all sortitions not represented on
-    /// the coordinator's heaviest affirmation map that are now represented by the burnchain DB's
+    /// Compare the coordinator's heaviest affirmation map to the heaviest
+    /// affirmation map in the burnchain DB.  If they are different, then
+    /// invalidate all sortitions not represented on the coordinator's
+    /// heaviest affirmation map that are now represented by the burnchain DB's
     /// heaviest affirmation map.
     ///
-    /// Care must be taken to ensure that a sortition that was already created, but invalidated, is
-    /// not re-created.  This can happen if the affirmation map flaps, causing a sortition that was
-    /// created and invalidated to become valid again.  The code here addresses this by considering
-    /// three ranges of sortitions (grouped by reward cycle) when processing a new heaviest
-    /// affirmation map:
+    /// Care must be taken to ensure that a sortition that was already created,
+    /// but invalidated, is not re-created.  This can happen if the
+    /// affirmation map flaps, causing a sortition that was created and
+    /// invalidated to become valid again.  The code here addresses this by
+    /// considering three ranges of sortitions (grouped by reward cycle)
+    /// when processing a new heaviest affirmation map:
     ///
-    /// * The range of sortitions that are valid in both affirmation maps. These sortitions
+    /// * The range of sortitions that are valid in both affirmation maps. These
+    ///   sortitions
     /// correspond to the affirmation maps' common prefix.
-    /// * The range of sortitions that exists and are invalid on the coordinator's current
-    /// affirmation map, but are valid on the new heaviest affirmation map.  These sortitions
-    /// come strictly after the common prefix, and are identified by the variables
-    /// `first_invalid_start_block` and `last_invalid_start_block` (which identifies their lowest
+    /// * The range of sortitions that exists and are invalid on the
+    ///   coordinator's current
+    /// affirmation map, but are valid on the new heaviest affirmation map.
+    /// These sortitions come strictly after the common prefix, and are
+    /// identified by the variables `first_invalid_start_block` and
+    /// `last_invalid_start_block` (which identifies their lowest
     /// and highest block heights).
-    /// * The range of sortitions that are currently valid, and need to be invalidated.  This range
-    /// comes strictly after the aforementioned previously-invalid-but-now-valid sortition range.
+    /// * The range of sortitions that are currently valid, and need to be
+    ///   invalidated.  This range
+    /// comes strictly after the aforementioned previously-invalid-but-now-valid
+    /// sortition range.
     ///
-    /// The code does not modify any sortition state for the common prefix of sortitions.
+    /// The code does not modify any sortition state for the common prefix of
+    /// sortitions.
     ///
-    /// The code identifies the second range of previously-invalid-but-now-valid sortitions and marks them
-    /// as valid once again.  In addition, it updates the Stacks chainstate DB such that any Stacks
-    /// blocks that were orphaned and never processed can be retried with the now-revalidated
-    /// sortition.
+    /// The code identifies the second range of previously-invalid-but-now-valid
+    /// sortitions and marks them as valid once again.  In addition, it
+    /// updates the Stacks chainstate DB such that any Stacks blocks that
+    /// were orphaned and never processed can be retried with the
+    /// now-revalidated sortition.
     ///
-    /// The code identifies the third range of now-invalid sortitions and marks them as invalid in
-    /// the sortition DB.
+    /// The code identifies the third range of now-invalid sortitions and marks
+    /// them as invalid in the sortition DB.
     ///
-    /// Note that regardless of the affirmation map status, a Stacks block will remain processed
-    /// once it gets accepted.  Its underlying sortition may become invalidated, in which case, the
-    /// Stacks block would no longer be considered as part of the canonical Stacks fork (since the
-    /// canonical Stacks chain tip must reside on a valid sortition).  However, a Stacks block that
-    /// should be processed at the end of the day may temporarily be considered orphaned if there
-    /// is a "deep" affirmation map reorg that causes at least one reward cycle's sortitions to
-    /// be treated as invalid.  This is what necessitates retrying Stacks blocks that have been
-    /// downloaded and considered orphaned because they were never processed -- they may in fact be
-    /// valid and processable once the node has identified the canonical sortition history!
+    /// Note that regardless of the affirmation map status, a Stacks block will
+    /// remain processed once it gets accepted.  Its underlying sortition
+    /// may become invalidated, in which case, the Stacks block would no
+    /// longer be considered as part of the canonical Stacks fork (since the
+    /// canonical Stacks chain tip must reside on a valid sortition).  However,
+    /// a Stacks block that should be processed at the end of the day may
+    /// temporarily be considered orphaned if there is a "deep" affirmation
+    /// map reorg that causes at least one reward cycle's sortitions to
+    /// be treated as invalid.  This is what necessitates retrying Stacks blocks
+    /// that have been downloaded and considered orphaned because they were
+    /// never processed -- they may in fact be valid and processable once
+    /// the node has identified the canonical sortition history!
     ///
     /// The only kinds of errors returned here are database query errors.
     fn handle_affirmation_reorg(&mut self) -> Result<(), Error> {
@@ -1753,12 +1789,14 @@ impl<
                 .block_height_to_reward_cycle(canonical_burnchain_tip.block_height)
                 .unwrap_or(0);
 
-            // sortitions between [first_invalidate_start_block, last_invalidate_start_block) will
-            // be invalidated.  Any orphaned Stacks blocks in this range will be forgotten, so they
+            // sortitions between [first_invalidate_start_block,
+            // last_invalidate_start_block) will be invalidated.  Any orphaned
+            // Stacks blocks in this range will be forgotten, so they
             // can be retried later with the new sortitions in this burnchain block range.
             //
-            // valid_sortitions include all sortitions in this range that are now valid (i.e.
-            // they were invalidated before, but will be valid again as a result of this reorg).
+            // valid_sortitions include all sortitions in this range that are now valid
+            // (i.e. they were invalidated before, but will be valid again as a
+            // result of this reorg).
             let (first_invalidate_start_block, last_invalidate_start_block, valid_sortitions) =
                 match self.find_invalid_and_revalidated_sortitions(
                     &heaviest_am,
@@ -1850,8 +1888,9 @@ impl<
                     }
                 };
 
-            // check valid_sortitions -- it may correspond to a range of sortitions beyond our
-            // current highest-valid sortition (in which case, *do not* revalidate them)
+            // check valid_sortitions -- it may correspond to a range of sortitions beyond
+            // our current highest-valid sortition (in which case, *do not*
+            // revalidate them)
             let valid_sortitions = if let Some(first_sn) = valid_sortitions.first() {
                 if first_sn.block_height > sortition_height {
                     debug!("No sortitions to revalidate: highest is {},{}, first candidate is {},{}. Will not revalidate.", sortition_height, &sortition_tip, first_sn.block_height, &first_sn.sortition_id);
@@ -1868,9 +1907,9 @@ impl<
             // map, and invalidate its descendants
             let ic = self.sortition_db.index_conn();
 
-            // find the burnchain block hash and height of the first burnchain block in which we'll
-            // invalidate all descendant sortitions, but retain some previously-invalidated
-            // sortitions
+            // find the burnchain block hash and height of the first burnchain block in
+            // which we'll invalidate all descendant sortitions, but retain some
+            // previously-invalidated sortitions
             let revalidated_burn_header = BurnchainDB::get_burnchain_header(
                 self.burnchain_blocks_db.conn(),
                 &self.burnchain_indexer,
@@ -1884,8 +1923,8 @@ impl<
                 )
             });
 
-            // find the burnchain block hash and height of the first burnchain block in which we'll
-            // invalidate all descendant sortitions, no matter what.
+            // find the burnchain block hash and height of the first burnchain block in
+            // which we'll invalidate all descendant sortitions, no matter what.
             let invalidated_burn_header = BurnchainDB::get_burnchain_header(
                 self.burnchain_blocks_db.conn(),
                 &self.burnchain_indexer,
@@ -2077,7 +2116,8 @@ impl<
                 )?;
             }
 
-            // un-orphan blocks that had been orphaned but were tied to this now-revalidated sortition history
+            // un-orphan blocks that had been orphaned but were tied to this now-revalidated
+            // sortition history
             Self::undo_stacks_block_orphaning(
                 self.burnchain_blocks_db.conn(),
                 &self.burnchain_indexer,
@@ -2150,10 +2190,11 @@ impl<
         Ok(())
     }
 
-    /// Use the network's affirmations to re-interpret our local PoX anchor block status into what
-    /// the network affirmed was their PoX anchor block statuses.
-    /// If we're blocked on receiving a new anchor block that we don't have (i.e. the network
-    /// affirmed that it exists), then indicate so by returning its hash.
+    /// Use the network's affirmations to re-interpret our local PoX anchor
+    /// block status into what the network affirmed was their PoX anchor
+    /// block statuses. If we're blocked on receiving a new anchor block
+    /// that we don't have (i.e. the network affirmed that it exists), then
+    /// indicate so by returning its hash.
     fn reinterpret_affirmed_pox_anchor_block_status(
         &self,
         canonical_affirmation_map: &AffirmationMap,
@@ -2260,10 +2301,11 @@ impl<
         Ok(None)
     }
 
-    /// Try to revalidate a sortition if it exists already.  This can happen if the node flip/flops
-    /// between two PoX forks.
+    /// Try to revalidate a sortition if it exists already.  This can happen if
+    /// the node flip/flops between two PoX forks.
     ///
-    /// If it succeeds, then return the revalidated snapshot.  Otherwise, return None
+    /// If it succeeds, then return the revalidated snapshot.  Otherwise, return
+    /// None
     fn try_revalidate_sortition(
         &mut self,
         canonical_snapshot: &BlockSnapshot,
@@ -2318,13 +2360,14 @@ impl<
         }
     }
 
-    /// Check to see if the discovery of a PoX anchor block means it's time to process a new reward
-    /// cycle.  Based on the canonical affirmation map, this may not always be the case.
+    /// Check to see if the discovery of a PoX anchor block means it's time to
+    /// process a new reward cycle.  Based on the canonical affirmation map,
+    /// this may not always be the case.
     ///
     /// This mutates `rc_info` to be the affirmed anchor block status.
     ///
-    /// Returns Ok(Some(...)) if we have a _missing_ PoX anchor block that _must be_ downloaded
-    /// before burnchain processing can continue.
+    /// Returns Ok(Some(...)) if we have a _missing_ PoX anchor block that _must
+    /// be_ downloaded before burnchain processing can continue.
     /// Returns Ok(None) if not
     fn check_missing_anchor_block(
         &self,
@@ -2354,9 +2397,9 @@ impl<
 
         if cur_epoch.epoch_id >= StacksEpochId::Epoch21 || self.config.always_use_affirmation_maps {
             // potentially have an anchor block, but only process the next reward cycle (and
-            // subsequent reward cycles) with it if the prepare-phase block-commits affirm its
-            // presence.  This only gets checked in Stacks 2.1 or later (unless overridden
-            // in the config)
+            // subsequent reward cycles) with it if the prepare-phase block-commits affirm
+            // its presence.  This only gets checked in Stacks 2.1 or later
+            // (unless overridden in the config)
 
             // NOTE: this mutates rc_info if it returns None
             if let Some(missing_anchor_block) = self.reinterpret_affirmed_pox_anchor_block_status(
@@ -2386,8 +2429,8 @@ impl<
     }
 
     /// Outermost call to process a burnchain block.
-    /// Will call the Stacks 2.x or Nakamoto handler, depending on whether or not
-    /// Not called internally.
+    /// Will call the Stacks 2.x or Nakamoto handler, depending on whether or
+    /// not Not called internally.
     pub fn handle_new_burnchain_block(&mut self) -> Result<NewBurnchainBlockStatus, Error> {
         let canonical_burnchain_tip = self.burnchain_blocks_db.get_canonical_chain_tip()?;
         let epochs = SortitionDB::get_stacks_epochs(self.sortition_db.conn())?;
@@ -2456,11 +2499,12 @@ impl<
 
     // TODO: add tests from mutation testing results #4852
     #[cfg_attr(test, mutants::skip)]
-    /// Handle a new burnchain block, optionally rolling back the canonical PoX sortition history
-    /// and setting it up to be replayed in the event the network affirms a different history.  If
-    /// this happens, *and* if re-processing the new affirmed history is *blocked on* the
-    /// unavailability of a PoX anchor block that *must now* exist, then return the hash of this
-    /// anchor block.
+    /// Handle a new burnchain block, optionally rolling back the canonical PoX
+    /// sortition history and setting it up to be replayed in the event the
+    /// network affirms a different history.  If this happens, *and* if
+    /// re-processing the new affirmed history is *blocked on* the
+    /// unavailability of a PoX anchor block that *must now* exist, then return
+    /// the hash of this anchor block.
     pub fn handle_new_epoch2_burnchain_block(
         &mut self,
         already_processed_burn_blocks: &mut HashSet<BurnchainHeaderHash>,
@@ -2469,8 +2513,8 @@ impl<
 
         let last_2_05_rc = self.sortition_db.get_last_epoch_2_05_reward_cycle()?;
 
-        // first, see if the canonical affirmation map has changed.  If so, this will wind back the
-        // canonical sortition tip.
+        // first, see if the canonical affirmation map has changed.  If so, this will
+        // wind back the canonical sortition tip.
         //
         // only do this if affirmation maps are supported in this epoch.
         let before_canonical_snapshot = match self.canonical_sortition_tip.as_ref() {
@@ -2576,8 +2620,8 @@ impl<
             let BurnchainBlockData { header, ops } = unprocessed_block;
 
             // only evaluate epoch 2.x.
-            // NOTE: epoch 3 starts _right after_ the first block in the first epoch3 reward cycle,
-            // so we use the 2.x rules to process the PoX reward set.
+            // NOTE: epoch 3 starts _right after_ the first block in the first epoch3 reward
+            // cycle, so we use the 2.x rules to process the PoX reward set.
             let sortition_epoch =
                 SortitionDB::get_stacks_epoch(self.sortition_db.conn(), header.block_height)?
                     .expect("FATAL: no epoch defined for a valid block height");
@@ -2588,8 +2632,8 @@ impl<
             }
 
             if already_processed_burn_blocks.contains(&header.block_hash) {
-                // don't re-process something we recursively processed already, by means of finding
-                // a heretofore missing anchor block
+                // don't re-process something we recursively processed already, by means of
+                // finding a heretofore missing anchor block
                 continue;
             }
 
@@ -2631,18 +2675,20 @@ impl<
                 }
             }
 
-            // track a list of (consensus hash, parent block hash, block hash, height) pairs of revalidated sortitions whose
-            // blocks will need to be re-marked as accepted.
+            // track a list of (consensus hash, parent block hash, block hash, height) pairs
+            // of revalidated sortitions whose blocks will need to be re-marked
+            // as accepted.
             let mut stacks_blocks_to_reaccept = vec![];
 
-            // track a list of (burn header, burn block height) pairs for revalidated sortitions whose
-            // blocks we need to un-orphan
+            // track a list of (burn header, burn block height) pairs for revalidated
+            // sortitions whose blocks we need to un-orphan
             let mut unorphan_blocks = vec![];
 
             let next_snapshot = {
-                // if this sortition exists already, then revalidate it with the canonical Stacks
-                // tip.  Otherwise, process it.  This can be necessary if we're trying to mine
-                // while not having all canonical PoX anchor blocks.
+                // if this sortition exists already, then revalidate it with the canonical
+                // Stacks tip.  Otherwise, process it.  This can be necessary if
+                // we're trying to mine while not having all canonical PoX
+                // anchor blocks.
                 if let Some(sortition) = self.try_revalidate_sortition(
                     &canonical_snapshot,
                     &header,
@@ -2798,10 +2844,11 @@ impl<
             self.canonical_sortition_tip = Some(sortition_id.clone());
             last_processed_ancestor = sortition_id;
 
-            // we may already have the associated Stacks block, but linked to a different sortition
-            // history.  For example, if an anchor block was selected but PoX was voted disabled or
-            // not voted to activate, then the same Stacks blocks could be chosen but with
-            // different consensus hashes.  So, check here if we happen to already have the block
+            // we may already have the associated Stacks block, but linked to a different
+            // sortition history.  For example, if an anchor block was selected
+            // but PoX was voted disabled or not voted to activate, then the
+            // same Stacks blocks could be chosen but with different consensus
+            // hashes.  So, check here if we happen to already have the block
             // stored, and proceed to put it into staging again.
             if next_snapshot.sortition {
                 self.try_replay_stacks_block(&canonical_snapshot, &next_snapshot)?;
@@ -2900,9 +2947,10 @@ impl<
         Ok(None)
     }
 
-    /// returns None if this burnchain block is _not_ the start of a reward cycle
-    ///         otherwise, returns the required reward cycle info for this burnchain block
-    ///                     in our current sortition view:
+    /// returns None if this burnchain block is _not_ the start of a reward
+    /// cycle         otherwise, returns the required reward cycle info for
+    /// this burnchain block                     in our current sortition
+    /// view:
     ///           * PoX anchor block
     ///           * Was PoX anchor block known?
     pub fn get_reward_cycle_info(
@@ -2927,7 +2975,8 @@ impl<
         )
     }
 
-    /// Process any Atlas attachment events and forward them to the Atlas subsystem
+    /// Process any Atlas attachment events and forward them to the Atlas
+    /// subsystem
     pub fn process_atlas_attachment_events(
         atlas_db: Option<&mut AtlasDB>,
         atlas_config: &AtlasConfig,
@@ -2990,8 +3039,9 @@ impl<
         }
     }
 
-    /// Replay any existing Stacks blocks we have that arose on a different PoX fork.
-    /// This is best-effort -- if a block isn't found or can't be loaded, it's skipped.
+    /// Replay any existing Stacks blocks we have that arose on a different PoX
+    /// fork. This is best-effort -- if a block isn't found or can't be
+    /// loaded, it's skipped.
     fn replay_stacks_blocks(
         &mut self,
         tip: &BlockSnapshot,
@@ -3068,8 +3118,8 @@ impl<
         Ok(())
     }
 
-    /// Try and replay a newly-discovered (or re-affirmed) sortition's associated Stacks block, if
-    /// we have it.
+    /// Try and replay a newly-discovered (or re-affirmed) sortition's
+    /// associated Stacks block, if we have it.
     #[cfg_attr(test, mutants::skip)]
     fn try_replay_stacks_block(
         &mut self,
@@ -3109,8 +3159,8 @@ impl<
     /// Verify that a PoX anchor block candidate is affirmed by the network.
     /// Returns Ok(Some(pox_anchor)) if so.
     /// Returns Ok(None) if not.
-    /// Returns Err(Error::NotPoXAnchorBlock) if this block got F*w confirmations but is not the
-    /// heaviest-confirmed burnchain block.
+    /// Returns Err(Error::NotPoXAnchorBlock) if this block got F*w
+    /// confirmations but is not the heaviest-confirmed burnchain block.
     fn check_pox_anchor_affirmation(
         &self,
         pox_anchor: &BlockHeaderHash,
@@ -3182,12 +3232,12 @@ impl<
         }
     }
 
-    /// Figure out what to do with a newly-discovered anchor block, based on the canonical
-    /// affirmation map.  If the anchor block is affirmed, then returns Some(anchor-block-hash).
-    /// Otherwise, returns None.
+    /// Figure out what to do with a newly-discovered anchor block, based on the
+    /// canonical affirmation map.  If the anchor block is affirmed, then
+    /// returns Some(anchor-block-hash). Otherwise, returns None.
     ///
-    /// Returning Some(...) means "we need to go and process the reward cycle info from this anchor
-    /// block."
+    /// Returning Some(...) means "we need to go and process the reward cycle
+    /// info from this anchor block."
     ///
     /// Returning None means "we can keep processing Stacks blocks"
     #[cfg_attr(test, mutants::skip)]
@@ -3251,11 +3301,11 @@ impl<
     ///
     /// Process any ready staging blocks until there are either:
     ///   * there are no more to process
-    ///   * a PoX anchor block is processed which invalidates the current PoX fork
+    ///   * a PoX anchor block is processed which invalidates the current PoX
+    ///     fork
     ///
     /// Returns Some(BlockHeaderHash) if such an anchor block is discovered,
     ///   otherwise returns None
-    ///
     fn process_ready_blocks(&mut self) -> Result<Option<BlockHeaderHash>, Error> {
         let canonical_sortition_tip = self.canonical_sortition_tip.clone().expect(
             "FAIL: processing a new Stacks block, but don't have a canonical sortition tip",
@@ -3361,9 +3411,9 @@ impl<
                     }
 
                     // Was this block sufficiently confirmed by the prepare phase that it was a PoX
-                    // anchor block?  And if we're in epoch 2.1, does it match the heaviest-confirmed
-                    // block-commit in the burnchain DB, and is it affirmed by the majority of the
-                    // network?
+                    // anchor block?  And if we're in epoch 2.1, does it match the
+                    // heaviest-confirmed block-commit in the burnchain DB, and
+                    // is it affirmed by the majority of the network?
                     if let Some(pox_anchor) = self
                         .sortition_db
                         .is_stacks_block_pox_anchor(&block_hash, &canonical_sortition_tip)?
@@ -3393,8 +3443,9 @@ impl<
                             }
                         } else {
                             // 2.0/2.05 behavior: only consult the sortition DB
-                            // if, just after processing the block, we _know_ that this block is a pox anchor, that means
-                            //   that sortitions have already begun processing that didn't know about this pox anchor.
+                            // if, just after processing the block, we _know_ that this block is a
+                            // pox anchor, that means   that sortitions
+                            // have already begun processing that didn't know about this pox anchor.
                             //   we need to trigger an unwind
                             info!("Discovered an old anchor block: {}", &pox_anchor);
                             return Ok(Some(pox_anchor));
@@ -3407,7 +3458,8 @@ impl<
             let sortdb_handle = self
                 .sortition_db
                 .tx_handle_begin(&canonical_sortition_tip)?;
-            // Right before a block is set to processed, the event dispatcher will emit a new block event
+            // Right before a block is set to processed, the event dispatcher will emit a
+            // new block event
             processed_blocks = self.chain_state_db.process_blocks(
                 burnchain_db_conn,
                 sortdb_handle,
@@ -3419,10 +3471,12 @@ impl<
         Ok(None)
     }
 
-    /// Process a new PoX anchor block, possibly resulting in the PoX history being unwound and
-    /// replayed through a different sequence of consensus hashes.  If the new anchor block causes
-    /// the node to reach a prepare-phase that elects a network-affirmed anchor block that we don't
-    /// have, then return its block hash so the caller can go download and process it.
+    /// Process a new PoX anchor block, possibly resulting in the PoX history
+    /// being unwound and replayed through a different sequence of consensus
+    /// hashes.  If the new anchor block causes the node to reach a
+    /// prepare-phase that elects a network-affirmed anchor block that we don't
+    /// have, then return its block hash so the caller can go download and
+    /// process it.
     fn process_new_pox_anchor(
         &mut self,
         block_id: BlockHeaderHash,
@@ -3430,8 +3484,8 @@ impl<
     ) -> Result<Option<BlockHeaderHash>, Error> {
         // get the last sortition in the prepare phase that chose this anchor block
         //   that sortition is now the current canonical sortition,
-        //   and now that we have process the anchor block for the corresponding reward phase,
-        //   update the canonical pox bitvector.
+        //   and now that we have process the anchor block for the corresponding reward
+        // phase,   update the canonical pox bitvector.
         let sortition_id = self.canonical_sortition_tip.as_ref().expect(
             "FAIL: processing a new anchor block, but don't have a canonical sortition tip",
         );
@@ -3460,7 +3514,8 @@ impl<
         let mut pox_id = self.sortition_db.get_pox_id(sortition_id)?;
         pox_id.extend_with_present_block();
 
-        // invalidate all the sortitions > canonical_sortition_tip, in the same burnchain fork
+        // invalidate all the sortitions > canonical_sortition_tip, in the same
+        // burnchain fork
         self.sortition_db
             .invalidate_descendants_of(&prep_end.burn_header_hash)?;
 
@@ -3472,8 +3527,8 @@ impl<
     }
 }
 
-/// Determine whether or not the current chainstate databases are up-to-date with the current
-/// epoch.
+/// Determine whether or not the current chainstate databases are up-to-date
+/// with the current epoch.
 pub fn check_chainstate_db_versions(
     epochs: &[StacksEpoch],
     sortdb_path: &str,
@@ -3518,8 +3573,8 @@ pub fn check_chainstate_db_versions(
 }
 
 /// Sortition DB migrator.
-/// This is an opaque struct that is meant to assist migrating an epoch 2.1-2.4 chainstate to epoch
-/// 2.5.  It will not work for 2.5 to 3.0+
+/// This is an opaque struct that is meant to assist migrating an epoch 2.1-2.4
+/// chainstate to epoch 2.5.  It will not work for 2.5 to 3.0+
 pub struct SortitionDBMigrator {
     chainstate: Option<StacksChainState>,
     burnchain: Burnchain,
@@ -3555,8 +3610,9 @@ impl SortitionDBMigrator {
         &self.burnchain
     }
 
-    /// Regenerate a reward cycle.  Do this by re-calculating the RewardSetInfo for the given
-    /// reward cycle.  This should store the preprocessed reward cycle info to the sortition DB.
+    /// Regenerate a reward cycle.  Do this by re-calculating the RewardSetInfo
+    /// for the given reward cycle.  This should store the preprocessed
+    /// reward cycle info to the sortition DB.
     pub fn regenerate_reward_cycle_info(
         &mut self,
         sort_db: &mut SortitionDB,

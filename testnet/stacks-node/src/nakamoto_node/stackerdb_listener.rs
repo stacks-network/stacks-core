@@ -42,8 +42,9 @@ use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::StackerDBChannel;
 
 #[cfg(test)]
-/// Fault injection flag to prevent the miner from seeing enough signer signatures.
-/// Used to test that the signers will broadcast a block if it gets enough signatures
+/// Fault injection flag to prevent the miner from seeing enough signer
+/// signatures. Used to test that the signers will broadcast a block if it gets
+/// enough signatures
 pub static TEST_IGNORE_SIGNERS: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
 /// How long should the coordinator poll on the event receiver before

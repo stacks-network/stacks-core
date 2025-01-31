@@ -149,7 +149,8 @@ pub fn get_stacking_state_pox_2(
     get_stacking_state_pox(peer, tip, account, boot::POX_2_NAME)
 }
 
-/// Perform `check_stacker_link_invariants` on cycles [first_cycle_number, max_cycle_number]
+/// Perform `check_stacker_link_invariants` on cycles [first_cycle_number,
+/// max_cycle_number]
 pub fn check_all_stacker_link_invariants(
     peer: &mut TestPeer,
     tip: &StacksBlockId,
@@ -207,8 +208,9 @@ pub struct PoxPrintFields {
     pub burnchain_unlock_height: Value,
 }
 
-// This function takes in a StacksTransactionEvent for a print statement from a pox function that modifies
-// a stacker's state. It verifies that the values in the print statement are as expected.
+// This function takes in a StacksTransactionEvent for a print statement from a
+// pox function that modifies a stacker's state. It verifies that the values in
+// the print statement are as expected.
 pub fn check_pox_print_event(
     event: &StacksTransactionEvent,
     common_data: PoxPrintFields,
@@ -288,7 +290,8 @@ pub fn check_pox_print_event(
                     missing.push(inner_key.to_string());
                 }
             }
-            // assert_eq!(inner_tuple.data_map.get(inner_key), Some(&inner_val));
+            // assert_eq!(inner_tuple.data_map.get(inner_key),
+            // Some(&inner_val));
         }
         if !missing.is_empty() || !wrong.is_empty() {
             eprintln!("missing:\n{missing:#?}");
@@ -303,14 +306,16 @@ pub fn check_pox_print_event(
 
 pub struct StackingStateCheckData {
     pub pox_addr: PoxAddress,
-    /// this is a map from reward cycle number to the value in reward-set-indexes
+    /// this is a map from reward cycle number to the value in
+    /// reward-set-indexes
     pub cycle_indexes: HashMap<u128, u128>,
     pub first_cycle: u128,
     pub lock_period: u128,
 }
 
 /// Check the stacking-state invariants of `stacker`
-/// Mostly that all `stacking-state.reward-set-indexes` match the index of their reward cycle entries
+/// Mostly that all `stacking-state.reward-set-indexes` match the index of their
+/// reward cycle entries
 pub fn check_stacking_state_invariants(
     peer: &mut TestPeer,
     tip: &StacksBlockId,
@@ -443,11 +448,13 @@ pub fn check_stacking_state_invariants(
 }
 
 /// Check that:
-///  (1) `reward-cycle-pox-address-list.stacker` points to a real `stacking-state`
-///  (2) `stacking-state.reward-set-indexes` matches the index of that `reward-cycle-pox-address-list`
-///  (3) all `stacking-state.reward-set-indexes` match the index of their reward cycle entries
+///  (1) `reward-cycle-pox-address-list.stacker` points to a real
+/// `stacking-state`  (2) `stacking-state.reward-set-indexes` matches the index
+/// of that `reward-cycle-pox-address-list`  (3) all `stacking-state.
+/// reward-set-indexes` match the index of their reward cycle entries
 ///  (4) `reward-cycle-total-stacked` is equal to the sum of all entries
-///  (5) `stacking-state.pox-addr` matches `reward-cycle-pox-address-list.pox-addr`
+///  (5) `stacking-state.pox-addr` matches
+/// `reward-cycle-pox-address-list.pox-addr`
 pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, cycle_number: u64) {
     let current_burn_height = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
         peer.chainstate().db(),
@@ -656,7 +663,8 @@ pub fn get_partial_stacked(
     })
 }
 
-/// Allows you to do something read-only with the ClarityDB at the given chaintip
+/// Allows you to do something read-only with the ClarityDB at the given
+/// chaintip
 pub fn with_clarity_db_ro<F, R>(peer: &mut TestPeer, tip: &StacksBlockId, todo: F) -> R
 where
     F: FnOnce(&mut ClarityDatabase) -> R,
@@ -674,14 +682,14 @@ where
 /// In this test case, two Stackers, Alice and Bob stack and interact with the
 ///  PoX v1 contract and PoX v2 contract across the epoch transition.
 ///
-/// Alice: stacks via PoX v1 for 4 cycles. The third of these cycles occurs after
-///        the PoX v1 -> v2 transition, and so Alice gets "early unlocked".
-///        After the early unlock, Alice re-stacks in PoX v2
-///        Alice tries to stack again via PoX v1, which is allowed by the contract,
-///        but forbidden by the VM (because PoX has transitioned to v2)
-/// Bob:   stacks via PoX v2 for 6 cycles. He attempted to stack via PoX v1 as well,
-///        but is forbidden because he has already placed an account lock via PoX v2.
-///
+/// Alice: stacks via PoX v1 for 4 cycles. The third of these cycles occurs
+/// after        the PoX v1 -> v2 transition, and so Alice gets "early
+/// unlocked".        After the early unlock, Alice re-stacks in PoX v2
+///        Alice tries to stack again via PoX v1, which is allowed by the
+/// contract,        but forbidden by the VM (because PoX has transitioned to
+/// v2) Bob:   stacks via PoX v2 for 6 cycles. He attempted to stack via PoX v1
+/// as well,        but is forbidden because he has already placed an account
+/// lock via PoX v2.
 #[test]
 fn test_simple_pox_lockup_transition_pox_2() {
     // this is the number of blocks after the first sortition any V1
@@ -779,7 +787,8 @@ fn test_simple_pox_lockup_transition_pox_2() {
             );
             assert_eq!(reward_addrs[0].1, 1024 * POX_THRESHOLD_STEPS_USTX);
         } else {
-            // v2 reward cycles have begun, so reward addrs should be read from PoX2 which is Bob + Alice
+            // v2 reward cycles have begun, so reward addrs should be read from PoX2 which
+            // is Bob + Alice
             assert_eq!(reward_addrs.len(), 2);
             assert_eq!(
                 (reward_addrs[0].0).version(),
@@ -868,7 +877,8 @@ fn test_simple_pox_lockup_transition_pox_2() {
     let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
     assert_eq!(alice_balance, 0);
 
-    // produce blocks until immediately before the epoch switch (7 more blocks to block height 35)
+    // produce blocks until immediately before the epoch switch (7 more blocks to
+    // block height 35)
 
     for _i in 0..7 {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
@@ -982,8 +992,8 @@ fn test_simple_pox_lockup_transition_pox_2() {
     let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
     assert_eq!(alice_balance, 512 * POX_THRESHOLD_STEPS_USTX);
 
-    // now, let's roll the chain forward until Alice *would* have unlocked in v1 anyways.
-    //  that's block height 31, so play 27 empty blocks
+    // now, let's roll the chain forward until Alice *would* have unlocked in v1
+    // anyways.  that's block height 31, so play 27 empty blocks
 
     for _i in 0..17 {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
@@ -1132,17 +1142,19 @@ fn test_simple_pox_2_auto_unlock_ba() {
 /// In this test case, two Stackers, Alice and Bob stack and interact with the
 ///  PoX v1 contract and PoX v2 contract across the epoch transition.
 ///
-/// Alice: stacks via PoX v1 for 4 cycles. The third of these cycles occurs after
-///        the PoX v1 -> v2 transition, and so Alice gets "early unlocked".
-///        After the early unlock, Alice re-stacks in PoX v2
-///        Alice tries to stack again via PoX v1, which is allowed by the contract,
-///        but forbidden by the VM (because PoX has transitioned to v2)
-/// Bob:   stacks via PoX v2 for 6 cycles. He attempted to stack via PoX v1 as well,
-///        but is forbidden because he has already placed an account lock via PoX v2.
+/// Alice: stacks via PoX v1 for 4 cycles. The third of these cycles occurs
+/// after        the PoX v1 -> v2 transition, and so Alice gets "early
+/// unlocked".        After the early unlock, Alice re-stacks in PoX v2
+///        Alice tries to stack again via PoX v1, which is allowed by the
+/// contract,        but forbidden by the VM (because PoX has transitioned to
+/// v2) Bob:   stacks via PoX v2 for 6 cycles. He attempted to stack via PoX v1
+/// as well,        but is forbidden because he has already placed an account
+/// lock via PoX v2.
 ///
-/// Note: this test is symmetric over the order of alice and bob's stacking calls.
-///       when alice goes first, the auto-unlock code doesn't need to perform a "move"
-///       when bob goes first, the auto-unlock code does need to perform a "move"
+/// Note: this test is symmetric over the order of alice and bob's stacking
+/// calls.       when alice goes first, the auto-unlock code doesn't need to
+/// perform a "move"       when bob goes first, the auto-unlock code does need
+/// to perform a "move"
 fn test_simple_pox_2_auto_unlock(alice_first: bool) {
     // this is the number of blocks after the first sortition any V1
     // PoX locks will automatically unlock at.
@@ -1254,8 +1266,8 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         );
     }
 
-    // we'll produce blocks until the next reward cycle gets through the "handled start" code
-    //  this is one block after the reward cycle starts
+    // we'll produce blocks until the next reward cycle gets through the "handled
+    // start" code  this is one block after the reward cycle starts
     let height_target = burnchain.reward_cycle_to_block_height(EXPECTED_FIRST_V2_CYCLE) + 1;
 
     // but first, check that bob has locked tokens at (height_target + 1)
@@ -1277,8 +1289,8 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
-    // check that the "raw" reward sets for all cycles just contains entries for alice
-    //  at the cycle start
+    // check that the "raw" reward sets for all cycles just contains entries for
+    // alice  at the cycle start
     for cycle_number in EXPECTED_FIRST_V2_CYCLE..(EXPECTED_FIRST_V2_CYCLE + 6) {
         let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
         let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
@@ -1304,7 +1316,8 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
     .unwrap();
     assert_eq!(bob_bal.amount_locked(), 0);
 
-    // but bob's still locked at (height_target): the unlock is accelerated to the "next" burn block
+    // but bob's still locked at (height_target): the unlock is accelerated to the
+    // "next" burn block
     let (bob_bal, _) = get_stx_account_at(
         &mut peer,
         &latest_block,
@@ -1408,8 +1421,8 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
 
     assert_eq!(coinbase_txs.len(), 17);
 
-    // Check that the event produced by "handle-unlock" has a well-formed print event
-    // and that this event is included as part of the coinbase tx
+    // Check that the event produced by "handle-unlock" has a well-formed print
+    // event and that this event is included as part of the coinbase tx
     let auto_unlock_tx = coinbase_txs[16].events[0].clone();
     let pox_addr_val = generate_pox_clarity_value("60c59ab11f7063ef44c16d3dc856f76bbb915eba");
     let auto_unlock_op_data = HashMap::from([
@@ -1434,7 +1447,6 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
 /// In this test case, Alice delegates to Bob.
 ///  Bob stacks Alice's funds via PoX v2 for 6 cycles. In the third cycle,
 ///  Bob increases Alice's stacking amount.
-///
 #[test]
 fn delegate_stack_increase() {
     // this is the number of blocks after the first sortition any V1
@@ -1555,8 +1567,8 @@ fn delegate_stack_increase() {
         assert_eq!(partial_stacked, 512 * POX_THRESHOLD_STEPS_USTX);
     }
 
-    // we'll produce blocks until the 3rd reward cycle gets through the "handled start" code
-    //  this is one block after the reward cycle starts
+    // we'll produce blocks until the 3rd reward cycle gets through the "handled
+    // start" code  this is one block after the reward cycle starts
     let height_target = burnchain.reward_cycle_to_block_height(EXPECTED_FIRST_V2_CYCLE + 3) + 1;
 
     while get_tip(peer.sortdb.as_ref()).block_height < height_target {
@@ -1649,7 +1661,8 @@ fn delegate_stack_increase() {
         alice_delegation_amount
     );
 
-    // check that the partial stacking state contains entries for bob and they've incremented correctly
+    // check that the partial stacking state contains entries for bob and they've
+    // incremented correctly
     for cycle_number in (EXPECTED_FIRST_V2_CYCLE)..(EXPECTED_FIRST_V2_CYCLE + 4) {
         let partial_stacked = get_partial_stacked(
             &mut peer,
@@ -1698,7 +1711,8 @@ fn delegate_stack_increase() {
     assert_eq!(alice_txs.len() as u64, 2);
     assert_eq!(bob_txs.len() as u64, 5);
 
-    // transaction should fail because Alice cannot increase her own stacking amount while delegating
+    // transaction should fail because Alice cannot increase her own stacking amount
+    // while delegating
     assert_eq!(
         &alice_txs[&fail_direct_increase_delegation]
             .result
@@ -1755,7 +1769,8 @@ fn delegate_stack_increase() {
     };
     check_pox_print_event(delegate_stx_tx, common_data, delegate_stx_op_data);
 
-    // Check that the call to `delegate-stack-increase` has a well-formed print event.
+    // Check that the call to `delegate-stack-increase` has a well-formed print
+    // event.
     let delegate_stack_increase_tx = &bob_txs.get(&4).unwrap().clone().events[0];
     let pox_addr_val = generate_pox_clarity_value("60c59ab11f7063ef44c16d3dc856f76bbb915eba");
     let delegate_op_data = HashMap::from([
@@ -1790,7 +1805,6 @@ fn delegate_stack_increase() {
 ///
 /// Alice: stacks via PoX v2 for 6 cycles. In the third cycle, Alice invokes
 /// `stack-increase`
-///
 #[test]
 fn stack_increase() {
     // this is the number of blocks after the first sortition any V1
@@ -1891,7 +1905,8 @@ fn stack_increase() {
         total_balance,
     );
 
-    // check that the "raw" reward set will contain entries for alice at the cycle start
+    // check that the "raw" reward set will contain entries for alice at the cycle
+    // start
     for cycle_number in EXPECTED_FIRST_V2_CYCLE..(EXPECTED_FIRST_V2_CYCLE + 6) {
         let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
         let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
@@ -1903,8 +1918,8 @@ fn stack_increase() {
         assert_eq!(reward_set_entries[0].amount_stacked, first_lockup_amt,);
     }
 
-    // we'll produce blocks until the 3rd reward cycle gets through the "handled start" code
-    //  this is one block after the reward cycle starts
+    // we'll produce blocks until the 3rd reward cycle gets through the "handled
+    // start" code  this is one block after the reward cycle starts
     let height_target = burnchain.reward_cycle_to_block_height(EXPECTED_FIRST_V2_CYCLE + 3) + 1;
 
     while get_tip(peer.sortdb.as_ref()).block_height < height_target {
@@ -2156,7 +2171,8 @@ fn test_lock_period_invariant_extend_transition() {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
-    // produce blocks until immediately after the epoch switch (4 more blocks to block height 36)
+    // produce blocks until immediately after the epoch switch (4 more blocks to
+    // block height 36)
     for _i in 0..4 {
         let tip_index_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
 
@@ -2190,15 +2206,16 @@ fn test_lock_period_invariant_extend_transition() {
 
 /// In this test case, two Stackers, Alice and Bob stack and interact with the
 ///  PoX v1 contract and PoX v2 contract across the epoch transition. This test
-///  covers the two different ways a Stacker can validly extend via `stack-extend` --
-///  extending from a V1 lockup and extending from a V2 lockup.
+///  covers the two different ways a Stacker can validly extend via
+/// `stack-extend` --  extending from a V1 lockup and extending from a V2
+/// lockup.
 ///
-/// Alice: stacks via PoX v1 for 4 cycles. The third of these cycles occurs after
-///        the PoX v1 -> v2 transition, and so Alice gets "early unlocked".
-///        Before the early unlock, Alice invokes `stack-extend` in PoX v2
-///        Alice tries to stack again via PoX v1, which is allowed by the contract,
-///        but forbidden by the VM (because PoX has transitioned to v2)
-/// Bob:   stacks via PoX v2 for 3 cycles.
+/// Alice: stacks via PoX v1 for 4 cycles. The third of these cycles occurs
+/// after        the PoX v1 -> v2 transition, and so Alice gets "early
+/// unlocked".        Before the early unlock, Alice invokes `stack-extend` in
+/// PoX v2        Alice tries to stack again via PoX v1, which is allowed by the
+/// contract,        but forbidden by the VM (because PoX has transitioned to
+/// v2) Bob:   stacks via PoX v2 for 3 cycles.
 ///        Bob extends 1 cycles
 #[test]
 fn test_pox_extend_transition_pox_2() {
@@ -2318,7 +2335,8 @@ fn test_pox_extend_transition_pox_2() {
         );
 
         assert!(cur_reward_cycle >= first_v2_cycle as u128);
-        // v2 reward cycles have begun, so reward addrs should be read from PoX2 which is Bob + Alice
+        // v2 reward cycles have begun, so reward addrs should be read from PoX2 which
+        // is Bob + Alice
         assert_eq!(reward_addrs.len(), 2);
         assert_eq!(
             (reward_addrs[0].0).version(),
@@ -2408,7 +2426,8 @@ fn test_pox_extend_transition_pox_2() {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
-    // produce blocks until immediately after the epoch switch (8 more blocks to block height 36)
+    // produce blocks until immediately after the epoch switch (8 more blocks to
+    // block height 36)
     for _i in 0..4 {
         let tip_index_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
 
@@ -2502,8 +2521,8 @@ fn test_pox_extend_transition_pox_2() {
     let tip = get_tip(peer.sortdb.as_ref());
     assert_eq!(tip.block_height, 32 + EMPTY_SORTITIONS as u64);
 
-    // Alice would have unlocked under v1 rules, so try to stack again via PoX 1 and expect a runtime error
-    // in the tx
+    // Alice would have unlocked under v1 rules, so try to stack again via PoX 1 and
+    // expect a runtime error in the tx
     let alice_lockup = make_pox_lockup(
         &alice,
         2,
@@ -2629,19 +2648,20 @@ fn test_pox_extend_transition_pox_2() {
     check_pox_print_event(stack_extend_tx, common_data, stack_ext_op_data);
 }
 
-/// In this test case, two Stackers, Alice and Bob delegate stack and interact with the
-///  PoX v1 contract and PoX v2 contract across the epoch transition. This test
-///  covers the two different ways a Stacker can be validly extended via `delegate-stack-extend` --
-///  extending from a V1 lockup and extending from a V2 lockup.
+/// In this test case, two Stackers, Alice and Bob delegate stack and interact
+/// with the  PoX v1 contract and PoX v2 contract across the epoch transition.
+/// This test  covers the two different ways a Stacker can be validly extended
+/// via `delegate-stack-extend` --  extending from a V1 lockup and extending
+/// from a V2 lockup.
 ///
-/// Alice: delegate-stacks via PoX v1 for 4 cycles. The third of these cycles occurs after
-///        the PoX v1 -> v2 transition, and so Alice gets "early unlocked".
-///        Before the early unlock, Alice invokes:
+/// Alice: delegate-stacks via PoX v1 for 4 cycles. The third of these cycles
+/// occurs after        the PoX v1 -> v2 transition, and so Alice gets "early
+/// unlocked".        Before the early unlock, Alice invokes:
 ///           `delegate-stx` in PoX v2
 ///           `delegate-stack-stx` in PoX v2
-///        Alice tries to stack again via PoX v1, which is allowed by the contract,
-///        but forbidden by the VM (because PoX has transitioned to v2)
-/// Bob:   delegate-stacks via PoX v2 for 3 cycles.
+///        Alice tries to stack again via PoX v1, which is allowed by the
+/// contract,        but forbidden by the VM (because PoX has transitioned to
+/// v2) Bob:   delegate-stacks via PoX v2 for 3 cycles.
 ///        Bob extends 1 cycles
 #[test]
 fn test_delegate_extend_transition_pox_2() {
@@ -2755,7 +2775,8 @@ fn test_delegate_extend_transition_pox_2() {
         );
 
         assert!(cur_reward_cycle >= first_v2_cycle as u128);
-        // v2 reward cycles have begun, so reward addrs should be read from PoX2 which is just Charlie, but 2048*threshold
+        // v2 reward cycles have begun, so reward addrs should be read from PoX2 which
+        // is just Charlie, but 2048*threshold
         assert_eq!(reward_addrs.len(), 1);
         assert_eq!(
             (reward_addrs[0].0).version(),
@@ -2811,7 +2832,8 @@ fn test_delegate_extend_transition_pox_2() {
         ],
     );
 
-    // aggregate commit to each cycle delegate-stack-stx locked for (cycles 6, 7, 8, 9)
+    // aggregate commit to each cycle delegate-stack-stx locked for (cycles 6, 7, 8,
+    // 9)
     let agg_commit_tx_1 = make_pox_contract_call(
         &charlie,
         1,
@@ -2914,7 +2936,8 @@ fn test_delegate_extend_transition_pox_2() {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
-    // produce blocks until immediately after the epoch switch (8 more blocks to block height 36)
+    // produce blocks until immediately after the epoch switch (8 more blocks to
+    // block height 36)
     for _i in 0..4 {
         let tip_index_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
 
@@ -2986,9 +3009,10 @@ fn test_delegate_extend_transition_pox_2() {
         ],
     );
 
-    // Charlie agg commits the first 3 cycles, but wait until delegate-extended bob to
-    //   agg commit the 4th cycle
-    // aggregate commit to each cycle delegate-stack-stx locked for (cycles 6, 7, 8, 9)
+    // Charlie agg commits the first 3 cycles, but wait until delegate-extended bob
+    // to   agg commit the 4th cycle
+    // aggregate commit to each cycle delegate-stack-stx locked for (cycles 6, 7, 8,
+    // 9)
     let agg_commit_tx_1 = make_pox_2_contract_call(
         &charlie,
         7,
@@ -3229,8 +3253,8 @@ fn test_delegate_extend_transition_pox_2() {
     let tip = get_tip(peer.sortdb.as_ref());
     assert_eq!(tip.block_height, 32 + EMPTY_SORTITIONS as u64);
 
-    // Alice would have unlocked under v1 rules, so try to stack again via PoX 1 and expect a runtime error
-    // in the tx
+    // Alice would have unlocked under v1 rules, so try to stack again via PoX 1 and
+    // expect a runtime error in the tx
     let alice_lockup = make_pox_lockup(
         &alice,
         2,
@@ -3364,7 +3388,8 @@ fn test_delegate_extend_transition_pox_2() {
     };
     check_pox_print_event(delegate_stack_extend_tx, common_data, delegate_ext_op_data);
 
-    // Check that the call to `stack-aggregation-commit` has a well-formed print event.
+    // Check that the call to `stack-aggregation-commit` has a well-formed print
+    // event.
     let stack_agg_commit_tx = &charlie_txs.get(&8).unwrap().clone().events[0];
     let stack_agg_commit_op_data = HashMap::from([
         ("pox-addr", pox_addr_val),
@@ -4460,7 +4485,6 @@ fn test_pox_2_delegate_stx_addr_validation() {
 ///  Bob stacks Alice's funds via PoX v2 for 6 cycles. In the third cycle,
 ///  Bob increases Alice's stacking amount by less than the stacking min.
 ///  Bob is able to increase the pool's aggregate amount anyway.
-///
 #[test]
 fn stack_aggregation_increase() {
     // this is the number of blocks after the first sortition any V1
@@ -4603,8 +4627,8 @@ fn stack_aggregation_increase() {
         assert_eq!(partial_stacked, 512 * POX_THRESHOLD_STEPS_USTX);
     }
 
-    // we'll produce blocks until the 3rd reward cycle gets through the "handled start" code
-    //  this is one block after the reward cycle starts
+    // we'll produce blocks until the 3rd reward cycle gets through the "handled
+    // start" code  this is one block after the reward cycle starts
     let height_target = burnchain.reward_cycle_to_block_height(EXPECTED_FIRST_V2_CYCLE + 3) + 1;
 
     while get_tip(peer.sortdb.as_ref()).block_height < height_target {
@@ -4651,8 +4675,8 @@ fn stack_aggregation_increase() {
     let bob_stack_aggregation_commit_indexed = bob_nonce;
     bob_nonce += 1;
 
-    // bob tries to lock tokens in a reward cycle that's already committed (should fail with
-    // ERR_STACKING_NO_SUCH_PRINCIPAL)
+    // bob tries to lock tokens in a reward cycle that's already committed (should
+    // fail with ERR_STACKING_NO_SUCH_PRINCIPAL)
     txs_to_submit.push(make_pox_2_contract_call(
         &bob,
         bob_nonce,
@@ -4704,7 +4728,8 @@ fn stack_aggregation_increase() {
     assert_eq!(partial_stacked, 1);
 
     for cycle_number in (cur_reward_cycle + 2)..(EXPECTED_FIRST_V2_CYCLE + 6) {
-        // alice has 512 * POX_THRESHOLD_STEPS_USTX partially-stacked STX in all cycles after
+        // alice has 512 * POX_THRESHOLD_STEPS_USTX partially-stacked STX in all cycles
+        // after
         let partial_stacked = get_partial_stacked(
             &mut peer,
             &latest_block,
@@ -4718,8 +4743,8 @@ fn stack_aggregation_increase() {
 
     let mut txs_to_submit = vec![];
 
-    // charlie tries to lock alice's additional tokens to his own PoX address (should fail with
-    // ERR_STACKING_NO_SUCH_PRINCIPAL)
+    // charlie tries to lock alice's additional tokens to his own PoX address
+    // (should fail with ERR_STACKING_NO_SUCH_PRINCIPAL)
     txs_to_submit.push(make_pox_2_contract_call(
         &charlie,
         charlie_nonce,
@@ -4733,8 +4758,8 @@ fn stack_aggregation_increase() {
     let charlie_err_stacking_no_principal = charlie_nonce;
     charlie_nonce += 1;
 
-    // charlie tries to lock alice's additional tokens to bob's PoX address (should fail with
-    // ERR_STACKING_NO_SUCH_PRINCIPAL)
+    // charlie tries to lock alice's additional tokens to bob's PoX address (should
+    // fail with ERR_STACKING_NO_SUCH_PRINCIPAL)
     txs_to_submit.push(make_pox_2_contract_call(
         &charlie,
         charlie_nonce,
@@ -4748,7 +4773,8 @@ fn stack_aggregation_increase() {
     let charlie_err_stacking_no_principal_2 = charlie_nonce;
     charlie_nonce += 1;
 
-    // bob tries to retcon a reward cycle lockup (should fail with ERR_STACKING_INVALID_LOCK_PERIOD)
+    // bob tries to retcon a reward cycle lockup (should fail with
+    // ERR_STACKING_INVALID_LOCK_PERIOD)
     txs_to_submit.push(make_pox_2_contract_call(
         &bob,
         bob_nonce,
@@ -4762,8 +4788,8 @@ fn stack_aggregation_increase() {
     let bob_err_stacking_invalid_lock_period = bob_nonce;
     bob_nonce += 1;
 
-    // bob tries to lock tokens in a reward cycle that has no tokens stacked in it yet (should
-    // fail with ERR_DELEGATION_NO_REWARD_CYCLE)
+    // bob tries to lock tokens in a reward cycle that has no tokens stacked in it
+    // yet (should fail with ERR_DELEGATION_NO_REWARD_CYCLE)
     txs_to_submit.push(make_pox_2_contract_call(
         &bob,
         bob_nonce,
@@ -4777,8 +4803,8 @@ fn stack_aggregation_increase() {
     let bob_err_delegation_no_reward_cycle = bob_nonce;
     bob_nonce += 1;
 
-    // bob tries to lock tokens to a non-existant PoX reward address (should fail with
-    // ERR_DELEGATION_NO_REWARD_SLOT)
+    // bob tries to lock tokens to a non-existant PoX reward address (should fail
+    // with ERR_DELEGATION_NO_REWARD_SLOT)
     txs_to_submit.push(make_pox_2_contract_call(
         &bob,
         bob_nonce,
@@ -4792,8 +4818,8 @@ fn stack_aggregation_increase() {
     let bob_err_delegation_no_reward_slot = bob_nonce;
     bob_nonce += 1;
 
-    // bob tries to lock tokens to the wrong PoX address (should fail with ERR_DELEGATION_WRONG_REWARD_SLOT).
-    // slot 0 belongs to dan.
+    // bob tries to lock tokens to the wrong PoX address (should fail with
+    // ERR_DELEGATION_WRONG_REWARD_SLOT). slot 0 belongs to dan.
     txs_to_submit.push(make_pox_2_contract_call(
         &bob,
         bob_nonce,
@@ -4807,8 +4833,8 @@ fn stack_aggregation_increase() {
     let bob_err_delegation_wrong_reward_slot = bob_nonce;
     bob_nonce += 1;
 
-    // bob locks tokens for Alice (bob's previous stack-aggregation-commit put his PoX address in
-    // slot 1 for this reward cycle)
+    // bob locks tokens for Alice (bob's previous stack-aggregation-commit put his
+    // PoX address in slot 1 for this reward cycle)
     txs_to_submit.push(make_pox_2_contract_call(
         &bob,
         bob_nonce,

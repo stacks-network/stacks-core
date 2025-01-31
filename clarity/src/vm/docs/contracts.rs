@@ -183,8 +183,9 @@ pub fn make_docs(
     }
 }
 
-/// Produce a set of documents for multiple contracts, supplied as a list of `(contract_name, contract_content)` pairs,
-///  and a map from `contract_name` to corresponding `ContractSupportDocs`
+/// Produce a set of documents for multiple contracts, supplied as a list of
+/// `(contract_name, contract_content)` pairs,  and a map from `contract_name`
+/// to corresponding `ContractSupportDocs`
 #[cfg(feature = "canonical")]
 pub fn produce_docs_refs<A: AsRef<str>, B: AsRef<str>>(
     contracts: &[(A, B)],

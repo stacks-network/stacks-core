@@ -232,8 +232,8 @@ impl MultisigSpendingCondition {
     }
 
     /// Authenticate a spending condition against an initial sighash.
-    /// In doing so, recover all public keys and verify that they hash to the signer
-    /// via the given hash mode.
+    /// In doing so, recover all public keys and verify that they hash to the
+    /// signer via the given hash mode.
     pub fn verify(
         &self,
         initial_sighash: &Txid,
@@ -422,8 +422,8 @@ impl OrderIndependentMultisigSpendingCondition {
     }
 
     /// Authenticate a spending condition against an initial sighash.
-    /// In doing so, recover all public keys and verify that they hash to the signer
-    /// via the given hash mode.
+    /// In doing so, recover all public keys and verify that they hash to the
+    /// signer via the given hash mode.
     pub fn verify(
         &self,
         initial_sighash: &Txid,
@@ -590,8 +590,8 @@ impl SinglesigSpendingCondition {
     }
 
     /// Authenticate a spending condition against an initial sighash.
-    /// In doing so, recover all public keys and verify that they hash to the signer
-    /// via the given hash mode.
+    /// In doing so, recover all public keys and verify that they hash to the
+    /// signer via the given hash mode.
     /// Returns the final sighash
     pub fn verify(
         &self,
@@ -810,9 +810,10 @@ impl TransactionSpendingCondition {
         ))
     }
 
-    /// When committing to the fact that a transaction is sponsored, the origin doesn't know
-    /// anything else.  Instead, it commits to this sentinel value as its sponsor.
-    /// It is intractable to calculate a private key that could generate this.
+    /// When committing to the fact that a transaction is sponsored, the origin
+    /// doesn't know anything else.  Instead, it commits to this sentinel
+    /// value as its sponsor. It is intractable to calculate a private key
+    /// that could generate this.
     pub fn new_initial_sighash() -> TransactionSpendingCondition {
         TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
             signer: Hash160([0u8; 20]),
@@ -982,8 +983,8 @@ impl TransactionSpendingCondition {
         tx_fee: u64,
         nonce: u64,
     ) -> Txid {
-        // new hash combines the previous hash and all the new data this signature will add.  This
-        // includes:
+        // new hash combines the previous hash and all the new data this signature will
+        // add.  This includes:
         // * the previous hash
         // * the auth flag
         // * the fee rate (big-endian 8-byte number)
@@ -1007,8 +1008,8 @@ impl TransactionSpendingCondition {
         pubkey: &StacksPublicKey,
         sig: &MessageSignature,
     ) -> Txid {
-        // new hash combines the previous hash and all the new data this signature will add.  This
-        // includes:
+        // new hash combines the previous hash and all the new data this signature will
+        // add.  This includes:
         // * the public key compression flag
         // * the signature
         let new_tx_hash_bits_len = 32 + 1 + MESSAGE_SIGNATURE_ENCODED_SIZE;
@@ -1029,12 +1030,13 @@ impl TransactionSpendingCondition {
         next_sighash
     }
 
-    /// Linear-complexity signing algorithm -- we sign a rolling hash over all data committed to by
-    /// the previous signer (instead of naively re-serializing the transaction each time), as well
-    /// as over new data provided by this key (excluding its own public key or signature, which
+    /// Linear-complexity signing algorithm -- we sign a rolling hash over all
+    /// data committed to by the previous signer (instead of naively
+    /// re-serializing the transaction each time), as well as over new data
+    /// provided by this key (excluding its own public key or signature, which
     /// are authenticated by the spending condition's key hash).
-    /// Calculates and returns the next signature and sighash, which the subsequent private key
-    /// must sign.
+    /// Calculates and returns the next signature and sighash, which the
+    /// subsequent private key must sign.
     pub fn next_signature(
         cur_sighash: &Txid,
         cond_code: &TransactionAuthFlags,
@@ -1061,9 +1063,10 @@ impl TransactionSpendingCondition {
         Ok((sig, next_sighash))
     }
 
-    /// Linear-complexity verifying algorithm -- we verify a rolling hash over all data committed
-    /// to by order of signers (instead of re-serializing the tranasction each time).
-    /// Calculates the next sighash and public key, which the next verifier must verify.
+    /// Linear-complexity verifying algorithm -- we verify a rolling hash over
+    /// all data committed to by order of signers (instead of re-serializing
+    /// the tranasction each time). Calculates the next sighash and public
+    /// key, which the next verifier must verify.
     /// Used by StacksTransaction::verify*
     pub fn next_verification(
         cur_sighash: &Txid,
@@ -1114,8 +1117,8 @@ impl TransactionSpendingCondition {
         }
     }
 
-    /// Checks if this TransactionSpendingCondition is supported in the passed epoch
-    /// OrderIndependent multisig is not supported before epoch 3.0
+    /// Checks if this TransactionSpendingCondition is supported in the passed
+    /// epoch OrderIndependent multisig is not supported before epoch 3.0
     pub fn is_supported_in_epoch(&self, epoch_id: StacksEpochId) -> bool {
         match self {
             TransactionSpendingCondition::Singlesig(..)
@@ -1263,9 +1266,10 @@ impl TransactionAuth {
         matches!(self, TransactionAuth::Sponsored(..))
     }
 
-    /// When beginning to sign a sponsored transaction, the origin account will not commit to any
-    /// information about the sponsor (only that it is sponsored).  It does so by using sentinel
-    /// sponsored account information.
+    /// When beginning to sign a sponsored transaction, the origin account will
+    /// not commit to any information about the sponsor (only that it is
+    /// sponsored).  It does so by using sentinel sponsored account
+    /// information.
     pub fn into_initial_sighash_auth(self) -> TransactionAuth {
         match self {
             TransactionAuth::Standard(mut origin) => {
@@ -1359,7 +1363,8 @@ impl TransactionAuth {
         }
     }
 
-    /// Clear out all transaction auth fields, nonces, and fee rates from the spending condition(s).
+    /// Clear out all transaction auth fields, nonces, and fee rates from the
+    /// spending condition(s).
     pub fn clear(&mut self) {
         match *self {
             TransactionAuth::Standard(ref mut origin_condition) => {

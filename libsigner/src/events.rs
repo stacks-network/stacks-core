@@ -105,16 +105,19 @@ pub enum SignerEvent<T: SignerEventTrait> {
     BlockValidationResponse(BlockValidateResponse),
     /// Status endpoint request
     StatusCheck,
-    /// A new burn block event was received with the given burnchain block height
+    /// A new burn block event was received with the given burnchain block
+    /// height
     NewBurnBlock {
         /// the burn height for the newly processed burn block
         burn_height: u64,
         /// the burn hash for the newly processed burn block
         burn_header_hash: BurnchainHeaderHash,
-        /// the time at which this event was received by the signer's event processor
+        /// the time at which this event was received by the signer's event
+        /// processor
         received_time: SystemTime,
     },
-    /// A new processed Stacks block was received from the node with the given block hash
+    /// A new processed Stacks block was received from the node with the given
+    /// block hash
     NewBlock {
         /// The block header hash for the newly processed stacks block
         block_hash: Sha512Trunc256Sum,
@@ -124,8 +127,8 @@ pub enum SignerEvent<T: SignerEventTrait> {
 }
 
 /// Trait to implement a stop-signaler for the event receiver thread.
-/// The caller calls `send()` and the event receiver loop (which lives in a separate thread) will
-/// terminate.
+/// The caller calls `send()` and the event receiver loop (which lives in a
+/// separate thread) will terminate.
 pub trait EventStopSignaler {
     /// Send the stop signal
     fn send(&mut self);
@@ -133,8 +136,8 @@ pub trait EventStopSignaler {
 
 /// Trait to implement to handle signer specific events sent by the Stacks node
 pub trait EventReceiver<T: SignerEventTrait> {
-    /// The implementation of ST will ensure that a call to ST::send() will cause
-    /// the call to `is_stopped()` below to return true.
+    /// The implementation of ST will ensure that a call to ST::send() will
+    /// cause the call to `is_stopped()` below to return true.
     type ST: EventStopSignaler + Send + Sync;
 
     /// Open a server socket to the given socket address.
@@ -147,8 +150,8 @@ pub trait EventReceiver<T: SignerEventTrait> {
     fn forward_event(&mut self, ev: SignerEvent<T>) -> bool;
     /// Determine if the receiver should hang up
     fn is_stopped(&self) -> bool;
-    /// Get a stop signal instance that, when sent, will cause this receiver to stop accepting new
-    /// events.  Called after `bind()`.
+    /// Get a stop signal instance that, when sent, will cause this receiver to
+    /// stop accepting new events.  Called after `bind()`.
     fn get_stop_signaler(&mut self) -> Result<Self::ST, EventError>;
 
     /// Main loop for the receiver.
@@ -192,15 +195,16 @@ pub struct SignerEventReceiver<T: SignerEventTrait> {
     http_server: Option<HttpServer>,
     /// channel into which to write newly-discovered data
     out_channels: Vec<Sender<SignerEvent<T>>>,
-    /// inter-thread stop variable -- if set to true, then the `main_loop` will exit
+    /// inter-thread stop variable -- if set to true, then the `main_loop` will
+    /// exit
     stop_signal: Arc<AtomicBool>,
     /// Whether the receiver is running on mainnet
     is_mainnet: bool,
 }
 
 impl<T: SignerEventTrait> SignerEventReceiver<T> {
-    /// Make a new Signer event receiver, and return both the receiver and the read end of a
-    /// channel into which node-received data can be obtained.
+    /// Make a new Signer event receiver, and return both the receiver and the
+    /// read end of a channel into which node-received data can be obtained.
     pub fn new(is_mainnet: bool) -> SignerEventReceiver<T> {
         SignerEventReceiver {
             http_server: None,
@@ -280,8 +284,8 @@ impl<T: SignerEventTrait> EventReceiver<T> for SignerEventReceiver<T> {
     }
 
     /// Wait for the node to post something, and then return it.
-    /// Errors are recoverable -- the caller should call this method again even if it returns an
-    /// error.
+    /// Errors are recoverable -- the caller should call this method again even
+    /// if it returns an error.
     fn next_event(&mut self) -> Result<SignerEvent<T>, EventError> {
         self.with_server(|event_receiver, http_server, _is_mainnet| {
             // were we asked to terminate?
@@ -361,13 +365,14 @@ impl<T: SignerEventTrait> EventReceiver<T> for SignerEventReceiver<T> {
         }
     }
 
-    /// Add an event consumer.  A received event will be forwarded to this Sender.
+    /// Add an event consumer.  A received event will be forwarded to this
+    /// Sender.
     fn add_consumer(&mut self, out_channel: Sender<SignerEvent<T>>) {
         self.out_channels.push(out_channel);
     }
 
-    /// Get a stopped signaler.  The caller can then use it to terminate the event receiver loop,
-    /// even if it's in a different thread.
+    /// Get a stopped signaler.  The caller can then use it to terminate the
+    /// event receiver loop, even if it's in a different thread.
     fn get_stop_signaler(&mut self) -> Result<SignerStopSignaler, EventError> {
         if let Some(local_addr) = self.local_addr {
             Ok(SignerStopSignaler::new(
@@ -403,7 +408,8 @@ where
             &e
         )));
     }
-    // Regardless of whether we successfully deserialize, we should ack the dispatcher so they don't keep resending it
+    // Regardless of whether we successfully deserialize, we should ack the
+    // dispatcher so they don't keep resending it
     ack_dispatcher(request);
     let json_event: E = serde_json::from_slice(body.as_bytes())
         .map_err(|e| EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e)))?;

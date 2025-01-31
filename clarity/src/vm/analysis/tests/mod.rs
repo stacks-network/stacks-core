@@ -97,7 +97,8 @@ fn test_bad_tuple_field_name() {
 fn test_bad_function_name_2() {
     // outside of the legal "implicit" tuple structures,
     //    things that look like ((value 100)) are evaluated as
-    //    _function applications_, so this should error, since (value 100) isn't a function.
+    //    _function applications_, so this should error, since (value 100) isn't a
+    // function.
     let snippet = "(get 1 ((value 100)))";
     let err = mem_type_check(snippet).unwrap_err();
     println!("{}", err.diagnostic);

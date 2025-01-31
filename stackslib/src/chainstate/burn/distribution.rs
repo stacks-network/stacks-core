@@ -39,8 +39,8 @@ pub struct BurnSamplePoint {
     pub burns: u128,
     /// median burn over the UTXO chain
     pub median_burn: u128,
-    /// how many times did this miner mine in the window (i.e. how long is the UTXO chain for this
-    /// candidate in this window).
+    /// how many times did this miner mine in the window (i.e. how long is the
+    /// UTXO chain for this candidate in this window).
     pub frequency: u8,
     /// distribution range start in a [0, 2**256) interval
     pub range_start: Uint256,
@@ -138,39 +138,44 @@ impl BurnSamplePoint {
         }
     }
 
-    /// Make a burn distribution -- a list of (burn total, block candidate) pairs -- from a block's
-    /// block commits and user support burns.
+    /// Make a burn distribution -- a list of (burn total, block candidate)
+    /// pairs -- from a block's block commits and user support burns.
     ///
     /// All operations need to be supplied in an ordered Vec of Vecs containing
-    ///   the ops at each block height in a mining commit window.  Normally, this window
-    ///   is the constant `MINING_COMMITMENT_WINDOW`, except during prepare-phases and post-PoX
-    ///   sunset.  In either of these two cases, the window is only one block.  The code does not
-    ///   consider which window is active; it merely deduces it by inspecting the length of the
-    ///   given `block_commits` argument.
+    ///   the ops at each block height in a mining commit window.  Normally,
+    /// this window   is the constant `MINING_COMMITMENT_WINDOW`, except
+    /// during prepare-phases and post-PoX   sunset.  In either of these two
+    /// cases, the window is only one block.  The code does not   consider
+    /// which window is active; it merely deduces it by inspecting the length of
+    /// the   given `block_commits` argument.
     ///
-    /// If a burn refers to more than one commitment, its burn amount is *split* between those
-    ///   commitments
+    /// If a burn refers to more than one commitment, its burn amount is *split*
+    /// between those   commitments
     ///
-    ///  Burns are evaluated over the mining commitment window, where the effective burn for
-    ///   a commitment is := min(last_burn_amount, median over the window)
+    ///  Burns are evaluated over the mining commitment window, where the
+    /// effective burn for   a commitment is := min(last_burn_amount, median
+    /// over the window)
     ///
     /// Returns the distribution, which consumes the given lists of operations.
     ///
-    /// * `block_commits`: this is a mapping from relative block_height to the block
-    ///     commits that occurred at that height. These relative block heights start
-    ///     at 0 and increment towards the present. When the mining window is 6, the
-    ///     "current" sortition's block commits would be in index 5.
+    /// * `block_commits`: this is a mapping from relative block_height to the
+    ///   block commits that occurred at that height. These relative block
+    ///   heights start at 0 and increment towards the present. When the mining
+    ///   window is 6, the "current" sortition's block commits would be in index
+    ///   5.
     /// * `missed_commits`: this is a mapping from relative block_height to the
-    ///     block commits that were intended to be included at that height. These
-    ///     relative block heights start at 0 and increment towards the present. There
-    ///     will be no such commits for the current sortition, so this vec will have
-    ///     `missed_commits.len() = block_commits.len() - 1`
-    /// * `burn_blocks`: this is a vector of booleans that indicate whether or not a block-commit
-    ///     occurred during a PoB-only sortition or a possibly-PoX sortition.  The former occurs
-    ///     during either a prepare phase or after PoX sunset, and must have only one (burn) output.
-    ///     The latter occurs everywhere else, and must have `OUTPUTS_PER_COMMIT` outputs after the
-    ///     `OP_RETURN` payload.  The length of this vector must be equal to the length of the
-    ///     `block_commits` vector.  `burn_blocks[i]` is `true` if the `ith` block-commit must be PoB.
+    ///   block commits that were intended to be included at that height. These
+    ///   relative block heights start at 0 and increment towards the present.
+    ///   There will be no such commits for the current sortition, so this vec
+    ///   will have `missed_commits.len() = block_commits.len() - 1`
+    /// * `burn_blocks`: this is a vector of booleans that indicate whether or
+    ///   not a block-commit occurred during a PoB-only sortition or a
+    ///   possibly-PoX sortition.  The former occurs during either a prepare
+    ///   phase or after PoX sunset, and must have only one (burn) output. The
+    ///   latter occurs everywhere else, and must have `OUTPUTS_PER_COMMIT`
+    ///   outputs after the `OP_RETURN` payload.  The length of this vector must
+    ///   be equal to the length of the `block_commits` vector. `burn_blocks[i]`
+    ///   is `true` if the `ith` block-commit must be PoB.
     pub fn make_min_median_distribution(
         mining_commitment_window: u8,
         mut block_commits: Vec<Vec<LeaderBlockCommitOp>>,
@@ -218,8 +223,9 @@ impl BurnSamplePoint {
                 .map(|missed| (missed.txid.clone(), missed))
                 .collect();
 
-            // find the UTXO index that each last linked_commit must have spent in order to be
-            // chained to the block-commit (or missed-commit) at this relative block height
+            // find the UTXO index that each last linked_commit must have spent in order to
+            // be chained to the block-commit (or missed-commit) at this
+            // relative block height
             let commit_is_burn = burn_blocks[rel_block_height as usize];
             let expected_index = LeaderBlockCommitOp::expected_chained_utxo(commit_is_burn);
 
@@ -276,7 +282,8 @@ impl BurnSamplePoint {
                             commit.op.burn_fee() as u128
                         } else {
                             // use 1 as the linked commit min. this gives a miner a _small_
-                            //  chance of winning a block even if they haven't performed chained utxos yet
+                            //  chance of winning a block even if they haven't performed chained
+                            // utxos yet
                             1
                         }
                     })
@@ -363,8 +370,8 @@ impl BurnSamplePoint {
         }
     }
 
-    /// Calculate the ranges between 0 and 2**256 - 1 over which each point in the burn sample
-    /// applies, so we can later select which block to use.
+    /// Calculate the ranges between 0 and 2**256 - 1 over which each point in
+    /// the burn sample applies, so we can later select which block to use.
     fn make_sortition_ranges(burn_sample: &mut Vec<BurnSamplePoint>) {
         if burn_sample.is_empty() {
             // empty sample
@@ -412,8 +419,8 @@ impl BurnSamplePoint {
         }
     }
 
-    /// Calculate the total amount of crypto destroyed in this burn distribution.
-    /// Returns None if there was an overflow.
+    /// Calculate the total amount of crypto destroyed in this burn
+    /// distribution. Returns None if there was an overflow.
     pub fn get_total_burns(burn_dist: &[BurnSamplePoint]) -> Option<u64> {
         burn_dist
             .iter()
@@ -587,7 +594,8 @@ mod tests {
 
         result.sort_by_key(|sample| sample.candidate.txid);
 
-        // block-commits are currently malformed -- the post-sunset commits spend the wrong UTXO.
+        // block-commits are currently malformed -- the post-sunset commits spend the
+        // wrong UTXO.
         assert_eq!(result[0].burns, 1);
         assert_eq!(result[1].burns, 1);
 

@@ -18,7 +18,8 @@ use clarity::vm::contexts::GlobalContext;
 use clarity::vm::errors::Error as ClarityError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 
-/// Handle special cases of contract-calls -- namely, those into PoX that should lock up STX
+/// Handle special cases of contract-calls -- namely, those into PoX that should
+/// lock up STX
 pub fn handle_contract_call_special_cases(
     global_context: &mut GlobalContext,
     sender: Option<&PrincipalData>,

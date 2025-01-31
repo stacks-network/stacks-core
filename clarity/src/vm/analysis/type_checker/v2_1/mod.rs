@@ -373,8 +373,8 @@ impl FunctionType {
                 analysis_typecheck_cost(accounting, &TypeSignature::IntType, first)?;
                 analysis_typecheck_cost(accounting, &TypeSignature::IntType, second)?;
 
-                // Note: Clarity2 expanded the comparable types to include ASCII, UTF8 and Buffer.
-                // Int and UInt have been present since Clarity1.
+                // Note: Clarity2 expanded the comparable types to include ASCII, UTF8 and
+                // Buffer. Int and UInt have been present since Clarity1.
                 let is_clarity2: bool = clarity_version >= ClarityVersion::Clarity2;
                 // Step 1: Check the first argument on its own, to see that the first argument
                 // has a supported type according to this ClarityVersion.
@@ -726,8 +726,8 @@ pub fn clarity2_trait_check_trait_compliance<T: CostTracker>(
     Ok(())
 }
 
-/// Check if `expected_type` admits `actual_type`, handling traits and callable types
-/// through invoking trait compliance checks.
+/// Check if `expected_type` admits `actual_type`, handling traits and callable
+/// types through invoking trait compliance checks.
 fn clarity2_inner_type_check_type<T: CostTracker>(
     db: &mut AnalysisDatabase,
     contract_context: Option<&ContractContext>,
@@ -910,7 +910,8 @@ fn clarity2_lookup_trait<T: CostTracker>(
     tracker: &mut T,
 ) -> CheckResult<BTreeMap<ClarityName, FunctionSignature>> {
     if let Some(contract_context) = contract_context {
-        // If the trait is from this contract, then it must be in the context or it doesn't exist.
+        // If the trait is from this contract, then it must be in the context or it
+        // doesn't exist.
         if contract_context.is_contract(&trait_id.contract_identifier) {
             return Ok(contract_context
                 .get_trait(trait_id)
@@ -1097,7 +1098,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         Ok(())
     }
 
-    // Type check an expression, with an expected_type that should _admit_ the expression.
+    // Type check an expression, with an expected_type that should _admit_ the
+    // expression.
     pub fn type_check_expects(
         &mut self,
         expr: &SymbolicExpression,
@@ -1221,7 +1223,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 check_error.diagnostic = Diagnostic::err(&check_error.err)
             }
             // accumulate the checking costs
-            // the reason we do this now (instead of within the loop) is for backwards compatibility
+            // the reason we do this now (instead of within the loop) is for backwards
+            // compatibility
             for cost in total_costs.into_iter() {
                 self.add_cost(cost?)?;
             }
@@ -1345,7 +1348,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
     ) -> CheckResult<(ClarityName, (TypeSignature, TypeSignature))> {
         self.type_map.set_type(key_type, no_type())?;
         self.type_map.set_type(value_type, no_type())?;
-        // should we set the type of the subexpressions of the signature to no-type as well?
+        // should we set the type of the subexpressions of the signature to no-type as
+        // well?
 
         let key_type = TypeSignature::parse_type_repr(StacksEpochId::Epoch21, key_type, &mut ())
             .map_err(|_| CheckErrors::BadMapTypeDefinition)?;
@@ -1356,7 +1360,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         Ok((map_name.clone(), (key_type, value_type)))
     }
 
-    // Aaron: note, using lazy statics here would speed things up a bit and reduce clone()s
+    // Aaron: note, using lazy statics here would speed things up a bit and reduce
+    // clone()s
     fn try_native_function_check(
         &mut self,
         function: &str,
@@ -1618,7 +1623,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         Ok((trait_name.clone(), trait_signature))
     }
 
-    // Checks if an expression is a _define_ expression, and if so, typechecks it. Otherwise, it returns Ok(None)
+    // Checks if an expression is a _define_ expression, and if so, typechecks it.
+    // Otherwise, it returns Ok(None)
     fn try_type_check_define(
         &mut self,
         expression: &SymbolicExpression,

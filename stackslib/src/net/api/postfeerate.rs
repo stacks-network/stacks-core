@@ -103,8 +103,8 @@ impl RPCPostFeeRateRequestHandler {
         }
     }
 
-    /// Estimate a transaction fee, given its execution cost estimation and length estimation
-    /// and cost estimators.
+    /// Estimate a transaction fee, given its execution cost estimation and
+    /// length estimation and cost estimators.
     /// Returns Ok(fee structure) on success
     /// Returns Err(HTTP response) on error
     pub fn estimate_tx_fee_from_cost_and_length(
@@ -161,7 +161,8 @@ impl HttpRequest for RPCPostFeeRateRequestHandler {
     }
 
     /// Try to decode this request.
-    /// There's nothing to load here, so just make sure the request is well-formed.
+    /// There's nothing to load here, so just make sure the request is
+    /// well-formed.
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
@@ -214,8 +215,8 @@ impl RPCRequestHandler for RPCPostFeeRateRequestHandler {
     }
 
     /// Make the response
-    /// TODO: accurately estimate the cost/length fee for token transfers, based on mempool
-    /// pressure.
+    /// TODO: accurately estimate the cost/length fee for token transfers, based
+    /// on mempool pressure.
     fn try_handle_request(
         &mut self,
         preamble: HttpRequestPreamble,

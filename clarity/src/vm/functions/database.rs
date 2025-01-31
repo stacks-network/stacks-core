@@ -720,16 +720,22 @@ pub fn special_delete_entry_v205(
 /// - `header-hash` returns the header hash at `block-height`
 /// - `time` returns the burn block time of the block at `block-height`
 /// - `vrf-seed` returns the VRF seed of the block at `block-height`
-/// - `burnchain-header-hash` returns header hash of the burnchain block corresponding to `block-height`
-/// - `miner-address` returns the address of the principal that mined the block at `block-height`
-/// - `miner-spend-winner` returns the number of satoshis spent by the winning miner for the block at `block-height`
-/// - `miner-spend-total` returns the total number of satoshis spent by all miners for the block at `block-height`
+/// - `burnchain-header-hash` returns header hash of the burnchain block
+///   corresponding to `block-height`
+/// - `miner-address` returns the address of the principal that mined the block
+///   at `block-height`
+/// - `miner-spend-winner` returns the number of satoshis spent by the winning
+///   miner for the block at `block-height`
+/// - `miner-spend-total` returns the total number of satoshis spent by all
+///   miners for the block at `block-height`
 /// - `block-reward` returns the block reward for the block at `block-height`
 ///
 /// # Errors:
 /// - CheckErrors::IncorrectArgumentCount if there aren't 2 arguments.
-/// - CheckErrors::GetStacksBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
-/// - CheckErrors::NoSuchStacksBlockInfoProperty if `args[0]` isn't a StacksBlockInfoProperty.
+/// - CheckErrors::GetStacksBlockInfoExpectPropertyName if `args[0]` isn't a
+///   ClarityName.
+/// - CheckErrors::NoSuchStacksBlockInfoProperty if `args[0]` isn't a
+///   StacksBlockInfoProperty.
 /// - CheckErrors::TypeValueError if `args[1]` isn't a `uint`.
 pub fn special_get_block_info(
     args: &[SymbolicExpression],
@@ -870,15 +876,18 @@ pub fn special_get_block_info(
 }
 
 /// Handles the `get-burn-block-info?` special function.
-/// Interprets `args` as variables `[property_name, burn_block_height]`, and returns
-/// a property value determined by `property_name`:
+/// Interprets `args` as variables `[property_name, burn_block_height]`, and
+/// returns a property value determined by `property_name`:
 /// - `header_hash` returns the burn block header hash at `burn_block_height`
-/// - `pox_addrs` returns the list of PoX addresses paid out at `burn_block_height`
+/// - `pox_addrs` returns the list of PoX addresses paid out at
+///   `burn_block_height`
 ///
 /// # Errors:
 /// - CheckErrors::IncorrectArgumentCount if there aren't 2 arguments.
-/// - CheckErrors::GetBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
-/// - CheckErrors::NoSuchBurnBlockInfoProperty if `args[0]` isn't a BurnBlockInfoProperty.
+/// - CheckErrors::GetBlockInfoExpectPropertyName if `args[0]` isn't a
+///   ClarityName.
+/// - CheckErrors::NoSuchBurnBlockInfoProperty if `args[0]` isn't a
+///   BurnBlockInfoProperty.
 /// - CheckErrors::TypeValueError if `args[1]` isn't a `uint`.
 pub fn special_get_burn_block_info(
     args: &[SymbolicExpression],
@@ -974,8 +983,10 @@ pub fn special_get_burn_block_info(
 ///
 /// # Errors:
 /// - CheckErrors::IncorrectArgumentCount if there aren't 2 arguments.
-/// - CheckErrors::GetStacksBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
-/// - CheckErrors::NoSuchStacksBlockInfoProperty if `args[0]` isn't a StacksBlockInfoProperty.
+/// - CheckErrors::GetStacksBlockInfoExpectPropertyName if `args[0]` isn't a
+///   ClarityName.
+/// - CheckErrors::NoSuchStacksBlockInfoProperty if `args[0]` isn't a
+///   StacksBlockInfoProperty.
 /// - CheckErrors::TypeValueError if `args[1]` isn't a `uint`.
 pub fn special_get_stacks_block_info(
     args: &[SymbolicExpression],
@@ -1043,18 +1054,27 @@ pub fn special_get_stacks_block_info(
 /// Handles the function `get-tenure-info?` special function.
 /// Interprets `args` as variables `[property-name, block-height]`, and returns
 /// a property value determined by `property-name`:
-/// - `time` returns the burn block time for the tenure of which `block-height` is a part
-/// - `vrf-seed` returns the VRF seed for the tenure of which `block-height` is a part
-/// - `burnchain-header-hash` returns header hash of the burnchain block corresponding to the tenure of which `block-height` is a part
-/// - `miner-address` returns the address of the principal that mined the tenure of which `block-height` is a part
-/// - `miner-spend-winner` returns the number of satoshis spent by the winning miner for the tenure of which `block-height` is a part
-/// - `miner-spend-total` returns the total number of satoshis spent by all miners for the tenure of which `block-height` is a part
-/// - `block-reward` returns the block reward for the tenure of which `block-height` is a part
+/// - `time` returns the burn block time for the tenure of which `block-height`
+///   is a part
+/// - `vrf-seed` returns the VRF seed for the tenure of which `block-height` is
+///   a part
+/// - `burnchain-header-hash` returns header hash of the burnchain block
+///   corresponding to the tenure of which `block-height` is a part
+/// - `miner-address` returns the address of the principal that mined the tenure
+///   of which `block-height` is a part
+/// - `miner-spend-winner` returns the number of satoshis spent by the winning
+///   miner for the tenure of which `block-height` is a part
+/// - `miner-spend-total` returns the total number of satoshis spent by all
+///   miners for the tenure of which `block-height` is a part
+/// - `block-reward` returns the block reward for the tenure of which
+///   `block-height` is a part
 ///
 /// # Errors:
 /// - CheckErrors::IncorrectArgumentCount if there aren't 2 arguments.
-/// - CheckErrors::GetTenureInfoExpectPropertyName if `args[0]` isn't a ClarityName.
-/// - CheckErrors::NoSuchTenureInfoProperty if `args[0]` isn't a TenureInfoProperty.
+/// - CheckErrors::GetTenureInfoExpectPropertyName if `args[0]` isn't a
+///   ClarityName.
+/// - CheckErrors::NoSuchTenureInfoProperty if `args[0]` isn't a
+///   TenureInfoProperty.
 /// - CheckErrors::TypeValueError if `args[1]` isn't a `uint`.
 pub fn special_get_tenure_info(
     args: &[SymbolicExpression],

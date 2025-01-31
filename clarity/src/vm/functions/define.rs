@@ -279,7 +279,8 @@ impl DefineFunctions {
 
 impl<'a> DefineFunctionsParsed<'a> {
     /// Try to parse a Top-Level Expression (e.g., (define-private (foo) 1)) as
-    /// a define-statement, returns None if the supplied expression is not a define.
+    /// a define-statement, returns None if the supplied expression is not a
+    /// define.
     pub fn try_parse(
         expression: &'a SymbolicExpression,
     ) -> std::result::Result<Option<DefineFunctionsParsed<'a>>, CheckErrors> {

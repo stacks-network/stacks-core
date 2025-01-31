@@ -185,7 +185,8 @@ impl LeaderBlockCommitOp {
 
     pub fn expected_chained_utxo(burn_only: bool) -> u32 {
         if burn_only {
-            2 // if sunset has occurred, or we're in the prepare phase, then chained commits should spend the output after the burn commit
+            2 // if sunset has occurred, or we're in the prepare phase, then
+              // chained commits should spend the output after the burn commit
         } else {
             // otherwise, it's the output after the last PoX output
             (OUTPUTS_PER_COMMIT as u32) + 1
@@ -196,8 +197,9 @@ impl LeaderBlockCommitOp {
         u64::from(self.burn_parent_modulus) % BURN_BLOCK_MINED_AT_MODULUS
     }
 
-    /// In Nakamoto, the block header hash is actually the index block hash of the first Nakamoto
-    /// block of the last tenure (the "tenure id"). This helper obtains it.
+    /// In Nakamoto, the block header hash is actually the index block hash of
+    /// the first Nakamoto block of the last tenure (the "tenure id"). This
+    /// helper obtains it.
     pub fn last_tenure_id(&self) -> StacksBlockId {
         StacksBlockId(self.block_header_hash.0.clone())
     }
@@ -313,8 +315,8 @@ impl LeaderBlockCommitOp {
         })?;
 
         // basic sanity checks
-        // if parent block ptr and parent vtxindex are both 0, then this block's parent is
-        // the genesis block.
+        // if parent block ptr and parent vtxindex are both 0, then this block's parent
+        // is the genesis block.
         if data.parent_block_ptr == 0 && data.parent_vtxindex != 0 {
             warn!("Invalid tx: parent block back-pointer must be positive");
             return Err(op_error::ParseError);
@@ -374,8 +376,8 @@ impl LeaderBlockCommitOp {
             (vec![address], sunset_burn, amount, apparent_sender)
         } else {
             // we're in a reward phase, which may or may not be PoX.
-            // check if this transaction provided a sunset burn (which is still allowed in epoch
-            // 2.1; it's just not doing anything for the miner).
+            // check if this transaction provided a sunset burn (which is still allowed in
+            // epoch 2.1; it's just not doing anything for the miner).
             let sunset_burn = tx.get_burn_amount();
 
             let mut commit_outs = vec![];
@@ -590,15 +592,17 @@ impl RewardSetInfo {
 }
 
 impl LeaderBlockCommitOp {
-    /// Perform PoX checks on this block-commit, given the reward set info (which may be None if
-    /// PoX is not active).
+    /// Perform PoX checks on this block-commit, given the reward set info
+    /// (which may be None if PoX is not active).
     ///
-    /// If PoX was active (i.e., `reward_set_info` is `Some`), this method will return how the
-    ///  PoX addresses were treated by the block commit. Prior to Epoch 3.0, these will be all
-    ///  treated with rewards (attempting to punish pre-nakamoto will result in a op_error).
+    /// If PoX was active (i.e., `reward_set_info` is `Some`), this method will
+    /// return how the  PoX addresses were treated by the block commit.
+    /// Prior to Epoch 3.0, these will be all  treated with rewards
+    /// (attempting to punish pre-nakamoto will result in a op_error).
     ///
-    /// If `reward_set_info` is not None, then *only* the addresses in .recipients are used.  The u16
-    /// indexes are *ignored* (and *must be* ignored, since this method gets called by
+    /// If `reward_set_info` is not None, then *only* the addresses in
+    /// .recipients are used.  The u16 indexes are *ignored* (and *must be*
+    /// ignored, since this method gets called by
     /// `check_intneded_sortition()`, which does not have this information).
     fn check_pox<SH: SortitionHandle>(
         &self,
@@ -610,9 +614,9 @@ impl LeaderBlockCommitOp {
         let parent_block_height = u64::from(self.parent_block_ptr);
 
         if PoxConstants::has_pox_sunset(epoch_id) {
-            // sunset only applies in epochs prior to 2.1.  After 2.1, miners can put whatever they
-            // want into the sunset burn but it won't be checked, nor will it count towards their
-            // sortition
+            // sunset only applies in epochs prior to 2.1.  After 2.1, miners can put
+            // whatever they want into the sunset burn but it won't be checked,
+            // nor will it count towards their sortition
             let total_committed = self
                 .burn_fee
                 .checked_add(self.sunset_burn)
@@ -632,10 +636,10 @@ impl LeaderBlockCommitOp {
         /////////////////////////////////////////////////////////////////////////////////////
         // This tx must have the expected commit or burn outputs:
         //    * if there is a known anchor block for the current reward cycle, and this
-        //       block commit descends from that block, and this block commit is not in the
-        //       prepare phase of the reward cycle, and there are still reward addresses
-        //       left in this reward cycle to pay out to, then
-        //       the commit outputs must = the expected set of commit outputs.
+        //      block commit descends from that block, and this block commit is not in
+        //      the prepare phase of the reward cycle, and there are still reward
+        //      addresses left in this reward cycle to pay out to, then the commit
+        //      outputs must = the expected set of commit outputs.
         //    * otherwise, the commit outputs must be burn outputs.
         /////////////////////////////////////////////////////////////////////////////////////
         let Some(reward_set_info) = reward_set_info else {
@@ -664,8 +668,9 @@ impl LeaderBlockCommitOp {
             return Ok(vec![]);
         }
 
-        // Not in prepare phase, so this can be either PoB or PoX (a descent check from the
-        // anchor block will be necessary if the block-commit is well-formed).
+        // Not in prepare phase, so this can be either PoB or PoX (a descent check from
+        // the anchor block will be necessary if the block-commit is
+        // well-formed).
         //
         // first, handle a corner case:
         //    all of the commitment outputs are _burns_
@@ -689,15 +694,16 @@ impl LeaderBlockCommitOp {
         // Now, we are checking the reward sets match, and if they don't,
         //  whether or not pox descendant is necessary
 
-        // first, if we're in a nakamoto epoch, any block commit building directly off of the anchor block
-        //  is descendant
+        // first, if we're in a nakamoto epoch, any block commit building directly off
+        // of the anchor block  is descendant
         let directly_descended_from_anchor = epoch_id.block_commits_to_parent()
             && self.block_header_hash == reward_set_info.anchor_block;
 
-        // second, if we're in a nakamoto epoch, and the parent block has vtxindex 0 (i.e. the
-        // coinbase of the burnchain block), then assume that this block descends from the anchor
-        // block for the purposes of validating its PoX payouts.  The block validation logic will
-        // check that the parent block is indeed a shadow block, and that `self.parent_block_ptr`
+        // second, if we're in a nakamoto epoch, and the parent block has vtxindex 0
+        // (i.e. the coinbase of the burnchain block), then assume that this
+        // block descends from the anchor block for the purposes of validating
+        // its PoX payouts.  The block validation logic will check that the
+        // parent block is indeed a shadow block, and that `self.parent_block_ptr`
         // points to the shadow block's tenure's burnchain block.
         let maybe_shadow_parent = epoch_id.supports_shadow_blocks()
             && self.parent_block_ptr != 0
@@ -713,8 +719,9 @@ impl LeaderBlockCommitOp {
             })?;
 
         if self.all_outputs_burn() {
-            // If we're not descended from the anchor, then great, this is just a "normal" non-descendant burn commit
-            // But, if we are descended from the anchor and nakamoto pox punishments are allowed, this commit may have
+            // If we're not descended from the anchor, then great, this is just a "normal"
+            // non-descendant burn commit But, if we are descended from the
+            // anchor and nakamoto pox punishments are allowed, this commit may have
             //  been a double punishment
             if !descended_from_anchor {
                 return Ok(vec![]);
@@ -825,8 +832,8 @@ impl LeaderBlockCommitOp {
         self.check_single_burn_output()
     }
 
-    /// Check the epoch marker in a block-commit to make sure it matches the right epoch.
-    /// Valid in Stacks 2.05+
+    /// Check the epoch marker in a block-commit to make sure it matches the
+    /// right epoch. Valid in Stacks 2.05+
     fn check_epoch_commit_marker(&self, marker: u8) -> Result<(), op_error> {
         if self.memo.is_empty() {
             debug!(
@@ -881,8 +888,8 @@ impl LeaderBlockCommitOp {
         }
     }
 
-    /// Verify that a missed block-commit would have been valid if it was not missed.
-    /// This contains epoch-specific checks.
+    /// Verify that a missed block-commit would have been valid if it was not
+    /// missed. This contains epoch-specific checks.
     fn check_intended_sortition(
         &self,
         epoch_id: StacksEpochId,
@@ -924,14 +931,15 @@ impl LeaderBlockCommitOp {
                     .expect("FATAL: no snapshot for known sortition");
                 debug!("Block commit for {} missed, meant to land in burnchain block {} (sortition {})", &self.block_header_hash, intended_sn.block_height, &intended_sortition);
 
-                // NOTE: we're not doing the checks in check_common() because it doesn't matter if
-                // the late block-commit does not meet them -- it will never be a sortition winner
-                // anyway.
+                // NOTE: we're not doing the checks in check_common() because it doesn't matter
+                // if the late block-commit does not meet them -- it will never
+                // be a sortition winner anyway.
                 //
                 // But, we must disincentivize deliberately sending late block-commits (e.g. to
                 // improve the miner's median sortition spend), so it's necessary to require the
-                // miner to pay burnchain tokens to the intended sortition's reward addresses.  Then,
-                // doing this on purpose is at least as costly as mining honestly.
+                // miner to pay burnchain tokens to the intended sortition's reward addresses.
+                // Then, doing this on purpose is at least as costly as mining
+                // honestly.
                 let reward_set_info_opt =
                     RewardSetInfo::from_missed_commit(tx, &intended_sortition)?;
                 self.check_pox(epoch_id, burnchain, tx, reward_set_info_opt.as_ref())?;
@@ -940,15 +948,17 @@ impl LeaderBlockCommitOp {
             }
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
                 // buggy behavior that must be preserved for compatibility :(
-                // bug: uses self.block_height to find the intended sortition ID (which won't work)
+                // bug: uses self.block_height to find the intended sortition ID (which won't
+                // work)
                 if miss_distance > self.block_height {
                     return Err(op_error::BlockCommitBadModulus);
                 }
                 tx.get_ancestor_block_hash(self.block_height - miss_distance, &tx_tip)?
                     .ok_or_else(|| op_error::BlockCommitNoParent)?
 
-                // also buggy behavior -- the block-commit can pay to any PoX output it wants, so
-                // sending them deliberately is "free" because the sender can just pay themselves.
+                // also buggy behavior -- the block-commit can pay to any PoX
+                // output it wants, so sending them deliberately
+                // is "free" because the sender can just pay themselves.
             }
             StacksEpochId::Epoch10 => {
                 panic!("Block commits are not supported in epoch 1.0");
@@ -957,8 +967,8 @@ impl LeaderBlockCommitOp {
         Ok(intended_sortition)
     }
 
-    /// Perform the block-commit checks that are the same in both PoX and PoB, and common to both
-    /// on-time and late block-commits
+    /// Perform the block-commit checks that are the same in both PoX and PoB,
+    /// and common to both on-time and late block-commits
     fn check_common(
         &self,
         epoch_id: StacksEpochId,
@@ -992,7 +1002,8 @@ impl LeaderBlockCommitOp {
 
         let is_already_committed = tx.expects_stacks_block_in_fork(&self.block_header_hash)?;
 
-        // in Epoch3.0+, block commits can include Stacks blocks already accepted in the fork.
+        // in Epoch3.0+, block commits can include Stacks blocks already accepted in the
+        // fork.
         if is_already_committed && epoch_id < StacksEpochId::Epoch30 {
             warn!(
                 "Invalid block commit: already committed to {}",
@@ -1027,10 +1038,10 @@ impl LeaderBlockCommitOp {
             })?;
 
         /////////////////////////////////////////////////////////////////////////////////////
-        // There must exist a previously-accepted block from a LeaderBlockCommit, or this
-        // LeaderBlockCommit must build off of the genesis block.  If _not_ building off of the
-        // genesis block, then the parent block must be in a different epoch (i.e. its parent must
-        // be committed already).
+        // There must exist a previously-accepted block from a LeaderBlockCommit, or
+        // this LeaderBlockCommit must build off of the genesis block.  If _not_
+        // building off of the genesis block, then the parent block must be in a
+        // different epoch (i.e. its parent must be committed already).
         /////////////////////////////////////////////////////////////////////////////////////
 
         if parent_block_height == self.block_height {
@@ -1055,16 +1066,18 @@ impl LeaderBlockCommitOp {
         }
 
         /////////////////////////////////////////////////////////////////////////////////////
-        // If we are in Stacks 2.05 or later, then the memo field *must* have the appropriate epoch
-        // marker.  That is, the upper 5 bits of the byte whose lower 3 bits contain the burn
-        // parent modulus must have the marker bit pattern.  For example, in 2.05, this is 0b00101.
+        // If we are in Stacks 2.05 or later, then the memo field *must* have the
+        // appropriate epoch marker.  That is, the upper 5 bits of the byte
+        // whose lower 3 bits contain the burn parent modulus must have the
+        // marker bit pattern.  For example, in 2.05, this is 0b00101.
         //
-        // This means that the byte must look like 0bXXXXXYYY, where XXXXX is the epoch marker bit
-        // pattern, and YYY is the burn parent modulus.
+        // This means that the byte must look like 0bXXXXXYYY, where XXXXX is the epoch
+        // marker bit pattern, and YYY is the burn parent modulus.
         //
-        // The epoch marker is a minimum-allowed value.  The miner can put a larger number in the
-        // epoch marker field -- for example, to signal support for a new epoch or to be
-        // forwards-compatible with it -- but cannot put a lesser number in.
+        // The epoch marker is a minimum-allowed value.  The miner can put a larger
+        // number in the epoch marker field -- for example, to signal support
+        // for a new epoch or to be forwards-compatible with it -- but cannot
+        // put a lesser number in.
         /////////////////////////////////////////////////////////////////////////////////////
         self.check_epoch_commit(epoch_id)?;
         Ok(())
@@ -1556,7 +1569,8 @@ mod tests {
         // should have 2 commit outputs
         assert_eq!(op.commit_outs.len(), 2);
         assert_eq!(op.burn_fee, 26);
-        // the third output, because it's not a burn, should not have counted as a sunset_burn
+        // the third output, because it's not a burn, should not have counted as a
+        // sunset_burn
         assert_eq!(op.sunset_burn, 0);
 
         let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {

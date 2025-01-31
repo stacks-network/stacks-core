@@ -299,7 +299,8 @@ fn mempool_walk_over_fork() {
     );
 
     // Now that the mempool has iterated over those transactions, its view of the
-    //  nonce for the origin address should have changed. Now it should find *no* transactions.
+    //  nonce for the origin address should have changed. Now it should find *no*
+    // transactions.
     chainstate.with_read_only_clarity_tx(
         &TEST_BURN_STATE_DB,
         &StacksBlockHeader::make_index_block_hash(&b_2.0, &b_2.1),
@@ -460,7 +461,8 @@ fn mempool_walk_over_fork() {
         .expect("Should be able to reset nonces");
 
     // let's test replace-across-fork while we're here.
-    // first try to replace a tx in b_2 in b_1 - should fail because they are in the same fork
+    // first try to replace a tx in b_2 in b_1 - should fail because they are in the
+    // same fork
     let mut mempool_tx = mempool.tx_begin().unwrap();
     let block = &b_1;
     let tx = &txs[1];
@@ -475,7 +477,8 @@ fn mempool_walk_over_fork() {
     let origin_nonce = 0;
     let sponsor_nonce = 0;
 
-    // make sure that we already have the transaction we're testing for replace-across-fork
+    // make sure that we already have the transaction we're testing for
+    // replace-across-fork
     assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
 
     assert!(MemPoolDB::try_add_tx(
@@ -523,7 +526,8 @@ fn mempool_walk_over_fork() {
     let origin_nonce = 1;
     let sponsor_nonce = 1;
 
-    // make sure that we already have the transaction we're testing for replace-across-fork
+    // make sure that we already have the transaction we're testing for
+    // replace-across-fork
     assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
 
     MemPoolDB::try_add_tx(
@@ -548,7 +552,8 @@ fn mempool_walk_over_fork() {
 
     mempool_tx.commit().unwrap();
 
-    // after replace-across-fork, tx[1] should have moved from the b_2->b_5 fork to b_4
+    // after replace-across-fork, tx[1] should have moved from the b_2->b_5 fork to
+    // b_4
     assert_eq!(
         MemPoolDB::get_num_tx_at_block(&mempool.db, &b_4.0, &b_4.1).unwrap(),
         2
@@ -590,7 +595,8 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
         StacksEpochId::latest(),
     );
 
-    // Load 24 transactions into the mempool, alternating whether or not they have a fee-rate.
+    // Load 24 transactions into the mempool, alternating whether or not they have a
+    // fee-rate.
     for nonce in 0..24 {
         let mut tx = txs.pop().unwrap();
         let mut mempool_tx = mempool.tx_begin().unwrap();
@@ -755,7 +761,8 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
 
 #[test]
 /// This test verifies that when a transaction is skipped, other transactions
-/// from the same address with higher nonces are not considered for inclusion in a block.
+/// from the same address with higher nonces are not considered for inclusion in
+/// a block.
 fn test_iterate_candidates_skipped_transaction() {
     let mut chainstate =
         instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), vec![]);
@@ -867,8 +874,9 @@ fn test_iterate_candidates_skipped_transaction() {
 }
 
 #[test]
-/// This test verifies that when a transaction reports a processing error, other transactions
-/// from the same address with higher nonces are not considered for inclusion in a block.
+/// This test verifies that when a transaction reports a processing error, other
+/// transactions from the same address with higher nonces are not considered for
+/// inclusion in a block.
 fn test_iterate_candidates_processing_error_transaction() {
     let mut chainstate =
         instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), vec![]);
@@ -983,7 +991,8 @@ fn test_iterate_candidates_processing_error_transaction() {
 
 #[test]
 /// This test verifies that when a transaction is skipped, other transactions
-/// from the same address with higher nonces are not considered for inclusion in a block.
+/// from the same address with higher nonces are not considered for inclusion in
+/// a block.
 fn test_iterate_candidates_problematic_transaction() {
     let mut chainstate =
         instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), vec![]);
@@ -1097,8 +1106,8 @@ fn test_iterate_candidates_problematic_transaction() {
 }
 
 #[test]
-/// This test verifies that all transactions are visited, and nonce cache on disk updated, even if
-/// there's a concurrent write-lock on the mempool DB.
+/// This test verifies that all transactions are visited, and nonce cache on
+/// disk updated, even if there's a concurrent write-lock on the mempool DB.
 fn test_iterate_candidates_concurrent_write_lock() {
     let mut chainstate =
         instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), vec![]);
@@ -1129,7 +1138,8 @@ fn test_iterate_candidates_concurrent_write_lock() {
 
     let mut expected_addr_nonces = HashMap::new();
 
-    // Load 24 transactions into the mempool, alternating whether or not they have a fee-rate.
+    // Load 24 transactions into the mempool, alternating whether or not they have a
+    // fee-rate.
     for nonce in 0..24 {
         let mut tx = txs.pop().unwrap();
         let mut mempool_tx = mempool.tx_begin().unwrap();
@@ -1332,7 +1342,8 @@ fn mempool_do_not_replace_tx() {
 
     let prior_txid = txid.clone();
 
-    // now, let's try inserting again, with a lower fee, but at a different block hash
+    // now, let's try inserting again, with a lower fee, but at a different block
+    // hash
     tx.set_tx_fee(100);
     let txid = tx.txid();
     let tx_bytes = tx.serialize_to_vec();
@@ -1387,7 +1398,8 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
 
     eprintln!("add all txs");
     for (i, mut tx) in txs.into_iter().enumerate() {
-        // make sure each address is unique per tx (not the case in codec_all_transactions)
+        // make sure each address is unique per tx (not the case in
+        // codec_all_transactions)
         let origin_address = StacksAddress::new(22, Hash160::from_data(&i.to_be_bytes())).unwrap();
         let sponsor_address =
             StacksAddress::new(22, Hash160::from_data(&(i + 1).to_be_bytes())).unwrap();
@@ -1501,8 +1513,8 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
                 .unwrap();
         assert!(tx_info_after != tx_info.metadata);
 
-        // test retrieval -- transaction should have been replaced because it has a higher
-        // estimated fee
+        // test retrieval -- transaction should have been replaced because it has a
+        // higher estimated fee
         let tx_info_opt = MemPoolDB::get_tx(&mempool_tx, &txid).unwrap();
 
         let tx_info = tx_info_opt.unwrap();
@@ -1757,7 +1769,8 @@ fn mempool_db_test_rbf() {
             .unwrap();
     assert!(tx_info_after != tx_info.metadata);
 
-    // test retrieval -- transaction should have been replaced because it has a higher fee
+    // test retrieval -- transaction should have been replaced because it has a
+    // higher fee
     let tx_info_opt = MemPoolDB::get_tx(&mempool_tx, &txid).unwrap();
     let tx_info = tx_info_opt.unwrap();
     assert_eq!(tx_info.metadata, tx_info_after);
@@ -2132,8 +2145,8 @@ fn test_make_mempool_sync_data() {
         }
     }
 
-    // average false positive rate for non-recent transactions should be around the bloom
-    // counter false positive rate
+    // average false positive rate for non-recent transactions should be around the
+    // bloom counter false positive rate
     let num_nonrecent_fp_samples = nonrecent_fp_rates.len() as f64;
     let avg_nonrecent_fp_rate =
         nonrecent_fp_rates.iter().fold(0.0f64, |acc, x| acc + x) / num_nonrecent_fp_samples;

@@ -45,8 +45,8 @@ use crate::events::{SignerEvent, SignerEventTrait};
 use crate::v0::messages::{BlockRejection, SignerMessage};
 use crate::{BlockProposal, Signer, SignerEventReceiver, SignerRunLoop};
 
-/// Simple runloop implementation.  It receives `max_events` events and returns `events` from the
-/// last call to `run_one_pass` as its final state.
+/// Simple runloop implementation.  It receives `max_events` events and returns
+/// `events` from the last call to `run_one_pass` as its final state.
 struct SimpleRunLoop<T: SignerEventTrait> {
     poll_timeout: Duration,
     events: Vec<SignerEvent<T>>,
@@ -94,10 +94,10 @@ impl<T: SignerEventTrait> SignerRunLoop<Vec<SignerEvent<T>>, T> for SimpleRunLoo
     }
 }
 
-/// Set up a simple event listener thread and signer runloop thread, and verify that a mocked node
-/// can feed the event listener events, which in turn get fed into the signer runloop for
-/// processing.  Verify that the event stop signaler can be used to terminate both the event loop
-/// and the signer runloop.
+/// Set up a simple event listener thread and signer runloop thread, and verify
+/// that a mocked node can feed the event listener events, which in turn get fed
+/// into the signer runloop for processing.  Verify that the event stop signaler
+/// can be used to terminate both the event loop and the signer runloop.
 #[test]
 fn test_simple_signer() {
     let contract_id = NakamotoSigners::make_signers_db_contract_id(0, 0, false);

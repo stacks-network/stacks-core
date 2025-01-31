@@ -74,7 +74,8 @@ impl std::hash::Hash for HashableClarityValue {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         #[allow(clippy::unwrap_used, clippy::collection_is_never_read)]
         // this unwrap is safe _as long as_ TryFrom<Value> was used as a constructor
-        // Also, this function has side effects, which cause Clippy to wrongly think `bytes` is unused
+        // Also, this function has side effects, which cause Clippy to wrongly think `bytes` is
+        // unused
         let bytes = self.0.serialize_to_vec().unwrap();
         bytes.hash(state);
     }
@@ -797,7 +798,8 @@ impl StacksChainState {
     /// Process a poison-microblock transaction within a Clarity environment.
     /// The code in vm::contexts will call this, via a similarly-named method.
     /// Returns a Value that represents the miner slashed:
-    /// * contains the block height of the block with the slashed microblock public key hash
+    /// * contains the block height of the block with the slashed microblock
+    ///   public key hash
     /// * contains the microblock public key hash
     /// * contains the sender that reported the poison-microblock
     /// * contains the sequence number at which the fork occured
@@ -808,8 +810,8 @@ impl StacksChainState {
     ) -> Result<Value, Error> {
         let cost_before = env.global_context.cost_track.get_total();
 
-        // encodes MARF reads for loading microblock height and current height, and loading and storing a
-        // poison-microblock report
+        // encodes MARF reads for loading microblock height and current height, and
+        // loading and storing a poison-microblock report
         runtime_cost(ClarityCostFunction::PoisonMicroblock, env, 0)
             .map_err(|e| Error::from_cost_error(e, cost_before.clone(), env.global_context))?;
 
@@ -880,7 +882,8 @@ impl StacksChainState {
             }
         };
 
-        // add punishment / commission record, if one does not already exist at lower sequence
+        // add punishment / commission record, if one does not already exist at lower
+        // sequence
         let (reporter_principal, reported_seq) = if let Some((reporter, seq)) = env
             .global_context
             .database
@@ -899,8 +902,8 @@ impl StacksChainState {
                 .map_err(|e| Error::from_cost_error(e, cost_before.clone(), env.global_context))?;
 
             if mblock_header_1.sequence < seq {
-                // this sender reports a point lower in the stream where a fork occurred, and is now
-                // entitled to a commission of the punished miner's coinbase
+                // this sender reports a point lower in the stream where a fork occurred, and is
+                // now entitled to a commission of the punished miner's coinbase
                 debug!("Sender {} reports a better poison-miroblock record (at {}) for key {} at height {} than {} (at {})", &sender_principal, mblock_header_1.sequence, &pubkh, mblock_pubk_height, &reporter, seq;
                     "sender" => %sender_principal,
                     "microblock_pubkey_hash" => %pubkh
@@ -962,10 +965,12 @@ impl StacksChainState {
         Ok(Value::Tuple(tuple_data))
     }
 
-    /// Process the transaction's payload, and run the post-conditions against the resulting state.
+    /// Process the transaction's payload, and run the post-conditions against
+    /// the resulting state.
     ///
-    /// NOTE: this does not verify that the transaction can be processed in the clarity_tx's Stacks
-    /// epoch.  This check must be performed by the caller before processing the block, e.g. via
+    /// NOTE: this does not verify that the transaction can be processed in the
+    /// clarity_tx's Stacks epoch.  This check must be performed by the
+    /// caller before processing the block, e.g. via
     /// StacksBlock::validate_transactions_static().
     ///
     /// Returns the stacks transaction receipt
@@ -1018,10 +1023,11 @@ impl StacksChainState {
                 Ok(receipt)
             }
             TransactionPayload::ContractCall(ref contract_call) => {
-                // if this calls a function that doesn't exist or is syntactically invalid, then the
-                // transaction is invalid (since this can be checked statically by the miner).
-                // if on the other hand the contract being called has a runtime error, then the
-                // transaction is still valid, but no changes will materialize besides debiting the
+                // if this calls a function that doesn't exist or is syntactically invalid, then
+                // the transaction is invalid (since this can be checked
+                // statically by the miner). if on the other hand the contract
+                // being called has a runtime error, then the transaction is
+                // still valid, but no changes will materialize besides debiting the
                 // tx fee.
                 let contract_id = contract_call.to_clarity_contract_id();
                 let cost_before = clarity_tx.cost_so_far();
@@ -1171,8 +1177,9 @@ impl StacksChainState {
                     QualifiedContractIdentifier::new(issuer_principal, smart_contract.name.clone());
                 let contract_code_str = smart_contract.code_body.to_string();
 
-                // can't be instantiated already -- if this fails, then the transaction is invalid
-                // (because this can be checked statically by the miner before mining the block).
+                // can't be instantiated already -- if this fails, then the transaction is
+                // invalid (because this can be checked statically by the miner
+                // before mining the block).
                 if StacksChainState::get_contract(clarity_tx, &contract_id)?.is_some() {
                     let msg = format!("Duplicate contract '{}'", &contract_id);
                     info!("{}", &msg);
@@ -1182,9 +1189,10 @@ impl StacksChainState {
 
                 let cost_before = clarity_tx.cost_so_far();
 
-                // analysis pass -- if this fails, then the transaction is still accepted, but nothing is stored or processed.
-                // The reason for this is that analyzing the transaction is itself an expensive
-                // operation, and the paying account will need to be debited the fee regardless.
+                // analysis pass -- if this fails, then the transaction is still accepted, but
+                // nothing is stored or processed. The reason for this is that
+                // analyzing the transaction is itself an expensive operation,
+                // and the paying account will need to be debited the fee regardless.
                 let analysis_resp = clarity_tx.analyze_smart_contract(
                     &contract_id,
                     clarity_version,
@@ -1262,8 +1270,9 @@ impl StacksChainState {
                     .expect("BUG: total block cost decreased");
                 let sponsor = tx.sponsor_address().map(|a| a.to_account_principal());
 
-                // execution -- if this fails due to a runtime error, then the transaction is still
-                // accepted, but the contract does not materialize (but the sender is out their fee).
+                // execution -- if this fails due to a runtime error, then the transaction is
+                // still accepted, but the contract does not materialize (but
+                // the sender is out their fee).
                 let initialize_resp = clarity_tx.initialize_smart_contract(
                     &contract_id,
                     clarity_version,
@@ -1410,7 +1419,8 @@ impl StacksChainState {
                 Ok(receipt)
             }
             TransactionPayload::Coinbase(..) => {
-                // NOTE: technically, post-conditions are allowed (even if they're non-sensical).
+                // NOTE: technically, post-conditions are allowed (even if they're
+                // non-sensical).
 
                 let receipt = StacksTransactionReceipt::from_coinbase(tx.clone());
                 Ok(receipt)
@@ -1477,7 +1487,8 @@ impl StacksChainState {
 
         StacksChainState::process_transaction_precheck(&clarity_block.config, tx, epoch)?;
 
-        // what version of Clarity did the transaction caller want? And, is it valid now?
+        // what version of Clarity did the transaction caller want? And, is it valid
+        // now?
         let clarity_version = StacksChainState::get_tx_clarity_version(clarity_block, tx)?;
         if clarity_version == ClarityVersion::Clarity2 {
             // requires 2.1 and higher
@@ -1500,7 +1511,8 @@ impl StacksChainState {
             let payer_nonce = payer_account.nonce;
             StacksChainState::pay_transaction_fee(&mut transaction, fee, payer_account)?;
 
-            // origin balance may have changed (e.g. if the origin paid the tx fee), so reload the account
+            // origin balance may have changed (e.g. if the origin paid the tx fee), so
+            // reload the account
             let origin_account =
                 StacksChainState::get_account(&mut transaction, &tx.origin_address().into());
 
@@ -2908,7 +2920,8 @@ pub mod test {
             // contract-calls that don't commit
             let contract_calls = vec![
                 ("hello-world", "set-bar", vec![Value::Int(1), Value::Int(0)]), // divide-by-zero
-                ("hello-world", "return-error", vec![]), // returns an (err ...)
+                ("hello-world", "return-error", vec![]),                        /* returns an
+                                                                                 * (err ...) */
             ];
 
             // do contract-calls
@@ -3088,7 +3101,8 @@ pub mod test {
                 "set-bar",
                 vec![Value::Int(1), Value::Int(1)],
             ), // address does not have a contract
-            (addr.clone(), "hello-world", "set-bar", vec![Value::Int(1)]), // wrong number of args (too few)
+            (addr.clone(), "hello-world", "set-bar", vec![Value::Int(1)]), /* wrong number of
+                                                                            * args (too few) */
             (
                 addr.clone(),
                 "hello-world",
@@ -3177,8 +3191,8 @@ pub mod test {
             conn.commit_block();
         }
 
-        // in 2.1, all of these are mineable -- the fee will be collected, and the nonce(s) will
-        // advance, but no state changes go through
+        // in 2.1, all of these are mineable -- the fee will be collected, and the
+        // nonce(s) will advance, but no state changes go through
         let mut conn = chainstate.block_begin(
             &TestBurnStateDB_21,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -3531,8 +3545,8 @@ pub mod test {
         tx_contract_call_stackaroos.chain_id = 0x80000000;
         tx_contract_call_stackaroos.set_tx_fee(0);
 
-        // mint 100 stackaroos to recv_addr, and set a post-condition on the contract-principal
-        // to check it.
+        // mint 100 stackaroos to recv_addr, and set a post-condition on the
+        // contract-principal to check it.
         // assert contract sent ==, <=, or >= 100 stackaroos
         for pass_condition in [
             FungibleConditionCode::SentEq,
@@ -3557,8 +3571,8 @@ pub mod test {
             nonce += 1;
         }
 
-        // mint 100 stackaroos to recv_addr, and set a post-condition on the contract-principal
-        // to check it.
+        // mint 100 stackaroos to recv_addr, and set a post-condition on the
+        // contract-principal to check it.
         // assert contract sent >= or > 99 stackaroos
         for pass_condition in [FungibleConditionCode::SentGe, FungibleConditionCode::SentGt].iter()
         {
@@ -3578,8 +3592,8 @@ pub mod test {
             nonce += 1;
         }
 
-        // mint 100 stackaroos to recv_addr, and set a post-condition on the contract-principal
-        // to check it.
+        // mint 100 stackaroos to recv_addr, and set a post-condition on the
+        // contract-principal to check it.
         // assert contract sent <= or < 101 stackaroos
         for pass_condition in [FungibleConditionCode::SentLe, FungibleConditionCode::SentLt].iter()
         {
@@ -3697,8 +3711,8 @@ pub mod test {
             recv_nonce += 1;
         }
 
-        // mint names to recv_addr, and set a post-condition on the contract-principal to check it.
-        // assert contract does not possess the name
+        // mint names to recv_addr, and set a post-condition on the contract-principal
+        // to check it. assert contract does not possess the name
         for (_i, pass_condition) in [NonfungibleConditionCode::Sent].iter().enumerate() {
             let name = Value::buff_from(next_name.to_be_bytes().to_vec()).unwrap();
             next_name += 1;
@@ -3733,8 +3747,8 @@ pub mod test {
             nonce += 1;
         }
 
-        // mint 100 stackaroos to recv_addr, and set a post-condition on the contract-principal
-        // to check it.
+        // mint 100 stackaroos to recv_addr, and set a post-condition on the
+        // contract-principal to check it.
         // assert contract sent < or > 100 stackaroos (should fail)
         for fail_condition in [FungibleConditionCode::SentLt, FungibleConditionCode::SentGt].iter()
         {
@@ -3754,8 +3768,8 @@ pub mod test {
             nonce += 1;
         }
 
-        // mint 100 stackaroos to recv_addr, and set a post-condition on the contract-principal
-        // to check it.
+        // mint 100 stackaroos to recv_addr, and set a post-condition on the
+        // contract-principal to check it.
         // assert contract sent <= or < 99 stackaroos (should fail)
         for fail_condition in [FungibleConditionCode::SentLe, FungibleConditionCode::SentLt].iter()
         {
@@ -3775,8 +3789,8 @@ pub mod test {
             nonce += 1;
         }
 
-        // mint 100 stackaroos to recv_addr, and set a post-condition on the contract-principal
-        // to check it.
+        // mint 100 stackaroos to recv_addr, and set a post-condition on the
+        // contract-principal to check it.
         // assert contract sent > or >= 101 stackaroos (should fail)
         for fail_condition in [FungibleConditionCode::SentGe, FungibleConditionCode::SentGt].iter()
         {
@@ -3816,8 +3830,8 @@ pub mod test {
             recv_nonce += 1;
         }
 
-        // mint names to recv_addr, and set a post-condition on the contract-principal to check it.
-        // assert contract still possesses the name (should fail)
+        // mint names to recv_addr, and set a post-condition on the contract-principal
+        // to check it. assert contract still possesses the name (should fail)
         for (_i, fail_condition) in [NonfungibleConditionCode::NotSent].iter().enumerate() {
             let name = Value::buff_from(next_name.to_be_bytes().to_vec()).unwrap();
             next_name += 1;
@@ -4255,8 +4269,9 @@ pub mod test {
         let mut next_recv_name: u64 = 0;
         let final_recv_name = 3;
 
-        // mint 100 stackaroos and the name to recv_addr, and set a post-condition for each asset on the contract-principal
-        // assert contract sent ==, <=, or >= 100 stackaroos
+        // mint 100 stackaroos and the name to recv_addr, and set a post-condition for
+        // each asset on the contract-principal assert contract sent ==, <=, or
+        // >= 100 stackaroos
         for (_i, pass_condition) in [
             FungibleConditionCode::SentEq,
             FungibleConditionCode::SentGe,
@@ -4386,9 +4401,9 @@ pub mod test {
             recv_nonce += 1;
         }
 
-        // mint 100 stackaroos and the name to recv_addr, but neglect to set a fungible post-condition.
-        // assert contract sent ==, <=, or >= 100 stackaroos, and that the name was removed from
-        // the contract
+        // mint 100 stackaroos and the name to recv_addr, but neglect to set a fungible
+        // post-condition. assert contract sent ==, <=, or >= 100 stackaroos,
+        // and that the name was removed from the contract
         for (_i, fail_condition) in [
             FungibleConditionCode::SentEq,
             FungibleConditionCode::SentGe,
@@ -4417,7 +4432,9 @@ pub mod test {
             tx_contract_call_both.set_origin_nonce(nonce);
 
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
-            // tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), asset_info.clone(), *fail_condition, 100));
+            // tx_contract_call_both.
+            // add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Contract(addr_publisher.
+            // clone(), contract_name.clone()), asset_info.clone(), *fail_condition, 100));
             tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(
                 PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()),
                 name_asset_info.clone(),
@@ -4432,9 +4449,9 @@ pub mod test {
             nonce += 1;
         }
 
-        // mint 100 stackaroos and the name to recv_addr, but neglect to set a non-fungible post-condition.
-        // assert contract sent ==, <=, or >= 100 stackaroos, and that the name was removed from
-        // the contract
+        // mint 100 stackaroos and the name to recv_addr, but neglect to set a
+        // non-fungible post-condition. assert contract sent ==, <=, or >= 100
+        // stackaroos, and that the name was removed from the contract
         for (_i, fail_condition) in [
             FungibleConditionCode::SentEq,
             FungibleConditionCode::SentGe,
@@ -4469,7 +4486,10 @@ pub mod test {
                 *fail_condition,
                 100,
             ));
-            // tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Contract(addr_publisher.clone(), contract_name.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Sent));
+            // tx_contract_call_both.
+            // add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Contract(addr_publisher.
+            // clone(), contract_name.clone()), name_asset_info.clone(), name.clone(),
+            // NonfungibleConditionCode::Sent));
 
             let mut signer = StacksTransactionSigner::new(&tx_contract_call_both);
             signer.sign_origin(&privk_origin).unwrap();
@@ -4478,8 +4498,8 @@ pub mod test {
             nonce += 1;
         }
 
-        // recv_addr sends 100 stackaroos and name back to addr_publisher, but forgets a fungible
-        // post-condition.
+        // recv_addr sends 100 stackaroos and name back to addr_publisher, but forgets a
+        // fungible post-condition.
         // assert recv_addr sent ==, <=, or >= 100 stackaroos
         for (_i, fail_condition) in [
             FungibleConditionCode::SentEq,
@@ -4508,7 +4528,9 @@ pub mod test {
             tx_contract_call_both.set_origin_nonce(recv_nonce);
 
             tx_contract_call_both.post_condition_mode = TransactionPostConditionMode::Deny;
-            // tx_contract_call_both.add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(recv_addr.clone()), asset_info.clone(), *fail_condition, 100));
+            // tx_contract_call_both.
+            // add_post_condition(TransactionPostCondition::Fungible(PostConditionPrincipal::Standard(recv_addr.
+            // clone()), asset_info.clone(), *fail_condition, 100));
             tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(
                 PostConditionPrincipal::Standard(recv_addr.clone()),
                 name_asset_info.clone(),
@@ -4525,8 +4547,8 @@ pub mod test {
 
         // never read: next_recv_name -= 3;    // reset
 
-        // recv_addr sends 100 stackaroos and name back to addr_publisher, but forgets a non-fungible
-        // post-condition.
+        // recv_addr sends 100 stackaroos and name back to addr_publisher, but forgets a
+        // non-fungible post-condition.
         // assert recv_addr sent ==, <=, or >= 100 stackaroos
         for (_i, fail_condition) in [
             FungibleConditionCode::SentEq,
@@ -4561,7 +4583,10 @@ pub mod test {
                 *fail_condition,
                 100,
             ));
-            // tx_contract_call_both.add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(recv_addr.clone()), name_asset_info.clone(), name.clone(), NonfungibleConditionCode::Sent));
+            // tx_contract_call_both.
+            // add_post_condition(TransactionPostCondition::Nonfungible(PostConditionPrincipal::Standard(recv_addr.
+            // clone()), name_asset_info.clone(), name.clone(),
+            // NonfungibleConditionCode::Sent));
 
             let mut signer = StacksTransactionSigner::new(&tx_contract_call_both);
             signer.sign_origin(&privk_recipient).unwrap();
@@ -4767,7 +4792,8 @@ pub mod test {
                     expected_payback_stackaroos_balance
                 );
 
-                // new names the transaction tried to create don't exist -- transaction was aborted
+                // new names the transaction tried to create don't exist -- transaction was
+                // aborted
                 let expected_value = match tx_fail.payload {
                     TransactionPayload::ContractCall(ref cc) => cc.function_args[0].clone(),
                     _ => panic!("Not a contract call"),
@@ -7834,7 +7860,8 @@ pub mod test {
                 TransactionPostConditionMode::Deny,
                 make_account(&origin, 1, 123),
             ), // should fail
-            // post-conditions with both the origin and an unrelated contract address in deny mode (should all pass)
+            // post-conditions with both the origin and an unrelated contract address in deny mode
+            // (should all pass)
             (
                 true,
                 vec![
@@ -8060,8 +8087,8 @@ pub mod test {
 
         let signed_contract_call_tx = signer.get_tx().unwrap();
 
-        // in epoch 2.05 and earlier, this fails because we debit the fee _after_ we run the tx,
-        // which leads to an InvalidFee error
+        // in epoch 2.05 and earlier, this fails because we debit the fee _after_ we run
+        // the tx, which leads to an InvalidFee error
         for (dbi, burn_db) in PRE_21_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
                 *burn_db,
@@ -8095,8 +8122,8 @@ pub mod test {
             };
         }
 
-        // in epoch 2.1, this passes, since we debit the fee _before_ we run the tx, and then the
-        // call to stx-transfer? fails.
+        // in epoch 2.1, this passes, since we debit the fee _before_ we run the tx, and
+        // then the call to stx-transfer? fails.
         let mut conn = chainstate.block_begin(
             &TestBurnStateDB_21,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -8267,8 +8294,8 @@ pub mod test {
             )
             .unwrap();
 
-            // there must be a poison record for this microblock, from the reporter, for the microblock
-            // sequence.
+            // there must be a poison record for this microblock, from the reporter, for the
+            // microblock sequence.
             let report_opt = StacksChainState::get_poison_microblock_report(&mut conn, 1).unwrap();
             assert_eq!(report_opt.unwrap(), (reporter_addr, 123));
 
@@ -8377,8 +8404,8 @@ pub mod test {
             signer.sign_origin(&reporter_privk).unwrap();
             let signed_tx_poison_microblock = signer.get_tx().unwrap();
 
-            // should fail to process -- the transaction is invalid if it doesn't point to a known
-            // microblock pubkey hash.
+            // should fail to process -- the transaction is invalid if it doesn't point to a
+            // known microblock pubkey hash.
             let err = StacksChainState::process_transaction(
                 &mut conn,
                 &signed_tx_poison_microblock,
@@ -8506,8 +8533,8 @@ pub mod test {
             )
             .unwrap();
 
-            // there must be a poison record for this microblock, from the reporter, for the microblock
-            // sequence.
+            // there must be a poison record for this microblock, from the reporter, for the
+            // microblock sequence.
             let report_opt = StacksChainState::get_poison_microblock_report(&mut conn, 1).unwrap();
             assert_eq!(report_opt.unwrap(), (reporter_addr_1, 123));
 
@@ -8520,9 +8547,9 @@ pub mod test {
             )
             .unwrap();
 
-            // there must be a poison record for this microblock, from the reporter, for the microblock
-            // sequence.  Moreover, since the fork was earlier in the stream, the second reporter gets
-            // it.
+            // there must be a poison record for this microblock, from the reporter, for the
+            // microblock sequence.  Moreover, since the fork was earlier in the
+            // stream, the second reporter gets it.
             let report_opt = StacksChainState::get_poison_microblock_report(&mut conn, 1).unwrap();
             assert_eq!(report_opt.unwrap(), (reporter_addr_2, 122));
 
@@ -11027,7 +11054,8 @@ pub mod test {
 
         conn.commit_block();
 
-        // in 2.1, using clarity 1 for both `transitive` and `call-foo`: calling call-foo causes an analysis error
+        // in 2.1, using clarity 1 for both `transitive` and `call-foo`: calling
+        // call-foo causes an analysis error
         let mut conn = chainstate.block_begin(
             &TestBurnStateDB_21,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -11094,7 +11122,8 @@ pub mod test {
 
         conn.commit_block();
 
-        // in 2.1, using clarity 1 for `transitive` and clarity 2 for `call-foo`: calling call-foo causes an analysis error
+        // in 2.1, using clarity 1 for `transitive` and clarity 2 for `call-foo`:
+        // calling call-foo causes an analysis error
         let mut conn = chainstate.block_begin(
             &TestBurnStateDB_21,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -11161,7 +11190,8 @@ pub mod test {
 
         conn.commit_block();
 
-        // in 2.1, using clarity 2 for both `transitive` and `call-foo`: publishing call-foo triggers an analysis error
+        // in 2.1, using clarity 2 for both `transitive` and `call-foo`: publishing
+        // call-foo triggers an analysis error
         let mut conn = chainstate.block_begin(
             &TestBurnStateDB_21,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -11215,7 +11245,8 @@ pub mod test {
 
         conn.commit_block();
 
-        // in 2.1, using clarity 2 for `transitive` and clarity 1 for `call-foo`: publishing call-foo triggers an analysis error
+        // in 2.1, using clarity 2 for `transitive` and clarity 1 for `call-foo`:
+        // publishing call-foo triggers an analysis error
         let mut conn = chainstate.block_begin(
             &TestBurnStateDB_21,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -11270,8 +11301,8 @@ pub mod test {
         conn.commit_block();
     }
 
-    /// Verify that transactions with bare PrincipalDatas in them cannot decode if the version byte
-    /// is inappropriate.
+    /// Verify that transactions with bare PrincipalDatas in them cannot decode
+    /// if the version byte is inappropriate.
     #[test]
     fn test_invalid_address_prevents_tx_decode() {
         // token transfer

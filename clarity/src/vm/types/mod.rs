@@ -160,7 +160,8 @@ impl QualifiedContractIdentifier {
         }
     }
 
-    /// Was this contract issued by the null issuer address? (i.e., is it a "boot contract")
+    /// Was this contract issued by the null issuer address? (i.e., is it a
+    /// "boot contract")
     pub fn is_boot(&self) -> bool {
         self.issuer.1 == [0; 20]
     }
@@ -364,8 +365,9 @@ impl SequenceData {
     pub fn replace_at(self, epoch: &StacksEpochId, index: usize, element: Value) -> Result<Value> {
         let seq_length = self.len();
 
-        // Check that the length of the provided element is 1. In the case that SequenceData
-        // is a list, we check that the provided element is the right type below.
+        // Check that the length of the provided element is 1. In the case that
+        // SequenceData is a list, we check that the provided element is the
+        // right type below.
         if !self.is_list() {
             if let Value::Sequence(data) = &element {
                 let elem_length = data.len();
@@ -987,9 +989,10 @@ impl Value {
         Ok(TypeSignature::type_of(self)?.depth())
     }
 
-    /// Invariant: the supplied Values have already been "checked", i.e., it's a valid Value object
-    ///  this invariant is enforced through the Value constructors, each of which checks to ensure
-    ///  that any typing data is correct.
+    /// Invariant: the supplied Values have already been "checked", i.e., it's a
+    /// valid Value object  this invariant is enforced through the Value
+    /// constructors, each of which checks to ensure  that any typing data
+    /// is correct.
     pub fn list_with_type(
         epoch: &StacksEpochId,
         list_data: Vec<Value>,
@@ -1439,8 +1442,9 @@ impl PrincipalData {
     }
 
     /// A version is only valid if it fits into 5 bits.
-    /// This is enforced by the constructor, but it was historically possible to assemble invalid
-    /// addresses.  This function is used to validate historic addresses.
+    /// This is enforced by the constructor, but it was historically possible to
+    /// assemble invalid addresses.  This function is used to validate
+    /// historic addresses.
     pub fn has_valid_version(&self) -> bool {
         self.version() < 32
     }
@@ -1514,8 +1518,8 @@ impl From<StacksAddress> for StandardPrincipalData {
     fn from(addr: StacksAddress) -> Self {
         let (version, bytes) = addr.destruct();
 
-        // should be infallible because it's impossible to construct a StacksAddress with an
-        // unsupported version byte
+        // should be infallible because it's impossible to construct a StacksAddress
+        // with an unsupported version byte
         Self::new(version, bytes.0)
             .expect("FATAL: could not convert StacksAddress to StandardPrincipalData")
     }
@@ -1529,8 +1533,8 @@ impl From<StacksAddress> for PrincipalData {
 
 impl From<StandardPrincipalData> for StacksAddress {
     fn from(o: StandardPrincipalData) -> StacksAddress {
-        // should be infallible because it's impossible to construct a StandardPrincipalData with
-        // an unsupported version byte
+        // should be infallible because it's impossible to construct a
+        // StandardPrincipalData with an unsupported version byte
         StacksAddress::new(o.version(), hash::Hash160(o.1))
             .expect("FATAL: could not convert a StandardPrincipalData to StacksAddress")
     }
@@ -1579,8 +1583,8 @@ impl From<ASCIIData> for Value {
 }
 impl From<ContractName> for ASCIIData {
     fn from(name: ContractName) -> Self {
-        // ContractName is guaranteed to be between 5 and 40 bytes and contains only printable
-        // ASCII already, so this conversion should not fail.
+        // ContractName is guaranteed to be between 5 and 40 bytes and contains only
+        // printable ASCII already, so this conversion should not fail.
         ASCIIData {
             data: name.as_str().as_bytes().to_vec(),
         }
@@ -1777,7 +1781,8 @@ mod test {
             return;
         }
 
-        // on 32-bit archs, this error cannot even happen, so don't test (and cause an overflow panic)
+        // on 32-bit archs, this error cannot even happen, so don't test (and cause an
+        // overflow panic)
         if (u32::MAX as usize) < usize::MAX {
             assert_eq!(
                 Value::buff_from(vec![0; (u32::MAX as usize) + 10]),

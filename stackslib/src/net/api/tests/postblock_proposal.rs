@@ -317,7 +317,8 @@ fn test_try_make_response() {
             .unwrap()
     };
 
-    // Increment the timestamp by 1 to ensure it is different from the previous block
+    // Increment the timestamp by 1 to ensure it is different from the previous
+    // block
     good_block.header.timestamp += 1;
     rpc_test.peer_1.miner.sign_nakamoto_block(&mut good_block);
 

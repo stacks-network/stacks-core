@@ -81,18 +81,23 @@ pub enum MinerDirective {
     BeginTenure {
         /// This is the block ID of the first block in the parent tenure
         parent_tenure_start: StacksBlockId,
-        /// This is the snapshot that this miner won, and will produce a tenure for
+        /// This is the snapshot that this miner won, and will produce a tenure
+        /// for
         election_block: BlockSnapshot,
-        /// This is the snapshot that caused the relayer to initiate this event (may be different
-        ///  than the election block in the case where the miner is trying to mine a late block).
+        /// This is the snapshot that caused the relayer to initiate this event
+        /// (may be different  than the election block in the case where
+        /// the miner is trying to mine a late block).
         burnchain_tip: BlockSnapshot,
-        /// This is `true` if the snapshot above is known not to be the the latest burnchain tip,
-        /// but an ancestor of it (for example, the burnchain tip could be an empty flash block, but the
-        /// miner may nevertheless need to produce a Stacks block with a BlockFound tenure-change
-        /// transaction for the tenure began by winning `burnchain_tip`'s sortition).
+        /// This is `true` if the snapshot above is known not to be the the
+        /// latest burnchain tip, but an ancestor of it (for example,
+        /// the burnchain tip could be an empty flash block, but the
+        /// miner may nevertheless need to produce a Stacks block with a
+        /// BlockFound tenure-change transaction for the tenure began by
+        /// winning `burnchain_tip`'s sortition).
         late: bool,
     },
-    /// The miner should try to continue their tenure if they are the active miner
+    /// The miner should try to continue their tenure if they are the active
+    /// miner
     ContinueTenure { new_burn_view: ConsensusHash },
     /// The miner did not win sortition
     StopTenure,
@@ -121,20 +126,23 @@ struct ParentStacksBlockInfo {
 pub enum MinerReason {
     /// The miner thread was spawned to begin a new tenure
     BlockFound {
-        /// `late` indicates whether or not the tenure that is about to be started corresponds to
-        /// an ancestor of the canonical tip.  This can happen if this miner won the highest
-        /// sortition, but that sortition's snapshot is not the canonical tip (e.g. the canonical
-        /// tip may have no sortition, but its parent (or Nth ancestor) would have had a sortition
-        /// that this miner won, and it would be the latest non-empty sortition ancestor of the
-        /// tip).  This indication is important because the miner would issue a BlockFound
-        /// tenure-change, and then issue an Extended tenure-change right afterwards in order to
-        /// update the burnchain view exposed to Clarity for the highest sortition.
+        /// `late` indicates whether or not the tenure that is about to be
+        /// started corresponds to an ancestor of the canonical tip.
+        /// This can happen if this miner won the highest sortition, but
+        /// that sortition's snapshot is not the canonical tip (e.g. the
+        /// canonical tip may have no sortition, but its parent (or Nth
+        /// ancestor) would have had a sortition that this miner won,
+        /// and it would be the latest non-empty sortition ancestor of the
+        /// tip).  This indication is important because the miner would issue a
+        /// BlockFound tenure-change, and then issue an Extended
+        /// tenure-change right afterwards in order to update the
+        /// burnchain view exposed to Clarity for the highest sortition.
         late: bool,
     },
     /// The miner thread was spawned to extend an existing tenure
     Extended {
-        /// Current consensus hash on the underlying burnchain.  Corresponds to the last-seen
-        /// sortition.
+        /// Current consensus hash on the underlying burnchain.  Corresponds to
+        /// the last-seen sortition.
         burn_view_consensus_hash: ConsensusHash,
     },
 }
@@ -182,9 +190,11 @@ pub struct BlockMinerThread {
     /// Burnchain block snapshot which elected this miner
     burn_election_block: BlockSnapshot,
     /// Current burnchain tip as of the last TenureChange
-    /// * if the last tenure-change was a BlockFound, then this is the same as the
+    /// * if the last tenure-change was a BlockFound, then this is the same as
+    ///   the
     /// `burn_election_block` (and it is also the `burn_view`)
-    /// * otherwise, if the last tenure-change is an Extend, then this is the sortition of the burn
+    /// * otherwise, if the last tenure-change is an Extend, then this is the
+    ///   sortition of the burn
     /// view consensus hash in the TenureChange
     burn_block: BlockSnapshot,
     /// The start of the parent tenure for this tenure
@@ -305,7 +315,8 @@ impl BlockMinerThread {
         false
     }
 
-    /// Stop a miner tenure by blocking the miner and then joining the tenure thread
+    /// Stop a miner tenure by blocking the miner and then joining the tenure
+    /// thread
     #[cfg(test)]
     fn fault_injection_stall_miner() {
         if TEST_MINE_STALL.get() {
@@ -326,7 +337,8 @@ impl BlockMinerThread {
         prior_miner: Option<MinerStopHandle>,
     ) -> Result<(), NakamotoNodeError> {
         // when starting a new tenure, block the mining thread if its currently running.
-        // the new mining thread will join it (so that the new mining thread stalls, not the relayer)
+        // the new mining thread will join it (so that the new mining thread stalls, not
+        // the relayer)
         debug!(
             "New miner thread starting";
             "had_prior_miner" => prior_miner.is_some(),
@@ -716,8 +728,8 @@ impl BlockMinerThread {
         }
     }
 
-    /// Store a block to the chainstate, and if successful (it should be since we mined it),
-    /// broadcast it via the p2p network.
+    /// Store a block to the chainstate, and if successful (it should be since
+    /// we mined it), broadcast it via the p2p network.
     fn broadcast_p2p(
         &mut self,
         sort_db: &SortitionDB,
@@ -753,13 +765,15 @@ impl BlockMinerThread {
         staging_tx.commit()?;
 
         if !accepted {
-            // this can happen if the p2p network and relayer manage to receive this block prior to
-            // the thread reaching this point -- this can happen because the signers broadcast the
-            // signed block to the nodes independent of the miner, so the miner itself can receive
+            // this can happen if the p2p network and relayer manage to receive this block
+            // prior to the thread reaching this point -- this can happen
+            // because the signers broadcast the signed block to the nodes
+            // independent of the miner, so the miner itself can receive
             // and store its own block outside of this thread.
             debug!("Did NOT accept block {} we mined", &block.block_id());
 
-            // not much we can do here, but try and mine again and hope we produce a valid one.
+            // not much we can do here, but try and mine again and hope we produce a valid
+            // one.
             return Ok(());
         }
 
@@ -813,8 +827,8 @@ impl BlockMinerThread {
             .map_err(NakamotoNodeError::AcceptFailure)?;
 
         let Some(ref miner_privkey) = self.config.miner.mining_key else {
-            // should be unreachable, but we can't borrow this above broadcast_p2p() since it's
-            // mutable
+            // should be unreachable, but we can't borrow this above broadcast_p2p() since
+            // it's mutable
             return Err(NakamotoNodeError::MinerConfigurationFailed(
                 "No mining key configured, cannot mine",
             ));
@@ -840,7 +854,8 @@ impl BlockMinerThread {
         )
     }
 
-    /// Get the coinbase recipient address, if set in the config and if allowed in this epoch
+    /// Get the coinbase recipient address, if set in the config and if allowed
+    /// in this epoch
     fn get_coinbase_recipient(&self, epoch_id: StacksEpochId) -> Option<PrincipalData> {
         if epoch_id < StacksEpochId::Epoch21 && self.config.miner.block_reward_recipient.is_some() {
             warn!("Coinbase pay-to-contract is not supported in the current epoch");
@@ -918,7 +933,8 @@ impl BlockMinerThread {
     // TODO: add tests from mutation testing results #4869
     #[cfg_attr(test, mutants::skip)]
     /// Load up the parent block info for mining.
-    /// If we can't find the parent in the DB but we expect one, return Err(ParentNotFound).
+    /// If we can't find the parent in the DB but we expect one, return
+    /// Err(ParentNotFound).
     fn load_block_parent_info(
         &self,
         burn_db: &mut SortitionDB,
@@ -944,11 +960,13 @@ impl BlockMinerThread {
             NakamotoNodeError::ParentNotFound
         })?;
 
-        // The nakamoto miner must always build off of a chain tip that is the highest of:
+        // The nakamoto miner must always build off of a chain tip that is the highest
+        // of:
         // 1. The highest block in the miner's current tenure
         // 2. The highest block in the current tenure's parent tenure
         //
-        // Where the current tenure's parent tenure is the tenure start block committed to in the current tenure's associated block commit.
+        // Where the current tenure's parent tenure is the tenure start block committed
+        // to in the current tenure's associated block commit.
         let stacks_tip_header = if let Some(tenure_tip) = tenure_tip_opt {
             debug!(
                 "Stacks block parent ID is last block in tenure ID {}",
@@ -962,7 +980,8 @@ impl BlockMinerThread {
                 &self.parent_tenure_id
             );
 
-            // find the last block in the parent tenure, since this is the tip we'll build atop
+            // find the last block in the parent tenure, since this is the tip we'll build
+            // atop
             let parent_tenure_header =
                 NakamotoChainState::get_block_header(chain_state.db(), &self.parent_tenure_id)
                     .map_err(|e| {
@@ -1042,8 +1061,8 @@ impl BlockMinerThread {
     /// Returns Some(proof) if we could make the proof
     /// Return None if we could not make the proof
     fn make_vrf_proof(&mut self) -> Option<VRFProof> {
-        // if we're a mock miner, then make sure that the keychain has a keypair for the mocked VRF
-        // key
+        // if we're a mock miner, then make sure that the keychain has a keypair for the
+        // mocked VRF key
         let vrf_proof = if self.config.get_node_config(false).mock_mining {
             self.keychain.generate_proof(
                 VRF_MOCK_MINER_KEY,
@@ -1090,8 +1109,9 @@ impl BlockMinerThread {
         }
     }
 
-    /// Check that the provided block is not mined too quickly after the parent block.
-    /// This is to ensure that the signers do not reject the block due to the block being mined within the same second as the parent block.
+    /// Check that the provided block is not mined too quickly after the parent
+    /// block. This is to ensure that the signers do not reject the block
+    /// due to the block being mined within the same second as the parent block.
     fn validate_timestamp(&self, x: &NakamotoBlock) -> Result<bool, NakamotoNodeError> {
         let chain_state = neon_node::open_chainstate_with_faults(&self.config)
             .expect("FATAL: could not open chainstate DB");
@@ -1116,8 +1136,9 @@ impl BlockMinerThread {
 
     // TODO: add tests from mutation testing results #4869
     #[cfg_attr(test, mutants::skip)]
-    /// Try to mine a Stacks block by assembling one from mempool transactions and sending a
-    /// burnchain block-commit transaction.  If we succeed, then return the assembled block.
+    /// Try to mine a Stacks block by assembling one from mempool transactions
+    /// and sending a burnchain block-commit transaction.  If we succeed,
+    /// then return the assembled block.
     fn mine_block(
         &mut self,
         coordinator: &mut SignerCoordinator,
@@ -1128,8 +1149,8 @@ impl BlockMinerThread {
         let burn_db_path = self.config.get_burn_db_file_path();
         let reward_set = self.load_signer_set()?;
 
-        // NOTE: read-write access is needed in order to be able to query the recipient set.
-        // This is an artifact of the way the MARF is built (see #1449)
+        // NOTE: read-write access is needed in order to be able to query the recipient
+        // set. This is an artifact of the way the MARF is built (see #1449)
         let mut burn_db =
             SortitionDB::open(&burn_db_path, true, self.burnchain.pox_constants.clone())
                 .expect("FATAL: could not open sortition DB");
@@ -1177,8 +1198,9 @@ impl BlockMinerThread {
             get_epoch_time_secs(),
             &parent_block_info.stacks_parent_header,
         ) {
-            // treat a too-soon-to-mine block as an interrupt: this will let the caller sleep and then re-evaluate
-            //  all the pre-mining checks (burnchain tip changes, signal interrupts, etc.)
+            // treat a too-soon-to-mine block as an interrupt: this will let the caller
+            // sleep and then re-evaluate  all the pre-mining checks (burnchain
+            // tip changes, signal interrupts, etc.)
             return Err(ChainstateError::MinerAborted.into());
         }
 
@@ -1238,9 +1260,10 @@ impl BlockMinerThread {
             tx_events,
         );
 
-        // last chance -- confirm that the stacks tip is unchanged (since it could have taken long
-        // enough to build this block that another block could have arrived), and confirm that all
-        // Stacks blocks with heights higher than the canonical tip are processed.
+        // last chance -- confirm that the stacks tip is unchanged (since it could have
+        // taken long enough to build this block that another block could have
+        // arrived), and confirm that all Stacks blocks with heights higher than
+        // the canonical tip are processed.
         self.check_burn_tip_changed(&burn_db)?;
         Ok(block)
     }
@@ -1350,9 +1373,10 @@ impl BlockMinerThread {
         })
     }
 
-    /// Check if the tenure needs to change -- if so, return a BurnchainTipChanged error
-    /// The tenure should change if there is a new burnchain tip with a valid sortition,
-    /// or if the stacks chain state's burn view has advanced beyond our burn view.
+    /// Check if the tenure needs to change -- if so, return a
+    /// BurnchainTipChanged error The tenure should change if there is a new
+    /// burnchain tip with a valid sortition, or if the stacks chain state's
+    /// burn view has advanced beyond our burn view.
     fn check_burn_tip_changed(&self, sortdb: &SortitionDB) -> Result<(), NakamotoNodeError> {
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
@@ -1380,12 +1404,14 @@ impl BlockMinerThread {
 impl ParentStacksBlockInfo {
     // TODO: add tests from mutation testing results #4869
     #[cfg_attr(test, mutants::skip)]
-    /// Determine where in the set of forks to attempt to mine the next anchored block.
-    /// `parent_tenure_id` and `stacks_tip_header` identify the parent block on top of which to mine.
-    /// `check_burn_block` identifies what we believe to be the burn chain's sortition history tip.
-    /// This is used to mitigate (but not eliminate) a TOCTTOU issue with mining: the caller's
-    /// conception of the sortition history tip may have become stale by the time they call this
-    /// method, in which case, mining should *not* happen (since the block will be invalid).
+    /// Determine where in the set of forks to attempt to mine the next anchored
+    /// block. `parent_tenure_id` and `stacks_tip_header` identify the
+    /// parent block on top of which to mine. `check_burn_block` identifies
+    /// what we believe to be the burn chain's sortition history tip.
+    /// This is used to mitigate (but not eliminate) a TOCTTOU issue with
+    /// mining: the caller's conception of the sortition history tip may
+    /// have become stale by the time they call this method, in which case,
+    /// mining should *not* happen (since the block will be invalid).
     pub fn lookup(
         chain_state: &mut StacksChainState,
         burn_db: &mut SortitionDB,
@@ -1407,8 +1433,8 @@ impl ParentStacksBlockInfo {
         let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
-        // if we're mining a tenure that we were late to initialize, allow the burn tipped
-        //  to be slightly stale
+        // if we're mining a tenure that we were late to initialize, allow the burn
+        // tipped  to be slightly stale
         if !reason.is_late_block()
             && burn_chain_tip.consensus_hash != check_burn_block.consensus_hash
         {
@@ -1429,8 +1455,9 @@ impl ParentStacksBlockInfo {
             return Err(NakamotoNodeError::ParentNotFound);
         };
 
-        // check if we're mining a first tenure block (by checking if our parent block is in the tenure of parent_tenure_id)
-        //  and if so, figure out how many blocks there were in the parent tenure
+        // check if we're mining a first tenure block (by checking if our parent block
+        // is in the tenure of parent_tenure_id)  and if so, figure out how many
+        // blocks there were in the parent tenure
         let parent_tenure_info = if stacks_tip_header.consensus_hash
             == parent_tenure_header.consensus_hash
         {
@@ -1450,7 +1477,8 @@ impl ParentStacksBlockInfo {
                     warn!("Failed loading last block of parent tenure"; "parent_tenure_id" => %parent_tenure_id);
                     return Err(NakamotoNodeError::ParentNotFound);
                 };
-                // the last known tenure block of our parent should be the stacks_tip. if not, error.
+                // the last known tenure block of our parent should be the stacks_tip. if not,
+                // error.
                 if stacks_tip_header.index_block_hash()
                     != last_parent_tenure_header.index_block_hash()
                 {

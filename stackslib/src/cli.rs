@@ -60,15 +60,15 @@ pub struct CommonOpts {
     pub config: Option<Config>,
 }
 
-/// Process arguments common to many `stacks-inspect` subcommands and drain them from `argv`
+/// Process arguments common to many `stacks-inspect` subcommands and drain them
+/// from `argv`
 ///
 /// Args:
 ///  - `argv`: Full CLI args `Vec`
-///  - `start_at`: Position in args vec where to look for common options.
-///    For example, if `start_at` is `1`, then look for these options **before** the subcommand:
-///    ```console
-///    stacks-inspect --config testnet.toml replay-block path/to/chainstate
-///    ```
+///  - `start_at`: Position in args vec where to look for common options. For
+///    example, if `start_at` is `1`, then look for these options **before** the
+///    subcommand: ```console stacks-inspect --config testnet.toml replay-block
+///    path/to/chainstate ```
 pub fn drain_common_opts(argv: &mut Vec<String>, start_at: usize) -> CommonOpts {
     let mut i = start_at;
     let mut opts = CommonOpts::default();
@@ -328,8 +328,8 @@ pub fn command_replay_mock_mining(argv: &[String], conf: Option<&Config>) {
 
     // Get vec of (block_height, filename), to prepare for sorting
     //
-    // NOTE: Trusting the filename is not ideal. We could sort on data read from the file,
-    // but that requires reading all files
+    // NOTE: Trusting the filename is not ideal. We could sort on data read from the
+    // file, but that requires reading all files
     let re = Regex::new(r"^([0-9]+)\.json$").unwrap();
     let mut indexed_files = filenames
         .filter_map(|filename| {
@@ -536,7 +536,8 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
     process::exit(code);
 }
 
-/// Fetch and process a `StagingBlock` from database and call `replay_block()` to validate
+/// Fetch and process a `StagingBlock` from database and call `replay_block()`
+/// to validate
 fn replay_staging_block(db_path: &str, index_block_hash_hex: &str, conf: Option<&Config>) {
     let block_id = StacksBlockId::from_hex(index_block_hash_hex).unwrap();
     let chain_state_path = format!("{db_path}/chainstate/");
@@ -757,8 +758,8 @@ fn replay_block(
         return;
     }
 
-    // validation check -- validate parent microblocks and find the ones that connect the
-    // block's parent to this block.
+    // validation check -- validate parent microblocks and find the ones that
+    // connect the block's parent to this block.
     let next_microblocks = StacksChainState::extract_connecting_microblocks(
         parent_header_info,
         block_consensus_hash,
@@ -818,7 +819,8 @@ fn replay_block(
     };
 }
 
-/// Fetch and process a NakamotoBlock from database and call `replay_block_nakamoto()` to validate
+/// Fetch and process a NakamotoBlock from database and call
+/// `replay_block_nakamoto()` to validate
 fn replay_naka_staging_block(db_path: &str, index_block_hash_hex: &str, conf: &Config) {
     let block_id = StacksBlockId::from_hex(index_block_hash_hex).unwrap();
     let chain_state_path = format!("{db_path}/chainstate/");
@@ -1014,12 +1016,14 @@ fn replay_block_nakamoto(
     let Some(burnchain_view_sn) =
         SortitionDB::get_block_snapshot_consensus(sort_db.conn(), &burnchain_view)?
     else {
-        // This should be checked already during block acceptance and parent block processing
-        //   - The check for expected burns returns `NoSuchBlockError` if the burnchain view
-        //      could not be found for a block with a tenure tx.
-        // We error here anyways, but the check during block acceptance makes sure that the staging
-        //  db doesn't get into a situation where it continuously tries to retry such a block (because
-        //  such a block shouldn't land in the staging db).
+        // This should be checked already during block acceptance and parent block
+        // processing
+        //   - The check for expected burns returns `NoSuchBlockError` if the burnchain
+        //     view could not be found for a block with a tenure tx.
+        // We error here anyways, but the check during block acceptance makes sure that
+        // the staging  db doesn't get into a situation where it continuously
+        // tries to retry such a block (because  such a block shouldn't land in
+        // the staging db).
         warn!(
             "Cannot process Nakamoto block: failed to find Sortition ID associated with burnchain view";
             "consensus_hash" => %block.header.consensus_hash,
@@ -1056,15 +1060,17 @@ fn replay_block_nakamoto(
     // attach the block to the chain state and calculate the next chain tip.
     let pox_constants = sort_db.pox_constants.clone();
 
-    // NOTE: because block status is updated in a separate transaction, we need `chainstate_tx`
-    // and `clarity_instance` to go out of scope before we can issue the it (since we need a
-    // mutable reference to `stacks_chain_state` to start it).  This means ensuring that, in the
-    // `Ok(..)` case, the `clarity_commit` gets dropped beforehand.  In order to do this, we first
-    // run `::append_block()` here, and capture both the Ok(..) and Err(..) results as
-    // Option<..>'s.  Then, if we errored, we can explicitly drop the `Ok(..)` option (even
-    // though it will always be None), which gets the borrow-checker to believe that it's safe
-    // to access `stacks_chain_state` again.  In the `Ok(..)` case, it's instead sufficient so
-    // simply commit the block before beginning the second transaction to mark it processed.
+    // NOTE: because block status is updated in a separate transaction, we need
+    // `chainstate_tx` and `clarity_instance` to go out of scope before we can
+    // issue the it (since we need a mutable reference to `stacks_chain_state`
+    // to start it).  This means ensuring that, in the `Ok(..)` case, the
+    // `clarity_commit` gets dropped beforehand.  In order to do this, we first
+    // run `::append_block()` here, and capture both the Ok(..) and Err(..) results
+    // as Option<..>'s.  Then, if we errored, we can explicitly drop the
+    // `Ok(..)` option (even though it will always be None), which gets the
+    // borrow-checker to believe that it's safe to access `stacks_chain_state`
+    // again.  In the `Ok(..)` case, it's instead sufficient so simply commit
+    // the block before beginning the second transaction to mark it processed.
 
     let mut burn_view_handle = sort_db.index_handle(&burnchain_view_sn.sortition_id);
     let (ok_opt, err_opt) = match NakamotoChainState::append_block(
@@ -1106,10 +1112,11 @@ fn replay_block_nakamoto(
 
         // as a separate transaction, mark this block as processed and orphaned.
         // This is done separately so that the staging blocks DB, which receives writes
-        // from the network to store blocks, will be available for writes while a block is
-        // being processed. Therefore, it's *very important* that block-processing happens
-        // within the same, single thread.  Also, it's *very important* that this update
-        // succeeds, since *we have already processed* the block.
+        // from the network to store blocks, will be available for writes while a block
+        // is being processed. Therefore, it's *very important* that
+        // block-processing happens within the same, single thread.  Also, it's
+        // *very important* that this update succeeds, since *we have already
+        // processed* the block.
         return Err(e);
     };
 

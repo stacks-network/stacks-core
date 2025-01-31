@@ -136,8 +136,8 @@ pub struct MinerTenureInfo<'a> {
     pub chainstate_tx: ChainstateTx<'a>,
     pub clarity_instance: &'a mut ClarityInstance,
     pub burn_tip: BurnchainHeaderHash,
-    /// This is the expected burn tip height (i.e., the current burnchain tip + 1)
-    ///  of the mined block
+    /// This is the expected burn tip height (i.e., the current burnchain tip +
+    /// 1) of the mined block
     pub burn_tip_height: u32,
     pub mainnet: bool,
     pub parent_consensus_hash: ConsensusHash,
@@ -169,24 +169,27 @@ impl NakamotoBlockBuilder {
         }
     }
 
-    /// Make a Nakamoto block builder appropriate for building atop the given block header
+    /// Make a Nakamoto block builder appropriate for building atop the given
+    /// block header
     ///
-    /// * `parent_stacker_header` - the stacks header this builder's block will build off
+    /// * `parent_stacker_header` - the stacks header this builder's block will
+    ///   build off
     ///
-    /// * `tenure_id_consensus_hash` - consensus hash of this tenure's burnchain block.
-    ///    This is the consensus hash that goes into the block header.
+    /// * `tenure_id_consensus_hash` - consensus hash of this tenure's burnchain
+    ///   block. This is the consensus hash that goes into the block header.
     ///
     /// * `total_burn` - total BTC burnt so far in this fork.
     ///
     /// * `tenure_change` - the TenureChange tx if this is going to start or
-    ///    extend a tenure
+    ///   extend a tenure
     ///
     /// * `coinbase` - the coinbase tx if this is going to start a new tenure
     ///
-    /// * `bitvec_len` - the length of the bitvec of reward addresses that should be punished or not in this block.
+    /// * `bitvec_len` - the length of the bitvec of reward addresses that
+    ///   should be punished or not in this block.
     ///
-    /// * `soft_limit` - an optional soft limit for the block's clarity cost for this block
-    ///
+    /// * `soft_limit` - an optional soft limit for the block's clarity cost for
+    ///   this block
     pub fn new(
         parent_stacks_header: &StacksHeaderInfo,
         tenure_id_consensus_hash: &ConsensusHash,
@@ -239,9 +242,9 @@ impl NakamotoBlockBuilder {
     }
 
     /// This function should be called before `tenure_begin`.
-    /// It creates a MinerTenureInfo struct which owns connections to the chainstate and sortition
-    /// DBs, so that block-processing is guaranteed to terminate before the lives of these handles
-    /// expire.
+    /// It creates a MinerTenureInfo struct which owns connections to the
+    /// chainstate and sortition DBs, so that block-processing is guaranteed
+    /// to terminate before the lives of these handles expire.
     pub fn load_tenure_info<'a>(
         &self,
         chainstate: &'a mut StacksChainState,
@@ -252,9 +255,9 @@ impl NakamotoBlockBuilder {
     }
 
     /// This function should be called before `tenure_begin`.
-    /// It creates a MinerTenureInfo struct which owns connections to the chainstate and sortition
-    /// DBs, so that block-processing is guaranteed to terminate before the lives of these handles
-    /// expire.
+    /// It creates a MinerTenureInfo struct which owns connections to the
+    /// chainstate and sortition DBs, so that block-processing is guaranteed
+    /// to terminate before the lives of these handles expire.
     pub(crate) fn inner_load_tenure_info<'a>(
         &self,
         chainstate: &'a mut StacksChainState,
@@ -334,7 +337,8 @@ impl NakamotoBlockBuilder {
             Error::NoSuchBlockError
         })?;
 
-        // must build off of the header's consensus hash as the burnchain view, not the canonical_tip_bhh:
+        // must build off of the header's consensus hash as the burnchain view, not the
+        // canonical_tip_bhh:
         let burn_sn = SortitionDB::get_block_snapshot_consensus(burn_dbconn.conn(), &self.header.consensus_hash)?
             .ok_or_else(|| {
                 warn!(
@@ -402,9 +406,9 @@ impl NakamotoBlockBuilder {
 
     /// Begin/resume mining a (normal) tenure's transactions.
     /// Returns an open ClarityTx for mining the block.
-    /// NOTE: even though we don't yet know the block hash, the Clarity VM ensures that a
-    /// transaction can't query information about the _current_ block (i.e. information that is not
-    /// yet known).
+    /// NOTE: even though we don't yet know the block hash, the Clarity VM
+    /// ensures that a transaction can't query information about the
+    /// _current_ block (i.e. information that is not yet known).
     pub fn tenure_begin<'a, 'b>(
         &mut self,
         burn_dbconn: &'a SortitionHandleConn,
@@ -565,7 +569,8 @@ impl NakamotoBlockBuilder {
             .mempool_settings
             .tenure_cost_limit_per_block_percentage
         {
-            // Make sure we aren't actually going to multiply by 0 or attempt to increase the block limit.
+            // Make sure we aren't actually going to multiply by 0 or attempt to increase
+            // the block limit.
             assert!(
                 (1..=100).contains(&percentage),
                 "BUG: tenure_cost_limit_per_block_percentage: {percentage}%. Must be between between 1 and 100"
@@ -597,7 +602,8 @@ impl NakamotoBlockBuilder {
         .flatten()
         .collect();
 
-        // TODO: update this mempool check to prioritize signer vote transactions over other transactions
+        // TODO: update this mempool check to prioritize signer vote transactions over
+        // other transactions
         let (blocked, tx_events) = match StacksBlockBuilder::select_and_apply_transactions(
             &mut tenure_tx,
             &mut builder,

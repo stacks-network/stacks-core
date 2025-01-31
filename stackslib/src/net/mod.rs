@@ -100,26 +100,30 @@ use crate::util_lib::strings::UrlString;
 
 /// Implements RPC API
 pub mod api;
-/// Implements `ASEntry4` object, which is used in db.rs to store the AS number of an IP address.
+/// Implements `ASEntry4` object, which is used in db.rs to store the AS number
+/// of an IP address.
 pub mod asn;
-/// Implements the Atlas network. This network uses the infrastructure created in `src/net` to
-/// discover peers, query attachment inventories, and download attachments.
+/// Implements the Atlas network. This network uses the infrastructure created
+/// in `src/net` to discover peers, query attachment inventories, and download
+/// attachments.
 pub mod atlas;
-/// Implements the `ConversationP2P` object, a host-to-host session abstraction which allows
-/// the node to recieve `StacksMessage` instances. The downstream consumer of this API is `PeerNetwork`.
-/// To use OSI terminology, this module implements the session & presentation layers of the P2P network.
+/// Implements the `ConversationP2P` object, a host-to-host session abstraction
+/// which allows the node to recieve `StacksMessage` instances. The downstream
+/// consumer of this API is `PeerNetwork`. To use OSI terminology, this module
+/// implements the session & presentation layers of the P2P network.
 /// Other functionality includes (but is not limited to):
 ///     * set up & tear down of sessions
 ///     * dealing with and responding to invalid messages
 ///     * rate limiting messages
 pub mod chat;
 /// Implements serialization and deserialization for `StacksMessage` types.
-/// Also has functionality to sign, verify, and ensure well-formedness of messages.
+/// Also has functionality to sign, verify, and ensure well-formedness of
+/// messages.
 pub mod codec;
 pub mod connection;
 pub mod db;
-/// Implements `DNSResolver`, a simple DNS resolver state machine. Also implements `DNSClient`,
-/// which serves as an API for `DNSResolver`.
+/// Implements `DNSResolver`, a simple DNS resolver state machine. Also
+/// implements `DNSClient`, which serves as an API for `DNSResolver`.
 pub mod dns;
 pub mod download;
 pub mod http;
@@ -129,9 +133,10 @@ pub mod inv;
 pub mod mempool;
 pub mod neighbors;
 pub mod p2p;
-/// Implements wrapper around `mio` crate, which itself is a wrapper around Linux's `epoll(2)` syscall.
-/// Creates a pollable interface for sockets, and provides an API for registering and deregistering
-/// sockets. This is used to control how many sockets are allocated for the two network servers: the
+/// Implements wrapper around `mio` crate, which itself is a wrapper around
+/// Linux's `epoll(2)` syscall. Creates a pollable interface for sockets, and
+/// provides an API for registering and deregistering sockets. This is used to
+/// control how many sockets are allocated for the two network servers: the
 /// p2p server and the http server.
 pub mod poll;
 pub mod prune;
@@ -239,7 +244,8 @@ pub enum Error {
     MARFError(marf_error),
     /// Clarity VM error, percolated up from chainstate
     ClarityError(clarity_error),
-    /// Catch-all for chainstate errors that don't map cleanly into network errors
+    /// Catch-all for chainstate errors that don't map cleanly into network
+    /// errors
     ChainstateError(String),
     /// Coordinator hung up
     CoordinatorClosed,
@@ -648,7 +654,8 @@ impl RPCHandlerArgs<'_> {
     }
 }
 
-/// Wrapper around Stacks chainstate data that an HTTP request handler might need
+/// Wrapper around Stacks chainstate data that an HTTP request handler might
+/// need
 pub struct StacksNodeState<'a> {
     inner_network: Option<&'a mut PeerNetwork>,
     inner_sortdb: Option<&'a SortitionDB>,
@@ -737,25 +744,31 @@ impl<'a> StacksNodeState<'a> {
         self.relay_message.take()
     }
 
-    /// Load up the canonical Stacks chain tip.  Note that this is subject to both burn chain block
-    /// Stacks block availability -- different nodes with different partial replicas of the Stacks chain state
+    /// Load up the canonical Stacks chain tip.  Note that this is subject to
+    /// both burn chain block Stacks block availability -- different nodes
+    /// with different partial replicas of the Stacks chain state
     /// will return different values here.
     ///
     /// # Warn
-    /// - There is a potential race condition. If this function is loading the latest unconfirmed
-    /// tip, that tip may get invalidated by the time it is used in `maybe_read_only_clarity_tx`,
-    /// which is used to load clarity state at a particular tip (which would lead to a 404 error).
-    /// If this race condition occurs frequently, we can modify `maybe_read_only_clarity_tx` to
-    /// re-load the unconfirmed chain tip. Refer to issue #2997.
+    /// - There is a potential race condition. If this function is loading the
+    ///   latest unconfirmed
+    /// tip, that tip may get invalidated by the time it is used in
+    /// `maybe_read_only_clarity_tx`, which is used to load clarity state at
+    /// a particular tip (which would lead to a 404 error). If this race
+    /// condition occurs frequently, we can modify `maybe_read_only_clarity_tx`
+    /// to re-load the unconfirmed chain tip. Refer to issue #2997.
     ///
     /// # Inputs
-    /// - `tip_req` is given by the HTTP request as the optional query parameter for the chain tip
-    /// hash.  It will be UseLatestAnchoredTip if there was no parameter given. If it is set to
-    /// `latest`, the parameter will be set to UseLatestUnconfirmedTip.
+    /// - `tip_req` is given by the HTTP request as the optional query parameter
+    ///   for the chain tip
+    /// hash.  It will be UseLatestAnchoredTip if there was no parameter given.
+    /// If it is set to `latest`, the parameter will be set to
+    /// UseLatestUnconfirmedTip.
     ///
     /// Returns the requested chain tip on success.
     /// If the chain tip could not be found, then it returns Err(HttpNotFound)
-    /// If there was an error querying the DB, then it returns Err(HttpServerError)
+    /// If there was an error querying the DB, then it returns
+    /// Err(HttpServerError)
     pub fn load_stacks_chain_tip(
         &mut self,
         preamble: &HttpRequestPreamble,
@@ -845,16 +858,18 @@ pub const STACKS_PUBLIC_KEY_ENCODED_SIZE: u32 = 33;
 /// P2P message preamble -- included in all p2p network messages
 #[derive(Debug, Clone, PartialEq)]
 pub struct Preamble {
-    pub peer_version: u32,                           // software version
-    pub network_id: u32,                             // mainnet, testnet, etc.
-    pub seq: u32, // message sequence number -- pairs this message to a request
+    pub peer_version: u32, // software version
+    pub network_id: u32,   // mainnet, testnet, etc.
+    pub seq: u32,          /* message sequence number -- pairs this
+                            * message to a request */
     pub burn_block_height: u64, // last-seen block height (at chain tip)
     pub burn_block_hash: BurnchainHeaderHash, // hash of the last-seen burn block
     pub burn_stable_block_height: u64, // latest stable block height (e.g. chain tip minus 7)
     pub burn_stable_block_hash: BurnchainHeaderHash, // latest stable burnchain header hash.
-    pub additional_data: u32, // RESERVED; pointer to additional data (should be all 0's if not used)
+    pub additional_data: u32,   /* RESERVED; pointer to additional data (should be all 0's if
+                                 * not used) */
     pub signature: MessageSignature, // signature from the peer that sent this
-    pub payload_len: u32,     // length of the following payload, including relayers vector
+    pub payload_len: u32,            // length of the following payload, including relayers vector
 }
 
 /// Request for a block inventory or a list of blocks.
@@ -868,17 +883,19 @@ pub struct GetBlocksInv {
     pub num_blocks: u16,
 }
 
-/// A bit vector that describes which block and microblock data node has data for in a given burn
-/// chain block range.  Sent in reply to a GetBlocksInv for Stacks 2.x block data.
+/// A bit vector that describes which block and microblock data node has data
+/// for in a given burn chain block range.  Sent in reply to a GetBlocksInv for
+/// Stacks 2.x block data.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlocksInvData {
-    /// Number of bits in the block bit vector (not to exceed the reward cycle length)
+    /// Number of bits in the block bit vector (not to exceed the reward cycle
+    /// length)
     pub bitlen: u16,
-    /// The block bitvector. block_bitvec[i] & (1 << j) != 0 means that this peer has the block for
-    /// sortition 8*i + j.
+    /// The block bitvector. block_bitvec[i] & (1 << j) != 0 means that this
+    /// peer has the block for sortition 8*i + j.
     pub block_bitvec: Vec<u8>,
-    /// The microblock bitvector. microblocks_bitvec[i] & (1 << j) != 0 means that this peer has
-    /// the microblocks for sortition 8*i + j
+    /// The microblock bitvector. microblocks_bitvec[i] & (1 << j) != 0 means
+    /// that this peer has the microblocks for sortition 8*i + j
     pub microblocks_bitvec: Vec<u8>,
 }
 
@@ -891,21 +908,24 @@ pub struct GetNakamotoInvData {
     pub consensus_hash: ConsensusHash,
 }
 
-/// A bit vector that describes Nakamoto tenure availability.  Sent in reply for GetBlocksInv for
-/// Nakamoto block data.  The ith bit in `tenures` will be set if (1) there is a sortition in the
-/// ith burnchain block in the requested reward cycle (note that 0 <= i < 2100 in production), and
-/// (2) the remote node not only has the tenure blocks, but has processed them.
+/// A bit vector that describes Nakamoto tenure availability.  Sent in reply for
+/// GetBlocksInv for Nakamoto block data.  The ith bit in `tenures` will be set
+/// if (1) there is a sortition in the ith burnchain block in the requested
+/// reward cycle (note that 0 <= i < 2100 in production), and (2) the remote
+/// node not only has the tenure blocks, but has processed them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NakamotoInvData {
-    /// The tenure bitvector.  tenures[i] & (1 << j) != 0 means that this peer has all the blocks
-    /// for the tenure which began in sortition 8*i + j.  There will never be more than 1 reward
-    /// cycle's worth of bits here, and since the largest supported reward cycle is 2100 blocks
+    /// The tenure bitvector.  tenures[i] & (1 << j) != 0 means that this peer
+    /// has all the blocks for the tenure which began in sortition 8*i + j.
+    /// There will never be more than 1 reward cycle's worth of bits here,
+    /// and since the largest supported reward cycle is 2100 blocks
     /// long (i.e. mainnet),
     pub tenures: BitVec<2100>,
 }
 
 /// Request for a PoX bitvector range.
-/// Requests bits for [start_reward_cycle, start_reward_cycle + num_anchor_blocks)
+/// Requests bits for [start_reward_cycle, start_reward_cycle +
+/// num_anchor_blocks)
 #[derive(Debug, Clone, PartialEq)]
 pub struct GetPoxInv {
     pub consensus_hash: ConsensusHash,
@@ -915,8 +935,9 @@ pub struct GetPoxInv {
 /// Response to a GetPoxInv request
 #[derive(Debug, Clone, PartialEq)]
 pub struct PoxInvData {
-    pub bitlen: u16,         // number of bits represented
-    pub pox_bitvec: Vec<u8>, // a bit will be '1' if the node knows for sure the status of its reward cycle's anchor block; 0 if not.
+    pub bitlen: u16, // number of bits represented
+    pub pox_bitvec: Vec<u8>, /* a bit will be '1' if the node knows for sure the status of its
+                      * reward cycle's anchor block; 0 if not. */
 }
 
 /// Stacks epoch 2.x pushed block
@@ -930,8 +951,9 @@ pub struct BlocksData {
 }
 
 /// Nakamoto epoch 3.x blocks pushed.
-/// No need for a separate NakamotoBlocksDatum struct, because the consensus hashes that place this
-/// block into the block stream are already embedded within the header
+/// No need for a separate NakamotoBlocksDatum struct, because the consensus
+/// hashes that place this block into the block stream are already embedded
+/// within the header
 #[derive(Debug, Clone, PartialEq)]
 pub struct NakamotoBlocksData {
     pub blocks: Vec<NakamotoBlock>,
@@ -956,7 +978,8 @@ pub struct NeighborAddress {
     #[serde(rename = "ip")]
     pub addrbytes: PeerAddress,
     pub port: u16,
-    pub public_key_hash: Hash160, // used as a hint; useful for when a node trusts another node to be honest about this
+    pub public_key_hash: Hash160, /* used as a hint; useful for when a node trusts another node
+                                   * to be honest about this */
 }
 
 impl fmt::Display for NeighborAddress {
@@ -1043,23 +1066,30 @@ pub mod NackErrorCodes {
     /// A handshake has not yet been completed with the requester
     /// and it is required before the protocol can proceed
     pub const HandshakeRequired: u32 = 1;
-    /// The request depends on a burnchain block that this peer does not recognize
+    /// The request depends on a burnchain block that this peer does not
+    /// recognize
     pub const NoSuchBurnchainBlock: u32 = 2;
     /// The remote peer has exceeded local per-peer bandwidth limits
     pub const Throttled: u32 = 3;
-    /// The request depends on a PoX fork that this peer does not recognize as canonical
+    /// The request depends on a PoX fork that this peer does not recognize as
+    /// canonical
     pub const InvalidPoxFork: u32 = 4;
-    /// The message received is not appropriate for the ongoing step in the protocol being executed
+    /// The message received is not appropriate for the ongoing step in the
+    /// protocol being executed
     pub const InvalidMessage: u32 = 5;
     /// The StackerDB requested is not known or configured on this node
     pub const NoSuchDB: u32 = 6;
-    /// The StackerDB chunk request referred to an older copy of the chunk than this node has
+    /// The StackerDB chunk request referred to an older copy of the chunk than
+    /// this node has
     pub const StaleVersion: u32 = 7;
-    /// The remote peer's view of the burnchain is too out-of-date for the protocol to continue
+    /// The remote peer's view of the burnchain is too out-of-date for the
+    /// protocol to continue
     pub const StaleView: u32 = 8;
-    /// The StackerDB chunk request referred to a newer copy of the chunk that this node has
+    /// The StackerDB chunk request referred to a newer copy of the chunk that
+    /// this node has
     pub const FutureVersion: u32 = 9;
-    /// The referenced StackerDB state view is stale locally relative to the requested version
+    /// The referenced StackerDB state view is stale locally relative to the
+    /// requested version
     pub const FutureView: u32 = 10;
 }
 
@@ -1080,12 +1110,13 @@ pub struct NatPunchData {
     pub nonce: u32,
 }
 
-/// Inform the remote peer of (a page of) the list of stacker DB contracts this node supports
+/// Inform the remote peer of (a page of) the list of stacker DB contracts this
+/// node supports
 #[derive(Debug, Clone, PartialEq)]
 pub struct StackerDBHandshakeData {
-    /// current reward cycle consensus hash (i.e. the consensus hash of the Stacks tip in the
-    /// current reward cycle, which commits to both the Stacks block tip and the underlying PoX
-    /// history).
+    /// current reward cycle consensus hash (i.e. the consensus hash of the
+    /// Stacks tip in the current reward cycle, which commits to both the
+    /// Stacks block tip and the underlying PoX history).
     pub rc_consensus_hash: ConsensusHash,
     /// list of smart contracts that we index.
     /// there can be as many as 256 entries.
@@ -1234,17 +1265,20 @@ pub trait ProtocolFamily {
     /// Return the maximum possible length of the serialized Preamble type
     fn preamble_size_hint(&mut self) -> usize;
 
-    /// Determine how long the message payload will be, given the Preamble (may return None if the
-    /// payload length cannot be determined solely by the Preamble).
+    /// Determine how long the message payload will be, given the Preamble (may
+    /// return None if the payload length cannot be determined solely by the
+    /// Preamble).
     fn payload_len(&mut self, preamble: &Self::Preamble) -> Option<usize>;
 
-    /// Given a byte buffer of a length at last that of the value returned by preamble_size_hint,
-    /// parse a Preamble and return both the Preamble and the number of bytes actually consumed by it.
+    /// Given a byte buffer of a length at last that of the value returned by
+    /// preamble_size_hint, parse a Preamble and return both the Preamble
+    /// and the number of bytes actually consumed by it.
     fn read_preamble(&mut self, buf: &[u8]) -> Result<(Self::Preamble, usize), Error>;
 
-    /// Given a preamble and a byte buffer, parse out a message and return both the message and the
-    /// number of bytes actually consumed by it.  Only used if the message is _not_ streamed.  The
-    /// buf slice is guaranteed to have at least `payload_len()` bytes if `payload_len()` returns
+    /// Given a preamble and a byte buffer, parse out a message and return both
+    /// the message and the number of bytes actually consumed by it.  Only
+    /// used if the message is _not_ streamed.  The buf slice is guaranteed
+    /// to have at least `payload_len()` bytes if `payload_len()` returns
     /// Some(...).
     fn read_payload(
         &mut self,
@@ -1252,18 +1286,19 @@ pub trait ProtocolFamily {
         buf: &[u8],
     ) -> Result<(Self::Message, usize), Error>;
 
-    /// Given a preamble and a Read, attempt to stream a message.  This will be called if
-    /// `payload_len()` returns None.  This method will be repeatedly called with new data until a
-    /// message can be obtained; therefore, the ProtocolFamily implementation will need to do its
-    /// own bufferring and state-tracking.
+    /// Given a preamble and a Read, attempt to stream a message.  This will be
+    /// called if `payload_len()` returns None.  This method will be
+    /// repeatedly called with new data until a message can be obtained;
+    /// therefore, the ProtocolFamily implementation will need to do its own
+    /// bufferring and state-tracking.
     fn stream_payload<R: Read>(
         &mut self,
         preamble: &Self::Preamble,
         fd: &mut R,
     ) -> Result<(Option<(Self::Message, usize)>, usize), Error>;
 
-    /// Given a public key, a preamble, and the yet-to-be-parsed message bytes, verify the message
-    /// authenticity.  Not all protocols need to do this.
+    /// Given a public key, a preamble, and the yet-to-be-parsed message bytes,
+    /// verify the message authenticity.  Not all protocols need to do this.
     fn verify_payload_bytes(
         &mut self,
         key: &StacksPublicKey,
@@ -1271,8 +1306,9 @@ pub trait ProtocolFamily {
         bytes: &[u8],
     ) -> Result<(), Error>;
 
-    /// Given a Write and a Message, write it out.  This method is also responsible for generating
-    /// and writing out a Preamble for its Message.
+    /// Given a Write and a Message, write it out.  This method is also
+    /// responsible for generating and writing out a Preamble for its
+    /// Message.
     fn write_message<W: Write>(&mut self, fd: &mut W, message: &Self::Message)
         -> Result<(), Error>;
 }
@@ -1300,14 +1336,14 @@ pub const GETPOXINV_MAX_BITLEN: u64 = 4096;
 #[cfg(test)]
 pub const GETPOXINV_MAX_BITLEN: u64 = 8;
 
-// maximum number of Stacks epoch2.x blocks that can be pushed at once (even if the entire message is undersized).
-// This bound is needed since it bounds the amount of I/O a peer can be asked to do to validate the
-// message.
+// maximum number of Stacks epoch2.x blocks that can be pushed at once (even if
+// the entire message is undersized). This bound is needed since it bounds the
+// amount of I/O a peer can be asked to do to validate the message.
 pub const BLOCKS_PUSHED_MAX: u32 = 32;
 
-// maximum number of Nakamoto blocks that can be pushed at once (even if the entire message is undersized).
-// This bound is needed since it bounds the amount of I/O a peer can be asked to do to validate the
-// message.
+// maximum number of Nakamoto blocks that can be pushed at once (even if the
+// entire message is undersized). This bound is needed since it bounds the
+// amount of I/O a peer can be asked to do to validate the message.
 pub const NAKAMOTO_BLOCKS_PUSHED_MAX: u32 = 32;
 
 /// neighbor identifier
@@ -1321,8 +1357,8 @@ pub struct NeighborKey {
 
 impl Hash for NeighborKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        // ignores peer version and network ID -- we don't accept or deal with messages that have
-        // incompatible versions or network IDs in the first place
+        // ignores peer version and network ID -- we don't accept or deal with messages
+        // that have incompatible versions or network IDs in the first place
         let peer_major_version = self.peer_version & 0xff000000;
         peer_major_version.hash(state);
         self.addrbytes.hash(state);
@@ -1469,7 +1505,8 @@ pub const DENY_MIN_BAN_DURATION: u64 = 2;
 pub struct NetworkResult {
     /// Stacks chain tip when we began this pass
     pub stacks_tip: StacksBlockId,
-    /// PoX ID as it was when we begin downloading blocks (set if we have downloaded new blocks)
+    /// PoX ID as it was when we begin downloading blocks (set if we have
+    /// downloaded new blocks)
     pub download_pox_id: Option<PoxId>,
     /// Network messages we received but did not handle
     pub unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>,
@@ -1483,7 +1520,8 @@ pub struct NetworkResult {
     pub pushed_transactions: HashMap<NeighborKey, Vec<(Vec<RelayData>, StacksTransaction)>>,
     /// all Stacks 2.x blocks pushed to us
     pub pushed_blocks: HashMap<NeighborKey, Vec<BlocksData>>,
-    /// all Stacks 2.x microblocks pushed to us, and the relay hints from the message
+    /// all Stacks 2.x microblocks pushed to us, and the relay hints from the
+    /// message
     pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>,
     /// all Stacks 3.x blocks pushed to us
     pub pushed_nakamoto_blocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, NakamotoBlocksData)>>,
@@ -1507,7 +1545,8 @@ pub struct NetworkResult {
     pub stacker_db_sync_results: Vec<StackerDBSyncResult>,
     /// Number of times the network state machine has completed one pass
     pub num_state_machine_passes: u64,
-    /// Number of times the Stacks 2.x inventory synchronization has completed one pass
+    /// Number of times the Stacks 2.x inventory synchronization has completed
+    /// one pass
     pub num_inv_sync_passes: u64,
     /// Number of times the Stacks 2.x block downloader has completed one pass
     pub num_download_passes: u64,
@@ -1517,9 +1556,11 @@ pub struct NetworkResult {
     pub burn_height: u64,
     /// The observed stacks coinbase height
     pub coinbase_height: u64,
-    /// The observed stacks tip height (different in Nakamoto from coinbase height)
+    /// The observed stacks tip height (different in Nakamoto from coinbase
+    /// height)
     pub stacks_tip_height: u64,
-    /// The consensus hash of the stacks tip (prefixed `rc_` for historical reasons)
+    /// The consensus hash of the stacks tip (prefixed `rc_` for historical
+    /// reasons)
     pub rc_consensus_hash: ConsensusHash,
     /// The current StackerDB configs
     pub stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
@@ -2386,8 +2427,9 @@ pub mod test {
             let sz = self.c.read(buf)?;
             if sz == 0 {
                 // when reading from a non-blocking socket, a return value of 0 indicates the
-                // remote end was closed.  For this reason, when we're out of bytes to read on our
-                // inner cursor, but still have bytes, we need to re-interpret this as EWOULDBLOCK.
+                // remote end was closed.  For this reason, when we're out of bytes to read on
+                // our inner cursor, but still have bytes, we need to
+                // re-interpret this as EWOULDBLOCK.
                 return Err(io::Error::from(ErrorKind::WouldBlock));
             } else {
                 return Ok(sz);
@@ -2588,8 +2630,8 @@ pub mod test {
         pub check_pox_invariants: Option<(u64, u64)>,
         /// Which stacker DBs will this peer replicate?
         pub stacker_dbs: Vec<QualifiedContractIdentifier>,
-        /// Stacker DB configurations for each stacker_dbs entry above, if different from
-        /// StackerDBConfig::noop()
+        /// Stacker DB configurations for each stacker_dbs entry above, if
+        /// different from StackerDBConfig::noop()
         pub stacker_db_configs: Vec<Option<StackerDBConfig>>,
         /// What services should this peer support?
         pub services: u16,
@@ -3155,8 +3197,8 @@ pub mod test {
             let mempool = MemPoolDB::open_test(false, config.network_id, &chainstate_path).unwrap();
             let indexer = BitcoinIndexer::new_unit_test(&config.burnchain.working_dir);
 
-            // extract bound ports (which may be different from what's in the config file, if e.g.
-            // they were 0)
+            // extract bound ports (which may be different from what's in the config file,
+            // if e.g. they were 0)
             let p2p_port = peer_network.bound_neighbor_key().port;
             let http_port = peer_network.http.as_ref().unwrap().http_server_addr.port();
 
@@ -3663,10 +3705,13 @@ pub mod test {
             .unwrap();
         }
 
-        /// Generate and commit the next burnchain block with the given block operations.
-        /// * if `set_consensus_hash` is true, then each op's consensus_hash field will be set to
+        /// Generate and commit the next burnchain block with the given block
+        /// operations.
+        /// * if `set_consensus_hash` is true, then each op's consensus_hash
+        ///   field will be set to
         /// that of the resulting block snapshot.
-        /// * if `set_burn_hash` is true, then each op's burnchain header hash field will be set to
+        /// * if `set_burn_hash` is true, then each op's burnchain header hash
+        ///   field will be set to
         /// that of the resulting block snapshot.
         ///
         /// Returns (
@@ -3878,8 +3923,8 @@ pub mod test {
             res
         }
 
-        /// Store the given epoch 2.x Stacks block and microblock to staging, and then try and
-        /// process them.
+        /// Store the given epoch 2.x Stacks block and microblock to staging,
+        /// and then try and process them.
         pub fn process_stacks_epoch_at_tip(
             &mut self,
             block: &StacksBlock,
@@ -3913,8 +3958,9 @@ pub mod test {
             self.stacks_node = Some(node);
         }
 
-        /// Store the given epoch 2.x Stacks block and microblock to the given node's staging,
-        /// using the given sortition DB as well, and then try and process them.
+        /// Store the given epoch 2.x Stacks block and microblock to the given
+        /// node's staging, using the given sortition DB as well, and
+        /// then try and process them.
         fn inner_process_stacks_epoch_at_tip(
             &mut self,
             sortdb: &SortitionDB,
@@ -3945,8 +3991,8 @@ pub mod test {
             Ok(())
         }
 
-        /// Store the given epoch 2.x Stacks block and microblock to the given node's staging,
-        /// and then try and process them.
+        /// Store the given epoch 2.x Stacks block and microblock to the given
+        /// node's staging, and then try and process them.
         pub fn process_stacks_epoch_at_tip_checked(
             &mut self,
             block: &StacksBlock,
@@ -3961,8 +4007,8 @@ pub mod test {
             res
         }
 
-        /// Accept a new Stacks block and microblocks via the relayer, and then try to process
-        /// them.
+        /// Accept a new Stacks block and microblocks via the relayer, and then
+        /// try to process them.
         pub fn process_stacks_epoch(
             &mut self,
             block: &StacksBlock,
@@ -4016,7 +4062,8 @@ pub mod test {
         pub fn mine_empty_tenure(&mut self) -> (u64, BurnchainHeaderHash, ConsensusHash) {
             let (burn_ops, ..) = self.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
             let result = self.next_burnchain_block(burn_ops);
-            // remove the last block commit so that the testpeer doesn't try to build off of this tenure
+            // remove the last block commit so that the testpeer doesn't try to build off of
+            // this tenure
             self.miner.block_commits.pop();
             result
         }
@@ -4154,8 +4201,9 @@ pub mod test {
             res
         }
 
-        /// Make a tenure with the given transactions. Creates a coinbase tx with the given nonce, and then increments
-        /// the provided reference.
+        /// Make a tenure with the given transactions. Creates a coinbase tx
+        /// with the given nonce, and then increments the provided
+        /// reference.
         pub fn tenure_with_txs(
             &mut self,
             txs: &[StacksTransaction],
@@ -4230,8 +4278,8 @@ pub mod test {
             tip_id
         }
 
-        /// Make a tenure, using `tenure_builder` to generate a Stacks block and a list of
-        /// microblocks.
+        /// Make a tenure, using `tenure_builder` to generate a Stacks block and
+        /// a list of microblocks.
         pub fn make_tenure<F>(
             &mut self,
             mut tenure_builder: F,
@@ -4553,7 +4601,8 @@ pub mod test {
                 ))
         }
 
-        /// Verify that the sortition DB migration into Nakamoto worked correctly.
+        /// Verify that the sortition DB migration into Nakamoto worked
+        /// correctly.
         pub fn check_nakamoto_migration(&mut self) {
             let mut sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
@@ -4569,9 +4618,10 @@ pub mod test {
             let mut all_preprocessed_reward_sets =
                 SortitionDB::get_all_preprocessed_reward_sets(sortdb.conn()).unwrap();
 
-            // see that we can reconstruct the canonical chain tips for epoch 2.5 and earlier
-            // NOTE: the migration logic DOES NOT WORK and IS NOT MEANT TO WORK with Nakamoto blocks,
-            // so test this only with epoch 2 blocks before the epoch2-3 transition.
+            // see that we can reconstruct the canonical chain tips for epoch 2.5 and
+            // earlier NOTE: the migration logic DOES NOT WORK and IS NOT MEANT
+            // TO WORK with Nakamoto blocks, so test this only with epoch 2
+            // blocks before the epoch2-3 transition.
             let epoch2_sns: Vec<_> = sortdb
                 .get_all_snapshots()
                 .unwrap()
@@ -4609,9 +4659,10 @@ pub mod test {
                 .filter(|tip| epoch2_chs.contains(&tip.1))
                 .collect();
 
-            // what matters is that the last tip is the same, and that each sortition has a chain tip.
-            // depending on block arrival order, different sortitions might have witnessed different
-            // stacks blocks as their chain tips, however.
+            // what matters is that the last tip is the same, and that each sortition has a
+            // chain tip. depending on block arrival order, different sortitions
+            // might have witnessed different stacks blocks as their chain tips,
+            // however.
             assert_eq!(
                 migrated_epoch2_chain_tips.last().unwrap(),
                 expected_epoch2_chain_tips.last().unwrap()
@@ -4755,7 +4806,8 @@ pub mod test {
             self.nakamoto_parent_tenure_opt = Some(parent_tenure);
         }
 
-        /// Clear the tenure to mine on. This causes the miner to build on the canonical tip
+        /// Clear the tenure to mine on. This causes the miner to build on the
+        /// canonical tip
         pub fn mine_nakamoto_on_canonical_tip(&mut self) {
             self.nakamoto_parent_tenure_opt = None;
         }

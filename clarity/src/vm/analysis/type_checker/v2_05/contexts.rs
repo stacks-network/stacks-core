@@ -206,8 +206,8 @@ impl ContractContext {
         }
     }
 
-    /// This function consumes the ContractContext, and puts the relevant information
-    ///  into the provided ContractAnalysis
+    /// This function consumes the ContractContext, and puts the relevant
+    /// information  into the provided ContractAnalysis
     pub fn into_contract_analysis(mut self, contract_analysis: &mut ContractAnalysis) {
         for (name, function_type) in self.public_function_types.drain() {
             contract_analysis.add_public_function(name, function_type);

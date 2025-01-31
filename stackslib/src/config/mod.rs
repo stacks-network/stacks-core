@@ -96,11 +96,12 @@ const DEFAULT_BLOCK_COMMIT_DELAY_MS: u64 = 20_000;
 const DEFAULT_TENURE_COST_LIMIT_PER_BLOCK_PERCENTAGE: u8 = 25;
 const DEFAULT_TENURE_EXTEND_POLL_SECS: u64 = 1;
 
-// This should be greater than the signers' timeout. This is used for issuing fallback tenure extends
+// This should be greater than the signers' timeout. This is used for issuing
+// fallback tenure extends
 const DEFAULT_TENURE_TIMEOUT_SECS: u64 = 420;
 
-static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
-    LazyLock::new(|| ConnectionOptions {
+static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> = LazyLock::new(|| {
+    ConnectionOptions {
         inbox_maxlen: 100,
         outbox_maxlen: 100,
         timeout: 15,
@@ -108,28 +109,35 @@ static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
         heartbeat: 3600,
         // can't use u64::max, because sqlite stores as i64.
         private_key_lifetime: 9223372036854775807,
-        num_neighbors: 32,         // number of neighbors whose inventories we track
-        num_clients: 750,          // number of inbound p2p connections
-        soft_num_neighbors: 16, // soft-limit on the number of neighbors whose inventories we track
-        soft_num_clients: 750,  // soft limit on the number of inbound p2p connections
+        num_neighbors: 32, // number of neighbors whose inventories we track
+        num_clients: 750,  // number of inbound p2p connections
+        soft_num_neighbors: 16, /* soft-limit on the number of neighbors whose inventories we
+                            * track */
+        soft_num_clients: 750, // soft limit on the number of inbound p2p connections
         max_neighbors_per_host: 1, // maximum number of neighbors per host we permit
         max_clients_per_host: 4, // maximum number of inbound p2p connections per host we permit
         soft_max_neighbors_per_host: 1, // soft limit on the number of neighbors per host we permit
-        soft_max_neighbors_per_org: 32, // soft limit on the number of neighbors per AS we permit (TODO: for now it must be greater than num_neighbors)
-        soft_max_clients_per_host: 4, // soft limit on how many inbound p2p connections per host we permit
-        max_http_clients: 1000,       // maximum number of HTTP connections
-        max_neighbors_of_neighbor: 10, // maximum number of neighbors we'll handshake with when doing a neighbor walk (I/O for this can be expensive, so keep small-ish)
-        walk_interval: 60,             // how often, in seconds, we do a neighbor walk
-        walk_seed_probability: 0.1, // 10% of the time when not in IBD, walk to a non-seed node even if we aren't connected to a seed node
+        soft_max_neighbors_per_org: 32, /* soft limit on the number of neighbors per AS we permit (TODO: for now it must be greater than num_neighbors) */
+        soft_max_clients_per_host: 4,   /* soft limit on how many inbound p2p connections per
+                                         * host we permit */
+        max_http_clients: 1000, // maximum number of HTTP connections
+        max_neighbors_of_neighbor: 10, /* maximum number of neighbors we'll handshake with when
+                                 * doing a neighbor walk (I/O for this can be expensive,
+                                 * so keep small-ish) */
+        walk_interval: 60, // how often, in seconds, we do a neighbor walk
+        walk_seed_probability: 0.1, /* 10% of the time when not in IBD, walk to a non-seed node
+                            * even if we aren't connected to a seed node */
         log_neighbors_freq: 60_000, // every minute, log all peer connections
         inv_sync_interval: 45,      // how often, in seconds, we refresh block inventories
         inv_reward_cycles: 3,       // how many reward cycles to look back on, for mainnet
-        download_interval: 10, // how often, in seconds, we do a block download scan (should be less than inv_sync_interval)
+        download_interval: 10,      /* how often, in seconds, we do a block download scan (should
+                                     * be less than inv_sync_interval) */
         dns_timeout: 15_000,
         max_inflight_blocks: 6,
         max_inflight_attachments: 6,
         ..std::default::Default::default()
-    });
+    }
+});
 
 pub static DEFAULT_MAINNET_CONFIG: LazyLock<Config> = LazyLock::new(|| {
     Config::from_config_file(ConfigFile::mainnet(), false)
@@ -302,29 +310,37 @@ impl ConfigFile {
 
         let balances = vec![
             InitialBalanceFile {
-                // "mnemonic": "point approve language letter cargo rough similar wrap focus edge polar task olympic tobacco cinnamon drop lawn boring sort trade senior screen tiger climb",
-                // "privateKey": "539e35c740079b79f931036651ad01f76d8fe1496dbd840ba9e62c7e7b355db001",
+                // "mnemonic": "point approve language letter cargo rough similar wrap focus edge
+                // polar task olympic tobacco cinnamon drop lawn boring sort trade senior screen
+                // tiger climb", "privateKey":
+                // "539e35c740079b79f931036651ad01f76d8fe1496dbd840ba9e62c7e7b355db001",
                 // "btcAddress": "n1htkoYKuLXzPbkn9avC2DJxt7X85qVNCK",
                 address: "ST3EQ88S02BXXD0T5ZVT3KW947CRMQ1C6DMQY8H19".to_string(),
                 amount: 10000000000000000,
             },
             InitialBalanceFile {
-                // "mnemonic": "laugh capital express view pull vehicle cluster embark service clerk roast glance lumber glove purity project layer lyrics limb junior reduce apple method pear",
-                // "privateKey": "075754fb099a55e351fe87c68a73951836343865cd52c78ae4c0f6f48e234f3601",
+                // "mnemonic": "laugh capital express view pull vehicle cluster embark service clerk
+                // roast glance lumber glove purity project layer lyrics limb junior reduce apple
+                // method pear", "privateKey":
+                // "075754fb099a55e351fe87c68a73951836343865cd52c78ae4c0f6f48e234f3601",
                 // "btcAddress": "n2ZGZ7Zau2Ca8CLHGh11YRnLw93b4ufsDR",
                 address: "ST3KCNDSWZSFZCC6BE4VA9AXWXC9KEB16FBTRK36T".to_string(),
                 amount: 10000000000000000,
             },
             InitialBalanceFile {
-                // "mnemonic": "level garlic bean design maximum inhale daring alert case worry gift frequent floor utility crowd twenty burger place time fashion slow produce column prepare",
-                // "privateKey": "374b6734eaff979818c5f1367331c685459b03b1a2053310906d1408dc928a0001",
+                // "mnemonic": "level garlic bean design maximum inhale daring alert case worry gift
+                // frequent floor utility crowd twenty burger place time fashion slow produce column
+                // prepare", "privateKey":
+                // "374b6734eaff979818c5f1367331c685459b03b1a2053310906d1408dc928a0001",
                 // "btcAddress": "mhY4cbHAFoXNYvXdt82yobvVuvR6PHeghf",
                 address: "STB2BWB0K5XZGS3FXVTG3TKS46CQVV66NAK3YVN8".to_string(),
                 amount: 10000000000000000,
             },
             InitialBalanceFile {
-                // "mnemonic": "drop guess similar uphold alarm remove fossil riot leaf badge lobster ability mesh parent lawn today student olympic model assault syrup end scorpion lab",
-                // "privateKey": "26f235698d02803955b7418842affbee600fc308936a7ca48bf5778d1ceef9df01",
+                // "mnemonic": "drop guess similar uphold alarm remove fossil riot leaf badge
+                // lobster ability mesh parent lawn today student olympic model assault syrup end
+                // scorpion lab", "privateKey":
+                // "26f235698d02803955b7418842affbee600fc308936a7ca48bf5778d1ceef9df01",
                 // "btcAddress": "mkEDDqbELrKYGUmUbTAyQnmBAEz4V1MAro",
                 address: "STSTW15D618BSZQB85R058DS46THH86YQQY6XCB7".to_string(),
                 amount: 10000000000000000,
@@ -370,7 +386,8 @@ impl Config {
     }
 
     /// get the up-to-date miner options from the config
-    /// If the config can't be loaded for some reason, then return the existing config
+    /// If the config can't be loaded for some reason, then return the existing
+    /// config
     pub fn get_miner_config(&self) -> MinerConfig {
         let Some(path) = &self.config_path else {
             return self.miner.clone();
@@ -520,7 +537,8 @@ impl Config {
             burnchain.pox_constants.sunset_end = sunset_end.into();
         }
 
-        // check if the Epoch 3.0 burnchain settings as configured are going to be valid.
+        // check if the Epoch 3.0 burnchain settings as configured are going to be
+        // valid.
         self.check_nakamoto_config(burnchain);
     }
 
@@ -576,8 +594,8 @@ impl Config {
 
     /// Load up a Burnchain and apply config settings to it.
     /// Use this over the Burnchain constructors.
-    /// Panics if we are unable to instantiate a burnchain (e.g. becase we're using an unrecognized
-    /// chain ID or something).
+    /// Panics if we are unable to instantiate a burnchain (e.g. becase we're
+    /// using an unrecognized chain ID or something).
     pub fn get_burnchain(&self) -> Burnchain {
         let (network_name, _) = self.burnchain.get_bitcoin_network();
         let mut burnchain = {
@@ -594,8 +612,8 @@ impl Config {
         burnchain
     }
 
-    /// Assert that a burnchain's PoX constants are consistent with the list of epoch start and end
-    /// heights.  Panics if this is not the case.
+    /// Assert that a burnchain's PoX constants are consistent with the list of
+    /// epoch start and end heights.  Panics if this is not the case.
     pub fn assert_valid_epoch_settings(burnchain: &Burnchain, epochs: &[StacksEpoch]) {
         // sanity check: epochs must be contiguous and ordered
         // (this panics if it's not the case)
@@ -621,8 +639,8 @@ impl Config {
             .expect("FATAL: v1 unlock height is before the first burnchain block");
 
         if epoch21_rc + 1 == v1_unlock_rc {
-            // if v1_unlock_height is in the reward cycle after epoch_21, then it must not fall on
-            // the reward cycle boundary.
+            // if v1_unlock_height is in the reward cycle after epoch_21, then it must not
+            // fall on the reward cycle boundary.
             assert!(
                 !burnchain.is_reward_cycle_start(v1_unlock_height),
                 "FATAL: v1 unlock height is at a reward cycle boundary\nburnchain: {burnchain:?}"
@@ -968,7 +986,8 @@ impl Config {
         path
     }
 
-    /// Returns the path `{get_chainstate_path()}/estimates`, and ensures it exists.
+    /// Returns the path `{get_chainstate_path()}/estimates`, and ensures it
+    /// exists.
     pub fn get_estimates_path(&self) -> PathBuf {
         let mut path = self.get_chainstate_path();
         path.push("estimates");
@@ -1135,9 +1154,10 @@ impl Config {
 
     /// Determine how long the p2p state machine should poll for.
     /// If the node is not mining, then use a default value.
-    /// If the node is mining, however, then at the time of this writing, the miner's latency is in
-    /// part dependent on the state machine getting block data back to the miner quickly, and thus
-    /// the poll time is dependent on the first attempt time.
+    /// If the node is mining, however, then at the time of this writing, the
+    /// miner's latency is in part dependent on the state machine getting
+    /// block data back to the miner quickly, and thus the poll time is
+    /// dependent on the first attempt time.
     pub fn get_poll_time(&self) -> u64 {
         if self.node.miner {
             cmp::min(1000, self.miner.first_attempt_time_ms / 2)
@@ -1198,8 +1218,8 @@ pub struct BurnchainConfig {
     pub first_burn_block_height: Option<u64>,
     pub first_burn_block_timestamp: Option<u32>,
     pub first_burn_block_hash: Option<String>,
-    /// Custom override for the definitions of the epochs. This will only be applied for testnet and
-    /// regtest nodes.
+    /// Custom override for the definitions of the epochs. This will only be
+    /// applied for testnet and regtest nodes.
     pub epochs: Option<EpochList<ExecutionCost>>,
     pub pox_2_activation: Option<u32>,
     pub pox_reward_length: Option<u32>,
@@ -1362,9 +1382,13 @@ pub struct BurnchainConfigFile {
 impl BurnchainConfigFile {
     /// Add affirmation overrides required to sync Xenon Testnet node.
     ///
-    /// The Xenon Testnet Stacks 2.4 activation height occurred before the finalized SIP-024 updates and release of the stacks-node versioned 2.4.0.0.0.
-    /// This caused the Stacks Xenon testnet to undergo a deep reorg when 2.4.0.0.0 was finalized. This deep reorg meant that 3 reward cycles were
-    /// invalidated, which requires overrides in the affirmation map to continue correct operation. Those overrides are required for cycles 413, 414, and 415.
+    /// The Xenon Testnet Stacks 2.4 activation height occurred before the
+    /// finalized SIP-024 updates and release of the stacks-node versioned
+    /// 2.4.0.0.0. This caused the Stacks Xenon testnet to undergo a deep
+    /// reorg when 2.4.0.0.0 was finalized. This deep reorg meant that 3 reward
+    /// cycles were invalidated, which requires overrides in the affirmation
+    /// map to continue correct operation. Those overrides are required for
+    /// cycles 413, 414, and 415.
     pub fn add_affirmation_overrides_xenon(&mut self) {
         let mut default_overrides = vec![
         AffirmationOverride {
@@ -1637,12 +1661,15 @@ pub struct NodeConfig {
     pub max_microblocks: u64,
     pub wait_time_for_microblocks: u64,
     pub wait_time_for_blocks: u64,
-    /// Controls how frequently, in milliseconds, the nakamoto miner's relay thread acts on its own initiative
-    /// (as opposed to responding to an event from the networking thread, etc.). This is roughly
-    /// how frequently the miner checks if a new burnchain block has been processed.
+    /// Controls how frequently, in milliseconds, the nakamoto miner's relay
+    /// thread acts on its own initiative (as opposed to responding to an
+    /// event from the networking thread, etc.). This is roughly
+    /// how frequently the miner checks if a new burnchain block has been
+    /// processed.
     ///
-    /// Default value of 10 seconds is reasonable in mainnet (where bitcoin blocks are ~10 minutes),
-    /// but environments where burn blocks are more frequent may want to decrease this value.
+    /// Default value of 10 seconds is reasonable in mainnet (where bitcoin
+    /// blocks are ~10 minutes), but environments where burn blocks are more
+    /// frequent may want to decrease this value.
     pub next_initiative_delay: u64,
     pub prometheus_bind: Option<String>,
     pub marf_cache_strategy: Option<String>,
@@ -1736,11 +1763,12 @@ pub struct FeeEstimationConfig {
     pub fee_estimator: Option<FeeEstimatorName>,
     pub cost_metric: Option<CostMetricName>,
     pub log_error: bool,
-    /// If using FeeRateFuzzer, the amount of random noise, as a percentage of the base value (in
-    /// [0, 1]) to add for fuzz. See comments on FeeRateFuzzer.
+    /// If using FeeRateFuzzer, the amount of random noise, as a percentage of
+    /// the base value (in [0, 1]) to add for fuzz. See comments on
+    /// FeeRateFuzzer.
     pub fee_rate_fuzzer_fraction: f64,
-    /// If using WeightedMedianFeeRateEstimator, the window size to use. See comments on
-    /// WeightedMedianFeeRateEstimator.
+    /// If using WeightedMedianFeeRateEstimator, the window size to use. See
+    /// comments on WeightedMedianFeeRateEstimator.
     pub fee_rate_window_size: u64,
 }
 
@@ -1945,7 +1973,8 @@ impl Default for NodeConfig {
 }
 
 impl NodeConfig {
-    /// Get a SocketAddr for this node's RPC endpoint which uses the loopback address
+    /// Get a SocketAddr for this node's RPC endpoint which uses the loopback
+    /// address
     pub fn get_rpc_loopback(&self) -> Option<SocketAddr> {
         let rpc_port = SocketAddr::from_str(&self.rpc_bind)
             .map_err(|e| {
@@ -2102,56 +2131,68 @@ pub struct MinerConfig {
     /// If possible, mine with a p2wpkh address
     pub segwit: bool,
     /// Wait for a downloader pass before mining.
-    /// This can only be disabled in testing; it can't be changed in the config file.
+    /// This can only be disabled in testing; it can't be changed in the config
+    /// file.
     pub wait_for_block_download: bool,
     pub nonce_cache_size: u64,
     pub candidate_retry_cache_size: u64,
     pub unprocessed_block_deadline_secs: u64,
     pub mining_key: Option<Secp256k1PrivateKey>,
-    /// Amount of time while mining in nakamoto to wait in between mining interim blocks
+    /// Amount of time while mining in nakamoto to wait in between mining
+    /// interim blocks
     pub wait_on_interim_blocks: Duration,
-    /// minimum number of transactions that must be in a block if we're going to replace a pending
-    /// block-commit with a new block-commit
+    /// minimum number of transactions that must be in a block if we're going to
+    /// replace a pending block-commit with a new block-commit
     pub min_tx_count: u64,
     /// Only allow a block's tx count to increase across RBFs.
     pub only_increase_tx_count: bool,
-    /// Path to a script that prints out all unconfirmed block-commits for a list of addresses
+    /// Path to a script that prints out all unconfirmed block-commits for a
+    /// list of addresses
     pub unconfirmed_commits_helper: Option<String>,
-    /// Targeted win probability for this miner.  Used to deduce when to stop trying to mine.
+    /// Targeted win probability for this miner.  Used to deduce when to stop
+    /// trying to mine.
     pub target_win_probability: f64,
-    /// Path to a serialized RegisteredKey struct, which points to an already-registered VRF key
-    /// (so we don't have to go make a new one)
+    /// Path to a serialized RegisteredKey struct, which points to an
+    /// already-registered VRF key (so we don't have to go make a new one)
     pub activated_vrf_key_path: Option<String>,
-    /// When estimating win probability, whether or not to use the assumed win rate 6+ blocks from
-    /// now (true), or the current win rate (false)
+    /// When estimating win probability, whether or not to use the assumed win
+    /// rate 6+ blocks from now (true), or the current win rate (false)
     pub fast_rampup: bool,
-    /// Number of Bitcoin blocks which must pass where the boostes+neutrals are a minority, at which
-    /// point the miner will stop trying.
+    /// Number of Bitcoin blocks which must pass where the boostes+neutrals are
+    /// a minority, at which point the miner will stop trying.
     pub underperform_stop_threshold: Option<u64>,
-    /// Kinds of transactions to consider from the mempool.  This is used by boosted and neutral
-    /// miners to push past averse fee estimations.
+    /// Kinds of transactions to consider from the mempool.  This is used by
+    /// boosted and neutral miners to push past averse fee estimations.
     pub txs_to_consider: HashSet<MemPoolWalkTxTypes>,
-    /// Origin addresses to whitelist when doing a mempool walk.  This is used by boosted and
-    /// neutral miners to push transactions through that are important to them.
+    /// Origin addresses to whitelist when doing a mempool walk.  This is used
+    /// by boosted and neutral miners to push transactions through that are
+    /// important to them.
     pub filter_origins: HashSet<StacksAddress>,
-    /// When selecting the "nicest" tip, do not consider tips that are more than this many blocks
-    /// behind the highest tip.
+    /// When selecting the "nicest" tip, do not consider tips that are more than
+    /// this many blocks behind the highest tip.
     pub max_reorg_depth: u64,
-    /// Whether to mock sign in Epoch 2.5 through the .miners and .signers contracts. This is used for testing purposes in Epoch 2.5 only.
+    /// Whether to mock sign in Epoch 2.5 through the .miners and .signers
+    /// contracts. This is used for testing purposes in Epoch 2.5 only.
     pub pre_nakamoto_mock_signing: bool,
-    /// The minimum time to wait between mining blocks in milliseconds. The value must be greater than or equal to 1000 ms because if a block is mined
-    /// within the same second as its parent, it will be rejected by the signers.
+    /// The minimum time to wait between mining blocks in milliseconds. The
+    /// value must be greater than or equal to 1000 ms because if a block is
+    /// mined within the same second as its parent, it will be rejected by
+    /// the signers.
     pub min_time_between_blocks_ms: u64,
-    /// Time in milliseconds to pause after receiving the first threshold rejection, before proposing a new block.
+    /// Time in milliseconds to pause after receiving the first threshold
+    /// rejection, before proposing a new block.
     pub first_rejection_pause_ms: u64,
-    /// Time in milliseconds to pause after receiving subsequent threshold rejections, before proposing a new block.
+    /// Time in milliseconds to pause after receiving subsequent threshold
+    /// rejections, before proposing a new block.
     pub subsequent_rejection_pause_ms: u64,
-    /// Duration to wait for a Nakamoto block after seeing a burnchain block before submitting a block commit.
+    /// Duration to wait for a Nakamoto block after seeing a burnchain block
+    /// before submitting a block commit.
     pub block_commit_delay: Duration,
     /// The percentage of the remaining tenure cost limit to consume each block.
     pub tenure_cost_limit_per_block_percentage: Option<u8>,
-    /// The number of seconds to wait in-between polling the sortition DB to see if we need to
-    /// extend the ongoing tenure (e.g. because the current sortition is empty or invalid).
+    /// The number of seconds to wait in-between polling the sortition DB to see
+    /// if we need to extend the ongoing tenure (e.g. because the current
+    /// sortition is empty or invalid).
     pub tenure_extend_poll_secs: Duration,
     /// Duration to wait before attempting to issue a tenure extend
     pub tenure_timeout: Duration,
@@ -3243,7 +3284,8 @@ mod tests {
             false,
         )
         .expect("Expected to be able to parse affirmation map from file");
-        // Should default add xenon affirmation overrides, but overwrite with the configured one above
+        // Should default add xenon affirmation overrides, but overwrite with the
+        // configured one above
         assert_eq!(config.burnchain.affirmation_overrides.len(), 5);
         assert_eq!(config.burnchain.affirmation_overrides[&413], affirmation);
     }
@@ -3261,7 +3303,8 @@ mod tests {
         }
         let default_burnchain_config = BurnchainConfig::default();
 
-        // **Case 1a:** Should panic when `is_mainnet` is true and `chain_id` != `CHAIN_ID_MAINNET`
+        // **Case 1a:** Should panic when `is_mainnet` is true and `chain_id` !=
+        // `CHAIN_ID_MAINNET`
         {
             let config_file = make_burnchain_config_file(true, Some(CHAIN_ID_TESTNET));
 
@@ -3273,7 +3316,8 @@ mod tests {
             );
         }
 
-        // **Case 1b:** Should not panic when `is_mainnet` is true and `chain_id` == `CHAIN_ID_MAINNET`
+        // **Case 1b:** Should not panic when `is_mainnet` is true and `chain_id` ==
+        // `CHAIN_ID_MAINNET`
         {
             let config_file = make_burnchain_config_file(true, Some(CHAIN_ID_MAINNET));
 
@@ -3283,7 +3327,8 @@ mod tests {
             assert_eq!(config.chain_id, CHAIN_ID_MAINNET);
         }
 
-        // **Case 1c:** Should not panic when `is_mainnet` is false; chain_id should be as provided
+        // **Case 1c:** Should not panic when `is_mainnet` is false; chain_id should be
+        // as provided
         {
             let chain_id = 123456;
             let config_file = make_burnchain_config_file(false, Some(chain_id));
@@ -3294,7 +3339,8 @@ mod tests {
             assert_eq!(config.chain_id, chain_id);
         }
 
-        // **Case 2a:** Should not panic when `chain_id` is None and `is_mainnet` is true
+        // **Case 2a:** Should not panic when `chain_id` is None and `is_mainnet` is
+        // true
         {
             let config_file = make_burnchain_config_file(true, None);
 
@@ -3304,7 +3350,8 @@ mod tests {
             assert_eq!(config.chain_id, CHAIN_ID_MAINNET);
         }
 
-        // **Case 2b:** Should not panic when `chain_id` is None and `is_mainnet` is false
+        // **Case 2b:** Should not panic when `chain_id` is None and `is_mainnet` is
+        // false
         {
             let config_file = make_burnchain_config_file(false, None);
 

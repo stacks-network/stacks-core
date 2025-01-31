@@ -74,11 +74,16 @@ use crate::net::{Error as net_error, Neighbor, NeighborKey, *};
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
 
-/// inter-thread request to send a p2p message from another thread in this program.
+/// inter-thread request to send a p2p message from another thread in this
+/// program.
 #[derive(Debug)]
 pub enum NetworkRequest {
     Ban(Vec<NeighborKey>),
-    AdvertizeBlocks(BlocksAvailableMap, HashMap<ConsensusHash, StacksBlock>), // announce to all wanting neighbors that we have these blocks
+    AdvertizeBlocks(BlocksAvailableMap, HashMap<ConsensusHash, StacksBlock>), /* announce to
+                                                                               * all wanting
+                                                                               * neighbors that
+                                                                               * we have these
+                                                                               * blocks */
     AdvertizeMicroblocks(
         BlocksAvailableMap,
         HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
@@ -88,9 +93,10 @@ pub enum NetworkRequest {
 }
 
 /// Handle for other threads to use to issue p2p network requests.
-/// The "main loop" for sending/receiving data is a select/poll loop, and runs outside of other
-/// threads that need a synchronous RPC or a multi-RPC interface.  This object gives those threads
-/// a way to issue commands and hear back replies from them.
+/// The "main loop" for sending/receiving data is a select/poll loop, and runs
+/// outside of other threads that need a synchronous RPC or a multi-RPC
+/// interface.  This object gives those threads a way to issue commands and hear
+/// back replies from them.
 #[derive(Clone)]
 pub struct NetworkHandle {
     chan_in: SyncSender<NetworkRequest>,
@@ -108,8 +114,8 @@ impl NetworkHandle {
         NetworkHandle { chan_in }
     }
 
-    /// Send out a command to the p2p thread.  Do not bother waiting for the response.
-    /// Error out if the channel buffer is out of space
+    /// Send out a command to the p2p thread.  Do not bother waiting for the
+    /// response. Error out if the channel buffer is out of space
     fn send_request(&mut self, req: NetworkRequest) -> Result<(), net_error> {
         match self.chan_in.try_send(req) {
             Ok(_) => Ok(()),
@@ -150,8 +156,8 @@ impl NetworkHandle {
         self.send_request(req)
     }
 
-    /// Relay a message to a peer via the p2p network thread, expecting no reply.
-    /// Called from outside the p2p thread by other threads.
+    /// Relay a message to a peer via the p2p network thread, expecting no
+    /// reply. Called from outside the p2p thread by other threads.
     pub fn relay_signed_message(
         &mut self,
         neighbor_key: NeighborKey,
@@ -288,15 +294,17 @@ pub struct PeerNetwork {
     pub chain_view_stable_consensus_hash: ConsensusHash,
     pub ast_rules: ASTRules,
 
-    /// Current Stacks tip -- the highest block's consensus hash, block hash, and height
+    /// Current Stacks tip -- the highest block's consensus hash, block hash,
+    /// and height
     pub stacks_tip: StacksTipInfo,
-    /// Parent tenure Stacks tip -- the last block in the current tip's parent tenure.
-    /// In epoch 2.x, this is the parent block.
+    /// Parent tenure Stacks tip -- the last block in the current tip's parent
+    /// tenure. In epoch 2.x, this is the parent block.
     /// In nakamoto, this is the last block in the parent tenure
     pub parent_stacks_tip: StacksTipInfo,
     /// The block id of the first block in this tenure.
     /// In epoch 2.x, this is the same as the tip block ID
-    /// In nakamoto, this is the block ID of the first block in the current tenure
+    /// In nakamoto, this is the block ID of the first block in the current
+    /// tenure
     pub tenure_start_block_id: StacksBlockId,
     /// The reward sets of the past three reward cycles.
     /// Needed to validate blocks, which are signed by a threshold of stackers
@@ -358,7 +366,12 @@ pub struct PeerNetwork {
     pub walk_retries: u64,
     pub walk_resets: u64,
     pub walk_total_step_count: u64,
-    pub walk_pingbacks: HashMap<NeighborAddress, NeighborPingback>, // inbound peers for us to try to ping back and add to our frontier, mapped to (peer_version, network_id, timeout, pubkey)
+    pub walk_pingbacks: HashMap<NeighborAddress, NeighborPingback>, /* inbound peers for us to
+                                                                     * try to ping back and add
+                                                                     * to our frontier, mapped
+                                                                     * to (peer_version,
+                                                                     * network_id, timeout,
+                                                                     * pubkey) */
     pub walk_result: NeighborWalkResult, // last successful neighbor walk result
 
     /// last time we logged neigbhors
@@ -406,7 +419,8 @@ pub struct PeerNetwork {
 
     // our public IP address that we give out in our handshakes
     pub public_ip_learned: bool, // was the IP address given to us, or did we have to go learn it?
-    pub public_ip_confirmed: bool, // once we learned the IP address, were we able to confirm it by self-connecting?
+    pub public_ip_confirmed: bool, /* once we learned the IP address, were we able to confirm it
+                                  * by self-connecting? */
     public_ip_requested_at: u64,
     public_ip_learned_at: u64,
     public_ip_reply_handle: Option<ReplyHandleP2P>,
@@ -430,20 +444,20 @@ pub struct PeerNetwork {
     antientropy_start_reward_cycle: u64,
     pub antientropy_last_push_ts: u64,
 
-    /// Pending messages (BlocksAvailable, MicroblocksAvailable, BlocksData, Microblocks,
-    /// NakamotoBlocks) that we can't process yet, but might be able to process on a subsequent
-    /// burnchain view update.
+    /// Pending messages (BlocksAvailable, MicroblocksAvailable, BlocksData,
+    /// Microblocks, NakamotoBlocks) that we can't process yet, but might be
+    /// able to process on a subsequent burnchain view update.
     pub pending_messages: PendingMessages,
 
-    /// Pending messages (StackerDBPushChunk) that we can't process yet, but might be able
-    /// to process on a subsequent Stacks view update
+    /// Pending messages (StackerDBPushChunk) that we can't process yet, but
+    /// might be able to process on a subsequent Stacks view update
     pub pending_stacks_messages: PendingMessages,
 
     // fault injection -- force disconnects
     fault_last_disconnect: u64,
 
-    /// Nakamoto-specific cache for sortition and tenure data, for the purposes of generating
-    /// tenure inventories
+    /// Nakamoto-specific cache for sortition and tenure data, for the purposes
+    /// of generating tenure inventories
     pub nakamoto_inv_generator: InvGenerator,
 
     /// Thread handle for the async block proposal endpoint.
@@ -650,8 +664,8 @@ impl PeerNetwork {
     }
 
     /// Do something with the HTTP peer.
-    /// NOTE: the HTTP peer is *always* instantiated; it's just an Option<..> so its methods can
-    /// receive a ref to the PeerNetwork that contains it.
+    /// NOTE: the HTTP peer is *always* instantiated; it's just an Option<..> so
+    /// its methods can receive a ref to the PeerNetwork that contains it.
     pub fn with_http<F, R>(network: &mut PeerNetwork, to_do: F) -> R
     where
         F: FnOnce(&mut PeerNetwork, &mut HttpPeer) -> R,
@@ -714,7 +728,8 @@ impl PeerNetwork {
         self.bind(my_addr, http_addr).map(|()| true)
     }
 
-    /// Get bound neighbor key. This is how this PeerNetwork appears to other nodes.
+    /// Get bound neighbor key. This is how this PeerNetwork appears to other
+    /// nodes.
     pub fn bound_neighbor_key(&self) -> &NeighborKey {
         &self.bind_nk
     }
@@ -893,7 +908,8 @@ impl PeerNetwork {
         res
     }
 
-    /// Create a network handle for another thread to use to communicate with remote peers
+    /// Create a network handle for another thread to use to communicate with
+    /// remote peers
     pub fn new_handle(&mut self, bufsz: usize) -> NetworkHandle {
         let (server, client) = NetworkHandleServer::pair(bufsz);
         self.handles.push_back(server);
@@ -902,13 +918,16 @@ impl PeerNetwork {
 
     /// Saturate a socket with bufferred data in the p2p conversation.
     /// The caller fills the reply handle with the serialized message, and this
-    /// function (1) pushes it into the conversation's inner connection's outbox,
-    /// and (2) buffers and writes as much as it can into the `client_sock`.
+    /// function (1) pushes it into the conversation's inner connection's
+    /// outbox, and (2) buffers and writes as much as it can into the
+    /// `client_sock`.
     ///
-    /// Importantly, the conversation struct flushes data into the socket in outbox-sequential
-    /// order.  This means that there's no risk of the caller calling this while the `convo` is in
-    /// the middle of sending another message -- the `convo` won't send the `handle`'s bytes until
-    /// the `handle'`s other end (within the `convo`'s inner connection) is up for transmission.
+    /// Importantly, the conversation struct flushes data into the socket in
+    /// outbox-sequential order.  This means that there's no risk of the
+    /// caller calling this while the `convo` is in the middle of sending
+    /// another message -- the `convo` won't send the `handle`'s bytes until
+    /// the `handle'`s other end (within the `convo`'s inner connection) is up
+    /// for transmission.
     ///
     /// Return (number of bytes sent, whether or not there's more to send)
     fn do_saturate_p2p_socket(
@@ -974,8 +993,8 @@ impl PeerNetwork {
     }
 
     /// Send a message to a peer.
-    /// Non-blocking -- caller has to call .try_flush() or .flush() on the resulting handle to make sure the data is
-    /// actually sent.
+    /// Non-blocking -- caller has to call .try_flush() or .flush() on the
+    /// resulting handle to make sure the data is actually sent.
     pub fn send_neighbor_message(
         &mut self,
         neighbor_key: &NeighborKey,
@@ -1001,8 +1020,8 @@ impl PeerNetwork {
     }
 
     /// Relay a signed message to a peer.
-    /// The peer network will take care of sending the data; no need to deal with a reply handle.
-    /// Called from _within_ the p2p thread.
+    /// The peer network will take care of sending the data; no need to deal
+    /// with a reply handle. Called from _within_ the p2p thread.
     pub fn relay_signed_message(
         &mut self,
         neighbor_key: &NeighborKey,
@@ -1038,8 +1057,8 @@ impl PeerNetwork {
     }
 
     /// Broadcast a message to a list of neighbors.
-    /// Neighbors in the `relay_hints` vec will *not* receive data, since they were the one(s) that
-    /// sent this peer the message in the first place.
+    /// Neighbors in the `relay_hints` vec will *not* receive data, since they
+    /// were the one(s) that sent this peer the message in the first place.
     pub fn broadcast_message(
         &mut self,
         neighbor_keys: Vec<NeighborKey>,
@@ -1181,8 +1200,8 @@ impl PeerNetwork {
 
     /// Connect to a peer, optionally checking our deny information.
     /// Idempotent -- will not re-connect if already connected.
-    /// It will, however, permit multiple connection attempts if none have yet connected.
-    /// Fails if the peer is denied.
+    /// It will, however, permit multiple connection attempts if none have yet
+    /// connected. Fails if the peer is denied.
     fn connect_peer_deny_checks(
         &mut self,
         neighbor: &NeighborKey,
@@ -1250,9 +1269,10 @@ impl PeerNetwork {
         Ok(next_event_id)
     }
 
-    /// Given a list of neighbors keys, find the _set_ of neighbor keys that represent unique
-    /// connections.  This is used by the broadcast logic to ensure that we only send a message to
-    /// a peer once, even if we have both an inbound and outbound connection to it.
+    /// Given a list of neighbors keys, find the _set_ of neighbor keys that
+    /// represent unique connections.  This is used by the broadcast logic
+    /// to ensure that we only send a message to a peer once, even if we
+    /// have both an inbound and outbound connection to it.
     fn coalesce_neighbors(&self, neighbors: Vec<NeighborKey>) -> Vec<NeighborKey> {
         let mut seen = HashSet::new();
         let mut unique = HashSet::new();
@@ -1281,9 +1301,10 @@ impl PeerNetwork {
     /// Up to MAX_BROADCAST_OUTBOUND_PEERS outbound connections will be used.
     /// Up to MAX_BROADCAST_INBOUND_PEERS inbound connections will be used.
     /// The outbound will be sampled according to their AS distribution
-    /// The inbound will be sampled according to how rarely they send duplicate messages.
-    /// The final set of message recipients will be coalesced -- if we have an inbound and outbound
-    /// connection to the same neighbor, only one connection will be used.
+    /// The inbound will be sampled according to how rarely they send duplicate
+    /// messages. The final set of message recipients will be coalesced --
+    /// if we have an inbound and outbound connection to the same neighbor,
+    /// only one connection will be used.
     fn sample_broadcast_peers<R: RelayPayload>(
         &self,
         relay_hints: &[RelayData],
@@ -1514,7 +1535,8 @@ impl PeerNetwork {
         }
     }
 
-    /// Process ban requests.  Update the deny in the peer database.  Return the vec of event IDs to disconnect from.
+    /// Process ban requests.  Update the deny in the peer database.  Return the
+    /// vec of event IDs to disconnect from.
     fn process_bans(&mut self) -> Result<Vec<usize>, net_error> {
         if cfg!(test) && self.connection_opts.disable_network_bans {
             return Ok(vec![]);
@@ -1660,7 +1682,8 @@ impl PeerNetwork {
             .is_some()
     }
 
-    /// Is this neighbor key the same as the one that represents our p2p bind address?
+    /// Is this neighbor key the same as the one that represents our p2p bind
+    /// address?
     pub fn is_bound(&self, neighbor_key: &NeighborKey) -> bool {
         self.bind_nk.network_id == neighbor_key.network_id
             && self.bind_nk.addrbytes == neighbor_key.addrbytes
@@ -1728,7 +1751,8 @@ impl PeerNetwork {
         Ok(())
     }
 
-    /// Check to see if we can register a peer with a given public key in a given direction
+    /// Check to see if we can register a peer with a given public key in a
+    /// given direction
     pub fn can_register_peer_with_pubkey(
         &mut self,
         nk: &NeighborKey,
@@ -1762,11 +1786,13 @@ impl PeerNetwork {
         })
     }
 
-    /// Low-level method to register a socket/event pair on the p2p network interface.
-    /// Call only once the socket is registered with the underlying poller (so we can detect
-    /// connection events).  If this method fails for some reason, it'll de-register the socket
+    /// Low-level method to register a socket/event pair on the p2p network
+    /// interface. Call only once the socket is registered with the
+    /// underlying poller (so we can detect connection events).  If this
+    /// method fails for some reason, it'll de-register the socket
     /// from the poller.
-    /// outbound is true if we are the peer that started the connection (otherwise it's false)
+    /// outbound is true if we are the peer that started the connection
+    /// (otherwise it's false)
     fn register_peer(
         &mut self,
         event_id: usize,
@@ -1794,11 +1820,12 @@ impl PeerNetwork {
             }
         };
 
-        // NOTE: the neighbor_key will have the same network_id as the remote peer, and the same
-        // major version number in the peer_version.  The chat logic won't accept any messages for
-        // which this is not true.  Comparison and Hashing are defined for neighbor keys
-        // appropriately, so it's okay for us to use self.peer_version and
-        // self.local_peer.network_id here for the remote peer's neighbor key.
+        // NOTE: the neighbor_key will have the same network_id as the remote peer, and
+        // the same major version number in the peer_version.  The chat logic
+        // won't accept any messages for which this is not true.  Comparison and
+        // Hashing are defined for neighbor keys appropriately, so it's okay for
+        // us to use self.peer_version and self.local_peer.network_id here for
+        // the remote peer's neighbor key.
         let (pubkey_opt, neighbor_key) = match neighbor_opt {
             Some(neighbor) => (Some(neighbor.public_key.clone()), neighbor.addr),
             None => (
@@ -1980,8 +2007,8 @@ impl PeerNetwork {
         self.deregister_neighbor(neighbor);
     }
 
-    /// Sign a p2p message to be sent to a particular neighbor we're having a conversation with.
-    /// The neighbor must already be connected.
+    /// Sign a p2p message to be sent to a particular neighbor we're having a
+    /// conversation with. The neighbor must already be connected.
     pub fn sign_for_neighbor(
         &mut self,
         peer_key: &NeighborKey,
@@ -2015,8 +2042,9 @@ impl PeerNetwork {
     }
 
     /// Sign a p2p message to be sent on a particular ongoing conversation,
-    /// which also happens to be a reply to a request.  So, make sure the sequence number in the
-    /// response's preamble matches the request's preamble.
+    /// which also happens to be a reply to a request.  So, make sure the
+    /// sequence number in the response's preamble matches the request's
+    /// preamble.
     pub fn sign_for_p2p_reply(
         &mut self,
         event_id: usize,
@@ -2092,15 +2120,15 @@ impl PeerNetwork {
     }
 
     /// Run some code with a p2p convo and its socket.
-    /// Importantly, there will be no refs between the network and the convo and socket,
-    /// so `todo` can take a mutable ref to the PeerNetwork
+    /// Importantly, there will be no refs between the network and the convo and
+    /// socket, so `todo` can take a mutable ref to the PeerNetwork
     fn with_p2p_convo<F, R>(&mut self, event_id: usize, todo: F) -> Result<R, net_error>
     where
         F: FnOnce(&mut PeerNetwork, &mut ConversationP2P, &mut mio_net::TcpStream) -> R,
     {
         // "check out" the conversation and client socket.
-        // If one of them is missing, then "check in" the other so we can properly deregister the
-        // peer later.
+        // If one of them is missing, then "check in" the other so we can properly
+        // deregister the peer later.
         let (mut convo, mut client_sock) =
             match (self.peers.remove(&event_id), self.sockets.remove(&event_id)) {
                 (Some(convo), Some(sock)) => (convo, sock),
@@ -2133,7 +2161,8 @@ impl PeerNetwork {
     }
 
     /// Process network traffic on a p2p conversation.
-    /// Returns list of unhandled messages, and whether or not the convo is still alive.
+    /// Returns list of unhandled messages, and whether or not the convo is
+    /// still alive.
     fn process_p2p_conversation(
         &mut self,
         event_id: usize,
@@ -2169,9 +2198,10 @@ impl PeerNetwork {
                 convo_dead = true;
             }
 
-            // react to inbound messages -- do we need to send something out, or fulfill requests
-            // to other threads?  Try to chat even if the recv() failed, since we'll want to at
-            // least drain the conversation inbox.
+            // react to inbound messages -- do we need to send something out, or fulfill
+            // requests to other threads?  Try to chat even if the recv()
+            // failed, since we'll want to at least drain the conversation
+            // inbox.
             let unhandled = match convo.chat(network, sortdb, chainstate, dns_client_opt, ibd) {
                 Err(e) => {
                     debug!(
@@ -2185,8 +2215,8 @@ impl PeerNetwork {
             };
 
             if !convo_dead {
-                // (continue) sending out data in this conversation, if the conversation is still
-                // ongoing
+                // (continue) sending out data in this conversation, if the conversation is
+                // still ongoing
                 if let Err(e) = convo.send(client_sock) {
                     debug!(
                         "Failed to send data to event {} (socket {:?}): {:?}",
@@ -2222,10 +2252,10 @@ impl PeerNetwork {
         }
     }
 
-    /// Process sockets that are ready, but specifically inbound or outbound only.
-    /// Advance the state of all such conversations with remote peers.
-    /// Return the list of events that correspond to failed conversations, as well as the set of
-    /// unhandled messages grouped by event_id.
+    /// Process sockets that are ready, but specifically inbound or outbound
+    /// only. Advance the state of all such conversations with remote peers.
+    /// Return the list of events that correspond to failed conversations, as
+    /// well as the set of unhandled messages grouped by event_id.
     fn process_ready_sockets(
         &mut self,
         sortdb: &SortitionDB,
@@ -2307,8 +2337,8 @@ impl PeerNetwork {
         self.walk_result = walk_result;
     }
 
-    /// Queue up pings to everyone we haven't spoken to in a while to let them know that we're still
-    /// alive.
+    /// Queue up pings to everyone we haven't spoken to in a while to let them
+    /// know that we're still alive.
     pub fn queue_ping_heartbeats(&mut self) {
         let now = get_epoch_time_secs();
         let mut relay_handles = HashMap::new();
@@ -2450,24 +2480,24 @@ impl PeerNetwork {
                 safe.insert(*event_id);
             }
 
-            // if we're in the middle of a peer walk, then don't prune any outbound connections it established
-            // (yet)
+            // if we're in the middle of a peer walk, then don't prune any outbound
+            // connections it established (yet)
             if let Some(walk) = self.walk.as_ref() {
                 if walk.get_pinned_connections().contains(event_id) {
                     safe.insert(*event_id);
                 }
             }
 
-            // if we're in the middle of epoch2 inv sync, then don't prune any connections it
-            // established
+            // if we're in the middle of epoch2 inv sync, then don't prune any connections
+            // it established
             if let Some(inv_state) = self.inv_state.as_ref() {
                 if inv_state.get_pinned_connections().contains(event_id) {
                     safe.insert(*event_id);
                 }
             }
 
-            // if we're in the middle of nakamoto inv sync, then don't prune any connections it
-            // established
+            // if we're in the middle of nakamoto inv sync, then don't prune any connections
+            // it established
             if let Some(nakamoto_inv) = self.inv_state_nakamoto.as_ref() {
                 if nakamoto_inv.get_pinned_connections().contains(event_id) {
                     safe.insert(*event_id);
@@ -3198,9 +3228,10 @@ impl PeerNetwork {
         }
     }
 
-    /// Push any blocks and microblock streams that we're holding onto out to our neighbors.
-    /// Start with the most-recently-arrived data, since this node is likely to have already
-    /// fetched older data via the block-downloader.
+    /// Push any blocks and microblock streams that we're holding onto out to
+    /// our neighbors. Start with the most-recently-arrived data, since this
+    /// node is likely to have already fetched older data via the
+    /// block-downloader.
     ///
     /// Only applicable to epoch 2.x state.
     fn try_push_local_data_epoch2x(&mut self, sortdb: &SortitionDB, chainstate: &StacksChainState) {
@@ -3517,10 +3548,11 @@ impl PeerNetwork {
             }
         }
 
-        // invalidate inventories at and after the affected reward cycles, so we're forced to go
-        // and re-download them (once our block has been received).  This prevents this code from
-        // DDoS'ing remote nodes to death with blocks over and over again, and it prevents this
-        // code from doing needless extra work for remote nodes that always report 0 for their
+        // invalidate inventories at and after the affected reward cycles, so we're
+        // forced to go and re-download them (once our block has been received).
+        // This prevents this code from DDoS'ing remote nodes to death with
+        // blocks over and over again, and it prevents this code from doing
+        // needless extra work for remote nodes that always report 0 for their
         // inventory statuses.
         for (nk, reward_cycle) in lowest_reward_cycle_with_missing_block.into_iter() {
             debug!(
@@ -3595,8 +3627,8 @@ impl PeerNetwork {
                 network_result,
             );
 
-            // in Nakamoto epoch, but we might still be doing epoch 2.x things since Nakamoto does
-            // not begin on a reward cycle boundary.
+            // in Nakamoto epoch, but we might still be doing epoch 2.x things since
+            // Nakamoto does not begin on a reward cycle boundary.
             if cur_epoch.epoch_id == StacksEpochId::Epoch30
                 && (self.burnchain_tip.block_height
                     <= cur_epoch.start_height
@@ -3621,7 +3653,8 @@ impl PeerNetwork {
                 );
                 epoch2_prune
             } else {
-                // we can always prune in Nakamoto, since all state machines pin their connections
+                // we can always prune in Nakamoto, since all state machines pin their
+                // connections
                 true
             }
         } else {
@@ -3673,7 +3706,8 @@ impl PeerNetwork {
 
         network_result.consume_nakamoto_blocks(new_blocks);
 
-        // make sure our public IP is fresh (this self-throttles if we recently learned it).
+        // make sure our public IP is fresh (this self-throttles if we recently learned
+        // it).
         if !self.connection_opts.disable_natpunch {
             self.do_get_public_ip();
         }
@@ -3703,9 +3737,10 @@ impl PeerNetwork {
         let mut did_cycle = false;
 
         while !did_cycle {
-            // Make the p2p state machine more aggressive about going and fetching newly-discovered
-            // blocks that it gets notified about.  That is, interrupt the state machine and go
-            // process the associated block download first.
+            // Make the p2p state machine more aggressive about going and fetching
+            // newly-discovered blocks that it gets notified about.  That is,
+            // interrupt the state machine and go process the associated block
+            // download first.
             if self.have_data_to_download && self.work_state == PeerNetworkWorkState::BlockInvSync {
                 self.have_data_to_download = false;
                 // forcibly advance
@@ -3895,9 +3930,10 @@ impl PeerNetwork {
         None
     }
 
-    /// Given an event ID, find the NeighborKey that corresponds to the outbound connection we have
-    /// to the peer the event ID references.  This checks both the conversation referenced by the
-    /// event ID, as well as the reciprocal conversation of the event ID.
+    /// Given an event ID, find the NeighborKey that corresponds to the outbound
+    /// connection we have to the peer the event ID references.  This checks
+    /// both the conversation referenced by the event ID, as well as the
+    /// reciprocal conversation of the event ID.
     pub fn find_outbound_neighbor(&self, event_id: usize) -> Option<NeighborKey> {
         let (is_authenticated, is_outbound, neighbor_key) = match self.peers.get(&event_id) {
             Some(convo) => (
@@ -3978,8 +4014,8 @@ impl PeerNetwork {
         ret
     }
 
-    /// Find inbound conversations that have authenticated, given a list of event ids to search
-    /// for.  Add them to our network pingbacks
+    /// Find inbound conversations that have authenticated, given a list of
+    /// event ids to search for.  Add them to our network pingbacks
     fn schedule_network_pingbacks(&mut self, event_ids: Vec<usize>) {
         if cfg!(test) && self.connection_opts.disable_pingbacks {
             debug!("{:?}: pingbacks are disabled for testing", &self.local_peer);
@@ -4071,8 +4107,8 @@ impl PeerNetwork {
         );
     }
 
-    /// Count up the number of inbound neighbors that have public IP addresses (i.e. that we have
-    /// outbound connections to) and report it.
+    /// Count up the number of inbound neighbors that have public IP addresses
+    /// (i.e. that we have outbound connections to) and report it.
     /// If we're NAT'ed, then this value will be 0.
     pub fn count_public_inbound(&self) -> usize {
         let mut num_public_inbound = 0;
@@ -4090,7 +4126,8 @@ impl PeerNetwork {
         num_public_inbound
     }
 
-    /// Do we need to call .run() again, shortly, to advance the downloader state?
+    /// Do we need to call .run() again, shortly, to advance the downloader
+    /// state?
     pub fn has_more_downloads(&self) -> bool {
         if self.work_state == PeerNetworkWorkState::BlockDownload {
             if let Some(ref dl) = self.block_downloader {
@@ -4104,7 +4141,8 @@ impl PeerNetwork {
         }
     }
 
-    /// Get the local peer from the peer DB, but also preserve the public IP address
+    /// Get the local peer from the peer DB, but also preserve the public IP
+    /// address
     pub fn load_local_peer(&self) -> Result<LocalPeer, net_error> {
         let mut lp = PeerDB::get_local_peer(self.peerdb.conn())?;
         lp.public_ip_address
@@ -4156,11 +4194,11 @@ impl PeerNetwork {
     }
 
     /// Load up the parent stacks tip.
-    /// For epoch 2.x, this is the pointer to the parent block of the current stacks tip
-    /// For epoch 3.x, this is the pointer to the _tenure-start_ block of the parent tenure of the
-    /// current stacks tip.
-    /// If this is the first tenure in epoch 3.x, then this is the pointer to the epoch 2.x block
-    /// that it builds atop.
+    /// For epoch 2.x, this is the pointer to the parent block of the current
+    /// stacks tip For epoch 3.x, this is the pointer to the _tenure-start_
+    /// block of the parent tenure of the current stacks tip.
+    /// If this is the first tenure in epoch 3.x, then this is the pointer to
+    /// the epoch 2.x block that it builds atop.
     pub(crate) fn get_parent_stacks_tip(
         &self,
         chainstate: &StacksChainState,
@@ -4286,11 +4324,11 @@ impl PeerNetwork {
 
     /// Determine if we need to invalidate a given cached reward set.
     ///
-    /// In Epoch 2, this requires checking the first sortition in the start of the reward set's
-    /// reward phase.
+    /// In Epoch 2, this requires checking the first sortition in the start of
+    /// the reward set's reward phase.
     ///
-    /// In Nakamoto, this requires checking the anchor block in the prepare phase for the upcoming
-    /// reward phase.
+    /// In Nakamoto, this requires checking the anchor block in the prepare
+    /// phase for the upcoming reward phase.
     fn check_reload_cached_reward_set(
         &self,
         sortdb: &SortitionDB,
@@ -4303,7 +4341,8 @@ impl PeerNetwork {
         let epoch = self.get_epoch_at_burn_height(tip_sn.block_height);
         if epoch.epoch_id >= StacksEpochId::Epoch30 {
             // epoch 3, where there are no forks except from bugs or burnchain reorgs.
-            // invalidate reward cycles on burnchain or stacks reorg, should they ever happen
+            // invalidate reward cycles on burnchain or stacks reorg, should they ever
+            // happen
             let reorg = Self::is_reorg(Some(&self.burnchain_tip), tip_sn, sortdb)
                 || Self::is_nakamoto_reorg(
                     &self.stacks_tip.block_id(),
@@ -4315,8 +4354,8 @@ impl PeerNetwork {
             return Ok(reorg);
         } else {
             // epoch 2
-            // NOTE: + 1 needed because the sortition db indexes anchor blocks at index height 1,
-            // not 0
+            // NOTE: + 1 needed because the sortition db indexes anchor blocks at index
+            // height 1, not 0
             let ih = sortdb.index_handle(&tip_sn.sortition_id);
             let rc_start_height = self.burnchain.nakamoto_first_block_of_cycle(rc) + 1;
             let Some(ancestor_sort_id) =
@@ -4354,9 +4393,10 @@ impl PeerNetwork {
     }
 
     /// Refresh our view of the last three reward cycles
-    /// This ensures that the PeerNetwork has cached copies of the reward cycle data (including the
-    /// signing set) for the current, previous, and previous-previous reward cycles.  This data is
-    /// in turn consumed by the Nakamoto block downloader, which must validate blocks signed from
+    /// This ensures that the PeerNetwork has cached copies of the reward cycle
+    /// data (including the signing set) for the current, previous, and
+    /// previous-previous reward cycles.  This data is in turn consumed by
+    /// the Nakamoto block downloader, which must validate blocks signed from
     /// any of these reward cycles.
     #[cfg_attr(test, mutants::skip)]
     pub fn refresh_reward_cycles(
@@ -4423,9 +4463,11 @@ impl PeerNetwork {
 
     /// Refresh view of burnchain, if needed.
     /// If the burnchain view changes, then take the following additional steps:
-    /// * hint to the inventory sync state-machine to restart, since we potentially have a new
+    /// * hint to the inventory sync state-machine to restart, since we
+    ///   potentially have a new
     /// block to go fetch
-    /// * hint to the download state machine to start looking for the new block at the new
+    /// * hint to the download state machine to start looking for the new block
+    ///   at the new
     /// stable sortition height
     /// * hint to the antientropy protocol to reset to the latest reward cycle
     pub fn refresh_burnchain_view<B: BurnchainHeaderReader>(
@@ -4765,7 +4807,8 @@ impl PeerNetwork {
         // find out who is inbound and unauthenticated
         let unauthenticated_inbounds = self.find_unauthenticated_inbound_convos();
 
-        // run existing conversations, clear out broken ones, and get back messages forwarded to us
+        // run existing conversations, clear out broken ones, and get back messages
+        // forwarded to us
         let (error_events, unsolicited_messages) = self.process_ready_sockets(
             sortdb,
             chainstate,
@@ -4781,7 +4824,8 @@ impl PeerNetwork {
             self.deregister_peer(error_event);
         }
 
-        // filter out unsolicited messages and buffer up ones that might become processable
+        // filter out unsolicited messages and buffer up ones that might become
+        // processable
         let unhandled_messages = self.authenticate_unsolicited_messages(unsolicited_messages);
         let unhandled_messages = self.handle_unsolicited_sortition_messages(
             sortdb,
@@ -4799,8 +4843,8 @@ impl PeerNetwork {
         self.schedule_network_pingbacks(unauthenticated_inbounds);
 
         // do some Actual Work(tm)
-        // do this _after_ processing new sockets, so the act of opening a socket doesn't trample
-        // an already-used network ID.
+        // do this _after_ processing new sockets, so the act of opening a socket
+        // doesn't trample an already-used network ID.
         let do_prune = self.do_network_work(
             burnchain_height,
             sortdb,
@@ -4893,8 +4937,9 @@ impl PeerNetwork {
         // update our relay statistics, so we know who to forward messages to
         self.update_relayer_stats(network_result);
 
-        // finally, handle network I/O requests from other threads, and get back reply handles to them.
-        // do this after processing new sockets, so we don't accidentally re-use an event ID.
+        // finally, handle network I/O requests from other threads, and get back reply
+        // handles to them. do this after processing new sockets, so we don't
+        // accidentally re-use an event ID.
         self.dispatch_requests();
 
         let outbound_neighbors = PeerNetwork::count_outbound_conversations(&self.peers);
@@ -4918,8 +4963,9 @@ impl PeerNetwork {
     }
 
     /// Store a single transaction
-    /// Return true if stored; false if it was a dup or if it's temporarily blacklisted.
-    /// Has to be done here, since only the p2p network has the unconfirmed state.
+    /// Return true if stored; false if it was a dup or if it's temporarily
+    /// blacklisted. Has to be done here, since only the p2p network has the
+    /// unconfirmed state.
     #[cfg_attr(test, mutants::skip)]
     fn store_transaction(
         mempool: &mut MemPoolDB,
@@ -4969,8 +5015,8 @@ impl PeerNetwork {
         return true;
     }
 
-    /// Store all inbound transactions, and return the ones that we actually stored so they can be
-    /// relayed.
+    /// Store all inbound transactions, and return the ones that we actually
+    /// stored so they can be relayed.
     #[cfg_attr(test, mutants::skip)]
     pub fn store_transactions(
         mempool: &mut MemPoolDB,
@@ -5057,8 +5103,8 @@ impl PeerNetwork {
         if last_sort_tip.block_height == sort_tip.block_height
             && last_sort_tip.consensus_hash != sort_tip.consensus_hash
         {
-            // current and previous sortition tips are at the same height, but represent different
-            // blocks.
+            // current and previous sortition tips are at the same height, but represent
+            // different blocks.
             info!(
                 "Burnchain reorg detected at burn height {}: {} != {}",
                 sort_tip.block_height, &last_sort_tip.consensus_hash, &sort_tip.consensus_hash
@@ -5066,10 +5112,11 @@ impl PeerNetwork {
             return true;
         }
 
-        // It will never be the case that the last and current tip have different heights, but the
-        // same consensus hash.  If they have the same height, then we would have already returned
-        // since we've handled both the == and != cases for their consensus hashes.  So if we reach
-        // this point, the heights and consensus hashes are not equal.  We only need to check that
+        // It will never be the case that the last and current tip have different
+        // heights, but the same consensus hash.  If they have the same height,
+        // then we would have already returned since we've handled both the ==
+        // and != cases for their consensus hashes.  So if we reach this point,
+        // the heights and consensus hashes are not equal.  We only need to check that
         // last_sort_tip is an ancestor of sort_tip
 
         let ih = sortdb.index_handle(&sort_tip.sortition_id);
@@ -5129,10 +5176,11 @@ impl PeerNetwork {
             return true;
         }
 
-        // It will never be the case that the last and current tip have different heights, but the
-        // same block ID.  If they have the same height, then we would have already returned
-        // since we've handled both the == and != cases for their block IDs.  So if we reach
-        // this point, the heights and block IDs are not equal.  We only need to check that
+        // It will never be the case that the last and current tip have different
+        // heights, but the same block ID.  If they have the same height, then
+        // we would have already returned since we've handled both the == and !=
+        // cases for their block IDs.  So if we reach this point, the heights
+        // and block IDs are not equal.  We only need to check that
         // last_stacks_tip is an ancestor of stacks_tip
 
         let mut cursor = stacks_tip.clone();
@@ -5181,15 +5229,15 @@ impl PeerNetwork {
     }
 
     /// Top-level main-loop circuit to take.
-    /// -- polls the peer network and http network server sockets to get new sockets and detect ready sockets
-    /// -- carries out network conversations
-    /// -- receives and dispatches requests from other threads
+    /// -- polls the peer network and http network server sockets to get new
+    /// sockets and detect ready sockets -- carries out network
+    /// conversations -- receives and dispatches requests from other threads
     /// -- runs the p2p and http peer main loop
-    /// Returns the table of unhandled network messages to be acted upon, keyed by the neighbors
-    /// that sent them (i.e. keyed by their event IDs)
+    /// Returns the table of unhandled network messages to be acted upon, keyed
+    /// by the neighbors that sent them (i.e. keyed by their event IDs)
     ///
-    /// This method can only fail if the internal network object (self.network) is not
-    /// instantiated.
+    /// This method can only fail if the internal network object (self.network)
+    /// is not instantiated.
     pub fn run<B: BurnchainHeaderReader>(
         &mut self,
         indexer: &B,
@@ -5526,7 +5574,8 @@ mod test {
             // use this handle to send a message to peer 2
             let mut h = peer_1.network.new_handle(1);
 
-            // start fake neighbor endpoint, which will accept once and try to receive for 5 seconds
+            // start fake neighbor endpoint, which will accept once and try to receive for 5
+            // seconds
             let endpoint_thread = thread::spawn(move || {
                 for i in 0..10 {
                     peer_2.step().unwrap();

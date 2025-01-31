@@ -136,7 +136,8 @@ impl DefinitionSorter {
                     .collect();
 
                 // Avoid looking for dependencies in tuples
-                // TODO: Eliminate special handling of tuples as it is a separate presymbolic expression type
+                // TODO: Eliminate special handling of tuples as it is a separate presymbolic
+                // expression type
                 if let Some((function_name, rest)) = filtered_exprs.split_first() {
                     let function_args = rest.to_vec();
                     if let Some(function_name) = function_name.match_atom() {
@@ -172,7 +173,8 @@ impl DefinitionSorter {
                                     return Ok(());
                                 }
                                 DefineFunctions::Map => {
-                                    // Args: [name, key, value]: with key value being potentially tuples
+                                    // Args: [name, key, value]: with key value being potentially
+                                    // tuples
                                     if function_args.len() == 3 {
                                         self.probe_for_dependencies(
                                             function_args[1],
@@ -216,7 +218,8 @@ impl DefinitionSorter {
                                 }
                                 DefineFunctions::NonFungibleToken => return Ok(()),
                                 DefineFunctions::FungibleToken => {
-                                    // probe_for_dependencies if the supply arg (optional) is being passed
+                                    // probe_for_dependencies if the supply arg (optional) is being
+                                    // passed
                                     if function_args.len() == 2 {
                                         self.probe_for_dependencies(
                                             function_args[1],
@@ -232,7 +235,8 @@ impl DefinitionSorter {
                         {
                             match native_function {
                                 NativeFunctions::ContractCall => {
-                                    // Args: [contract-name, function-name, ...]: ignore contract-name, function-name, handle rest
+                                    // Args: [contract-name, function-name, ...]: ignore
+                                    // contract-name, function-name, handle rest
                                     if function_args.len() > 2 {
                                         for expr in function_args[2..].iter() {
                                             self.probe_for_dependencies(expr, tle_index, version)?;
@@ -241,7 +245,8 @@ impl DefinitionSorter {
                                     return Ok(());
                                 }
                                 NativeFunctions::Let => {
-                                    // Args: [((name-1 value-1) (name-2 value-2)), ...]: handle 1st arg as a tuple
+                                    // Args: [((name-1 value-1) (name-2 value-2)), ...]: handle 1st
+                                    // arg as a tuple
                                     if function_args.len() > 1 {
                                         if let Some(bindings) = function_args[0].match_list() {
                                             self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(bindings.iter().collect(), tle_index, version)?;
@@ -296,7 +301,8 @@ impl DefinitionSorter {
     }
 
     /// accept a slice of expected-pairs, e.g., [ (a b) (c d) (e f) ], and
-    ///   probe them for dependencies as if they were part of a tuple definition.
+    ///   probe them for dependencies as if they were part of a tuple
+    /// definition.
     fn probe_for_dependencies_in_tuple(
         &mut self,
         pairs: &[PreSymbolicExpression],

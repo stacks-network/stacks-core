@@ -29,7 +29,8 @@ const MAX_SEM_COUNT: c_long = 255;
 static mut SEMAPHORE: HANDLE = 0 as HANDLE;
 
 unsafe extern "system" fn os_handler(_: DWORD) -> BOOL {
-    // Assuming this always succeeds. Can't really handle errors in any meaningful way.
+    // Assuming this always succeeds. Can't really handle errors in any meaningful
+    // way.
     ReleaseSemaphore(SEMAPHORE, 1, ptr::null_mut());
     TRUE
 }
@@ -41,7 +42,6 @@ unsafe extern "system" fn os_handler(_: DWORD) -> BOOL {
 ///
 /// # Errors
 /// Will return an error if a system error occurred.
-///
 #[inline]
 pub unsafe fn init_os_handler() -> Result<(), Error> {
     SEMAPHORE = CreateSemaphoreA(ptr::null_mut(), 0, MAX_SEM_COUNT, ptr::null());
@@ -65,7 +65,6 @@ pub unsafe fn init_os_handler() -> Result<(), Error> {
 ///
 /// # Errors
 /// Will return an error if a system error occurred.
-///
 #[inline]
 pub unsafe fn block_ctrl_c() -> Result<SignalId, Error> {
     match WaitForSingleObject(SEMAPHORE, INFINITE) {

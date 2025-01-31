@@ -216,8 +216,9 @@ impl NakamotoSigners {
         Ok(slots)
     }
 
-    /// Compute the reward set for the next reward cycle, store it, and write it to the .signers
-    /// contract.  `reward_cycle` is the _current_ reward cycle.
+    /// Compute the reward set for the next reward cycle, store it, and write it
+    /// to the .signers contract.  `reward_cycle` is the _current_ reward
+    /// cycle.
     pub fn handle_signer_stackerdb_update(
         clarity: &mut ClarityTransactionConnection,
         pox_constants: &PoxConstants,
@@ -353,11 +354,12 @@ impl NakamotoSigners {
         Ok(SignerCalculation { events, reward_set })
     }
 
-    /// If this block is mined in the prepare phase, based on its tenure's `burn_tip_height`.  If
-    /// so, and if we haven't done so yet, then compute the PoX reward set, store it, and update
-    /// the .signers contract.  The stored PoX reward set is the reward set for the next reward
-    /// cycle, and will be used by the Nakamoto chains coordinator to validate its block-commits
-    /// and block signatures.
+    /// If this block is mined in the prepare phase, based on its tenure's
+    /// `burn_tip_height`.  If so, and if we haven't done so yet, then
+    /// compute the PoX reward set, store it, and update the .signers
+    /// contract.  The stored PoX reward set is the reward set for the next
+    /// reward cycle, and will be used by the Nakamoto chains coordinator to
+    /// validate its block-commits and block signatures.
     pub fn check_and_handle_prepare_phase_start(
         clarity_tx: &mut ClarityTx,
         first_block_height: u64,
@@ -459,7 +461,8 @@ impl NakamotoSigners {
         boot_code_id(&name, mainnet)
     }
 
-    /// Get the signer addresses and corresponding weights for a given reward cycle
+    /// Get the signer addresses and corresponding weights for a given reward
+    /// cycle
     pub fn get_signers_weights(
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
@@ -503,8 +506,9 @@ impl NakamotoSigners {
     }
 
     /// Verify that the transaction is a valid vote for the aggregate public key
-    /// Note: it does not verify the function arguments, only that the transaction is validly formed
-    /// and has a valid nonce from an expected address
+    /// Note: it does not verify the function arguments, only that the
+    /// transaction is validly formed and has a valid nonce from an expected
+    /// address
     pub fn valid_vote_transaction(
         account_nonces: &HashMap<StacksAddress, u64>,
         transaction: &StacksTransaction,
@@ -531,7 +535,8 @@ impl NakamotoSigners {
         transaction: &StacksTransaction,
     ) -> Option<AggregateKeyVoteParams> {
         let TransactionPayload::ContractCall(payload) = &transaction.payload else {
-            // Not a contract call so not a special cased vote for aggregate public key transaction
+            // Not a contract call so not a special cased vote for aggregate public key
+            // transaction
             return None;
         };
         if payload.contract_identifier()
@@ -560,7 +565,8 @@ impl NakamotoSigners {
         })
     }
 
-    /// Update the map of filtered valid transactions, selecting one per address based first on lowest nonce, then txid
+    /// Update the map of filtered valid transactions, selecting one per address
+    /// based first on lowest nonce, then txid
     pub fn update_filtered_transactions(
         filtered_transactions: &mut HashMap<StacksAddress, StacksTransaction>,
         account_nonces: &HashMap<StacksAddress, u64>,

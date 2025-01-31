@@ -52,7 +52,8 @@ impl RPCHeadersRequestHandler {
 pub struct StacksHeaderStream {
     /// index block hash of the block to download
     pub index_block_hash: StacksBlockId,
-    /// offset into whatever is being read (the blob, or the file in the chunk store)
+    /// offset into whatever is being read (the blob, or the file in the chunk
+    /// store)
     pub offset: u64,
     /// total number of bytes read.
     pub total_bytes: u64,
@@ -114,7 +115,8 @@ impl HttpRequest for RPCHeadersRequestHandler {
     }
 
     /// Try to decode this request.
-    /// There's nothing to load here, so just make sure the request is well-formed.
+    /// There's nothing to load here, so just make sure the request is
+    /// well-formed.
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
@@ -217,8 +219,8 @@ impl RPCRequestHandler for RPCHeadersRequestHandler {
 
 /// Decode the HTTP response
 impl HttpResponse for RPCHeadersRequestHandler {
-    /// Decode this response from a byte stream.  This is called by the client to decode this
-    /// message
+    /// Decode this response from a byte stream.  This is called by the client
+    /// to decode this message
     fn try_parse_response(
         &self,
         preamble: &HttpResponsePreamble,

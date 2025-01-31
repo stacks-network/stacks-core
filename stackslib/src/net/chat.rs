@@ -70,14 +70,17 @@ impl Default for NeighborHealthPoint {
 pub const NUM_HEALTH_POINTS: usize = 32;
 pub const HEALTH_POINT_LIFETIME: u64 = 12 * 3600; // 12 hours
 
-/// The max number of data points to gather for block/microblock/transaction/stackerdb push messages from a neighbor
+/// The max number of data points to gather for
+/// block/microblock/transaction/stackerdb push messages from a neighbor
 pub const NUM_BANDWIDTH_POINTS: usize = 32;
-/// The number of seconds a block data point is valid for the purpose of computing stats
+/// The number of seconds a block data point is valid for the purpose of
+/// computing stats
 pub const BANDWIDTH_POINT_LIFETIME: u64 = 600;
 
 pub const MAX_PEER_HEARTBEAT_INTERVAL: usize = 3600 * 6; // 6 hours
 
-/// Statistics on relayer hints in Stacks messages.  Used to deduce network choke points.
+/// Statistics on relayer hints in Stacks messages.  Used to deduce network
+/// choke points.
 #[derive(Debug, Clone)]
 pub struct RelayStats {
     pub num_messages: u64, // how many messages a relayer has pushed to this neighbor
@@ -160,8 +163,9 @@ impl NeighborStats {
     }
 
     /// Add a neighbor health point for this peer.
-    /// This updates the recent list of instances where this peer either successfully replied to a
-    /// message, or failed to do so (indicated by `success`).
+    /// This updates the recent list of instances where this peer either
+    /// successfully replied to a message, or failed to do so (indicated by
+    /// `success`).
     pub fn add_healthpoint(&mut self, success: bool) {
         let hp = NeighborHealthPoint {
             success,
@@ -174,8 +178,8 @@ impl NeighborStats {
     }
 
     /// Record that we recently received a block of the given size.
-    /// Keeps track of the last `NUM_BANDWIDTH_POINTS` such events, so we can estimate the current
-    /// bandwidth consumed by block pushes.
+    /// Keeps track of the last `NUM_BANDWIDTH_POINTS` such events, so we can
+    /// estimate the current bandwidth consumed by block pushes.
     pub fn add_block_push(&mut self, message_size: u64) {
         self.block_push_rx_counts
             .push_back((get_epoch_time_secs(), message_size));
@@ -185,8 +189,8 @@ impl NeighborStats {
     }
 
     /// Record that we recently received a microblock of the given size.
-    /// Keeps track of the last `NUM_BANDWIDTH_POINTS` such events, so we can estimate the current
-    /// bandwidth consumed by microblock pushes.
+    /// Keeps track of the last `NUM_BANDWIDTH_POINTS` such events, so we can
+    /// estimate the current bandwidth consumed by microblock pushes.
     pub fn add_microblocks_push(&mut self, message_size: u64) {
         self.microblocks_push_rx_counts
             .push_back((get_epoch_time_secs(), message_size));
@@ -196,8 +200,8 @@ impl NeighborStats {
     }
 
     /// Record that we recently received a transaction of the given size.
-    /// Keeps track of the last `NUM_BANDWIDTH_POINTS` such events, so we can estimate the current
-    /// bandwidth consumed by transaction pushes.
+    /// Keeps track of the last `NUM_BANDWIDTH_POINTS` such events, so we can
+    /// estimate the current bandwidth consumed by transaction pushes.
     pub fn add_transaction_push(&mut self, message_size: u64) {
         self.transaction_push_rx_counts
             .push_back((get_epoch_time_secs(), message_size));
@@ -206,9 +210,10 @@ impl NeighborStats {
         }
     }
 
-    /// Record that we recently received a stackerdb chunk push of the given size.
-    /// Keeps track of the last `NUM_BANDWIDTH_POINTS` such events, so we can estimate the current
-    /// bandwidth consumed by stackerdb chunk pushes.
+    /// Record that we recently received a stackerdb chunk push of the given
+    /// size. Keeps track of the last `NUM_BANDWIDTH_POINTS` such events, so
+    /// we can estimate the current bandwidth consumed by stackerdb chunk
+    /// pushes.
     pub fn add_stackerdb_push(&mut self, message_size: u64) {
         self.stackerdb_push_rx_counts
             .push_back((get_epoch_time_secs(), message_size));
@@ -217,9 +222,10 @@ impl NeighborStats {
         }
     }
 
-    /// Record that we recently received a Nakamoto blcok push of the given size.
-    /// Keeps track of the last `NUM_BANDWIDTH_POINTS` such events, so we can estimate the current
-    /// bandwidth consumed by Nakamoto block pushes
+    /// Record that we recently received a Nakamoto blcok push of the given
+    /// size. Keeps track of the last `NUM_BANDWIDTH_POINTS` such events, so
+    /// we can estimate the current bandwidth consumed by Nakamoto block
+    /// pushes
     pub fn add_nakamoto_block_push(&mut self, message_size: u64) {
         self.nakamoto_block_push_rx_counts
             .push_back((get_epoch_time_secs(), message_size));
@@ -248,8 +254,8 @@ impl NeighborStats {
         ret
     }
 
-    /// Get a peer's perceived health -- the last $NUM_HEALTH_POINTS successful messages divided by
-    /// the total.
+    /// Get a peer's perceived health -- the last $NUM_HEALTH_POINTS successful
+    /// messages divided by the total.
     pub fn get_health_score(&self) -> f64 {
         // if we don't have enough data, assume 50%
         if self.healthpoints.len() < NUM_HEALTH_POINTS {
@@ -364,7 +370,8 @@ pub struct ConversationP2P {
     /// when does the peer's key expire?
     pub peer_expire_block_height: u64,
 
-    /// where does this peer's data live?  Set to a 0-length string if not known.
+    /// where does this peer's data live?  Set to a 0-length string if not
+    /// known.
     pub data_url: UrlString,
     /// Resolved IP address of the data URL
     pub data_ip: Option<SocketAddr>,
@@ -377,8 +384,8 @@ pub struct ConversationP2P {
     pub burnchain_tip_height: u64,
     /// what this peer believes is the hash of the burnchain tip
     pub burnchain_tip_burn_header_hash: BurnchainHeaderHash,
-    /// what this peer believes is the stable height of the burnchain (i.e. after a chain-specific
-    /// number of confirmations)
+    /// what this peer believes is the stable height of the burnchain (i.e.
+    /// after a chain-specific number of confirmations)
     pub burnchain_stable_tip_height: u64,
     /// the hash of the burnchain block at height `burnchain_stable_tip_height`
     pub burnchain_stable_tip_burn_header_hash: BurnchainHeaderHash,
@@ -470,18 +477,23 @@ impl Neighbor {
 
         if asn != 0 {
             self.asn = asn;
-            self.org = asn; // TODO; AS number is a place-holder for an organization ID (an organization can own multiple ASs)
+            self.org = asn; // TODO; AS number is a place-holder for an
+                            // organization ID (an organization can own multiple
+                            // ASs)
         }
 
         Ok(())
     }
 
-    /// Instantiate a Neighbor from HandshakeData, merging the information we have on-disk in the
-    /// PeerDB with information in the handshake.
-    /// * If we already know about this neighbor, then all previously-calculated state and local
-    /// configuration state will be loaded as well.  This includes things like the calculated
-    /// in/out-degree and last-contact time, as well as the allow/deny time limits.
-    /// * If we do not know about this neighbor, then the above state will not be loaded.
+    /// Instantiate a Neighbor from HandshakeData, merging the information we
+    /// have on-disk in the PeerDB with information in the handshake.
+    /// * If we already know about this neighbor, then all previously-calculated
+    ///   state and local
+    /// configuration state will be loaded as well.  This includes things like
+    /// the calculated in/out-degree and last-contact time, as well as the
+    /// allow/deny time limits.
+    /// * If we do not know about this neighbor, then the above state will not
+    ///   be loaded.
     /// Returns (the neighbor, whether or not the neighbor was known)
     pub fn load_and_update(
         conn: &DBConn,
@@ -512,8 +524,8 @@ impl Neighbor {
 
         #[cfg(test)]
         {
-            // setting BLOCKSTACK_NEIGHBOR_TEST_${PORTNUMBER} will let us select an organization
-            // for this peer
+            // setting BLOCKSTACK_NEIGHBOR_TEST_${PORTNUMBER} will let us select an
+            // organization for this peer
             use std::env;
             match env::var(format!("BLOCKSTACK_NEIGHBOR_TEST_{}", addr.port)) {
                 Ok(asn_str) => {
@@ -699,15 +711,16 @@ impl ConversationP2P {
         self.burnchain_stable_tip_burn_header_hash.clone()
     }
 
-    /// Does the given services bitfield mempool query interface?  It will if it has both
-    /// RELAY and RPC bits set.
+    /// Does the given services bitfield mempool query interface?  It will if it
+    /// has both RELAY and RPC bits set.
     #[cfg_attr(test, mutants::skip)]
     pub fn supports_mempool_query(peer_services: u16) -> bool {
         let expected_bits = (ServiceFlags::RELAY as u16) | (ServiceFlags::RPC as u16);
         (peer_services & expected_bits) == expected_bits
     }
 
-    /// Does the given services bitfield support stacker DBs?  It will if it has the STACKERDB bit set
+    /// Does the given services bitfield support stacker DBs?  It will if it has
+    /// the STACKERDB bit set
     pub fn supports_stackerdb(peer_services: u16) -> bool {
         (peer_services & (ServiceFlags::STACKERDB as u16)) != 0
     }
@@ -722,9 +735,10 @@ impl ConversationP2P {
         false
     }
 
-    /// Determine whether or not a given (height, burn_header_hash) pair _disagrees_ with our
-    /// burnchain view.  If it does, return true.  If it doesn't (including if the given pair is
-    /// simply absent from the chain_view), then return False.
+    /// Determine whether or not a given (height, burn_header_hash) pair
+    /// _disagrees_ with our burnchain view.  If it does, return true.  If
+    /// it doesn't (including if the given pair is simply absent from the
+    /// chain_view), then return False.
     fn check_burn_header_hash_disagreement(
         block_height: u64,
         their_burn_header_hash: &BurnchainHeaderHash,
@@ -754,9 +768,11 @@ impl ConversationP2P {
             .unwrap_or_else(|| panic!("BUG: block {} is not in a known epoch", cur_burn_height))
     }
 
-    /// Determine whether or not a remote node has the proper epoch marker in its peer version
+    /// Determine whether or not a remote node has the proper epoch marker in
+    /// its peer version
     /// * If the local and remote nodes are in the same system epoch, then yes
-    /// * If they're in different epochs, but the epoch shift hasn't happened yet, then yes
+    /// * If they're in different epochs, but the epoch shift hasn't happened
+    ///   yet, then yes
     /// * Otherwise, no
     fn has_acceptable_epoch(&self, cur_burn_height: u64, remote_peer_version: u32) -> bool {
         // which epochs do I support, and which epochs does the remote peer support?
@@ -778,8 +794,9 @@ impl ConversationP2P {
         );
 
         // what epoch are we in?
-        // note that it might not be my_epoch -- for example, my_epoch can be 0x05 for a 2.05 node,
-        // which can run in epoch 2.0 as well (in which case cur_epoch would be 0x00).
+        // note that it might not be my_epoch -- for example, my_epoch can be 0x05 for a
+        // 2.05 node, which can run in epoch 2.0 as well (in which case
+        // cur_epoch would be 0x00).
         let epoch = self.get_current_epoch(cur_burn_height);
         let cur_epoch = epoch.network_epoch;
 
@@ -792,8 +809,9 @@ impl ConversationP2P {
             return true;
         }
 
-        // be a little more permissive with epochs 2.3 and 2.2, because 2.3.0.0.0 shipped with
-        //  PEER_VERSION_MAINNET = 0x18000007 and PEER_VERSION_TESTNET = 0xfacade07
+        // be a little more permissive with epochs 2.3 and 2.2, because 2.3.0.0.0
+        // shipped with  PEER_VERSION_MAINNET = 0x18000007 and
+        // PEER_VERSION_TESTNET = 0xfacade07
         if cur_epoch == PEER_VERSION_EPOCH_2_3 && remote_epoch == PEER_VERSION_EPOCH_2_2 {
             debug!(
                 "Remote peer has epoch {} and current epoch is {}, but we're permissive about 2.2/2.3 boundary",
@@ -806,11 +824,12 @@ impl ConversationP2P {
         return false;
     }
 
-    /// Validate an inbound message's preamble against our knowledge of the burn chain.
-    /// Return Ok(true) if we can proceed
-    /// Return Ok(false) if we can't proceed, but the remote peer is not in violation of the protocol
-    /// Return Err(net_error::InvalidMessage) if the remote peer returns an invalid message in
-    ///     violation of the protocol
+    /// Validate an inbound message's preamble against our knowledge of the burn
+    /// chain. Return Ok(true) if we can proceed
+    /// Return Ok(false) if we can't proceed, but the remote peer is not in
+    /// violation of the protocol Return Err(net_error::InvalidMessage) if
+    /// the remote peer returns an invalid message in     violation of the
+    /// protocol
     pub fn is_preamble_valid(
         &self,
         msg: &StacksMessage,
@@ -860,7 +879,8 @@ impl ConversationP2P {
         if msg.preamble.burn_stable_block_height
             > chain_view.burn_block_height + MAX_NEIGHBOR_BLOCK_DELAY
         {
-            // this node is too far ahead of us for neighbor walks, but otherwise still potentially valid
+            // this node is too far ahead of us for neighbor walks, but otherwise still
+            // potentially valid
             debug!(
                 "{:?}: remote peer is far ahead of us: {} > {}",
                 &self, msg.preamble.burn_stable_block_height, chain_view.burn_block_height
@@ -874,7 +894,8 @@ impl ConversationP2P {
             chain_view,
         );
         if rules_disagree {
-            // remote peer disagrees on stable burn header hash -- follows different rules than us
+            // remote peer disagrees on stable burn header hash -- follows different rules
+            // than us
             return Err(net_error::InvalidMessage);
         }
 
@@ -1000,8 +1021,8 @@ impl ConversationP2P {
     }
 
     /// Queue up this message to this peer, and update our stats.
-    /// This is a non-blocking operation. The caller needs to call .try_flush() or .flush() on the
-    /// returned Write to finish sending.
+    /// This is a non-blocking operation. The caller needs to call .try_flush()
+    /// or .flush() on the returned Write to finish sending.
     pub fn relay_signed_message(
         &mut self,
         msg: StacksMessage,
@@ -1022,9 +1043,9 @@ impl ConversationP2P {
         Ok(handle)
     }
 
-    /// Queue up this message to this peer, and update our stats.  Expect a reply.
-    /// This is a non-blocking operation.  The caller needs to call .try_flush() or .flush() on the
-    /// returned handle to finish sending.
+    /// Queue up this message to this peer, and update our stats.  Expect a
+    /// reply. This is a non-blocking operation.  The caller needs to call
+    /// .try_flush() or .flush() on the returned handle to finish sending.
     pub fn send_signed_request(
         &mut self,
         msg: StacksMessage,
@@ -1064,7 +1085,8 @@ impl ConversationP2P {
         match self.connection.get_public_key() {
             None => {
                 // if we don't yet have a public key for this node, verify the message.
-                // if it's improperly signed, it's probably a poorly-timed re-key request (but either way the message should be rejected)
+                // if it's improperly signed, it's probably a poorly-timed re-key request (but
+                // either way the message should be rejected)
                 message
                     .verify_secp256k1(&handshake_data.node_public_key)
                     .map_err(|_e| {
@@ -1076,8 +1098,9 @@ impl ConversationP2P {
                     })?;
             }
             Some(_) => {
-                // for outbound connections, the self-reported address must match socket address if we already have a public key.
-                // (not the case for inbound connections, since the peer socket address we see may
+                // for outbound connections, the self-reported address must match socket address
+                // if we already have a public key. (not the case for inbound
+                // connections, since the peer socket address we see may
                 // not be the same as the address the remote peer thinks it has).
                 // The only exception to this is if the remote peer does not yet know its own
                 // public IP address, in which case, its handshake addrbytes will be the
@@ -1173,7 +1196,8 @@ impl ConversationP2P {
     }
 
     /// Update connection state from stacker DB handshake data.
-    /// Just synchronizes the announced smart contracts for which this node replicates data.
+    /// Just synchronizes the announced smart contracts for which this node
+    /// replicates data.
     pub fn update_from_stacker_db_handshake_data(
         &mut self,
         stacker_db_data: &StackerDBHandshakeData,
@@ -1192,8 +1216,8 @@ impl ConversationP2P {
         &self.db_smart_contracts
     }
 
-    /// Handle an inbound NAT-punch request -- just tell the peer what we think their IP/port are.
-    /// No authentication from the peer is necessary.
+    /// Handle an inbound NAT-punch request -- just tell the peer what we think
+    /// their IP/port are. No authentication from the peer is necessary.
     fn handle_natpunch_request(&self, chain_view: &BurnchainView, nonce: u32) -> StacksMessage {
         monitoring::increment_msg_counter("p2p_nat_punch_request".to_string());
 
@@ -1211,10 +1235,10 @@ impl ConversationP2P {
         msg
     }
 
-    /// Handle an inbound handshake request, and generate either a HandshakeAccept or a HandshakeReject
-    /// payload to send back.
-    /// A handshake will only be accepted if we do not yet know the public key of this remote peer,
-    /// or if it is signed by the current public key.
+    /// Handle an inbound handshake request, and generate either a
+    /// HandshakeAccept or a HandshakeReject payload to send back.
+    /// A handshake will only be accepted if we do not yet know the public key
+    /// of this remote peer, or if it is signed by the current public key.
     /// Returns a reply (either an accept or reject) if appropriate
     /// Panics if this message is not a handshake (caller should check)
     fn handle_handshake(
@@ -1331,10 +1355,12 @@ impl ConversationP2P {
 
         // update stats
         self.stats.last_contact_time = get_epoch_time_secs();
-        self.peer_heartbeat = self.heartbeat; // use our own heartbeat to determine how often we expect this peer to ping us, since that's what we've told the peer
+        self.peer_heartbeat = self.heartbeat; // use our own heartbeat to determine how often we expect this peer to ping us,
+                                              // since that's what we've told the peer
 
-        // always pass back handshakes, even though we "handled" them (since other processes --
-        // in particular, the neighbor-walk logic -- need to receive them)
+        // always pass back handshakes, even though we "handled" them (since other
+        // processes -- in particular, the neighbor-walk logic -- need to
+        // receive them)
         Ok((Some(accept), false))
     }
 
@@ -1365,9 +1391,10 @@ impl ConversationP2P {
                 // remote peer is in the same reward cycle as us.
                 self.update_from_stacker_db_handshake_data(stackerdb_accept);
             } else {
-                // remote peer's burnchain view has diverged, so assume no longer replicating (we
-                // can't talk to it anyway).  This can happen once per burnchain block for a few
-                // seconds as nodes begin processing the next Stacks blocks, but it's harmless -- at worst, it
+                // remote peer's burnchain view has diverged, so assume no longer replicating
+                // (we can't talk to it anyway).  This can happen once per
+                // burnchain block for a few seconds as nodes begin processing
+                // the next Stacks blocks, but it's harmless -- at worst, it
                 // just means that no stacker DB replication happens between this peer and
                 // localhost during this time.
                 self.clear_stacker_db_handshake_data();
@@ -1432,10 +1459,11 @@ impl ConversationP2P {
 
         let epoch = self.get_current_epoch(chain_view.burn_block_height);
 
-        // get neighbors at random as long as they're fresh, and as long as they're compatible with
-        // the current system epoch.
-        // Alternate at random between serving public-only and public/private-mixed IPs, since for
-        // the time being, the remote peer has no way of asking for a particular subset.
+        // get neighbors at random as long as they're fresh, and as long as they're
+        // compatible with the current system epoch.
+        // Alternate at random between serving public-only and public/private-mixed IPs,
+        // since for the time being, the remote peer has no way of asking for a
+        // particular subset.
         let mut neighbors = PeerDB::get_fresh_random_neighbors(
             peer_dbconn,
             self.network_id,
@@ -1480,12 +1508,12 @@ impl ConversationP2P {
         Ok(reply_handle)
     }
 
-    /// Verify that a given consensus hash corresponds to a valid PoX sortition and is aligned to
-    /// the start of a reward cycle boundary.  Used to validate both GetBlocksInv and
-    /// GetNakamotoInv messages.
+    /// Verify that a given consensus hash corresponds to a valid PoX sortition
+    /// and is aligned to the start of a reward cycle boundary.  Used to
+    /// validate both GetBlocksInv and GetNakamotoInv messages.
     /// Returns Ok(Ok(snapshot-for-consensus-hash)) if valid
-    /// Returns Ok(Err(message)) if invalid, in which case, `message` should be replied
-    /// Returns Err(..) on DB errors
+    /// Returns Ok(Err(message)) if invalid, in which case, `message` should be
+    /// replied Returns Err(..) on DB errors
     fn validate_consensus_hash_reward_cycle_start(
         _local_peer: &LocalPeer,
         sortdb: &SortitionDB,
@@ -1910,8 +1938,9 @@ impl ConversationP2P {
     }
 
     /// Handle an inbound StackerDBGetChunkInv request.
-    /// Generates a StackerDBChunkInv response from the target database table, if we have it.
-    /// Generates a Nack if we don't have this DB, or if the request's consensus hash is invalid.
+    /// Generates a StackerDBChunkInv response from the target database table,
+    /// if we have it. Generates a Nack if we don't have this DB, or if the
+    /// request's consensus hash is invalid.
     fn make_stacker_db_getchunkinv_response(
         network: &PeerNetwork,
         naddr: NeighborAddress,
@@ -1950,9 +1979,9 @@ impl ConversationP2P {
     }
 
     /// Handle an inbound StackerDBGetChunk request.
-    /// Generates a StackerDBChunk response from the target database table, if we have it.
-    /// Generates a NACK if we don't have this DB, or if the request's consensus hash or version
-    /// are stale or invalid.
+    /// Generates a StackerDBChunk response from the target database table, if
+    /// we have it. Generates a NACK if we don't have this DB, or if the
+    /// request's consensus hash or version are stale or invalid.
     fn make_stacker_db_getchunk_response(
         network: &PeerNetwork,
         getchunk: &StackerDBGetChunkData,
@@ -2134,8 +2163,8 @@ impl ConversationP2P {
     }
 
     /// Validate pushed microblocks.
-    /// Not much we can do to see if they're semantically correct, but we can at least throttle a
-    /// peer that sends us too many at once.
+    /// Not much we can do to see if they're semantically correct, but we can at
+    /// least throttle a peer that sends us too many at once.
     fn validate_microblocks_push(
         &mut self,
         network: &PeerNetwork,
@@ -2209,8 +2238,9 @@ impl ConversationP2P {
     }
 
     /// Validate a pushed stackerdb chunk.
-    /// Update bandwidth accounting, but forward the stackerdb chunk along if we can accept it.
-    /// Possibly return a reply handle for a NACK if we throttle the remote sender
+    /// Update bandwidth accounting, but forward the stackerdb chunk along if we
+    /// can accept it. Possibly return a reply handle for a NACK if we
+    /// throttle the remote sender
     fn validate_stackerdb_push(
         &mut self,
         network: &PeerNetwork,
@@ -2248,8 +2278,9 @@ impl ConversationP2P {
     }
 
     /// Validate a pushed Nakamoto block list.
-    /// Update bandwidth accounting, but forward the blocks along if we can accept them.
-    /// Possibly return a reply handle for a NACK if we throttle the remote sender
+    /// Update bandwidth accounting, but forward the blocks along if we can
+    /// accept them. Possibly return a reply handle for a NACK if we
+    /// throttle the remote sender
     fn validate_nakamoto_block_push(
         &mut self,
         network: &PeerNetwork,
@@ -2313,8 +2344,8 @@ impl ConversationP2P {
             StacksMessageType::Blocks(_) => {
                 monitoring::increment_stx_blocks_received_counter();
 
-                // not handled here, but do some accounting -- we can't receive blocks too often,
-                // so close this conversation if we do.
+                // not handled here, but do some accounting -- we can't receive blocks too
+                // often, so close this conversation if we do.
                 match self.validate_blocks_push(network, &msg.preamble, msg.relayers.clone())? {
                     Some(handle) => Ok(handle),
                     None => {
@@ -2501,7 +2532,8 @@ impl ConversationP2P {
     }
 
     /// Validate an inbound p2p message
-    /// Return Ok(true) if valid, Ok(false) if invalid, and Err if we should disconnect.
+    /// Return Ok(true) if valid, Ok(false) if invalid, and Err if we should
+    /// disconnect.
     fn validate_inbound_message(
         &mut self,
         msg: &StacksMessage,
@@ -2536,7 +2568,8 @@ impl ConversationP2P {
     }
 
     /// Handle an inbound authenticated p2p control-plane message
-    /// Return true if we should consume it (i.e. it's not something to forward along), as well as the message we'll send as a reply (if any)
+    /// Return true if we should consume it (i.e. it's not something to forward
+    /// along), as well as the message we'll send as a reply (if any)
     fn handle_authenticated_control_message(
         &mut self,
         network: &mut PeerNetwork,
@@ -2611,8 +2644,8 @@ impl ConversationP2P {
     }
 
     /// Handle an inbound unauthenticated p2p control-plane message.
-    /// Return true if the message was also solicited, as well as the reply we generate to
-    /// deal with it (if we do deal with it)
+    /// Return true if the message was also solicited, as well as the reply we
+    /// generate to deal with it (if we do deal with it)
     fn handle_unauthenticated_control_message(
         &mut self,
         network: &mut PeerNetwork,
@@ -2735,7 +2768,8 @@ impl ConversationP2P {
         Ok((reply_opt, consume))
     }
 
-    /// Update chat statistics, depending on whether or not the message was solicited
+    /// Update chat statistics, depending on whether or not the message was
+    /// solicited
     fn update_stats(&mut self, msg: &StacksMessage, solicited: bool) {
         if solicited {
             let now = get_epoch_time_secs();
@@ -2791,7 +2825,8 @@ impl ConversationP2P {
     /// Try to get the IPv4 or IPv6 address out of a data URL.
     fn try_decode_data_url_ipaddr(data_url: &UrlString) -> Option<SocketAddr> {
         // need to begin resolution
-        // NOTE: should always succeed, since a UrlString shouldn't decode unless it's a valid URL or the empty string
+        // NOTE: should always succeed, since a UrlString shouldn't decode unless it's a
+        // valid URL or the empty string
         let url = data_url.parse_to_block_url().ok()?;
         let port = url.port_or_known_default()?;
         let ip_addr_opt = match url.host() {
@@ -2808,7 +2843,8 @@ impl ConversationP2P {
         ip_addr_opt
     }
 
-    /// Attempt to resolve the hostname of a conversation's data URL to its IP address.
+    /// Attempt to resolve the hostname of a conversation's data URL to its IP
+    /// address.
     fn try_resolve_data_url_host(
         &mut self,
         dns_client_opt: &mut Option<&mut DNSClient>,
@@ -2876,7 +2912,8 @@ impl ConversationP2P {
         }
 
         // need to begin resolution
-        // NOTE: should always succeed, since a UrlString shouldn't decode unless it's a valid URL or the empty string
+        // NOTE: should always succeed, since a UrlString shouldn't decode unless it's a
+        // valid URL or the empty string
         let Ok(url) = self.data_url.parse_to_block_url() else {
             return;
         };
@@ -2926,9 +2963,10 @@ impl ConversationP2P {
 
     /// Carry on a conversation with the remote peer.
     /// Called from the p2p network thread, so no need for a network handle.
-    /// Attempts to fulfill requests in other threads as a result of processing a message.
-    /// Returns the list of unfulfilled Stacks messages we received -- messages not destined for
-    /// any other thread in this program (i.e. "unsolicited messages").
+    /// Attempts to fulfill requests in other threads as a result of processing
+    /// a message. Returns the list of unfulfilled Stacks messages we
+    /// received -- messages not destined for any other thread in this
+    /// program (i.e. "unsolicited messages").
     pub fn chat(
         &mut self,
         network: &mut PeerNetwork,
@@ -3026,8 +3064,8 @@ impl ConversationP2P {
             }
         }
 
-        // while we're at it, update our IP address if we have a pending DNS resolution (or start
-        // the process if we need it)
+        // while we're at it, update our IP address if we have a pending DNS resolution
+        // (or start the process if we need it)
         self.try_resolve_data_url_host(dns_client_opt, network.get_connection_opts().dns_timeout);
         Ok(unsolicited)
     }
@@ -3345,7 +3383,8 @@ mod test {
         }
     }
 
-    /// Inner function for testing various kinds of stackerdb/non-stackerdb peer interactions
+    /// Inner function for testing various kinds of stackerdb/non-stackerdb peer
+    /// interactions
     fn inner_convo_handshake_accept_stackerdb(
         peer_1_services: u16,
         peer_1_rc_consensus_hash: ConsensusHash,
@@ -3516,8 +3555,8 @@ mod test {
                 .unwrap();
             let mut rh_1 = convo_1.send_signed_request(handshake_1, 1000000).unwrap();
 
-            // convo_2 receives it and processes it, and since no one is waiting for it, will forward
-            // it along to the chat caller (us)
+            // convo_2 receives it and processes it, and since no one is waiting for it,
+            // will forward it along to the chat caller (us)
             test_debug!("send handshake");
             convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
             let unhandled_2 = convo_2
@@ -3683,7 +3722,8 @@ mod test {
     }
 
     #[test]
-    /// Two stackerdb peers handshake, but with different reward cycle consensus hashes
+    /// Two stackerdb peers handshake, but with different reward cycle consensus
+    /// hashes
     fn convo_handshake_accept_stackerdb_bad_consensus_hash() {
         inner_convo_handshake_accept_stackerdb(
             STACKERDB_SERVICES,
@@ -3798,8 +3838,8 @@ mod test {
                 .unwrap();
             let mut rh_1 = convo_1.send_signed_request(handshake_1, 1000000).unwrap();
 
-            // convo_2 receives it and processes it, and since no one is waiting for it, will forward
-            // it along to the chat caller (us)
+            // convo_2 receives it and processes it, and since no one is waiting for it,
+            // will forward it along to the chat caller (us)
             test_debug!("send handshake");
             convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
             let unhandled_2 = convo_2
@@ -4623,7 +4663,8 @@ mod test {
             .unwrap();
         let mut rh_1 = convo_1.send_signed_request(handshake_1, 1000000).unwrap();
 
-        // convo_2 receives it and processes it automatically (consuming it), and give back a handshake reject
+        // convo_2 receives it and processes it automatically (consuming it), and give
+        // back a handshake reject
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
         let unhandled_2 = convo_2
             .chat(&mut net_1, &sortdb_1, &mut chainstate_1, &mut None, false)
@@ -4778,8 +4819,9 @@ mod test {
             .send_signed_request(ping_1.clone(), 1000000)
             .unwrap();
 
-        // convo_2 receives the handshake and ping and processes both, and since no one is waiting for the handshake, will forward
-        // it along to the chat caller (us)
+        // convo_2 receives the handshake and ping and processes both, and since no one
+        // is waiting for the handshake, will forward it along to the chat
+        // caller (us)
         test_debug!("send handshake {:?}", &handshake_1);
         test_debug!("send ping {:?}", &ping_1);
         convo_send_recv(
@@ -4954,8 +4996,9 @@ mod test {
                 .unwrap();
             let mut rh_ping_1 = convo_1.send_signed_request(ping_1, 1000000).unwrap();
 
-            // convo_2 receives the handshake and ping and processes both, and since no one is waiting for the handshake, will forward
-            // it along to the chat caller (us)
+            // convo_2 receives the handshake and ping and processes both, and since no one
+            // is waiting for the handshake, will forward it along to the chat
+            // caller (us)
             convo_send_recv(
                 &mut convo_1,
                 vec![&mut rh_handshake_1, &mut rh_ping_1],
@@ -5491,8 +5534,8 @@ mod test {
                 .unwrap();
             let mut rh_1 = convo_1.send_signed_request(handshake_1, 1000000).unwrap();
 
-            // convo_2 receives it and processes it, and since no one is waiting for it, will forward
-            // it along to the chat caller (us)
+            // convo_2 receives it and processes it, and since no one is waiting for it,
+            // will forward it along to the chat caller (us)
             test_debug!("send handshake");
             convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
             let unhandled_2 = convo_2
@@ -5546,7 +5589,8 @@ mod test {
                 }
             };
 
-            // convo_1 sends a getblocksinv to convo_2 for all the blocks in the last reward cycle
+            // convo_1 sends a getblocksinv to convo_2 for all the blocks in the last reward
+            // cycle
             let convo_1_chaintip =
                 SortitionDB::get_canonical_burn_chain_tip(sortdb_1.conn()).unwrap();
             let convo_1_ancestor = {
@@ -5770,8 +5814,8 @@ mod test {
                 .unwrap();
             let mut rh_1 = convo_1.send_signed_request(handshake_1, 1000000).unwrap();
 
-            // convo_2 receives it and processes it, and since no one is waiting for it, will forward
-            // it along to the chat caller (us)
+            // convo_2 receives it and processes it, and since no one is waiting for it,
+            // will forward it along to the chat caller (us)
             test_debug!("send handshake");
             convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
             let unhandled_2 = convo_2
@@ -5825,7 +5869,8 @@ mod test {
                 }
             };
 
-            // convo_1 sends a getnakamotoinv to convo_2 for all the tenures in the last reward cycle
+            // convo_1 sends a getnakamotoinv to convo_2 for all the tenures in the last
+            // reward cycle
             let convo_1_chaintip =
                 SortitionDB::get_canonical_burn_chain_tip(sortdb_1.conn()).unwrap();
             let convo_1_ancestor = {
@@ -6067,8 +6112,8 @@ mod test {
         assert_eq!(unhandled_1.len(), 0);
         assert_eq!(unhandled_2.len(), 0);
 
-        // convo_2 replies the natpunch data for convo_1 -- i.e. what convo_2 thinks convo_1's IP
-        // address is
+        // convo_2 replies the natpunch data for convo_1 -- i.e. what convo_2 thinks
+        // convo_1's IP address is
         match natpunch_reply_1.payload {
             StacksMessageType::NatPunchReply(ref data) => {
                 assert_eq!(data.addrbytes, PeerAddress::from_socketaddr(&socketaddr_1));
@@ -6336,8 +6381,8 @@ mod test {
                 Ok(true)
             );
 
-            // give ping an older version, but test with a block in which the ping's version is
-            // valid
+            // give ping an older version, but test with a block in which the ping's version
+            // is valid
             convo_bad.version = 0x18000000;
             let ping_old = convo_bad
                 .sign_message(

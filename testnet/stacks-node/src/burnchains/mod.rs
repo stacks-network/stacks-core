@@ -50,8 +50,9 @@ pub trait BurnchainController {
     fn sortdb_mut(&mut self) -> &mut SortitionDB;
     fn get_chain_tip(&self) -> BurnchainTip;
     fn get_headers_height(&self) -> u64;
-    /// Invoke connect() on underlying burnchain and sortition databases, to perform any migration
-    ///  or instantiation before other callers may use open()
+    /// Invoke connect() on underlying burnchain and sortition databases, to
+    /// perform any migration  or instantiation before other callers may use
+    /// open()
     fn connect_dbs(&mut self) -> Result<(), Error>;
     fn get_stacks_epochs(&self) -> EpochList;
 

@@ -29,14 +29,15 @@
 ///                           |   .----------.   |--------------------------------------.
 ///                           |   .StacksNode.   |                                      |
 ///                           |---.----------.---|                                      |
-///                    [1,12]     |     |    |     [1]                                  |
-///              .----------------*     |    *---------------.                          |
-///              |                  [3] |                    |                          |
-///              V                      |                    V                          V
-///      |----------------|             |    [9,10]   |---------------| [11] |--------------------------|
-/// .--- | Relayer thread | <-----------|-----------> |   P2P Thread  | <--- | ChainsCoordinator thread | <--.
-/// |    |----------------|             V             |---------------|      |--------------------------|    |
-/// |            |     |          /-------------\    [2,3]    |    |              |          |               |
+///                    [1,12]     |     |    |     [1]
+/// |              .----------------*     |    *---------------.
+/// |              |                  [3] |                    |                          |
+///              V                      |                    V
+/// V      |----------------|             |    [9,10]   |---------------| [11]
+/// |--------------------------| .--- | Relayer thread |
+/// <-----------|-----------> |   P2P Thread  | <--- | ChainsCoordinator thread
+/// | <--. |    |----------------|             V             |---------------|
+/// |--------------------------|    | |            |     |          /-------------\    [2,3]    |    |              |          |               |
 /// |        [1] |     *--------> /   Globals   \ <-----------*----|--------------*          | [4]           |
 /// |            |     [2,3,7]    /-------------\                  |                         |               |
 /// |            V                                                 V [5]                     V               |
@@ -64,83 +65,95 @@
 ///
 /// When the node is running, there are 4-5 active threads at once. They are:
 ///
-/// * **RunLoop Thread**:
-///     This is the main thread, whose code body lives in `src/run_loop/neon.rs`.
-///     This thread is responsible for:
+/// * **RunLoop Thread**: This is the main thread, whose code body lives in
+///   `src/run_loop/neon.rs`. This thread is responsible for:
 ///       * Bootup
 ///       * Running the burnchain indexer
-///       * Notifying the ChainsCoordinator thread when there are new burnchain blocks to process
+///       * Notifying the ChainsCoordinator thread when there are new burnchain
+///         blocks to process
 ///
-/// * **Relayer Thread**:
-///     This is the thread that stores and relays blocks and microblocks. Both
-///     it and the ChainsCoordinator thread are very I/O-heavy threads, and care has been taken to
-///     ensure that neither one attempts to acquire a write-lock in the underlying databases.
-///     Specifically, this thread directs the ChainsCoordinator thread when to process new Stacks
-///     blocks, and it directs the miner thread (if running) to stop when either it or the
-///     ChainsCoordinator thread needs to acquire the write-lock.
-///     This thread is responsible for:
-///       * Receiving new blocks and microblocks from the P2P thread via a shared channel
-///       * (Synchronously) requesting the CoordinatorThread to process newly-stored Stacks blocks
-///         and microblocks
-///       * Building up the node's unconfirmed microblock stream state, and sharing it with the P2P
-///         thread so it can answer queries about the unconfirmed microblock chain
-///       * Pushing newly-discovered blocks and microblocks to the P2P thread for broadcast
+/// * **Relayer Thread**: This is the thread that stores and relays blocks and
+///   microblocks. Both it and the ChainsCoordinator thread are very I/O-heavy
+///   threads, and care has been taken to ensure that neither one attempts to
+///   acquire a write-lock in the underlying databases. Specifically, this
+///   thread directs the ChainsCoordinator thread when to process new Stacks
+///   blocks, and it directs the miner thread (if running) to stop when either
+///   it or the ChainsCoordinator thread needs to acquire the write-lock. This
+///   thread is responsible for:
+///       * Receiving new blocks and microblocks from the P2P thread via a
+///         shared channel
+///       * (Synchronously) requesting the CoordinatorThread to process
+///         newly-stored Stacks blocks and microblocks
+///       * Building up the node's unconfirmed microblock stream state, and
+///         sharing it with the P2P thread so it can answer queries about the
+///         unconfirmed microblock chain
+///       * Pushing newly-discovered blocks and microblocks to the P2P thread
+///         for broadcast
 ///       * Registering the VRF public key for the miner
-///       * Spawning the block and microblock miner threads, and stopping them if their continued
-///         execution would inhibit block or microblock storage or processing.
-///       * Submitting the burnchain operation to commit to a freshly-mined block
+///       * Spawning the block and microblock miner threads, and stopping them
+///         if their continued execution would inhibit block or microblock
+///         storage or processing.
+///       * Submitting the burnchain operation to commit to a freshly-mined
+///         block
 ///
-/// * **Miner Thread**:
-///     This is the thread that actually produces new blocks and microblocks. It
-///     is spawned only by the Relayer thread to carry out mining activity when the underlying
-///     chainstate is not needed by either the Relayer or ChainsCoordinator threads.
-///     This thread does the following:
+/// * **Miner Thread**: This is the thread that actually produces new blocks and
+///   microblocks. It is spawned only by the Relayer thread to carry out mining
+///   activity when the underlying chainstate is not needed by either the
+///   Relayer or ChainsCoordinator threads. This thread does the following:
 ///       * Walk the mempool DB to build a new block or microblock
 ///       * Return the block or microblock to the Relayer thread
 ///
-/// * **P2P Thread**:
-///     This is the thread that communicates with the rest of the P2P network, and
-///     handles RPC requests. It is meant to do as little storage-write I/O as possible to avoid lock
-///     contention with the Miner, Relayer, and ChainsCoordinator threads. In particular, it forwards
-///     data it receives from the P2P thread to the Relayer thread for I/O-bound processing. At the
-///     time of this writing, it still requires holding a write-lock to handle some RPC requests, but
-///     future work will remove this so that this thread's execution will not interfere with the
-///     others. This is the only thread that does socket I/O.
-///     This thread runs the PeerNetwork state machines, which include the following:
+/// * **P2P Thread**: This is the thread that communicates with the rest of the
+///   P2P network, and handles RPC requests. It is meant to do as little
+///   storage-write I/O as possible to avoid lock contention with the Miner,
+///   Relayer, and ChainsCoordinator threads. In particular, it forwards data it
+///   receives from the P2P thread to the Relayer thread for I/O-bound
+///   processing. At the time of this writing, it still requires holding a
+///   write-lock to handle some RPC requests, but future work will remove this
+///   so that this thread's execution will not interfere with the others. This
+///   is the only thread that does socket I/O. This thread runs the PeerNetwork
+///   state machines, which include the following:
 ///       * Learning the node's public IP address
 ///       * Discovering neighbor nodes
-///       * Forwarding newly-discovered blocks, microblocks, and transactions from the Relayer thread
-///         to other neighbors
-///       * Synchronizing block and microblock inventory state with other neighbors
-///       * Downloading blocks and microblocks, and passing them to the Relayer for storage and
-///         processing
-///       * Downloading transaction attachments as their hashes are discovered during block processing
+///       * Forwarding newly-discovered blocks, microblocks, and transactions
+///         from the Relayer thread to other neighbors
+///       * Synchronizing block and microblock inventory state with other
+///         neighbors
+///       * Downloading blocks and microblocks, and passing them to the Relayer
+///         for storage and processing
+///       * Downloading transaction attachments as their hashes are discovered
+///         during block processing
 ///       * Synchronizing the local mempool database with other neighbors
-///         (notifications for new attachments come from a shared channel in the ChainsCoordinator thread)
+///         (notifications for new attachments come from a shared channel in the
+///         ChainsCoordinator thread)
 ///       * Handling HTTP requests
 ///
-/// * **ChainsCoordinator Thread**:
-///     This thread processes sortitions and Stacks blocks and
-///     microblocks, and handles PoX reorgs should they occur (this mainly happens in boot-up). It,
-///     like the Relayer thread, is a very I/O-heavy thread, and it will hold a write-lock on the
-///     chainstate DBs while it works. Its actions are controlled by a CoordinatorComms structure in
-///     the Globals shared state, which the Relayer thread and RunLoop thread both drive (the former
-///     drives Stacks blocks processing, the latter sortitions).
-///     This thread is responsible for:
+/// * **ChainsCoordinator Thread**: This thread processes sortitions and Stacks
+///   blocks and microblocks, and handles PoX reorgs should they occur (this
+///   mainly happens in boot-up). It, like the Relayer thread, is a very
+///   I/O-heavy thread, and it will hold a write-lock on the chainstate DBs
+///   while it works. Its actions are controlled by a CoordinatorComms structure
+///   in the Globals shared state, which the Relayer thread and RunLoop thread
+///   both drive (the former drives Stacks blocks processing, the latter
+///   sortitions). This thread is responsible for:
 ///       * Responding to requests from other threads to process sortitions
-///       * Responding to requests from other threads to process Stacks blocks and microblocks
+///       * Responding to requests from other threads to process Stacks blocks
+///         and microblocks
 ///       * Processing PoX chain reorgs, should they ever happen
-///       * Detecting attachment creation events, and informing the P2P thread of them so it can go
-///         and download them
+///       * Detecting attachment creation events, and informing the P2P thread
+///         of them so it can go and download them
 ///
-/// In addition to the mempool and chainstate databases, these threads share access to a Globals
-/// singleton that contains soft state shared between threads. Mainly, the Globals struct is meant
-/// to store inter-thread shared singleton communication media all in one convenient struct. Each
-/// thread has a handle to the struct's shared state handles. Global state includes:
+/// In addition to the mempool and chainstate databases, these threads share
+/// access to a Globals singleton that contains soft state shared between
+/// threads. Mainly, the Globals struct is meant to store inter-thread shared
+/// singleton communication media all in one convenient struct. Each thread has
+/// a handle to the struct's shared state handles. Global state includes:
 ///       * The global flag as to whether or not the miner thread can be running
-///       * The global shutdown flag that, when set, causes all threads to terminate
+///       * The global shutdown flag that, when set, causes all threads to
+///         terminate
 ///       * Sender channel endpoints that can be shared between threads
-///       * Metrics about the node's behavior (e.g. number of blocks processed, etc.)
+///       * Metrics about the node's behavior (e.g. number of blocks processed,
+///         etc.)
 ///
 /// This file may be refactored in the future into a full-fledged module.
 use std::cmp;
@@ -235,7 +248,8 @@ pub const BLOCK_PROCESSOR_STACK_SIZE: usize = 32 * 1024 * 1024; // 32 MB
 
 type MinedBlocks = HashMap<BlockHeaderHash, (AssembledAnchorBlock, Secp256k1PrivateKey)>;
 
-/// Result of running the miner thread.  It could produce a Stacks block or a microblock.
+/// Result of running the miner thread.  It could produce a Stacks block or a
+/// microblock.
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum MinerThreadResult {
     Block(
@@ -283,8 +297,9 @@ impl MinerTip {
 }
 
 /// Node implementation for both miners and followers.
-/// This struct is used to set up the node proper and launch the p2p thread and relayer thread.
-/// It is further used by the main thread to communicate with these two threads.
+/// This struct is used to set up the node proper and launch the p2p thread and
+/// relayer thread. It is further used by the main thread to communicate with
+/// these two threads.
 pub struct StacksNode {
     /// Atlas network configuration
     pub atlas_config: AtlasConfig,
@@ -381,11 +396,14 @@ enum Error {
 struct ParentStacksBlockInfo {
     /// Header metadata for the Stacks block we're going to build on top of
     stacks_parent_header: StacksHeaderInfo,
-    /// the consensus hash of the sortition that selected the Stacks block parent
+    /// the consensus hash of the sortition that selected the Stacks block
+    /// parent
     parent_consensus_hash: ConsensusHash,
-    /// the burn block height of the sortition that selected the Stacks block parent
+    /// the burn block height of the sortition that selected the Stacks block
+    /// parent
     parent_block_burn_height: u64,
-    /// the total amount burned in the sortition that selected the Stacks block parent
+    /// the total amount burned in the sortition that selected the Stacks block
+    /// parent
     parent_block_total_burn: u64,
     /// offset in the burnchain block where the parent's block-commit was
     parent_winning_vtxindex: u16,
@@ -420,7 +438,8 @@ impl LeaderKeyRegistrationState {
 /// * accepts network results and stores blocks and microblocks
 /// * forwards new blocks, microblocks, and transactions to the p2p thread
 /// * processes burnchain state
-/// * if mining, runs the miner and broadcasts blocks (via a subordinate MinerThread)
+/// * if mining, runs the miner and broadcasts blocks (via a subordinate
+///   MinerThread)
 pub struct RelayerThread {
     /// Node config
     config: Config,
@@ -438,7 +457,8 @@ pub struct RelayerThread {
     burnchain: Burnchain,
     /// height of last VRF key registration request
     last_vrf_key_burn_height: u64,
-    /// Set of blocks that we have mined, but are still potentially-broadcastable
+    /// Set of blocks that we have mined, but are still
+    /// potentially-broadcastable
     last_mined_blocks: MinedBlocks,
     /// client to the burnchain (used only for sending block-commits)
     bitcoin_controller: BitcoinRegtestController,
@@ -448,25 +468,30 @@ pub struct RelayerThread {
     local_peer: LocalPeer,
     /// last time we tried to mine a block (in millis)
     last_tenure_issue_time: u128,
-    /// last observed burnchain block height from the p2p thread (obtained from network results)
+    /// last observed burnchain block height from the p2p thread (obtained from
+    /// network results)
     last_network_block_height: u64,
-    /// time at which we observed a change in the network block height (epoch time in millis)
+    /// time at which we observed a change in the network block height (epoch
+    /// time in millis)
     last_network_block_height_ts: u128,
-    /// last observed number of downloader state-machine passes from the p2p thread (obtained from
-    /// network results)
+    /// last observed number of downloader state-machine passes from the p2p
+    /// thread (obtained from network results)
     last_network_download_passes: u64,
-    /// last observed number of inventory state-machine passes from the p2p thread (obtained from
-    /// network results)
+    /// last observed number of inventory state-machine passes from the p2p
+    /// thread (obtained from network results)
     last_network_inv_passes: u64,
-    /// minimum number of downloader state-machine passes that must take place before mining (this
-    /// is used to ensure that the p2p thread attempts to download new Stacks block data before
-    /// this thread tries to mine a block)
+    /// minimum number of downloader state-machine passes that must take place
+    /// before mining (this is used to ensure that the p2p thread attempts
+    /// to download new Stacks block data before this thread tries to mine a
+    /// block)
     min_network_download_passes: u64,
-    /// minimum number of inventory state-machine passes that must take place before mining (this
-    /// is used to ensure that the p2p thread attempts to download new Stacks block data before
-    /// this thread tries to mine a block)
+    /// minimum number of inventory state-machine passes that must take place
+    /// before mining (this is used to ensure that the p2p thread attempts
+    /// to download new Stacks block data before this thread tries to mine a
+    /// block)
     min_network_inv_passes: u64,
-    /// consensus hash of the last sortition we saw, even if we weren't the winner
+    /// consensus hash of the last sortition we saw, even if we weren't the
+    /// winner
     last_tenure_consensus_hash: Option<ConsensusHash>,
     /// tip of last tenure we won (used for mining microblocks)
     miner_tip: Option<MinerTip>,
@@ -477,14 +502,15 @@ pub struct RelayerThread {
     /// cost of the last-produced microblock stream
     microblock_stream_cost: ExecutionCost,
 
-    /// Inner relayer instance for forwarding broadcasted data back to the p2p thread for dispatch
-    /// to neighbors
+    /// Inner relayer instance for forwarding broadcasted data back to the p2p
+    /// thread for dispatch to neighbors
     relayer: Relayer,
 
     /// handle to the subordinate miner thread
     miner_thread: Option<JoinHandle<Option<MinerThreadResult>>>,
-    /// if true, then the last time the miner thread was launched, it was used to mine a Stacks
-    /// block (used to alternate between mining microblocks and Stacks blocks that confirm them)
+    /// if true, then the last time the miner thread was launched, it was used
+    /// to mine a Stacks block (used to alternate between mining microblocks
+    /// and Stacks blocks that confirm them)
     mined_stacks_block: bool,
 }
 
@@ -497,11 +523,13 @@ pub(crate) struct BlockMinerThread {
     keychain: Keychain,
     /// burnchain configuration
     burnchain: Burnchain,
-    /// Set of blocks that we have mined, but are still potentially-broadcastable
-    /// (copied from RelayerThread since we need the info to determine the strategy for mining the
-    /// next block during this tenure).
+    /// Set of blocks that we have mined, but are still
+    /// potentially-broadcastable (copied from RelayerThread since we need
+    /// the info to determine the strategy for mining the next block during
+    /// this tenure).
     last_mined_blocks: MinedBlocks,
-    /// Copy of the node's last ongoing block commit from the last time this thread was run
+    /// Copy of the node's last ongoing block commit from the last time this
+    /// thread was run
     ongoing_commit: Option<OngoingBlockCommit>,
     /// Copy of the node's registered VRF key
     registered_key: RegisteredKey,
@@ -537,8 +565,8 @@ struct MicroblockMinerThread {
     last_mined: u128,
     /// How many microblocks produced so far
     quantity: u64,
-    /// Block budget consumed so far by this tenure (initialized to the cost of the Stacks block
-    /// itself; microblocks fill up the remaining budget)
+    /// Block budget consumed so far by this tenure (initialized to the cost of
+    /// the Stacks block itself; microblocks fill up the remaining budget)
     cost_so_far: ExecutionCost,
     /// Block builder settings for the microblock miner.
     settings: BlockBuilderSettings,
@@ -571,8 +599,8 @@ impl MicroblockMinerThread {
             .make_cost_metric()
             .unwrap_or_else(|| Box::new(UnitMetric));
 
-        // NOTE: read-write access is needed in order to be able to query the recipient set.
-        // This is an artifact of the way the MARF is built (see #1449)
+        // NOTE: read-write access is needed in order to be able to query the recipient
+        // set. This is an artifact of the way the MARF is built (see #1449)
         let sortdb = SortitionDB::open(&burn_db_path, true, burnchain.pox_constants)
             .map_err(|e| {
                 error!("Relayer: Could not open sortdb '{burn_db_path}' ({e:?}); skipping tenure");
@@ -687,8 +715,8 @@ impl MicroblockMinerThread {
     }
 
     /// Unconditionally mine one microblock.
-    /// Can fail if the miner thread gets cancelled (most likely cause), or if there's some kind of
-    /// DB error.
+    /// Can fail if the miner thread gets cancelled (most likely cause), or if
+    /// there's some kind of DB error.
     fn inner_mine_one_microblock(
         &mut self,
         sortdb: &SortitionDB,
@@ -928,11 +956,13 @@ impl MicroblockMinerThread {
         Ok(next_microblock_and_runtime)
     }
 
-    /// Try to mine one microblock, given the current chain tip and access to the chain state DBs.
-    /// If we succeed, return the microblock and log the tx events to the given event dispatcher.
-    /// May return None if any of the following are true:
+    /// Try to mine one microblock, given the current chain tip and access to
+    /// the chain state DBs. If we succeed, return the microblock and log
+    /// the tx events to the given event dispatcher. May return None if any
+    /// of the following are true:
     /// * `miner_tip` does not match this miner's miner tip
-    /// * it's been too soon (less than microblock_frequency milliseconds) since we tried this call
+    /// * it's been too soon (less than microblock_frequency milliseconds) since
+    ///   we tried this call
     /// * there are simply no transactions to mine
     /// * there are still stacks blocks to be processed in the staging db
     /// * the miner thread got cancelled
@@ -957,8 +987,8 @@ pub struct TipCandidate {
     pub parent_anchored_block_hash: BlockHeaderHash,
     /// the block's sortition's burnchain height
     pub burn_height: u64,
-    /// the number of Stacks blocks *at the same height* as this one, but from earlier sortitions
-    /// than `burn_height`
+    /// the number of Stacks blocks *at the same height* as this one, but from
+    /// earlier sortitions than `burn_height`
     pub num_earlier_siblings: u64,
 }
 
@@ -1008,7 +1038,8 @@ impl BlockMinerThread {
         }
     }
 
-    /// Get the coinbase recipient address, if set in the config and if allowed in this epoch
+    /// Get the coinbase recipient address, if set in the config and if allowed
+    /// in this epoch
     fn get_coinbase_recipient(&self, epoch_id: StacksEpochId) -> Option<PrincipalData> {
         let miner_config = self.config.get_miner_config();
         if epoch_id < StacksEpochId::Epoch21 && miner_config.block_reward_recipient.is_some() {
@@ -1114,7 +1145,8 @@ impl BlockMinerThread {
         })
     }
 
-    /// Get references to the inner assembled anchor block data we've produced for a given burnchain block height
+    /// Get references to the inner assembled anchor block data we've produced
+    /// for a given burnchain block height
     fn find_inflight_mined_blocks(
         burn_height: u64,
         last_mined_blocks: &MinedBlocks,
@@ -1172,11 +1204,12 @@ impl BlockMinerThread {
         &tip_ch == candidate_ch
     }
 
-    /// Load all candidate tips upon which to build.  This is all Stacks blocks whose heights are
-    /// less than or equal to at `at_stacks_height` (or the canonical chain tip height, if not given),
-    /// but greater than or equal to this end height minus `max_depth`.
-    /// Returns the list of all Stacks blocks up to max_depth blocks beneath it.
-    /// The blocks will be sorted first by stacks height, and then by burnchain height
+    /// Load all candidate tips upon which to build.  This is all Stacks blocks
+    /// whose heights are less than or equal to at `at_stacks_height` (or
+    /// the canonical chain tip height, if not given), but greater than or
+    /// equal to this end height minus `max_depth`. Returns the list of all
+    /// Stacks blocks up to max_depth blocks beneath it. The blocks will be
+    /// sorted first by stacks height, and then by burnchain height
     pub(crate) fn load_candidate_tips(
         burn_db: &mut SortitionDB,
         chain_state: &mut StacksChainState,
@@ -1252,9 +1285,10 @@ impl BlockMinerThread {
         Self::sort_and_populate_candidates(candidates)
     }
 
-    /// Put all tip candidates in order by stacks height, breaking ties with burnchain height.
-    /// Also, count up the number of earliersiblings each tip has -- i.e. the number of stacks
-    /// blocks that have the same height, but a later burnchain sortition.
+    /// Put all tip candidates in order by stacks height, breaking ties with
+    /// burnchain height. Also, count up the number of earliersiblings each
+    /// tip has -- i.e. the number of stacks blocks that have the same
+    /// height, but a later burnchain sortition.
     pub(crate) fn sort_and_populate_candidates(
         mut candidates: Vec<TipCandidate>,
     ) -> Vec<TipCandidate> {
@@ -1271,7 +1305,8 @@ impl BlockMinerThread {
         });
 
         // calculate the number of earlier siblings for each block.
-        // this is the number of stacks blocks at the same height, but later burnchain heights.
+        // this is the number of stacks blocks at the same height, but later burnchain
+        // heights.
         let mut idx = 0;
         let mut cur_stacks_height = candidates[idx].stacks_height;
         let mut num_siblings = 0;
@@ -1300,9 +1335,9 @@ impl BlockMinerThread {
     /// max_reorg_depth. Each potential tip is then scored based on the amount
     /// of orphans that its chain has caused -- that is, the number of orphans
     /// that the tip _and all of its ancestors_ (up to `max_depth`) created.
-    /// The tip with the lowest score is composed of blocks that collectively made the fewest
-    /// orphans, and is thus the "nicest" chain with the least orphaning.  This is the tip that is
-    /// selected.
+    /// The tip with the lowest score is composed of blocks that collectively
+    /// made the fewest orphans, and is thus the "nicest" chain with the
+    /// least orphaning.  This is the tip that is selected.
     pub fn pick_best_tip(
         globals: &Globals,
         config: &Config,
@@ -1346,15 +1381,18 @@ impl BlockMinerThread {
         best_tip_opt
     }
 
-    /// Given a list of sorted candidate tips, pick the best one.  See `Self::pick_best_tip()`.
-    /// Takes the list of stacks tips that are eligible to be built on, and a map of
-    /// previously-chosen best tips (so if we chose a tip in the past, we keep confirming it, even
-    /// if subsequent stacks blocks show up).  The previous best tips should be from recent Stacks
-    /// heights; it's important that older best-tips are forgotten in order to ensure that miners
-    /// will eventually (e.g. after `max_reorg_depth` Stacks blocks pass) stop trying to confirm a
-    /// now-orphaned previously-chosen best-tip.  If there are multiple best-tips that conflict in
-    /// `previosu_best_tips`, then only the highest one which the leaf could confirm will be
-    /// considered (since the node updates its understanding of the best-tip on each RunTenure).
+    /// Given a list of sorted candidate tips, pick the best one.  See
+    /// `Self::pick_best_tip()`. Takes the list of stacks tips that are
+    /// eligible to be built on, and a map of previously-chosen best tips
+    /// (so if we chose a tip in the past, we keep confirming it, even
+    /// if subsequent stacks blocks show up).  The previous best tips should be
+    /// from recent Stacks heights; it's important that older best-tips are
+    /// forgotten in order to ensure that miners will eventually (e.g. after
+    /// `max_reorg_depth` Stacks blocks pass) stop trying to confirm a
+    /// now-orphaned previously-chosen best-tip.  If there are multiple
+    /// best-tips that conflict in `previosu_best_tips`, then only the
+    /// highest one which the leaf could confirm will be considered (since
+    /// the node updates its understanding of the best-tip on each RunTenure).
     pub(crate) fn inner_pick_best_tip(
         stacks_tips: Vec<TipCandidate>,
         previous_best_tips: HashMap<u64, TipCandidate>,
@@ -1389,10 +1427,11 @@ impl BlockMinerThread {
         let mut scores = BTreeMap::new();
         for (i, leaf_tip) in leaf_tips.iter().enumerate() {
             let leaf_id = leaf_tip.id();
-            // Score each leaf tip as the number of preceding Stacks blocks that are _not_ an
-            // ancestor.  Because stacks_tips are in order by stacks height, a linear scan of this
-            // list will allow us to match all ancestors in the last max_depth Stacks blocks.
-            // `ancestor_ptr` tracks the next expected ancestor.
+            // Score each leaf tip as the number of preceding Stacks blocks that are _not_
+            // an ancestor.  Because stacks_tips are in order by stacks height,
+            // a linear scan of this list will allow us to match all ancestors
+            // in the last max_depth Stacks blocks. `ancestor_ptr` tracks the
+            // next expected ancestor.
             let mut ancestor_ptr = leaf_tip.parent_id();
             let mut score: u64 = 0;
             let mut score_summaries = vec![];
@@ -1463,7 +1502,8 @@ impl BlockMinerThread {
                     }
 
                     // this stacks tip is the next ancestor.  However, that ancestor may have
-                    // earlier-sortition'ed siblings that confirming this tip would orphan, so count those.
+                    // earlier-sortition'ed siblings that confirming this tip would orphan, so count
+                    // those.
                     ancestor_ptr = tip.parent_id();
                     score = score.saturating_add(tip.num_earlier_siblings);
                     score_summaries.push(format!("{} (earlier sibs)", tip.num_earlier_siblings));
@@ -1514,8 +1554,9 @@ impl BlockMinerThread {
     // TODO: add tests from mutation testing results #4870
     #[cfg_attr(test, mutants::skip)]
     /// Load up the parent block info for mining.
-    /// If there's no parent because this is the first block, then return the genesis block's info.
-    /// If we can't find the parent in the DB but we expect one, return None.
+    /// If there's no parent because this is the first block, then return the
+    /// genesis block's info. If we can't find the parent in the DB but we
+    /// expect one, return None.
     fn load_block_parent_info(
         &self,
         burn_db: &mut SortitionDB,
@@ -1580,10 +1621,10 @@ impl BlockMinerThread {
         }
     }
 
-    /// Determine which attempt this will be when mining a block, and whether or not an attempt
-    /// should even be made.
-    /// Returns Some(attempt, max-txs) if we should attempt to mine (and what attempt it will be)
-    /// Returns None if we should not mine.
+    /// Determine which attempt this will be when mining a block, and whether or
+    /// not an attempt should even be made.
+    /// Returns Some(attempt, max-txs) if we should attempt to mine (and what
+    /// attempt it will be) Returns None if we should not mine.
     fn get_mine_attempt(
         &self,
         chain_state: &StacksChainState,
@@ -1666,8 +1707,8 @@ impl BlockMinerThread {
                                         + 1)
                         {
                             if !force {
-                                // the chain tip hasn't changed since we attempted to build a block.  Use what we
-                                // already have.
+                                // the chain tip hasn't changed since we attempted to build a block.
+                                // Use what we already have.
                                 info!("Relayer: Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {parent_block_burn_height}, and no new microblocks ({} <= {} + 1)",
                                        &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block, prev_block.anchored_block.header.total_work.work,
                                        prev_block.anchored_block.txs.len(), prev_block.burn_hash, stream.len(), prev_block.anchored_block.header.parent_microblock_sequence);
@@ -1716,8 +1757,8 @@ impl BlockMinerThread {
     /// Returns Some(proof) if we could make the proof
     /// Return None if we could not make the proof
     fn make_vrf_proof(&mut self) -> Option<VRFProof> {
-        // if we're a mock miner, then make sure that the keychain has a keypair for the mocked VRF
-        // key
+        // if we're a mock miner, then make sure that the keychain has a keypair for the
+        // mocked VRF key
         let vrf_proof = if self.config.get_node_config(false).mock_mining {
             self.keychain.generate_proof(
                 VRF_MOCK_MINER_KEY,
@@ -1741,11 +1782,11 @@ impl BlockMinerThread {
         Some(vrf_proof)
     }
 
-    /// Get the microblock private key we'll be using for this tenure, should we win.
-    /// Return the private key.
+    /// Get the microblock private key we'll be using for this tenure, should we
+    /// win. Return the private key.
     ///
-    /// In testing, we ignore the parent stacks block hash because we don't have an easy way to
-    /// reproduce it in integration tests.
+    /// In testing, we ignore the parent stacks block hash because we don't have
+    /// an easy way to reproduce it in integration tests.
     #[cfg(not(test))]
     fn make_microblock_private_key(
         &mut self,
@@ -1757,8 +1798,8 @@ impl BlockMinerThread {
             .make_microblock_secret_key(self.burn_block.block_height, &parent_stacks_hash.0)
     }
 
-    /// Get the microblock private key we'll be using for this tenure, should we win.
-    /// Return the private key on success
+    /// Get the microblock private key we'll be using for this tenure, should we
+    /// win. Return the private key on success
     #[cfg(test)]
     fn make_microblock_private_key(
         &mut self,
@@ -1775,8 +1816,9 @@ impl BlockMinerThread {
 
     /// Load the parent microblock stream and vet it for the absence of forks.
     /// If there is a fork, then mine and relay a poison microblock transaction.
-    /// Update stacks_parent_header's microblock tail to point to the end of the stream we load.
-    /// Return the microblocks we'll confirm, if there are any.
+    /// Update stacks_parent_header's microblock tail to point to the end of the
+    /// stream we load. Return the microblocks we'll confirm, if there are
+    /// any.
     fn load_and_vet_parent_microblocks(
         &mut self,
         chain_state: &mut StacksChainState,
@@ -1824,16 +1866,16 @@ impl BlockMinerThread {
                 );
             }
 
-            // try and confirm as many microblocks as we can (but note that the stream itself may
-            // be too long; we'll try again if that happens).
+            // try and confirm as many microblocks as we can (but note that the stream
+            // itself may be too long; we'll try again if that happens).
             stacks_parent_header.microblock_tail = microblocks.last().map(|blk| blk.header.clone());
 
             if let Some(poison_payload) = poison_opt {
                 debug!("Detected poisoned microblock fork: {poison_payload:?}");
 
-                // submit it multiple times with different nonces, so it'll have a good chance of
-                // eventually getting picked up (even if the miner sends other transactions from
-                // the same address)
+                // submit it multiple times with different nonces, so it'll have a good chance
+                // of eventually getting picked up (even if the miner sends
+                // other transactions from the same address)
                 for i in 0..10 {
                     let poison_microblock_tx = self.inner_generate_poison_microblock_tx(
                         parent_block_info.coinbase_nonce + 1 + i,
@@ -1890,7 +1932,8 @@ impl BlockMinerThread {
             .collect()
     }
 
-    /// Obtain the target burn fee cap, when considering how well this miner is performing.
+    /// Obtain the target burn fee cap, when considering how well this miner is
+    /// performing.
     #[allow(clippy::too_many_arguments)]
     pub fn get_mining_spend_amount<F, G>(
         config: &Config,
@@ -2162,8 +2205,8 @@ impl BlockMinerThread {
             NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
                 .expect("FATAL: could not query canonical Stacks chain tip")
         {
-            // if a block hasn't been processed within some deadline seconds of receipt, don't block
-            //  mining
+            // if a block hasn't been processed within some deadline seconds of receipt,
+            // don't block  mining
             let process_deadline = get_epoch_time_secs() - unprocessed_block_deadline;
             let has_unprocessed = StacksChainState::has_higher_unprocessed_blocks(
                 chainstate.db(),
@@ -2196,8 +2239,8 @@ impl BlockMinerThread {
                                 + u64::from(burnchain.pox_constants.prepare_length)
                                 > sort_tip.block_height
                         {
-                            // we're close enough to the chain tip that it's a bad idea for us to mine
-                            // -- we'll likely create an orphan
+                            // we're close enough to the chain tip that it's a bad idea for us to
+                            // mine -- we'll likely create an orphan
                             return true;
                         }
                     }
@@ -2234,7 +2277,8 @@ impl BlockMinerThread {
         }
     }
 
-    /// Only used in mock signing to retrieve the mock signatures for the given mock proposal
+    /// Only used in mock signing to retrieve the mock signatures for the given
+    /// mock proposal
     fn wait_for_mock_signatures(
         &self,
         mock_proposal: &MockProposal,
@@ -2258,9 +2302,10 @@ impl BlockMinerThread {
             .collect();
         let mock_poll_start = Instant::now();
         let mut mock_signatures = vec![];
-        // Because we don't care really if all signers reach quorum and this is just for testing purposes,
-        // we don't need to wait for ALL signers to sign the mock proposal and should not slow down mining too much
-        // Just wait a min amount of time for the mock signatures to come in
+        // Because we don't care really if all signers reach quorum and this is just for
+        // testing purposes, we don't need to wait for ALL signers to sign the
+        // mock proposal and should not slow down mining too much Just wait a
+        // min amount of time for the mock signatures to come in
         while mock_signatures.len() < slot_ids.len() && mock_poll_start.elapsed() < timeout {
             let chunks = stackerdbs.get_latest_chunks(&signers_contract_id, &slot_ids)?;
             for chunk in chunks.into_iter().flatten() {
@@ -2278,7 +2323,8 @@ impl BlockMinerThread {
         Ok(mock_signatures)
     }
 
-    /// Only used in mock signing to determine if the peer info view was already signed across
+    /// Only used in mock signing to determine if the peer info view was already
+    /// signed across
     fn mock_block_exists(&self, peer_info: &PeerInfo) -> bool {
         let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
         let mut miners_stackerdb =
@@ -2337,7 +2383,8 @@ impl BlockMinerThread {
             return Ok(());
         }
 
-        // find out which slot we're in. If we are not the latest sortition winner, we should not be sending anymore messages anyway
+        // find out which slot we're in. If we are not the latest sortition winner, we
+        // should not be sending anymore messages anyway
         let ih = burn_db.index_handle(&self.burn_block.sortition_id);
         let last_winner_snapshot = ih
             .get_last_snapshot_with_sortition(self.burn_block.block_height)
@@ -2367,7 +2414,8 @@ impl BlockMinerThread {
             &self.burn_block,
             &stackerdbs,
             SignerMessage::MockProposal(mock_proposal.clone()),
-            MinerSlotID::BlockProposal, // There is no specific slot for mock miner messages so we use BlockProposal for MockProposal as well.
+            MinerSlotID::BlockProposal, /* There is no specific slot for mock miner messages so
+                                         * we use BlockProposal for MockProposal as well. */
             self.config.is_mainnet(),
             &mut miners_stackerdb,
             &election_sortition,
@@ -2395,7 +2443,9 @@ impl BlockMinerThread {
             &self.burn_block,
             &stackerdbs,
             SignerMessage::MockBlock(mock_block),
-            MinerSlotID::BlockPushed, // There is no specific slot for mock miner messages. Let's use BlockPushed for MockBlock since MockProposal uses BlockProposal.
+            MinerSlotID::BlockPushed, /* There is no specific slot for mock miner messages.
+                                       * Let's use BlockPushed for MockBlock since MockProposal
+                                       * uses BlockProposal. */
             self.config.is_mainnet(),
             &mut miners_stackerdb,
             &election_sortition,
@@ -2409,10 +2459,11 @@ impl BlockMinerThread {
 
     // TODO: add tests from mutation testing results #4871
     #[cfg_attr(test, mutants::skip)]
-    /// Try to mine a Stacks block by assembling one from mempool transactions and sending a
-    /// burnchain block-commit transaction.  If we succeed, then return the assembled block data as
-    /// well as the microblock private key to use to produce microblocks.
-    /// Return None if we couldn't build a block for whatever reason.
+    /// Try to mine a Stacks block by assembling one from mempool transactions
+    /// and sending a burnchain block-commit transaction.  If we succeed,
+    /// then return the assembled block data as well as the microblock
+    /// private key to use to produce microblocks. Return None if we
+    /// couldn't build a block for whatever reason.
     pub fn run_tenure(&mut self) -> Option<MinerThreadResult> {
         debug!("block miner thread ID is {:?}", thread::current().id());
         fault_injection_long_tenure();
@@ -2447,8 +2498,8 @@ impl BlockMinerThread {
 
         self.globals.set_last_miner_config(miner_config);
 
-        // NOTE: read-write access is needed in order to be able to query the recipient set.
-        // This is an artifact of the way the MARF is built (see #1449)
+        // NOTE: read-write access is needed in order to be able to query the recipient
+        // set. This is an artifact of the way the MARF is built (see #1449)
         let mut burn_db =
             SortitionDB::open(&burn_db_path, true, self.burnchain.pox_constants.clone())
                 .expect("FATAL: could not open sortition DB");
@@ -2506,7 +2557,8 @@ impl BlockMinerThread {
         let coinbase_tx =
             self.inner_generate_coinbase_tx(parent_block_info.coinbase_nonce, target_epoch_id);
 
-        // find the longest microblock tail we can build off of and vet microblocks for forks
+        // find the longest microblock tail we can build off of and vet microblocks for
+        // forks
         self.load_and_vet_parent_microblocks(
             &mut chain_state,
             &burn_db,
@@ -2636,9 +2688,10 @@ impl BlockMinerThread {
             0
         };
 
-        // last chance -- confirm that the stacks tip is unchanged (since it could have taken long
-        // enough to build this block that another block could have arrived), and confirm that all
-        // Stacks blocks with heights higher than the canoincal tip are processed.
+        // last chance -- confirm that the stacks tip is unchanged (since it could have
+        // taken long enough to build this block that another block could have
+        // arrived), and confirm that all Stacks blocks with heights higher than
+        // the canoincal tip are processed.
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
@@ -2865,9 +2918,10 @@ impl RelayerThread {
             .expect("FATAL: tried to access chainstate while it was taken")
     }
 
-    /// Fool the borrow checker into letting us do something with the chainstate databases.
-    /// DOES NOT COMPOSE -- do NOT call this, or self.sortdb_ref(), or self.chainstate_ref(), within
-    /// `func`.  You will get a runtime panic.
+    /// Fool the borrow checker into letting us do something with the chainstate
+    /// databases. DOES NOT COMPOSE -- do NOT call this, or
+    /// self.sortdb_ref(), or self.chainstate_ref(), within `func`.  You
+    /// will get a runtime panic.
     pub fn with_chainstate<F, R>(&mut self, func: F) -> R
     where
         F: FnOnce(&mut RelayerThread, &mut SortitionDB, &mut StacksChainState, &mut MemPoolDB) -> R,
@@ -2891,8 +2945,8 @@ impl RelayerThread {
         res
     }
 
-    /// have we waited for the right conditions under which to start mining a block off of our
-    /// chain tip?
+    /// have we waited for the right conditions under which to start mining a
+    /// block off of our chain tip?
     pub fn has_waited_for_latest_blocks(&self) -> bool {
         // a network download pass took place
         self.min_network_download_passes <= self.last_network_download_passes
@@ -2917,7 +2971,8 @@ impl RelayerThread {
         )
     }
 
-    /// Handle a NetworkResult from the p2p/http state machine.  Usually this is the act of
+    /// Handle a NetworkResult from the p2p/http state machine.  Usually this is
+    /// the act of
     /// * preprocessing and storing new blocks and microblocks
     /// * relaying blocks, microblocks, and transacctions
     /// * updating unconfirmed state views
@@ -2958,8 +3013,8 @@ impl RelayerThread {
         });
 
         if net_receipts.num_new_blocks > 0 || net_receipts.num_new_confirmed_microblocks > 0 {
-            // if we received any new block data that could invalidate our view of the chain tip,
-            // then stop mining until we process it
+            // if we received any new block data that could invalidate our view of the chain
+            // tip, then stop mining until we process it
             debug!("Relayer: block mining to process newly-arrived blocks or microblocks");
             signal_mining_blocked(self.globals.get_miner_status());
         }
@@ -3006,9 +3061,9 @@ impl RelayerThread {
     }
 
     /// Process the block and microblocks from a sortition that we won.
-    /// At this point, we're modifying the chainstate, and merging the artifacts from the previous tenure.
-    /// Blocks until the given stacks block is processed.
-    /// Returns true if we accepted this block as new.
+    /// At this point, we're modifying the chainstate, and merging the artifacts
+    /// from the previous tenure. Blocks until the given stacks block is
+    /// processed. Returns true if we accepted this block as new.
     /// Returns false if we already processed this block.
     fn accept_winning_tenure(
         &mut self,
@@ -3160,17 +3215,20 @@ impl RelayerThread {
         }
     }
 
-    /// Given the pointer to a recently-discovered tenure, see if we won the sortition and if so,
-    /// store it, preprocess it, and forward it to our neighbors.  All the while, keep track of the
-    /// latest Stacks mining tip we have produced so far.
+    /// Given the pointer to a recently-discovered tenure, see if we won the
+    /// sortition and if so, store it, preprocess it, and forward it to our
+    /// neighbors.  All the while, keep track of the latest Stacks mining
+    /// tip we have produced so far.
     ///
-    /// Returns (true, Some(tip)) if the coordinator is still running and we have a miner tip to
-    /// build on (i.e. we won this last sortition).
+    /// Returns (true, Some(tip)) if the coordinator is still running and we
+    /// have a miner tip to build on (i.e. we won this last sortition).
     ///
-    /// Returns (true, None) if the coordinator is still running, and we do NOT have a miner tip to
-    /// build on (i.e. we did not win this last sortition)
+    /// Returns (true, None) if the coordinator is still running, and we do NOT
+    /// have a miner tip to build on (i.e. we did not win this last
+    /// sortition)
     ///
-    /// Returns (false, _) if the coordinator could not be reached, meaning this thread should die.
+    /// Returns (false, _) if the coordinator could not be reached, meaning this
+    /// thread should die.
     pub fn process_one_tenure(
         &mut self,
         consensus_hash: ConsensusHash,
@@ -3313,9 +3371,10 @@ impl RelayerThread {
     #[cfg_attr(test, mutants::skip)]
     /// Process all new tenures that we're aware of.
     /// Clear out stale tenure artifacts as well.
-    /// Update the miner tip if we won the highest tenure (or clear it if we didn't).
-    /// If we won any sortitions, send the block and microblock data to the p2p thread.
-    /// Return true if we can still continue to run; false if not.
+    /// Update the miner tip if we won the highest tenure (or clear it if we
+    /// didn't). If we won any sortitions, send the block and microblock
+    /// data to the p2p thread. Return true if we can still continue to run;
+    /// false if not.
     pub fn process_new_tenures(
         &mut self,
         consensus_hash: ConsensusHash,
@@ -3491,8 +3550,8 @@ impl RelayerThread {
         true
     }
 
-    /// Update the miner tip with a new tip.  If it's changed, then clear out the microblock stream
-    /// cost since we won't be mining it anymore.
+    /// Update the miner tip with a new tip.  If it's changed, then clear out
+    /// the microblock stream cost since we won't be mining it anymore.
     fn setup_microblock_mining_state(&mut self, new_miner_tip: Option<MinerTip>) {
         // update state
         let my_miner_tip = std::mem::take(&mut self.miner_tip);
@@ -3505,7 +3564,8 @@ impl RelayerThread {
         self.miner_tip = best_tip;
     }
 
-    /// Try to resume microblock mining if we don't need to build an anchored block
+    /// Try to resume microblock mining if we don't need to build an anchored
+    /// block
     fn try_resume_microblock_mining(&mut self) {
         if self.miner_tip.is_some() {
             // we won the highest tenure
@@ -3565,9 +3625,10 @@ impl RelayerThread {
         );
 
         let burnchain_tip_consensus_hash = &burn_block.consensus_hash;
-        // if the miner has set a mining key in preparation for epoch-3.0, register it as part of their VRF key registration
-        // once implemented in the nakamoto_node, this will allow miners to transition from 2.5 to 3.0 without submitting a new
-        // VRF key registration.
+        // if the miner has set a mining key in preparation for epoch-3.0, register it
+        // as part of their VRF key registration once implemented in the
+        // nakamoto_node, this will allow miners to transition from 2.5 to 3.0 without
+        // submitting a new VRF key registration.
         let miner_pk = self
             .config
             .miner
@@ -3616,12 +3677,13 @@ impl RelayerThread {
     /// Create the block miner thread state.
     /// Only proceeds if all of the following are true:
     ///   * The miner is not blocked
-    ///   * `last_burn_block` corresponds to the canonical sortition DB's chain tip
+    ///   * `last_burn_block` corresponds to the canonical sortition DB's chain
+    ///     tip
     ///   * The time of issuance is sufficiently recent
     ///   * There are no unprocessed stacks blocks in the staging DB
-    ///   * The relayer has already tried a download scan that included this sortition (which, if a
-    ///     block was found, would have placed it into the staging DB and marked it as
-    ///     unprocessed)
+    ///   * The relayer has already tried a download scan that included this
+    ///     sortition (which, if a block was found, would have placed it into
+    ///     the staging DB and marked it as unprocessed)
     ///   * A miner thread is not running already
     fn create_block_miner(
         &mut self,
@@ -3732,8 +3794,9 @@ impl RelayerThread {
         Some(miner_thread_state)
     }
 
-    /// Try to start up a block miner thread with this given VRF key and current burnchain tip.
-    /// Returns true if the thread was started; false if it was not (for any reason)
+    /// Try to start up a block miner thread with this given VRF key and current
+    /// burnchain tip. Returns true if the thread was started; false if it
+    /// was not (for any reason)
     #[allow(clippy::incompatible_msrv)]
     pub fn block_miner_thread_try_start(
         &mut self,
@@ -3822,8 +3885,9 @@ impl RelayerThread {
             return false;
         }
         if !self.mined_stacks_block {
-            // have not tried to mine a stacks block yet that confirms previously-mined unconfirmed
-            // state (or have not tried to mine a new Stacks block yet for this active tenure);
+            // have not tried to mine a stacks block yet that confirms previously-mined
+            // unconfirmed state (or have not tried to mine a new Stacks block
+            // yet for this active tenure);
             debug!("Relayer: Did not mine a block yet, so will not mine a microblock");
             return false;
         }
@@ -4056,8 +4120,8 @@ impl RelayerThread {
                 }
             }
         } else {
-            // if we tried and failed to make an anchored block (e.g. because there's nothing to
-            // do), then resume microblock mining
+            // if we tried and failed to make an anchored block (e.g. because there's
+            // nothing to do), then resume microblock mining
             if !self.mined_stacks_block {
                 self.try_resume_microblock_mining();
             }
@@ -4065,8 +4129,9 @@ impl RelayerThread {
         None
     }
 
-    /// Try to join with the miner thread. If successful, join the thread and return `true`.
-    /// Otherwise, if the thread is still running, return `false`.
+    /// Try to join with the miner thread. If successful, join the thread and
+    /// return `true`. Otherwise, if the thread is still running, return
+    /// `false`.
     ///
     /// Updates internal state gleaned from the miner, such as:
     ///   * New Stacks block data
@@ -4177,12 +4242,14 @@ impl RelayerThread {
 }
 
 impl ParentStacksBlockInfo {
-    /// Determine where in the set of forks to attempt to mine the next anchored block.
-    /// `mine_tip_ch` and `mine_tip_bhh` identify the parent block on top of which to mine.
-    /// `check_burn_block` identifies what we believe to be the burn chain's sortition history tip.
-    /// This is used to mitigate (but not eliminate) a TOCTTOU issue with mining: the caller's
-    /// conception of the sortition history tip may have become stale by the time they call this
-    /// method, in which case, mining should *not* happen (since the block will be invalid).
+    /// Determine where in the set of forks to attempt to mine the next anchored
+    /// block. `mine_tip_ch` and `mine_tip_bhh` identify the parent block on
+    /// top of which to mine. `check_burn_block` identifies what we believe
+    /// to be the burn chain's sortition history tip. This is used to
+    /// mitigate (but not eliminate) a TOCTTOU issue with mining: the caller's
+    /// conception of the sortition history tip may have become stale by the
+    /// time they call this method, in which case, mining should *not*
+    /// happen (since the block will be invalid).
     pub fn lookup(
         chain_state: &mut StacksChainState,
         burn_db: &mut SortitionDB,
@@ -4293,11 +4360,13 @@ impl ParentStacksBlockInfo {
     }
 }
 
-/// Thread that runs the network state machine, handling both p2p and http requests.
+/// Thread that runs the network state machine, handling both p2p and http
+/// requests.
 pub struct PeerThread {
     /// Node config
     config: Config,
-    /// instance of the peer network. Made optional in order to trick the borrow checker.
+    /// instance of the peer network. Made optional in order to trick the borrow
+    /// checker.
     net: Option<PeerNetwork>,
     /// handle to global inter-thread comms
     globals: Globals,
@@ -4309,21 +4378,23 @@ pub struct PeerThread {
     chainstate: Option<StacksChainState>,
     /// handle to the mempool DB (optional so we can take/replace it)
     mempool: Option<MemPoolDB>,
-    /// buffer of relayer commands with block data that couldn't be sent to the relayer just yet
-    /// (i.e. due to backpressure).  We track this separately, instead of just using a bigger
-    /// channel, because we need to know when backpressure occurs in order to throttle the p2p
+    /// buffer of relayer commands with block data that couldn't be sent to the
+    /// relayer just yet (i.e. due to backpressure).  We track this
+    /// separately, instead of just using a bigger channel, because we need
+    /// to know when backpressure occurs in order to throttle the p2p
     /// thread's downloader.
     results_with_data: VecDeque<RelayerDirective>,
-    /// total number of p2p state-machine passes so far. Used to signal when to download the next
-    /// reward cycle of blocks
+    /// total number of p2p state-machine passes so far. Used to signal when to
+    /// download the next reward cycle of blocks
     num_p2p_state_machine_passes: u64,
-    /// total number of inventory state-machine passes so far. Used to signal when to download the
-    /// next reward cycle of blocks.
+    /// total number of inventory state-machine passes so far. Used to signal
+    /// when to download the next reward cycle of blocks.
     num_inv_sync_passes: u64,
-    /// total number of download state-machine passes so far. Used to signal when to download the
-    /// next reward cycle of blocks.
+    /// total number of download state-machine passes so far. Used to signal
+    /// when to download the next reward cycle of blocks.
     num_download_passes: u64,
-    /// last burnchain block seen in the PeerNetwork's chain view since the last run
+    /// last burnchain block seen in the PeerNetwork's chain view since the last
+    /// run
     last_burn_block_height: u64,
 }
 
@@ -4349,9 +4420,9 @@ impl PeerThread {
     }
 
     /// Instantiate the p2p thread.
-    /// Binds the addresses in the config (which may panic if the port is blocked).
-    /// This is so the node will crash "early" before any new threads start if there's going to be
-    /// a bind error anyway.
+    /// Binds the addresses in the config (which may panic if the port is
+    /// blocked). This is so the node will crash "early" before any new
+    /// threads start if there's going to be a bind error anyway.
     pub fn new(runloop: &RunLoop, net: PeerNetwork) -> PeerThread {
         Self::new_all(
             runloop.get_globals(),
@@ -4409,8 +4480,8 @@ impl PeerThread {
         }
     }
 
-    /// Do something with mutable references to the mempool, sortdb, and chainstate
-    /// Fools the borrow checker.
+    /// Do something with mutable references to the mempool, sortdb, and
+    /// chainstate Fools the borrow checker.
     /// NOT COMPOSIBLE
     fn with_chainstate<F, R>(&mut self, func: F) -> R
     where
@@ -4487,8 +4558,8 @@ impl PeerThread {
 
         // do one pass
         let p2p_res = self.with_chainstate(|p2p_thread, sortdb, chainstate, mempool| {
-            // NOTE: handler_args must be created such that it outlives the inner net.run() call and
-            // doesn't ref anything within p2p_thread.
+            // NOTE: handler_args must be created such that it outlives the inner net.run()
+            // call and doesn't ref anything within p2p_thread.
             let handler_args = RPCHandlerArgs {
                 exit_at_block_height: p2p_thread.config.burnchain.process_exit_at_block_height,
                 genesis_chainstate_hash: Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH)
@@ -4560,8 +4631,8 @@ impl PeerThread {
         };
 
         while let Some(next_result) = self.results_with_data.pop_front() {
-            // have blocks, microblocks, and/or transactions (don't care about anything else),
-            // or a directive to mine microblocks
+            // have blocks, microblocks, and/or transactions (don't care about anything
+            // else), or a directive to mine microblocks
             if let Err(e) = self.globals.relay_send.try_send(next_result) {
                 debug!(
                     "P2P: {:?}: download backpressure detected (bufferred {})",
@@ -4655,7 +4726,8 @@ impl StacksNode {
         .expect("BUG: failed to instantiate mempool")
     }
 
-    /// Set up the Peer DB and update any soft state from the config file. This includes:
+    /// Set up the Peer DB and update any soft state from the config file. This
+    /// includes:
     ///   * Blacklisted/whitelisted nodes
     ///   * Node keys
     ///   * Bootstrap nodes
@@ -4893,8 +4965,8 @@ impl StacksNode {
                 .unwrap();
         }
 
-        // NOTE: these must be instantiated in the thread context, since it can't be safely sent
-        // between threads
+        // NOTE: these must be instantiated in the thread context, since it can't be
+        // safely sent between threads
         let fee_estimator_opt = p2p_thread.config.make_fee_estimator();
         let cost_estimator = p2p_thread
             .config
@@ -4952,7 +5024,6 @@ impl StacksNode {
     /// assumes Epoch-2.1 rules for the miner address: if the
     /// node is configured for segwit, then the miner address generated
     /// is a segwit address, otherwise it is a p2pkh.
-    ///
     fn set_monitoring_miner_address(keychain: &Keychain, relayer_thread: &RelayerThread) {
         let public_key = keychain.get_pub_key();
         let miner_addr = relayer_thread
@@ -4977,8 +5048,8 @@ impl StacksNode {
         let atlas_config = config.atlas.clone();
         let keychain = Keychain::default(config.node.seed.clone());
 
-        // we can call _open_ here rather than _connect_, since connect is first called in
-        //   make_genesis_block
+        // we can call _open_ here rather than _connect_, since connect is first called
+        // in   make_genesis_block
         let mut sortdb = SortitionDB::open(
             &config.get_burn_db_file_path(),
             true,
@@ -5065,10 +5136,11 @@ impl StacksNode {
     /// Manage the VRF public key registration state machine.
     /// Tell the relayer thread to fire off a tenure and a block commit op,
     /// if it is time to do so.
-    /// `ibd` indicates whether or not we're in the initial block download.  Used to control when
-    /// to try and register VRF keys.
+    /// `ibd` indicates whether or not we're in the initial block download.
+    /// Used to control when to try and register VRF keys.
     /// Called from the main thread.
-    /// Return true if we succeeded in carrying out the next task of the operation.
+    /// Return true if we succeeded in carrying out the next task of the
+    /// operation.
     pub fn relayer_issue_tenure(&mut self, ibd: bool) -> bool {
         if !self.is_miner {
             // node is a follower, don't try to issue a tenure
@@ -5153,10 +5225,10 @@ impl StacksNode {
         true
     }
 
-    /// Process a state coming from the burnchain, by extracting the validated KeyRegisterOp
-    /// and inspecting if a sortition was won.
-    /// `ibd`: boolean indicating whether or not we are in the initial block download
-    /// Called from the main thread.
+    /// Process a state coming from the burnchain, by extracting the validated
+    /// KeyRegisterOp and inspecting if a sortition was won.
+    /// `ibd`: boolean indicating whether or not we are in the initial block
+    /// download Called from the main thread.
     pub fn process_burnchain_state(
         &mut self,
         config: &Config,

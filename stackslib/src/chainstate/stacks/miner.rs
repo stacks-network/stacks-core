@@ -67,9 +67,9 @@ use crate::monitoring::{
 use crate::net::relay::Relayer;
 use crate::net::Error as net_error;
 
-/// Fully-assembled Stacks anchored, block as well as some extra metadata pertaining to how it was
-/// linked to the burnchain and what view(s) the miner had of the burnchain before and after
-/// completing the block.
+/// Fully-assembled Stacks anchored, block as well as some extra metadata
+/// pertaining to how it was linked to the burnchain and what view(s) the miner
+/// had of the burnchain before and after completing the block.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssembledAnchorBlock {
     /// Consensus hash of the parent Stacks block
@@ -84,7 +84,8 @@ pub struct AssembledAnchorBlock {
     pub orig_burn_hash: BurnchainHeaderHash,
     /// The block we produced
     pub anchored_block: StacksBlock,
-    /// The attempt count of this block (multiple blocks will be attempted per burnchain block)
+    /// The attempt count of this block (multiple blocks will be attempted per
+    /// burnchain block)
     pub attempt: u64,
     /// Epoch timestamp in milliseconds when we started producing the block.
     pub tenure_begin: u128,
@@ -93,10 +94,11 @@ impl_file_io_serde_json!(AssembledAnchorBlock);
 
 /// System status for mining.
 /// The miner can be Ready, in which case a miner is allowed to run
-/// The miner can be Blocked, in which case the miner *should not start* and/or *should terminate*
-/// if running.
-/// The inner u64 is a per-thread ID that lets threads querying the miner status identify whether
-/// or not they or another thread were the last to modify the state.
+/// The miner can be Blocked, in which case the miner *should not start* and/or
+/// *should terminate* if running.
+/// The inner u64 is a per-thread ID that lets threads querying the miner status
+/// identify whether or not they or another thread were the last to modify the
+/// state.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MinerStatus {
     blockers: HashSet<ThreadId>,
@@ -234,17 +236,18 @@ struct MicroblockMinerRuntime {
     disable_cost_check: bool,
 }
 
-/// The value of `BlockLimitFunction` holds the state of the size of the block being built.
-/// As the value increases, the less we can add to blocks.
+/// The value of `BlockLimitFunction` holds the state of the size of the block
+/// being built. As the value increases, the less we can add to blocks.
 #[derive(PartialEq)]
 pub enum BlockLimitFunction {
-    /// The block size limit has not been hit, and there are no restrictions on what can be added to
-    /// a block.
+    /// The block size limit has not been hit, and there are no restrictions on
+    /// what can be added to a block.
     NO_LIMIT_HIT,
-    /// We have got a pretty full block, and so will not allow any more contract call or
-    /// contract publish transactions to be added to this block.
+    /// We have got a pretty full block, and so will not allow any more contract
+    /// call or contract publish transactions to be added to this block.
     CONTRACT_LIMIT_HIT,
-    /// We have a completely full block. No new transactions can be added to the block.
+    /// We have a completely full block. No new transactions can be added to the
+    /// block.
     LIMIT_REACHED,
 }
 
@@ -252,8 +255,8 @@ pub struct MinerEpochInfo<'a> {
     pub chainstate_tx: ChainstateTx<'a>,
     pub clarity_instance: &'a mut ClarityInstance,
     pub burn_tip: BurnchainHeaderHash,
-    /// This is the expected burn tip height (i.e., the current burnchain tip + 1)
-    ///  of the mined block
+    /// This is the expected burn tip height (i.e., the current burnchain tip +
+    /// 1) of the mined block
     pub burn_tip_height: u32,
     pub parent_microblocks: Vec<StacksMicroblock>,
     pub mainnet: bool,
@@ -276,7 +279,8 @@ impl From<&UnconfirmedState> for MicroblockMinerRuntime {
     }
 }
 
-/// Represents a successful transaction. This transaction should be added to the block.
+/// Represents a successful transaction. This transaction should be added to the
+/// block.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TransactionSuccess {
     pub tx: StacksTransaction,
@@ -287,7 +291,8 @@ pub struct TransactionSuccess {
     pub soft_limit_reached: bool,
 }
 
-/// Represents a failed transaction. Something went wrong when processing this transaction.
+/// Represents a failed transaction. Something went wrong when processing this
+/// transaction.
 #[derive(Debug)]
 pub struct TransactionError {
     pub tx: StacksTransaction,
@@ -298,7 +303,8 @@ pub struct TransactionError {
 #[derive(Debug)]
 pub struct TransactionSkipped {
     pub tx: StacksTransaction,
-    /// This error is the reason the transaction was skipped (ex: BlockTooBigError)
+    /// This error is the reason the transaction was skipped (ex:
+    /// BlockTooBigError)
     pub error: Error,
 }
 
@@ -309,7 +315,8 @@ pub struct TransactionProblematic {
     pub error: Error,
 }
 
-/// Represents an event for a successful transaction. This transaction should be added to the block.
+/// Represents an event for a successful transaction. This transaction should be
+/// added to the block.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionSuccessEvent {
     #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
@@ -320,7 +327,8 @@ pub struct TransactionSuccessEvent {
     pub soft_limit_reached: bool,
 }
 
-/// Represents an event for a failed transaction. Something went wrong when processing this transaction.
+/// Represents an event for a failed transaction. Something went wrong when
+/// processing this transaction.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TransactionErrorEvent {
     #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
@@ -328,7 +336,8 @@ pub struct TransactionErrorEvent {
     pub error: String,
 }
 
-/// Represents an event for a transaction that was skipped, but might succeed later.
+/// Represents an event for a transaction that was skipped, but might succeed
+/// later.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionSkippedEvent {
     #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
@@ -336,7 +345,8 @@ pub struct TransactionSkippedEvent {
     pub error: String,
 }
 
-/// Represents an event for a transaction that needs to be dropped from the mempool for some reason
+/// Represents an event for a transaction that needs to be dropped from the
+/// mempool for some reason
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionProblematicEvent {
     #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
@@ -371,13 +381,13 @@ pub enum TransactionResult {
     /// Transaction wasn't ready to be processed, but might succeed later.
     Skipped(TransactionSkipped),
     /// Transaction is problematic (e.g. a DDoS vector) and should be dropped.
-    /// This error variant is a placeholder for fixing Clarity VM quirks in the next network
-    /// upgrade.
+    /// This error variant is a placeholder for fixing Clarity VM quirks in the
+    /// next network upgrade.
     Problematic(TransactionProblematic),
 }
 
-/// This struct is used to transmit data about transaction results through either the `mined_block`
-/// or `mined_microblock` event.
+/// This struct is used to transmit data about transaction results through
+/// either the `mined_block` or `mined_microblock` event.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TransactionEvent {
     /// Transaction has already succeeded.
@@ -424,7 +434,8 @@ impl TransactionResult {
         );
     }
 
-    /// Logs a queryable message for the case where `tx` is problematic and needs to be dropped.
+    /// Logs a queryable message for the case where `tx` is problematic and
+    /// needs to be dropped.
     pub fn log_transaction_problematic(tx: &StacksTransaction, err: &Error) {
         info!(
             "Tx processing problematic";
@@ -451,8 +462,9 @@ impl TransactionResult {
         })
     }
 
-    /// Creates a `TransactionResult` backed by `TransactionSuccess` with a soft limit reached.
-    /// This method logs "transaction success" as a side effect.
+    /// Creates a `TransactionResult` backed by `TransactionSuccess` with a soft
+    /// limit reached. This method logs "transaction success" as a side
+    /// effect.
     pub fn success_with_soft_limit(
         transaction: &StacksTransaction,
         fee: u64,
@@ -481,7 +493,8 @@ impl TransactionResult {
     /// Creates a `TransactionResult` backed by `TransactionSkipped`.
     /// This method logs "transaction skipped" as a side effect.
     /// Takes in a reason (String) and uses the default error type for
-    /// skipped transactions, `StacksTransactionSkipped` for the associated error.
+    /// skipped transactions, `StacksTransactionSkipped` for the associated
+    /// error.
     pub fn skipped(transaction: &StacksTransaction, reason: String) -> TransactionResult {
         let error = Error::StacksTransactionSkipped(reason);
         Self::log_transaction_skipped(transaction, &error);
@@ -577,9 +590,9 @@ impl TransactionResult {
         }
     }
 
-    /// Is a given transaction-processing error evidence of a problematic transaction?
-    /// We can't clone() the error, nor use a reference, so we have to return it.
-    /// Returns (true, error) if so
+    /// Is a given transaction-processing error evidence of a problematic
+    /// transaction? We can't clone() the error, nor use a reference, so we
+    /// have to return it. Returns (true, error) if so
     /// Returns (false, error) if none
     pub fn is_problematic(
         tx: &StacksTransaction,
@@ -630,9 +643,10 @@ impl TransactionResult {
             Error::InvalidFee => {
                 // The transaction didn't have enough STX left over after it was run.
                 // While such a transaction *could* be mineable in the future, e.g. depending on
-                // which code paths were hit, the user should really have attached an appropriate
-                // tx fee in the first place.  In Stacks 2.1, the code will debit the fee first, so
-                // this will no longer be an issue.
+                // which code paths were hit, the user should really have attached an
+                // appropriate tx fee in the first place.  In Stacks 2.1, the
+                // code will debit the fee first, so this will no longer be an
+                // issue.
                 info!("Problematic transaction caused InvalidFee";
                       "txid" => %tx.txid(),
                       "origin" => %tx.get_origin().get_address(false),
@@ -658,7 +672,8 @@ pub trait BlockBuilder {
     ) -> TransactionResult;
 
     /// Append a transaction if doing so won't exceed the epoch data size.
-    /// Errors out if we fail to mine the tx (exceed budget, or the transaction is invalid).
+    /// Errors out if we fail to mine the tx (exceed budget, or the transaction
+    /// is invalid).
     fn try_mine_tx(
         &mut self,
         clarity_tx: &mut ClarityTx,
@@ -685,13 +700,14 @@ pub trait BlockBuilder {
 
 ///
 ///    Independent structure for building microblocks:
-///       StacksBlockBuilder cannot be used, since microblocks should only be broadcasted
-///       once the anchored block is mined, won sortition, and a StacksBlockBuilder will
-///       not survive that long.
+///       StacksBlockBuilder cannot be used, since microblocks should only be
+/// broadcasted       once the anchored block is mined, won sortition, and a
+/// StacksBlockBuilder will       not survive that long.
 ///
-///     StacksMicroblockBuilder holds a mutable reference to the provided chainstate in the
-///       new function. This is required for the `clarity_tx` -- basically, to append transactions
-///       as new microblocks, the builder _needs_ to be able to keep the current clarity_tx "open"
+///     StacksMicroblockBuilder holds a mutable reference to the provided
+/// chainstate in the       new function. This is required for the `clarity_tx`
+/// -- basically, to append transactions       as new microblocks, the builder
+/// _needs_ to be able to keep the current clarity_tx "open"
 pub struct StacksMicroblockBuilder<'a> {
     anchor_block: BlockHeaderHash,
     anchor_block_consensus_hash: ConsensusHash,
@@ -746,9 +762,10 @@ impl<'a> StacksMicroblockBuilder<'a> {
             StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &parent_index_hash)?
                 .ok_or(Error::NoSuchBlockError)?;
 
-        // We need to open the chainstate _after_ any possible errors could occur, otherwise, we'd have opened
-        //  the chainstate, but will lose the reference to the clarity_tx before the Drop handler for StacksMicroblockBuilder
-        //  could take over.
+        // We need to open the chainstate _after_ any possible errors could occur,
+        // otherwise, we'd have opened  the chainstate, but will lose the
+        // reference to the clarity_tx before the Drop handler for
+        // StacksMicroblockBuilder  could take over.
         let mut clarity_tx = chainstate.block_begin(
             burn_dbconn,
             &anchor_block_consensus_hash,
@@ -777,8 +794,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
         })
     }
 
-    /// Create a microblock miner off of the _unconfirmed_ chaintip, i.e., resuming construction of
-    /// a microblock stream.
+    /// Create a microblock miner off of the _unconfirmed_ chaintip, i.e.,
+    /// resuming construction of a microblock stream.
     pub fn resume_unconfirmed(
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a dyn BurnStateDB,
@@ -897,9 +914,9 @@ impl<'a> StacksMicroblockBuilder<'a> {
         })
     }
 
-    /// Produce the next microblock in the stream, unconditionally, from the given txs.
-    /// Inner accouting state, like runtime and space, will be updated.
-    /// Otherwise, no validity checking will be done.
+    /// Produce the next microblock in the stream, unconditionally, from the
+    /// given txs. Inner accouting state, like runtime and space, will be
+    /// updated. Otherwise, no validity checking will be done.
     pub fn make_next_microblock(
         &mut self,
         txs: Vec<StacksTransaction>,
@@ -937,22 +954,26 @@ impl<'a> StacksMicroblockBuilder<'a> {
     }
 
     /// Mine the next transaction into a microblock.
-    /// Returns Ok(TransactionResult::Success) if the transaction was mined into this microblock.
-    /// Returns Ok(TransactionResult::Skipped) if the transaction was not mined, but can be mined later.
-    /// Returns Ok(TransactionResult::Error) if the transaction was not mined due to an error.
-    /// Returns Ok(TransactionResult::Problematic) if the transaction should be dropped from the mempool.
-    /// Returns Err(e) if an error occurs during the function.
+    /// Returns Ok(TransactionResult::Success) if the transaction was mined into
+    /// this microblock. Returns Ok(TransactionResult::Skipped) if the
+    /// transaction was not mined, but can be mined later.
+    /// Returns Ok(TransactionResult::Error) if the transaction was not mined
+    /// due to an error. Returns Ok(TransactionResult::Problematic) if the
+    /// transaction should be dropped from the mempool. Returns Err(e) if an
+    /// error occurs during the function.
     ///
-    /// This calls `StacksChainState::process_transaction` and also checks certain pre-conditions
-    /// and handles errors.
+    /// This calls `StacksChainState::process_transaction` and also checks
+    /// certain pre-conditions and handles errors.
     ///
     /// # Pre-Checks
     /// - skip if the `anchor_mode` rules out micro-blocks
     /// - skip if 'tx.txid()` is already in `considered`
-    /// - skip if adding the block would result in a block size bigger than `MAX_EPOCH_SIZE`
+    /// - skip if adding the block would result in a block size bigger than
+    ///   `MAX_EPOCH_SIZE`
     ///
     /// # Error Handling
-    /// - If the error when processing a tx is `CostOverflowError`, reset the cost of the block.
+    /// - If the error when processing a tx is `CostOverflowError`, reset the
+    ///   cost of the block.
     fn mine_next_transaction(
         clarity_tx: &mut ClarityTx,
         tx: StacksTransaction,
@@ -987,8 +1008,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
             BlockLimitFunction::CONTRACT_LIMIT_HIT => {
                 match &tx.payload {
                     TransactionPayload::ContractCall(cc) => {
-                        // once we've hit the runtime limit once, allow boot code contract calls, but do not try to eval
-                        //   other contract calls
+                        // once we've hit the runtime limit once, allow boot code contract calls,
+                        // but do not try to eval   other contract calls
                         if !cc.address.is_boot_code_addr() {
                             return Ok(TransactionResult::skipped(
                                 &tx,
@@ -1520,7 +1541,8 @@ impl StacksBlockBuilder {
                 &EMPTY_MICROBLOCK_PARENT_HASH,
                 &Sha512Trunc256Sum([0u8; 32]),
             ), // will be updated
-            miner_privkey: StacksPrivateKey::random(), // caller should overwrite this, or refrain from mining microblocks
+            miner_privkey: StacksPrivateKey::random(), /* caller should overwrite this, or
+                                                        * refrain from mining microblocks */
             miner_payouts: None,
             miner_id,
         }
@@ -1612,7 +1634,8 @@ impl StacksBlockBuilder {
         self.header.parent_block = parent_block_hash.clone();
     }
 
-    /// Assign the anchored block's parent microblock (used for testing orphaning)
+    /// Assign the anchored block's parent microblock (used for testing
+    /// orphaning)
     pub fn set_parent_microblock(
         &mut self,
         parent_mblock_hash: &BlockHeaderHash,
@@ -1751,9 +1774,9 @@ impl StacksBlockBuilder {
     }
 
     /// Finish building the anchored block.
-    /// TODO: expand to deny mining a block whose anchored static checks fail (and allow the caller
-    /// to disable this, in order to test mining invalid blocks)
-    /// Returns: stacks block
+    /// TODO: expand to deny mining a block whose anchored static checks fail
+    /// (and allow the caller to disable this, in order to test mining
+    /// invalid blocks) Returns: stacks block
     pub fn mine_anchored_block(&mut self, clarity_tx: &mut ClarityTx) -> StacksBlock {
         assert!(!self.anchored_done);
         StacksChainState::finish_block(
@@ -1871,8 +1894,8 @@ impl StacksBlockBuilder {
     // TODO: add tests from mutation testing results #4859
     #[cfg_attr(test, mutants::skip)]
     /// This function should be called before `epoch_begin`.
-    /// It loads the parent microblock stream, sets the parent microblock, and returns
-    /// data necessary for `epoch_begin`.
+    /// It loads the parent microblock stream, sets the parent microblock, and
+    /// returns data necessary for `epoch_begin`.
     /// Returns chainstate transaction, clarity instance, burnchain header hash
     /// of the burn tip, burn tip height + 1, the parent microblock stream,
     /// the parent consensus hash, the parent header hash, and a bool
@@ -1979,13 +2002,14 @@ impl StacksBlockBuilder {
     }
 
     /// Begin mining an epoch's transactions.
-    /// Returns an open ClarityTx for mining the block, as well as the ExecutionCost of any confirmed
-    ///  microblocks.
-    /// NOTE: even though we don't yet know the block hash, the Clarity VM ensures that a
-    /// transaction can't query information about the _current_ block (i.e. information that is not
-    /// yet known).
-    /// This function was separated from `pre_epoch_begin` because something "higher" than `epoch_begin`
-    /// must own `ChainstateTx` and `ClarityInstance`, which are borrowed to construct the
+    /// Returns an open ClarityTx for mining the block, as well as the
+    /// ExecutionCost of any confirmed  microblocks.
+    /// NOTE: even though we don't yet know the block hash, the Clarity VM
+    /// ensures that a transaction can't query information about the
+    /// _current_ block (i.e. information that is not yet known).
+    /// This function was separated from `pre_epoch_begin` because something
+    /// "higher" than `epoch_begin` must own `ChainstateTx` and
+    /// `ClarityInstance`, which are borrowed to construct the
     /// returned ClarityTx object.
     pub fn epoch_begin<'a, 'b>(
         &mut self,
@@ -2029,8 +2053,8 @@ impl StacksBlockBuilder {
         let index_block_hash =
             StacksBlockHeader::make_index_block_hash(&new_consensus_hash, &new_block_hash);
 
-        // clear out the block trie we just created, so the block validator logic doesn't step all
-        // over it.
+        // clear out the block trie we just created, so the block validator logic
+        // doesn't step all over it.
         //        let moved_name = format!("{}.mined", index_block_hash);
 
         // write out the trie...
@@ -2090,7 +2114,8 @@ impl StacksBlockBuilder {
                     debug!("Block budget exceeded on tx {}", &tx.txid());
                 }
                 Err(Error::InvalidStacksTransaction(_emsg, true)) => {
-                    // if we have an invalid transaction that was quietly ignored, don't warn here either
+                    // if we have an invalid transaction that was quietly ignored, don't warn here
+                    // either
                     test_debug!(
                         "Failed to apply tx {}: InvalidStacksTransaction '{:?}'",
                         &tx.txid(),
@@ -2225,8 +2250,9 @@ impl StacksBlockBuilder {
 
     /// Select transactions for block inclusion from the mempool.
     /// Applies them to the ongoing ClarityTx.
-    /// If invalid transactions are encountered, they are dropped from the mempool.
-    /// Returns whether or not the miner got blocked, as well as the gathered tx events
+    /// If invalid transactions are encountered, they are dropped from the
+    /// mempool. Returns whether or not the miner got blocked, as well as
+    /// the gathered tx events
     pub fn select_and_apply_transactions<B: BlockBuilder>(
         epoch_tx: &mut ClarityTx,
         builder: &mut B,
@@ -2490,7 +2516,9 @@ impl StacksBlockBuilder {
                                         invalidated_txs.push(txinfo.metadata.txid);
                                     }
                                     Error::InvalidStacksTransaction(_, true) => {
-                                        // if we have an invalid transaction that was quietly ignored, don't warn here either
+                                        // if we have an invalid transaction
+                                        // that was quietly ignored, don't warn
+                                        // here either
                                     }
                                     e => {
                                         info!("Failed to apply tx {}: {:?}", &txinfo.tx.txid(), &e);
@@ -2530,7 +2558,8 @@ impl StacksBlockBuilder {
                         match stop_reason {
                             MempoolIterationStopReason::NoMoreCandidates => break,
                             MempoolIterationStopReason::DeadlineReached => break,
-                            // if the iterator function exited, let the loop tick: it checks the block limits
+                            // if the iterator function exited, let the loop tick: it checks the
+                            // block limits
                             MempoolIterationStopReason::IteratorExited => {}
                         }
                     }
@@ -2566,14 +2595,17 @@ impl StacksBlockBuilder {
     // TODO: add tests from mutation testing results #4861
     // Or keep the skip and remove the comment
     #[cfg_attr(test, mutants::skip)]
-    /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
-    ///   returns the assembled block, and the consumed execution budget.
+    /// Given access to the mempool, mine an anchored block with no more than
+    /// the given execution cost.   returns the assembled block, and the
+    /// consumed execution budget.
     pub fn build_anchored_block(
-        chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
+        chainstate_handle: &StacksChainState, /* not directly used; used as a handle to open
+                                               * other chainstates */
         burn_dbconn: &SortitionHandleConn,
         mempool: &mut MemPoolDB,
         parent_stacks_header: &StacksHeaderInfo, // Stacks header we're building off of
-        total_burn: u64, // the burn so far on the burnchain (i.e. from the last burnchain block)
+        total_burn: u64,                         /* the burn so far on the burnchain (i.e. from
+                                                  * the last burnchain block) */
         proof: VRFProof, // proof over the burnchain's last seed
         pubkey_hash: Hash160,
         coinbase_tx: &StacksTransaction,
@@ -2721,8 +2753,8 @@ impl BlockBuilder for StacksBlockBuilder {
             BlockLimitFunction::CONTRACT_LIMIT_HIT => {
                 match &tx.payload {
                     TransactionPayload::ContractCall(cc) => {
-                        // once we've hit the runtime limit once, allow boot code contract calls, but do not try to eval
-                        //   other contract calls
+                        // once we've hit the runtime limit once, allow boot code contract calls,
+                        // but do not try to eval   other contract calls
                         if !cc.address.is_boot_code_addr() {
                             return TransactionResult::skipped(
                                 tx,

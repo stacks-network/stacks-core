@@ -70,6 +70,7 @@ fn test_edge_counting_runtime(#[case] version: ClarityVersion, #[case] epoch: St
         / dependency_edge_counting_runtime(8, version, epoch);
 
     // this really is just testing for the non-linearity
-    //   in the runtime cost assessment (because the edge count in the dependency graph is going up O(n^2)).
+    //   in the runtime cost assessment (because the edge count in the dependency
+    // graph is going up O(n^2)).
     assert!(ratio_8_16 > ratio_4_8);
 }

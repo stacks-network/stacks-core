@@ -48,9 +48,10 @@ pub type SpecialCaseHandler = &'static dyn Fn(
     &Value,
 ) -> Result<()>;
 
-// These functions generally _do not_ return errors, rather, any errors in the underlying storage
-//    will _panic_. The rationale for this is that under no condition should the interpreter
-//    attempt to continue processing in the event of an unexpected storage error.
+// These functions generally _do not_ return errors, rather, any errors in the
+// underlying storage    will _panic_. The rationale for this is that under no
+// condition should the interpreter    attempt to continue processing in the
+// event of an unexpected storage error.
 pub trait ClarityBackingStore {
     /// put K-V data into the committed datastore
     fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<()>;
@@ -58,8 +59,8 @@ pub trait ClarityBackingStore {
     fn get_data(&mut self, key: &str) -> Result<Option<String>>;
     /// fetch Hash(K)-V out of the commmitted datastore
     fn get_data_from_path(&mut self, hash: &TrieHash) -> Result<Option<String>>;
-    /// fetch K-V out of the committed datastore, along with the byte representation
-    ///  of the Merkle proof for that key-value pair
+    /// fetch K-V out of the committed datastore, along with the byte
+    /// representation  of the Merkle proof for that key-value pair
     fn get_data_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>>;
     fn get_data_with_proof_from_path(
         &mut self,
@@ -69,17 +70,19 @@ pub trait ClarityBackingStore {
         Ok(self.get_data(key)?.is_some())
     }
 
-    /// change the current MARF context to service reads from a different chain_tip
-    ///   used to implement time-shifted evaluation.
+    /// change the current MARF context to service reads from a different
+    /// chain_tip   used to implement time-shifted evaluation.
     /// returns the previous block header hash on success
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId>;
 
-    /// Is None if `block_height` >= the "currently" under construction Stacks block height.
+    /// Is None if `block_height` >= the "currently" under construction Stacks
+    /// block height.
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId>;
 
-    /// this function returns the current block height, as viewed by this marfed-kv structure,
-    ///  i.e., it changes on time-shifted evaluation. the open_chain_tip functions always
-    ///   return data about the chain tip that is currently open for writing.
+    /// this function returns the current block height, as viewed by this
+    /// marfed-kv structure,  i.e., it changes on time-shifted evaluation.
+    /// the open_chain_tip functions always   return data about the chain
+    /// tip that is currently open for writing.
     fn get_current_block_height(&mut self) -> u32;
 
     fn get_open_chain_tip_height(&mut self) -> u32;
@@ -92,8 +95,8 @@ pub trait ClarityBackingStore {
         None
     }
 
-    /// The contract commitment is the hash of the contract, plus the block height in
-    ///   which the contract was initialized.
+    /// The contract commitment is the hash of the contract, plus the block
+    /// height in   which the contract was initialized.
     fn make_contract_commitment(&mut self, contract_hash: Sha512Trunc256Sum) -> String {
         let block_height = self.get_open_chain_tip_height();
         let cc = ContractCommitment {
@@ -103,9 +106,9 @@ pub trait ClarityBackingStore {
         cc.serialize()
     }
 
-    /// This function is used to obtain a committed contract hash, and the block header hash of the block
-    ///   in which the contract was initialized. This data is used to store contract metadata in the side
-    ///   store.
+    /// This function is used to obtain a committed contract hash, and the block
+    /// header hash of the block   in which the contract was initialized.
+    /// This data is used to store contract metadata in the side   store.
     fn get_contract_hash(
         &mut self,
         contract: &QualifiedContractIdentifier,

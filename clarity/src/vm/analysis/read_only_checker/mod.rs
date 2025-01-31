@@ -34,9 +34,10 @@ use crate::vm::ClarityVersion;
 #[cfg(test)]
 mod tests;
 
-/// `ReadOnlyChecker` analyzes a contract to determine whether there are any violations
-/// of read-only declarations. That is, a violating contract is one in which a function
-/// that is declared as read-only actually attempts to modify chainstate.
+/// `ReadOnlyChecker` analyzes a contract to determine whether there are any
+/// violations of read-only declarations. That is, a violating contract is one
+/// in which a function that is declared as read-only actually attempts to
+/// modify chainstate.
 ///
 /// A contract that does not violate its read-only declarations is called
 /// *read-only correct*.
@@ -74,7 +75,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         }
     }
 
-    /// Checks each top-level expression in `contract_analysis.expressions` for read-only correctness.
+    /// Checks each top-level expression in `contract_analysis.expressions` for
+    /// read-only correctness.
     ///
     /// Returns successfully iff this function is read-only correct.
     ///
@@ -97,8 +99,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     }
 
     /// Checks the top-level expression `expression` to determine whether it is
-    /// read-only compliant. `expression` maybe have composite structure that can be
-    /// parsed into multiple expressions.
+    /// read-only compliant. `expression` maybe have composite structure that
+    /// can be parsed into multiple expressions.
     ///
     /// Returns successfully iff this function is read-only correct.
     ///
@@ -109,8 +111,9 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         use crate::vm::functions::define::DefineFunctionsParsed::*;
         if let Some(define_type) = DefineFunctionsParsed::try_parse(expression)? {
             match define_type {
-                // The *arguments* to Constant, PersistedVariable, FT defines must be checked to ensure that
-                //   any *evaluated arguments* supplied to them are valid with respect to read-only requirements.
+                // The *arguments* to Constant, PersistedVariable, FT defines must be checked to
+                // ensure that   any *evaluated arguments* supplied to them are
+                // valid with respect to read-only requirements.
                 Constant { value, .. } => {
                     self.check_read_only(value)?;
                 }
@@ -136,11 +139,13 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     }
                 }
                 Map { .. } | NonFungibleToken { .. } | UnboundedFungibleToken { .. } => {
-                    // No arguments to (define-map ...) or (define-non-fungible-token) or fungible tokens without
+                    // No arguments to (define-map ...) or
+                    // (define-non-fungible-token) or fungible tokens without
                     // max supplies are eval'ed.
                 }
                 Trait { .. } | UseTrait { .. } | ImplTrait { .. } => {
-                    // No arguments to (use-trait ...), (define-trait ...). or (impl-trait) are eval'ed.
+                    // No arguments to (use-trait ...), (define-trait ...). or
+                    // (impl-trait) are eval'ed.
                 }
             }
         } else {
@@ -149,13 +154,14 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         Ok(())
     }
 
-    /// Checks that a function with signature `signature` and body `body` is read-only.
+    /// Checks that a function with signature `signature` and body `body` is
+    /// read-only.
     ///
-    /// This is used to check the function definitions `PrivateFunction`, `PublicFunction`
-    /// and `ReadOnlyFunction`.
+    /// This is used to check the function definitions `PrivateFunction`,
+    /// `PublicFunction` and `ReadOnlyFunction`.
     ///
-    /// Returns a pair of 1) the function name defined, and 2) a `bool` indicating whether the function
-    /// is read-only.
+    /// Returns a pair of 1) the function name defined, and 2) a `bool`
+    /// indicating whether the function is read-only.
     ///
     /// # Errors
     /// - Contract parsing errors
@@ -179,8 +185,9 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         use crate::vm::functions::define::DefineFunctionsParsed::*;
         if let Some(define_type) = DefineFunctionsParsed::try_parse(expr)? {
             match define_type {
-                // The _arguments_ to Constant, PersistedVariable, FT defines must be checked to ensure that
-                //   any _evaluated arguments_ supplied to them are valid with respect to read-only requirements.
+                // The _arguments_ to Constant, PersistedVariable, FT defines must be checked to
+                // ensure that   any _evaluated arguments_ supplied to them are
+                // valid with respect to read-only requirements.
                 Constant { value, .. } => {
                     self.check_read_only(value)?;
                 }
@@ -204,10 +211,13 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     }
                 }
                 Map { .. } | NonFungibleToken { .. } | UnboundedFungibleToken { .. } => {
-                    // No arguments to (define-map ...) or (define-non-fungible-token) or fungible tokens without max supplies are eval'ed.
+                    // No arguments to (define-map ...) or
+                    // (define-non-fungible-token) or fungible tokens without
+                    // max supplies are eval'ed.
                 }
                 Trait { .. } | UseTrait { .. } | ImplTrait { .. } => {
-                    // No arguments to (use-trait ...), (define-trait ...). or (impl-trait) are eval'ed.
+                    // No arguments to (use-trait ...), (define-trait ...). or
+                    // (impl-trait) are eval'ed.
                 }
             }
         } else {
@@ -217,9 +227,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     }
 
     /// Checks the supplied symbolic expressions
-    ///   (1) for whether or not they are valid with respect to read-only requirements.
-    ///   (2) if valid, returns whether or not they are read only.
-    /// Note that because of (1), this function _cannot_ short-circuit on read-only.
+    ///   (1) for whether or not they are valid with respect to read-only
+    /// requirements.   (2) if valid, returns whether or not they are read
+    /// only. Note that because of (1), this function _cannot_ short-circuit
+    /// on read-only.
     fn check_read_only(&mut self, expr: &SymbolicExpression) -> CheckResult<bool> {
         match expr.expr {
             AtomValue(_) | LiteralValue(_) | Atom(_) | TraitReference(_, _) | Field(_) => Ok(true),
@@ -227,8 +238,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         }
     }
 
-    /// Checks each expression in `expressions` to determine whether each uses only
-    /// read-only operations.
+    /// Checks each expression in `expressions` to determine whether each uses
+    /// only read-only operations.
     ///
     /// Returns `true` iff all expressions are read-only.
     ///
@@ -241,14 +252,16 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         let mut result = true;
         for expression in expressions.iter() {
             let expr_read_only = self.check_read_only(expression)?;
-            // Note: Don't return early on false, because a subsequent error should be returned.
+            // Note: Don't return early on false, because a subsequent error should be
+            // returned.
             result = result && expr_read_only;
         }
         Ok(result)
     }
 
-    /// Checks the native function application of the function named by the string `function`
-    /// to `args` to determine whether it is read-only compliant.
+    /// Checks the native function application of the function named by the
+    /// string `function` to `args` to determine whether it is read-only
+    /// compliant.
     ///
     /// - Returns `None` if there is no native function named `function`.
     /// - If there is such a native function, returns `true` iff this function
@@ -344,8 +357,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 //      a special function. that check is performed by the type checker.
                 //   we're pretty directly violating type checks in this recursive step:
                 //   we're asking the read only checker to check whether a function application
-                //     of the _mapping function_ onto the rest of the supplied arguments would be
-                //     read-only or not.
+                //     of the _mapping function_ onto the rest of the supplied arguments would
+                // be     read-only or not.
                 self.check_expression_application_is_read_only(args)
             }
             Filter => {
@@ -359,8 +372,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 //      a special function. that check is performed by the type checker.
                 //   we're pretty directly violating type checks in this recursive step:
                 //   we're asking the read only checker to check whether a function application
-                //     of the _folding function_ onto the rest of the supplied arguments would be
-                //     read-only or not.
+                //     of the _folding function_ onto the rest of the supplied arguments would
+                // be     read-only or not.
                 self.check_expression_application_is_read_only(args)
             }
             TupleCons => {
@@ -396,9 +409,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                         )?
                         .is_some(),
                     SymbolicExpressionType::Atom(_trait_reference) => {
-                        // Dynamic dispatch from a readonly-function can only be guaranteed at runtime,
-                        // which would defeat granting a static readonly stamp.
-                        // As such dynamic dispatch is currently forbidden.
+                        // Dynamic dispatch from a readonly-function can only be guaranteed at
+                        // runtime, which would defeat granting a static
+                        // readonly stamp. As such dynamic dispatch is
+                        // currently forbidden.
                         false
                     }
                     _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName)),
@@ -410,16 +424,19 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         }
     }
 
-    /// Checks the native and user-defined function applications implied by `expressions`.
+    /// Checks the native and user-defined function applications implied by
+    /// `expressions`.
     ///
-    /// The first expression is used as the function name, and the tail expressions are used as the arguments.
+    /// The first expression is used as the function name, and the tail
+    /// expressions are used as the arguments.
     ///
     /// Returns `true` iff the function application is read-only.
     ///
     /// # Errors
-    /// - `CheckErrors::NonFunctionApplication` if there is no first expression, or if the first
-    ///   expression is not a `ClarityName`.
-    /// - `CheckErrors::UnknownFunction` if the first expression does not name a known function.
+    /// - `CheckErrors::NonFunctionApplication` if there is no first expression,
+    ///   or if the first expression is not a `ClarityName`.
+    /// - `CheckErrors::UnknownFunction` if the first expression does not name a
+    ///   known function.
     fn check_expression_application_is_read_only(
         &mut self,
         expressions: &[SymbolicExpression],

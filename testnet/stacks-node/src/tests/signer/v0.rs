@@ -95,7 +95,8 @@ use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config
 
 impl SignerTest<SpawnedSigner> {
     /// Run the test until the first epoch 2.5 reward cycle.
-    /// Will activate pox-4 and register signers for the first full Epoch 2.5 reward cycle.
+    /// Will activate pox-4 and register signers for the first full Epoch 2.5
+    /// reward cycle.
     fn boot_to_epoch_25_reward_cycle(&mut self) {
         boot_to_epoch_25(
             &self.running_nodes.conf,
@@ -304,7 +305,8 @@ impl SignerTest<SpawnedSigner> {
 
         self.mine_nakamoto_block(timeout, use_nakamoto_blocks_mined);
 
-        // Verify that the signers accepted the proposed block, sending back a validate ok response
+        // Verify that the signers accepted the proposed block, sending back a validate
+        // ok response
         let proposed_signer_signature_hash = self
             .wait_for_validate_ok_response(timeout)
             .signer_signature_hash;
@@ -316,8 +318,8 @@ impl SignerTest<SpawnedSigner> {
 
         info!("Got {} signatures", signature.len());
 
-        // NOTE: signature.len() does not need to equal signers.len(); the stacks miner can finish the block
-        //  whenever it has crossed the threshold.
+        // NOTE: signature.len() does not need to equal signers.len(); the stacks miner
+        // can finish the block  whenever it has crossed the threshold.
         assert!(signature.len() >= num_signers * 7 / 10);
         info!("Verifying signatures against signers for reward cycle {reward_cycle:?}");
         let signers = self.get_reward_set_signers(reward_cycle);
@@ -361,7 +363,8 @@ impl SignerTest<SpawnedSigner> {
                 signer_index += 1;
                 signature_index += 1;
             }
-            // Shouldn't really ever timeout, but do this in case there is some sort of overflow/underflow happening.
+            // Shouldn't really ever timeout, but do this in case there is some sort of
+            // overflow/underflow happening.
             assert!(
                 start.elapsed() < timeout,
                 "Timed out waiting to confirm block signatures"
@@ -460,13 +463,16 @@ fn verify_last_block_contains_tenure_change_tx(cause: TenureChangeCause) {
 /// Test that a signer can respond to an invalid block proposal
 ///
 /// Test Setup:
-/// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
+/// The test spins up five stacks signers, one miner Nakamoto node, and a
+/// corresponding bitcoind.
 ///
 /// Test Execution:
-/// The stacks node is advanced to epoch 3.0 reward set calculation to ensure the signer set is determined.
-/// An invalid block proposal is forcibly written to the miner's slot to simulate the miner proposing a block.
-/// The signers process the invalid block by first verifying it against the stacks node block proposal endpoint.
-/// The signer that submitted the initial block validation request, should issue a  broadcast a rejection of the
+/// The stacks node is advanced to epoch 3.0 reward set calculation to ensure
+/// the signer set is determined. An invalid block proposal is forcibly written
+/// to the miner's slot to simulate the miner proposing a block. The signers
+/// process the invalid block by first verifying it against the stacks node
+/// block proposal endpoint. The signer that submitted the initial block
+/// validation request, should issue a  broadcast a rejection of the
 /// miner's proposed block back to the respective .signers-XXX-YYY contract.
 ///
 /// Test Assertion:
@@ -500,15 +506,18 @@ fn block_proposal_rejection() {
     };
     block.header.timestamp = get_epoch_time_secs();
 
-    // First propose a block to the signers that does not have the correct consensus hash or BitVec. This should be rejected BEFORE
-    // the block is submitted to the node for validation.
+    // First propose a block to the signers that does not have the correct consensus
+    // hash or BitVec. This should be rejected BEFORE the block is submitted to
+    // the node for validation.
     let block_signer_signature_hash_1 = block.header.signer_signature_hash();
     signer_test.propose_block(block.clone(), short_timeout);
 
-    // Wait for the first block to be mined successfully so we have the most up to date sortition view
+    // Wait for the first block to be mined successfully so we have the most up to
+    // date sortition view
     signer_test.wait_for_validate_ok_response(short_timeout);
 
-    // Propose a block to the signers that passes initial checks but will be rejected by the stacks node
+    // Propose a block to the signers that passes initial checks but will be
+    // rejected by the stacks node
     let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
     block.header.pox_treatment = BitVec::ones(1).unwrap();
     block.header.consensus_hash = view.cur_sortition.consensus_hash;
@@ -626,11 +635,13 @@ fn miner_gather_signatures() {
 /// Test that signers can handle a transition between Nakamoto reward cycles
 ///
 /// Test Setup:
-/// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
-/// The stacks node is then advanced to Epoch 3.0 boundary to allow block signing.
+/// The test spins up five stacks signers, one miner Nakamoto node, and a
+/// corresponding bitcoind. The stacks node is then advanced to Epoch 3.0
+/// boundary to allow block signing.
 ///
 /// Test Execution:
-/// The node mines 2 full Nakamoto reward cycles, sending blocks to observing signers to sign and return.
+/// The node mines 2 full Nakamoto reward cycles, sending blocks to observing
+/// signers to sign and return.
 ///
 /// Test Assertion:
 /// All signers sign all blocks successfully.
@@ -652,7 +663,8 @@ fn mine_2_nakamoto_reward_cycles() {
     let timeout = Duration::from_secs(200);
     signer_test.boot_to_epoch_3();
     let curr_reward_cycle = signer_test.get_current_reward_cycle();
-    // Mine 2 full Nakamoto reward cycles (epoch 3 starts in the middle of one, hence the + 1)
+    // Mine 2 full Nakamoto reward cycles (epoch 3 starts in the middle of one,
+    // hence the + 1)
     let next_reward_cycle = curr_reward_cycle.saturating_add(1);
     let final_reward_cycle = next_reward_cycle.saturating_add(nmb_reward_cycles);
     let final_reward_cycle_height_boundary = signer_test
@@ -705,7 +717,8 @@ fn forked_tenure_invalid() {
         result.tip_a.index_block_hash().to_string()
     );
 
-    // Block C was built AFTER Block B was built, but BEFORE it was broadcasted, so it should be built off of Block A
+    // Block C was built AFTER Block B was built, but BEFORE it was broadcasted, so
+    // it should be built off of Block A
     assert_eq!(
         result.mined_c.parent_block_id,
         result.tip_a.index_block_hash().to_string()
@@ -766,7 +779,8 @@ fn forked_tenure_okay() {
         result.tip_a.index_block_hash().to_string()
     );
 
-    // Block C was built AFTER Block B was built, but BEFORE it was broadcasted, so it should be built off of Block A
+    // Block C was built AFTER Block B was built, but BEFORE it was broadcasted, so
+    // it should be built off of Block A
     assert_eq!(
         result.tip_c.stacks_block_height,
         result.tip_a.stacks_block_height + 1
@@ -817,7 +831,8 @@ struct TenureForkingResult {
 #[test]
 #[ignore]
 /// Test to make sure that the signers are capable of reloading their reward set
-///  if the stacks-node doesn't have it available at the first block of a prepare phase (e.g., if there was no block)
+///  if the stacks-node doesn't have it available at the first block of a
+/// prepare phase (e.g., if there was no block)
 fn reloads_signer_set_in() {
     tracing_subscriber::registry()
         .with(fmt::layer())
@@ -905,7 +920,8 @@ fn reloads_signer_set_in() {
     let commits_submitted = signer_test.running_nodes.commits_submitted.clone();
 
     info!("Waiting 1 burnchain block for miner VRF key confirmation");
-    // Wait one block to confirm the VRF register, wait until a block commit is submitted
+    // Wait one block to confirm the VRF register, wait until a block commit is
+    // submitted
     next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
         60,
@@ -922,13 +938,14 @@ fn reloads_signer_set_in() {
 }
 
 /// This test spins up a nakamoto-neon node.
-/// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
-///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
-///  struct handles the epoch-2/3 tear-down and spin-up.
+/// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then
+/// switches  to Nakamoto operation (activating pox-4 by submitting a stack-stx
+/// tx). The BootLoop  struct handles the epoch-2/3 tear-down and spin-up.
 /// Miner A mines a regular tenure, its last block being block a_x.
-/// Miner B starts its tenure, Miner B produces a Stacks block b_0, but miner C submits its block commit before b_0 is broadcasted.
-/// Bitcoin block C, containing Miner C's block commit, is mined BEFORE miner C has a chance to update their block commit with b_0's information.
-/// This test asserts:
+/// Miner B starts its tenure, Miner B produces a Stacks block b_0, but miner C
+/// submits its block commit before b_0 is broadcasted. Bitcoin block C,
+/// containing Miner C's block commit, is mined BEFORE miner C has a chance to
+/// update their block commit with b_0's information. This test asserts:
 ///  * tenure C ignores b_0, and correctly builds off of block a_x.
 fn forked_tenure_testing(
     proposal_limit: Duration,
@@ -950,10 +967,11 @@ fn forked_tenure_testing(
         num_signers,
         vec![(sender_addr, send_amt + send_fee)],
         |config| {
-            // make the duration long enough that the reorg attempt will definitely be accepted
+            // make the duration long enough that the reorg attempt will definitely be
+            // accepted
             config.first_proposal_burn_block_timing = proposal_limit;
-            // don't allow signers to post signed blocks (limits the amount of fault injection we
-            // need)
+            // don't allow signers to post signed blocks (limits the amount of fault
+            // injection we need)
             TEST_SKIP_BLOCK_BROADCAST.set(true);
         },
         |config| {
@@ -1017,7 +1035,8 @@ fn forked_tenure_testing(
         .unwrap()
         .unwrap();
 
-    // For the next tenure, submit the commit op but do not allow any stacks blocks to be broadcasted
+    // For the next tenure, submit the commit op but do not allow any stacks blocks
+    // to be broadcasted
     TEST_BROADCAST_STALL.set(true);
     TEST_BLOCK_ANNOUNCE_STALL.set(true);
 
@@ -1075,7 +1094,8 @@ fn forked_tenure_testing(
         anchored_header: StacksBlockHeaderTypes::Nakamoto(tip_b_block.header.clone()),
         microblock_tail: None,
         stacks_block_height: tip_b_block.header.chain_length,
-        index_root: TrieHash([0x00; 32]), // we can't know this yet since the block hasn't been processed
+        index_root: TrieHash([0x00; 32]), /* we can't know this yet since the block hasn't been
+                                           * processed */
         consensus_hash: tip_b_block.header.consensus_hash,
         burn_header_hash: tip_sn.burn_header_hash,
         burn_header_height: tip_sn.block_height as u32,
@@ -1127,9 +1147,9 @@ fn forked_tenure_testing(
             }
             let rejected_count = rejected_blocks.load(Ordering::SeqCst);
             let (blocks_count, rbf_count, has_reject_count) = if expect_tenure_c {
-                // if tenure C is going to be canonical, then we expect the miner to RBF its commit
-                // once (i.e. for the block it mines and gets signed), and we expect zero
-                // rejections.
+                // if tenure C is going to be canonical, then we expect the miner to RBF its
+                // commit once (i.e. for the block it mines and gets signed),
+                // and we expect zero rejections.
                 (mined_blocks.load(Ordering::SeqCst), 1, true)
             } else {
                 // if tenure C is NOT going to be canonical, then we expect no RBFs (since the
@@ -1193,7 +1213,8 @@ fn forked_tenure_testing(
     let (tip_c_2, mined_c_2) = if !expect_tenure_c {
         (None, None)
     } else {
-        // Now let's produce a second block for tenure C and ensure it builds off of block C.
+        // Now let's produce a second block for tenure C and ensure it builds off of
+        // block C.
         let blocks_before = mined_blocks.load(Ordering::SeqCst);
         let start_time = Instant::now();
         // submit a tx so that the miner will mine an extra block
@@ -1532,8 +1553,8 @@ fn multiple_miners() {
     let mut node_2_listeners = Vec::new();
 
     let max_nakamoto_tenures = 30;
-    // partition the signer set so that ~half are listening and using node 1 for RPC and events,
-    //  and the rest are using node 2
+    // partition the signer set so that ~half are listening and using node 1 for RPC
+    // and events,  and the rest are using node 2
 
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
@@ -1633,10 +1654,10 @@ fn multiple_miners() {
 
     info!("------------------------- Reached Epoch 3.0 -------------------------");
 
-    // due to the random nature of mining sortitions, the way this test is structured
-    //  is that we keep track of how many tenures each miner produced, and once enough sortitions
-    //  have been produced such that each miner has produced 3 tenures, we stop and check the
-    //  results at the end
+    // due to the random nature of mining sortitions, the way this test is
+    // structured  is that we keep track of how many tenures each miner
+    // produced, and once enough sortitions  have been produced such that each
+    // miner has produced 3 tenures, we stop and check the  results at the end
     let rl1_coord_channels = signer_test.running_nodes.coord_channel.clone();
     let rl1_commits = signer_test.running_nodes.commits_submitted.clone();
 
@@ -1727,8 +1748,8 @@ fn multiple_miners() {
     signer_test.shutdown();
 }
 
-/// Read processed nakamoto block IDs from the test observer, and use `config` to open
-///  a chainstate DB and returns their corresponding StacksHeaderInfos
+/// Read processed nakamoto block IDs from the test observer, and use `config`
+/// to open  a chainstate DB and returns their corresponding StacksHeaderInfos
 fn get_nakamoto_headers(config: &Config) -> Vec<StacksHeaderInfo> {
     let nakamoto_block_ids: HashSet<_> = test_observer::get_blocks()
         .into_iter()
@@ -1769,15 +1790,18 @@ fn get_nakamoto_headers(config: &Config) -> Vec<StacksHeaderInfo> {
 #[test]
 #[ignore]
 // Test two nakamoto miners, with the signer set split between them.
-//  One of the miners (run-loop-2) is prevented from submitting "good" block commits
-//  using the "commit stall" test flag in combination with "block broadcast stalls".
-//  (Because RL2 isn't able to RBF their initial commits after the tip is broadcasted).
-// This test works by tracking two different scenarios:
-//   1. RL2 must win a sortition that this block commit behavior would lead to a fork in.
+//  One of the miners (run-loop-2) is prevented from submitting "good" block
+// commits  using the "commit stall" test flag in combination with "block
+// broadcast stalls".  (Because RL2 isn't able to RBF their initial commits
+// after the tip is broadcasted). This test works by tracking two different
+// scenarios:
+//   1. RL2 must win a sortition that this block commit behavior would lead to a
+//      fork in.
 //   2. After such a sortition, RL1 must win another block.
-// The test asserts that every nakamoto sortition either has a successful tenure, or if
-//  RL2 wins and they would be expected to fork, no blocks are produced. The test asserts
-//  that every block produced increments the chain length.
+// The test asserts that every nakamoto sortition either has a successful
+// tenure, or if  RL2 wins and they would be expected to fork, no blocks are
+// produced. The test asserts  that every block produced increments the chain
+// length.
 fn miner_forking() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -1807,8 +1831,8 @@ fn miner_forking() {
 
     let max_sortitions = 30;
 
-    // partition the signer set so that ~half are listening and using node 1 for RPC and events,
-    //  and the rest are using node 2
+    // partition the signer set so that ~half are listening and using node 1 for RPC
+    // and events,  and the rest are using node 2
 
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
@@ -2036,7 +2060,8 @@ fn miner_forking() {
     wait_for(30, || Ok(test_observer::get_blocks().len() > blocks_len))
         .expect("Timed out waiting for a block to be processed");
 
-    // sleep for 2*first_proposal_burn_block_timing to prevent the block timing from allowing a fork by the signer set
+    // sleep for 2*first_proposal_burn_block_timing to prevent the block timing from
+    // allowing a fork by the signer set
     thread::sleep(Duration::from_secs(first_proposal_burn_block_timing * 2));
 
     let nakamoto_headers: HashMap<_, _> = get_nakamoto_headers(&conf)
@@ -2222,7 +2247,7 @@ fn miner_forking() {
 
     assert_eq!(
         peer_1_height - pre_nakamoto_peer_1_height,
-        u64::try_from(nakamoto_blocks_count - nakamoto_blocks_count_before).unwrap(), // subtract 1 for the first Nakamoto block
+        u64::try_from(nakamoto_blocks_count - nakamoto_blocks_count_before).unwrap(), /* subtract 1 for the first Nakamoto block */
         "There should be no forks in this test"
     );
 
@@ -2232,10 +2257,11 @@ fn miner_forking() {
 #[test]
 #[ignore]
 /// This test checks the behavior at the end of a tenure. Specifically:
-/// - The miner will broadcast the last block of the tenure, even if the signing is
-///   completed after the next burn block arrives
-/// - The signers will not sign a block that arrives after the next burn block, but
-///   will finish a signing process that was in progress when the next burn block arrived
+/// - The miner will broadcast the last block of the tenure, even if the signing
+///   is completed after the next burn block arrives
+/// - The signers will not sign a block that arrives after the next burn block,
+///   but will finish a signing process that was in progress when the next burn
+///   block arrived
 fn end_of_tenure() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -2264,7 +2290,8 @@ fn end_of_tenure() {
         .load(Ordering::SeqCst);
     signer_test.boot_to_epoch_3();
     let curr_reward_cycle = signer_test.get_current_reward_cycle();
-    // Advance to one before the next reward cycle to ensure we are on the reward cycle boundary
+    // Advance to one before the next reward cycle to ensure we are on the reward
+    // cycle boundary
     let final_reward_cycle = curr_reward_cycle + 1;
     let final_reward_cycle_height_boundary = signer_test
         .running_nodes
@@ -2384,7 +2411,8 @@ fn end_of_tenure() {
 
 #[test]
 #[ignore]
-/// This test checks that the miner will retry when enough signers reject the block.
+/// This test checks that the miner will retry when enough signers reject the
+/// block.
 fn retry_on_rejection() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -2515,7 +2543,8 @@ fn retry_on_rejection() {
 
 #[test]
 #[ignore]
-/// This test checks that the signers will broadcast a block once they receive enough signatures.
+/// This test checks that the signers will broadcast a block once they receive
+/// enough signatures.
 fn signers_broadcast_signed_blocks() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -2610,7 +2639,8 @@ fn signers_broadcast_signed_blocks() {
 
 #[test]
 #[ignore]
-/// This test verifies that a miner will produce a TenureExtend transaction after the signers' idle timeout is reached.
+/// This test verifies that a miner will produce a TenureExtend transaction
+/// after the signers' idle timeout is reached.
 fn tenure_extend_after_idle_signers() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -2655,7 +2685,8 @@ fn tenure_extend_after_idle_signers() {
 
 #[test]
 #[ignore]
-/// This test verifies that a miner will include other transactions with a TenureExtend transaction.
+/// This test verifies that a miner will include other transactions with a
+/// TenureExtend transaction.
 fn tenure_extend_with_other_transactions() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -2758,8 +2789,9 @@ fn tenure_extend_with_other_transactions() {
 
 #[test]
 #[ignore]
-/// This test verifies that a miner will produce a TenureExtend transaction after the miner's idle timeout
-/// even if they do not see the signers' tenure extend timestamp responses.
+/// This test verifies that a miner will produce a TenureExtend transaction
+/// after the miner's idle timeout even if they do not see the signers' tenure
+/// extend timestamp responses.
 fn tenure_extend_after_idle_miner() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -2834,8 +2866,9 @@ fn tenure_extend_after_idle_miner() {
 
 #[test]
 #[ignore]
-/// This test verifies that a miner that attempts to produce a tenure extend too early will be rejected by the signers,
-/// but will eventually succeed after the signers' idle timeout has passed.
+/// This test verifies that a miner that attempts to produce a tenure extend too
+/// early will be rejected by the signers, but will eventually succeed after the
+/// signers' idle timeout has passed.
 fn tenure_extend_succeeds_after_rejected_attempt() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -2875,7 +2908,8 @@ fn tenure_extend_succeeds_after_rejected_attempt() {
     signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
     info!("---- Waiting for a rejected tenure extend ----");
-    // Now, wait for a block with a tenure extend proposal from the miner, but ensure it is rejected.
+    // Now, wait for a block with a tenure extend proposal from the miner, but
+    // ensure it is rejected.
     wait_for(30, || {
         let block = test_observer::get_stackerdb_chunks()
             .into_iter()
@@ -3002,7 +3036,8 @@ fn stx_transfers_dont_effect_idle_timeout() {
 
     let mut sender_nonce = 0;
 
-    // Note that this response was BEFORE the block was globally accepted. it will report a guestimated idle time
+    // Note that this response was BEFORE the block was globally accepted. it will
+    // report a guestimated idle time
     let initial_acceptance = initial_acceptance;
     let mut first_global_acceptance = None;
     for i in 0..num_txs {
@@ -3029,7 +3064,8 @@ fn stx_transfers_dont_effect_idle_timeout() {
             assert!(latest_acceptance.response_data.tenure_extend_timestamp < initial_acceptance.response_data.tenure_extend_timestamp, "First global acceptance should be less than initial guesstimated acceptance as its based on block proposal time rather than epoch time at time of response.");
             first_global_acceptance = Some(latest_acceptance);
         } else {
-            // Because the block only contains transfers, the idle timeout should not have changed between blocks post the tenure change
+            // Because the block only contains transfers, the idle timeout should not have
+            // changed between blocks post the tenure change
             assert_eq!(
                 latest_acceptance.response_data.tenure_extend_timestamp,
                 first_global_acceptance
@@ -3180,7 +3216,8 @@ fn idle_tenure_extend_active_mining() {
         log_idle_diff(last_response.get_tenure_extend_timestamp());
         // Now, start a tenure with contract calls
         for i in 1..=num_naka_blocks {
-            // Just in case these Nakamoto blocks pass the idle timeout (probably because CI is slow), exit early
+            // Just in case these Nakamoto blocks pass the idle timeout (probably because CI
+            // is slow), exit early
             if i != 1 && last_block_contains_tenure_change_tx(TenureChangeCause::Extended) {
                 info!("---- Tenure extended before mining {i} nakamoto blocks -----");
                 break;
@@ -3276,7 +3313,8 @@ fn idle_tenure_extend_active_mining() {
 
     // After the last extend, mine a few more naka blocks
     for i in 1..=num_naka_blocks {
-        // Just in case these Nakamoto blocks pass the idle timeout (probably because CI is slow), exit early
+        // Just in case these Nakamoto blocks pass the idle timeout (probably because CI
+        // is slow), exit early
         if i != 1 && last_block_contains_tenure_change_tx(TenureChangeCause::Extended) {
             info!("---- Tenure extended before mining {i} nakamoto blocks -----");
             break;
@@ -3304,11 +3342,15 @@ fn idle_tenure_extend_active_mining() {
 
 #[test]
 #[ignore]
-/// This test checks the behaviour of signers when a sortition is empty. Specifically:
-/// - An empty sortition will cause the signers to mark a miner as misbehaving once a timeout is exceeded.
-/// - The miner will stop trying to mine once it sees a threshold of signers reject the block
+/// This test checks the behaviour of signers when a sortition is empty.
+/// Specifically:
+/// - An empty sortition will cause the signers to mark a miner as misbehaving
+///   once a timeout is exceeded.
+/// - The miner will stop trying to mine once it sees a threshold of signers
+///   reject the block
 /// - The empty sortition will trigger the miner to attempt a tenure extend.
-/// - Signers will accept the tenure extend and sign subsequent blocks built off the old sortition
+/// - Signers will accept the tenure extend and sign subsequent blocks built off
+///   the old sortition
 fn empty_sortition() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -3491,8 +3533,8 @@ fn empty_sortition() {
 /// before the first block of the previous tenure has been approved.
 /// Specifically:
 /// - The empty sortition will trigger the miner to attempt a tenure extend.
-/// - Signers will accept the tenure extend and sign subsequent blocks built
-///   off the old sortition
+/// - Signers will accept the tenure extend and sign subsequent blocks built off
+///   the old sortition
 fn empty_sortition_before_approval() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -3646,8 +3688,8 @@ fn empty_sortition_before_approval() {
 /// before the first block of the previous tenure has been proposed.
 /// Specifically:
 /// - The empty sortition will trigger the miner to attempt a tenure extend.
-/// - Signers will accept the tenure extend and sign subsequent blocks built
-///   off the old sortition
+/// - Signers will accept the tenure extend and sign subsequent blocks built off
+///   the old sortition
 fn empty_sortition_before_proposal() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -3799,7 +3841,8 @@ fn empty_sortition_before_proposal() {
 
 #[test]
 #[ignore]
-/// This test checks that Epoch 2.5 signers will issue a mock signature per burn block they receive.
+/// This test checks that Epoch 2.5 signers will issue a mock signature per burn
+/// block they receive.
 fn mock_sign_epoch_25() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -3841,7 +3884,8 @@ fn mock_sign_epoch_25() {
         .clone()
         .unwrap();
     let epoch_3 = &epochs[StacksEpochId::Epoch30];
-    let epoch_3_boundary = epoch_3.start_height - 1; // We only advance to the boundary as epoch 2.5 miner gets torn down at the boundary
+    let epoch_3_boundary = epoch_3.start_height - 1; // We only advance to the boundary as epoch 2.5 miner gets torn down at the
+                                                     // boundary
 
     signer_test.boot_to_epoch_25_reward_cycle();
 
@@ -3855,9 +3899,11 @@ fn mock_sign_epoch_25() {
 
     let miners_stackerdb_contract = boot_code_id(MINERS_NAME, false);
 
-    // Mine until epoch 3.0 and ensure we get a new mock block per epoch 2.5 sortition
+    // Mine until epoch 3.0 and ensure we get a new mock block per epoch 2.5
+    // sortition
     let main_poll_time = Instant::now();
-    // Only advance to the boundary as the epoch 2.5 miner will be shut down at this point.
+    // Only advance to the boundary as the epoch 2.5 miner will be shut down at this
+    // point.
     while signer_test
         .running_nodes
         .btc_regtest_controller
@@ -3956,8 +4002,8 @@ fn multiple_miners_mock_sign_epoch_25() {
     let node_2_rpc_bind = format!("{localhost}:{node_2_rpc}");
     let mut node_2_listeners = Vec::new();
 
-    // partition the signer set so that ~half are listening and using node 1 for RPC and events,
-    //  and the rest are using node 2
+    // partition the signer set so that ~half are listening and using node 1 for RPC
+    // and events,  and the rest are using node 2
 
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
@@ -4045,7 +4091,8 @@ fn multiple_miners_mock_sign_epoch_25() {
         .clone()
         .unwrap();
     let epoch_3 = &epochs[StacksEpochId::Epoch30];
-    let epoch_3_boundary = epoch_3.start_height - 1; // We only advance to the boundary as epoch 2.5 miner gets torn down at the boundary
+    let epoch_3_boundary = epoch_3.start_height - 1; // We only advance to the boundary as epoch 2.5 miner gets torn down at the
+                                                     // boundary
 
     signer_test.boot_to_epoch_25_reward_cycle();
 
@@ -4059,7 +4106,8 @@ fn multiple_miners_mock_sign_epoch_25() {
 
     let miners_stackerdb_contract = boot_code_id(MINERS_NAME, false);
 
-    // Only advance to the boundary as the epoch 2.5 miner will be shut down at this point.
+    // Only advance to the boundary as the epoch 2.5 miner will be shut down at this
+    // point.
     while signer_test
         .running_nodes
         .btc_regtest_controller
@@ -4129,9 +4177,9 @@ fn multiple_miners_mock_sign_epoch_25() {
 #[test]
 #[ignore]
 /// This test asserts that signer set rollover works as expected.
-/// Specifically, if a new set of signers are registered for an upcoming reward cycle,
-/// old signers shut down operation and the new signers take over with the commencement of
-/// the next reward cycle.
+/// Specifically, if a new set of signers are registered for an upcoming reward
+/// cycle, old signers shut down operation and the new signers take over with
+/// the commencement of the next reward cycle.
 fn signer_set_rollover() {
     tracing_subscriber::registry()
         .with(fmt::layer())
@@ -4172,7 +4220,8 @@ fn signer_set_rollover() {
     let new_signer_configs = build_signer_config_tomls(
         &new_signer_private_keys,
         &rpc_bind,
-        Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
+        Some(Duration::from_millis(128)), /* Timeout defaults to 5 seconds. Let's override it to
+                                           * 128 milliseconds. */
         &Network::Testnet,
         "12345",
         run_stamp,
@@ -4425,8 +4474,8 @@ fn signer_set_rollover() {
 
 #[test]
 #[ignore]
-/// This test checks that the miners and signers will not produce Nakamoto blocks
-/// until the minimum time has passed between blocks.
+/// This test checks that the miners and signers will not produce Nakamoto
+/// blocks until the minimum time has passed between blocks.
 fn min_gap_between_blocks() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -4501,7 +4550,8 @@ fn min_gap_between_blocks() {
     })
     .unwrap();
 
-    // Verify that every Nakamoto block is mined after the gap is exceeded between each
+    // Verify that every Nakamoto block is mined after the gap is exceeded between
+    // each
     let mut blocks = get_nakamoto_headers(&signer_test.running_nodes.conf);
     blocks.sort_by(|a, b| a.stacks_block_height.cmp(&b.stacks_block_height));
     for i in 1..blocks.len() {
@@ -4624,7 +4674,8 @@ fn duplicate_signers() {
         .expect("No `BlockResponse::Accepted` messages recieved");
     let selected_sighash = accepted.signer_signature_hash;
 
-    // Filter only resonses for selected block and collect unique pubkeys and signatures
+    // Filter only resonses for selected block and collect unique pubkeys and
+    // signatures
     let (pubkeys, signatures): (HashSet<_>, HashSet<_>) = signer_accepted_responses
         .into_iter()
         .filter(|accepted| accepted.signer_signature_hash == selected_sighash)
@@ -4676,8 +4727,8 @@ fn multiple_miners_with_nakamoto_blocks() {
     let node_2_rpc_bind = format!("{localhost}:{node_2_rpc}");
     let mut node_2_listeners = Vec::new();
 
-    // partition the signer set so that ~half are listening and using node 1 for RPC and events,
-    //  and the rest are using node 2
+    // partition the signer set so that ~half are listening and using node 1 for RPC
+    // and events,  and the rest are using node 2
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(
@@ -4783,10 +4834,10 @@ fn multiple_miners_with_nakamoto_blocks() {
 
     info!("------------------------- Reached Epoch 3.0 -------------------------");
 
-    // due to the random nature of mining sortitions, the way this test is structured
-    //  is that we keep track of how many tenures each miner produced, and once enough sortitions
-    //  have been produced such that each miner has produced 3 tenures, we stop and check the
-    //  results at the end
+    // due to the random nature of mining sortitions, the way this test is
+    // structured  is that we keep track of how many tenures each miner
+    // produced, and once enough sortitions  have been produced such that each
+    // miner has produced 3 tenures, we stop and check the  results at the end
     let rl1_coord_channels = signer_test.running_nodes.coord_channel.clone();
     let rl1_commits = signer_test.running_nodes.commits_submitted.clone();
 
@@ -5055,10 +5106,10 @@ fn partial_tenure_fork() {
 
     info!("------------------------- Reached Epoch 3.0 -------------------------");
 
-    // due to the random nature of mining sortitions, the way this test is structured
-    //  is that we keep track of how many tenures each miner produced, and once enough sortitions
-    //  have been produced such that each miner has produced 3 tenures, we stop and check the
-    //  results at the end
+    // due to the random nature of mining sortitions, the way this test is
+    // structured  is that we keep track of how many tenures each miner
+    // produced, and once enough sortitions  have been produced such that each
+    // miner has produced 3 tenures, we stop and check the  results at the end
     let mut btc_blocks_mined = 0;
     let mut miner_1_tenures = 0u64;
     let mut miner_2_tenures = 0u64;
@@ -5346,9 +5397,10 @@ fn partial_tenure_fork() {
     assert_eq!(peer_2_height, ignore_block - 1);
     // The height may be higher than expected due to extra transactions waiting
     // to be mined during the forking miner's tenure.
-    // We cannot guarantee due to TooMuchChaining that the miner will mine inter_blocks_per_tenure
-    // Must be at least the number of blocks mined by miner 1 and the number of blocks mined by miner 2
-    // before the fork was initiated
+    // We cannot guarantee due to TooMuchChaining that the miner will mine
+    // inter_blocks_per_tenure Must be at least the number of blocks mined by
+    // miner 1 and the number of blocks mined by miner 2 before the fork was
+    // initiated
     assert!(peer_1_height >= pre_nakamoto_peer_1_height + miner_1_blocks + min_miner_2_blocks);
     assert_eq!(btc_blocks_mined, miner_1_tenures + miner_2_tenures);
 
@@ -5381,17 +5433,20 @@ fn partial_tenure_fork() {
 
 #[test]
 #[ignore]
-/// Test that signers that accept a block locally, but that was rejected globally will accept a subsequent attempt
-/// by the miner essentially reorg their prior locally accepted/signed block, i.e. the globally rejected block overrides
-/// their local view.
+/// Test that signers that accept a block locally, but that was rejected
+/// globally will accept a subsequent attempt by the miner essentially reorg
+/// their prior locally accepted/signed block, i.e. the globally rejected block
+/// overrides their local view.
 ///
 /// Test Setup:
-/// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
-/// The stacks node is then advanced to Epoch 3.0 boundary to allow block signing.
+/// The test spins up five stacks signers, one miner Nakamoto node, and a
+/// corresponding bitcoind. The stacks node is then advanced to Epoch 3.0
+/// boundary to allow block signing.
 ///
 /// Test Execution:
-/// The node mines 1 stacks block N (all signers sign it). The subsequent block N+1 is proposed, but rejected by >30% of the signers.
-/// The miner then attempts to mine N+1', and all signers accept the block.
+/// The node mines 1 stacks block N (all signers sign it). The subsequent block
+/// N+1 is proposed, but rejected by >30% of the signers. The miner then
+/// attempts to mine N+1', and all signers accept the block.
 ///
 /// Test Assertion:
 /// Stacks tip advances to N+1'
@@ -5472,7 +5527,8 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
         .expect("Timed out waiting for block acceptance of N");
 
     info!("------------------------- Attempt to Mine Nakamoto Block N+1 -------------------------");
-    // Make half of the signers reject the block proposal by the miner to ensure its marked globally rejected
+    // Make half of the signers reject the block proposal by the miner to ensure its
+    // marked globally rejected
     let rejecting_signers: Vec<_> = all_signers
         .iter()
         .cloned()
@@ -5480,8 +5536,9 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
         .collect();
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(rejecting_signers.clone());
     test_observer::clear();
-    // Make a new stacks transaction to create a different block signature, but make sure to propose it
-    // AFTER the signers are unfrozen so they don't inadvertently prevent the new block being accepted
+    // Make a new stacks transaction to create a different block signature, but make
+    // sure to propose it AFTER the signers are unfrozen so they don't
+    // inadvertently prevent the new block being accepted
     let transfer_tx = make_stacks_transfer(
         &sender_sk,
         sender_nonce,
@@ -5496,7 +5553,9 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
 
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let info_before = signer_test.stacks_client.get_peer_info().unwrap();
-    // We cannot gaurantee that ALL signers will reject due to the testing directive as we may hit majority first..So ensure that we only assert that up to the threshold number rejected
+    // We cannot gaurantee that ALL signers will reject due to the testing directive
+    // as we may hit majority first..So ensure that we only assert that up to the
+    // threshold number rejected
     signer_test
         .wait_for_block_rejections(short_timeout_secs, &rejecting_signers)
         .expect("Timed out waiting for block rejection of N+1");
@@ -5504,7 +5563,8 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
     assert_eq!(blocks_before, mined_blocks.load(Ordering::SeqCst));
     let info_after = signer_test.stacks_client.get_peer_info().unwrap();
     assert_eq!(info_before, info_after);
-    // Ensure that the block was not accepted globally so the stacks tip has not advanced to N+1
+    // Ensure that the block was not accepted globally so the stacks tip has not
+    // advanced to N+1
     let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
     let block_n_1 = nakamoto_blocks.last().unwrap();
     assert_ne!(block_n_1, block_n);
@@ -5543,7 +5603,8 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
         info_after.stacks_tip_height,
         info_before.stacks_tip_height + 1
     );
-    // Ensure that the block was accepted globally so the stacks tip has advanced to N+1'
+    // Ensure that the block was accepted globally so the stacks tip has advanced to
+    // N+1'
     let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
     let block_n_1_prime = nakamoto_blocks.last().unwrap();
     assert_eq!(
@@ -5563,16 +5624,18 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
 
 #[test]
 #[ignore]
-/// Test that signers that reject a block locally, but that was accepted globally will accept
-/// a subsequent block built on top of the accepted block
+/// Test that signers that reject a block locally, but that was accepted
+/// globally will accept a subsequent block built on top of the accepted block
 ///
 /// Test Setup:
-/// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
-/// The stacks node is then advanced to Epoch 3.0 boundary to allow block signing.
+/// The test spins up five stacks signers, one miner Nakamoto node, and a
+/// corresponding bitcoind. The stacks node is then advanced to Epoch 3.0
+/// boundary to allow block signing.
 ///
 /// Test Execution:
-/// The node mines 1 stacks block N (all signers sign it). The subsequent block N+1 is proposed, but rejected by <30% of the signers.
-/// The miner then attempts to mine N+2, and all signers accept the block.
+/// The node mines 1 stacks block N (all signers sign it). The subsequent block
+/// N+1 is proposed, but rejected by <30% of the signers. The miner then
+/// attempts to mine N+2, and all signers accept the block.
 ///
 /// Test Assertion:
 /// Stacks tip advances to N+2
@@ -5650,7 +5713,8 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
         info_after.stacks_tip_height
     );
 
-    // Ensure that the block was accepted globally so the stacks tip has advanced to N
+    // Ensure that the block was accepted globally so the stacks tip has advanced to
+    // N
     let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
     let block_n = nakamoto_blocks.last().unwrap();
     assert_eq!(info_after.stacks_tip.to_string(), block_n.block_hash);
@@ -5661,7 +5725,8 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
         .expect("Timed out waiting for block acceptance of N");
 
     info!("------------------------- Mine Nakamoto Block N+1 -------------------------");
-    // Make less than 30% of the signers reject the block and ensure it is STILL marked globally accepted
+    // Make less than 30% of the signers reject the block and ensure it is STILL
+    // marked globally accepted
     let rejecting_signers: Vec<_> = all_signers
         .iter()
         .cloned()
@@ -5714,7 +5779,8 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
         info_after.stacks_tip_height
     );
 
-    // Ensure that the block was still accepted globally so the stacks tip has advanced to N+1
+    // Ensure that the block was still accepted globally so the stacks tip has
+    // advanced to N+1
     let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
     let block_n_1 = nakamoto_blocks.last().unwrap();
     assert_eq!(info_after.stacks_tip.to_string(), block_n_1.block_hash);
@@ -5734,7 +5800,8 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(Vec::new());
 
-    // submit a tx so that the miner will mine a stacks block N+2 and ensure ALL signers accept it
+    // submit a tx so that the miner will mine a stacks block N+2 and ensure ALL
+    // signers accept it
     let transfer_tx = make_stacks_transfer(
         &sender_sk,
         sender_nonce,
@@ -5763,7 +5830,8 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
         info_before.stacks_tip_height + 1,
         info_after.stacks_tip_height,
     );
-    // Ensure that the block was accepted globally so the stacks tip has advanced to N+2
+    // Ensure that the block was accepted globally so the stacks tip has advanced to
+    // N+2
     let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
     let block_n_2 = nakamoto_blocks.last().unwrap();
     assert_eq!(info_after.stacks_tip.to_string(), block_n_2.block_hash);
@@ -5781,16 +5849,21 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
 
 #[test]
 #[ignore]
-/// Test that signers that have accepted a locally signed block N+1 built in tenure A can sign a block proposed during a
-/// new tenure B built upon the last globally accepted block N if the timeout is exceeded, i.e. a reorg can occur at a tenure boundary.
+/// Test that signers that have accepted a locally signed block N+1 built in
+/// tenure A can sign a block proposed during a new tenure B built upon the last
+/// globally accepted block N if the timeout is exceeded, i.e. a reorg can occur
+/// at a tenure boundary.
 ///
 /// Test Setup:
-/// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
-/// The stacks node is then advanced to Epoch 3.0 boundary to allow block signing.
+/// The test spins up five stacks signers, one miner Nakamoto node, and a
+/// corresponding bitcoind. The stacks node is then advanced to Epoch 3.0
+/// boundary to allow block signing.
 ///
 /// Test Execution:
-/// The node mines 1 stacks block N (all signers sign it). The subsequent block N+1 is proposed, but <30% accept it. The remaining signers
-/// do not make a decision on the block. A new tenure begins and the miner proposes a new block N+1' which all signers accept.
+/// The node mines 1 stacks block N (all signers sign it). The subsequent block
+/// N+1 is proposed, but <30% accept it. The remaining signers do not make a
+/// decision on the block. A new tenure begins and the miner proposes a new
+/// block N+1' which all signers accept.
 ///
 /// Test Assertion:
 /// Stacks tip advances to N+1'
@@ -5863,7 +5936,8 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
     })
     .expect("Timed out waiting for block to be mined and processed");
 
-    // Ensure that the block was accepted globally so the stacks tip has advanced to N
+    // Ensure that the block was accepted globally so the stacks tip has advanced to
+    // N
     let info_after = signer_test
         .stacks_client
         .get_peer_info()
@@ -5877,7 +5951,8 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
     assert_eq!(info_after.stacks_tip.to_string(), block_n.block_hash);
 
     info!("------------------------- Attempt to Mine Nakamoto Block N+1 -------------------------");
-    // Make more than >70% of the signers ignore the block proposal to ensure it it is not globally accepted/rejected
+    // Make more than >70% of the signers ignore the block proposal to ensure it it
+    // is not globally accepted/rejected
     let ignoring_signers: Vec<_> = all_signers
         .iter()
         .cloned()
@@ -5936,14 +6011,16 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
         .expect("Failed to get peer info");
     assert_eq!(blocks_after, blocks_before);
     assert_eq!(info_after, info_before);
-    // Ensure that the block was NOT accepted globally so the stacks tip has NOT advanced to N+1
+    // Ensure that the block was NOT accepted globally so the stacks tip has NOT
+    // advanced to N+1
     let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
     let block_n_1 = nakamoto_blocks.last().unwrap();
     assert_ne!(block_n_1, block_n);
     assert_ne!(info_after.stacks_tip.to_string(), block_n_1.block_hash);
 
     info!("------------------------- Starting Tenure B -------------------------");
-    // Start a new tenure and ensure the miner can propose a new block N+1' that is accepted by all signers
+    // Start a new tenure and ensure the miner can propose a new block N+1' that is
+    // accepted by all signers
     let commits_submitted = signer_test.running_nodes.commits_submitted.clone();
     let commits_before = commits_submitted.load(Ordering::SeqCst);
     next_block_and(
@@ -5982,7 +6059,8 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
         info_after.stacks_tip_height
     );
 
-    // Ensure that the block was accepted globally so the stacks tip has advanced to N+1'
+    // Ensure that the block was accepted globally so the stacks tip has advanced to
+    // N+1'
     let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
     let block_n_1_prime = nakamoto_blocks.last().unwrap();
     assert_eq!(
@@ -5991,7 +6069,8 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
     );
     assert_ne!(block_n_1_prime, block_n);
 
-    // Make sure that ALL signers accepted the block proposal even though they signed a conflicting one in prior tenure
+    // Make sure that ALL signers accepted the block proposal even though they
+    // signed a conflicting one in prior tenure
     signer_test
         .wait_for_block_acceptance(30, &block_n_1_prime.signer_signature_hash, &all_signers)
         .expect("Timed out waiting for block acceptance of N+1'");
@@ -5999,18 +6078,22 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
 
 #[test]
 #[ignore]
-/// Test that signers that have accepted a locally signed block N+1 built in tenure A cannot sign a block proposed during a
-/// new tenure B built upon the last globally accepted block N if the timeout is not exceeded, i.e. a reorg cannot occur at a tenure boundary
-/// before the specified timeout has been exceeded.
+/// Test that signers that have accepted a locally signed block N+1 built in
+/// tenure A cannot sign a block proposed during a new tenure B built upon the
+/// last globally accepted block N if the timeout is not exceeded, i.e. a reorg
+/// cannot occur at a tenure boundary before the specified timeout has been
+/// exceeded.
 ///
 /// Test Setup:
-/// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
-/// The stacks node is then advanced to Epoch 3.0 boundary to allow block signing.
+/// The test spins up five stacks signers, one miner Nakamoto node, and a
+/// corresponding bitcoind. The stacks node is then advanced to Epoch 3.0
+/// boundary to allow block signing.
 ///
 /// Test Execution:
-/// The node mines 1 stacks block N (all signers sign it). The subsequent block N+1 is proposed, but <30% accept it. The remaining signers
-/// do not make a decision on the block. A new tenure begins and the miner proposes a new block N+1' which all signers reject as the timeout
-/// has not been exceeded.
+/// The node mines 1 stacks block N (all signers sign it). The subsequent block
+/// N+1 is proposed, but <30% accept it. The remaining signers do not make a
+/// decision on the block. A new tenure begins and the miner proposes a new
+/// block N+1' which all signers reject as the timeout has not been exceeded.
 ///
 /// Test Assertion:
 /// Stacks tip remains at N.
@@ -6081,7 +6164,8 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
     })
     .expect("Timed out waiting for block to be mined and processed");
 
-    // Ensure that the block was accepted globally so the stacks tip has advanced to N
+    // Ensure that the block was accepted globally so the stacks tip has advanced to
+    // N
     let info_after = signer_test
         .stacks_client
         .get_peer_info()
@@ -6095,7 +6179,8 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
     assert_eq!(info_after.stacks_tip.to_string(), block_n.block_hash);
 
     info!("------------------------- Attempt to Mine Nakamoto Block N+1 -------------------------");
-    // Make more than >70% of the signers ignore the block proposal to ensure it it is not globally accepted/rejected
+    // Make more than >70% of the signers ignore the block proposal to ensure it it
+    // is not globally accepted/rejected
     let ignoring_signers: Vec<_> = all_signers
         .iter()
         .cloned()
@@ -6153,7 +6238,8 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
         .expect("Failed to get peer info");
     assert_eq!(blocks_after, blocks_before);
     assert_eq!(info_after, info_before);
-    // Ensure that the block was NOT accepted globally so the stacks tip has NOT advanced to N+1
+    // Ensure that the block was NOT accepted globally so the stacks tip has NOT
+    // advanced to N+1
     let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
     let block_n_1 = nakamoto_blocks.last().unwrap();
     assert_ne!(block_n_1, block_n);
@@ -6203,7 +6289,8 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
         .expect("Failed to get peer info");
     assert_eq!(blocks_after, blocks_before);
     assert_eq!(info_after.stacks_tip, info_before.stacks_tip);
-    // Ensure that the block was NOT accepted globally so the stacks tip has NOT advanced to N+1'
+    // Ensure that the block was NOT accepted globally so the stacks tip has NOT
+    // advanced to N+1'
     let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
     let block_n_1_prime = nakamoto_blocks.last().unwrap();
     assert_ne!(block_n_1, block_n_1_prime);
@@ -6215,18 +6302,22 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
 
 #[test]
 #[ignore]
-/// Test that when 70% of signers accept a block, mark it globally accepted, but a miner ends its tenure
-/// before it receives these signatures, the miner can recover in the following tenure.
+/// Test that when 70% of signers accept a block, mark it globally accepted, but
+/// a miner ends its tenure before it receives these signatures, the miner can
+/// recover in the following tenure.
 ///
 /// Test Setup:
-/// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
-/// The stacks node is then advanced to Epoch 3.0 boundary to allow block signing.
+/// The test spins up five stacks signers, one miner Nakamoto node, and a
+/// corresponding bitcoind. The stacks node is then advanced to Epoch 3.0
+/// boundary to allow block signing.
 ///
 /// Test Execution:
-/// The node mines 1 stacks block N (all signers sign it). The subsequent block N+1 is proposed, but >70% accept it.
-/// The signers delay broadcasting the block and the miner ends its tenure before it receives these signatures. The
-/// miner will propose an invalid block N+1' which all signers reject. The broadcast delay is removed and the miner
-/// proposes a new block N+2 which all signers accept.
+/// The node mines 1 stacks block N (all signers sign it). The subsequent block
+/// N+1 is proposed, but >70% accept it. The signers delay broadcasting the
+/// block and the miner ends its tenure before it receives these signatures. The
+/// miner will propose an invalid block N+1' which all signers reject. The
+/// broadcast delay is removed and the miner proposes a new block N+2 which all
+/// signers accept.
 ///
 /// Test Assertion:
 /// Stacks tip advances to N+2
@@ -6322,9 +6413,9 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     assert_eq!(info_after.stacks_tip.to_string(), block_n.block_hash);
 
     info!("------------------------- Attempt to Mine Nakamoto Block N+1 -------------------------");
-    // Propose a valid block, but force the miner to ignore the returned signatures and delay the block being
-    // broadcasted to the miner so it can end its tenure before block confirmation obtained
-    // Clear the stackerdb chunks
+    // Propose a valid block, but force the miner to ignore the returned signatures
+    // and delay the block being broadcasted to the miner so it can end its
+    // tenure before block confirmation obtained Clear the stackerdb chunks
     info!("Forcing miner to ignore block responses for block N+1");
     TEST_IGNORE_SIGNERS.set(true);
     info!("Delaying signer block N+1 broadcasting to the miner");
@@ -6398,7 +6489,8 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
         .expect("Failed to get peer info");
     assert_eq!(blocks_after, blocks_before);
     assert_eq!(info_after, info_before);
-    // Ensure that the block was not yet broadcasted to the miner so the stacks tip has NOT advanced to N+1
+    // Ensure that the block was not yet broadcasted to the miner so the stacks tip
+    // has NOT advanced to N+1
     let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
     let block_n_same = nakamoto_blocks.last().unwrap();
     assert_ne!(block_n_same, block_n);
@@ -6494,8 +6586,9 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
 
     info!("------------------------- Asserting a both N+1 and N+2 are accepted -------------------------");
     wait_for(30, || {
-        // N.B. have to use /v2/info because mined_blocks only increments if the miner's signing
-        // coordinator returns successfully (meaning, mined_blocks won't increment for block N+1)
+        // N.B. have to use /v2/info because mined_blocks only increments if the miner's
+        // signing coordinator returns successfully (meaning, mined_blocks won't
+        // increment for block N+1)
         let info = signer_test
             .stacks_client
             .get_peer_info()
@@ -6524,7 +6617,8 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
         .len();
     assert!(nmb_signatures >= num_signers * 7 / 10);
 
-    // Ensure that the block was accepted globally so the stacks tip has advanced to N+2
+    // Ensure that the block was accepted globally so the stacks tip has advanced to
+    // N+2
     let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
     let block_n_2 = nakamoto_blocks.last().unwrap();
     assert_eq!(info_after.stacks_tip.to_string(), block_n_2.block_hash);
@@ -6533,10 +6627,10 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
 
 /// Test a scenario where:
 /// Two miners boot to Nakamoto.
-/// Miner 1 wins the first tenure and proposes a block N with a TenureChangePayload
-/// Signers accept and the stacks tip advances to N
-/// Miner 2 wins the second tenure B but its proposed blocks are rejected by the signers.
-/// Mine 2 empty burn blocks (simulate fast blocks scenario)
+/// Miner 1 wins the first tenure and proposes a block N with a
+/// TenureChangePayload Signers accept and the stacks tip advances to N
+/// Miner 2 wins the second tenure B but its proposed blocks are rejected by the
+/// signers. Mine 2 empty burn blocks (simulate fast blocks scenario)
 /// Miner 2 proposes block N+1 with a TenureChangePayload
 /// Signers accept and the stacks tip advances to N+1
 /// Miner 2 proposes block N+2 with a TenureExtend
@@ -6546,8 +6640,8 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
 /// Mine an empty burn block
 /// Miner 2 proposes block N+4 with a TenureExtend
 /// Signers accept and the chain advances to N+4
-/// Miner 1 wins the next tenure and proposes a block N+5 with a TenureChangePayload
-/// Signers accept and the chain advances to N+5
+/// Miner 1 wins the next tenure and proposes a block N+5 with a
+/// TenureChangePayload Signers accept and the chain advances to N+5
 /// Asserts:
 /// - Block N+1 contains the TenureChangePayload
 /// - Block N+2 contains the TenureExtend
@@ -6592,8 +6686,8 @@ fn continue_after_fast_block_no_sortition() {
     let max_nakamoto_tenures = 30;
 
     info!("------------------------- Test Setup -------------------------");
-    // partition the signer set so that ~half are listening and using node 1 for RPC and events,
-    //  and the rest are using node 2
+    // partition the signer set so that ~half are listening and using node 1 for RPC
+    // and events,  and the rest are using node 2
 
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
@@ -6678,7 +6772,8 @@ fn continue_after_fast_block_no_sortition() {
     let rl1_commits = signer_test.running_nodes.commits_submitted.clone();
     let blocks_mined1 = signer_test.running_nodes.nakamoto_blocks_mined.clone();
 
-    // Some helper functions for verifying the blocks contain their expected transactions
+    // Some helper functions for verifying the blocks contain their expected
+    // transactions
     let verify_last_block_contains_transfer_tx = || {
         let blocks = test_observer::get_blocks();
         let last_block = &blocks.last().unwrap();
@@ -6747,7 +6842,8 @@ fn continue_after_fast_block_no_sortition() {
     let mut btc_blocks_mined = 0;
 
     info!("------------------------- Pause Miner 1's Block Commit -------------------------");
-    // Make sure miner 1 doesn't submit any further block commits for the next tenure BEFORE mining the bitcoin block
+    // Make sure miner 1 doesn't submit any further block commits for the next
+    // tenure BEFORE mining the bitcoin block
     signer_test
         .running_nodes
         .nakamoto_test_skip_commit_op
@@ -6897,7 +6993,8 @@ fn continue_after_fast_block_no_sortition() {
         assert!(!tip.sortition);
     }
 
-    // Verify that no Stacks blocks have been mined (signers are ignoring) and no commits have been submitted by either miner
+    // Verify that no Stacks blocks have been mined (signers are ignoring) and no
+    // commits have been submitted by either miner
     let stacks_height = signer_test
         .stacks_client
         .get_peer_info()
@@ -7183,7 +7280,8 @@ fn continue_after_tenure_extend() {
         _ => panic!("Expected tenure extend transaction, got {parsed:?}"),
     };
 
-    // Verify that the miner can continue mining in the tenure with the tenure extend
+    // Verify that the miner can continue mining in the tenure with the tenure
+    // extend
     info!("------------------------- Mine After Tenure Extend -------------------------");
     let mut blocks_processed_before = coord_channel
         .lock()
@@ -7222,10 +7320,10 @@ fn continue_after_tenure_extend() {
 
 #[test]
 #[ignore]
-/// Test that signers can successfully sign a block proposal in the 0th tenure of a reward cycle
-/// This ensures there is no race condition in the /v2/pox endpoint which could prevent it from updating
-/// on time, possibly triggering an "off by one" like behaviour in the 0th tenure.
-///
+/// Test that signers can successfully sign a block proposal in the 0th tenure
+/// of a reward cycle This ensures there is no race condition in the /v2/pox
+/// endpoint which could prevent it from updating on time, possibly triggering
+/// an "off by one" like behaviour in the 0th tenure.
 fn signing_in_0th_tenure_of_reward_cycle() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -7248,7 +7346,8 @@ fn signing_in_0th_tenure_of_reward_cycle() {
     signer_test.boot_to_epoch_3();
     let curr_reward_cycle = signer_test.get_current_reward_cycle();
     let next_reward_cycle = curr_reward_cycle + 1;
-    // Mine until the boundary of the first full Nakamoto reward cycles (epoch 3 starts in the middle of one)
+    // Mine until the boundary of the first full Nakamoto reward cycles (epoch 3
+    // starts in the middle of one)
     let next_reward_cycle_height_boundary = signer_test
         .running_nodes
         .btc_regtest_controller
@@ -7311,7 +7410,8 @@ fn signing_in_0th_tenure_of_reward_cycle() {
         .last()
         .unwrap()
         .clone();
-    // Must ensure that the signers that signed the block have their blocks_signed updated appropriately
+    // Must ensure that the signers that signed the block have their blocks_signed
+    // updated appropriately
     for signature in &block_mined.signer_signature {
         let signer = signer_public_keys
             .iter()
@@ -7326,9 +7426,10 @@ fn signing_in_0th_tenure_of_reward_cycle() {
     assert_eq!(signer_test.get_current_reward_cycle(), next_reward_cycle);
 }
 
-/// This test involves two miners with a custom chain id, each mining tenures with 6 blocks each.
-/// Half of the signers are attached to each miner, so the test also verifies that
-/// the signers' messages successfully make their way to the active miner.
+/// This test involves two miners with a custom chain id, each mining tenures
+/// with 6 blocks each. Half of the signers are attached to each miner, so the
+/// test also verifies that the signers' messages successfully make their way to
+/// the active miner.
 #[test]
 #[ignore]
 fn multiple_miners_with_custom_chain_id() {
@@ -7358,8 +7459,8 @@ fn multiple_miners_with_custom_chain_id() {
     let node_2_rpc_bind = format!("{localhost}:{node_2_rpc}");
     let mut node_2_listeners = Vec::new();
     let chain_id = 0x87654321;
-    // partition the signer set so that ~half are listening and using node 1 for RPC and events,
-    //  and the rest are using node 2
+    // partition the signer set so that ~half are listening and using node 1 for RPC
+    // and events,  and the rest are using node 2
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(
@@ -7468,10 +7569,10 @@ fn multiple_miners_with_custom_chain_id() {
 
     info!("------------------------- Reached Epoch 3.0 -------------------------");
 
-    // due to the random nature of mining sortitions, the way this test is structured
-    //  is that we keep track of how many tenures each miner produced, and once enough sortitions
-    //  have been produced such that each miner has produced 3 tenures, we stop and check the
-    //  results at the end
+    // due to the random nature of mining sortitions, the way this test is
+    // structured  is that we keep track of how many tenures each miner
+    // produced, and once enough sortitions  have been produced such that each
+    // miner has produced 3 tenures, we stop and check the  results at the end
     let rl1_coord_channels = signer_test.running_nodes.coord_channel.clone();
     let rl1_commits = signer_test.running_nodes.commits_submitted.clone();
 
@@ -7601,7 +7702,8 @@ fn multiple_miners_with_custom_chain_id() {
 
 #[test]
 #[ignore]
-/// This test checks the behavior of the `block_commit_delay_ms` configuration option.
+/// This test checks the behavior of the `block_commit_delay_ms` configuration
+/// option.
 fn block_commit_delay() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -7719,10 +7821,10 @@ fn block_commit_delay() {
     signer_test.shutdown();
 }
 
-// Ensures that a signer that successfully submits a block to the node for validation
-// will issue ConnectivityIssues rejections if a block submission times out.
-// Also ensures that no other proposal gets submitted for validation if we
-// are already waiting for a block submission response.
+// Ensures that a signer that successfully submits a block to the node for
+// validation will issue ConnectivityIssues rejections if a block submission
+// times out. Also ensures that no other proposal gets submitted for validation
+// if we are already waiting for a block submission response.
 #[test]
 #[ignore]
 fn block_validation_response_timeout() {
@@ -7809,7 +7911,8 @@ fn block_validation_response_timeout() {
     block.header.timestamp = get_epoch_time_secs();
 
     let info_before = get_chain_info(&signer_test.running_nodes.conf);
-    // Propose a block to the signers that passes initial checks but will not be submitted to the stacks node due to the submission stall
+    // Propose a block to the signers that passes initial checks but will not be
+    // submitted to the stacks node due to the submission stall
     let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
     block.header.pox_treatment = BitVec::ones(1).unwrap();
     block.header.consensus_hash = view.cur_sortition.consensus_hash;
@@ -7826,7 +7929,8 @@ fn block_validation_response_timeout() {
     std::thread::sleep(timeout.saturating_sub(elapsed));
 
     info!("------------------------- Wait for Block Rejection Due to Timeout -------------------------");
-    // Verify that the signer that submits the block to the node will issue a ConnectivityIssues rejection
+    // Verify that the signer that submits the block to the node will issue a
+    // ConnectivityIssues rejection
     wait_for(30, || {
         let chunks = test_observer::get_stackerdb_chunks();
         for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
@@ -7843,8 +7947,8 @@ fn block_validation_response_timeout() {
             else {
                 continue;
             };
-            // We are waiting for the original block proposal which will have a diff signature to our
-            // second proposed block.
+            // We are waiting for the original block proposal which will have a diff
+            // signature to our second proposed block.
             assert_ne!(
                 signer_signature_hash, block_signer_signature_hash_1,
                 "Received a rejection for the wrong block"
@@ -7893,11 +7997,9 @@ fn block_validation_response_timeout() {
 
 /// Test scenario:
 ///
-/// - when a signer submits a block validation request and
-///   gets a 429,
+/// - when a signer submits a block validation request and gets a 429,
 /// - the signer stores the pending request
-/// - and submits it again after the current block validation
-///   request finishes.
+/// - and submits it again after the current block validation request finishes.
 #[test]
 #[ignore]
 fn block_validation_pending_table() {
@@ -8053,10 +8155,10 @@ fn block_validation_pending_table() {
 /// Test scenario:
 ///
 /// - Miner A proposes a block in tenure A
-/// - While that block is pending validation,
-///   Miner B proposes a new block in tenure B
-/// - After A's block is validated, Miner B's block is
-///   rejected (because it's a sister block)
+/// - While that block is pending validation, Miner B proposes a new block in
+///   tenure B
+/// - After A's block is validated, Miner B's block is rejected (because it's a
+///   sister block)
 /// - Miner B retries and successfully mines a block
 #[test]
 #[ignore]
@@ -8128,7 +8230,8 @@ fn new_tenure_while_validating_previous_scenario() {
     let proposals_before = signer_test.get_miner_proposal_messages().len();
     let info_before = signer_test.get_peer_info();
 
-    // STEP 2: Miner B proposes a block in tenure B, while A's block is pending validation
+    // STEP 2: Miner B proposes a block in tenure B, while A's block is pending
+    // validation
 
     info!("----- Mining a new BTC block -----");
     signer_test
@@ -8224,14 +8327,16 @@ fn new_tenure_while_validating_previous_scenario() {
 #[test]
 #[ignore]
 #[should_panic]
-/// Test that a miner will extend its tenure after the succeding miner fails to mine a block.
+/// Test that a miner will extend its tenure after the succeding miner fails to
+/// mine a block.
 /// - Miner 1 wins a tenure and mines normally
 /// - Miner 2 wins a tenure but fails to mine a block
 /// - Miner 1 extends its tenure
 ///
-/// As of today, this test will panic because Miner 1 will not issue a TenureExtend due to Miner
-/// 2's preceding block-commit being seemingly-valid.  This test verifies that this panic does
-/// indeed occur, and will be subsequently modified once the mienr code is updated so that miner 1
+/// As of today, this test will panic because Miner 1 will not issue a
+/// TenureExtend due to Miner 2's preceding block-commit being seemingly-valid.
+/// This test verifies that this panic does indeed occur, and will be
+/// subsequently modified once the mienr code is updated so that miner 1
 /// can deduce that miner 2 is likely offline.
 fn tenure_extend_after_failed_miner() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
@@ -8265,8 +8370,8 @@ fn tenure_extend_after_failed_miner() {
     let max_nakamoto_tenures = 30;
 
     info!("------------------------- Test Setup -------------------------");
-    // partition the signer set so that ~half are listening and using node 1 for RPC and events,
-    //  and the rest are using node 2
+    // partition the signer set so that ~half are listening and using node 1 for RPC
+    // and events,  and the rest are using node 2
 
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
@@ -8396,7 +8501,8 @@ fn tenure_extend_after_failed_miner() {
     };
 
     info!("------------------------- Pause Miner 1's Block Commit -------------------------");
-    // Make sure miner 1 doesn't submit any further block commits for the next tenure BEFORE mining the bitcoin block
+    // Make sure miner 1 doesn't submit any further block commits for the next
+    // tenure BEFORE mining the bitcoin block
     signer_test
         .running_nodes
         .nakamoto_test_skip_commit_op
@@ -8589,9 +8695,11 @@ fn tenure_extend_after_failed_miner() {
 
 #[test]
 #[ignore]
-/// Test that a miner will extend its tenure after the succeding miner commits to the wrong block.
+/// Test that a miner will extend its tenure after the succeding miner commits
+/// to the wrong block.
 /// - Miner 1 wins a tenure and mines normally
-/// - Miner 1 wins another tenure and mines normally, but miner 2 does not see any blocks from this tenure
+/// - Miner 1 wins another tenure and mines normally, but miner 2 does not see
+///   any blocks from this tenure
 /// - Miner 2 wins a tenure and is unable to mine a block
 /// - Miner 1 extends its tenure and mines an additional block
 /// - Miner 2 wins the next tenure and mines normally
@@ -8627,8 +8735,8 @@ fn tenure_extend_after_bad_commit() {
     let max_nakamoto_tenures = 30;
 
     info!("------------------------- Test Setup -------------------------");
-    // partition the signer set so that ~half are listening and using node 1 for RPC and events,
-    //  and the rest are using node 2
+    // partition the signer set so that ~half are listening and using node 1 for RPC
+    // and events,  and the rest are using node 2
 
     let first_proposal_burn_block_timing = Duration::from_secs(1);
 
@@ -8775,7 +8883,8 @@ fn tenure_extend_after_bad_commit() {
 
     info!("------------------------- Pause Miner 1's Block Commit -------------------------");
 
-    // Make sure miner 1 doesn't submit any further block commits for the next tenure BEFORE mining the bitcoin block
+    // Make sure miner 1 doesn't submit any further block commits for the next
+    // tenure BEFORE mining the bitcoin block
     rl1_skip_commit_op.set(true);
 
     info!("------------------------- Miner 1 Wins Normal Tenure A -------------------------");
@@ -9051,7 +9160,8 @@ fn tenure_extend_after_bad_commit() {
     )
     .expect("Timed out waiting for final block to be mined and processed");
 
-    // assure we have a successful sortition that miner 2 won and it had a block found tenure change
+    // assure we have a successful sortition that miner 2 won and it had a block
+    // found tenure change
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     assert!(tip.sortition);
     assert_eq!(tip.miner_pk_hash.unwrap(), mining_pkh_2);
@@ -9069,9 +9179,11 @@ fn tenure_extend_after_bad_commit() {
 
 #[test]
 #[ignore]
-/// Test that a miner will extend its tenure after the succeding miner commits to the wrong block.
+/// Test that a miner will extend its tenure after the succeding miner commits
+/// to the wrong block.
 /// - Miner 1 wins a tenure and mines normally
-/// - Miner 1 wins another tenure and mines normally, but miner 2 does not see any blocks from this tenure
+/// - Miner 1 wins another tenure and mines normally, but miner 2 does not see
+///   any blocks from this tenure
 /// - Miner 2 wins a tenure and is unable to mine a block
 /// - Miner 1 extends its tenure and mines an additional block
 /// - Miner 2 wins another tenure and is still unable to mine a block
@@ -9109,8 +9221,8 @@ fn tenure_extend_after_2_bad_commits() {
     let max_nakamoto_tenures = 30;
 
     info!("------------------------- Test Setup -------------------------");
-    // partition the signer set so that ~half are listening and using node 1 for RPC and events,
-    //  and the rest are using node 2
+    // partition the signer set so that ~half are listening and using node 1 for RPC
+    // and events,  and the rest are using node 2
 
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
@@ -9253,7 +9365,8 @@ fn tenure_extend_after_2_bad_commits() {
     };
 
     info!("------------------------- Pause Miner 1's Block Commit -------------------------");
-    // Make sure miner 1 doesn't submit any further block commits for the next tenure BEFORE mining the bitcoin block
+    // Make sure miner 1 doesn't submit any further block commits for the next
+    // tenure BEFORE mining the bitcoin block
     rl1_skip_commit_op.set(true);
 
     info!("------------------------- Miner 1 Wins Normal Tenure A -------------------------");
@@ -9613,7 +9726,8 @@ fn tenure_extend_after_2_bad_commits() {
     )
     .expect("Timed out waiting for final block to be mined and processed");
 
-    // assure we have a successful sortition that miner 2 won and it had a block found tenure change
+    // assure we have a successful sortition that miner 2 won and it had a block
+    // found tenure change
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     assert!(tip.sortition);
     assert_eq!(tip.miner_pk_hash.unwrap(), mining_pkh_2);
@@ -9631,22 +9745,29 @@ fn tenure_extend_after_2_bad_commits() {
 
 #[test]
 #[ignore]
-/// Test the block_proposal_max_age_secs signer configuration option. It should reject blocks that are
-/// invalid but within the max age window, otherwise it should simply drop the block without further processing.
+/// Test the block_proposal_max_age_secs signer configuration option. It should
+/// reject blocks that are invalid but within the max age window, otherwise it
+/// should simply drop the block without further processing.
 ///
 /// Test Setup:
-/// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
+/// The test spins up five stacks signers, one miner Nakamoto node, and a
+/// corresponding bitcoind.
 ///
 /// Test Execution:
-/// The stacks node is advanced to epoch 3.0 reward set calculation to ensure the signer set is determined.
-/// An invalid block proposal with a recent timestamp is forcibly written to the miner's slot to simulate the miner proposing a block.
-/// The signers process the invalid block and broadcast a block response rejection to the respective .signers-XXX-YYY contract.
-/// A second block proposal with an outdated timestamp is then submitted to the miner's slot to simulate the miner proposing a very old block.
-/// The test confirms no further block rejection response is submitted to the .signers-XXX-YYY contract.
+/// The stacks node is advanced to epoch 3.0 reward set calculation to ensure
+/// the signer set is determined. An invalid block proposal with a recent
+/// timestamp is forcibly written to the miner's slot to simulate the miner
+/// proposing a block. The signers process the invalid block and broadcast a
+/// block response rejection to the respective .signers-XXX-YYY contract.
+/// A second block proposal with an outdated timestamp is then submitted to the
+/// miner's slot to simulate the miner proposing a very old block.
+/// The test confirms no further block rejection response is submitted to the
+/// .signers-XXX-YYY contract.
 ///
 /// Test Assertion:
 /// - Each signer successfully rejects the recent invalid block proposal.
-/// - No signer submits a block proposal response for the outdated block proposal.
+/// - No signer submits a block proposal response for the outdated block
+///   proposal.
 /// - The stacks tip does not advance
 fn block_proposal_max_age_rejections() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
@@ -9679,7 +9800,8 @@ fn block_proposal_max_age_rejections() {
         header: NakamotoBlockHeader::empty(),
         txs: vec![],
     };
-    // First propose a stale block that is older than the block_proposal_max_age_secs
+    // First propose a stale block that is older than the
+    // block_proposal_max_age_secs
     block.header.timestamp = get_epoch_time_secs().saturating_sub(
         signer_test.signer_configs[0]
             .block_proposal_max_age_secs
@@ -9694,7 +9816,8 @@ fn block_proposal_max_age_rejections() {
     signer_test.propose_block(block, short_timeout);
 
     info!("------------------------- Test Block Proposal Rejected -------------------------");
-    // Verify the signers rejected only the SECOND block proposal. The first was not even processed.
+    // Verify the signers rejected only the SECOND block proposal. The first was not
+    // even processed.
     wait_for(30, || {
         let rejections = test_observer::get_stackerdb_chunks()
             .into_iter()
@@ -9742,21 +9865,29 @@ fn block_proposal_max_age_rejections() {
 
 #[test]
 #[ignore]
-/// Test that signers do not mark a block as globally accepted if it was not announced by the node.
-/// This will simulate this case via testing flags, and ensure that a block can be reorged across tenure
-/// boundaries now (as it is only marked locally accepted and no longer gets marked globally accepted
+/// Test that signers do not mark a block as globally accepted if it was not
+/// announced by the node. This will simulate this case via testing flags, and
+/// ensure that a block can be reorged across tenure boundaries now (as it is
+/// only marked locally accepted and no longer gets marked globally accepted
 /// by simply seeing the threshold number of signatures).
 ///
 /// Test Setup:
-/// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
-/// The stacks node is then advanced to Epoch 3.0 boundary to allow block signing.
+/// The test spins up five stacks signers, one miner Nakamoto node, and a
+/// corresponding bitcoind. The stacks node is then advanced to Epoch 3.0
+/// boundary to allow block signing.
 ///
 /// Test Execution:
 /// 1. The node mines 1 stacks block N (all signers sign it).
-/// 2. <30% of signers are configured to auto reject any block proposals, broadcast of new blocks are skipped, and miners are configured to ignore signers responses.
-/// 3. The node mines 1 stacks block N+1 (all signers sign it, but one which rejects it) but eventually all mark the block as locally accepted.
-/// 4. A new tenure starts and the miner attempts to mine a new sister block N+1' (as it does not see the threshold number of signatures or any block push from signers).
-/// 5. The signers accept this sister block as a valid reorg and the node advances to block N+1'.
+/// 2. <30% of signers are configured to auto reject any block proposals,
+///    broadcast of new blocks are skipped, and miners are configured to ignore
+///    signers responses.
+/// 3. The node mines 1 stacks block N+1 (all signers sign it, but one which
+///    rejects it) but eventually all mark the block as locally accepted.
+/// 4. A new tenure starts and the miner attempts to mine a new sister block
+///    N+1' (as it does not see the threshold number of signatures or any block
+///    push from signers).
+/// 5. The signers accept this sister block as a valid reorg and the node
+///    advances to block N+1'.
 ///
 /// Test Assertion:
 /// - All signers accepted block N.
@@ -9846,7 +9977,8 @@ fn global_acceptance_depends_on_block_announcement() {
         info_after.stacks_tip_height
     );
 
-    // Ensure that the block was accepted globally so the stacks tip has advanced to N
+    // Ensure that the block was accepted globally so the stacks tip has advanced to
+    // N
     let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
     let block_n = nakamoto_blocks.last().unwrap();
     assert_eq!(info_after.stacks_tip.to_string(), block_n.block_hash);
@@ -9857,7 +9989,8 @@ fn global_acceptance_depends_on_block_announcement() {
         .expect("Timed out waiting for block acceptance of N");
 
     info!("------------------------- Mine Nakamoto Block N+1 -------------------------");
-    // Make less than 30% of the signers reject the block and ensure it is accepted by the node, but not announced.
+    // Make less than 30% of the signers reject the block and ensure it is accepted
+    // by the node, but not announced.
     let rejecting_signers: Vec<_> = all_signers
         .iter()
         .cloned()
@@ -9910,7 +10043,8 @@ fn global_acceptance_depends_on_block_announcement() {
     }
     let proposed_block = proposed_block.expect("Failed to find proposed block within 30s");
 
-    // Even though one of the signers rejected the block, it will eventually accept the block as it sees the 70% threshold of signatures
+    // Even though one of the signers rejected the block, it will eventually accept
+    // the block as it sees the 70% threshold of signatures
     signer_test
         .wait_for_block_acceptance(
             short_timeout,
@@ -10008,12 +10142,12 @@ fn global_acceptance_depends_on_block_announcement() {
 /// Miner 2 proposes block N+1
 /// Sortition occurs. Miner 1 wins.
 /// Miner 1 proposes block N+1'
-/// N+1 passes signers initial checks and is submitted to the node for validation.
-/// N+1' arrives at the signers and passes inital checks, but BEFORE N+1' can be submitted for validation:
-/// N+1 finishes being processed at the node and sits in the signers queue.
-/// Signers THEN submit N+1' for node validation.
-/// Signers process N+1 validation response ok, followed immediately by the N+1' validation response ok.
-/// Signers broadcast N+1 acceptance
+/// N+1 passes signers initial checks and is submitted to the node for
+/// validation. N+1' arrives at the signers and passes inital checks, but BEFORE
+/// N+1' can be submitted for validation: N+1 finishes being processed at the
+/// node and sits in the signers queue. Signers THEN submit N+1' for node
+/// validation. Signers process N+1 validation response ok, followed immediately
+/// by the N+1' validation response ok. Signers broadcast N+1 acceptance
 /// Signers broadcast N+1' rejection
 /// Miner 2 proposes a new N+2 block built upon N+1
 /// Asserts:
@@ -10055,14 +10189,15 @@ fn no_reorg_due_to_successive_block_validation_ok() {
     let max_nakamoto_tenures = 30;
 
     info!("------------------------- Test Setup -------------------------");
-    // partition the signer set so that ~half are listening and using node 1 for RPC and events,
-    //  and the rest are using node 2
+    // partition the signer set so that ~half are listening and using node 1 for RPC
+    // and events,  and the rest are using node 2
 
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(sender_addr, (send_amt + send_fee) * num_txs)],
         |signer_config| {
-            // Lets make sure we never time out since we need to stall some things to force our scenario
+            // Lets make sure we never time out since we need to stall some things to force
+            // our scenario
             signer_config.block_proposal_validation_timeout = Duration::from_secs(u64::MAX);
             signer_config.tenure_last_block_proposal_timeout = Duration::from_secs(u64::MAX);
             signer_config.first_proposal_burn_block_timing = Duration::from_secs(u64::MAX);
@@ -10366,7 +10501,8 @@ fn no_reorg_due_to_successive_block_validation_ok() {
         block_n.block_hash
     );
 
-    // Just a precaution to make sure no stacks blocks has been processed between now and our original pause
+    // Just a precaution to make sure no stacks blocks has been processed between
+    // now and our original pause
     assert_eq!(rejections_before_2, rl2_rejections.load(Ordering::SeqCst));
     assert_eq!(
         blocks_processed_before_1,
@@ -10382,7 +10518,8 @@ fn no_reorg_due_to_successive_block_validation_ok() {
 
     TEST_VALIDATE_STALL.set(false);
 
-    // Verify that the node accepted the proposed N+1, sending back a validate ok response
+    // Verify that the node accepted the proposed N+1, sending back a validate ok
+    // response
     wait_for(30, || {
         for proposal in test_observer::get_proposal_responses() {
             if let BlockValidateResponse::Ok(response) = proposal {
@@ -10399,7 +10536,8 @@ fn no_reorg_due_to_successive_block_validation_ok() {
         "Node finished processing proposal validation request for N+1: {block_n_1_signature_hash}"
     );
 
-    // This is awful but I can't gurantee signers have reached the submission stall and we need to ensure the event order is as expected.
+    // This is awful but I can't gurantee signers have reached the submission stall
+    // and we need to ensure the event order is as expected.
     sleep_ms(5_000);
 
     info!("------------------------- Unpause Block Validation Submission and Response for N+1' -------------------------");
@@ -10532,16 +10670,18 @@ fn no_reorg_due_to_successive_block_validation_ok() {
 
 #[test]
 #[ignore]
-/// Test that signers for an incoming reward cycle, do not sign blocks for the previous reward cycle.
+/// Test that signers for an incoming reward cycle, do not sign blocks for the
+/// previous reward cycle.
 ///
 /// Test Setup:
-/// The test spins up five stacks signers that are stacked for multiple cycles, one miner Nakamoto node, and a corresponding bitcoind.
-/// The stacks node is then advanced to Epoch 3.0 boundary to allow block signing.
+/// The test spins up five stacks signers that are stacked for multiple cycles,
+/// one miner Nakamoto node, and a corresponding bitcoind. The stacks node is
+/// then advanced to Epoch 3.0 boundary to allow block signing.
 ///
 /// Test Execution:
 /// The node mines to the middle of the prepare phase of reward cycle N+1.
-/// Sends a status request to the signers to ensure both the current and next reward cycle signers are active.
-/// A valid Nakamoto block is proposed.
+/// Sends a status request to the signers to ensure both the current and next
+/// reward cycle signers are active. A valid Nakamoto block is proposed.
 /// Two invalid Nakamoto blocks are proposed.
 ///
 /// Test Assertion:
@@ -10680,7 +10820,8 @@ fn incoming_signers_ignore_block_proposals() {
         .collect();
     test_observer::clear();
 
-    // Propose a block to the signers that passes initial checks but will be rejected by the stacks node
+    // Propose a block to the signers that passes initial checks but will be
+    // rejected by the stacks node
     let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
     block.header.pox_treatment = BitVec::ones(1).unwrap();
     block.header.consensus_hash = view.cur_sortition.consensus_hash;
@@ -10704,17 +10845,19 @@ fn incoming_signers_ignore_block_proposals() {
 
 #[test]
 #[ignore]
-/// Test that signers for an outgoing reward cycle, do not sign blocks for the incoming reward cycle.
+/// Test that signers for an outgoing reward cycle, do not sign blocks for the
+/// incoming reward cycle.
 ///
 /// Test Setup:
-/// The test spins up five stacks signers that are stacked for multiple cycles, one miner Nakamoto node, and a corresponding bitcoind.
-/// The stacks node is then advanced to Epoch 3.0 boundary to allow block signing.
+/// The test spins up five stacks signers that are stacked for multiple cycles,
+/// one miner Nakamoto node, and a corresponding bitcoind. The stacks node is
+/// then advanced to Epoch 3.0 boundary to allow block signing.
 ///
 /// Test Execution:
 /// The node mines to the next reward cycle.
-/// Sends a status request to the signers to ensure both the current and previous reward cycle signers are active.
-/// A valid Nakamoto block is proposed.
-/// Two invalid Nakamoto blocks are proposed.
+/// Sends a status request to the signers to ensure both the current and
+/// previous reward cycle signers are active. A valid Nakamoto block is
+/// proposed. Two invalid Nakamoto blocks are proposed.
 ///
 /// Test Assertion:
 /// All signers for cycle N+1 sign the valid block.
@@ -10847,7 +10990,8 @@ fn outgoing_signers_ignore_block_proposals() {
     let short_timeout = Duration::from_secs(30);
     test_observer::clear();
 
-    // Propose a block to the signers that passes initial checks but will be rejected by the stacks node
+    // Propose a block to the signers that passes initial checks but will be
+    // rejected by the stacks node
     let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
     block.header.pox_treatment = BitVec::ones(1).unwrap();
     block.header.consensus_hash = view.cur_sortition.consensus_hash;
@@ -10874,21 +11018,24 @@ fn outgoing_signers_ignore_block_proposals() {
 
 #[test]
 #[ignore]
-/// Test that signers ignore signatures for blocks that do not belong to their own reward cycle.
-/// This is a regression test for a signer bug that caused an internal signer instances to
-/// broadcast a block corresponding to a different reward cycle with a higher threshold, stalling the network.
+/// Test that signers ignore signatures for blocks that do not belong to their
+/// own reward cycle. This is a regression test for a signer bug that caused an
+/// internal signer instances to broadcast a block corresponding to a different
+/// reward cycle with a higher threshold, stalling the network.
 ///
 /// Test Setup:
-/// The test spins up four stacks signers that are stacked for one cycle, one miner Nakamoto node, and a corresponding bitcoind.
-/// The stacks node is then advanced to Epoch 3.0 boundary to allow block signing.
+/// The test spins up four stacks signers that are stacked for one cycle, one
+/// miner Nakamoto node, and a corresponding bitcoind. The stacks node is then
+/// advanced to Epoch 3.0 boundary to allow block signing.
 ///
 /// Test Execution:
 /// The same four stackers stack for an addiitonal cycle.
-/// A new fifth signer is added to the stacker set, stacking for the next reward cycle.
-/// The node advances to the next reward cycle.
+/// A new fifth signer is added to the stacker set, stacking for the next reward
+/// cycle. The node advances to the next reward cycle.
 /// The first two signers are set to ignore block proposals.
 /// A valid Nakamoto block N is proposed to the current signers.
-/// A signer signature over block N is forcibly written to the outgoing signer's stackerdb instance.
+/// A signer signature over block N is forcibly written to the outgoing signer's
+/// stackerdb instance.
 ///
 /// Test Assertion:
 /// All signers for the previous cycle ignore the incoming block N.
@@ -10941,7 +11088,8 @@ fn injected_signatures_are_ignored_across_boundaries() {
     let new_signer_config = build_signer_config_tomls(
         &[new_signer_private_key],
         &rpc_bind,
-        Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
+        Some(Duration::from_millis(128)), /* Timeout defaults to 5 seconds. Let's override it to
+                                           * 128 milliseconds. */
         &Network::Testnet,
         "12345",
         run_stamp,
@@ -11136,7 +11284,8 @@ fn injected_signatures_are_ignored_across_boundaries() {
     let curr_reward_cycle = new_reward_cycle;
 
     info!("------------------------- Test Propose A Valid Block -------------------------");
-    // Make the last three of the signers ignore the block proposal to ensure it it is not globally accepted/rejected
+    // Make the last three of the signers ignore the block proposal to ensure it it
+    // is not globally accepted/rejected
     let all_signers: Vec<_> = new_signer_private_keys
         .iter()
         .map(StacksPublicKey::from_private)
@@ -11193,7 +11342,8 @@ fn injected_signatures_are_ignored_across_boundaries() {
     .expect("FAIL: Timed out waiting for block proposal acceptance");
     let new_signature_hash = new_signature_hash.expect("Failed to get new signature hash");
 
-    // The first 50% of the signers are the ones that are ignoring block proposals and thus haven't sent a signature yet
+    // The first 50% of the signers are the ones that are ignoring block proposals
+    // and thus haven't sent a signature yet
     let forced_signer = &signer_test.signer_stacks_private_keys[ignoring_signers.len()];
     let mut stackerdb = StackerDB::new_normal(
         &signer_test.running_nodes.conf.node.rpc_bind,
@@ -11239,14 +11389,15 @@ fn injected_signatures_are_ignored_across_boundaries() {
     assert_eq!(blocks_after, blocks_before);
     assert_eq!(info_after, info_before);
 
-    // Ensure that the block was NOT accepted globally so the stacks tip has NOT advanced to N
+    // Ensure that the block was NOT accepted globally so the stacks tip has NOT
+    // advanced to N
     let nakamoto_blocks = test_observer::get_mined_nakamoto_blocks();
     let block = nakamoto_blocks.last().unwrap();
     assert_ne!(info_after.stacks_tip.to_string(), block.block_hash);
 
     info!("------------------------- Test Inject Valid Signature To Old Signers -------------------------");
-    // Force a signature to force the threshold of the block over the old signers' threshold
-    // If the old signers were not fixed, the old signers would stall.
+    // Force a signature to force the threshold of the block over the old signers'
+    // threshold If the old signers were not fixed, the old signers would stall.
     signer_test.inject_accept_signature(&block_proposal.block, forced_signer, old_reward_cycle);
 
     assert!(wait_for(10, || {
@@ -11258,8 +11409,9 @@ fn injected_signatures_are_ignored_across_boundaries() {
     assert_ne!(info_after.stacks_tip.to_string(), block.block_hash);
 
     info!("------------------------- Test Inject Valid Signatures to New Signers -------------------------");
-    // Force two signatures to force the threshold of the block over the new signers' threshold
-    // This signature should be accepted by current signers, but ignored by the old signers.
+    // Force two signatures to force the threshold of the block over the new
+    // signers' threshold This signature should be accepted by current signers,
+    // but ignored by the old signers.
     signer_test.inject_accept_signature(&block_proposal.block, forced_signer, new_reward_cycle);
     let forced_signer = new_signer_private_keys.last().unwrap();
     signer_test.inject_accept_signature(&block_proposal.block, forced_signer, new_reward_cycle);
@@ -11280,11 +11432,14 @@ fn injected_signatures_are_ignored_across_boundaries() {
 
 #[test]
 #[ignore]
-/// Test that signers count any block for a given tenure in its database towards a miner tenure activity.
+/// Test that signers count any block for a given tenure in its database towards
+/// a miner tenure activity.
 ///
 /// Test Setup:
-/// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
-/// The stacks node is then advanced to Epoch 3.0 boundary to allow block signing. The block proposal timeout is set to 20 seconds.
+/// The test spins up five stacks signers, one miner Nakamoto node, and a
+/// corresponding bitcoind. The stacks node is then advanced to Epoch 3.0
+/// boundary to allow block signing. The block proposal timeout is set to 20
+/// seconds.
 ///
 /// Test Execution:
 /// Test validation endpoint is stalled.
@@ -11353,7 +11508,8 @@ fn rejected_blocks_count_towards_miner_validity() {
 
     info!("------------------------- Test Mine Block N -------------------------");
     let chain_before = get_chain_info(&signer_test.running_nodes.conf);
-    // Stall validation so signers will be unable to process the tenure change block for Tenure B.
+    // Stall validation so signers will be unable to process the tenure change block
+    // for Tenure B.
     TEST_VALIDATE_STALL.set(true);
     test_observer::clear();
     // submit a tx so that the miner will mine an extra block
@@ -11442,8 +11598,10 @@ fn rejected_blocks_count_towards_miner_validity() {
     .expect("FAIL: Timed out waiting for block proposal rejections of N'");
 
     info!("------------------------- Test Mine Block N+1 -------------------------");
-    // The signer should automatically attempt to mine a new block once the signers eventually tell it to abandon the previous block
-    // It will accept it even though block proposal timeout is exceeded because the miner did manage to propose block N' BEFORE the timeout.
+    // The signer should automatically attempt to mine a new block once the signers
+    // eventually tell it to abandon the previous block It will accept it even
+    // though block proposal timeout is exceeded because the miner did manage to
+    // propose block N' BEFORE the timeout.
     let block_proposal_n_1 = wait_for_block_proposal().expect("Failed to get block proposal N+1");
     block_proposal_n_1.block.get_tenure_tx_payload();
     wait_for(30, || {
@@ -11545,11 +11703,12 @@ fn fast_sortition() {
 #[ignore]
 /// This test spins up two nakamoto nodes, both configured to mine.
 /// After Nakamoto blocks are mined, it waits for a normal tenure, then issues
-///  two bitcoin blocks in quick succession -- the first will contain block commits,
-///  and the second "flash block" will contain no block commits.
-/// The test checks if the winner of the first block is different than the previous tenure.
-/// If so, it performs the actual test: asserting that the miner wakes up and produces valid blocks.
-/// This test uses the burn-block-height to ensure consistent calculation of the burn view between
+///  two bitcoin blocks in quick succession -- the first will contain block
+/// commits,  and the second "flash block" will contain no block commits.
+/// The test checks if the winner of the first block is different than the
+/// previous tenure. If so, it performs the actual test: asserting that the
+/// miner wakes up and produces valid blocks. This test uses the
+/// burn-block-height to ensure consistent calculation of the burn view between
 ///   the miner thread and the block processor
 fn multiple_miners_empty_sortition() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
@@ -11576,8 +11735,8 @@ fn multiple_miners_empty_sortition() {
     let mut node_2_listeners = Vec::new();
 
     let max_nakamoto_tenures = 30;
-    // partition the signer set so that ~half are listening and using node 1 for RPC and events,
-    //  and the rest are using node 2
+    // partition the signer set so that ~half are listening and using node 1 for RPC
+    // and events,  and the rest are using node 2
 
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
@@ -11707,8 +11866,8 @@ fn multiple_miners_empty_sortition() {
         // mine the interim blocks
         for _ in 0..2 {
             let sender_nonce = get_account(&conf.node.data_url, &sender_addr).nonce;
-            // check if the burn contract is already produced, if not wait for it to be included in
-            //  an interim block
+            // check if the burn contract is already produced, if not wait for it to be
+            // included in  an interim block
             if sender_nonce >= 1 {
                 let contract_call_tx = make_contract_call(
                     &sender_sk,
@@ -11723,7 +11882,8 @@ fn multiple_miners_empty_sortition() {
                 submit_tx(&conf.node.data_url, &contract_call_tx);
             }
 
-            // make sure the sender's tx gets included (whether it was the contract publish or call)
+            // make sure the sender's tx gets included (whether it was the contract publish
+            // or call)
             wait_for(60, || {
                 let next_sender_nonce = get_account(&conf.node.data_url, &sender_addr).nonce;
                 Ok(next_sender_nonce > sender_nonce)
@@ -11777,8 +11937,8 @@ fn multiple_miners_empty_sortition() {
         }
     };
 
-    // after the flash block, make sure we get block processing without a new bitcoin block
-    //   being mined.
+    // after the flash block, make sure we get block processing without a new
+    // bitcoin block   being mined.
 
     for _ in 0..2 {
         let sender_nonce = get_account(&conf.node.data_url, &sender_addr).nonce;
@@ -11820,11 +11980,12 @@ fn multiple_miners_empty_sortition() {
 #[ignore]
 /// This test spins up a single nakamoto node configured to mine.
 /// After Nakamoto blocks are mined, it waits for a normal tenure, then issues
-///  two bitcoin blocks in quick succession -- the first will contain block commits,
-///  and the second "flash block" will contain no block commits.
-/// The test then tries to continue producing a normal tenure: issuing a bitcoin block
-///   with a sortition in it.
-/// The test does 3 rounds of this to make sure that the network continues producing blocks throughout.
+///  two bitcoin blocks in quick succession -- the first will contain block
+/// commits,  and the second "flash block" will contain no block commits.
+/// The test then tries to continue producing a normal tenure: issuing a bitcoin
+/// block   with a sortition in it.
+/// The test does 3 rounds of this to make sure that the network continues
+/// producing blocks throughout.
 fn single_miner_empty_sortition() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -11834,8 +11995,8 @@ fn single_miner_empty_sortition() {
     let sender_addr = tests::to_addr(&sender_sk);
     let send_fee = 180;
 
-    // partition the signer set so that ~half are listening and using node 1 for RPC and events,
-    //  and the rest are using node 2
+    // partition the signer set so that ~half are listening and using node 1 for RPC
+    // and events,  and the rest are using node 2
 
     let mut signer_test: SignerTest<SpawnedSigner> =
         SignerTest::new(num_signers, vec![(sender_addr, send_fee * 2 * 60 + 1000)]);
@@ -11877,8 +12038,8 @@ fn single_miner_empty_sortition() {
         // mine the interim blocks
         for _ in 0..2 {
             let sender_nonce = get_account(&conf.node.data_url, &sender_addr).nonce;
-            // check if the burn contract is already produced, if not wait for it to be included in
-            //  an interim block
+            // check if the burn contract is already produced, if not wait for it to be
+            // included in  an interim block
             if sender_nonce >= 1 {
                 let contract_call_tx = make_contract_call(
                     &sender_sk,
@@ -11893,7 +12054,8 @@ fn single_miner_empty_sortition() {
                 submit_tx(&conf.node.data_url, &contract_call_tx);
             }
 
-            // make sure the sender's tx gets included (whether it was the contract publish or call)
+            // make sure the sender's tx gets included (whether it was the contract publish
+            // or call)
             wait_for(60, || {
                 let next_sender_nonce = get_account(&conf.node.data_url, &sender_addr).nonce;
                 Ok(next_sender_nonce > sender_nonce)
@@ -11942,11 +12104,14 @@ fn single_miner_empty_sortition() {
 
 #[test]
 #[ignore]
-/// Test that signers mark a miner malicious if it doesn't propose any blocks before the block proposal timeout
+/// Test that signers mark a miner malicious if it doesn't propose any blocks
+/// before the block proposal timeout
 ///
 /// Test Setup:
-/// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
-/// The stacks node is then advanced to Epoch 3.0 boundary to allow block signing. The block proposal timeout is set to 20 seconds.
+/// The test spins up five stacks signers, one miner Nakamoto node, and a
+/// corresponding bitcoind. The stacks node is then advanced to Epoch 3.0
+/// boundary to allow block signing. The block proposal timeout is set to 20
+/// seconds.
 ///
 /// Test Execution:
 /// Block proposals are paused for the miner.
@@ -12100,11 +12265,11 @@ fn get_last_observed_block() -> ObserverBlock {
 /// Miner 1's block commits are paused so it cannot confirm the next tenure.
 /// Sortition occurs. Miner 2 wins.
 /// Miner 2 successfully mines blocks N+1, N+2, and N+3
-/// Sortition occurs quickly, within first_proposal_burn_block_timing_secs. Miner 1 wins.
-/// Miner 1 proposes block N+1'
-/// Signers approve N+1', saying "Miner is not building off of most recent tenure. A tenure they
-///   reorg has already mined blocks, but the block was poorly timed, allowing the reorg."
-/// Miner 1 proposes N+2' and it is accepted.
+/// Sortition occurs quickly, within first_proposal_burn_block_timing_secs.
+/// Miner 1 wins. Miner 1 proposes block N+1'
+/// Signers approve N+1', saying "Miner is not building off of most recent
+/// tenure. A tenure they   reorg has already mined blocks, but the block was
+/// poorly timed, allowing the reorg." Miner 1 proposes N+2' and it is accepted.
 /// Miner 1 wins the next tenure and mines N+4, off of miner 2's tip.
 #[test]
 #[ignore]
@@ -12140,14 +12305,15 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     let max_nakamoto_tenures = 30;
 
     info!("------------------------- Test Setup -------------------------");
-    // partition the signer set so that ~half are listening and using node 1 for RPC and events,
-    //  and the rest are using node 2
+    // partition the signer set so that ~half are listening and using node 1 for RPC
+    // and events,  and the rest are using node 2
 
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(sender_addr, (send_amt + send_fee) * num_txs)],
         |signer_config| {
-            // Lets make sure we never time out since we need to stall some things to force our scenario
+            // Lets make sure we never time out since we need to stall some things to force
+            // our scenario
             signer_config.block_proposal_validation_timeout = Duration::from_secs(1800);
             signer_config.tenure_last_block_proposal_timeout = Duration::from_secs(1800);
             signer_config.first_proposal_burn_block_timing = Duration::from_secs(1800);

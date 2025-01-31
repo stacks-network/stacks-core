@@ -238,7 +238,8 @@ fn microblocks_disabled() {
 
     let miner_nonce_before_microblock_assembly = get_account(&http_origin, &miner_account).nonce;
 
-    // Now, lets tell the miner to try to mine microblocks, but don't try to confirm them!
+    // Now, lets tell the miner to try to mine microblocks, but don't try to confirm
+    // them!
     info!("Setting STACKS_TEST_FORCE_MICROBLOCKS_POST_25");
     env::set_var("STACKS_TEST_FORCE_MICROBLOCKS_POST_25", "1");
 
@@ -251,8 +252,9 @@ fn microblocks_disabled() {
 
     let miner_nonce_after_microblock_assembly = get_account(&http_origin, &miner_account).nonce;
 
-    // second transaction should not have been processed -- even though we should have
-    //  produced microblocks, they should not get accepted to the chain state
+    // second transaction should not have been processed -- even though we should
+    // have  produced microblocks, they should not get accepted to the chain
+    // state
     let account = get_account(&http_origin, &spender_1_addr);
     assert_eq!(
         u64::try_from(account.balance).unwrap(),
@@ -292,8 +294,9 @@ fn microblocks_disabled() {
         "Mined after started microblock confimration: {miner_nonce_after_microblock_confirmation}",
     );
 
-    // second transaction should not have been processed -- even though we should have
-    //  produced microblocks, they should not get accepted to the chain state
+    // second transaction should not have been processed -- even though we should
+    // have  produced microblocks, they should not get accepted to the chain
+    // state
     let account = get_account(&http_origin, &spender_1_addr);
     assert_eq!(
         u64::try_from(account.balance).unwrap(),

@@ -16,100 +16,119 @@
 
 /// # The StackerDB System
 ///
-/// A StackerDB is a best-effort replicated database controlled by a smart contract, which Stacks
-/// node operators can opt-in to hosting.  Unlike a smart contract's data space, a StackerDB's
-/// data is not consensus-critical -- nodes do not need to read its state to validate the
-/// blockchain.  Instead, developers use StackerDBSet to host and replicate auxiliary smart contract
-/// data for the purposes of some (off-chain) application in a best-effort manner.  In doing so,
-/// Stacks-powered applications are able to leverage the Stacks peer-to-peer node network to host
-/// and disseminate their data without incuring the cost and performance penalties of bundling it
+/// A StackerDB is a best-effort replicated database controlled by a smart
+/// contract, which Stacks node operators can opt-in to hosting.  Unlike a smart
+/// contract's data space, a StackerDB's data is not consensus-critical -- nodes
+/// do not need to read its state to validate the blockchain.  Instead,
+/// developers use StackerDBSet to host and replicate auxiliary smart contract
+/// data for the purposes of some (off-chain) application in a best-effort
+/// manner.  In doing so, Stacks-powered applications are able to leverage the
+/// Stacks peer-to-peer node network to host and disseminate their data without
+/// incuring the cost and performance penalties of bundling it
 /// within a transaction.
 ///
 /// ## Data Model
 ///
-/// Data within a StackerDB is eventually-consistent.  In the absence of writes and network
-/// partitions, all replicas will receive the latest data in a finite number of protocol rounds,
-/// with high probability.  Given that network partitions in the peer-to-peer network are assumed
-/// to be temporary, we assume that all StackerDB instances will receive the latest state in finite time.
-/// Beyond this, it makes no guarantees about how quickly a write will materialize on a given replica.
+/// Data within a StackerDB is eventually-consistent.  In the absence of writes
+/// and network partitions, all replicas will receive the latest data in a
+/// finite number of protocol rounds, with high probability.  Given that network
+/// partitions in the peer-to-peer network are assumed to be temporary, we
+/// assume that all StackerDB instances will receive the latest state in finite
+/// time. Beyond this, it makes no guarantees about how quickly a write will
+/// materialize on a given replica.
 ///
-/// The StackerDB schema is chunk-oriented.  Each StackerDB contains a fixed number of bound-size
-/// _slots_, each of which contain one _chunk_.  Slots are array-indexed, and a slot may have zero
-/// or one chunk.
+/// The StackerDB schema is chunk-oriented.  Each StackerDB contains a fixed
+/// number of bound-size _slots_, each of which contain one _chunk_.  Slots are
+/// array-indexed, and a slot may have zero or one chunk.
 ///
-/// A `write` to a StackerDB is the act of replacing one slot's chunk with new data, and a
-/// `read` on a StackerDB is the act of loading one slot's chunk from the node's local replica.  Reading
-/// and writing a single slot on one node is atomic.  StackerDB replication proceeds in a
-/// store-and-forward manner -- newly-discovered chunks are stored to the node's local replica and
+/// A `write` to a StackerDB is the act of replacing one slot's chunk with new
+/// data, and a `read` on a StackerDB is the act of loading one slot's chunk
+/// from the node's local replica.  Reading and writing a single slot on one
+/// node is atomic.  StackerDB replication proceeds in a store-and-forward
+/// manner -- newly-discovered chunks are stored to the node's local replica and
 /// broadcast to a subset of neighbors who also replicate the given StackerDB.
 ///
-/// Each slot has an associated Lamport clock, and an associated public key hash used to
-/// authenticate writes.  The Lamport clock is used to identify the latest version of a slot's
-/// chunk -- a node will replace an existing but stale copy of a chunk with a new chunk if its
-/// Lamport clock has a strictly higher value.  The slot's metadata -- its ID, Lamport clock, and
-/// data hash -- must be signed by the slot's public key hash's associated private key in order to
-/// be stored.  The chunks themselves are ordered byte sequences with no mandatory internal
-/// structure.
+/// Each slot has an associated Lamport clock, and an associated public key hash
+/// used to authenticate writes.  The Lamport clock is used to identify the
+/// latest version of a slot's chunk -- a node will replace an existing but
+/// stale copy of a chunk with a new chunk if its Lamport clock has a strictly
+/// higher value.  The slot's metadata -- its ID, Lamport clock, and
+/// data hash -- must be signed by the slot's public key hash's associated
+/// private key in order to be stored.  The chunks themselves are ordered byte
+/// sequences with no mandatory internal structure.
 ///
-/// StackerDB state is ephemeral.  Chunk eviction is controlled by the smart contract.  At every
-/// Bitcoin block, the node queries the smart contract for a list of slots to clear.
+/// StackerDB state is ephemeral.  Chunk eviction is controlled by the smart
+/// contract.  At every Bitcoin block, the node queries the smart contract for a
+/// list of slots to clear.
 ///
 /// ## Control Plane
 ///
-/// The smart contract to which a StackerDB is bound controls how many slots the DB has, who can
-/// write to which slots (identified by public key hash), how big a slot is, and how often a
-/// slot can be written to (in wall-clock time).  This smart contract is queried once per reward cycle
-/// in order to configure the database.
+/// The smart contract to which a StackerDB is bound controls how many slots the
+/// DB has, who can write to which slots (identified by public key hash), how
+/// big a slot is, and how often a slot can be written to (in wall-clock time).
+/// This smart contract is queried once per reward cycle in order to configure
+/// the database.
 ///
-/// Applications that employ StackerDBSet would deploy one or more smart contracts that list out
-/// which users can store data to the StackerDB replica, and how much space they get.
+/// Applications that employ StackerDBSet would deploy one or more smart
+/// contracts that list out which users can store data to the StackerDB replica,
+/// and how much space they get.
 ///
 /// ## Replication Protocol
 ///
-/// StackerDB replication proceeds in a three-part protocol: discovery, inventory query, and
-/// chunk exchange.  The discovery protocol leverages the Stacks node's neighbor-walk algorithm to
-/// discover which StackerDBSet other nodes claim to replicate.  On receipt of a `Handshake` message,
-/// a StackerDB-aware node replies with a `StackerDBHandshakeAccept` message which encodes both the
-/// contents of a `HandshakeAccept` message as well as a list of local StackerDBSet (identified by
-/// their smart contracts' addresses).  Upon receipt of a `StackerDBHandshakeAccept`, the node
-/// stores the list of smart contracts in its `PeerDB` as part of the network frontier state.  In
-/// doing so, nodes eventually learn of all of the StackerDBSet replicated by all other nodes.  To
-/// bound the size of this state, the protocol mandates that a node can only replicate up to 256
-/// StackerDBSet.  The handshake-handling code happens in net::chat::handle_handshake().
+/// StackerDB replication proceeds in a three-part protocol: discovery,
+/// inventory query, and chunk exchange.  The discovery protocol leverages the
+/// Stacks node's neighbor-walk algorithm to discover which StackerDBSet other
+/// nodes claim to replicate.  On receipt of a `Handshake` message,
+/// a StackerDB-aware node replies with a `StackerDBHandshakeAccept` message
+/// which encodes both the contents of a `HandshakeAccept` message as well as a
+/// list of local StackerDBSet (identified by their smart contracts' addresses).
+/// Upon receipt of a `StackerDBHandshakeAccept`, the node stores the list of
+/// smart contracts in its `PeerDB` as part of the network frontier state.  In
+/// doing so, nodes eventually learn of all of the StackerDBSet replicated by
+/// all other nodes.  To bound the size of this state, the protocol mandates
+/// that a node can only replicate up to 256 StackerDBSet.  The
+/// handshake-handling code happens in net::chat::handle_handshake().
 ///
-/// When a node begins to replicate a StackerDB, it first queries the `PeerDB` for the set of nodes
-/// that claim to have copies.  This set, called the "DB neighbors", is distinct from the set
-/// of neighbors the node uses to replicate blocks and transactions.  It then connects
-/// to these nodes with a `Handshake` / `StackerDBHandshakeAccept` exchange (if the neighbor walk
-/// has not done so already), and proceeds to query each DB's inventories by sending them
+/// When a node begins to replicate a StackerDB, it first queries the `PeerDB`
+/// for the set of nodes that claim to have copies.  This set, called the "DB
+/// neighbors", is distinct from the set of neighbors the node uses to replicate
+/// blocks and transactions.  It then connects to these nodes with a `Handshake`
+/// / `StackerDBHandshakeAccept` exchange (if the neighbor walk has not done so
+/// already), and proceeds to query each DB's inventories by sending them
 /// `StackerDBGetChunkInData` messages.
 ///
-/// The DB inventory (`StackerDBChunkInvData`) is simply a vector of all of the remote peers' slots' versions.
-/// Once the node has received all DB inventories from its neighbors, it schedules them for
-/// download by prioritizing them by newest-first, and then by rarest-first, in order to ensure
-/// that the latest, least-replicated data is downloaded first.
+/// The DB inventory (`StackerDBChunkInvData`) is simply a vector of all of the
+/// remote peers' slots' versions. Once the node has received all DB inventories
+/// from its neighbors, it schedules them for download by prioritizing them by
+/// newest-first, and then by rarest-first, in order to ensure that the latest,
+/// least-replicated data is downloaded first.
 ///
-/// Once the node has computed its download schedule, it queries its DB neighbors for chunks with
-/// the given versions (via `StackerDBGetChunkData`).  Upon receipt of a chunk, the node verifies the signature on the chunk's
-/// metadata (via `SlotMetadata`), verifies that the chunk data hashes to the metadata's indicated data hash, and stores
-/// the chunk (via `StackerDBSet` and `StackerDBTx`).  It will then select neighbors to which to broadcast this chunk, inferring from the
-/// download schedule which DB neighbors have yet to process this particular version of the chunk.
+/// Once the node has computed its download schedule, it queries its DB
+/// neighbors for chunks with the given versions (via `StackerDBGetChunkData`).
+/// Upon receipt of a chunk, the node verifies the signature on the chunk's
+/// metadata (via `SlotMetadata`), verifies that the chunk data hashes to the
+/// metadata's indicated data hash, and stores the chunk (via `StackerDBSet` and
+/// `StackerDBTx`).  It will then select neighbors to which to broadcast this
+/// chunk, inferring from the download schedule which DB neighbors have yet to
+/// process this particular version of the chunk.
 ///
 /// ## Comparison to other Stacks storage
 ///
-/// StackerDBSet differ from AtlasDBs in that data chunks are not authenticated by the blockchain,
-/// but instead are authenticated by public key hashes made available from a smart contract.  As
-/// such, a node can begin replicating a StackerDB whenever its operator wants -- it does not need
-/// to re-synchronize blockchain state to get the list of chunk hashes.  Furthermore, StackerDB
-/// state can be written to as fast as the smart contract permits -- there is no need to wait for a
-/// corresponding transaction to confirm.
+/// StackerDBSet differ from AtlasDBs in that data chunks are not authenticated
+/// by the blockchain, but instead are authenticated by public key hashes made
+/// available from a smart contract.  As such, a node can begin replicating a
+/// StackerDB whenever its operator wants -- it does not need to re-synchronize
+/// blockchain state to get the list of chunk hashes.  Furthermore, StackerDB
+/// state can be written to as fast as the smart contract permits -- there is no
+/// need to wait for a corresponding transaction to confirm.
 ///
-/// StackerDBSet differ from Gaia in that Stacks nodes are the principal means of storing data.  Any
-/// reachable Stacks node can fulfill requests for chunks.  It is up to the StackerDB maintainer to
-/// convince node operators to replicate StackerDBSet on their behalf.  In addition, StackerDB state
-/// is ephemeral -- its longevity in the system depends on application endpoints re-replicating the
-/// state periodically (whereas Gaia stores data for as long as the back-end storage provider's SLA
-/// indicates).
+/// StackerDBSet differ from Gaia in that Stacks nodes are the principal means
+/// of storing data.  Any reachable Stacks node can fulfill requests for chunks.
+/// It is up to the StackerDB maintainer to convince node operators to replicate
+/// StackerDBSet on their behalf.  In addition, StackerDB state is ephemeral --
+/// its longevity in the system depends on application endpoints re-replicating
+/// the state periodically (whereas Gaia stores data for as long as the back-end
+/// storage provider's SLA indicates).
 
 #[cfg(test)]
 pub mod tests;
@@ -225,9 +244,11 @@ impl StackerDBConfig {
     }
 }
 
-/// This is the set of replicated chunks in all stacker DBs that this node subscribes to.
+/// This is the set of replicated chunks in all stacker DBs that this node
+/// subscribes to.
 ///
-/// Callers can query chunks from individual stacker DBs by supplying the smart contract address.
+/// Callers can query chunks from individual stacker DBs by supplying the smart
+/// contract address.
 pub struct StackerDBs {
     conn: DBConn,
     path: String,
@@ -278,9 +299,9 @@ impl StackerDBs {
         Ok(())
     }
 
-    /// Create or reconfigure the supplied contracts with the appropriate stacker DB config.
-    /// Returns a map of the stacker DBs and their loaded configs.
-    /// Fails only if the underlying DB fails
+    /// Create or reconfigure the supplied contracts with the appropriate
+    /// stacker DB config. Returns a map of the stacker DBs and their loaded
+    /// configs. Fails only if the underlying DB fails
     pub fn create_or_reconfigure_stackerdbs(
         &mut self,
         chainstate: &mut StacksChainState,
@@ -362,8 +383,9 @@ impl StackerDBs {
                     );
                 }
             }
-            // Even if we failed to create or reconfigure the DB, we still want to keep track of them
-            // so that we can attempt to create/reconfigure them again later.
+            // Even if we failed to create or reconfigure the DB, we still want to keep
+            // track of them so that we can attempt to create/reconfigure them
+            // again later.
             debug!("Reloaded configuration for {}", &stackerdb_contract_id);
             new_stackerdb_configs.insert(stackerdb_contract_id, new_config);
         }
@@ -408,9 +430,11 @@ pub struct StackerDBSync<NC: NeighborComms> {
     pub chunk_push_priorities: Vec<(StackerDBPushChunkData, Vec<NeighborAddress>)>,
     /// ID and version of chunk we pushed
     pub(crate) chunk_push_receipts: HashMap<NeighborAddress, (u32, u32)>,
-    /// Index into `chunk_fetch_priorities` at which to consider the next download.
+    /// Index into `chunk_fetch_priorities` at which to consider the next
+    /// download.
     pub next_chunk_fetch_priority: usize,
-    /// Index into `chunk_push_priorities` at which to consider the next chunk push.
+    /// Index into `chunk_push_priorities` at which to consider the next chunk
+    /// push.
     pub next_chunk_push_priority: usize,
     /// What is the expected version vector for this DB's chunks?
     pub expected_versions: Vec<u32>,
@@ -434,14 +458,16 @@ pub struct StackerDBSync<NC: NeighborComms> {
     pub total_pushed: u64,
     /// last time the state-transition function ran to completion
     last_run_ts: u64,
-    /// whether or not we should immediately re-fetch chunks because we learned about new chunks
-    /// from our peers when they replied to our chunk-pushes with new inventory state
+    /// whether or not we should immediately re-fetch chunks because we learned
+    /// about new chunks from our peers when they replied to our
+    /// chunk-pushes with new inventory state
     need_resync: bool,
     /// whether or not the fetched inventory was determined to be stale
     stale_inv: bool,
     /// Track stale neighbors
     pub(crate) stale_neighbors: HashSet<NeighborAddress>,
-    /// How many attempted connections have been made in the last pass (gets reset)
+    /// How many attempted connections have been made in the last pass (gets
+    /// reset)
     num_attempted_connections: u64,
     /// How many connections have been made in the last pass (gets reset)
     num_connections: u64,
@@ -454,8 +480,8 @@ pub struct StackerDBSync<NC: NeighborComms> {
 }
 
 impl StackerDBSyncResult {
-    /// The receipt of a single StackerDBPushChunk message is equivalent to performing a single
-    /// sync
+    /// The receipt of a single StackerDBPushChunk message is equivalent to
+    /// performing a single sync
     pub fn from_pushed_chunk(chunk: StackerDBPushChunkData) -> StackerDBSyncResult {
         StackerDBSyncResult {
             contract_id: chunk.contract_id,
@@ -480,8 +506,8 @@ pub trait StackerDBEventDispatcher {
 
 impl PeerNetwork {
     /// Run all stacker DB sync state-machines.
-    /// Return a list of sync results on success, to be incorporated into the NetworkResult.
-    /// Return an error on unrecoverable DB or network error
+    /// Return a list of sync results on success, to be incorporated into the
+    /// NetworkResult. Return an error on unrecoverable DB or network error
     pub fn run_stacker_db_sync(&mut self) -> Result<Vec<StackerDBSyncResult>, net_error> {
         let mut results = vec![];
         let mut stacker_db_syncs = self
@@ -513,8 +539,9 @@ impl PeerNetwork {
         Ok(results)
     }
 
-    /// Create a StackerDBChunksInv, or a Nack if the requested DB isn't replicated here.
-    /// Runs in response to a received StackerDBGetChunksInv or a StackerDBPushChunk
+    /// Create a StackerDBChunksInv, or a Nack if the requested DB isn't
+    /// replicated here. Runs in response to a received
+    /// StackerDBGetChunksInv or a StackerDBPushChunk
     pub fn make_StackerDBChunksInv_or_Nack(
         &self,
         naddr: NeighborAddress,
@@ -522,8 +549,8 @@ impl PeerNetwork {
         contract_id: &QualifiedContractIdentifier,
         rc_consensus_hash: &ConsensusHash,
     ) -> StacksMessageType {
-        // N.B. check that the DB exists first, since we want to report StaleView only if the DB
-        // exists
+        // N.B. check that the DB exists first, since we want to report StaleView only
+        // if the DB exists
         let slot_versions = match self.stackerdbs.get_slot_versions(contract_id) {
             Ok(versions) => versions,
             Err(e) => {
@@ -572,8 +599,8 @@ impl PeerNetwork {
     }
 
     /// Validate chunk data -- either pushed to us, or downloaded.
-    /// NOTE: does not check write frequency, since the caller has different ways of doing this.
-    /// Returns Ok(true) if the chunk is valid
+    /// NOTE: does not check write frequency, since the caller has different
+    /// ways of doing this. Returns Ok(true) if the chunk is valid
     /// Returns Ok(false) if the chunk is invalid
     /// Returns Err(..) on DB error
     pub fn validate_received_chunk(
@@ -639,25 +666,29 @@ impl PeerNetwork {
     /// Handle unsolicited StackerDBPushChunk messages.
     /// Check to see that the message can be stored or buffered.
     ///
-    /// Optionally, make a reply handle for a StackerDBChunksInv to be sent to the remote peer, in which
-    /// the inventory vector is updated with this chunk's data.  Or, send a NACK if the chunk
-    /// cannot be buffered or stored.
+    /// Optionally, make a reply handle for a StackerDBChunksInv to be sent to
+    /// the remote peer, in which the inventory vector is updated with this
+    /// chunk's data.  Or, send a NACK if the chunk cannot be buffered or
+    /// stored.
     ///
-    /// Note that this can happen *during* a StackerDB sync's execution, so be very careful about
-    /// modifying a state machine's contents!  The only modification possible here is to wakeup
-    /// the state machine in case it's asleep (i.e. blocked on waiting for the next sync round).
+    /// Note that this can happen *during* a StackerDB sync's execution, so be
+    /// very careful about modifying a state machine's contents!  The only
+    /// modification possible here is to wakeup the state machine in case
+    /// it's asleep (i.e. blocked on waiting for the next sync round).
     ///
-    /// The write frequency is not checked for this chunk. This is because the `ConversationP2P` on
-    /// which this chunk arrived will have already bandwidth-throttled the remote peer, and because
-    /// messages can be arbitrarily delayed (and bunched up) by the network anyway.
+    /// The write frequency is not checked for this chunk. This is because the
+    /// `ConversationP2P` on which this chunk arrived will have already
+    /// bandwidth-throttled the remote peer, and because messages can be
+    /// arbitrarily delayed (and bunched up) by the network anyway.
     ///
-    /// Returns (true, x) if we should buffer the message and try processing it again later.
-    /// Returns (false, x) if we should *not* buffer this message, because it either *won't* be valid
-    /// later, or if it can be stored right now.
+    /// Returns (true, x) if we should buffer the message and try processing it
+    /// again later. Returns (false, x) if we should *not* buffer this
+    /// message, because it either *won't* be valid later, or if it can be
+    /// stored right now.
     ///
-    /// Returns (x, true) if we should forward the message to the relayer, so it can be processed.
-    /// Returns (x, false) if we should *not* forward the message to the relayer, because it will
-    /// *not* be processed.
+    /// Returns (x, true) if we should forward the message to the relayer, so it
+    /// can be processed. Returns (x, false) if we should *not* forward the
+    /// message to the relayer, because it will *not* be processed.
     pub fn handle_unsolicited_StackerDBPushChunk(
         &mut self,
         chainstate: &mut StacksChainState,
@@ -685,8 +716,8 @@ impl PeerNetwork {
         );
         match payload {
             StacksMessageType::StackerDBChunkInv(ref mut data) => {
-                // this message corresponds to an existing DB, and comes from the same view of the
-                // stacks chain tip
+                // this message corresponds to an existing DB, and comes from the same view of
+                // the stacks chain tip
                 let stackerdb_config = if let Some(config) =
                     self.get_stacker_db_configs().get(&chunk_data.contract_id)
                 {
@@ -742,7 +773,8 @@ impl PeerNetwork {
             return Ok((false, true));
         }
 
-        // this is a reply to the pushed chunk, and we can store it right now (so don't buffer it)
+        // this is a reply to the pushed chunk, and we can store it right now (so don't
+        // buffer it)
         let resp = self.sign_for_p2p_reply(event_id, preamble.seq, payload)?;
         let handle = self.send_p2p_message(
             event_id,

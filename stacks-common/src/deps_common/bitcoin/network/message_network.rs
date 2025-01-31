@@ -16,7 +16,6 @@
 //!
 //! This module defines network messages which describe peers and their
 //! capabilities
-//!
 
 use crate::deps_common::bitcoin::network::address::Address;
 

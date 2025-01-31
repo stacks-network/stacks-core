@@ -391,8 +391,8 @@ impl Node {
 
     // This function is used for helium and mocknet.
     pub fn spawn_peer_server(&mut self) {
-        // we can call _open_ here rather than _connect_, since connect is first called in
-        //   make_genesis_block
+        // we can call _open_ here rather than _connect_, since connect is first called
+        // in   make_genesis_block
         let burnchain = self.config.get_burnchain();
         let sortdb = SortitionDB::open(
             &self.config.get_burn_db_file_path(),
@@ -564,8 +564,8 @@ impl Node {
         self.leader_key_registers.insert(key_txid);
     }
 
-    /// Process an state coming from the burnchain, by extracting the validated KeyRegisterOp
-    /// and inspecting if a sortition was won.
+    /// Process an state coming from the burnchain, by extracting the validated
+    /// KeyRegisterOp and inspecting if a sortition was won.
     pub fn process_burnchain_state(
         &mut self,
         burnchain_tip: &BurnchainTip,
@@ -694,8 +694,8 @@ impl Node {
         )
         .expect("FATAL: failed to open mempool");
 
-        // Construct the coinbase transaction - 1st txn that should be handled and included in
-        // the upcoming tenure.
+        // Construct the coinbase transaction - 1st txn that should be handled and
+        // included in the upcoming tenure.
         let coinbase_tx = self.generate_coinbase_tx(self.config.is_mainnet());
 
         let burn_fee_cap = self.config.burnchain.burn_fee_cap;
@@ -770,7 +770,8 @@ impl Node {
     }
 
     /// Process artifacts from the tenure.
-    /// At this point, we're modifying the chainstate, and merging the artifacts from the previous tenure.
+    /// At this point, we're modifying the chainstate, and merging the artifacts
+    /// from the previous tenure.
     pub fn process_tenure(
         &mut self,
         anchored_block: &StacksBlock,

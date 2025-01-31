@@ -1,6 +1,6 @@
 [alias]
 stacks-node = "run --package stacks-node --"
-fmt-stacks = "fmt -- --config group_imports=StdExternalCrate,imports_granularity=Module"
+fmt-stacks = "fmt -- --config group_imports=StdExternalCrate,imports_granularity=Module,wrap_comments=true"
 clippy-stacks = "clippy -p libstackerdb -p stacks-signer -p pox-locking -p clarity -p libsigner -p stacks-common --no-deps --tests --all-features -- -D warnings"
 
 # Uncomment to improve performance slightly, at the cost of portability

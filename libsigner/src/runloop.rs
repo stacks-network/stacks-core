@@ -46,16 +46,18 @@ pub trait SignerRunLoop<R: Send, T: SignerEventTrait> {
     fn set_event_timeout(&mut self, timeout: Duration);
     /// Getter for the event poll timeout
     fn get_event_timeout(&self) -> Duration;
-    /// Run one pass of the event loop, given new Signer events discovered since the last pass.
-    /// Returns Some(R) if this is the final pass -- the runloop evaluated to R
-    /// Returns None to keep running.
+    /// Run one pass of the event loop, given new Signer events discovered since
+    /// the last pass. Returns Some(R) if this is the final pass -- the
+    /// runloop evaluated to R Returns None to keep running.
     fn run_one_pass(&mut self, event: Option<SignerEvent<T>>, res: &Sender<R>) -> Option<R>;
 
-    /// This is the main loop body for the signer. It continuously receives events from
-    /// `event_recv`, polling for up to `self.get_event_timeout()` units of time.  Once it has
-    /// polled for events, they are fed into `run_one_pass()`.  This continues until either
-    /// `run_one_pass()` returns `false`, or the event receiver hangs up.  At this point, this
-    /// method calls the `event_stop_signaler.send()` to terminate the receiver.
+    /// This is the main loop body for the signer. It continuously receives
+    /// events from `event_recv`, polling for up to
+    /// `self.get_event_timeout()` units of time.  Once it has polled for
+    /// events, they are fed into `run_one_pass()`.  This continues until either
+    /// `run_one_pass()` returns `false`, or the event receiver hangs up.  At
+    /// this point, this method calls the `event_stop_signaler.send()` to
+    /// terminate the receiver.
     ///
     /// This would run in a separate thread from the event receiver.
     fn main_loop<EVST: EventStopSignaler>(
@@ -116,7 +118,8 @@ impl<EV: EventReceiver<T>, R, T: SignerEventTrait> RunningSigner<EV, R, T> {
     }
 
     /// Wait for the signer to terminate, and get the final state.
-    /// WARNING: This will hang forever if the event receiver stop signal was never sent/no error occurs.
+    /// WARNING: This will hang forever if the event receiver stop signal was
+    /// never sent/no error occurs.
     pub fn join(self) -> Option<R> {
         debug!("Try join event loop...");
         // wait for event receiver join
@@ -159,9 +162,10 @@ fn async_safe_write_stderr(msg: &str) {
     }
 }
 
-/// This is a termination handler for handling receipt of a terminating UNIX signal, like SIGINT,
-/// SIGQUIT, SIGTERM, or SIGBUS.  You'd call this as part of the startup code for the signer daemon.
-/// DO NOT call this from within the library!
+/// This is a termination handler for handling receipt of a terminating UNIX
+/// signal, like SIGINT, SIGQUIT, SIGTERM, or SIGBUS.  You'd call this as part
+/// of the startup code for the signer daemon. DO NOT call this from within the
+/// library!
 pub fn set_runloop_signal_handler<ST: EventStopSignaler + Send + 'static>(mut stop_signaler: ST) {
     termination::set_handler(move |sig_id| match sig_id {
         SignalId::Bus => {
@@ -198,16 +202,18 @@ impl<
         EV: EventReceiver<T> + Send + 'static,
     > Signer<R, SL, EV, T>
 {
-    /// This is a helper function to spawn both the runloop and event receiver in their own
-    /// threads.  Advanced signers may not need this method, and instead opt to run the receiver
-    /// and runloop directly.  However, this method is present to help signer developers to get
+    /// This is a helper function to spawn both the runloop and event receiver
+    /// in their own threads.  Advanced signers may not need this method,
+    /// and instead opt to run the receiver and runloop directly.  However,
+    /// this method is present to help signer developers to get
     /// their implementations off the ground.
     ///
-    /// The given `bind_addr` is the server address this event receiver needs to listen on, so the
-    /// stacks node can POST events to it.
+    /// The given `bind_addr` is the server address this event receiver needs to
+    /// listen on, so the stacks node can POST events to it.
     ///
-    /// On success, this method consumes the Signer and returns a RunningSigner with the relevant
-    /// inter-thread communication primitives for the caller to shut down the system.
+    /// On success, this method consumes the Signer and returns a RunningSigner
+    /// with the relevant inter-thread communication primitives for the
+    /// caller to shut down the system.
     pub fn spawn(&mut self, bind_addr: SocketAddr) -> Result<RunningSigner<EV, R, T>, EventError> {
         let mut event_receiver = self
             .event_receiver

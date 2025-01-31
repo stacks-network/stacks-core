@@ -103,7 +103,9 @@ impl<S: Signer<T> + Send, T: SignerEventTrait> SpawnedSigner<S, T> {
         self.running_signer.stop()
     }
 
-    /// Wait for the signer to terminate, and get the final state. WARNING: This will hang forever if the event receiver stop signal was never sent/no error occurred.
+    /// Wait for the signer to terminate, and get the final state. WARNING: This
+    /// will hang forever if the event receiver stop signal was never sent/no
+    /// error occurred.
     pub fn join(self) -> Option<Vec<SignerResult>> {
         self.running_signer.join()
     }

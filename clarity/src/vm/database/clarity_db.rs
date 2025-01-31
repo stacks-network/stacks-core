@@ -204,19 +204,23 @@ pub trait BurnStateDB {
     fn get_pox_3_activation_height(&self) -> u32;
     fn get_pox_4_activation_height(&self) -> u32;
 
-    /// Returns the *burnchain block height* for the `sortition_id` is associated with.
+    /// Returns the *burnchain block height* for the `sortition_id` is
+    /// associated with.
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32>;
 
-    /// Returns the height of the burnchain when the Stacks chain started running.
+    /// Returns the height of the burnchain when the Stacks chain started
+    /// running.
     fn get_burn_start_height(&self) -> u32;
 
     fn get_pox_prepare_length(&self) -> u32;
     fn get_pox_reward_cycle_length(&self) -> u32;
     fn get_pox_rejection_fraction(&self) -> u64;
 
-    /// Returns the burnchain header hash for the given burn block height, as queried from the given SortitionId.
+    /// Returns the burnchain header hash for the given burn block height, as
+    /// queried from the given SortitionId.
     ///
-    /// Returns Some if `self.get_burn_start_height() <= height < self.get_burn_block_height(sorition_id)`, and None otherwise.
+    /// Returns Some if `self.get_burn_start_height() <= height <
+    /// self.get_burn_block_height(sorition_id)`, and None otherwise.
     fn get_burn_header_hash(
         &self,
         height: u32,
@@ -861,9 +865,9 @@ impl<'a> ClarityDatabase<'a> {
     }
 
     /// Returns the epoch version currently applied in the stored Clarity state.
-    /// Since Clarity did not exist in stacks 1.0, the lowest valid epoch ID is stacks 2.0.
-    /// The instantiation of subsequent epochs may bump up the epoch version in the clarity DB if
-    /// Clarity is updated in that epoch.
+    /// Since Clarity did not exist in stacks 1.0, the lowest valid epoch ID is
+    /// stacks 2.0. The instantiation of subsequent epochs may bump up the
+    /// epoch version in the clarity DB if Clarity is updated in that epoch.
     pub fn get_clarity_epoch_version(&mut self) -> Result<StacksEpochId> {
         let out = match self.get_data(Self::clarity_state_epoch_key())? {
             Some(x) => u32::try_into(x).map_err(|_| {
@@ -874,7 +878,8 @@ impl<'a> ClarityDatabase<'a> {
         Ok(out)
     }
 
-    /// Should be called _after_ all of the epoch's initialization has been invoked
+    /// Should be called _after_ all of the epoch's initialization has been
+    /// invoked
     pub fn set_clarity_epoch_version(&mut self, epoch: StacksEpochId) -> Result<()> {
         self.put_data(Self::clarity_state_epoch_key(), &(epoch as u32))
     }
@@ -975,7 +980,8 @@ impl<'a> ClarityDatabase<'a> {
 impl ClarityDatabase<'_> {
     /// Returns the ID of a *Stacks* block, by a *Stacks* block height.
     ///
-    /// Fails if `block_height` >= the "currently" under construction Stacks block height.
+    /// Fails if `block_height` >= the "currently" under construction Stacks
+    /// block height.
     pub fn get_index_block_header_hash(&mut self, block_height: u32) -> Result<StacksBlockId> {
         self.store
             .get_block_header_hash(block_height)
@@ -989,7 +995,8 @@ impl ClarityDatabase<'_> {
             })
     }
 
-    /// This is the height we are currently constructing. It comes from the MARF.
+    /// This is the height we are currently constructing. It comes from the
+    /// MARF.
     pub fn get_current_block_height(&mut self) -> u32 {
         self.store.get_current_block_height()
     }
@@ -1034,8 +1041,8 @@ impl ClarityDatabase<'_> {
     ///   if the block information is queryable for the tenure height.
     /// The block information for a given tenure height is queryable iff:
     ///  * `tenure_height` falls in 2.x, and `tenure_height` < `current_height`
-    ///  * `tenure_height` falls in 3.x, and the first block of the tenure
-    ///    at `tenure_height` has a stacks block height less than `current_height`
+    ///  * `tenure_height` falls in 3.x, and the first block of the tenure at
+    ///    `tenure_height` has a stacks block height less than `current_height`
     ///
     /// If the block information isn't queryable, return `Ok(None)`
     pub fn get_block_height_for_tenure_height(
@@ -1064,14 +1071,15 @@ impl ClarityDatabase<'_> {
     }
 
     /// Get the last-known burnchain block height.
-    /// Note that this is _not_ the burnchain height in which this block was mined!
-    /// This is the burnchain block height of the parent of the Stacks block at the current Stacks
-    /// block height (i.e. that returned by `get_index_block_header_hash` for
-    /// `get_current_block_height`).
+    /// Note that this is _not_ the burnchain height in which this block was
+    /// mined! This is the burnchain block height of the parent of the
+    /// Stacks block at the current Stacks block height (i.e. that returned
+    /// by `get_index_block_header_hash` for `get_current_block_height`).
     pub fn get_current_burnchain_block_height(&mut self) -> Result<u32> {
         let cur_stacks_height = self.store.get_current_block_height();
 
-        // Before epoch 3.0, we can only access the burn block associated with the last block
+        // Before epoch 3.0, we can only access the burn block associated with the last
+        // block
         if !self
             .get_clarity_epoch_version()?
             .clarity_uses_tip_burn_block()
@@ -1147,12 +1155,13 @@ impl ClarityDatabase<'_> {
     }
 
     /// In Epoch 2.x:
-    /// 1. Get the current Stacks tip height (which is in the process of being evaluated)
-    /// 2. Get the parent block's StacksBlockId, which is SHA512-256(consensus_hash, block_hash).
-    ///    This is the highest Stacks block in this fork whose consensus hash is known.
+    /// 1. Get the current Stacks tip height (which is in the process of being
+    ///    evaluated)
+    /// 2. Get the parent block's StacksBlockId, which is
+    ///    SHA512-256(consensus_hash, block_hash). This is the highest Stacks
+    ///    block in this fork whose consensus hash is known.
     /// 3. Resolve the parent StacksBlockId to its consensus hash
-    /// 4. Resolve the consensus hash to the associated SortitionId
-    ///    In Epoch 3+:
+    /// 4. Resolve the consensus hash to the associated SortitionId In Epoch 3+:
     /// 1. Get the SortitionId of the current Stacks tip
     fn get_sortition_id_for_stacks_tip(&mut self) -> Result<Option<SortitionId>> {
         if !self
@@ -1170,8 +1179,8 @@ impl ClarityDatabase<'_> {
             let parent_id_bhh = self.get_index_block_header_hash(current_stacks_height - 1)?;
             let epoch = self.get_stacks_epoch_for_block(&parent_id_bhh)?;
 
-            // infallible, since we always store the consensus hash with the StacksBlockId in the
-            // headers DB
+            // infallible, since we always store the consensus hash with the StacksBlockId
+            // in the headers DB
             let consensus_hash = self
                 .headers_db
                 .get_consensus_hash_for_block(&parent_id_bhh, &epoch)
@@ -1200,12 +1209,12 @@ impl ClarityDatabase<'_> {
     }
 
     /// Fetch the burnchain block header hash for a given burnchain height.
-    /// Because the burnchain can fork, we need to resolve the burnchain hash from the
-    /// currently-evaluated Stacks chain tip.
+    /// Because the burnchain can fork, we need to resolve the burnchain hash
+    /// from the currently-evaluated Stacks chain tip.
     ///
-    /// This way, the `BurnchainHeaderHash` returned is guaranteed to be on the burnchain fork
-    /// that holds the currently-evaluated Stacks fork (even if it's not the canonical burnchain
-    /// fork).
+    /// This way, the `BurnchainHeaderHash` returned is guaranteed to be on the
+    /// burnchain fork that holds the currently-evaluated Stacks fork (even
+    /// if it's not the canonical burnchain fork).
     pub fn get_burnchain_block_header_hash_for_burnchain_height(
         &mut self,
         burnchain_block_height: u32,
@@ -1219,8 +1228,9 @@ impl ClarityDatabase<'_> {
             .get_burn_header_hash(burnchain_block_height, &sortition_id))
     }
 
-    /// Get the PoX reward addresses and per-address payout for a given burnchain height.  Because the burnchain can fork,
-    /// we need to resolve the PoX addresses from the currently-evaluated Stacks chain tip.
+    /// Get the PoX reward addresses and per-address payout for a given
+    /// burnchain height.  Because the burnchain can fork, we need to
+    /// resolve the PoX addresses from the currently-evaluated Stacks chain tip.
     pub fn get_pox_payout_addrs_for_burnchain_height(
         &mut self,
         burnchain_block_height: u32,
@@ -1297,8 +1307,8 @@ impl ClarityDatabase<'_> {
 
         let cur_height: u64 = self.get_current_block_height().into();
 
-        // reward for the *child* of this block must have matured, since that determines the
-        // streamed tx fee reward portion
+        // reward for the *child* of this block must have matured, since that determines
+        // the streamed tx fee reward portion
         if ((block_height + 1) as u64) + MINER_REWARD_MATURITY >= cur_height {
             return Ok(None);
         }
@@ -1402,7 +1412,8 @@ impl ClarityDatabase<'_> {
             .transpose()
     }
 
-    /// Returns (who-reported-the-poison-microblock, sequence-of-microblock-fork)
+    /// Returns (who-reported-the-poison-microblock,
+    /// sequence-of-microblock-fork)
     pub fn get_microblock_poison_report(
         &mut self,
         height: u32,
@@ -2307,8 +2318,9 @@ impl ClarityDatabase<'_> {
         self.burn_state_db.get_burn_block_height(sortition_id)
     }
 
-    /// This function obtains the stacks epoch version, which is based on the burn block height.
-    /// Valid epochs include stacks 1.0, 2.0, 2.05, and so on.
+    /// This function obtains the stacks epoch version, which is based on the
+    /// burn block height. Valid epochs include stacks 1.0, 2.0, 2.05, and
+    /// so on.
     pub fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
         self.burn_state_db.get_stacks_epoch(height)
     }

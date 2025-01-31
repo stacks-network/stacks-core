@@ -60,24 +60,26 @@ pub struct TenureForkingInfo {
     pub burn_block_hash: BurnchainHeaderHash,
     /// The burn height of the block that triggered this event.
     pub burn_block_height: u64,
-    /// This sortition ID of the block that triggered this event. This incorporates
-    ///  PoX forking information and the burn block hash to obtain an identifier that is
-    ///  unique across PoX forks and burnchain forks.
+    /// This sortition ID of the block that triggered this event. This
+    /// incorporates  PoX forking information and the burn block hash to
+    /// obtain an identifier that is  unique across PoX forks and burnchain
+    /// forks.
     #[serde(with = "prefix_hex")]
     pub sortition_id: SortitionId,
     /// The parent of this burn block's Sortition ID
     #[serde(with = "prefix_hex")]
     pub parent_sortition_id: SortitionId,
-    /// The consensus hash of the block that triggered this event. This incorporates
-    ///  PoX forking information and burn op information to obtain an identifier that is
-    ///  unique across PoX forks and burnchain forks.
+    /// The consensus hash of the block that triggered this event. This
+    /// incorporates  PoX forking information and burn op information to
+    /// obtain an identifier that is  unique across PoX forks and burnchain
+    /// forks.
     #[serde(with = "prefix_hex")]
     pub consensus_hash: ConsensusHash,
-    /// Boolean indicating whether or not there was a succesful sortition (i.e. a winning
-    ///  block or miner was chosen).
+    /// Boolean indicating whether or not there was a succesful sortition (i.e.
+    /// a winning  block or miner was chosen).
     pub was_sortition: bool,
-    /// If the sortition occurred, and a block was mined during the tenure, this is the
-    /// tenure's first block.
+    /// If the sortition occurred, and a block was mined during the tenure, this
+    /// is the tenure's first block.
     #[serde(with = "prefix_opt_hex")]
     pub first_block_mined: Option<StacksBlockId>,
 }
@@ -102,7 +104,8 @@ impl HttpRequest for GetTenuresForkInfo {
     }
 
     /// Try to decode this request.
-    /// There's nothing to load here, so just make sure the request is well-formed.
+    /// There's nothing to load here, so just make sure the request is
+    /// well-formed.
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,

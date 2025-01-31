@@ -65,22 +65,24 @@ define_u8_enum!(PoxAddressType32 {
 });
 
 /// A PoX address as seen by the .pox and .pox-2 contracts.
-/// Used by the sortition DB and chains coordinator to extract addresses from the PoX contract to
-/// build the reward set and to validate block-commits.
-/// Note that this comprises a larger set of possible addresses than StacksAddress
+/// Used by the sortition DB and chains coordinator to extract addresses from
+/// the PoX contract to build the reward set and to validate block-commits.
+/// Note that this comprises a larger set of possible addresses than
+/// StacksAddress
 #[derive(Debug, PartialEq, PartialOrd, Ord, Clone, Hash, Eq, Serialize, Deserialize)]
 pub enum PoxAddress {
-    /// Represents a { version: (buff 1), hashbytes: (buff 20) } tuple that has a Stacks
-    /// representation.  Not all 20-byte hashbyte addresses do (such as Bitcoin p2wpkh)
-    /// The address hash mode is optional because if we decode a legacy bitcoin address, we won't
-    /// be able to determine the hash mode since we can't distinguish segwit-p2sh from p2sh
+    /// Represents a { version: (buff 1), hashbytes: (buff 20) } tuple that has
+    /// a Stacks representation.  Not all 20-byte hashbyte addresses do
+    /// (such as Bitcoin p2wpkh) The address hash mode is optional because
+    /// if we decode a legacy bitcoin address, we won't be able to determine
+    /// the hash mode since we can't distinguish segwit-p2sh from p2sh
     Standard(StacksAddress, Option<AddressHashMode>),
-    /// Represents { version: (buff 1), hashbytes: (buff 20) } that does not have a Stacks
-    /// representation.  This includes Bitcoin p2wpkh.
+    /// Represents { version: (buff 1), hashbytes: (buff 20) } that does not
+    /// have a Stacks representation.  This includes Bitcoin p2wpkh.
     /// Fields are (mainnet, address type ID, bytes)
     Addr20(bool, PoxAddressType20, [u8; 20]),
-    /// Represents { version: (buff 1), hashbytes: (buff 32) } that does not have a Stacks
-    /// representation.  This includes Bitcoin p2wsh and p2tr.
+    /// Represents { version: (buff 1), hashbytes: (buff 32) } that does not
+    /// have a Stacks representation.  This includes Bitcoin p2wsh and p2tr.
     /// Fields are (mainnet, address type ID, bytes)
     Addr32(bool, PoxAddressType32, [u8; 32]),
 }
@@ -93,7 +95,8 @@ pub fn pox_addr_b58_serialize<S: Serializer>(
     ser.serialize_str(&input.clone().to_b58())
 }
 
-/// Deserializes a PoxAddress from a B58 check encoded address or a bech32 address
+/// Deserializes a PoxAddress from a B58 check encoded address or a bech32
+/// address
 pub fn pox_addr_b58_deser<'de, D: Deserializer<'de>>(deser: D) -> Result<PoxAddress, D::Error> {
     let string_repr = String::deserialize(deser)?;
     PoxAddress::from_b58(&string_repr)
@@ -107,8 +110,9 @@ impl std::fmt::Display for PoxAddress {
 }
 
 impl PoxAddress {
-    /// Obtain the address hash mode used for the PoX address, if applicable.  This identifies the
-    /// address as p2pkh, p2sh, p2wpkh-p2sh, or p2wsh-p2sh
+    /// Obtain the address hash mode used for the PoX address, if applicable.
+    /// This identifies the address as p2pkh, p2sh, p2wpkh-p2sh, or
+    /// p2wsh-p2sh
     #[cfg(any(test, feature = "testing"))]
     pub fn hashmode(&self) -> Option<AddressHashMode> {
         match *self {
@@ -117,8 +121,9 @@ impl PoxAddress {
         }
     }
 
-    /// Get the version byte representation of the hash mode.  Used only in testing, where the test
-    /// knows that it will only use Bitcoin legacy addresses (i.e. so this method is infallable).
+    /// Get the version byte representation of the hash mode.  Used only in
+    /// testing, where the test knows that it will only use Bitcoin legacy
+    /// addresses (i.e. so this method is infallable).
     #[cfg(any(test, feature = "testing"))]
     pub fn version(&self) -> u8 {
         self.hashmode()
@@ -126,8 +131,9 @@ impl PoxAddress {
             as u8
     }
 
-    /// Get the Hash160 portion of this address.  Only applies to legacy Bitcoin addresses.
-    /// Used only in tests, and even then, only in ones that expect a legacy Bitcoin address.
+    /// Get the Hash160 portion of this address.  Only applies to legacy Bitcoin
+    /// addresses. Used only in tests, and even then, only in ones that
+    /// expect a legacy Bitcoin address.
     #[cfg(any(test, feature = "testing"))]
     pub fn hash160(&self) -> Hash160 {
         match *self {
@@ -136,8 +142,8 @@ impl PoxAddress {
         }
     }
 
-    /// Get the data portion of this address.  This does not include the address or witness
-    /// version.
+    /// Get the data portion of this address.  This does not include the address
+    /// or witness version.
     pub fn bytes(&self) -> Vec<u8> {
         match *self {
             PoxAddress::Standard(addr, _) => addr.bytes().0.to_vec(),
@@ -216,8 +222,9 @@ impl PoxAddress {
         Some(PoxAddress::Addr32(mainnet, addrtype, hashbytes_32))
     }
 
-    /// Try to convert a Clarity value representation of the PoX address into a PoxAddress.
-    /// `value` must be `{ version: (buff 1), hashbytes: (buff 32) }`
+    /// Try to convert a Clarity value representation of the PoX address into a
+    /// PoxAddress. `value` must be `{ version: (buff 1), hashbytes: (buff
+    /// 32) }`
     pub fn try_from_pox_tuple(mainnet: bool, value: &Value) -> Option<PoxAddress> {
         let tuple_data = match value {
             Value::Tuple(data) => data.clone(),
@@ -268,7 +275,8 @@ impl PoxAddress {
         None
     }
 
-    /// Serialize this structure to a string that we can store in the sortition DB
+    /// Serialize this structure to a string that we can store in the sortition
+    /// DB
     pub fn to_db_string(&self) -> String {
         serde_json::to_string(self).expect("FATAL: failed to serialize JSON value")
     }
@@ -287,9 +295,10 @@ impl PoxAddress {
     }
 
     /// What is the burnchain representation of this address?
-    /// Used for comparing addresses from block-commits, where certain information (e.g. the hash
-    /// mode) can't be used since it's not stored there.  The resulting string encodes all of the
-    /// information that is present on the burnchain, and it does so in a _stable_ way.
+    /// Used for comparing addresses from block-commits, where certain
+    /// information (e.g. the hash mode) can't be used since it's not stored
+    /// there.  The resulting string encodes all of the information that is
+    /// present on the burnchain, and it does so in a _stable_ way.
     pub fn to_burnchain_repr(&self) -> String {
         match *self {
             PoxAddress::Standard(ref addr, _) => {
@@ -304,9 +313,10 @@ impl PoxAddress {
         }
     }
 
-    /// Make a standard burn address, i.e. as a legacy p2pkh address comprised of all 0's.
-    /// NOTE: this is used to represent both PoB outputs, as well as to back-fill reward set data
-    /// when storing a reward cycle's sortition for which there are no output slots.  This means
+    /// Make a standard burn address, i.e. as a legacy p2pkh address comprised
+    /// of all 0's. NOTE: this is used to represent both PoB outputs, as
+    /// well as to back-fill reward set data when storing a reward cycle's
+    /// sortition for which there are no output slots.  This means
     /// that the behavior of this method is *consensus critical*
     pub fn standard_burn_address(mainnet: bool) -> PoxAddress {
         PoxAddress::Standard(
@@ -316,8 +326,8 @@ impl PoxAddress {
     }
 
     /// Convert this PoxAddress into a Clarity value.
-    /// Returns None if the address hash mode is not known (i.e. this only works for PoxAddresses
-    /// constructed from a PoX tuple in the PoX contract).
+    /// Returns None if the address hash mode is not known (i.e. this only works
+    /// for PoxAddresses constructed from a PoX tuple in the PoX contract).
     pub fn as_clarity_tuple(&self) -> Option<TupleData> {
         match *self {
             PoxAddress::Standard(ref addr, ref hm) => {
@@ -371,8 +381,8 @@ impl PoxAddress {
     /// Coerce a hash mode for this address if it is standard.
     ///
     /// WARNING
-    /// The hash mode may not reflect the true nature of the address, since segwit-p2sh and p2sh
-    /// are indistinguishable.  Use with caution.
+    /// The hash mode may not reflect the true nature of the address, since
+    /// segwit-p2sh and p2sh are indistinguishable.  Use with caution.
     pub fn coerce_hash_mode(self) -> PoxAddress {
         match self {
             PoxAddress::Standard(addr, _) => {
@@ -507,8 +517,8 @@ impl PoxAddress {
 }
 
 impl StacksAddressExtensions for StacksAddress {
-    /// is this a boot code address, if the supplied address is mainnet or testnet,
-    ///  it checks against the appropriate the boot code addr
+    /// is this a boot code address, if the supplied address is mainnet or
+    /// testnet,  it checks against the appropriate the boot code addr
     fn is_boot_code_addr(&self) -> bool {
         self == &boot_code_addr(self.is_mainnet())
     }

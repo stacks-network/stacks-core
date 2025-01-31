@@ -199,7 +199,8 @@ fn fault_injection_validation_delay() {
 #[cfg(not(any(test, feature = "testing")))]
 fn fault_injection_validation_delay() {}
 
-/// Represents a block proposed to the `v3/block_proposal` endpoint for validation
+/// Represents a block proposed to the `v3/block_proposal` endpoint for
+/// validation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NakamotoBlockProposal {
     /// Proposed block
@@ -315,10 +316,13 @@ impl NakamotoBlockProposal {
         Ok(())
     }
 
-    /// Verify that the block we received builds on the highest block in its tenure.
-    /// * For tenure-start blocks, the parent must be as high as the highest block in the parent
+    /// Verify that the block we received builds on the highest block in its
+    /// tenure.
+    /// * For tenure-start blocks, the parent must be as high as the highest
+    ///   block in the parent
     /// block's tenure.
-    /// * For all other blocks, the parent must be as high as the highest block in the tenure.
+    /// * For all other blocks, the parent must be as high as the highest block
+    ///   in the tenure.
     ///
     /// Implemented as a static function to facilitate testing
     pub(crate) fn check_block_has_valid_parent(
@@ -334,8 +338,8 @@ impl NakamotoBlockProposal {
                 })?;
 
         if !is_tenure_start {
-            // this is a well-formed block that is not the start of a tenure, so it must build
-            // atop an existing block in its tenure.
+            // this is a well-formed block that is not the start of a tenure, so it must
+            // build atop an existing block in its tenure.
             Self::check_block_builds_on_highest_block_in_tenure(
                 chainstate,
                 &block.header.consensus_hash,
@@ -370,12 +374,14 @@ impl NakamotoBlockProposal {
     ///   - Block header is well-formed
     ///   - Transactions are well-formed
     ///   - Miner signature is valid
-    /// - Validation of transactions by executing them agains current chainstate.
-    ///   This is resource intensive, and therefore done only if previous checks pass
+    /// - Validation of transactions by executing them agains current
+    ///   chainstate. This is resource intensive, and therefore done only if
+    ///   previous checks pass
     pub fn validate(
         &self,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState, // not directly used; used as a handle to open other chainstates
+        chainstate: &mut StacksChainState, /* not directly used; used as a handle to open other
+                                            * chainstates */
     ) -> Result<BlockValidateOk, BlockValidateRejectReason> {
         #[cfg(any(test, feature = "testing"))]
         {
@@ -410,9 +416,9 @@ impl NakamotoBlockProposal {
             });
         }
 
-        // Check block version. If it's less than the compiled-in version, just emit a warning
-        // because there's a new version of the node / signer binary available that really ought to
-        // be used (hint, hint)
+        // Check block version. If it's less than the compiled-in version, just emit a
+        // warning because there's a new version of the node / signer binary
+        // available that really ought to be used (hint, hint)
         if self.block.header.version != NAKAMOTO_BLOCK_VERSION {
             warn!("Proposed block has unexpected version. Upgrade your node and/or signer ASAP.";
                   "block.header.version" => %self.block.header.version,
@@ -420,8 +426,8 @@ impl NakamotoBlockProposal {
         }
 
         // open sortition view to the current burn view.
-        // If the block has a TenureChange with an Extend cause, then the burn view is whatever is
-        // indicated in the TenureChange.
+        // If the block has a TenureChange with an Extend cause, then the burn view is
+        // whatever is indicated in the TenureChange.
         // Otherwise, it's the same as the block's parent's burn view.
         let parent_stacks_header = NakamotoChainState::get_block_header(
             chainstate.db(),
@@ -452,9 +458,9 @@ impl NakamotoBlockProposal {
         // Verify that this block's parent is the highest such block we can build off of
         Self::check_block_has_valid_parent(chainstate, &self.block)?;
 
-        // get the burnchain tokens spent for this block. There must be a record of this (i.e.
-        // there must be a block-commit for this), or otherwise this block doesn't correspond to
-        // any burnchain chainstate.
+        // get the burnchain tokens spent for this block. There must be a record of this
+        // (i.e. there must be a block-commit for this), or otherwise this block
+        // doesn't correspond to any burnchain chainstate.
         let expected_burn_opt =
             NakamotoChainState::get_expected_burns(&db_handle, chainstate.db(), &self.block)?;
         if expected_burn_opt.is_none() {
@@ -592,7 +598,8 @@ impl NakamotoBlockProposal {
         // Clone the timestamp from the block proposal, which has already been validated
         block.header.timestamp = self.block.header.timestamp;
 
-        // Assuming `tx_merkle_root` has been checked we don't need to hash the whole block
+        // Assuming `tx_merkle_root` has been checked we don't need to hash the whole
+        // block
         let expected_block_header_hash = self.block.header.block_hash();
         let computed_block_header_hash = block.header.block_hash();
 
@@ -672,7 +679,8 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
     }
 
     /// Try to decode this request.
-    /// There's nothing to load here, so just make sure the request is well-formed.
+    /// There's nothing to load here, so just make sure the request is
+    /// well-formed.
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,

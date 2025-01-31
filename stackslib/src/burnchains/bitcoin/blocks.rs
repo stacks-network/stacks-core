@@ -403,9 +403,10 @@ impl BitcoinBlockParser {
     }
 
     /// Parse a Bitcoin transaction into a Burnchain transaction.
-    /// If `self.allow_raw_inputs()` is true, then scriptSigs will not be decoded.
-    /// Otherwise, they will be; if decoding fails, None will be returned.
-    /// In all cases, attempt to decode scriptPubKeys (and if this fails, return None)
+    /// If `self.allow_raw_inputs()` is true, then scriptSigs will not be
+    /// decoded. Otherwise, they will be; if decoding fails, None will be
+    /// returned. In all cases, attempt to decode scriptPubKeys (and if this
+    /// fails, return None)
     pub fn parse_tx(
         &self,
         tx: &Transaction,
@@ -436,7 +437,7 @@ impl BitcoinBlockParser {
         match (inputs_opt, outputs_opt) {
             (Some(inputs), Some(outputs)) => {
                 Some(BitcoinTransaction {
-                    txid: Txid::from_vec_be(tx.txid().as_bytes()).unwrap(), // this *should* panic if it fails
+                    txid: Txid::from_vec_be(tx.txid().as_bytes()).unwrap(), /* this *should* panic if it fails */
                     vtxindex: vtxindex as u32,
                     opcode,
                     data,
@@ -452,9 +453,9 @@ impl BitcoinBlockParser {
         }
     }
 
-    /// Given a Bitcoin block, extract the transactions that have OP_RETURN <magic>.
-    /// Uses the internal epoch id to determine whether or not to parse segwit outputs, and whether
-    /// or not to decode scriptSigs.
+    /// Given a Bitcoin block, extract the transactions that have OP_RETURN
+    /// <magic>. Uses the internal epoch id to determine whether or not to
+    /// parse segwit outputs, and whether or not to decode scriptSigs.
     pub fn parse_block(
         &self,
         block: &Block,
@@ -483,11 +484,12 @@ impl BitcoinBlockParser {
         }
     }
 
-    /// Return true if we handled the block, and we can receive the next one.  Update internal
-    /// state, extract the BitcoinTransactions we care about
+    /// Return true if we handled the block, and we can receive the next one.
+    /// Update internal state, extract the BitcoinTransactions we care about
     ///
-    /// Return false if the block we got did not match the next expected block's header
-    /// (in which case, we should re-start the conversation with the peer and try again).
+    /// Return false if the block we got did not match the next expected block's
+    /// header (in which case, we should re-start the conversation with the
+    /// peer and try again).
     pub fn process_block(
         &self,
         block: &Block,
@@ -532,7 +534,8 @@ impl BurnchainBlockParser for BitcoinBlockParser {
                 }
             }
             _ => {
-                panic!("Did not receive a Block message"); // should never happen
+                panic!("Did not receive a Block message"); // should never
+                                                           // happen
             }
         }
     }

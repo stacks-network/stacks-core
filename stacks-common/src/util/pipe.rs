@@ -24,10 +24,10 @@ use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError, TrySendE
 /// Inter-thread pipe for streaming messages, built on channels.
 /// Used mainly in conjunction with networking.
 ///
-/// * The read endpoint lives inside the connection and will consume data from another thread
-///   to be sent out on the network.
-/// * The write endpoint gets fed into calls to `consensus_serialize()` to be sent out on the
-///   network.
+/// * The read endpoint lives inside the connection and will consume data from
+///   another thread to be sent out on the network.
+/// * The write endpoint gets fed into calls to `consensus_serialize()` to be
+///   sent out on the network.
 #[derive(Debug)]
 pub struct PipeRead {
     input: Receiver<Vec<u8>>,
@@ -271,8 +271,8 @@ impl Read for PipeRead {
             Err(e) => match e.kind() {
                 io::ErrorKind::BrokenPipe | io::ErrorKind::WouldBlock => {
                     if copied > 0 {
-                        // if we get EPIPE or EWOULDBLOCK when getting data from the writer, but we hit the
-                        // buffer, then this isn't a failure.
+                        // if we get EPIPE or EWOULDBLOCK when getting data from the writer, but we
+                        // hit the buffer, then this isn't a failure.
                         0
                     } else {
                         trace!("Error reading from pipe: {:?}", &e);
@@ -544,8 +544,8 @@ mod test {
         let res = pipe_read.read(&mut next_bytes).unwrap_err();
         assert_eq!(res.kind(), io::ErrorKind::WouldBlock);
 
-        // once the write end is dropped, then this data is still consumable but we get broken-pipe
-        // once it's all been read.
+        // once the write end is dropped, then this data is still consumable but we get
+        // broken-pipe once it's all been read.
         let _ = pipe_write.write(&[1u8, 1u8]).unwrap();
         drop(pipe_write);
 

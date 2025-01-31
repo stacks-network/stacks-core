@@ -34,15 +34,16 @@ pub enum EndianDirection {
     BigEndian,
 }
 
-// The functions in this file support conversion from (buff 16) to either 1) int or 2) uint,
-// from formats 1) big-endian and 2) little-endian.
+// The functions in this file support conversion from (buff 16) to either 1) int
+// or 2) uint, from formats 1) big-endian and 2) little-endian.
 //
-// The function 'buff_to_int_generic' describes the logic common to these four functions.
-// This is a generic function for conversion from a buffer to an int or uint. The four
-// versions of Clarity function each call this, with different values for 'conversion_fn'.
+// The function 'buff_to_int_generic' describes the logic common to these four
+// functions. This is a generic function for conversion from a buffer to an int
+// or uint. The four versions of Clarity function each call this, with different
+// values for 'conversion_fn'.
 //
-// This function checks and parses the arguments, and calls 'conversion_fn' to do
-// the specific form of conversion required.
+// This function checks and parses the arguments, and calls 'conversion_fn' to
+// do the specific form of conversion required.
 pub fn buff_to_int_generic(
     value: Value,
     direction: EndianDirection,
@@ -64,8 +65,9 @@ pub fn buff_to_int_generic(
             } else {
                 let mut transfer_buffer = [0u8; 16];
                 let original_slice = sequence_data.as_slice();
-                // 'conversion_fn' expects to receive a 16-byte buffer. If the input is little-endian, it should
-                // be zero-padded on the right. If the input is big-endian, it should be zero-padded on the left.
+                // 'conversion_fn' expects to receive a 16-byte buffer. If the input is
+                // little-endian, it should be zero-padded on the right. If the
+                // input is big-endian, it should be zero-padded on the left.
                 let offset = if direction == EndianDirection::LittleEndian {
                     0
                 } else {
@@ -122,10 +124,10 @@ pub fn native_buff_to_uint_be(value: Value) -> Result<Value> {
     buff_to_int_generic(value, EndianDirection::BigEndian, convert_to_uint_be)
 }
 
-// This method represents the unified logic between both "string to int" and "string to uint".
-// 'value' is the input value to be converted.
-// 'string_to_value_fn' is a function that takes in a Rust-langauge string, and should output
-//   either a Int or UInt, depending on the desired result.
+// This method represents the unified logic between both "string to int" and
+// "string to uint". 'value' is the input value to be converted.
+// 'string_to_value_fn' is a function that takes in a Rust-langauge string, and
+// should output   either a Int or UInt, depending on the desired result.
 pub fn native_string_to_int_generic(
     value: Value,
     string_to_value_fn: fn(String) -> Result<Value>,
@@ -179,10 +181,11 @@ pub fn native_string_to_uint(value: Value) -> Result<Value> {
     native_string_to_int_generic(value, safe_convert_string_to_uint)
 }
 
-// This method represents the unified logic between both "int to ascii" and "int to utf8".
-// 'value' is the input value to be converted.
-// 'bytes_to_value_fn' is a function that takes in a Rust-langauge byte sequence, and outputs
-//   either an ASCII or UTF8 string, depending on the desired result.
+// This method represents the unified logic between both "int to ascii" and "int
+// to utf8". 'value' is the input value to be converted.
+// 'bytes_to_value_fn' is a function that takes in a Rust-langauge byte
+// sequence, and outputs   either an ASCII or UTF8 string, depending on the
+// desired result.
 pub fn native_int_to_string_generic(
     value: Value,
     bytes_to_value_fn: fn(bytes: Vec<u8>) -> Result<Value>,
@@ -220,7 +223,8 @@ pub fn native_int_to_utf8(value: Value) -> Result<Value> {
 
 /// Returns `value` consensus serialized into a `(optional buff)` object.
 /// If the value cannot fit as serialized into the maximum buffer size,
-/// this returns `none`, otherwise, it will be `(some consensus-serialized-buffer)`
+/// this returns `none`, otherwise, it will be `(some
+/// consensus-serialized-buffer)`
 pub fn to_consensus_buff(value: Value) -> Result<Value> {
     let mut clar_buff_serialized = vec![];
     value

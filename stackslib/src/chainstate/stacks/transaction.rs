@@ -610,9 +610,9 @@ impl StacksTransaction {
             }
         };
 
-        // if the payload is a proof of a poisoned microblock stream, or is a coinbase, then this _must_ be anchored.
-        // Otherwise, if the offending leader is the next leader, they can just orphan their proof
-        // of malfeasance.
+        // if the payload is a proof of a poisoned microblock stream, or is a coinbase,
+        // then this _must_ be anchored. Otherwise, if the offending leader is
+        // the next leader, they can just orphan their proof of malfeasance.
         match payload {
             TransactionPayload::PoisonMicroblock(_, _) => {
                 if anchor_mode != TransactionAnchorMode::OnChainOnly {
@@ -713,7 +713,8 @@ impl From<TransactionContractCall> for TransactionPayload {
 }
 
 impl StacksTransaction {
-    /// Create a new, unsigned transaction and an empty STX fee with no post-conditions.
+    /// Create a new, unsigned transaction and an empty STX fee with no
+    /// post-conditions.
     pub fn new(
         version: TransactionVersion,
         auth: TransactionAuth,
@@ -800,9 +801,9 @@ impl StacksTransaction {
     }
 
     /// begin signing the transaction.
-    /// If this is a sponsored transaction, then the origin only commits to knowing that it is
-    /// sponsored.  It does _not_ commit to the sponsored fields, so set them all to sentinel
-    /// values.
+    /// If this is a sponsored transaction, then the origin only commits to
+    /// knowing that it is sponsored.  It does _not_ commit to the sponsored
+    /// fields, so set them all to sentinel values.
     /// Return the initial sighash.
     fn sign_begin(&self) -> Txid {
         let mut tx = self.clone();
@@ -818,8 +819,8 @@ impl StacksTransaction {
         tx.txid()
     }
 
-    /// Sign a sighash and append the signature and public key to the given spending condition.
-    /// Returns the next sighash
+    /// Sign a sighash and append the signature and public key to the given
+    /// spending condition. Returns the next sighash
     fn sign_and_append(
         condition: &mut TransactionSpendingCondition,
         cur_sighash: &Txid,
@@ -1269,8 +1270,8 @@ mod test {
             Ok(())
         }
 
-        /// Sign a sighash as a sponsor without appending the signature and public key
-        /// to the given spending condition.
+        /// Sign a sighash as a sponsor without appending the signature and
+        /// public key to the given spending condition.
         /// Returns the resulting signature
         fn sign_no_append_sponsor(
             &mut self,
@@ -1298,7 +1299,8 @@ mod test {
             Ok(next_sig)
         }
 
-        /// Appends a sponsor signature and public key to the spending condition.
+        /// Appends a sponsor signature and public key to the spending
+        /// condition.
         pub fn append_sponsor_signature(
             &mut self,
             signature: MessageSignature,
@@ -1558,8 +1560,8 @@ mod test {
 
     // verify that we can verify signatures over a transaction.
     // also verify that we can corrupt any field and fail to verify the transaction.
-    // corruption tests should obviously fail -- the initial sighash changes if any of the
-    // serialized data changes.
+    // corruption tests should obviously fail -- the initial sighash changes if any
+    // of the serialized data changes.
     fn test_signature_and_corruption(
         signed_tx: &StacksTransaction,
         corrupt_origin: bool,
@@ -4568,8 +4570,8 @@ mod test {
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             if let TransactionAuth::Standard(TransactionSpendingCondition::Multisig(data)) =
                 &signed_tx.auth
             {
@@ -4702,8 +4704,8 @@ mod test {
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             match signed_tx.auth {
                 TransactionAuth::Sponsored(ref origin, ref sponsor) => {
                     match origin {
@@ -4809,8 +4811,8 @@ mod test {
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
 
-            // auth is standard and first two auth fields are signatures for uncompressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for uncompressed
+            // keys. third field is the third public key
             if let TransactionAuth::Standard(TransactionSpendingCondition::Multisig(data)) =
                 &signed_tx.auth
             {
@@ -4943,8 +4945,8 @@ mod test {
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
 
-            // auth is standard and first two auth fields are signatures for uncompressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for uncompressed
+            // keys. third field is the third public key
             match signed_tx.auth {
                 TransactionAuth::Sponsored(ref origin, ref sponsor) => {
                     match origin {
@@ -5046,8 +5048,8 @@ mod test {
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
 
-            // auth is standard and first & third auth fields are signatures for (un)compressed keys.
-            // 2nd field is the 2nd public key
+            // auth is standard and first & third auth fields are signatures for
+            // (un)compressed keys. 2nd field is the 2nd public key
             if let TransactionAuth::Standard(TransactionSpendingCondition::Multisig(data)) =
                 &signed_tx.auth
             {
@@ -5181,8 +5183,8 @@ mod test {
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
 
-            // auth is standard and first & third auth fields are signatures for (un)compressed keys.
-            // 2nd field is the 2nd public key
+            // auth is standard and first & third auth fields are signatures for
+            // (un)compressed keys. 2nd field is the 2nd public key
             match signed_tx.auth {
                 TransactionAuth::Sponsored(ref origin, ref sponsor) => {
                     match origin {
@@ -5464,8 +5466,8 @@ mod test {
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             if let TransactionAuth::Standard(TransactionSpendingCondition::Multisig(data)) =
                 &signed_tx.auth
             {
@@ -5600,8 +5602,8 @@ mod test {
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             match signed_tx.auth {
                 TransactionAuth::Sponsored(ref origin, ref sponsor) => {
                     match origin {
@@ -5699,8 +5701,8 @@ mod test {
 
             assert_eq!(tx.auth().origin().num_signatures(), 2);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             if let TransactionAuth::Standard(
                 TransactionSpendingCondition::OrderIndependentMultisig(data),
             ) = &tx.auth
@@ -5790,8 +5792,8 @@ mod test {
 
             assert_eq!(tx.auth().origin().num_signatures(), 3);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             if let TransactionAuth::Standard(
                 TransactionSpendingCondition::OrderIndependentMultisig(data),
             ) = &tx.auth
@@ -5937,8 +5939,8 @@ mod test {
             assert_eq!(tx.post_conditions, origin_tx.post_conditions);
             assert_eq!(tx.payload, origin_tx.payload);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             match origin_tx.auth {
                 TransactionAuth::Sponsored(ref origin, ref sponsor) => {
                     match origin {
@@ -6038,8 +6040,8 @@ mod test {
 
             assert_eq!(tx.auth().origin().num_signatures(), 2);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             if let TransactionAuth::Standard(
                 TransactionSpendingCondition::OrderIndependentMultisig(data),
             ) = &tx.auth
@@ -6182,8 +6184,8 @@ mod test {
             assert_eq!(tx.post_conditions, origin_tx.post_conditions);
             assert_eq!(tx.payload, origin_tx.payload);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             match origin_tx.auth {
                 TransactionAuth::Sponsored(ref origin, ref sponsor) => {
                     match origin {
@@ -6283,8 +6285,8 @@ mod test {
 
             assert_eq!(tx.auth().origin().num_signatures(), 2);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             if let TransactionAuth::Standard(
                 TransactionSpendingCondition::OrderIndependentMultisig(data),
             ) = &tx.auth
@@ -6422,8 +6424,8 @@ mod test {
 
             assert_eq!(tx.auth().origin().num_signatures(), 3);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             if let TransactionAuth::Standard(
                 TransactionSpendingCondition::OrderIndependentMultisig(data),
             ) = &tx.auth
@@ -6581,8 +6583,8 @@ mod test {
             assert_eq!(tx.post_conditions, origin_tx.post_conditions);
             assert_eq!(tx.payload, origin_tx.payload);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             match origin_tx.auth {
                 TransactionAuth::Sponsored(ref origin, ref sponsor) => {
                     match origin {
@@ -6766,8 +6768,8 @@ mod test {
             assert_eq!(tx.post_conditions, origin_tx.post_conditions);
             assert_eq!(tx.payload, origin_tx.payload);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             match origin_tx.auth {
                 TransactionAuth::Sponsored(ref origin, ref sponsor) => {
                     match origin {
@@ -6881,8 +6883,8 @@ mod test {
 
             assert_eq!(tx.auth().origin().num_signatures(), 2);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             if let TransactionAuth::Standard(
                 TransactionSpendingCondition::OrderIndependentMultisig(data),
             ) = &tx.auth
@@ -7003,8 +7005,8 @@ mod test {
 
             assert_eq!(tx.auth().origin().num_signatures(), 4);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             if let TransactionAuth::Standard(
                 TransactionSpendingCondition::OrderIndependentMultisig(data),
             ) = &tx.auth
@@ -7160,8 +7162,8 @@ mod test {
             assert_eq!(tx.post_conditions, origin_tx.post_conditions);
             assert_eq!(tx.payload, origin_tx.payload);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             match origin_tx.auth {
                 TransactionAuth::Sponsored(ref origin, ref sponsor) => {
                     match origin {
@@ -7348,8 +7350,8 @@ mod test {
             assert_eq!(tx.post_conditions, origin_tx.post_conditions);
             assert_eq!(tx.payload, origin_tx.payload);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             match origin_tx.auth {
                 TransactionAuth::Sponsored(ref origin, ref sponsor) => {
                     match origin {
@@ -7628,8 +7630,8 @@ mod test {
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
 
-            // auth is standard and first two auth fields are signatures for uncompressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for uncompressed
+            // keys. third field is the third public key
             if let TransactionAuth::Standard(TransactionSpendingCondition::Multisig(data)) =
                 &signed_tx.auth
             {
@@ -7677,8 +7679,8 @@ mod test {
 
             assert_eq!(tx.auth().origin().num_signatures(), 2);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             if let TransactionAuth::Standard(
                 TransactionSpendingCondition::OrderIndependentMultisig(data),
             ) = &tx.auth
@@ -7783,8 +7785,8 @@ mod test {
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             if let TransactionAuth::Standard(TransactionSpendingCondition::Multisig(data)) =
                 &signed_tx.auth
             {
@@ -7833,8 +7835,8 @@ mod test {
 
             assert_eq!(tx.auth().origin().num_signatures(), 2);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             if let TransactionAuth::Standard(
                 TransactionSpendingCondition::OrderIndependentMultisig(data),
             ) = &tx.auth
@@ -7979,8 +7981,8 @@ mod test {
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             match signed_tx.auth {
                 TransactionAuth::Sponsored(ref origin, ref sponsor) => {
                     match origin {
@@ -8071,8 +8073,8 @@ mod test {
             assert_eq!(tx.post_conditions, origin_tx.post_conditions);
             assert_eq!(tx.payload, origin_tx.payload);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             match origin_tx.auth {
                 TransactionAuth::Sponsored(ref origin, ref sponsor) => {
                     match origin {
@@ -8237,8 +8239,8 @@ mod test {
             assert_eq!(tx.post_conditions, origin_tx.post_conditions);
             assert_eq!(tx.payload, origin_tx.payload);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             match origin_tx.auth {
                 TransactionAuth::Sponsored(ref origin, ref sponsor) => {
                     match origin {
@@ -8329,8 +8331,8 @@ mod test {
             assert_eq!(tx.post_conditions, origin_tx.post_conditions);
             assert_eq!(tx.payload, origin_tx.payload);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             match origin_tx.auth {
                 TransactionAuth::Sponsored(ref origin, ref sponsor) => {
                     match origin {
@@ -8488,8 +8490,8 @@ mod test {
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             match signed_tx.auth {
                 TransactionAuth::Sponsored(ref origin, ref sponsor) => {
                     match origin {
@@ -8581,8 +8583,8 @@ mod test {
             assert_eq!(tx.post_conditions, origin_tx.post_conditions);
             assert_eq!(tx.payload, origin_tx.payload);
 
-            // auth is standard and first two auth fields are signatures for compressed keys.
-            // third field is the third public key
+            // auth is standard and first two auth fields are signatures for compressed
+            // keys. third field is the third public key
             match origin_tx.auth {
                 TransactionAuth::Sponsored(ref origin, ref sponsor) => {
                     match origin {

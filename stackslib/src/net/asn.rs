@@ -35,8 +35,8 @@ pub struct ASEntry4 {
 impl ASEntry4 {
     pub fn from_file(asn_file: &String) -> Result<Vec<ASEntry4>, net_error> {
         // each row in asn_file must be one of the following:
-        // ^[:whitespace:]*([0-9]+.[0-9]+.[0-9]+.[0-9]+)/([0-9]+)[:whitespace:]+([0-9]+)[:whitespace:]*$
-        // group 1 is the IP prefix
+        // ^[:whitespace:]*([0-9]+.[0-9]+.[0-9]+.[0-9]+)/([0-9]+)[:whitespace:
+        // ]+([0-9]+)[:whitespace:]*$ group 1 is the IP prefix
         // group 2 is the prefix length
         // group 3 is the AS number
         let file_handle = File::open(asn_file).map_err(|_e| net_error::FilesystemError)?;

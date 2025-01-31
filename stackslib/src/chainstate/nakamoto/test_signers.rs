@@ -119,9 +119,10 @@ impl TestSigners {
 
     /// Sign a Nakamoto block using [`Self::signer_keys`].
     ///
-    /// N.B. If any of [`Self::signer_keys`] are not in the reward set, the resulting
-    /// signatures will be invalid. Use [`Self::sign_block_with_reward_set()`] to ensure
-    /// that any signer keys not in the reward set are not included.
+    /// N.B. If any of [`Self::signer_keys`] are not in the reward set, the
+    /// resulting signatures will be invalid. Use
+    /// [`Self::sign_block_with_reward_set()`] to ensure that any signer
+    /// keys not in the reward set are not included.
     pub fn sign_nakamoto_block(&mut self, block: &mut NakamotoBlock, cycle: u64) {
         // Update the aggregate public key if the cycle has changed
         if self.cycle != cycle {
@@ -142,15 +143,15 @@ impl TestSigners {
     /// Sign a NakamotoBlock and maintain the order and membership
     /// of the reward set signers in the resulting signatures.
     ///
-    /// If any of [`Self::signer_keys`] are not in the reward set, their signatures
-    /// will not be included.
+    /// If any of [`Self::signer_keys`] are not in the reward set, their
+    /// signatures will not be included.
     pub fn sign_block_with_reward_set(&self, block: &mut NakamotoBlock, reward_set: &RewardSet) {
         let signatures = self.generate_ordered_signatures(block, reward_set);
         block.header.signer_signature = signatures;
     }
 
-    /// Synthesize a reward set from the signer for the purposes of signing and verifying blocks
-    /// later on
+    /// Synthesize a reward set from the signer for the purposes of signing and
+    /// verifying blocks later on
     pub fn synthesize_reward_set(&self) -> RewardSet {
         let mut signer_entries = vec![];
         let mut pox_addrs = vec![];
@@ -186,9 +187,9 @@ impl TestSigners {
         }
     }
 
-    /// Sign a Nakamoto block and generate a vec of signatures. The signatures will
-    /// be ordered by the signer's public keys, but will not be checked against the
-    /// reward set.
+    /// Sign a Nakamoto block and generate a vec of signatures. The signatures
+    /// will be ordered by the signer's public keys, but will not be checked
+    /// against the reward set.
     fn generate_block_signatures(&self, block: &NakamotoBlock) -> Vec<MessageSignature> {
         let msg = block.header.signer_signature_hash().0;
         let mut keys = self.signer_keys.clone();

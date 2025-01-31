@@ -30,9 +30,9 @@ use crate::net::codec::*;
 use crate::net::{Error as net_error, Neighbor, NeighborKey, *};
 use crate::util_lib::db::Error as db_error;
 
-/// In Rust, there's no easy way to do non-blocking DNS lookups (I blame getaddrinfo), so do it in
-/// a separate thread, and implement a way for the block downloader to periodically poll for
-/// resolved names.
+/// In Rust, there's no easy way to do non-blocking DNS lookups (I blame
+/// getaddrinfo), so do it in a separate thread, and implement a way for the
+/// block downloader to periodically poll for resolved names.
 #[derive(Debug, Clone, Eq)]
 pub struct DNSRequest {
     pub host: String,
@@ -87,8 +87,8 @@ impl DNSResponse {
     }
 }
 
-/// The DNSResolver runs as a background thread in the node. In a loop, it collects inbound requests,
-/// then tries to resolve the valid requests.
+/// The DNSResolver runs as a background thread in the node. In a loop, it
+/// collects inbound requests, then tries to resolve the valid requests.
 #[derive(Debug)]
 pub struct DNSResolver {
     queries: VecDeque<DNSRequest>,
@@ -100,8 +100,9 @@ pub struct DNSResolver {
     hardcoded: HashMap<(String, u16), Vec<SocketAddr>>,
 }
 
-/// The DNSClient provides an API to send DNS requests and poll DNS results. The client forwards
-/// requests and receives results through "channels" to the DNSResolver.  
+/// The DNSClient provides an API to send DNS requests and poll DNS results. The
+/// client forwards requests and receives results through "channels" to the
+/// DNSResolver.
 #[derive(Debug)]
 pub struct DNSClient {
     requests: HashMap<DNSRequest, Option<DNSResponse>>,
@@ -134,8 +135,8 @@ impl DNSResolver {
             return DNSResponse::new(req, Ok(addrs.to_vec()));
         }
 
-        // TODO: this is a blocking operation, but there's not really a good solution here other
-        // than to just do this in a separate thread :shrug:
+        // TODO: this is a blocking operation, but there's not really a good solution
+        // here other than to just do this in a separate thread :shrug:
         test_debug!("Resolve {}:{}", &req.host, req.port);
         let addrs: Vec<SocketAddr> = match (req.host.as_str(), req.port).to_socket_addrs() {
             Ok(iter) => {

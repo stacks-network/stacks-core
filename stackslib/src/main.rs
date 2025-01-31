@@ -138,8 +138,8 @@ impl P2PSession {
     }
 
     /// Begin a p2p session.
-    /// Synthesizes a LocalPeer from the remote peer's responses to /v2/info and /v2/pox.
-    /// Performs the initial handshake for you.
+    /// Synthesizes a LocalPeer from the remote peer's responses to /v2/info and
+    /// /v2/pox. Performs the initial handshake for you.
     ///
     /// Returns the session handle on success.
     /// Returns error text on failure.
@@ -159,8 +159,8 @@ impl P2PSession {
         .decode_peer_info()
         .map_err(|e| format!("Failed to decode response from /v2/info: {:?}", &e))?;
 
-        // convert `pox_consensus` and `stable_pox_consensus` into their respective burn block
-        // hashes
+        // convert `pox_consensus` and `stable_pox_consensus` into their respective burn
+        // block hashes
         let sort_info = send_http_request(
             &format!("{}", data_addr.ip()),
             data_addr.port(),
@@ -1879,8 +1879,8 @@ simulating a miner.
     process::exit(0);
 }
 
-/// Perform an analysis of the anti-MEV algorithm in epoch 3.0, vis-a-vis the status quo.
-/// Results are printed to stdout.
+/// Perform an analysis of the anti-MEV algorithm in epoch 3.0, vis-a-vis the
+/// status quo. Results are printed to stdout.
 /// Exits with 0 on success, and 1 on failure.
 fn analyze_sortition_mev(argv: Vec<String>) {
     if argv.len() < 7 || (argv.len() >= 7 && argv.len() % 2 != 1) {

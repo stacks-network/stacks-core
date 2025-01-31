@@ -20,8 +20,8 @@
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
-/// This codebase is based on routines defined in the IETF draft for verifiable random functions
-/// over elliptic curves (https://tools.ietf.org/id/draft-irtf-cfrg-vrf-02.html).
+/// This codebase is based on routines defined in the IETF draft for verifiable
+/// random functions over elliptic curves (https://tools.ietf.org/id/draft-irtf-cfrg-vrf-02.html).
 use std::{error, fmt};
 
 use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
@@ -376,7 +376,8 @@ impl VRF {
             if ctr == 0 {
                 hasher.update([0u8]);
             } else {
-                // 2**64 - 1 is an artificial cap -- the RFC implies that you should count forever
+                // 2**64 - 1 is an artificial cap -- the RFC implies that you should count
+                // forever
                 let ctr_bytes = ctr.to_le_bytes();
                 for (i, ctr_byte) in ctr_bytes.iter().enumerate() {
                     if ctr > 1u64 << (8 * i) {
@@ -423,8 +424,7 @@ impl VRF {
     /// Auxilliary function to convert an ed25519 private key into:
     /// * its public key (an ed25519 curve point)
     /// * a new private key derived from the hash of the private key
-    /// * a truncated hash of the private key
-    ///   Idea borrowed from Algorand (https://github.com/algorand/libsodium/blob/draft-irtf-cfrg-vrf-03/src/libsodium/crypto_vrf/ietfdraft03/prove.c)
+    /// * a truncated hash of the private key Idea borrowed from Algorand (https://github.com/algorand/libsodium/blob/draft-irtf-cfrg-vrf-03/src/libsodium/crypto_vrf/ietfdraft03/prove.c)
     fn expand_privkey(secret: &VRFPrivateKey) -> (VRFPublicKey, ed25519_Scalar, [u8; 32]) {
         let mut hasher = Sha512::new();
         let mut h = [0u8; 64];
@@ -436,8 +436,8 @@ impl VRF {
         hasher.update(&privkey_buf[0..32]);
         h.copy_from_slice(&hasher.finalize()[..]);
 
-        // h[0..32] will encode a new private key, so we need to twiddle a few bits to make sure it falls in the
-        // right range (i.e. the curve order).
+        // h[0..32] will encode a new private key, so we need to twiddle a few bits to
+        // make sure it falls in the right range (i.e. the curve order).
         h[0] &= 248;
         h[31] &= 127;
         h[31] |= 64;
@@ -453,7 +453,8 @@ impl VRF {
         (pubkey, x_scalar, trunc_hash)
     }
 
-    /// RFC8032 nonce generation for ed25519, given part of a hash of a private key and a public key
+    /// RFC8032 nonce generation for ed25519, given part of a hash of a private
+    /// key and a public key
     fn nonce_generation(trunc_hash: &[u8; 32], H_point: &EdwardsPoint) -> ed25519_Scalar {
         let mut hasher = Sha512::new();
         let mut k_string = [0u8; 64];
@@ -501,11 +502,11 @@ impl VRF {
             .expect("FATAL ERROR: upper-16 bytes of proof's C scalar are NOT 0")
     }
 
-    /// Given a public key, verify that the private key owner that generate the ECVRF proof did so on the given message.
-    /// Return Ok(true) if so
+    /// Given a public key, verify that the private key owner that generate the
+    /// ECVRF proof did so on the given message. Return Ok(true) if so
     /// Return Ok(false) if not
-    /// Return Err(Error) if the public key is invalid, or we are unable to do one of the
-    /// necessary internal data conversions.
+    /// Return Err(Error) if the public key is invalid, or we are unable to do
+    /// one of the necessary internal data conversions.
     #[allow(clippy::op_ref)]
     pub fn verify(Y_point: &VRFPublicKey, proof: &VRFProof, alpha: &[u8]) -> Result<bool, Error> {
         let H_point = VRF::hash_to_curve(Y_point, alpha);

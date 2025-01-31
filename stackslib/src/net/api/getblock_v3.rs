@@ -55,9 +55,11 @@ impl RPCNakamotoBlockRequestHandler {
 pub struct NakamotoBlockStream {
     /// index block hash of the block to download
     pub index_block_hash: StacksBlockId,
-    /// consensus hash of this block (identifies its tenure; used by the tenure stream)
+    /// consensus hash of this block (identifies its tenure; used by the tenure
+    /// stream)
     pub consensus_hash: ConsensusHash,
-    /// parent index block hash of the block to download (used by the tenure stream)
+    /// parent index block hash of the block to download (used by the tenure
+    /// stream)
     pub parent_block_id: StacksBlockId,
     /// offset into the blob
     pub offset: u64,
@@ -131,7 +133,8 @@ impl HttpRequest for RPCNakamotoBlockRequestHandler {
     }
 
     /// Try to decode this request.
-    /// There's nothing to load here, so just make sure the request is well-formed.
+    /// There's nothing to load here, so just make sure the request is
+    /// well-formed.
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
@@ -228,8 +231,8 @@ impl RPCRequestHandler for RPCNakamotoBlockRequestHandler {
 
 /// Decode the HTTP response
 impl HttpResponse for RPCNakamotoBlockRequestHandler {
-    /// Decode this response from a byte stream.  This is called by the client to decode this
-    /// message
+    /// Decode this response from a byte stream.  This is called by the client
+    /// to decode this message
     fn try_parse_response(
         &self,
         preamble: &HttpResponsePreamble,

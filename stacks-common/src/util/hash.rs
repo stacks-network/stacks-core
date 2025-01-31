@@ -387,8 +387,8 @@ pub type MerklePath<H> = Vec<MerklePathPoint<H>>;
 ///
 /// An empty tree has a root hash of `0x00000...00000`.
 ///
-/// NOTE: This is consensus-critical code, because it is used to generate the transaction Merkle
-/// tree roots in Stacks blocks.
+/// NOTE: This is consensus-critical code, because it is used to generate the
+/// transaction Merkle tree roots in Stacks blocks.
 impl<H> MerkleTree<H>
 where
     H: MerkleHashFunc + Clone + PartialEq + fmt::Debug,
@@ -471,7 +471,8 @@ where
 
     /// Given an index into the Merkle tree, find the pair of hashes
     /// that comprise a sibling pair.
-    /// Panics if the row_index or hash_index values are invalid.  In particular:
+    /// Panics if the row_index or hash_index values are invalid.  In
+    /// particular:
     /// * row_index must be positive and less than the number of rows
     /// * hash_index must correspond to a hash in its row
     /// * if hash_index is even, then it must have a right sibling

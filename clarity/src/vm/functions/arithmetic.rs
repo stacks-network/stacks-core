@@ -68,9 +68,9 @@ impl BuffOps {
     }
 }
 
-// This macro checks the type of the required two arguments and then dispatches the evaluation
-//   to the correct arithmetic type handler (after deconstructing the Clarity Values into
-//   the corresponding Rust integer type.
+// This macro checks the type of the required two arguments and then dispatches
+// the evaluation   to the correct arithmetic type handler (after deconstructing
+// the Clarity Values into   the corresponding Rust integer type.
 macro_rules! type_force_binary_arithmetic {
     ($function: ident, $x: expr, $y: expr) => {{
         match ($x, $y) {
@@ -100,8 +100,8 @@ macro_rules! type_force_binary_comparison_v1 {
     }};
 }
 
-// Clarity2 adds supported comparable types ASCII, UTF8 and Buffer. These are only
-// accessed if the ClarityVersion, as read by the SpecialFunction, is >= 2.
+// Clarity2 adds supported comparable types ASCII, UTF8 and Buffer. These are
+// only accessed if the ClarityVersion, as read by the SpecialFunction, is >= 2.
 macro_rules! type_force_binary_comparison_v2 {
     ($function: ident, $x: expr, $y: expr) => {{
         match ($x, $y) {
@@ -148,9 +148,9 @@ macro_rules! type_force_unary_arithmetic {
     }};
 }
 
-// This macro checks the type of the first argument and then dispatches the evaluation
-//   to the correct arithmetic type handler (after deconstructing the Clarity Values into
-//   the corresponding Rust integer type.
+// This macro checks the type of the first argument and then dispatches the
+// evaluation   to the correct arithmetic type handler (after deconstructing the
+// Clarity Values into   the corresponding Rust integer type.
 macro_rules! type_force_variadic_arithmetic {
     ($function: ident, $args: expr) => {{
         let first = $args
@@ -215,10 +215,10 @@ macro_rules! make_comparison_ops {
     };
 }
 
-// This macro creates all of the operation functions for the two arithmetic types
-//  (uint128 and int128) -- this is really hard to do generically because there's no
-//  "Integer" trait in rust, so macros were the most straight-forward solution to do this
-//  without a bunch of code duplication
+// This macro creates all of the operation functions for the two arithmetic
+// types  (uint128 and int128) -- this is really hard to do generically because
+// there's no  "Integer" trait in rust, so macros were the most straight-forward
+// solution to do this  without a bunch of code duplication
 macro_rules! make_arithmetic_ops {
     ($struct_name: ident, $type:ty) => {
         impl $struct_name {

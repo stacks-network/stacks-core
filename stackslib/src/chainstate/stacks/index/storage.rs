@@ -58,8 +58,8 @@ use crate::util_lib::db::{
     SQLITE_MARF_PAGE_SIZE, SQLITE_MMAP_SIZE,
 };
 
-/// A trait for reading the hash of a node into a given Write impl, given the pointer to a node in
-/// a trie.
+/// A trait for reading the hash of a node into a given Write impl, given the
+/// pointer to a node in a trie.
 pub trait NodeHashReader {
     fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error>;
 }
@@ -307,8 +307,8 @@ impl<T: MarfTrieId> UncommittedState<T> {
         self.trie_ram_mut().last_ptr()
     }
 
-    /// Seal the TrieRAM.  Calculate its root hash and prevent any subsequent writes from
-    /// succeeding.
+    /// Seal the TrieRAM.  Calculate its root hash and prevent any subsequent
+    /// writes from succeeding.
     fn seal(
         self,
         storage_tx: &mut TrieStorageTransaction<T>,
@@ -324,8 +324,8 @@ impl<T: MarfTrieId> UncommittedState<T> {
         }
     }
 
-    /// Dump the TrieRAM to the given writeable `f`.  If the TrieRAM is not sealed yet, then seal
-    /// it first and then dump it.
+    /// Dump the TrieRAM to the given writeable `f`.  If the TrieRAM is not
+    /// sealed yet, then seal it first and then dump it.
     fn dump<F: Write + Seek>(
         self,
         storage_tx: &mut TrieStorageTransaction<T>,
@@ -382,7 +382,8 @@ pub struct TrieRAM<T: MarfTrieId> {
 
     total_bytes: usize,
 
-    /// does this TrieRAM represent data temporarily moved out of another TrieRAM?
+    /// does this TrieRAM represent data temporarily moved out of another
+    /// TrieRAM?
     is_moved: bool,
 
     parent: T,
@@ -437,12 +438,12 @@ impl<T: MarfTrieId> TrieRAM<T> {
         }
     }
 
-    /// Instantiate a `TrieRAM` from this `TrieRAM`'s `data` and `block_header`.  This TrieRAM will
-    /// have its data set to an empty list.  The new TrieRAM will have its `is_moved` field set to
-    /// `true`.
-    /// The purpose of this method is to temporarily "re-instate" a `TrieRAM` into a
-    /// `TrieFileStorage` while it is being flushed, so that all of the `TrieFileStorage` methods
-    /// will continue to work on it.
+    /// Instantiate a `TrieRAM` from this `TrieRAM`'s `data` and `block_header`.
+    /// This TrieRAM will have its data set to an empty list.  The new
+    /// TrieRAM will have its `is_moved` field set to `true`.
+    /// The purpose of this method is to temporarily "re-instate" a `TrieRAM`
+    /// into a `TrieFileStorage` while it is being flushed, so that all of
+    /// the `TrieFileStorage` methods will continue to work on it.
     ///
     /// Do not call directly; instead, use `with_reinstated_data()`.
     fn move_to(&mut self) -> TrieRAM<T> {
@@ -470,7 +471,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
     }
 
     /// Take a given `TrieRAM` and move its `data` to this `TrieRAM`'s data.
-    /// The given `TrieRAM` *must* have been created with a prior call to `self.move_to()`.
+    /// The given `TrieRAM` *must* have been created with a prior call to
+    /// `self.move_to()`.
     ///
     /// Do not call directly; instead use `with_reinstated_data()`.
     fn replace_from(&mut self, other: TrieRAM<T>) {
@@ -480,19 +482,20 @@ impl<T: MarfTrieId> TrieRAM<T> {
         let _ = std::mem::replace(&mut self.data, other.data);
     }
 
-    /// Temporarily re-instate this TrieRAM's data as the `uncommitted_writes` field in a given storage
-    /// connection, run the closure `f` with it, and then restore the original `uncommitted_writes` data.
-    /// This method does not compose -- calling `with_reinstated_data` within the given closure `f`
-    /// will lead to a runtime panic.
+    /// Temporarily re-instate this TrieRAM's data as the `uncommitted_writes`
+    /// field in a given storage connection, run the closure `f` with it,
+    /// and then restore the original `uncommitted_writes` data. This method
+    /// does not compose -- calling `with_reinstated_data` within the given
+    /// closure `f` will lead to a runtime panic.
     ///
-    /// The purpose of this method is to calculate the trie root hash from a trie that is in the
-    /// process of being flushed.
+    /// The purpose of this method is to calculate the trie root hash from a
+    /// trie that is in the process of being flushed.
     fn with_reinstated_data<F, R>(&mut self, storage: &mut TrieStorageTransaction<T>, f: F) -> R
     where
         F: FnOnce(&mut TrieRAM<T>, &mut TrieStorageTransaction<T>) -> R,
     {
-        // do NOT call this function within another instance of this function.  Only tears and
-        // misery would result.
+        // do NOT call this function within another instance of this function.  Only
+        // tears and misery would result.
         assert!(
             !self.is_moved,
             "FATAL: tried to move a TrieRAM after it had been moved"
@@ -579,8 +582,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
         f.seek(SeekFrom::Start(0))?;
         f.write_all(parent_hash.as_bytes())
             .map_err(Error::IOError)?;
-        // write zero-identifier (TODO: this is a convenience hack for now, we should remove the
-        //    identifier from the trie data blob)
+        // write zero-identifier (TODO: this is a convenience hack for now, we should
+        // remove the    identifier from the trie data blob)
         f.seek(SeekFrom::Start(BLOCK_HEADER_HASH_ENCODED_SIZE as u64))?;
         f.write_all(&0u32.to_le_bytes()).map_err(Error::IOError)?;
 
@@ -600,7 +603,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
     }
 
     /// Calculate the MARF root hash from a trie root hash.
-    /// This hashes the trie root hash with a geometric series of prior trie hashes.
+    /// This hashes the trie root hash with a geometric series of prior trie
+    /// hashes.
     fn calculate_marf_root_hash(
         &mut self,
         storage: &mut TrieStorageTransaction<T>,
@@ -620,8 +624,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
         marf_root_hash
     }
 
-    /// Calculate and store the MARF root hash, as well as any necessary intermediate nodes.  Do
-    /// this only for deferred hashing mode.
+    /// Calculate and store the MARF root hash, as well as any necessary
+    /// intermediate nodes.  Do this only for deferred hashing mode.
     fn inner_seal_marf(
         &mut self,
         storage_tx: &mut TrieStorageTransaction<T>,
@@ -630,18 +634,19 @@ impl<T: MarfTrieId> TrieRAM<T> {
         debug!("Calculate trie root hash");
         let root_trie_hash = self.calculate_node_hashes(storage_tx, 0)?;
 
-        // find marf root hash -- the hash of the trie root node hash, and the hashes of the
-        // geometric series of ancestor tries.  Because the trie is already in the process of
-        // being flushed, we have to temporarily reinstate its data into `storage_tx` so we can
-        // use it to walk down the various MARF paths needed to query ancestor tries.
+        // find marf root hash -- the hash of the trie root node hash, and the hashes of
+        // the geometric series of ancestor tries.  Because the trie is already
+        // in the process of being flushed, we have to temporarily reinstate its
+        // data into `storage_tx` so we can use it to walk down the various MARF
+        // paths needed to query ancestor tries.
         let marf_root_hash = self.with_reinstated_data(storage_tx, |moved_trieram, storage| {
             debug!("Calculate marf root hash");
             moved_trieram.calculate_marf_root_hash(storage, &root_trie_hash)
         });
 
         if TrieHashCalculationMode::All == storage_tx.deref().hash_calculation_mode {
-            // If we are doing both eager and deferred hashing (i.e. via a test), then verify
-            // that we get the same marf hash either way.
+            // If we are doing both eager and deferred hashing (i.e. via a test), then
+            // verify that we get the same marf hash either way.
             let (_, expected_root_hash) = self.get_nodetype(0)?;
             assert_eq!(expected_root_hash, &marf_root_hash);
         }
@@ -651,8 +656,9 @@ impl<T: MarfTrieId> TrieRAM<T> {
         Ok(marf_root_hash)
     }
 
-    /// Get the trie root hash of the trie ram, and update all nodes' root hashes if we're in
-    /// deferred hash mode.  Returns the resulting MARF root.  This is part of the seal operation.
+    /// Get the trie root hash of the trie ram, and update all nodes' root
+    /// hashes if we're in deferred hash mode.  Returns the resulting MARF
+    /// root.  This is part of the seal operation.
     fn inner_seal(
         &mut self,
         storage_tx: &mut TrieStorageTransaction<T>,
@@ -677,10 +683,10 @@ impl<T: MarfTrieId> TrieRAM<T> {
         self.inner_seal(storage_tx)
     }
 
-    /// Seal a trie ram while in the process of dumping it.  If the storage's hash calculation mode
-    /// is Deferred, then this updates all the node hashes as well and stores the new node hash.
-    /// Otherwise, this is a no-op.
-    /// This part of the seal operation.
+    /// Seal a trie ram while in the process of dumping it.  If the storage's
+    /// hash calculation mode is Deferred, then this updates all the node
+    /// hashes as well and stores the new node hash. Otherwise, this is a
+    /// no-op. This part of the seal operation.
     fn inner_seal_dump(&mut self, storage_tx: &mut TrieStorageTransaction<T>) -> Result<(), Error> {
         if TrieHashCalculationMode::Deferred == storage_tx.deref().hash_calculation_mode
             || TrieHashCalculationMode::All == storage_tx.deref().hash_calculation_mode
@@ -691,12 +697,12 @@ impl<T: MarfTrieId> TrieRAM<T> {
         Ok(())
     }
 
-    /// Recursively calculate all node hashes in this `TrieRAM`.  The top-most call to this method
-    /// should pass `0` for `node_ptr`, since this is the pointer to the root node.  Returns the
-    /// node hash for the `TrieNode` at `node_ptr`.
-    /// If the given `storage_tx`'s hash calculation mode is set to
-    /// `TrieHashCalculationMode::Deferred`, then this method will also store each non-leaf node's
-    /// hash.
+    /// Recursively calculate all node hashes in this `TrieRAM`.  The top-most
+    /// call to this method should pass `0` for `node_ptr`, since this is
+    /// the pointer to the root node.  Returns the node hash for the
+    /// `TrieNode` at `node_ptr`. If the given `storage_tx`'s hash
+    /// calculation mode is set to `TrieHashCalculationMode::Deferred`, then
+    /// this method will also store each non-leaf node's hash.
     fn calculate_node_hashes(
         &mut self,
         storage_tx: &mut TrieStorageTransaction<T>,
@@ -716,8 +722,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
             node.write_consensus_bytes(storage_tx, &mut hasher)
                 .expect("IO Failure pushing to hasher.");
 
-            // count get_nodetype load time for write_children_hashes_same_block benchmark, but
-            // only if that code path will be exercised.
+            // count get_nodetype load time for write_children_hashes_same_block benchmark,
+            // but only if that code path will be exercised.
             for ptr in node.ptrs().iter() {
                 if !is_backptr(ptr.id()) && ptr.id() != TrieNodeID::Empty as u8 {
                     if let Some(start_node_time) = start_node_time.take() {
@@ -731,8 +737,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 }
             }
 
-            // calculate the hashes of this node's children, and store them if they're in the
-            // same trie.
+            // calculate the hashes of this node's children, and store them if they're in
+            // the same trie.
             for ptr in node.ptrs().iter() {
                 if ptr.id() == TrieNodeID::Empty as u8 {
                     // hash of empty string
@@ -878,8 +884,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
     }
 
     /// load the trie from F.
-    /// The trie will have the same structure as the on-disk trie, but it may have nodes in a
-    /// different order.
+    /// The trie will have the same structure as the on-disk trie, but it may
+    /// have nodes in a different order.
     pub fn load<F: Read + Seek>(f: &mut F, bhh: &T) -> Result<TrieRAM<T>, Error> {
         let mut data = vec![];
         let mut frontier = VecDeque::new();
@@ -952,11 +958,12 @@ impl<T: MarfTrieId> TrieRAM<T> {
         Ok(TrieRAM::from_data((*bhh).clone(), data, parent_hash))
     }
 
-    /// Hint as to how many entries to allocate for the inner Vec when creating a TrieRAM
+    /// Hint as to how many entries to allocate for the inner Vec when creating
+    /// a TrieRAM
     fn size_hint(&self) -> usize {
         self.write_count as usize
-        // the size hint is used for a capacity guess on the data vec, which is _nodes_
-        //  NOT bytes. this led to enormous over-allocations
+        // the size hint is used for a capacity guess on the data vec, which is
+        // _nodes_  NOT bytes. this led to enormous over-allocations
     }
 
     /// Clear the TrieRAM contents
@@ -984,7 +991,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
         Ok(node_trie_hash.clone())
     }
 
-    /// Get an immutable reference to a node and its hash from the TrieRAM.  ptr.ptr() is an array index.
+    /// Get an immutable reference to a node and its hash from the TrieRAM.
+    /// ptr.ptr() is an array index.
     pub fn get_nodetype(&self, ptr: u32) -> Result<&(TrieNodeType, TrieHash), Error> {
         self.data.get(ptr as usize).ok_or_else(|| {
             error!(
@@ -997,8 +1005,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
         })
     }
 
-    /// Get an owned instance of a node and its hash from the TrieRAM.  ptr.ptr() is an array
-    /// index.
+    /// Get an owned instance of a node and its hash from the TrieRAM.
+    /// ptr.ptr() is an array index.
     pub fn read_nodetype(&mut self, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error> {
         trace!(
             "TrieRAM: read_nodetype({:?}): at {:?}",
@@ -1178,7 +1186,6 @@ impl<'a, T: MarfTrieId> DerefMut for TrieStorageTransaction<'a, T> {
 /// TrieStorageTransaction is a pointer to an open TrieFileStorage with an
 ///   open SQLite transaction. Any storage methods which require a transaction
 ///   are defined _only_ for this struct (e.g., the flush methods).
-///
 pub struct TrieStorageTransaction<'a, T: MarfTrieId>(TrieStorageConnection<'a, T>);
 
 /// Hash calculation mode
@@ -1188,7 +1195,8 @@ pub enum TrieHashCalculationMode {
     Immediate,
     /// Do not calculate trie node hashes until we dump the trie to disk
     Deferred,
-    /// Calculate trie hashes both on leaf insert and on trie dump.  Used for testing.
+    /// Calculate trie hashes both on leaf insert and on trie dump.  Used for
+    /// testing.
     All,
 }
 
@@ -1199,7 +1207,6 @@ pub enum TrieHashCalculationMode {
 ///    propagate to the TrieFileStorage that created the connection.
 ///  This is the main interface to the storage methods, and defines most
 ///    of the storage functionality.
-///
 pub struct TrieStorageConnection<'a, T: MarfTrieId> {
     pub db_path: &'a str,
     db: SqliteConnection<'a>,
@@ -1209,11 +1216,13 @@ pub struct TrieStorageConnection<'a, T: MarfTrieId> {
     bench: &'a mut TrieBenchmark,
     pub hash_calculation_mode: TrieHashCalculationMode,
 
-    /// row ID of a trie that represents unconfirmed state (i.e. trie state that will never become
-    /// part of the MARF, but nevertheless represents a persistent scratch space).  If this field
-    /// is Some(..), then the storage connection here was used to (re-)open an unconfirmed trie
-    /// (via `open_unconfirmed()` or `open_block()` when `self.unconfirmed()` is `true`), or used
-    /// to create an unconfirmed trie (via `extend_to_unconfirmed_block()`).
+    /// row ID of a trie that represents unconfirmed state (i.e. trie state that
+    /// will never become part of the MARF, but nevertheless represents a
+    /// persistent scratch space).  If this field is Some(..), then the
+    /// storage connection here was used to (re-)open an unconfirmed trie
+    /// (via `open_unconfirmed()` or `open_block()` when `self.unconfirmed()` is
+    /// `true`), or used to create an unconfirmed trie (via
+    /// `extend_to_unconfirmed_block()`).
     unconfirmed_block_id: Option<u32>,
 
     // used in testing in order to short-circuit block-height lookups
@@ -1226,15 +1235,14 @@ pub struct TrieStorageConnection<'a, T: MarfTrieId> {
 ///  TrieStorageTransientData holds all the data that _isn't_ committed
 ///   to the underlying SQL storage. Used internally to simplify
 ///   the TrieStorageConnection/TrieFileStorage interactions
-///
 pub struct TrieStorageTransientData<T: MarfTrieId> {
     /// This is all the nodes written but not yet committed to disk.
     pub uncommitted_writes: Option<(T, UncommittedState<T>)>,
 
     /// Currently-open block (may be `uncommitted_writes.unwrap().0`)
     cur_block: T,
-    /// Tracking the row_id for the cur_block. If cur_block == uncommitted_writes,
-    ///   this value should always be None
+    /// Tracking the row_id for the cur_block. If cur_block ==
+    /// uncommitted_writes,   this value should always be None
     cur_block_id: Option<u32>,
 
     /// Runtime statistics on reading nodes
@@ -1248,11 +1256,12 @@ pub struct TrieStorageTransientData<T: MarfTrieId> {
     write_node_count: u64,
     write_leaf_count: u64,
 
-    /// List of ancestral trie root hashes that must be hashed with the `uncommitted_writes` root node
-    /// hash to produce the MarfTrieId for the trie when it gets written to disk.  This is
-    /// maintained by the MARF whenever it needs to update the trie root hash after a leaf insert,
-    /// so that a batch of leaf inserts into `uncommitted_writes` don't require an ancestor trie hash
-    /// query more than once.
+    /// List of ancestral trie root hashes that must be hashed with the
+    /// `uncommitted_writes` root node hash to produce the MarfTrieId for
+    /// the trie when it gets written to disk.  This is maintained by the
+    /// MARF whenever it needs to update the trie root hash after a leaf insert,
+    /// so that a batch of leaf inserts into `uncommitted_writes` don't require
+    /// an ancestor trie hash query more than once.
     trie_ancestor_hash_bytes_cache: Option<(T, Vec<TrieHash>)>,
 
     /// Is the trie opened read-only?
@@ -1263,8 +1272,8 @@ pub struct TrieStorageTransientData<T: MarfTrieId> {
 }
 
 // disk-backed Trie.
-// Keeps the last-extended Trie in-RAM and flushes it to disk on either a call to flush() or a call
-// to extend_to_block() with a different block header hash.
+// Keeps the last-extended Trie in-RAM and flushes it to disk on either a call
+// to flush() or a call to extend_to_block() with a different block header hash.
 pub struct TrieFileStorage<T: MarfTrieId> {
     pub db_path: String,
 
@@ -1294,7 +1303,8 @@ fn marf_sqlite_open<P: AsRef<Path>>(
 }
 
 impl<T: MarfTrieId> TrieStorageTransientData<T> {
-    /// Target the transient data to a particular block, and optionally its block ID
+    /// Target the transient data to a particular block, and optionally its
+    /// block ID
     fn set_block(&mut self, bhh: T, id: Option<u32>) {
         trace!("set_block({},{:?})", &bhh, &id);
         self.cur_block_id = id;
@@ -1500,9 +1510,10 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         self.data.readonly
     }
 
-    /// Return true if this storage connection was opened with the intention of operating on an
-    /// unconfirmed trie -- i.e. this is a storage connection for reading and writing a persisted
-    /// scratch space trie, such as one for storing unconfirmed microblock transactions in the
+    /// Return true if this storage connection was opened with the intention of
+    /// operating on an unconfirmed trie -- i.e. this is a storage
+    /// connection for reading and writing a persisted scratch space trie,
+    /// such as one for storing unconfirmed microblock transactions in the
     /// chain state.
     pub fn unconfirmed(&self) -> bool {
         self.data.unconfirmed
@@ -1510,7 +1521,8 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
 
     /// Returns a new TrieFileStorage in read-only mode.
     ///
-    /// Returns Err if the underlying SQLite database connection cannot be created.
+    /// Returns Err if the underlying SQLite database connection cannot be
+    /// created.
     pub fn reopen_readonly(&self) -> Result<TrieFileStorage<T>, Error> {
         let db = marf_sqlite_open(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
         let cache = TrieCache::default();
@@ -1642,11 +1654,11 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
 
     /// Inner method for flushing the UncommittedState's TrieRAM to disk.
     fn inner_flush(&mut self, flush_options: FlushOptions<'_, T>) -> Result<(), Error> {
-        // save the currently-buffered Trie to disk, and atomically put it into place (possibly to
-        // a different block than the one opened, as indicated by final_bhh).
-        // Runs once -- subsequent calls are no-ops.
-        // Panics on a failure to rename the Trie file into place (i.e. if the actual commitment
-        // fails).
+        // save the currently-buffered Trie to disk, and atomically put it into place
+        // (possibly to a different block than the one opened, as indicated by
+        // final_bhh). Runs once -- subsequent calls are no-ops.
+        // Panics on a failure to rename the Trie file into place (i.e. if the actual
+        // commitment fails).
         self.clear_cached_ancestor_hashes_bytes();
         if self.data.readonly {
             return Err(Error::ReadOnlyError);
@@ -1676,12 +1688,15 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                     })?
                 }
                 FlushOptions::NewHeader(real_bhh) => {
-                    // If we opened a block with a given hash, but want to store it as a block with a *different*
-                    // hash, then call this method to update the internal storage state to make it so.  This is
-                    // necessary for validating blocks in the blockchain, since the miner will always build a
-                    // block whose hash is all 0's (since it can't know the final block hash).  As such, a peer
-                    // will process a block as if it's hash is all 0's (in order to validate the state root), and
-                    // then use this method to switch over the block hash to the "real" block hash.
+                    // If we opened a block with a given hash, but want to store it as a block with
+                    // a *different* hash, then call this method to update the
+                    // internal storage state to make it so.  This is
+                    // necessary for validating blocks in the blockchain, since the miner will
+                    // always build a block whose hash is all 0's (since it
+                    // can't know the final block hash).  As such, a peer
+                    // will process a block as if it's hash is all 0's (in order to validate the
+                    // state root), and then use this method to switch over the
+                    // block hash to the "real" block hash.
                     if self.data.unconfirmed {
                         return Err(Error::UnconfirmedError);
                     }
@@ -1736,8 +1751,9 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
         self.inner_flush(FlushOptions::NewHeader(bhh))
     }
 
-    /// Flush uncommitted state to disk for a mined block (i.e. not part of the chainstate, and not
-    /// an ancestor of any block), and do so under a given block hash.
+    /// Flush uncommitted state to disk for a mined block (i.e. not part of the
+    /// chainstate, and not an ancestor of any block), and do so under a
+    /// given block hash.
     pub fn flush_mined(&mut self, bhh: &T) -> Result<(), Error> {
         self.inner_flush(FlushOptions::MinedTable(bhh))
     }
@@ -1789,8 +1805,8 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     }
 
     /// Extend the forest of Tries to include a new confirmed block.
-    /// Fails if the block already exists, or if the storage is read-only, or open
-    /// only for unconfirmed state.
+    /// Fails if the block already exists, or if the storage is read-only, or
+    /// open only for unconfirmed state.
     pub fn extend_to_block(&mut self, bhh: &T) -> Result<(), Error> {
         self.clear_cached_ancestor_hashes_bytes();
         if self.data.readonly {
@@ -1825,8 +1841,8 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     }
 
     /// Extend the forest of Tries to include a new unconfirmed block.
-    /// If the unconfirmed block (bhh) already exists, then load up its trie as the uncommitted_writes
-    /// trie.
+    /// If the unconfirmed block (bhh) already exists, then load up its trie as
+    /// the uncommitted_writes trie.
     pub fn extend_to_unconfirmed_block(&mut self, bhh: &T) -> Result<bool, Error> {
         self.clear_cached_ancestor_hashes_bytes();
         if !self.data.unconfirmed {
@@ -2048,7 +2064,8 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         Ok(ret)
     }
 
-    /// Generate a mapping between Trie root hashes and the blocks that contain them
+    /// Generate a mapping between Trie root hashes and the blocks that contain
+    /// them
     #[cfg(test)]
     pub fn read_root_to_block_table(&mut self) -> Result<HashMap<TrieHash, T>, Error> {
         let mut ret = self.inner_read_persisted_root_to_blocks()?;
@@ -2080,8 +2097,8 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         self.data.uncommitted_writes = Some((bhh.clone(), trie_buf));
     }
 
-    /// Is the given block in the marf_data DB table, and is it part of the block history (i.e. it's not mined and
-    /// its not unconfirmed)?
+    /// Is the given block in the marf_data DB table, and is it part of the
+    /// block history (i.e. it's not mined and its not unconfirmed)?
     pub fn has_confirmed_block(&self, bhh: &T) -> Result<bool, Error> {
         match trie_sql::get_confirmed_block_identifier(&self.db, bhh) {
             Ok(Some(_)) => Ok(true),
@@ -2099,15 +2116,15 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         }
     }
 
-    /// Is the given block represented in either the confirmed or unconfirmed block tables?
-    /// The mined table is ignored.
+    /// Is the given block represented in either the confirmed or unconfirmed
+    /// block tables? The mined table is ignored.
     pub fn has_block(&self, bhh: &T) -> Result<bool, Error> {
         Ok(self.has_confirmed_block(bhh)? || self.has_unconfirmed_block(bhh)?)
     }
 
     /// Used for providing a option<block identifier> when re-opening a block --
-    ///   because the previously open block may have been the uncommitted_writes block,
-    ///   id may have been None.
+    ///   because the previously open block may have been the uncommitted_writes
+    /// block,   id may have been None.
     pub fn open_block_maybe_id(&mut self, bhh: &T, id: Option<u32>) -> Result<(), Error> {
         match id {
             Some(id) => self.open_block_known_id(bhh, id),
@@ -2115,8 +2132,9 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         }
     }
 
-    /// Used for providing a block identifier when opening a block -- usually used
-    ///   when following a backptr, which stores the block identifier directly.
+    /// Used for providing a block identifier when opening a block -- usually
+    /// used   when following a backptr, which stores the block identifier
+    /// directly.
     pub fn open_block_known_id(&mut self, bhh: &T, id: u32) -> Result<(), Error> {
         trace!(
             "open_block_known_id({},{}) (unconfirmed={:?},{})",
@@ -2141,8 +2159,8 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         Ok(())
     }
 
-    /// Open a trie's block, identified by `bhh`.  Updates the internal state to point to it, so
-    /// that all node reads will occur relative to it.
+    /// Open a trie's block, identified by `bhh`.  Updates the internal state to
+    /// point to it, so that all node reads will occur relative to it.
     pub fn open_block(&mut self, bhh: &T) -> Result<(), Error> {
         trace!(
             "open_block({}) (unconfirmed={:?},{})",
@@ -2265,7 +2283,8 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         res
     }
 
-    /// Get the TriePtr::ptr() value for the root node in the currently-open block.
+    /// Get the TriePtr::ptr() value for the root node in the currently-open
+    /// block.
     pub fn root_ptr(&self) -> u32 {
         if let Some((ref uncommitted_bhh, _)) = self.data.uncommitted_writes {
             if &self.data.cur_block == uncommitted_bhh {
@@ -2281,37 +2300,41 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         TriePtr::new(TrieNodeID::Node256 as u8, 0, self.root_ptr())
     }
 
-    /// Get the TriePtr::ptr() value for a trie's root node if the node is stored to disk.
+    /// Get the TriePtr::ptr() value for a trie's root node if the node is
+    /// stored to disk.
     pub fn root_ptr_disk() -> u32 {
         // first 32 bytes are the block parent hash
         //   next 4 are the identifier
         (BLOCK_HEADER_HASH_ENCODED_SIZE as u32) + 4
     }
 
-    /// Read a node's children's hashes into the provided <Write> implementation.
-    /// This only works for intermediate nodes and leafs (the latter of which have no children).
+    /// Read a node's children's hashes into the provided <Write>
+    /// implementation. This only works for intermediate nodes and leafs
+    /// (the latter of which have no children).
     ///
-    /// This method is designed to only access hashes that are either (1) in this Trie, or (2) in
-    /// RAM already (i.e. as part of the block map)
+    /// This method is designed to only access hashes that are either (1) in
+    /// this Trie, or (2) in RAM already (i.e. as part of the block map)
     ///
-    /// This means that the hash of a node that is in a previous Trie will _not_ be its
-    /// hash (as that would require a disk access), but would instead be the root hash of the Trie
-    /// that contains it.  While this makes the Merkle proof construction a bit more complicated,
-    /// it _significantly_ improves the performance of this method (which is crucial since this is on
-    /// the write path, which must be as short as possible).
+    /// This means that the hash of a node that is in a previous Trie will _not_
+    /// be its hash (as that would require a disk access), but would instead
+    /// be the root hash of the Trie that contains it.  While this makes the
+    /// Merkle proof construction a bit more complicated, it _significantly_
+    /// improves the performance of this method (which is crucial since this is
+    /// on the write path, which must be as short as possible).
     ///
     /// Rules:
     /// If a node is empty, pass in an empty hash.
     /// If a node is in this Trie, pass its hash.
     /// If a node is in a previous Trie, pass the root hash of its Trie.
     ///
-    /// On err, S may point to a prior block.  The caller should call s.open(...) if an error
-    /// occurs.
+    /// On err, S may point to a prior block.  The caller should call
+    /// s.open(...) if an error occurs.
     ///
-    /// NOTE: this method should only be called if `hash_calculation_mode` is set to
-    /// `TrieHashCalculationMode::All` or `TrieHashCalculationMode::Immediate`.  There is no need
-    /// to call if the hash mode is `::Deferred`.  The only way this gets called while not in
-    /// `::Deferred` mode is when generating a Merkle proof.
+    /// NOTE: this method should only be called if `hash_calculation_mode` is
+    /// set to `TrieHashCalculationMode::All` or
+    /// `TrieHashCalculationMode::Immediate`.  There is no need to call if
+    /// the hash mode is `::Deferred`.  The only way this gets called while not
+    /// in `::Deferred` mode is when generating a Merkle proof.
     pub fn write_children_hashes<W: Write>(
         &mut self,
         node: &TrieNodeType,
@@ -2424,8 +2447,9 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
 
                 bench.write_children_hashes_same_block_finish(start_time);
             } else {
-                // hash is in a different block altogether, so we just use the ancestor block hash.  The
-                // ptr.ptr() value points to the actual node in the ancestor block.
+                // hash is in a different block altogether, so we just use the ancestor block
+                // hash.  The ptr.ptr() value points to the actual node in the
+                // ancestor block.
                 let start_time = bench.write_children_hashes_ancestor_block_start();
 
                 let block_hash = map.get_block_hash_caching(ptr.back_block())?;
@@ -2511,7 +2535,8 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
 
     /// Inner method for reading a node, and optionally its hash as well.
     /// Uses either the DB or the .blobs file, depending on which is configured.
-    /// If `read_hash` is `false`, then the returned hash is just the empty hash of all 0's.
+    /// If `read_hash` is `false`, then the returned hash is just the empty hash
+    /// of all 0's.
     fn inner_read_persisted_nodetype(
         &mut self,
         block_id: u32,
@@ -2556,10 +2581,10 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         Ok((node_inst, node_hash))
     }
 
-    /// Read a node and optionally its hash.  If `read_hash` is false, then an empty hash will be
-    /// returned
-    /// NOTE: ptr will not be treated as a backptr -- the node returned will be from the
-    /// currently-open trie.
+    /// Read a node and optionally its hash.  If `read_hash` is false, then an
+    /// empty hash will be returned
+    /// NOTE: ptr will not be treated as a backptr -- the node returned will be
+    /// from the currently-open trie.
     fn read_nodetype_maybe_hash(
         &mut self,
         ptr: &TriePtr,
@@ -2682,8 +2707,8 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         self.write_nodetype(ptr, &node_type, hash)
     }
 
-    /// Get the last slot into which a node will be inserted in the uncommitted state.
-    /// Panics if there is no uncommmitted state instantiated.
+    /// Get the last slot into which a node will be inserted in the uncommitted
+    /// state. Panics if there is no uncommmitted state instantiated.
     pub fn last_ptr(&mut self) -> Result<u32, Error> {
         if let Some((_, ref mut uncommitted_trie)) = self.data.uncommitted_writes {
             uncommitted_trie.last_ptr()

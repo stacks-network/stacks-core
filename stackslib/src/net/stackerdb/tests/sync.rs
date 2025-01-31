@@ -65,8 +65,8 @@ impl StackerDBConfig {
 }
 
 /// Add a stacker DB to a node's config.
-/// Return its index into the list of configured stacker DBs (can be used as `idx` in the call to
-/// `setup_stackerdb()`
+/// Return its index into the list of configured stacker DBs (can be used as
+/// `idx` in the call to `setup_stackerdb()`
 fn add_stackerdb(config: &mut TestPeerConfig, stackerdb_config: Option<StackerDBConfig>) -> usize {
     let name = ContractName::try_from(format!("db-{}", config.stacker_dbs.len())).unwrap();
     let addr = StacksAddress::new(
@@ -701,7 +701,8 @@ fn test_stackerdb_push_relayer() {
 
         peer_3_config.connection_opts.disable_stackerdb_sync = true;
 
-        // peer 1 crawls peer 2, and peer 2 crawls peer 1 and peer 3, and peer 3 crawls peer 2
+        // peer 1 crawls peer 2, and peer 2 crawls peer 1 and peer 3, and peer 3 crawls
+        // peer 2
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
         peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
         peer_2_config.add_neighbor(&peer_3_config.to_neighbor());
@@ -844,12 +845,12 @@ fn test_stackerdb_push_relayer() {
     })
 }
 
-/// Verify that the relayer will push stackerdb chunks, AND, those chunks will get buffered if the
-/// recipient has not yet processed the sortition.
+/// Verify that the relayer will push stackerdb chunks, AND, those chunks will
+/// get buffered if the recipient has not yet processed the sortition.
 /// Replica A has the data.
 /// Replica B receives the data via StackerDB sync
-/// Replica C receives the data from B's relayer pushes, but is not yet at the Stacks tip that A
-/// and B are on.
+/// Replica C receives the data from B's relayer pushes, but is not yet at the
+/// Stacks tip that A and B are on.
 /// Replica C processes them all when the Stacks tip advances
 #[test]
 fn test_stackerdb_push_relayer_late_chunks() {
@@ -870,7 +871,8 @@ fn test_stackerdb_push_relayer_late_chunks() {
 
         peer_3_config.connection_opts.disable_stackerdb_sync = true;
 
-        // peer 1 crawls peer 2, and peer 2 crawls peer 1 and peer 3, and peer 3 crawls peer 2
+        // peer 1 crawls peer 2, and peer 2 crawls peer 1 and peer 3, and peer 3 crawls
+        // peer 2
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
         peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
         peer_2_config.add_neighbor(&peer_3_config.to_neighbor());

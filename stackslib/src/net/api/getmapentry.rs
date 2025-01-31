@@ -98,7 +98,8 @@ impl HttpRequest for RPCGetMapEntryRequestHandler {
 
     /// Try to decode this request.
     /// The body must be a hex string, encoded as a JSON string.
-    /// So, something like `"123abc"`.  It encodes the map key as a serialized Clarity value.
+    /// So, something like `"123abc"`.  It encodes the map key as a serialized
+    /// Clarity value.
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
