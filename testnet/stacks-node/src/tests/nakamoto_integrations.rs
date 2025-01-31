@@ -693,7 +693,7 @@ where
             error!("Timed out waiting for check to process");
             return Err("Timed out".into());
         }
-        thread::sleep(Duration::from_millis(100));
+        thread::sleep(Duration::from_millis(500));
     }
     Ok(())
 }
@@ -10764,8 +10764,6 @@ fn test_tenure_extend_from_flashblocks() {
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     let btc_regtest_controller = &mut signer_test.running_nodes.btc_regtest_controller;
     let coord_channel = signer_test.running_nodes.coord_channel.clone();
-    let commits_submitted = signer_test.running_nodes.commits_submitted.clone();
-    let sortitions_processed = signer_test.running_nodes.sortitions_processed.clone();
     let counters = signer_test.running_nodes.counters.clone();
     let nakamoto_test_skip_commit_op = signer_test
         .running_nodes
@@ -10818,17 +10816,9 @@ fn test_tenure_extend_from_flashblocks() {
     );
     submit_tx(&http_origin, &contract_tx);
 
-    let blocks_processed_before = coord_channel
-        .lock()
-        .expect("Mutex poisoned")
-        .get_stacks_blocks_processed();
-
     wait_for(120, || {
-        let blocks_processed = coord_channel
-            .lock()
-            .expect("Mutex poisoned")
-            .get_stacks_blocks_processed();
-        Ok(blocks_processed > blocks_processed_before)
+        let sender_nonce = get_account(&naka_conf.node.data_url, &deployer_addr).nonce;
+        Ok(sender_nonce > 0)
     })
     .expect("Timed out waiting for interim blocks to be mined");
 
@@ -10836,39 +10826,23 @@ fn test_tenure_extend_from_flashblocks() {
 
     // stall miner and relayer
 
-    // make tenure but don't wait for a stacks block
-    next_block_and_commits_only(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    // make tenure
+    next_block_and_mine_commit(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
-    // prevent the mienr from sending another block-commit
+    // prevent the miner from sending another block-commit
     nakamoto_test_skip_commit_op.set(true);
 
-    // make sure we get a block-found tenure change
-    let blocks_processed_before = coord_channel
-        .lock()
-        .expect("Mutex poisoned")
-        .get_stacks_blocks_processed();
-
-    // make sure the relayer processes both sortitions
-    let sortitions_processed_before = sortitions_processed.load(Ordering::SeqCst);
+    let info_before = get_chain_info(&naka_conf);
 
     // mine another Bitcoin block right away, since it will contain a block-commit
     btc_regtest_controller.bootstrap_chain(1);
 
-    wait_for(60, || {
-        sleep_ms(100);
-        let sortitions_cnt = sortitions_processed.load(Ordering::SeqCst);
-        Ok(sortitions_cnt > sortitions_processed_before)
+    wait_for(120, || {
+        let info = get_chain_info(&naka_conf);
+        Ok(info.burn_block_height > info_before.burn_block_height
+            && info.stacks_tip_height > info_before.stacks_tip_height)
     })
     .unwrap();
-
-    wait_for(120, || {
-        let blocks_processed = coord_channel
-            .lock()
-            .expect("Mutex poisoned")
-            .get_stacks_blocks_processed();
-        Ok(blocks_processed > blocks_processed_before)
-    })
-    .expect("Timed out waiting for interim blocks to be mined");
 
     let (canonical_stacks_tip_ch, _) =
         SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
@@ -10895,11 +10869,9 @@ fn test_tenure_extend_from_flashblocks() {
     // Given the above, this will be an `Extend` tenure.
     TEST_MINER_THREAD_STALL.set(false);
 
-    let sortitions_processed_before = sortitions_processed.load(Ordering::SeqCst);
     wait_for(60, || {
-        sleep_ms(100);
-        let sortitions_cnt = sortitions_processed.load(Ordering::SeqCst);
-        Ok(sortitions_cnt > sortitions_processed_before)
+        let cur_sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+        Ok(cur_sort_tip.block_height > sort_tip.block_height)
     })
     .unwrap();
 
@@ -10977,7 +10949,6 @@ fn test_tenure_extend_from_flashblocks() {
 
     // wait for the miner directive to be processed
     wait_for(60, || {
-        sleep_ms(30_000);
         let directives_cnt = nakamoto_miner_directives.load(Ordering::SeqCst);
         Ok(directives_cnt > miner_directives_before)
     })
@@ -10985,7 +10956,7 @@ fn test_tenure_extend_from_flashblocks() {
 
     // wait for all of the aforementioned transactions to get mined
     wait_for(120, || {
-        // fill mempool with transactions that depend on the burn view
+        // check account nonces from the sent transactions
         for (sender_sk, account_before) in account_keys.iter().zip(accounts_before.iter()) {
             let sender_addr = tests::to_addr(sender_sk);
             let account = loop {
@@ -11042,28 +11013,7 @@ fn test_tenure_extend_from_flashblocks() {
     }
 
     // mine one additional tenure, to verify that we're on track
-    let commits_before = commits_submitted.load(Ordering::SeqCst);
-    let node_info_before = get_chain_info_opt(&naka_conf).unwrap();
-
-    btc_regtest_controller.bootstrap_chain(1);
-
-    wait_for(20, || {
-        Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
-    })
-    .unwrap();
-
-    // there was a sortition winner
-    let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    assert!(sort_tip.sortition);
-
-    wait_for(20, || {
-        let node_info = get_chain_info_opt(&naka_conf).unwrap();
-        Ok(
-            node_info.burn_block_height > node_info_before.burn_block_height
-                && node_info.stacks_tip_height > node_info_before.stacks_tip_height,
-        )
-    })
-    .unwrap();
+    next_block_and_mine_commit(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     // boot a follower. it should reach the chain tip
     info!("----- BEGIN FOLLOWR BOOTUP ------");
@@ -11118,9 +11068,8 @@ fn test_tenure_extend_from_flashblocks() {
 
     debug!("Booted follower-thread");
 
-    let miner_info = get_chain_info_result(&naka_conf).unwrap();
-
     wait_for(300, || {
+        let miner_info = get_chain_info_result(&naka_conf).unwrap();
         let Ok(info) = get_chain_info_result(&follower_conf) else {
             sleep_ms(1000);
             return Ok(false);
