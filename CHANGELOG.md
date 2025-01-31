@@ -7,10 +7,22 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+### Added
+- Add `dry_run` configuration option to `stacks-signer` config toml. Dry run mode will
+  run the signer binary as if it were a registered signer. Instead of broadcasting
+  `StackerDB` messages, it logs `INFO` messages. Other interactions with the `stacks-node`
+  behave normally (e.g., submitting validation requests, submitting finished blocks). A
+  dry run signer will error out if the supplied key is actually a registered signer.
+
 ### Changed
 
 - Miner will include other transactions in blocks with tenure extend transactions (#5760)
 - Add `block_rejection_timeout_steps` to miner configuration for defining rejections-based timeouts while waiting for signers response (#5705)
+
+### Fixed
+
+- Miners who restart their nodes immediately before a winning tenure now correctly detect that
+  they won the tenure after their nodes restart ([#5750](https://github.com/stacks-network/stacks-core/issues/5750)).
 
 ## [3.1.0.0.4]
 
