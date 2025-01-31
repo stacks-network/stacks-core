@@ -8111,6 +8111,9 @@ fn block_validation_check_rejection_timeout_heuristic() {
     // reset reject/ignore
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![]);
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(vec![]);
+
+    info!("------------------------- Shutdown -------------------------");
+    signer_test.shutdown();
 }
 
 /// Test scenario:

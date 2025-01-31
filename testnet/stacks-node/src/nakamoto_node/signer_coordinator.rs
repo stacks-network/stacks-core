@@ -390,7 +390,7 @@ impl SignerCoordinator {
 
             if rejections != block_status.total_reject_weight as u64 {
                 rejections = block_status.total_reject_weight as u64;
-                let rejections_timeout_tuple = self
+                let (rejections_step, new_rejections_timeout) = self
                     .block_rejection_timeout_steps
                     .range((Included(0), Included(rejections)))
                     .last()
@@ -399,10 +399,11 @@ impl SignerCoordinator {
                             "Invalid rejection timeout step function definition".into(),
                         )
                     })?;
-                rejections_timeout = rejections_timeout_tuple.1;
+                rejections_timeout = new_rejections_timeout;
                 info!("Number of received rejections updated, resetting timeout";
                                     "rejections" => rejections,
                                     "rejections_timeout" => rejections_timeout.as_secs(),
+                                    "rejections_step" => rejections_step,
                                     "rejections_threshold" => self.total_weight.saturating_sub(self.weight_threshold));
 
                 Counters::set(
