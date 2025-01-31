@@ -139,12 +139,12 @@ impl Counters {
     fn inc(_ctr: &RunLoopCounter) {}
 
     #[cfg(test)]
-    pub fn set(ctr: &RunLoopCounter, value: u64) {
+    fn set(ctr: &RunLoopCounter, value: u64) {
         ctr.0.store(value, Ordering::SeqCst);
     }
 
     #[cfg(not(test))]
-    pub fn set(_ctr: &RunLoopCounter, _value: u64) {}
+    fn set(_ctr: &RunLoopCounter, _value: u64) {}
 
     pub fn bump_blocks_processed(&self) {
         Counters::inc(&self.blocks_processed);
@@ -216,6 +216,14 @@ impl Counters {
 
     pub fn set_microblocks_processed(&self, value: u64) {
         Counters::set(&self.microblocks_processed, value)
+    }
+
+    pub fn set_miner_current_rejections_timeout(&self, value: u64) {
+        Counters::set(&self.naka_miner_current_rejections_timeout_secs, value)
+    }
+
+    pub fn set_miner_current_rejections(&self, value: u64) {
+        Counters::set(&self.naka_miner_current_rejections, value)
     }
 }
 
