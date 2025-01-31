@@ -150,11 +150,18 @@ pub struct MinerTenureInfo<'a> {
     pub tenure_block_commit_opt: Option<LeaderBlockCommitOp>,
 }
 
+/// Structure returned from `NakamotoBlockBuilder::build_nakamoto_block` with
+/// information about the block that was built.
 pub struct BlockMetadata {
+    /// The block that was built
     pub block: NakamotoBlock,
+    /// The execution cost consumed so far by the current tenure
     pub tenure_consumed: ExecutionCost,
+    /// The cost budget for the current tenure
     pub tenure_budget: ExecutionCost,
+    /// The size of the blocks in the current tenure in bytes
     pub tenure_size: u64,
+    /// The events emitted by the transactions included in this block
     pub tx_events: Vec<TransactionEvent>,
 }
 

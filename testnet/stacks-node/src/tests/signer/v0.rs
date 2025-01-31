@@ -12683,6 +12683,11 @@ fn tenure_extend_cost_threshold() {
     })
     .expect("Contract not included in block");
 
+    // Ensure the tenure was not extended in that block
+    assert!(!last_block_contains_tenure_change_tx(
+        TenureChangeCause::Extended
+    ));
+
     // Now, lets call the contract a bunch of times to increase the tenure cost
     for _ in 0..num_txs {
         let call_tx = make_contract_call(
