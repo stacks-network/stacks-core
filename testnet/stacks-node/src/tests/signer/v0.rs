@@ -85,8 +85,9 @@ use crate::tests::nakamoto_integrations::{
     POX_4_DEFAULT_STACKER_BALANCE, POX_4_DEFAULT_STACKER_STX_AMT,
 };
 use crate::tests::neon_integrations::{
-    get_account, get_chain_info, get_chain_info_opt, get_sortition_info, get_sortition_info_ch,
-    next_block_and_wait, run_until_burnchain_height, submit_tx, submit_tx_fallible, test_observer,
+    get_account, get_chain_info, get_chain_info_opt, get_pox_info, get_sortition_info,
+    get_sortition_info_ch, next_block_and_wait, run_until_burnchain_height, submit_tx,
+    submit_tx_fallible, test_observer,
 };
 use crate::tests::{
     self, gen_random_port, make_contract_call, make_contract_publish, make_stacks_transfer,
@@ -11728,6 +11729,15 @@ fn multiple_miners_empty_sortition() {
 
         let last_active_sortition = get_sortition_info(&conf);
         assert!(last_active_sortition.was_sortition);
+
+        // check if we're about to cross a reward cycle boundary -- if so, we can't
+        //  perform this test, because we can't tenure extend across the boundary
+        let pox_info = get_pox_info(&conf.node.data_url).unwrap();
+        let blocks_until_next_cycle = pox_info.next_cycle.blocks_until_reward_phase;
+        if blocks_until_next_cycle == 1 {
+            info!("We're about to cross a reward cycle boundary, cannot perform a tenure extend here!");
+            continue;
+        }
 
         // lets mine a btc flash block
         let rl2_commits_before = rl2_commits.load(Ordering::SeqCst);
