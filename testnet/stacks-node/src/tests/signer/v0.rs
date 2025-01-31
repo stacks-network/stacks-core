@@ -85,8 +85,9 @@ use crate::tests::nakamoto_integrations::{
     POX_4_DEFAULT_STACKER_BALANCE, POX_4_DEFAULT_STACKER_STX_AMT,
 };
 use crate::tests::neon_integrations::{
-    get_account, get_chain_info, get_chain_info_opt, get_sortition_info, get_sortition_info_ch,
-    next_block_and_wait, run_until_burnchain_height, submit_tx, submit_tx_fallible, test_observer,
+    get_account, get_chain_info, get_chain_info_opt, get_pox_info, get_sortition_info,
+    get_sortition_info_ch, next_block_and_wait, run_until_burnchain_height, submit_tx,
+    submit_tx_fallible, test_observer,
 };
 use crate::tests::{
     self, gen_random_port, make_contract_call, make_contract_publish, make_stacks_transfer,
@@ -1607,10 +1608,7 @@ fn multiple_miners() {
     let mut run_loop_2 = boot_nakamoto::BootRunLoop::new(conf_node_2.clone()).unwrap();
     let run_loop_stopper_2 = run_loop_2.get_termination_switch();
     let rl2_coord_channels = run_loop_2.coordinator_channels();
-    let Counters {
-        naka_submitted_commits: rl2_commits,
-        ..
-    } = run_loop_2.counters();
+    let rl2_counters = run_loop_2.counters();
     let run_loop_2_thread = thread::Builder::new()
         .name("run_loop_2".into())
         .spawn(move || run_loop_2.start(None, 0))
@@ -1637,8 +1635,7 @@ fn multiple_miners() {
     //  is that we keep track of how many tenures each miner produced, and once enough sortitions
     //  have been produced such that each miner has produced 3 tenures, we stop and check the
     //  results at the end
-    let rl1_coord_channels = signer_test.running_nodes.coord_channel.clone();
-    let rl1_commits = signer_test.running_nodes.commits_submitted.clone();
+    let rl1_counters = signer_test.running_nodes.counters.clone();
 
     let miner_1_pk = StacksPublicKey::from_private(conf.miner.mining_key.as_ref().unwrap());
     let miner_2_pk = StacksPublicKey::from_private(conf_node_2.miner.mining_key.as_ref().unwrap());
@@ -1657,8 +1654,8 @@ fn multiple_miners() {
         info!("Issue next block-build request\ninfo 1: {info_1:?}\ninfo 2: {info_2:?}\n");
 
         signer_test.mine_block_wait_on_processing(
-            &[&rl1_coord_channels, &rl2_coord_channels],
-            &[&rl1_commits, &rl2_commits],
+            &[&conf, &conf_node_2],
+            &[&rl1_counters, &rl2_counters],
             Duration::from_secs(30),
         );
 
@@ -4766,10 +4763,10 @@ fn multiple_miners_with_nakamoto_blocks() {
     let run_loop_stopper_2 = run_loop_2.get_termination_switch();
     let rl2_coord_channels = run_loop_2.coordinator_channels();
     let Counters {
-        naka_submitted_commits: rl2_commits,
         naka_mined_blocks: blocks_mined2,
         ..
     } = run_loop_2.counters();
+    let rl2_counters = run_loop_2.counters();
     let run_loop_2_thread = thread::Builder::new()
         .name("run_loop_2".into())
         .spawn(move || run_loop_2.start(None, 0))
@@ -4796,8 +4793,7 @@ fn multiple_miners_with_nakamoto_blocks() {
     //  is that we keep track of how many tenures each miner produced, and once enough sortitions
     //  have been produced such that each miner has produced 3 tenures, we stop and check the
     //  results at the end
-    let rl1_coord_channels = signer_test.running_nodes.coord_channel.clone();
-    let rl1_commits = signer_test.running_nodes.commits_submitted.clone();
+    let rl1_counters = signer_test.running_nodes.counters.clone();
 
     let miner_1_pk = StacksPublicKey::from_private(conf.miner.mining_key.as_ref().unwrap());
     let miner_2_pk = StacksPublicKey::from_private(conf_node_2.miner.mining_key.as_ref().unwrap());
@@ -4812,8 +4808,8 @@ fn multiple_miners_with_nakamoto_blocks() {
         let blocks_processed_before =
             blocks_mined1.load(Ordering::SeqCst) + blocks_mined2.load(Ordering::SeqCst);
         signer_test.mine_block_wait_on_processing(
-            &[&rl1_coord_channels, &rl2_coord_channels],
-            &[&rl1_commits, &rl2_commits],
+            &[&conf, &conf_node_2],
+            &[&rl1_counters, &rl2_counters],
             Duration::from_secs(30),
         );
         btc_blocks_mined += 1;
@@ -7451,10 +7447,10 @@ fn multiple_miners_with_custom_chain_id() {
     let run_loop_stopper_2 = run_loop_2.get_termination_switch();
     let rl2_coord_channels = run_loop_2.coordinator_channels();
     let Counters {
-        naka_submitted_commits: rl2_commits,
         naka_mined_blocks: blocks_mined2,
         ..
     } = run_loop_2.counters();
+    let rl2_counters = run_loop_2.counters();
     let run_loop_2_thread = thread::Builder::new()
         .name("run_loop_2".into())
         .spawn(move || run_loop_2.start(None, 0))
@@ -7481,8 +7477,7 @@ fn multiple_miners_with_custom_chain_id() {
     //  is that we keep track of how many tenures each miner produced, and once enough sortitions
     //  have been produced such that each miner has produced 3 tenures, we stop and check the
     //  results at the end
-    let rl1_coord_channels = signer_test.running_nodes.coord_channel.clone();
-    let rl1_commits = signer_test.running_nodes.commits_submitted.clone();
+    let rl1_counters = signer_test.running_nodes.counters.clone();
 
     let miner_1_pk = StacksPublicKey::from_private(conf.miner.mining_key.as_ref().unwrap());
     let miner_2_pk = StacksPublicKey::from_private(conf_node_2.miner.mining_key.as_ref().unwrap());
@@ -7497,8 +7492,8 @@ fn multiple_miners_with_custom_chain_id() {
         let blocks_processed_before =
             blocks_mined1.load(Ordering::SeqCst) + blocks_mined2.load(Ordering::SeqCst);
         signer_test.mine_block_wait_on_processing(
-            &[&rl1_coord_channels, &rl2_coord_channels],
-            &[&rl1_commits, &rl2_commits],
+            &[&conf, &conf_node_2],
+            &[&rl1_counters, &rl2_counters],
             Duration::from_secs(30),
         );
         btc_blocks_mined += 1;
@@ -11664,6 +11659,7 @@ fn multiple_miners_empty_sortition() {
         naka_submitted_commits: rl2_commits,
         ..
     } = run_loop_2.counters();
+    let rl2_counters = run_loop_2.counters();
     let run_loop_2_thread = thread::Builder::new()
         .name("run_loop_2".into())
         .spawn(move || run_loop_2.start(None, 0))
@@ -11700,16 +11696,16 @@ fn multiple_miners_empty_sortition() {
     );
     submit_tx(&conf.node.data_url, &contract_tx);
 
-    let rl1_coord_channels = signer_test.running_nodes.coord_channel.clone();
     let rl1_commits = signer_test.running_nodes.commits_submitted.clone();
+    let rl1_counters = signer_test.running_nodes.counters.clone();
 
     let last_sender_nonce = loop {
         // Mine 1 nakamoto tenures
         info!("Mining tenure...");
 
         signer_test.mine_block_wait_on_processing(
-            &[&rl1_coord_channels, &rl2_coord_channels],
-            &[&rl1_commits, &rl2_commits],
+            &[&conf, &conf_node_2],
+            &[&rl1_counters, &rl2_counters],
             Duration::from_secs(30),
         );
 
@@ -11743,16 +11739,29 @@ fn multiple_miners_empty_sortition() {
         let last_active_sortition = get_sortition_info(&conf);
         assert!(last_active_sortition.was_sortition);
 
+        // check if we're about to cross a reward cycle boundary -- if so, we can't
+        //  perform this test, because we can't tenure extend across the boundary
+        let pox_info = get_pox_info(&conf.node.data_url).unwrap();
+        let blocks_until_next_cycle = pox_info.next_cycle.blocks_until_reward_phase;
+        if blocks_until_next_cycle == 1 {
+            info!("We're about to cross a reward cycle boundary, cannot perform a tenure extend here!");
+            continue;
+        }
+
         // lets mine a btc flash block
         let rl2_commits_before = rl2_commits.load(Ordering::SeqCst);
         let rl1_commits_before = rl1_commits.load(Ordering::SeqCst);
+        let info_before = get_chain_info(&conf);
+
         signer_test
             .running_nodes
             .btc_regtest_controller
             .build_next_block(2);
 
         wait_for(60, || {
-            Ok(rl2_commits.load(Ordering::SeqCst) > rl2_commits_before
+            let info = get_chain_info(&conf);
+            Ok(info.burn_block_height >= 2 + info_before.burn_block_height
+                && rl2_commits.load(Ordering::SeqCst) > rl2_commits_before
                 && rl1_commits.load(Ordering::SeqCst) > rl1_commits_before)
         })
         .unwrap();
@@ -11870,16 +11879,17 @@ fn single_miner_empty_sortition() {
     );
     submit_tx(&conf.node.data_url, &contract_tx);
 
-    let rl1_coord_channels = signer_test.running_nodes.coord_channel.clone();
     let rl1_commits = signer_test.running_nodes.commits_submitted.clone();
+    let rl1_counters = signer_test.running_nodes.counters.clone();
+    let rl1_conf = signer_test.running_nodes.conf.clone();
 
     for _i in 0..3 {
         // Mine 1 nakamoto tenures
         info!("Mining tenure...");
 
         signer_test.mine_block_wait_on_processing(
-            &[&rl1_coord_channels],
-            &[&rl1_commits],
+            &[&rl1_conf],
+            &[&rl1_counters],
             Duration::from_secs(30),
         );
 
@@ -11915,13 +11925,16 @@ fn single_miner_empty_sortition() {
 
         // lets mine a btc flash block
         let rl1_commits_before = rl1_commits.load(Ordering::SeqCst);
+        let info_before = get_chain_info(&conf);
         signer_test
             .running_nodes
             .btc_regtest_controller
             .build_next_block(2);
 
         wait_for(60, || {
-            Ok(rl1_commits.load(Ordering::SeqCst) > rl1_commits_before)
+            let info = get_chain_info(&conf);
+            Ok(info.burn_block_height >= 2 + info_before.burn_block_height
+                && rl1_commits.load(Ordering::SeqCst) > rl1_commits_before)
         })
         .unwrap();
 
