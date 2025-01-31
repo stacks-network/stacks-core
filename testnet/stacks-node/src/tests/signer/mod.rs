@@ -336,15 +336,14 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     /// Mine a BTC block and wait for a new Stacks block to be mined
     /// Note: do not use nakamoto blocks mined heuristic if running a test with multiple miners
     fn mine_nakamoto_block(&mut self, timeout: Duration, use_nakamoto_blocks_mined: bool) {
-        let commits_submitted = self.running_nodes.commits_submitted.clone();
         let mined_block_time = Instant::now();
         let mined_before = self.running_nodes.nakamoto_blocks_mined.get();
         let info_before = self.get_peer_info();
         next_block_and_mine_commit(
             &mut self.running_nodes.btc_regtest_controller,
             timeout.as_secs(),
-            &self.running_nodes.coord_channel,
-            &commits_submitted,
+            &self.running_nodes.conf,
+            &self.running_nodes.counters,
         )
         .unwrap();
 
@@ -361,8 +360,8 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
     fn mine_block_wait_on_processing(
         &mut self,
-        coord_channels: &[&Arc<Mutex<CoordinatorChannels>>],
-        commits_submitted: &[&Arc<AtomicU64>],
+        node_confs: &[&NeonConfig],
+        node_counters: &[&Counters],
         timeout: Duration,
     ) {
         let blocks_len = test_observer::get_blocks().len();
@@ -370,8 +369,8 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         next_block_and_wait_for_commits(
             &mut self.running_nodes.btc_regtest_controller,
             timeout.as_secs(),
-            coord_channels,
-            commits_submitted,
+            node_confs,
+            node_counters,
             true,
         )
         .unwrap();
