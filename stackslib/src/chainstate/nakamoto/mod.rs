@@ -2469,7 +2469,7 @@ impl NakamotoChainState {
     ) -> Result<bool, ChainstateError> {
         test_debug!("Consider Nakamoto block {}", &block.block_id());
         // do nothing if we already have this block
-        if let Some(_) = Self::get_block_header(headers_conn, &block.header.block_id())? {
+        if Self::get_block_header(headers_conn, &block.header.block_id())?.is_some() {
             debug!("Already have block {}", &block.header.block_id());
             return Ok(false);
         }
