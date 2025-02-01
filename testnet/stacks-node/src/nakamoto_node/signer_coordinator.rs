@@ -334,7 +334,7 @@ impl SignerCoordinator {
                         return false;
                     }
                     // number or rejections changed?
-                    if status.total_reject_weight as u64 != rejections {
+                    if u64::from(status.total_reject_weight) != rejections {
                         return false;
                     }
                     // enough signatures?
@@ -388,8 +388,8 @@ impl SignerCoordinator {
                 }
             };
 
-            if rejections != block_status.total_reject_weight as u64 {
-                rejections = block_status.total_reject_weight as u64;
+            if rejections != u64::from(block_status.total_reject_weight) {
+                rejections = u64::from(block_status.total_reject_weight);
                 let (rejections_step, new_rejections_timeout) = self
                     .block_rejection_timeout_steps
                     .range((Included(0), Included(rejections)))
