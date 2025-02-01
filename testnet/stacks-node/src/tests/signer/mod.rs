@@ -936,7 +936,6 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     let counters = run_loop.counters();
 
     let coord_channel = run_loop.coordinator_channels();
-
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
 
     // Give the run loop some time to start up!
