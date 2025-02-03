@@ -218,12 +218,12 @@ impl Counters {
         Counters::set(&self.microblocks_processed, value)
     }
 
-    pub fn set_miner_current_rejections_timeout(&self, value: u64) {
+    pub fn set_miner_current_rejections_timeout_secs(&self, value: u64) {
         Counters::set(&self.naka_miner_current_rejections_timeout_secs, value)
     }
 
-    pub fn set_miner_current_rejections(&self, value: u64) {
-        Counters::set(&self.naka_miner_current_rejections, value)
+    pub fn set_miner_current_rejections(&self, value: u32) {
+        Counters::set(&self.naka_miner_current_rejections, u64::from(value))
     }
 }
 

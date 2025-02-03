@@ -70,7 +70,7 @@ pub struct SignerCoordinator {
     ///  burn block has arrived since this thread started.
     burn_tip_at_start: ConsensusHash,
     /// The timeout configuration based on the percentage of rejections
-    block_rejection_timeout_steps: BTreeMap<u64, Duration>,
+    block_rejection_timeout_steps: BTreeMap<u32, Duration>,
 }
 
 impl SignerCoordinator {
@@ -107,10 +107,10 @@ impl SignerCoordinator {
         let miners_session = StackerDBSession::new(&rpc_socket.to_string(), miners_contract_id);
 
         // build a BTreeMap of the various timeout steps
-        let mut block_rejection_timeout_steps = BTreeMap::<u64, Duration>::new();
+        let mut block_rejection_timeout_steps = BTreeMap::<u32, Duration>::new();
         for (percentage, duration) in config.miner.block_rejection_timeout_steps.iter() {
             let rejections_amount =
-                ((f64::from(listener.total_weight) / 100.0) * f64::from(*percentage)) as u64;
+                ((f64::from(listener.total_weight) / 100.0) * f64::from(*percentage)) as u32;
             block_rejection_timeout_steps.insert(rejections_amount, *duration);
         }
 
@@ -308,7 +308,7 @@ impl SignerCoordinator {
         counters: &Counters,
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
         // the amount of current rejections (used to eventually modify the timeout)
-        let mut rejections: u64 = 0;
+        let mut rejections: u32 = 0;
         // default timeout (the 0 entry must be always present)
         let mut rejections_timeout = self
             .block_rejection_timeout_steps
@@ -334,7 +334,7 @@ impl SignerCoordinator {
                         return false;
                     }
                     // number or rejections changed?
-                    if u64::from(status.total_reject_weight) != rejections {
+                    if status.total_reject_weight != rejections {
                         return false;
                     }
                     // enough signatures?
@@ -388,8 +388,8 @@ impl SignerCoordinator {
                 }
             };
 
-            if rejections != u64::from(block_status.total_reject_weight) {
-                rejections = u64::from(block_status.total_reject_weight);
+            if rejections != block_status.total_reject_weight {
+                rejections = block_status.total_reject_weight;
                 let (rejections_step, new_rejections_timeout) = self
                     .block_rejection_timeout_steps
                     .range((Included(0), Included(rejections)))
@@ -406,7 +406,7 @@ impl SignerCoordinator {
                                     "rejections_step" => rejections_step,
                                     "rejections_threshold" => self.total_weight.saturating_sub(self.weight_threshold));
 
-                counters.set_miner_current_rejections_timeout(rejections_timeout.as_secs());
+                counters.set_miner_current_rejections_timeout_secs(rejections_timeout.as_secs());
                 counters.set_miner_current_rejections(rejections);
             }
 
