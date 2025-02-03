@@ -388,11 +388,8 @@ impl PeerNetwork {
             inbound.join(", ")
         );
 
-        match PeerDB::get_frontier_size(self.peerdb.conn()) {
-            Ok(count) => {
-                debug!("{:?}: Frontier table size: {}", &self.local_peer, count);
-            }
-            Err(_) => {}
+        if let Ok(count) = PeerDB::get_frontier_size(self.peerdb.conn()) {
+            debug!("{:?}: Frontier table size: {}", &self.local_peer, count);
         };
         debug!("{:?}: Walk finished ===================", &self.local_peer);
     }

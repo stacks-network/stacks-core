@@ -195,45 +195,42 @@ impl AttachmentInstance {
     ) -> Option<AttachmentInstance> {
         if let Value::Tuple(ref attachment) = value {
             if let Ok(Value::Tuple(ref attachment_data)) = attachment.get("attachment") {
-                match (
+                if let (
+                    Ok(Value::Sequence(SequenceData::Buffer(content_hash))),
+                    Ok(Value::UInt(attachment_index)),
+                ) = (
                     attachment_data.get("hash"),
                     attachment_data.get("attachment-index"),
                 ) {
-                    (
-                        Ok(Value::Sequence(SequenceData::Buffer(content_hash))),
-                        Ok(Value::UInt(attachment_index)),
-                    ) => {
-                        let content_hash = if content_hash.data.is_empty() {
-                            Hash160::empty()
-                        } else {
-                            match Hash160::from_bytes(&content_hash.data[..]) {
-                                Some(content_hash) => content_hash,
-                                _ => return None,
-                            }
-                        };
-                        let metadata = match attachment_data.get("metadata") {
-                            Ok(metadata) => {
-                                let mut serialized = vec![];
-                                metadata
-                                    .consensus_serialize(&mut serialized)
-                                    .expect("FATAL: invalid metadata");
-                                to_hex(&serialized[..])
-                            }
-                            _ => String::new(),
-                        };
-                        let instance = AttachmentInstance {
-                            index_block_hash,
-                            content_hash,
-                            attachment_index: *attachment_index as u32,
-                            stacks_block_height,
-                            metadata,
-                            contract_id: contract_id.clone(),
-                            tx_id,
-                            canonical_stacks_tip_height,
-                        };
-                        return Some(instance);
-                    }
-                    _ => {}
+                    let content_hash = if content_hash.data.is_empty() {
+                        Hash160::empty()
+                    } else {
+                        match Hash160::from_bytes(&content_hash.data[..]) {
+                            Some(content_hash) => content_hash,
+                            _ => return None,
+                        }
+                    };
+                    let metadata = match attachment_data.get("metadata") {
+                        Ok(metadata) => {
+                            let mut serialized = vec![];
+                            metadata
+                                .consensus_serialize(&mut serialized)
+                                .expect("FATAL: invalid metadata");
+                            to_hex(&serialized[..])
+                        }
+                        _ => String::new(),
+                    };
+                    let instance = AttachmentInstance {
+                        index_block_hash,
+                        content_hash,
+                        attachment_index: *attachment_index as u32,
+                        stacks_block_height,
+                        metadata,
+                        contract_id: contract_id.clone(),
+                        tx_id,
+                        canonical_stacks_tip_height,
+                    };
+                    return Some(instance);
                 }
             }
         }
