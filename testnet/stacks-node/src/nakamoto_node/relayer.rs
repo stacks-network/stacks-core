@@ -1348,10 +1348,10 @@ impl RelayerThread {
     /// Assumes that the caller has already checked that the given miner has _not_ won the new
     /// sortition.
     ///
-    /// Returns Ok(Some(stacks-tip-election-snapshot)) if the last-winning miner needs to extend.
-    /// For now, this only happens if the miner's election snapshot was the last-known valid and
-    /// non-empty snapshot.  In the future, this function may return Ok(Some(..)) if the node
-    /// determines that a subsequent miner won sortition, but never came online.
+    /// Returns Ok(Some(stacks-tip-election-snapshot)) if the last-winning miner should attempt to extend.
+    /// This can happen for two seperate reasons:
+    /// - the miner's election snapshot was the last-known valid and non-empty snapshot
+    /// - the node determines that a subsequent miner won sortition, but has not yet produced a valid block.
     ///
     /// Returns OK(None) if the last-winning miner should not extend its tenure.
     ///
@@ -1407,20 +1407,21 @@ impl RelayerThread {
             return Ok(None);
         }
 
-        // For now, only allow the miner to extend its tenure if won the highest valid sortition.
+        // Allow the miner to extend its tenure if won the highest valid sortition.
         // There cannot be any higher sortitions that are valid (as defined above).
-        //
-        // In the future, the miner will be able to extend its tenure even if there are higher
-        // valid sortitions, but only if it determines that the miners of those sortitions are
-        // offline.
         if let Some(highest_valid_sortition) = Self::find_highest_valid_sortition(
             sortdb,
             chain_state,
             &sort_tip,
             &canonical_stacks_snapshot.consensus_hash,
         )? {
-            info!("Relayer: will not extend tenure -- we won sortition {}, but the highest valid sortition is {}", &canonical_stacks_snapshot.consensus_hash, &highest_valid_sortition.consensus_hash);
-            return Ok(None);
+            // The miner will be able to extend its tenure even if there are higher
+            // valid sortitions, but IFF it determines that the miners of the sortition
+            // has yet to produce a valid block.
+            if canonical_stacks_snapshot.consensus_hash == highest_valid_sortition.consensus_hash {
+                info!("Relayer: will not extend tenure -- we won sortition {}, but the highest valid sortition is {} and has already produced a valid Stacks block.", &canonical_stacks_snapshot.consensus_hash, &highest_valid_sortition.consensus_hash);
+                return Ok(None);
+            }
         }
 
         Ok(Some(canonical_stacks_snapshot))
@@ -1431,7 +1432,8 @@ impl RelayerThread {
     /// elected the local view of the canonical Stacks fork's ongoing tenure.
     ///
     /// This function assumes that the caller has checked that the sortition referred to by
-    /// `new_burn_view` does not have a sortition winner.
+    /// `new_burn_view` does not have a sortition winner or that the winner has not produced a
+    /// valid block yet.
     fn continue_tenure(&mut self, new_burn_view: ConsensusHash) -> Result<(), NakamotoNodeError> {
         if let Err(e) = self.stop_tenure() {
             error!("Relayer: Failed to stop tenure: {e:?}");
@@ -1758,9 +1760,9 @@ impl RelayerThread {
     }
 
     /// Try to start up a tenure-extend.
-    /// Only do this if the miner won the highest valid sortition but the burn view has changed.
-    /// In the future, the miner will also try to extend its tenure if a subsequent miner appears
-    /// to be offline.
+    /// Only do this if:
+    /// - the miner won the highest valid sortition but the burn view has changed.
+    /// - the subsequent miner appears to be offline.
     fn try_continue_tenure(&mut self) {
         if self.tenure_extend_timeout.is_none() {
             return;

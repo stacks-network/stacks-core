@@ -15,6 +15,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - Miner will include other transactions in blocks with tenure extend transactions (#5760)
 - Miner will not issue a tenure extend until at least half of the block budget has been spent (#5757)
+- Miner will issue a tenure extend if the incoming miner has failed to produce a block (#5729)
 
 ### Fixed
 
