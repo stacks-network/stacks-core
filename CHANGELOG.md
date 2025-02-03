@@ -15,6 +15,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [3.1.0.0.5]
 
+### Added
+
 - Add miner configuration option `tenure_extend_cost_threshold` to specify the percentage of the tenure budget that must be spent before a time-based tenure extend is attempted
 
 ### Changed
