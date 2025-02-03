@@ -2116,21 +2116,6 @@ impl PeerNetwork {
                     "public addr" => nk.addrbytes.pretty_print(),
                     "reason" => %reason
                 );
-                // remove inventory state
-                if let Some(inv_state) = self.inv_state.as_mut() {
-                    debug!(
-                        "{:?}: Remove inventory state for epoch 2.x {nk:?}",
-                        &self.local_peer
-                    );
-                    inv_state.del_peer(&nk);
-                }
-                if let Some(inv_state) = self.inv_state_nakamoto.as_mut() {
-                    debug!(
-                        "{:?}: Remove inventory state for Nakamoto {nk:?}",
-                        &self.local_peer
-                    );
-                    inv_state.del_peer(&NeighborAddress::from_neighbor_key(nk.clone(), pubkh));
-                }
                 self.pending_messages.remove(&(event_id, nk.clone()));
                 self.pending_stacks_messages.remove(&(event_id, nk.clone()));
 
@@ -2151,6 +2136,21 @@ impl PeerNetwork {
                 }
                 self.relay_handles.remove(&event_id);
                 self.peers.remove(&event_id);
+            }
+            // remove inventory state
+            if let Some(inv_state) = self.inv_state.as_mut() {
+                debug!(
+                    "{:?}: Remove inventory state for epoch 2.x {nk:?}",
+                    &self.local_peer
+                );
+                inv_state.del_peer(&nk);
+            }
+            if let Some(inv_state) = self.inv_state_nakamoto.as_mut() {
+                debug!(
+                    "{:?}: Remove inventory state for Nakamoto {nk:?}",
+                    &self.local_peer
+                );
+                inv_state.del_peer(&NeighborAddress::from_neighbor_key(nk.clone(), pubkh));
             }
         }
     }
