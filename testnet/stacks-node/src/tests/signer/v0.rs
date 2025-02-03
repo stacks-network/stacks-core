@@ -7895,6 +7895,114 @@ fn block_validation_response_timeout() {
     );
 }
 
+// Verify that the miner timeout while waiting for signers will change accordingly
+// to rejections.
+#[test]
+#[ignore]
+fn block_validation_check_rejection_timeout_heuristic() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 20;
+    let timeout = Duration::from_secs(30);
+    let sender_sk = Secp256k1PrivateKey::random();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr, send_amt + send_fee)],
+        |config| {
+            config.block_proposal_validation_timeout = timeout;
+        },
+        |config| {
+            config.miner.block_rejection_timeout_steps.clear();
+            config
+                .miner
+                .block_rejection_timeout_steps
+                .insert(0, Duration::from_secs(123));
+            config
+                .miner
+                .block_rejection_timeout_steps
+                .insert(10, Duration::from_secs(20));
+            config
+                .miner
+                .block_rejection_timeout_steps
+                .insert(15, Duration::from_secs(10));
+            config
+                .miner
+                .block_rejection_timeout_steps
+                .insert(20, Duration::from_secs(99));
+        },
+        None,
+        None,
+    );
+
+    let all_signers: Vec<_> = signer_test
+        .signer_stacks_private_keys
+        .iter()
+        .map(StacksPublicKey::from_private)
+        .collect();
+
+    signer_test.boot_to_epoch_3();
+
+    // note we just use mined nakamoto_blocks as the second block is not going to be confirmed
+
+    let mut test_rejections = |signer_split_index: usize, expected_timeout: u64| {
+        let blocks_before = test_observer::get_mined_nakamoto_blocks().len();
+        let (ignore_signers, reject_signers) = all_signers.split_at(signer_split_index);
+
+        info!("------------------------- Check Rejections-based timeout with {} rejections -------------------------", reject_signers.len());
+
+        TEST_REJECT_ALL_BLOCK_PROPOSAL.set(reject_signers.to_vec());
+        TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(ignore_signers.to_vec());
+
+        next_block_and(
+            &mut signer_test.running_nodes.btc_regtest_controller,
+            30,
+            || Ok(test_observer::get_mined_nakamoto_blocks().len() > blocks_before),
+        )
+        .unwrap();
+
+        signer_test
+            .wait_for_block_rejections(timeout.as_secs(), &reject_signers)
+            .unwrap();
+
+        wait_for(60, || {
+            Ok(signer_test
+                .running_nodes
+                .counters
+                .naka_miner_current_rejections
+                .get()
+                >= reject_signers.len() as u64)
+        })
+        .unwrap();
+        assert_eq!(
+            signer_test
+                .running_nodes
+                .counters
+                .naka_miner_current_rejections_timeout_secs
+                .get(),
+            expected_timeout
+        );
+    };
+
+    test_rejections(19, 123);
+    test_rejections(18, 20);
+    test_rejections(17, 10);
+    test_rejections(16, 99);
+
+    // reset reject/ignore
+    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![]);
+    TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(vec![]);
+
+    info!("------------------------- Shutdown -------------------------");
+    signer_test.shutdown();
+}
+
 /// Test scenario:
 ///
 /// - when a signer submits a block validation request and

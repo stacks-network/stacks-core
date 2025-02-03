@@ -16,7 +16,7 @@
 
 pub mod chain_data;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -2184,6 +2184,8 @@ pub struct MinerConfig {
     pub tenure_timeout: Duration,
     /// Percentage of block budget that must be used before attempting a time-based tenure extend
     pub tenure_extend_cost_threshold: u64,
+    /// Define the timeout to apply while waiting for signers responses, based on the amount of rejections
+    pub block_rejection_timeout_steps: HashMap<u32, Duration>,
 }
 
 impl Default for MinerConfig {
@@ -2223,6 +2225,15 @@ impl Default for MinerConfig {
             tenure_extend_poll_secs: Duration::from_secs(DEFAULT_TENURE_EXTEND_POLL_SECS),
             tenure_timeout: Duration::from_secs(DEFAULT_TENURE_TIMEOUT_SECS),
             tenure_extend_cost_threshold: DEFAULT_TENURE_EXTEND_COST_THRESHOLD,
+
+            block_rejection_timeout_steps: {
+                let mut rejections_timeouts_default_map = HashMap::<u32, Duration>::new();
+                rejections_timeouts_default_map.insert(0, Duration::from_secs(600));
+                rejections_timeouts_default_map.insert(10, Duration::from_secs(300));
+                rejections_timeouts_default_map.insert(20, Duration::from_secs(150));
+                rejections_timeouts_default_map.insert(30, Duration::from_secs(0));
+                rejections_timeouts_default_map
+            },
         }
     }
 }
@@ -2620,6 +2631,7 @@ pub struct MinerConfigFile {
     pub tenure_extend_poll_secs: Option<u64>,
     pub tenure_timeout_secs: Option<u64>,
     pub tenure_extend_cost_threshold: Option<u64>,
+    pub block_rejection_timeout_steps: Option<HashMap<String, u64>>,
 }
 
 impl MinerConfigFile {
@@ -2763,6 +2775,24 @@ impl MinerConfigFile {
             tenure_extend_poll_secs: self.tenure_extend_poll_secs.map(Duration::from_secs).unwrap_or(miner_default_config.tenure_extend_poll_secs),
             tenure_timeout: self.tenure_timeout_secs.map(Duration::from_secs).unwrap_or(miner_default_config.tenure_timeout),
             tenure_extend_cost_threshold: self.tenure_extend_cost_threshold.unwrap_or(miner_default_config.tenure_extend_cost_threshold),
+
+            block_rejection_timeout_steps: {
+                if let Some(block_rejection_timeout_items) = self.block_rejection_timeout_steps {
+                    let mut rejection_timeout_durations = HashMap::<u32, Duration>::new();
+                    for (slice, seconds) in block_rejection_timeout_items.iter() {
+                        match slice.parse::<u32>() {
+                            Ok(slice_slot) => rejection_timeout_durations.insert(slice_slot, Duration::from_secs(*seconds)),
+                            Err(e) => panic!("block_rejection_timeout_steps keys must be unsigned integers: {}", e)
+                        };
+                    }
+                    if !rejection_timeout_durations.contains_key(&0) {
+                        panic!("block_rejection_timeout_steps requires a definition for the '0' key/step");
+                    }
+                    rejection_timeout_durations
+                } else{
+                    miner_default_config.block_rejection_timeout_steps
+                }
+            }
         })
     }
 }
