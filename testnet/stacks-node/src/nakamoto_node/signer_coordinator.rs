@@ -391,7 +391,6 @@ impl SignerCoordinator {
                         SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
                     let canonical_stacks_tip =
                         StacksBlockId::new(&canonical_stacks_tip_ch, &canonical_stacks_tip_bh);
-                    info!("SignCoordinator: Current stacks tip: {canonical_stacks_tip}, parent: {parent_block_id}");
                     if canonical_stacks_tip != parent_block_id {
                         debug!("SignCoordinator: Exiting due to new stacks tip");
                         return Err(NakamotoNodeError::StacksTipChanged);

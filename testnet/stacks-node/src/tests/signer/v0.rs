@@ -13140,6 +13140,7 @@ fn interrupt_miner_on_new_stacks_tip() {
     signer_test
         .wait_for_block_acceptance(30, &block_n.signer_signature_hash, &all_signers)
         .expect("Timed out waiting for block acceptance of N");
+    info!("Block N is {}", block_n.stacks_height);
 
     info!("------------------------- RL2 Wins Sortition -------------------------");
     let rl2_commits_before = commits_submitted_rl2.load(Ordering::SeqCst);
@@ -13225,7 +13226,7 @@ fn interrupt_miner_on_new_stacks_tip() {
         };
         Ok(chain_info_2.stacks_tip_height == block_n.stacks_height + 1)
     })
-    .expect("Timed out waiting for RL2 to advance to block N");
+    .expect("Timed out waiting for RL2 to advance to block N+1");
 
     info!("------------------------- Next Tenure Builds on N+1 -------------------------");
 
