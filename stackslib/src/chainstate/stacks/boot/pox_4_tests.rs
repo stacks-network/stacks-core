@@ -9570,16 +9570,13 @@ fn missed_slots_no_unlock() {
                 coinbase_txs.push(r);
                 continue;
             }
-            match r.transaction {
-                TransactionOrigin::Stacks(ref t) => {
-                    let addr = t.auth.origin().address_testnet();
-                    if addr == alice_address {
-                        alice_txs.insert(t.auth.get_origin_nonce(), r);
-                    } else if addr == bob_address {
-                        bob_txs.insert(t.auth.get_origin_nonce(), r);
-                    }
+            if let TransactionOrigin::Stacks(ref t) = r.transaction {
+                let addr = t.auth.origin().address_testnet();
+                if addr == alice_address {
+                    alice_txs.insert(t.auth.get_origin_nonce(), r);
+                } else if addr == bob_address {
+                    bob_txs.insert(t.auth.get_origin_nonce(), r);
                 }
-                _ => {}
             }
         }
     }
