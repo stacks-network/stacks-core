@@ -122,7 +122,7 @@ fn test_try_make_response() {
     assert_eq!(preamble.status_code, 400);
     debug!("Response JSON no estimator: {}", &body_json);
 
-    // case 2: no estimate avaialable
+    // case 2: no estimate available
     let mut requests = vec![];
     let request = StacksHttpRequest::new_post_fee_rate(
         addr.clone().into(),

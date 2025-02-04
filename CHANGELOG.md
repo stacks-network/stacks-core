@@ -20,6 +20,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - Miners who restart their nodes immediately before a winning tenure now correctly detect that
   they won the tenure after their nodes restart ([#5750](https://github.com/stacks-network/stacks-core/issues/5750)).
+- Error responses to /v2/transactions/fees are once again expressed as JSON ([#4145](https://github.com/stacks-network/stacks-core/issues/4145)).
 
 ## [3.1.0.0.4]
 
