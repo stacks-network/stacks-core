@@ -14,6 +14,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Changed
 
 - Miner will include other transactions in blocks with tenure extend transactions (#5760)
+- Add `block_rejection_timeout_steps` to miner configuration for defining rejections-based timeouts while waiting for signers response (#5705)
 - Miner will not issue a tenure extend until at least half of the block budget has been spent (#5757)
 
 ### Fixed
