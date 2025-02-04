@@ -151,14 +151,11 @@ fn make_test_transaction() -> StacksTransaction {
     .unwrap();
     let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
     let addr = auth.origin().address_testnet();
-    let recv_addr = StacksAddress {
-        version: 1,
-        bytes: Hash160([0xff; 20]),
-    };
+    let recv_addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
 
     let mut tx_stx_transfer = StacksTransaction::new(
         TransactionVersion::Testnet,
-        auth.clone(),
+        auth,
         TransactionPayload::TokenTransfer(
             recv_addr.clone().into(),
             123,
@@ -809,14 +806,14 @@ fn test_http_response_type_codec_err() {
         ("GET", "/v2/neighbors"),
         ("GET", "/v2/neighbors"),
     ];
-    let bad_request_payloads = vec![
+    let bad_request_payloads = [
         "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 2\r\n\r\nab",
         "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 4\r\n\r\n\"ab\"",
         "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 1\r\n\r\n{",
         "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 1\r\n\r\na",
         "HTTP/1.1 400 Bad Request\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/octet-stream\r\nContent-length: 2\r\n\r\n{}",
     ];
-    let expected_bad_request_payload_errors = vec![
+    let expected_bad_request_payload_errors = [
         "Invalid content-type",
         "bad length 2 for hex string",
         "Not enough bytes",

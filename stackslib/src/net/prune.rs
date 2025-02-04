@@ -54,7 +54,7 @@ impl PeerNetwork {
                 None => {
                     continue;
                 }
-                Some(ref convo) => {
+                Some(convo) => {
                     if !convo.stats.outbound {
                         continue;
                     }
@@ -88,7 +88,7 @@ impl PeerNetwork {
                 "==== ORG NEIGHBOR DISTRIBUTION OF {:?} ===",
                 &self.local_peer
             );
-            for (ref _org, ref neighbor_infos) in org_neighbor.iter() {
+            for (ref _org, neighbor_infos) in org_neighbor.iter() {
                 let _neighbors: Vec<NeighborKey> =
                     neighbor_infos.iter().map(|ni| ni.0.clone()).collect();
                 test_debug!(
@@ -196,14 +196,12 @@ impl PeerNetwork {
             // likely to be up for X more seconds, so we only really want to distinguish between nodes that
             // have wildly different uptimes.
             // Within uptime buckets, sort by health.
-            match org_neighbors.get_mut(&org) {
+            match org_neighbors.get_mut(org) {
                 None => {}
                 Some(ref mut neighbor_infos) => {
-                    neighbor_infos.sort_unstable_by(
-                        |&(ref _nk1, ref stats1), &(ref _nk2, ref stats2)| {
-                            PeerNetwork::compare_neighbor_uptime_health(stats1, stats2)
-                        },
-                    );
+                    neighbor_infos.sort_unstable_by(|(_nk1, stats1), (_nk2, stats2)| {
+                        PeerNetwork::compare_neighbor_uptime_health(stats1, stats2)
+                    });
                 }
             }
         }
@@ -211,7 +209,7 @@ impl PeerNetwork {
         // don't let a single organization have more than
         // soft_max_neighbors_per_org neighbors.
         for org in orgs.iter() {
-            match org_neighbors.get_mut(&org) {
+            match org_neighbors.get_mut(org) {
                 None => {}
                 Some(ref mut neighbor_infos) => {
                     if neighbor_infos.len() as u64 > self.connection_opts.soft_max_neighbors_per_org
@@ -324,34 +322,29 @@ impl PeerNetwork {
             if preserve.contains(event_id) {
                 continue;
             }
-            match self.peers.get(&event_id) {
-                Some(ref convo) => {
-                    if !convo.stats.outbound {
-                        let stats = convo.stats.clone();
-                        if let Some(entry) = ip_neighbor.get_mut(&nk.addrbytes) {
-                            entry.push((*event_id, nk.clone(), stats));
-                        } else {
-                            ip_neighbor.insert(nk.addrbytes, vec![(*event_id, nk.clone(), stats)]);
-                        }
+            if let Some(convo) = self.peers.get(event_id) {
+                if !convo.stats.outbound {
+                    let stats = convo.stats.clone();
+                    if let Some(entry) = ip_neighbor.get_mut(&nk.addrbytes) {
+                        entry.push((*event_id, nk.clone(), stats));
+                    } else {
+                        ip_neighbor.insert(nk.addrbytes, vec![(*event_id, nk.clone(), stats)]);
                     }
                 }
-                None => {}
             }
         }
 
         // sort in order by first-contact time (oldest first)
         for (_, stats_list) in ip_neighbor.iter_mut() {
-            stats_list.sort_by(
-                |&(ref _e1, ref _nk1, ref stats1), &(ref _e2, ref _nk2, ref stats2)| {
-                    if stats1.first_contact_time < stats2.first_contact_time {
-                        Ordering::Less
-                    } else if stats1.first_contact_time > stats2.first_contact_time {
-                        Ordering::Greater
-                    } else {
-                        Ordering::Equal
-                    }
-                },
-            );
+            stats_list.sort_by(|(_e1, _nk1, stats1), (_e2, _nk2, stats2)| {
+                if stats1.first_contact_time < stats2.first_contact_time {
+                    Ordering::Less
+                } else if stats1.first_contact_time > stats2.first_contact_time {
+                    Ordering::Greater
+                } else {
+                    Ordering::Equal
+                }
+            });
         }
 
         let mut to_remove = vec![];
@@ -382,15 +375,12 @@ impl PeerNetwork {
         let mut outbound: Vec<String> = vec![];
 
         for (nk, event_id) in self.events.iter() {
-            match self.peers.get(event_id) {
-                Some(convo) => {
-                    if convo.stats.outbound {
-                        outbound.push(format!("{:?}", &nk));
-                    } else {
-                        inbound.push(format!("{:?}", &nk));
-                    }
+            if let Some(convo) = self.peers.get(event_id) {
+                if convo.stats.outbound {
+                    outbound.push(format!("{:?}", &nk));
+                } else {
+                    inbound.push(format!("{:?}", &nk));
                 }
-                None => {}
             }
         }
         (inbound, outbound)
@@ -415,7 +405,7 @@ impl PeerNetwork {
 
         for prune in pruned_by_ip.iter() {
             debug!("{:?}: prune by IP: {:?}", &self.local_peer, prune);
-            self.deregister_neighbor(&prune);
+            self.deregister_neighbor(prune);
 
             if !self.prune_inbound_counts.contains_key(prune) {
                 self.prune_inbound_counts.insert(prune.clone(), 1);
@@ -427,7 +417,7 @@ impl PeerNetwork {
 
         let pruned_by_org = self
             .prune_frontier_outbound_orgs(preserve)
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
 
         debug!(
             "{:?}: remove {} outbound peers by shared Org",
@@ -437,7 +427,7 @@ impl PeerNetwork {
 
         for prune in pruned_by_org.iter() {
             debug!("{:?}: prune by Org: {:?}", &self.local_peer, prune);
-            self.deregister_neighbor(&prune);
+            self.deregister_neighbor(prune);
 
             if !self.prune_outbound_counts.contains_key(prune) {
                 self.prune_outbound_counts.insert(prune.clone(), 1);
@@ -468,11 +458,8 @@ impl PeerNetwork {
                     inbound.join(", ")
                 );
 
-                match PeerDB::get_frontier_size(self.peerdb.conn()) {
-                    Ok(count) => {
-                        debug!("{:?}: Frontier size: {}", &self.local_peer, count);
-                    }
-                    Err(_) => {}
+                if let Ok(count) = PeerDB::get_frontier_size(self.peerdb.conn()) {
+                    debug!("{:?}: Frontier size: {}", &self.local_peer, count);
                 };
             }
         }

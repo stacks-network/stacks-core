@@ -856,7 +856,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
             let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
 
             let costs_2_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+                StacksTransaction::new(tx_version.clone(), boot_code_auth, payload);
 
             let initialization_receipt = self.as_transaction(|tx_conn| {
                 // bump the epoch in the Clarity DB
@@ -1041,7 +1041,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
             );
 
             let costs_3_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+                StacksTransaction::new(tx_version.clone(), boot_code_auth, payload);
 
             let costs_3_initialization_receipt = self.as_transaction(|tx_conn| {
                 // bump the epoch in the Clarity DB
@@ -1222,7 +1222,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
             );
 
             let pox_3_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+                StacksTransaction::new(tx_version.clone(), boot_code_auth, payload);
 
             let pox_3_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
@@ -1483,7 +1483,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
             );
 
             let signers_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+                StacksTransaction::new(tx_version.clone(), boot_code_auth, payload);
 
             let signers_voting_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
@@ -1663,9 +1663,9 @@ impl ClarityConnection for ClarityTransactionConnection<'_, '_> {
     where
         F: FnOnce(&mut AnalysisDatabase) -> R,
     {
-        self.with_analysis_db(|mut db, cost_tracker| {
+        self.with_analysis_db(|db, cost_tracker| {
             db.begin();
-            let result = to_do(&mut db);
+            let result = to_do(db);
             db.roll_back()
                 .expect("FATAL: failed to rollback changes during read-only connection");
             (cost_tracker, result)
@@ -1968,7 +1968,7 @@ mod tests {
                     tx.analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                 })
@@ -1981,7 +1981,7 @@ mod tests {
                     tx.analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                 })
@@ -2029,7 +2029,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2037,7 +2037,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
-                    &contract,
+                    contract,
                     None,
                     |_, _| false,
                 )
@@ -2082,7 +2082,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2090,7 +2090,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
-                    &contract,
+                    contract,
                     None,
                     |_, _| false,
                 )
@@ -2110,7 +2110,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2118,7 +2118,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
-                    &contract,
+                    contract,
                     None,
                     |_, _| false,
                 )
@@ -2140,7 +2140,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2150,7 +2150,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         &ct_ast,
-                        &contract,
+                        contract,
                         None,
                         |_, _| false
                     )
@@ -2194,7 +2194,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2202,7 +2202,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
-                    &contract,
+                    contract,
                     None,
                     |_, _| false,
                 )
@@ -2254,7 +2254,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2262,7 +2262,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
-                    &contract,
+                    contract,
                     None,
                     |_, _| false,
                 )
@@ -2346,7 +2346,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2354,7 +2354,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
-                    &contract,
+                    contract,
                     None,
                     |_, _| false,
                 )
@@ -2477,7 +2477,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2485,7 +2485,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
-                    &contract,
+                    contract,
                     None,
                     |_, _| false,
                 )
@@ -2609,7 +2609,7 @@ mod tests {
             key_encoding: TransactionPublicKeyEncoding::Compressed,
             nonce: 0,
             tx_fee: 1,
-            signature: MessageSignature::from_raw(&vec![0xfe; 65]),
+            signature: MessageSignature::from_raw(&[0xfe; 65]),
         });
 
         let contract = "(define-public (foo) (ok 1))";
@@ -2623,8 +2623,7 @@ mod tests {
                     code_body: StacksString::from_str(contract).unwrap(),
                 },
                 None,
-            )
-            .into(),
+            ),
         );
 
         let tx2 = StacksTransaction::new(
@@ -2636,8 +2635,7 @@ mod tests {
                     code_body: StacksString::from_str(contract).unwrap(),
                 },
                 None,
-            )
-            .into(),
+            ),
         );
 
         tx1.post_conditions.push(TransactionPostCondition::STX(
@@ -2648,7 +2646,7 @@ mod tests {
 
         let mut tx3 = StacksTransaction::new(
             TransactionVersion::Mainnet,
-            TransactionAuth::Standard(spending_cond.clone()),
+            TransactionAuth::Standard(spending_cond),
             TransactionPayload::ContractCall(TransactionContractCall {
                 address: sender,
                 contract_name: "hello-world".into(),
@@ -2861,7 +2859,7 @@ mod tests {
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &contract,
+                        contract,
                         ASTRules::PrecheckSize,
                     )
                     .unwrap();
@@ -2869,7 +2867,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     &ct_ast,
-                    &contract,
+                    contract,
                     None,
                     |_, _| false,
                 )

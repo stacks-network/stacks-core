@@ -46,11 +46,7 @@ pub enum HttpReservedHeader {
 
 impl HttpReservedHeader {
     pub fn is_reserved(header: &str) -> bool {
-        let hdr = header.to_string();
-        match hdr.as_str() {
-            "content-length" | "content-type" | "host" => true,
-            _ => false,
-        }
+        matches!(header, "content-length" | "content-type" | "host")
     }
 
     pub fn try_from_str(header: &str, value: &str) -> Option<HttpReservedHeader> {
@@ -110,7 +106,7 @@ pub fn parse_json<T: serde::de::DeserializeOwned>(
     let item_result: Result<T, serde_json::Error> = serde_json::from_slice(body);
     item_result.map_err(|e| {
         if e.is_eof() {
-            Error::UnderflowError(format!("Not enough bytes to parse JSON"))
+            Error::UnderflowError("Not enough bytes to parse JSON".to_string())
         } else {
             Error::DecodeError(format!("Failed to parse JSON: {:?}", &e))
         }

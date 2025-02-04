@@ -69,10 +69,11 @@ impl StackerDBConfig {
 /// `setup_stackerdb()`
 fn add_stackerdb(config: &mut TestPeerConfig, stackerdb_config: Option<StackerDBConfig>) -> usize {
     let name = ContractName::try_from(format!("db-{}", config.stacker_dbs.len())).unwrap();
-    let addr = StacksAddress {
-        version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-        bytes: Hash160::from_data(&config.stacker_dbs.len().to_be_bytes()),
-    };
+    let addr = StacksAddress::new(
+        C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+        Hash160::from_data(&config.stacker_dbs.len().to_be_bytes()),
+    )
+    .unwrap();
 
     let stackerdb_config = stackerdb_config.unwrap_or(StackerDBConfig::noop());
 
@@ -110,10 +111,11 @@ fn setup_stackerdb(peer: &mut TestPeer, idx: usize, fill: bool, num_slots: usize
             }
         };
         let pubk = StacksPublicKey::from_private(&pk);
-        let addr = StacksAddress {
-            version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-            bytes: Hash160::from_node_public_key(&pubk),
-        };
+        let addr = StacksAddress::new(
+            C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+            Hash160::from_node_public_key(&pubk),
+        )
+        .unwrap();
 
         pks.push(pk);
         slots.push((addr, 1u32));
@@ -175,7 +177,7 @@ fn load_stackerdb(peer: &TestPeer, idx: usize) -> Vec<(SlotMetadata, Vec<u8>)> {
             .stackerdbs
             .get_latest_chunk(&peer.config.stacker_dbs[idx], i)
             .unwrap()
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
         ret.push((chunk_metadata, chunk));
     }
     ret
@@ -887,8 +889,8 @@ fn test_stackerdb_push_relayer_late_chunks() {
         let mut peer_1_nonce = 0;
         let mut peer_2_nonce = 0;
         let mut peer_3_nonce = 0;
-        peer_1.tenure_with_txs(&vec![], &mut peer_1_nonce);
-        peer_2.tenure_with_txs(&vec![], &mut peer_2_nonce);
+        peer_1.tenure_with_txs(&[], &mut peer_1_nonce);
+        peer_2.tenure_with_txs(&[], &mut peer_2_nonce);
 
         // sanity check -- peer 1 and 2 are at the same tip, but not 3
         let sn1 = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb().conn()).unwrap();
@@ -1043,7 +1045,7 @@ fn test_stackerdb_push_relayer_late_chunks() {
 
             if num_pending >= 10 && !advanced_tenure {
                 debug!("======= Advancing peer 3 tenure ========");
-                peer_3.tenure_with_txs(&vec![], &mut peer_3_nonce);
+                peer_3.tenure_with_txs(&[], &mut peer_3_nonce);
                 advanced_tenure = true;
             }
         }

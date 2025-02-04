@@ -271,7 +271,7 @@ fn test_process_block_ops() {
         vec![BlockstackOperationType::LeaderKeyRegister(
             leader_key_3.clone(),
         )];
-    let block_opshash_121 = OpsHash::from_txids(&vec![leader_key_3.txid.clone()]);
+    let block_opshash_121 = OpsHash::from_txids(&[leader_key_3.txid.clone()]);
     let block_prev_chs_121 =
         vec![ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap()];
     let mut block_121_snapshot = BlockSnapshot {
@@ -316,7 +316,7 @@ fn test_process_block_ops() {
     let block_ops_122 = vec![BlockstackOperationType::LeaderKeyRegister(
         leader_key_2.clone(),
     )];
-    let block_opshash_122 = OpsHash::from_txids(&vec![leader_key_2.txid.clone()]);
+    let block_opshash_122 = OpsHash::from_txids(&[leader_key_2.txid.clone()]);
     let block_prev_chs_122 = vec![
         block_121_snapshot.consensus_hash.clone(),
         ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
@@ -365,7 +365,7 @@ fn test_process_block_ops() {
     let block_ops_123 = vec![BlockstackOperationType::LeaderKeyRegister(
         leader_key_1.clone(),
     )];
-    let block_opshash_123 = OpsHash::from_txids(&vec![
+    let block_opshash_123 = OpsHash::from_txids(&[
         // notably, the user burns here _wont_ be included in the consensus hash
         leader_key_1.txid.clone(),
     ]);
@@ -417,7 +417,7 @@ fn test_process_block_ops() {
 
     // multiple possibilities for block 124 -- we'll reorg the chain each time back to 123 and
     // re-try block 124 to test them all.
-    let block_ops_124_possibilities = vec![
+    let block_ops_124_possibilities = [
         vec![BlockstackOperationType::LeaderBlockCommit(
             block_commit_1.clone(),
         )],
@@ -428,16 +428,12 @@ fn test_process_block_ops() {
         ],
         vec![
             BlockstackOperationType::LeaderBlockCommit(block_commit_1.clone()),
-            BlockstackOperationType::LeaderBlockCommit(block_commit_2.clone()),
+            BlockstackOperationType::LeaderBlockCommit(block_commit_2),
             BlockstackOperationType::LeaderBlockCommit(block_commit_3.clone()),
         ],
     ];
 
-    let block_124_winners = vec![
-        block_commit_1.clone(),
-        block_commit_3.clone(),
-        block_commit_1.clone(),
-    ];
+    let block_124_winners = vec![block_commit_1.clone(), block_commit_3, block_commit_1];
 
     let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
 
@@ -655,7 +651,7 @@ fn test_process_block_ops() {
         // There should only be two -- the winning block at height 124, and the genesis
         // sentinel block hash.  This is because epochs 121, 122, and 123 don't have any block
         // commits.
-        let expected_winning_hashes = vec![
+        let expected_winning_hashes = [
             BlockHeaderHash([0u8; 32]),
             block_124_winners[scenario_idx].block_header_hash.clone(),
         ];
@@ -698,32 +694,21 @@ fn test_burn_snapshot_sequence() {
         initial_reward_start_block: first_block_height,
     };
 
-    let mut leader_private_keys = vec![];
     let mut leader_public_keys = vec![];
     let mut leader_bitcoin_public_keys = vec![];
-    let mut leader_bitcoin_addresses = vec![];
 
     for i in 0..32 {
         let mut csprng: ThreadRng = thread_rng();
         let vrf_privkey = VRFPrivateKey(ed25519_dalek::SigningKey::generate(&mut csprng));
         let vrf_pubkey = VRFPublicKey::from_private(&vrf_privkey);
 
-        let privkey_hex = vrf_privkey.to_hex();
-        leader_private_keys.push(privkey_hex);
-
         let pubkey_hex = vrf_pubkey.to_hex();
         leader_public_keys.push(pubkey_hex);
 
-        let bitcoin_privkey = Secp256k1PrivateKey::new();
+        let bitcoin_privkey = Secp256k1PrivateKey::random();
         let bitcoin_publickey = BitcoinPublicKey::from_private(&bitcoin_privkey);
 
         leader_bitcoin_public_keys.push(to_hex(&bitcoin_publickey.to_bytes()));
-
-        leader_bitcoin_addresses.push(BitcoinAddress::from_bytes_legacy(
-            BitcoinNetworkType::Testnet,
-            LegacyBitcoinAddressType::PublicKeyHash,
-            &Hash160::from_data(&bitcoin_publickey.to_bytes()).0,
-        ));
     }
 
     let mut expected_burn_total: u64 = 0;
@@ -732,11 +717,10 @@ fn test_burn_snapshot_sequence() {
     let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
     let mut prev_snapshot =
         BlockSnapshot::initial(first_block_height, &first_burn_hash, first_block_height);
-    let mut all_stacks_block_hashes = vec![];
 
     for i in 0..32 {
         let mut block_ops = vec![];
-        let burn_block_hash = BurnchainHeaderHash::from_bytes(&vec![
+        let burn_block_hash = BurnchainHeaderHash::from_bytes(&[
             i + 1,
             i + 1,
             0,
@@ -780,12 +764,12 @@ fn test_burn_snapshot_sequence() {
                 sunset_burn: 0,
                 treatment: vec![],
                 commit_outs: vec![],
-                block_header_hash: BlockHeaderHash::from_bytes(&vec![
+                block_header_hash: BlockHeaderHash::from_bytes(&[
                     i, i, i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 0, 0,
                 ])
                 .unwrap(),
-                new_seed: VRFSeed::from_bytes(&vec![
+                new_seed: VRFSeed::from_bytes(&[
                     i, i, i, i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 0, 0,
                 ])
@@ -811,7 +795,7 @@ fn test_burn_snapshot_sequence() {
                     .unwrap()],
                 ),
 
-                txid: Txid::from_bytes(&vec![
+                txid: Txid::from_bytes(&[
                     i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 0, i,
                 ])
@@ -823,7 +807,6 @@ fn test_burn_snapshot_sequence() {
                 burn_header_hash: burn_block_hash.clone(),
             };
 
-            all_stacks_block_hashes.push(next_block_commit.block_header_hash.clone());
             block_ops.push(BlockstackOperationType::LeaderBlockCommit(
                 next_block_commit,
             ));
@@ -844,7 +827,7 @@ fn test_burn_snapshot_sequence() {
             .unwrap(),
             memo: vec![0, 0, 0, 0, i],
 
-            txid: Txid::from_bytes(&vec![
+            txid: Txid::from_bytes(&[
                 i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0,
             ])
@@ -891,7 +874,7 @@ fn test_burn_snapshot_sequence() {
             assert_eq!(snapshot.total_burn, expected_burn_total);
             assert_eq!(
                 snapshot.winning_block_txid,
-                Txid::from_bytes(&vec![
+                Txid::from_bytes(&[
                     i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 0, i
                 ])
@@ -899,7 +882,7 @@ fn test_burn_snapshot_sequence() {
             );
             assert_eq!(
                 snapshot.winning_stacks_block_hash,
-                BlockHeaderHash::from_bytes(&vec![
+                BlockHeaderHash::from_bytes(&[
                     i, i, i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 0, 0
                 ])

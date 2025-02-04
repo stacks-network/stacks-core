@@ -39,7 +39,7 @@ fn setup_rlimit_nofiles() {
 
 fn stacker_db_id(i: usize) -> QualifiedContractIdentifier {
     QualifiedContractIdentifier::new(
-        StandardPrincipalData(0x01, [i as u8; 20]),
+        StandardPrincipalData::new(0x01, [i as u8; 20]).unwrap(),
         format!("db-{}", i).as_str().into(),
     )
 }
@@ -218,7 +218,7 @@ fn test_walk_ring_15_org_biased() {
         let peers = test_walk_ring(&mut peer_configs);
 
         for i in 1..peer_count {
-            match PeerDB::get_peer(
+            if let Some(p) = PeerDB::get_peer(
                 peers[i].network.peerdb.conn(),
                 peer_0.addr.network_id,
                 &peer_0.addr.addrbytes,
@@ -226,11 +226,8 @@ fn test_walk_ring_15_org_biased() {
             )
             .unwrap()
             {
-                Some(p) => {
-                    assert_eq!(p.asn, 1);
-                    assert_eq!(p.org, 1);
-                }
-                None => {}
+                assert_eq!(p.asn, 1);
+                assert_eq!(p.org, 1);
             }
         }
 
@@ -398,7 +395,7 @@ fn test_walk_line_15_org_biased() {
         let peers = test_walk_line(&mut peer_configs);
 
         for i in 1..peer_count {
-            match PeerDB::get_peer(
+            if let Some(p) = PeerDB::get_peer(
                 peers[i].network.peerdb.conn(),
                 peer_0.addr.network_id,
                 &peer_0.addr.addrbytes,
@@ -406,11 +403,8 @@ fn test_walk_line_15_org_biased() {
             )
             .unwrap()
             {
-                Some(p) => {
-                    assert_eq!(p.asn, 1);
-                    assert_eq!(p.org, 1);
-                }
-                None => {}
+                assert_eq!(p.asn, 1);
+                assert_eq!(p.org, 1);
             }
         }
 
@@ -634,7 +628,7 @@ fn test_walk_star_15_org_biased() {
         let peers = test_walk_star(&mut peer_configs);
 
         for i in 1..peer_count {
-            match PeerDB::get_peer(
+            if let Some(p) = PeerDB::get_peer(
                 peers[i].network.peerdb.conn(),
                 peer_0.addr.network_id,
                 &peer_0.addr.addrbytes,
@@ -642,11 +636,8 @@ fn test_walk_star_15_org_biased() {
             )
             .unwrap()
             {
-                Some(p) => {
-                    assert_eq!(p.asn, 1);
-                    assert_eq!(p.org, 1);
-                }
-                None => {}
+                assert_eq!(p.asn, 1);
+                assert_eq!(p.org, 1);
             }
         }
 
@@ -757,7 +748,7 @@ fn test_walk_inbound_line(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPee
 
     run_topology_test_ex(
         &mut peers,
-        |peers: &Vec<TestPeer>| {
+        |peers: &[TestPeer]| {
             let mut done = true;
             for i in 0..peer_count {
                 // only check "public" peers
@@ -840,7 +831,7 @@ fn test_walk_inbound_line_15() {
     })
 }
 
-fn dump_peers(peers: &Vec<TestPeer>) {
+fn dump_peers(peers: &[TestPeer]) {
     test_debug!("\n=== PEER DUMP ===");
     for i in 0..peers.len() {
         let mut neighbor_index = vec![];
@@ -849,28 +840,22 @@ fn dump_peers(peers: &Vec<TestPeer>) {
             let stats_opt = peers[i]
                 .network
                 .get_neighbor_stats(&peers[j].to_neighbor().addr);
-            match stats_opt {
-                Some(stats) => {
-                    neighbor_index.push(j);
-                    if stats.outbound {
-                        outbound_neighbor_index.push(j);
-                    }
+            if let Some(stats) = stats_opt {
+                neighbor_index.push(j);
+                if stats.outbound {
+                    outbound_neighbor_index.push(j);
                 }
-                None => {}
             }
         }
 
         let all_neighbors = PeerDB::get_all_peers(peers[i].network.peerdb.conn()).unwrap();
-        let num_allowed = all_neighbors.iter().fold(0, |mut sum, ref n2| {
-            sum += if n2.allowed < 0 { 1 } else { 0 };
-            sum
-        });
+        let num_allowed = all_neighbors.iter().filter(|n2| n2.allowed < 0).count();
         test_debug!("Neighbor {} (all={}, outbound={}) (total neighbors = {}, total allowed = {}): outbound={:?} all={:?}", i, neighbor_index.len(), outbound_neighbor_index.len(), all_neighbors.len(), num_allowed, &outbound_neighbor_index, &neighbor_index);
     }
     test_debug!("\n");
 }
 
-fn dump_peer_histograms(peers: &Vec<TestPeer>) {
+fn dump_peer_histograms(peers: &[TestPeer]) {
     let mut outbound_hist: HashMap<usize, usize> = HashMap::new();
     let mut inbound_hist: HashMap<usize, usize> = HashMap::new();
     let mut all_hist: HashMap<usize, usize> = HashMap::new();
@@ -882,16 +867,13 @@ fn dump_peer_histograms(peers: &Vec<TestPeer>) {
             let stats_opt = peers[i]
                 .network
                 .get_neighbor_stats(&peers[j].to_neighbor().addr);
-            match stats_opt {
-                Some(stats) => {
-                    neighbor_index.push(j);
-                    if stats.outbound {
-                        outbound_neighbor_index.push(j);
-                    } else {
-                        inbound_neighbor_index.push(j);
-                    }
+            if let Some(stats) = stats_opt {
+                neighbor_index.push(j);
+                if stats.outbound {
+                    outbound_neighbor_index.push(j);
+                } else {
+                    inbound_neighbor_index.push(j);
                 }
-                None => {}
             }
         }
         for inbound in inbound_neighbor_index.iter() {
@@ -942,7 +924,7 @@ fn run_topology_test_ex<F>(
     mut finished_check: F,
     use_finished_check: bool,
 ) where
-    F: FnMut(&Vec<TestPeer>) -> bool,
+    F: FnMut(&[TestPeer]) -> bool,
 {
     let peer_count = peers.len();
 
@@ -1001,32 +983,26 @@ fn run_topology_test_ex<F>(
             debug!("Step peer {:?}", &nk);
 
             // allowed peers are still connected
-            match initial_allowed.get(&nk) {
-                Some(ref peer_list) => {
-                    for pnk in peer_list.iter() {
-                        if !peers[i].network.events.contains_key(&pnk.clone()) {
-                            error!(
-                                "{:?}: Perma-allowed peer {:?} not connected anymore",
-                                &nk, &pnk
-                            );
-                            assert!(false);
-                        }
+            if let Some(peer_list) = initial_allowed.get(&nk) {
+                for pnk in peer_list.iter() {
+                    if !peers[i].network.events.contains_key(&pnk.clone()) {
+                        error!(
+                            "{:?}: Perma-allowed peer {:?} not connected anymore",
+                            &nk, &pnk
+                        );
+                        assert!(false);
                     }
                 }
-                None => {}
             };
 
             // denied peers are never connected
-            match initial_denied.get(&nk) {
-                Some(ref peer_list) => {
-                    for pnk in peer_list.iter() {
-                        if peers[i].network.events.contains_key(&pnk.clone()) {
-                            error!("{:?}: Perma-denied peer {:?} connected", &nk, &pnk);
-                            assert!(false);
-                        }
+            if let Some(peer_list) = initial_denied.get(&nk) {
+                for pnk in peer_list.iter() {
+                    if peers[i].network.events.contains_key(&pnk.clone()) {
+                        error!("{:?}: Perma-denied peer {:?} connected", &nk, &pnk);
+                        assert!(false);
                     }
                 }
-                None => {}
             };
 
             // all ports are unique in the p2p socket table
@@ -1041,7 +1017,7 @@ fn run_topology_test_ex<F>(
 
             // done?
             let now_finished = if use_finished_check {
-                finished_check(&peers)
+                finished_check(peers)
             } else {
                 let mut done = true;
                 let all_neighbors = PeerDB::get_all_peers(peers[i].network.peerdb.conn()).unwrap();
@@ -1082,13 +1058,13 @@ fn run_topology_test_ex<F>(
         }
 
         test_debug!("Finished walking the network {} times", count);
-        dump_peers(&peers);
-        dump_peer_histograms(&peers);
+        dump_peers(peers);
+        dump_peer_histograms(peers);
     }
 
     test_debug!("Converged after {} calls to network.run()", count);
-    dump_peers(&peers);
-    dump_peer_histograms(&peers);
+    dump_peers(peers);
+    dump_peer_histograms(peers);
 
     // each peer learns each other peer's stacker DBs
     for (i, peer) in peers.iter().enumerate() {
