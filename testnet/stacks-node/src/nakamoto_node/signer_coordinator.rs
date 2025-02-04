@@ -21,7 +21,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use libsigner::v0::messages::{MinerSlotID, SignerMessage as SignerMessageV0};
-use libsigner::{BlockProposal, SignerSession, StackerDBSession};
+use libsigner::{BlockProposal, BlockProposalData, SignerSession, StackerDBSession};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
@@ -250,6 +250,7 @@ impl SignerCoordinator {
             block: block.clone(),
             burn_height: election_sortition.block_height,
             reward_cycle: reward_cycle_id,
+            block_proposal_data: BlockProposalData::from_current_version(),
         };
 
         let block_proposal_message = SignerMessageV0::BlockProposal(block_proposal);

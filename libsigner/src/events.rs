@@ -31,6 +31,7 @@ use blockstack_lib::net::api::postblock_proposal::{
 };
 use blockstack_lib::net::stackerdb::MINER_SLOT_COUNT;
 use blockstack_lib::util_lib::boot::boot_code_id;
+use blockstack_lib::version_string;
 use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::QualifiedContractIdentifier;
 use serde::{Deserialize, Serialize};
@@ -45,11 +46,13 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::HexError;
+use stacks_common::versions::STACKS_NODE_VERSION;
 use tiny_http::{
     Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
 };
 
 use crate::http::{decode_http_body, decode_http_request};
+use crate::v0::messages::BLOCK_RESPONSE_DATA_MAX_SIZE;
 use crate::EventError;
 
 /// Define the trait for the event processor
@@ -69,6 +72,8 @@ pub struct BlockProposal {
     pub burn_height: u64,
     /// The reward cycle the block is mined during
     pub reward_cycle: u64,
+    /// Versioned and backwards-compatible block proposal data
+    pub block_proposal_data: BlockProposalData,
 }
 
 impl StacksMessageCodec for BlockProposal {
@@ -76,6 +81,7 @@ impl StacksMessageCodec for BlockProposal {
         self.block.consensus_serialize(fd)?;
         self.burn_height.consensus_serialize(fd)?;
         self.reward_cycle.consensus_serialize(fd)?;
+        self.block_proposal_data.consensus_serialize(fd)?;
         Ok(())
     }
 
@@ -83,10 +89,97 @@ impl StacksMessageCodec for BlockProposal {
         let block = NakamotoBlock::consensus_deserialize(fd)?;
         let burn_height = u64::consensus_deserialize(fd)?;
         let reward_cycle = u64::consensus_deserialize(fd)?;
+        let block_proposal_data = BlockProposalData::consensus_deserialize(fd)?;
         Ok(BlockProposal {
             block,
             burn_height,
             reward_cycle,
+            block_proposal_data,
+        })
+    }
+}
+
+/// The latest version of the block response data
+pub const BLOCK_PROPOSAL_DATA_VERSION: u8 = 2;
+
+/// Versioned, backwards-compatible struct for block response data
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BlockProposalData {
+    /// The version of the block proposal data
+    pub version: u8,
+    /// The miner's server version
+    pub server_version: String,
+    /// When deserializing future versions,
+    /// there may be extra bytes that we don't know about
+    pub unknown_bytes: Vec<u8>,
+}
+
+impl BlockProposalData {
+    /// Create a new BlockProposalData for the provided server version and unknown bytes
+    pub fn new(server_version: String) -> Self {
+        Self {
+            version: BLOCK_PROPOSAL_DATA_VERSION,
+            server_version,
+            unknown_bytes: vec![],
+        }
+    }
+
+    /// Create a new BlockProposalData with the current build's version
+    pub fn from_current_version() -> Self {
+        let server_version = version_string(
+            "stacks-node",
+            option_env!("STACKS_NODE_VERSION").or(Some(STACKS_NODE_VERSION)),
+        );
+        Self::new(server_version)
+    }
+
+    /// Create an empty BlockProposalData
+    pub fn empty() -> Self {
+        Self::new(String::new())
+    }
+
+    /// Serialize the "inner" block response data. Used to determine the bytes length of the serialized block response data
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.server_version.as_bytes().to_vec())?;
+        // write_next(fd, &self.unknown_bytes)?;
+        fd.write_all(&self.unknown_bytes)
+            .map_err(CodecError::WriteError)?;
+        Ok(())
+    }
+}
+
+impl StacksMessageCodec for BlockProposalData {
+    /// Serialize the block response data.
+    /// When creating a new version of the block response data, we are only ever
+    /// appending new bytes to the end of the struct. When serializing, we use
+    /// `bytes_len` to ensure that older versions of the code can read through the
+    /// end of the serialized bytes.
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.version)?;
+        let mut inner_bytes = vec![];
+        self.inner_consensus_serialize(&mut inner_bytes)?;
+        write_next(fd, &inner_bytes)?;
+        Ok(())
+    }
+
+    /// Deserialize the block response data in a backwards-compatible manner.
+    /// When creating a new version of the block response data, we are only ever
+    /// appending new bytes to the end of the struct. When deserializing, we use
+    /// `bytes_len` to ensure that we read through the end of the serialized bytes.
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let Ok(version) = read_next(fd) else {
+            return Ok(Self::empty());
+        };
+        let inner_bytes: Vec<u8> = read_next_at_most(fd, BLOCK_RESPONSE_DATA_MAX_SIZE)?;
+        let mut inner_reader = inner_bytes.as_slice();
+        let server_version: Vec<u8> = read_next(&mut inner_reader)?;
+        let server_version = String::from_utf8(server_version).map_err(|e| {
+            CodecError::DeserializeError(format!("Failed to decode server version: {:?}", &e))
+        })?;
+        Ok(Self {
+            version,
+            server_version,
+            unknown_bytes: inner_reader.to_vec(),
         })
     }
 }
