@@ -3623,7 +3623,9 @@ impl PeerNetwork {
 
             // in Nakamoto epoch, but we might still be doing epoch 2.x things since Nakamoto does
             // not begin on a reward cycle boundary.
-            if self.need_epoch2_state_machines(cur_epoch.epoch_id) {
+            if self.need_epoch2_state_machines(cur_epoch.epoch_id)
+                || self.connection_opts.force_nakamoto_epoch_transition
+            {
                 debug!(
                     "{:?}: run Epoch 2.x work loop in Nakamoto epoch",
                     self.get_local_peer()
