@@ -151,6 +151,7 @@ jobs:
           - tests::signer::v0::block_proposal_timeout
           - tests::signer::v0::rejected_blocks_count_towards_miner_validity
           - tests::signer::v0::allow_reorg_within_first_proposal_burn_block_timing_secs
+          - tests::signer::v0::interrupt_miner_on_new_stacks_tip
           - tests::nakamoto_integrations::burn_ops_integration_test
           - tests::nakamoto_integrations::check_block_heights
           - tests::nakamoto_integrations::clarity_burn_state

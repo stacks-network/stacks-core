@@ -288,6 +288,7 @@ impl SignerCoordinator {
         self.get_block_status(
             &block.header.signer_signature_hash(),
             &block.block_id(),
+            block.header.parent_block_id,
             chain_state,
             sortdb,
             counters,
@@ -303,6 +304,7 @@ impl SignerCoordinator {
         &self,
         block_signer_sighash: &Sha512Trunc256Sum,
         block_id: &StacksBlockId,
+        parent_block_id: StacksBlockId,
         chain_state: &mut StacksChainState,
         sortdb: &SortitionDB,
         counters: &Counters,
@@ -382,6 +384,17 @@ impl SignerCoordinator {
                         return Err(NakamotoNodeError::SigningCoordinatorFailure(
                             "Timed out while waiting for signatures".into(),
                         ));
+                    }
+
+                    // Check if a new Stacks block has arrived
+                    let (canonical_stacks_tip_ch, canonical_stacks_tip_bh) =
+                        SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
+                    let canonical_stacks_tip =
+                        StacksBlockId::new(&canonical_stacks_tip_ch, &canonical_stacks_tip_bh);
+                    info!("SignCoordinator: Current stacks tip: {canonical_stacks_tip}, parent: {parent_block_id}");
+                    if canonical_stacks_tip != parent_block_id {
+                        debug!("SignCoordinator: Exiting due to new stacks tip");
+                        return Err(NakamotoNodeError::StacksTipChanged);
                     }
 
                     continue;
