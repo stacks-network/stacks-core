@@ -3970,7 +3970,7 @@ fn read_write_leaf() {
     let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Leaf as u8, 0, 0));
 
     assert!(rres.is_ok());
-    assert_eq!(rres.unwrap(), (TrieNodeType::Leaf(leaf.clone()), hash));
+    assert_eq!(rres.unwrap(), (TrieNodeType::Leaf(leaf), hash));
 }
 
 #[test]
@@ -4251,10 +4251,7 @@ fn trie_cursor_walk_full() {
 
     let (ptr, node, hash) = fields_opt.unwrap();
     assert_eq!(ptr, node_ptrs[31]);
-    assert_eq!(
-        node,
-        TrieNodeType::Leaf(TrieLeaf::new(&[], &[31u8; 40].to_vec()))
-    );
+    assert_eq!(node, TrieNodeType::Leaf(TrieLeaf::new(&[], &[31u8; 40])));
     assert_eq!(hash, hashes[31]);
 
     // cursor's last-visited node points at the penultimate node (the last node4),

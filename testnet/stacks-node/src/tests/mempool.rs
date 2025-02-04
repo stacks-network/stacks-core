@@ -61,7 +61,7 @@ pub fn make_bad_stacks_transfer(
 
     let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
 
-    tx_signer.sign_origin(&StacksPrivateKey::new()).unwrap();
+    tx_signer.sign_origin(&StacksPrivateKey::random()).unwrap();
 
     let mut buf = vec![];
     tx_signer
@@ -502,7 +502,7 @@ fn mempool_setup_chainstate() {
                 // tx version must be testnet
                 let contract_princ = PrincipalData::from(contract_addr);
                 let payload = TransactionPayload::TokenTransfer(
-                    contract_princ.clone(),
+                    contract_princ,
                     1000,
                     TokenTransferMemo([0; 34]),
                 );
@@ -822,7 +822,7 @@ fn mempool_setup_chainstate() {
                 let mut conf = super::new_test_conf();
                 conf.node.seed = vec![0x00];
 
-                let keychain = Keychain::default(conf.node.seed.clone());
+                let keychain = Keychain::default(conf.node.seed);
                 for i in 0..4 {
                     let microblock_secret_key = keychain.get_microblock_key(1 + i);
                     let mut microblock_pubkey =
@@ -882,7 +882,7 @@ fn mempool_setup_chainstate() {
                     StandardPrincipalData::from(contract_addr),
                     ContractName::from("implement-trait-contract"),
                 );
-                let contract_principal = PrincipalData::Contract(contract_id.clone());
+                let contract_principal = PrincipalData::Contract(contract_id);
 
                 let tx_bytes = make_contract_call(
                     &contract_sk,
@@ -910,7 +910,7 @@ fn mempool_setup_chainstate() {
                     StandardPrincipalData::from(contract_addr),
                     ContractName::from("bad-trait-contract"),
                 );
-                let contract_principal = PrincipalData::Contract(contract_id.clone());
+                let contract_principal = PrincipalData::Contract(contract_id);
 
                 let tx_bytes = make_contract_call(
                     &contract_sk,

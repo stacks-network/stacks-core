@@ -1575,7 +1575,7 @@ impl NetworkResult {
         let mut blocks: HashSet<_> = self
             .blocks
             .iter()
-            .map(|(ch, blk, _)| StacksBlockId::new(&ch, &blk.block_hash()))
+            .map(|(ch, blk, _)| StacksBlockId::new(ch, &blk.block_hash()))
             .collect();
 
         let pushed_blocks: HashSet<_> = self
@@ -1765,7 +1765,7 @@ impl NetworkResult {
 
         // only retain blocks not found in `newer`
         self.blocks.retain(|(ch, blk, _)| {
-            let block_id = StacksBlockId::new(&ch, &blk.block_hash());
+            let block_id = StacksBlockId::new(ch, &blk.block_hash());
             let retain = !newer_blocks.contains(&block_id);
             if !retain {
                 debug!("Drop duplicate downloaded block {}", &block_id);
@@ -2376,11 +2376,8 @@ pub mod test {
             if self.closed {
                 return Ok(0);
             }
-            match self.read_error {
-                Some(ref e) => {
-                    return Err(io::Error::from((*e).clone()));
-                }
-                None => {}
+            if let Some(ref e) = self.read_error {
+                return Err(io::Error::from((*e).clone()));
             }
 
             let sz = self.c.read(buf)?;
@@ -2403,11 +2400,8 @@ pub mod test {
             if self.closed {
                 return Err(io::Error::from(ErrorKind::Other)); // EBADF
             }
-            match self.write_error {
-                Some(ref e) => {
-                    return Err(io::Error::from((*e).clone()));
-                }
-                None => {}
+            if let Some(ref e) = self.write_error {
+                return Err(io::Error::from((*e).clone()));
             }
             self.c.write(buf)
         }
@@ -2622,7 +2616,7 @@ pub mod test {
                 network_id: 0x80000000,
                 peer_version: 0x01020304,
                 current_block: start_block + (burnchain.consensus_hash_lifetime + 1) as u64,
-                private_key: Secp256k1PrivateKey::new(),
+                private_key: Secp256k1PrivateKey::random(),
                 private_key_expire: start_block + conn_opts.private_key_lifetime,
                 initial_neighbors: vec![],
                 asn4_entries: vec![],
@@ -2798,12 +2792,9 @@ pub mod test {
         }
 
         pub fn make_test_path(config: &TestPeerConfig) -> String {
-            let test_path = TestPeer::test_path(&config);
-            match fs::metadata(&test_path) {
-                Ok(_) => {
-                    fs::remove_dir_all(&test_path).unwrap();
-                }
-                Err(_) => {}
+            let test_path = TestPeer::test_path(config);
+            if fs::metadata(&test_path).is_ok() {
+                fs::remove_dir_all(&test_path).unwrap();
             };
 
             fs::create_dir_all(&test_path).unwrap();
@@ -2823,7 +2814,7 @@ pub mod test {
                 let initial_peers = PeerDB::find_stacker_db_replicas(
                     peerdb.conn(),
                     local_peer.network_id,
-                    &contract_id,
+                    contract_id,
                     0,
                     10000000,
                 )
@@ -2836,7 +2827,7 @@ pub mod test {
                 let stacker_dbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
                 let stacker_db_sync = StackerDBSync::new(
                     contract_id.clone(),
-                    &db_config,
+                    db_config,
                     PeerNetworkComms::new(),
                     stacker_dbs,
                 );
@@ -3002,7 +2993,7 @@ pub mod test {
 
                         let boot_code_smart_contract = StacksTransaction::new(
                             TransactionVersion::Testnet,
-                            boot_code_auth.clone(),
+                            boot_code_auth,
                             smart_contract,
                         );
                         StacksChainState::process_transaction_payload(
@@ -3099,7 +3090,7 @@ pub mod test {
 
             let local_peer = PeerDB::get_local_peer(peerdb.conn()).unwrap();
             let burnchain_view = {
-                let chaintip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+                let chaintip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
                 SortitionDB::get_burnchain_view(&sortdb.index_conn(), &config.burnchain, &chaintip)
                     .unwrap()
             };
@@ -3146,7 +3137,7 @@ pub mod test {
                 burnchain_view,
                 config.connection_opts.clone(),
                 stacker_db_syncs,
-                epochs.clone(),
+                epochs,
             );
             peer_network.set_stacker_db_configs(config.get_stacker_db_configs());
 
@@ -3558,11 +3549,8 @@ pub mod test {
             ch: &ConsensusHash,
         ) {
             for op in blockstack_ops.iter_mut() {
-                match op {
-                    BlockstackOperationType::LeaderKeyRegister(ref mut data) => {
-                        data.consensus_hash = (*ch).clone();
-                    }
-                    _ => {}
+                if let BlockstackOperationType::LeaderKeyRegister(ref mut data) = op {
+                    data.consensus_hash = (*ch).clone();
                 }
             }
         }
@@ -3647,7 +3635,7 @@ pub mod test {
             indexer.raw_store_header(block_header.clone()).unwrap();
             burnchain_db
                 .raw_store_burnchain_block(
-                    &burnchain,
+                    burnchain,
                     &indexer,
                     block_header.clone(),
                     blockstack_ops,
@@ -3655,7 +3643,7 @@ pub mod test {
                 .unwrap();
 
             Burnchain::process_affirmation_maps(
-                &burnchain,
+                burnchain,
                 &mut burnchain_db,
                 &indexer,
                 block_header.block_height,
@@ -3690,8 +3678,8 @@ pub mod test {
         ) {
             let sortdb = self.sortdb.take().unwrap();
             let (block_height, block_hash, epoch_id) = {
-                let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-                let epoch_id = SortitionDB::get_stacks_epoch(&sortdb.conn(), tip.block_height + 1)
+                let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+                let epoch_id = SortitionDB::get_stacks_epoch(sortdb.conn(), tip.block_height + 1)
                     .unwrap()
                     .unwrap()
                     .epoch_id;
@@ -3750,7 +3738,7 @@ pub mod test {
                 &pox_id
             );
 
-            let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
             self.sortdb = Some(sortdb);
             (
                 block_height,
@@ -4165,7 +4153,7 @@ pub mod test {
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&self.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(self.sortdb.as_ref().unwrap().conn())
                     .unwrap();
             let burnchain = self.config.burnchain.clone();
 
@@ -4410,7 +4398,7 @@ pub mod test {
                 &last_key,
                 parent_block_opt.as_ref(),
                 1000,
-                |mut builder, ref mut miner, ref sortdb| {
+                |mut builder, ref mut miner, sortdb| {
                     let (mut miner_chainstate, _) =
                         StacksChainState::open(false, network_id, &chainstate_path, None).unwrap();
                     let sort_iconn = sortdb.index_handle_at_tip();
@@ -4460,7 +4448,7 @@ pub mod test {
         }
 
         pub fn get_public_key(&self) -> Secp256k1PublicKey {
-            let local_peer = PeerDB::get_local_peer(&self.network.peerdb.conn()).unwrap();
+            let local_peer = PeerDB::get_local_peer(self.network.peerdb.conn()).unwrap();
             Secp256k1PublicKey::from_private(&local_peer.private_key)
         }
 
@@ -4536,7 +4524,7 @@ pub mod test {
 
         pub fn get_burn_block_height(&self) -> u64 {
             SortitionDB::get_canonical_burn_chain_tip(
-                &self.sortdb.as_ref().expect("Failed to get sortdb").conn(),
+                self.sortdb.as_ref().expect("Failed to get sortdb").conn(),
             )
             .expect("Failed to get canonical burn chain tip")
             .block_height
@@ -4638,7 +4626,7 @@ pub mod test {
                     .unwrap()
                     .into_iter()
                     .filter(|(sort_id, rc_info)| {
-                        let sn = SortitionDB::get_block_snapshot(sortdb.conn(), &sort_id)
+                        let sn = SortitionDB::get_block_snapshot(sortdb.conn(), sort_id)
                             .unwrap()
                             .unwrap();
                         let rc_sn = sortdb
@@ -4676,7 +4664,7 @@ pub mod test {
                     .unwrap()
                     .into_iter()
                     .filter(|(sort_id, rc_info)| {
-                        let sn = SortitionDB::get_block_snapshot(sortdb.conn(), &sort_id)
+                        let sn = SortitionDB::get_block_snapshot(sortdb.conn(), sort_id)
                             .unwrap()
                             .unwrap();
                         sn.block_height < epoch_3.start_height

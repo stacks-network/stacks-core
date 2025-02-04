@@ -196,7 +196,7 @@ impl StacksMessageCodec for TransactionPayload {
                 if let Some(version) = version_opt {
                     // caller requests a specific Clarity version
                     write_next(fd, &(TransactionPayloadID::VersionedSmartContract as u8))?;
-                    ClarityVersion_consensus_serialize(&version, fd)?;
+                    ClarityVersion_consensus_serialize(version, fd)?;
                     sc.consensus_serialize(fd)?;
                 } else {
                     // caller requests to use whatever the current clarity version is
@@ -1023,17 +1023,14 @@ impl StacksTransaction {
     /// Get a copy of the sending condition that will pay the tx fee
     pub fn get_payer(&self) -> TransactionSpendingCondition {
         match self.auth.sponsor() {
-            Some(ref tsc) => (*tsc).clone(),
+            Some(tsc) => tsc.clone(),
             None => self.auth.origin().clone(),
         }
     }
 
     /// Is this a mainnet transaction?  false means 'testnet'
     pub fn is_mainnet(&self) -> bool {
-        match self.version {
-            TransactionVersion::Mainnet => true,
-            _ => false,
-        }
+        self.version == TransactionVersion::Mainnet
     }
 
     /// Is this a phantom transaction?
@@ -1133,17 +1130,14 @@ impl StacksTransactionSigner {
     }
 
     pub fn sign_sponsor(&mut self, privk: &StacksPrivateKey) -> Result<(), net_error> {
-        match self.tx.auth {
-            TransactionAuth::Sponsored(_, ref sponsor_condition) => {
-                if self.check_oversign
-                    && sponsor_condition.num_signatures() >= sponsor_condition.signatures_required()
-                {
-                    return Err(net_error::SigningError(
-                        "Sponsor would have too many signatures".to_string(),
-                    ));
-                }
+        if let TransactionAuth::Sponsored(_, ref sponsor_condition) = self.tx.auth {
+            if self.check_oversign
+                && sponsor_condition.num_signatures() >= sponsor_condition.signatures_required()
+            {
+                return Err(net_error::SigningError(
+                    "Sponsor would have too many signatures".to_string(),
+                ));
             }
-            _ => {}
         }
 
         let next_sighash = self.tx.sign_next_sponsor(&self.sighash, privk)?;
@@ -1714,7 +1708,7 @@ mod test {
 
         // corrupt a signature
         let mut corrupt_tx_signature = signed_tx.clone();
-        let corrupt_auth_signature = corrupt_tx_signature.auth.clone();
+        let corrupt_auth_signature = corrupt_tx_signature.auth;
         corrupt_tx_signature.auth =
             corrupt_auth_field_signature(&corrupt_auth_signature, corrupt_origin, corrupt_sponsor);
 
@@ -1894,7 +1888,7 @@ mod test {
         let mut corrupt_transactions = vec![
             corrupt_tx_hash_mode,
             corrupt_tx_nonce,
-            corrupt_tx_signature.clone(), // needed below
+            corrupt_tx_signature,
             corrupt_tx_public_key,
             corrupt_tx_version,
             corrupt_tx_chain_id,
@@ -1905,7 +1899,7 @@ mod test {
             corrupt_tx_payload,
         ];
         if is_multisig_origin || is_multisig_sponsor {
-            corrupt_transactions.push(corrupt_tx_signatures_required.clone());
+            corrupt_transactions.push(corrupt_tx_signatures_required);
         }
 
         // make sure all corrupted transactions fail
@@ -1933,24 +1927,21 @@ mod test {
             // test_debug!("mutate byte {}", &i);
             let mut cursor = io::Cursor::new(&tx_bytes);
             let mut reader = LogReader::from_reader(&mut cursor);
-            match StacksTransaction::consensus_deserialize(&mut reader) {
-                Ok(corrupt_tx) => {
-                    let mut corrupt_tx_bytes = vec![];
-                    corrupt_tx
-                        .consensus_serialize(&mut corrupt_tx_bytes)
-                        .unwrap();
-                    if corrupt_tx_bytes.len() < tx_bytes.len() {
-                        // didn't parse fully; the block-parsing logic would reject this block.
-                        tx_bytes[i] = next_byte as u8;
-                        continue;
-                    }
-                    if corrupt_tx.verify().is_ok() && corrupt_tx != *signed_tx {
-                        eprintln!("corrupt tx: {:#?}", &corrupt_tx);
-                        eprintln!("signed tx:  {:#?}", &signed_tx);
-                        assert!(false);
-                    }
+            if let Ok(corrupt_tx) = StacksTransaction::consensus_deserialize(&mut reader) {
+                let mut corrupt_tx_bytes = vec![];
+                corrupt_tx
+                    .consensus_serialize(&mut corrupt_tx_bytes)
+                    .unwrap();
+                if corrupt_tx_bytes.len() < tx_bytes.len() {
+                    // didn't parse fully; the block-parsing logic would reject this block.
+                    tx_bytes[i] = next_byte as u8;
+                    continue;
                 }
-                Err(_) => {}
+                if corrupt_tx.verify().is_ok() && corrupt_tx != *signed_tx {
+                    eprintln!("corrupt tx: {:#?}", &corrupt_tx);
+                    eprintln!("signed tx:  {:#?}", &signed_tx);
+                    assert!(false);
+                }
             }
             // restore
             tx_bytes[i] = next_byte as u8;
@@ -2160,7 +2151,7 @@ mod test {
     #[test]
     fn tx_stacks_transaction_payload_nakamoto_coinbase() {
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
         let coinbase_payload =
             TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, Some(proof));
@@ -2291,7 +2282,7 @@ mod test {
     #[test]
     fn tx_stacks_transaction_payload_nakamoto_coinbase_alt_recipient() {
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
         let recipient = PrincipalData::from(QualifiedContractIdentifier {
             issuer: StacksAddress::new(1, Hash160([0xff; 20])).unwrap().into(),
@@ -3396,9 +3387,6 @@ mod test {
         let function_name = ClarityName::try_from("hello-function-name").unwrap();
         let function_args = vec![Value::Int(0)];
 
-        let mut contract_name_bytes = vec![contract_name.len() as u8];
-        contract_name_bytes.extend_from_slice(contract_name.as_bytes());
-
         let mut contract_call_bytes = vec![];
         address
             .consensus_serialize(&mut contract_call_bytes)
@@ -3474,19 +3462,19 @@ mod test {
             // length
             asset_name.len(),
         ];
-        asset_name_bytes.extend_from_slice(&asset_name.to_string().as_str().as_bytes());
+        asset_name_bytes.extend_from_slice(asset_name.to_string().as_str().as_bytes());
 
         let contract_name = ContractName::try_from("hello-world").unwrap();
         let mut contract_name_bytes = vec![
             // length
             contract_name.len(),
         ];
-        contract_name_bytes.extend_from_slice(&contract_name.to_string().as_str().as_bytes());
+        contract_name_bytes.extend_from_slice(contract_name.to_string().as_str().as_bytes());
 
         let asset_info = AssetInfo {
             contract_address: addr.clone(),
-            contract_name: contract_name.clone(),
-            asset_name: asset_name.clone(),
+            contract_name,
+            asset_name,
         };
 
         let mut asset_info_bytes = vec![];
@@ -3764,8 +3752,8 @@ mod test {
         nonfungible_pc_bytes_bad_principal.append(&mut vec![0xff]);
         AssetInfo {
             contract_address: addr.clone(),
-            contract_name: contract_name.clone(),
-            asset_name: asset_name.clone(),
+            contract_name,
+            asset_name,
         }
         .consensus_serialize(&mut nonfungible_pc_bytes_bad_principal)
         .unwrap();
@@ -3823,7 +3811,7 @@ mod test {
             test_debug!("---------");
             test_debug!("text tx bytes:\n{}", &to_hex(&tx_bytes));
 
-            check_codec_and_corruption::<StacksTransaction>(&tx, &tx_bytes);
+            check_codec_and_corruption::<StacksTransaction>(tx, &tx_bytes);
         }
     }
 
@@ -3858,8 +3846,8 @@ mod test {
 
         let asset_info = AssetInfo {
             contract_address: contract_addr.clone(),
-            contract_name: contract_name.clone(),
-            asset_name: asset_name.clone(),
+            contract_name,
+            asset_name,
         };
 
         let stx_address = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
@@ -3879,12 +3867,8 @@ mod test {
         let tx_smart_contract = StacksTransaction::new(
             TransactionVersion::Mainnet,
             auth.clone(),
-            TransactionPayload::new_smart_contract(
-                &"name-contract".to_string(),
-                &"hello smart contract".to_string(),
-                None,
-            )
-            .unwrap(),
+            TransactionPayload::new_smart_contract("name-contract", "hello smart contract", None)
+                .unwrap(),
         );
 
         let tx_coinbase = StacksTransaction::new(
@@ -3997,10 +3981,10 @@ mod test {
             TransactionAuth::Standard(origin) => origin,
             TransactionAuth::Sponsored(_, sponsor) => sponsor,
         };
-        match spending_condition {
-            TransactionSpendingCondition::OrderIndependentMultisig(..) => true,
-            _ => false,
-        }
+        matches!(
+            spending_condition,
+            TransactionSpendingCondition::OrderIndependentMultisig(..)
+        )
     }
 
     fn check_oversign_origin_multisig(signed_tx: &StacksTransaction) {
@@ -4404,7 +4388,7 @@ mod test {
         )
         .unwrap();
 
-        let mut random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let mut random_sponsor = StacksPrivateKey::random(); // what the origin sees
         random_sponsor.set_compress_public(true);
 
         let auth = TransactionAuth::Sponsored(
@@ -4629,7 +4613,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -4871,7 +4855,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -5108,7 +5092,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -5304,7 +5288,7 @@ mod test {
         )
         .unwrap();
 
-        let random_sponsor = StacksPrivateKey::new();
+        let random_sponsor = StacksPrivateKey::random();
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -5526,7 +5510,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new();
+        let random_sponsor = StacksPrivateKey::random();
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -5856,7 +5840,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -6101,7 +6085,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -6500,7 +6484,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -6665,7 +6649,7 @@ mod test {
         let pubk_4 = StacksPublicKey::from_private(&privk_4);
         let pubk_5 = StacksPublicKey::from_private(&privk_5);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -7078,7 +7062,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -7254,7 +7238,7 @@ mod test {
         let pubk_6 = StacksPublicKey::from_private(&privk_6);
         let pubk_7 = StacksPublicKey::from_private(&privk_7);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -7896,7 +7880,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -8145,7 +8129,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -8403,7 +8387,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(

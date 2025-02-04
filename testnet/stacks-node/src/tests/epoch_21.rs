@@ -100,7 +100,7 @@ fn advance_to_2_1(
         u32::MAX,
         u32::MAX,
     ));
-    burnchain_config.pox_constants = pox_constants.clone();
+    burnchain_config.pox_constants = pox_constants;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -165,7 +165,7 @@ fn advance_to_2_1(
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    let runloop_burnchain = burnchain_config.clone();
+    let runloop_burnchain = burnchain_config;
     thread::spawn(move || run_loop.start(Some(runloop_burnchain), 0));
 
     // give the run loop some time to start up!
@@ -282,14 +282,14 @@ fn transition_adds_burn_block_height() {
     // very simple test to verify that after the 2.1 transition, get-burn-block-info? works as
     // expected
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr = PrincipalData::from(to_addr(&spender_sk));
     let spender_addr_c32 = to_addr(&spender_sk);
 
     let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
         advance_to_2_1(
             vec![InitialBalance {
-                address: spender_addr.clone(),
+                address: spender_addr,
                 amount: 200_000_000,
             }],
             None,
@@ -599,7 +599,7 @@ fn transition_fixes_bitcoin_rigidity() {
         u32::MAX,
         u32::MAX,
     );
-    burnchain_config.pox_constants = pox_constants.clone();
+    burnchain_config.pox_constants = pox_constants;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -625,7 +625,7 @@ fn transition_fixes_bitcoin_rigidity() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    let runloop_burnchain = burnchain_config.clone();
+    let runloop_burnchain = burnchain_config;
     thread::spawn(move || run_loop.start(Some(runloop_burnchain), 0));
 
     // give the run loop some time to start up!
@@ -682,7 +682,7 @@ fn transition_fixes_bitcoin_rigidity() {
     // applied, even though it's within 6 blocks of the next Stacks block, which will be in epoch
     // 2.1.  This verifies that the new burnchain consideration window only applies to sortitions
     // that happen in Stacks 2.1.
-    let recipient_sk = StacksPrivateKey::new();
+    let recipient_sk = StacksPrivateKey::random();
     let recipient_addr = to_addr(&recipient_sk);
     let transfer_stx_op = TransferStxOp {
         sender: spender_stx_addr,
@@ -834,7 +834,7 @@ fn transition_fixes_bitcoin_rigidity() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // let's fire off our transfer op.
-    let recipient_sk = StacksPrivateKey::new();
+    let recipient_sk = StacksPrivateKey::random();
     let recipient_addr = to_addr(&recipient_sk);
     let transfer_stx_op = TransferStxOp {
         sender: spender_stx_addr,
@@ -1045,18 +1045,16 @@ fn transition_adds_get_pox_addr_recipients() {
     );
 
     let mut spender_sks = vec![];
-    let mut spender_addrs = vec![];
     let mut initial_balances = vec![];
     let mut expected_pox_addrs = HashSet::new();
 
     let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
     for _i in 0..7 {
-        let spender_sk = StacksPrivateKey::new();
+        let spender_sk = StacksPrivateKey::random();
         let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
         spender_sks.push(spender_sk);
-        spender_addrs.push(spender_addr.clone());
         initial_balances.push(InitialBalance {
             address: spender_addr.clone(),
             amount: stacked + 100_000,
@@ -1353,18 +1351,14 @@ fn transition_adds_mining_from_segwit() {
         u32::MAX,
     );
 
-    let mut spender_sks = vec![];
-    let mut spender_addrs = vec![];
     let mut initial_balances = vec![];
 
     let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
     for _i in 0..7 {
-        let spender_sk = StacksPrivateKey::new();
+        let spender_sk = StacksPrivateKey::random();
         let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
-        spender_sks.push(spender_sk);
-        spender_addrs.push(spender_addr.clone());
         initial_balances.push(InitialBalance {
             address: spender_addr.clone(),
             amount: stacked + 100_000,
@@ -1372,7 +1366,7 @@ fn transition_adds_mining_from_segwit() {
     }
 
     let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, _coord_channel) =
-        advance_to_2_1(initial_balances, None, Some(pox_constants.clone()), true);
+        advance_to_2_1(initial_balances, None, Some(pox_constants), true);
 
     let utxos = btc_regtest_controller
         .get_all_utxos(&Secp256k1PublicKey::from_hex(MINER_BURN_PUBLIC_KEY).unwrap());
@@ -1443,7 +1437,7 @@ fn transition_removes_pox_sunset() {
         return;
     }
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
     let first_bal = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
@@ -1510,7 +1504,7 @@ fn transition_removes_pox_sunset() {
         u32::MAX,
         u32::MAX,
     );
-    burnchain_config.pox_constants = pox_constants.clone();
+    burnchain_config.pox_constants = pox_constants;
 
     let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
         conf.clone(),
@@ -1776,7 +1770,7 @@ fn transition_empty_blocks() {
         u32::MAX,
         u32::MAX,
     );
-    burnchain_config.pox_constants = pox_constants.clone();
+    burnchain_config.pox_constants = pox_constants;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -1800,7 +1794,7 @@ fn transition_empty_blocks() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    let runloop_burnchain_config = burnchain_config.clone();
+    let runloop_burnchain_config = burnchain_config;
     thread::spawn(move || run_loop.start(Some(runloop_burnchain_config), 0));
 
     // give the run loop some time to start up!
@@ -2026,9 +2020,9 @@ fn test_pox_reorgs_three_flaps() {
     epochs[StacksEpochId::Epoch21].start_height = 151;
     conf_template.burnchain.epochs = Some(epochs);
 
-    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
-    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
     let balances: Vec<_> = privks
         .iter()
@@ -2059,7 +2053,7 @@ fn test_pox_reorgs_three_flaps() {
     let mut miner_status = vec![];
 
     for i in 0..num_miners {
-        let seed = StacksPrivateKey::new().to_bytes();
+        let seed = StacksPrivateKey::random().to_bytes();
         let (mut conf, _) = neon_integration_test_conf_with_seed(seed);
 
         conf.initial_balances.clear();
@@ -2546,9 +2540,9 @@ fn test_pox_reorg_one_flap() {
     epochs[StacksEpochId::Epoch21].start_height = 151;
     conf_template.burnchain.epochs = Some(epochs);
 
-    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
-    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
     let balances: Vec<_> = privks
         .iter()
@@ -2579,7 +2573,7 @@ fn test_pox_reorg_one_flap() {
     let mut miner_status = vec![];
 
     for i in 0..num_miners {
-        let seed = StacksPrivateKey::new().to_bytes();
+        let seed = StacksPrivateKey::random().to_bytes();
         let (mut conf, _) = neon_integration_test_conf_with_seed(seed);
 
         conf.initial_balances.clear();
@@ -2950,9 +2944,9 @@ fn test_pox_reorg_flap_duel() {
     epochs[StacksEpochId::Epoch21].start_height = 151;
     conf_template.burnchain.epochs = Some(epochs);
 
-    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
-    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
     let balances: Vec<_> = privks
         .iter()
@@ -2983,7 +2977,7 @@ fn test_pox_reorg_flap_duel() {
     let mut miner_status = vec![];
 
     for i in 0..num_miners {
-        let seed = StacksPrivateKey::new().to_bytes();
+        let seed = StacksPrivateKey::random().to_bytes();
         let (mut conf, _) = neon_integration_test_conf_with_seed(seed);
 
         conf.initial_balances.clear();
@@ -3369,9 +3363,9 @@ fn test_pox_reorg_flap_reward_cycles() {
     epochs[StacksEpochId::Epoch21].start_height = 151;
     conf_template.burnchain.epochs = Some(epochs);
 
-    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
-    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
     let balances: Vec<_> = privks
         .iter()
@@ -3402,7 +3396,7 @@ fn test_pox_reorg_flap_reward_cycles() {
     let mut miner_status = vec![];
 
     for i in 0..num_miners {
-        let seed = StacksPrivateKey::new().to_bytes();
+        let seed = StacksPrivateKey::random().to_bytes();
         let (mut conf, _) = neon_integration_test_conf_with_seed(seed);
 
         conf.initial_balances.clear();
@@ -3779,9 +3773,9 @@ fn test_pox_missing_five_anchor_blocks() {
     epochs[StacksEpochId::Epoch21].start_height = 151;
     conf_template.burnchain.epochs = Some(epochs);
 
-    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
-    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
     let balances: Vec<_> = privks
         .iter()
@@ -3812,7 +3806,7 @@ fn test_pox_missing_five_anchor_blocks() {
     let mut miner_status = vec![];
 
     for i in 0..num_miners {
-        let seed = StacksPrivateKey::new().to_bytes();
+        let seed = StacksPrivateKey::random().to_bytes();
         let (mut conf, _) = neon_integration_test_conf_with_seed(seed);
 
         conf.initial_balances.clear();
@@ -4157,9 +4151,9 @@ fn test_sortition_divergence_pre_21() {
     epochs[StacksEpochId::Epoch21].start_height = 241;
     conf_template.burnchain.epochs = Some(epochs);
 
-    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
-    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let stack_privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
 
     let balances: Vec<_> = privks
         .iter()
@@ -4190,7 +4184,7 @@ fn test_sortition_divergence_pre_21() {
     let mut miner_status = vec![];
 
     for i in 0..num_miners {
-        let seed = StacksPrivateKey::new().to_bytes();
+        let seed = StacksPrivateKey::random().to_bytes();
         let (mut conf, _) = neon_integration_test_conf_with_seed(seed);
 
         conf.initial_balances.clear();
@@ -4558,7 +4552,7 @@ fn trait_invocation_cross_epoch() {
         return;
     }
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr = PrincipalData::from(to_addr(&spender_sk));
     let spender_addr_c32 = to_addr(&spender_sk);
 
@@ -4582,7 +4576,7 @@ fn trait_invocation_cross_epoch() {
 
     let (mut conf, _) = neon_integration_test_conf();
     let mut initial_balances = vec![InitialBalance {
-        address: spender_addr.clone(),
+        address: spender_addr,
         amount: 200_000_000,
     }];
     conf.initial_balances.append(&mut initial_balances);
@@ -4611,7 +4605,7 @@ fn trait_invocation_cross_epoch() {
         u32::MAX,
         u32::MAX,
     );
-    burnchain_config.pox_constants = pox_constants.clone();
+    burnchain_config.pox_constants = pox_constants;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -4636,7 +4630,7 @@ fn trait_invocation_cross_epoch() {
     let blocks_processed = run_loop.get_blocks_processed_arc();
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    let runloop_burnchain = burnchain_config.clone();
+    let runloop_burnchain = burnchain_config;
     thread::spawn(move || run_loop.start(Some(runloop_burnchain), 0));
 
     // give the run loop some time to start up!
@@ -4745,12 +4739,12 @@ fn trait_invocation_cross_epoch() {
     }
 
     let interesting_txids = [
-        invoke_txid.clone(),
-        invoke_1_txid.clone(),
-        invoke_2_txid.clone(),
-        use_txid.clone(),
-        impl_txid.clone(),
-        trait_txid.clone(),
+        invoke_txid,
+        invoke_1_txid,
+        invoke_2_txid,
+        use_txid,
+        impl_txid,
+        trait_txid,
     ];
 
     let blocks = test_observer::get_blocks();
@@ -4812,12 +4806,12 @@ fn test_v1_unlock_height_with_current_stackers() {
 
     let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
     let mut initial_balances = vec![];
 
     initial_balances.push(InitialBalance {
-        address: spender_addr.clone(),
+        address: spender_addr,
         amount: stacked + 100_000,
     });
 
@@ -4874,7 +4868,7 @@ fn test_v1_unlock_height_with_current_stackers() {
         u32::MAX,
         u32::MAX,
     );
-    burnchain_config.pox_constants = pox_constants.clone();
+    burnchain_config.pox_constants = pox_constants;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -5065,12 +5059,12 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
 
     let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
     let mut initial_balances = vec![];
 
     initial_balances.push(InitialBalance {
-        address: spender_addr.clone(),
+        address: spender_addr,
         amount: stacked + 100_000,
     });
 
@@ -5127,7 +5121,7 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
         u32::MAX,
         u32::MAX,
     );
-    burnchain_config.pox_constants = pox_constants.clone();
+    burnchain_config.pox_constants = pox_constants;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller

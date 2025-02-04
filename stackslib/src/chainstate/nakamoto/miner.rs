@@ -150,6 +150,21 @@ pub struct MinerTenureInfo<'a> {
     pub tenure_block_commit_opt: Option<LeaderBlockCommitOp>,
 }
 
+/// Structure returned from `NakamotoBlockBuilder::build_nakamoto_block` with
+/// information about the block that was built.
+pub struct BlockMetadata {
+    /// The block that was built
+    pub block: NakamotoBlock,
+    /// The execution cost consumed so far by the current tenure
+    pub tenure_consumed: ExecutionCost,
+    /// The cost budget for the current tenure
+    pub tenure_budget: ExecutionCost,
+    /// The size of the blocks in the current tenure in bytes
+    pub tenure_size: u64,
+    /// The events emitted by the transactions included in this block
+    pub tx_events: Vec<TransactionEvent>,
+}
+
 impl NakamotoBlockBuilder {
     /// Make a block builder from genesis (testing only)
     pub fn new_first_block(
@@ -265,7 +280,7 @@ impl NakamotoBlockBuilder {
         debug!("Nakamoto miner tenure begin"; "shadow" => shadow_block, "tenure_change" => ?cause);
 
         let Some(tenure_election_sn) =
-            SortitionDB::get_block_snapshot_consensus(&burn_dbconn, &self.header.consensus_hash)?
+            SortitionDB::get_block_snapshot_consensus(burn_dbconn, &self.header.consensus_hash)?
         else {
             warn!("Could not find sortition snapshot for burn block that elected the miner";
                 "consensus_hash" => %self.header.consensus_hash,
@@ -279,7 +294,7 @@ impl NakamotoBlockBuilder {
             None
         } else {
             let Some(tenure_block_commit) = SortitionDB::get_block_commit(
-                &burn_dbconn,
+                burn_dbconn,
                 &tenure_election_sn.winning_block_txid,
                 &tenure_election_sn.sortition_id,
             )?
@@ -526,7 +541,7 @@ impl NakamotoBlockBuilder {
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         signer_bitvec_len: u16,
-    ) -> Result<(NakamotoBlock, ExecutionCost, u64, Vec<TransactionEvent>), Error> {
+    ) -> Result<BlockMetadata, Error> {
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
             parent_stacks_header.consensus_hash.clone(),
             parent_stacks_header.anchored_header.block_hash(),
@@ -556,7 +571,7 @@ impl NakamotoBlockBuilder {
             builder.load_tenure_info(&mut chainstate, burn_dbconn, tenure_info.cause())?;
         let mut tenure_tx = builder.tenure_begin(burn_dbconn, &mut miner_tenure_info)?;
 
-        let block_limit = tenure_tx
+        let tenure_budget = tenure_tx
             .block_limit()
             .expect("Failed to obtain block limit from miner's block connection");
 
@@ -570,7 +585,7 @@ impl NakamotoBlockBuilder {
                 (1..=100).contains(&percentage),
                 "BUG: tenure_cost_limit_per_block_percentage: {percentage}%. Must be between between 1 and 100"
             );
-            let mut remaining_limit = block_limit.clone();
+            let mut remaining_limit = tenure_budget.clone();
             let cost_so_far = tenure_tx.cost_so_far();
             if remaining_limit.sub(&cost_so_far).is_ok() && remaining_limit.divide(100).is_ok() {
                 remaining_limit.multiply(percentage.into()).expect(
@@ -581,7 +596,7 @@ impl NakamotoBlockBuilder {
                     "Setting soft limit for clarity cost to {percentage}% of remaining block limit";
                     "remaining_limit" => %remaining_limit,
                     "cost_so_far" => %cost_so_far,
-                    "block_limit" => %block_limit,
+                    "block_limit" => %tenure_budget,
                 );
                 soft_limit = Some(remaining_limit);
             };
@@ -591,7 +606,7 @@ impl NakamotoBlockBuilder {
 
         let initial_txs: Vec<_> = [
             tenure_info.tenure_change_tx.clone(),
-            tenure_info.coinbase_tx.clone(),
+            tenure_info.coinbase_tx,
         ]
         .into_iter()
         .flatten()
@@ -630,13 +645,13 @@ impl NakamotoBlockBuilder {
 
         // save the block so we can build microblocks off of it
         let block = builder.mine_nakamoto_block(&mut tenure_tx);
-        let size = builder.bytes_so_far;
-        let consumed = builder.tenure_finish(tenure_tx)?;
+        let tenure_size = builder.bytes_so_far;
+        let tenure_consumed = builder.tenure_finish(tenure_tx)?;
 
         let ts_end = get_epoch_time_ms();
 
         set_last_mined_block_transaction_count(block.txs.len() as u64);
-        set_last_mined_execution_cost_observed(&consumed, &block_limit);
+        set_last_mined_execution_cost_observed(&tenure_consumed, &tenure_budget);
 
         info!(
             "Miner: mined Nakamoto block";
@@ -645,14 +660,20 @@ impl NakamotoBlockBuilder {
             "height" => block.header.chain_length,
             "tx_count" => block.txs.len(),
             "parent_block_id" => %block.header.parent_block_id,
-            "block_size" => size,
-            "execution_consumed" => %consumed,
-            "percent_full" => block_limit.proportion_largest_dimension(&consumed),
+            "block_size" => tenure_size,
+            "execution_consumed" => %tenure_consumed,
+            "percent_full" => tenure_budget.proportion_largest_dimension(&tenure_consumed),
             "assembly_time_ms" => ts_end.saturating_sub(ts_start),
             "consensus_hash" => %block.header.consensus_hash
         );
 
-        Ok((block, consumed, size, tx_events))
+        Ok(BlockMetadata {
+            block,
+            tenure_consumed,
+            tenure_budget,
+            tenure_size,
+            tx_events,
+        })
     }
 
     pub fn get_bytes_so_far(&self) -> u64 {
@@ -672,7 +693,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
         ast_rules: ASTRules,
     ) -> TransactionResult {
         if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
-            return TransactionResult::skipped_due_to_error(&tx, Error::BlockTooBigError);
+            return TransactionResult::skipped_due_to_error(tx, Error::BlockTooBigError);
         }
 
         let non_boot_code_contract_call = match &tx.payload {
@@ -685,14 +706,14 @@ impl BlockBuilder for NakamotoBlockBuilder {
             BlockLimitFunction::CONTRACT_LIMIT_HIT => {
                 if non_boot_code_contract_call {
                     return TransactionResult::skipped(
-                        &tx,
+                        tx,
                         "BlockLimitFunction::CONTRACT_LIMIT_HIT".to_string(),
                     );
                 }
             }
             BlockLimitFunction::LIMIT_REACHED => {
                 return TransactionResult::skipped(
-                    &tx,
+                    tx,
                     "BlockLimitFunction::LIMIT_REACHED".to_string(),
                 )
             }
@@ -705,14 +726,14 @@ impl BlockBuilder for NakamotoBlockBuilder {
             if let Err(e) = Relayer::static_check_problematic_relayed_tx(
                 clarity_tx.config.mainnet,
                 clarity_tx.get_epoch(),
-                &tx,
+                tx,
                 ast_rules,
             ) {
                 info!(
                     "Detected problematic tx {} while mining; dropping from mempool",
                     tx.txid()
                 );
-                return TransactionResult::problematic(&tx, Error::NetError(e));
+                return TransactionResult::problematic(tx, Error::NetError(e));
             }
 
             let cost_before = clarity_tx.cost_so_far();
@@ -743,7 +764,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
 
             // save
             self.txs.push(tx.clone());
-            TransactionResult::success_with_soft_limit(&tx, fee, receipt, soft_limit_reached)
+            TransactionResult::success_with_soft_limit(tx, fee, receipt, soft_limit_reached)
         };
 
         self.bytes_so_far += tx_len;
@@ -756,9 +777,9 @@ fn parse_process_transaction_error(
     tx: &StacksTransaction,
     e: Error,
 ) -> TransactionResult {
-    let (is_problematic, e) = TransactionResult::is_problematic(&tx, e, clarity_tx.get_epoch());
+    let (is_problematic, e) = TransactionResult::is_problematic(tx, e, clarity_tx.get_epoch());
     if is_problematic {
-        TransactionResult::problematic(&tx, e)
+        TransactionResult::problematic(tx, e)
     } else {
         match e {
             Error::CostOverflowError(cost_before, cost_after, total_budget) => {
@@ -779,18 +800,16 @@ fn parse_process_transaction_error(
                         warn!("Failed to compute measured cost of a too big transaction");
                         None
                     };
-                    TransactionResult::error(&tx, Error::TransactionTooBigError(measured_cost))
+                    TransactionResult::error(tx, Error::TransactionTooBigError(measured_cost))
                 } else {
                     warn!(
-                        "Transaction {} reached block cost {}; budget was {}",
+                        "Transaction {} reached block cost {cost_after}; budget was {total_budget}",
                         tx.txid(),
-                        &cost_after,
-                        &total_budget
                     );
-                    TransactionResult::skipped_due_to_error(&tx, Error::BlockTooBigError)
+                    TransactionResult::skipped_due_to_error(tx, Error::BlockTooBigError)
                 }
             }
-            _ => TransactionResult::error(&tx, e),
+            _ => TransactionResult::error(tx, e),
         }
     }
 }

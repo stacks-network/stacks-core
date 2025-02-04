@@ -241,7 +241,7 @@ impl<'a> TestRPC<'a> {
             "94c319327cc5cd04da7147d32d836eb2e4c44f4db39aa5ede7314a761183d0c701",
         )
         .unwrap();
-        let microblock_privkey = StacksPrivateKey::new();
+        let microblock_privkey = StacksPrivateKey::random();
         let microblock_pubkeyhash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
 
@@ -377,7 +377,7 @@ impl<'a> TestRPC<'a> {
             TransactionAuth::from_p2pkh(&privk1).unwrap(),
             TransactionPayload::new_smart_contract(
                 "hello-world-unconfirmed",
-                &unconfirmed_contract.to_string(),
+                unconfirmed_contract,
                 None,
             )
             .unwrap(),
@@ -423,9 +423,8 @@ impl<'a> TestRPC<'a> {
             tx.commit().unwrap();
         }
 
-        let tip =
-            SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
-                .unwrap();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
+            .unwrap();
         let mut anchor_cost = ExecutionCost::ZERO;
         let mut anchor_size = 0;
 
@@ -480,7 +479,7 @@ impl<'a> TestRPC<'a> {
         );
 
         let (_, _, consensus_hash) = peer_1.next_burnchain_block(burn_ops.clone());
-        peer_2.next_burnchain_block(burn_ops.clone());
+        peer_2.next_burnchain_block(burn_ops);
 
         peer_1.process_stacks_epoch_at_tip(&stacks_block, &[]);
         peer_2.process_stacks_epoch_at_tip(&stacks_block, &[]);
@@ -562,7 +561,7 @@ impl<'a> TestRPC<'a> {
         let mut mempool_tx = mempool.tx_begin().unwrap();
         let mut sendable_txs = vec![];
         for i in 0..20 {
-            let pk = StacksPrivateKey::new();
+            let pk = StacksPrivateKey::random();
             let addr = StacksAddress::from_public_keys(
                 C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
                 &AddressHashMode::SerializeP2PKH,
@@ -694,9 +693,8 @@ impl<'a> TestRPC<'a> {
             .unwrap();
 
         // next tip, coinbase
-        let tip =
-            SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
-                .unwrap();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
+            .unwrap();
 
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -760,7 +758,7 @@ impl<'a> TestRPC<'a> {
         );
 
         let (_, _, next_consensus_hash) = peer_1.next_burnchain_block(next_burn_ops.clone());
-        peer_2.next_burnchain_block(next_burn_ops.clone());
+        peer_2.next_burnchain_block(next_burn_ops);
 
         let view_1 = peer_1.get_burnchain_view().unwrap();
         let view_2 = peer_2.get_burnchain_view().unwrap();
@@ -846,18 +844,14 @@ impl<'a> TestRPC<'a> {
             true, true, true, true, true, true, true, true, true, true,
         ]];
 
-        let (mut peer, mut other_peers) = make_nakamoto_peers_from_invs_ext(
-            function_name!(),
-            observer,
-            bitvecs.clone(),
-            |boot_plan| {
+        let (mut peer, mut other_peers) =
+            make_nakamoto_peers_from_invs_ext(function_name!(), observer, bitvecs, |boot_plan| {
                 boot_plan
                     .with_pox_constants(10, 3)
                     .with_extra_peers(1)
                     .with_initial_balances(vec![])
                     .with_malleablized_blocks(false)
-            },
-        );
+            });
         let mut other_peer = other_peers.pop().unwrap();
 
         let peer_1_indexer = BitcoinIndexer::new_unit_test(&peer.config.burnchain.working_dir);

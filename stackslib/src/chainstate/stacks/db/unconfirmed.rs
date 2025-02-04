@@ -110,7 +110,7 @@ impl UnconfirmedState {
             unconfirmed_chain_tip: unconfirmed_tip,
             clarity_inst: clarity_instance,
             mined_txs: UnconfirmedTxMap::new(),
-            cost_so_far: cost_so_far.clone(),
+            cost_so_far,
             bytes_so_far: 0,
 
             last_mblock: None,
@@ -382,7 +382,7 @@ impl UnconfirmedState {
             };
 
         StacksChainState::load_descendant_staging_microblock_stream(
-            &chainstate.db(),
+            chainstate.db(),
             &StacksBlockId::new(&consensus_hash, &anchored_block_hash),
             0,
             u16::MAX,
@@ -663,7 +663,7 @@ mod test {
 
     #[test]
     fn test_unconfirmed_refresh_one_microblock_stx_transfer() {
-        let privk = StacksPrivateKey::new();
+        let privk = StacksPrivateKey::random();
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -684,20 +684,20 @@ mod test {
         let num_blocks = 10;
         let first_stacks_block_height = {
             let sn =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
             sn.block_height
         };
 
         let mut last_block: Option<StacksBlock> = None;
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
 
             // send transactions to the mempool
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             assert_eq!(
@@ -778,7 +778,7 @@ mod test {
             let microblocks = {
                 let sortdb = peer.sortdb.take().unwrap();
                 let sort_iconn = sortdb
-                    .index_handle_at_block(&peer.chainstate(), &canonical_tip)
+                    .index_handle_at_block(peer.chainstate(), &canonical_tip)
                     .unwrap();
                 peer.chainstate()
                     .reload_unconfirmed_state(&sort_iconn, canonical_tip.clone())
@@ -853,7 +853,7 @@ mod test {
             // process microblock stream to generate unconfirmed state
             let sortdb = peer.sortdb.take().unwrap();
             let iconn = sortdb
-                .index_handle_at_block(&peer.chainstate(), &canonical_tip)
+                .index_handle_at_block(peer.chainstate(), &canonical_tip)
                 .unwrap();
             peer.chainstate()
                 .reload_unconfirmed_state(&iconn, canonical_tip.clone())
@@ -879,7 +879,7 @@ mod test {
 
             let sortdb = peer.sortdb.take().unwrap();
             let iconn = sortdb
-                .index_handle_at_block(&peer.chainstate(), &canonical_tip)
+                .index_handle_at_block(peer.chainstate(), &canonical_tip)
                 .unwrap();
             let confirmed_recv_balance = peer
                 .chainstate()
@@ -900,7 +900,7 @@ mod test {
 
     #[test]
     fn test_unconfirmed_refresh_10_microblocks_10_stx_transfers() {
-        let privk = StacksPrivateKey::new();
+        let privk = StacksPrivateKey::random();
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -921,20 +921,20 @@ mod test {
         let num_blocks = 10;
         let first_stacks_block_height = {
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
             tip.block_height
         };
 
         let mut last_block: Option<StacksBlock> = None;
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
 
             // send transactions to the mempool
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             assert_eq!(
@@ -1015,7 +1015,7 @@ mod test {
             let sortdb = peer.sortdb.take().unwrap();
             let microblocks = {
                 let sort_iconn = sortdb
-                    .index_handle_at_block(&peer.chainstate(), &canonical_tip)
+                    .index_handle_at_block(peer.chainstate(), &canonical_tip)
                     .unwrap();
                 peer.chainstate()
                     .reload_unconfirmed_state(&sort_iconn, canonical_tip.clone())
@@ -1147,7 +1147,7 @@ mod test {
 
     #[test]
     fn test_unconfirmed_refresh_invalid_microblock() {
-        let privk = StacksPrivateKey::new();
+        let privk = StacksPrivateKey::random();
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -1175,7 +1175,7 @@ mod test {
         let num_microblocks = 3;
         let first_stacks_block_height = {
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
             tip.block_height
         };
@@ -1187,13 +1187,13 @@ mod test {
         let mut recv_balance = 0;
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
 
             // send transactions to the mempool
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             assert_eq!(
@@ -1255,7 +1255,7 @@ mod test {
                             );
                             let mut tx_stx_transfer = StacksTransaction::new(
                                 TransactionVersion::Testnet,
-                                auth.clone(),
+                                auth,
                                 TransactionPayload::TokenTransfer(
                                     recv_addr.clone().into(),
                                     1,
@@ -1402,7 +1402,7 @@ mod test {
         // process microblock stream to generate unconfirmed state
         let sortdb = peer.sortdb.take().unwrap();
         let iconn = sortdb
-            .index_handle_at_block(&peer.chainstate(), &canonical_tip)
+            .index_handle_at_block(peer.chainstate(), &canonical_tip)
             .unwrap();
         peer.chainstate()
             .reload_unconfirmed_state(&iconn, canonical_tip.clone())

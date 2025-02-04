@@ -240,14 +240,12 @@ impl TestMiner {
             last_sortition_hash
         );
         match self.vrf_key_map.get(vrf_pubkey) {
-            Some(ref prover_key) => {
-                let proof = VRF::prove(prover_key, &last_sortition_hash.as_bytes().to_vec());
-                let valid =
-                    match VRF::verify(vrf_pubkey, &proof, &last_sortition_hash.as_bytes().to_vec())
-                    {
-                        Ok(v) => v,
-                        Err(e) => false,
-                    };
+            Some(prover_key) => {
+                let proof = VRF::prove(prover_key, last_sortition_hash.as_bytes());
+                let valid = match VRF::verify(vrf_pubkey, &proof, last_sortition_hash.as_bytes()) {
+                    Ok(v) => v,
+                    Err(e) => false,
+                };
                 assert!(valid);
                 Some(proof)
             }
@@ -422,7 +420,7 @@ impl TestBurnchainBlock {
         let pubks = miner
             .privks
             .iter()
-            .map(|ref pk| StacksPublicKey::from_private(pk))
+            .map(StacksPublicKey::from_private)
             .collect();
         let apparent_sender =
             BurnchainSigner::mock_parts(miner.hash_mode.clone(), miner.num_sigs as usize, pubks);
@@ -579,13 +577,10 @@ impl TestBurnchainBlock {
     pub fn patch_from_chain_tip(&mut self, parent_snapshot: &BlockSnapshot) {
         assert_eq!(parent_snapshot.block_height + 1, self.block_height);
 
-        for i in 0..self.txs.len() {
-            match self.txs[i] {
-                BlockstackOperationType::LeaderKeyRegister(ref mut data) => {
-                    assert_eq!(data.block_height, self.block_height);
-                    data.consensus_hash = parent_snapshot.consensus_hash.clone();
-                }
-                _ => {}
+        for tx in self.txs.iter_mut() {
+            if let BlockstackOperationType::LeaderKeyRegister(ref mut data) = tx {
+                assert_eq!(data.block_height, self.block_height);
+                data.consensus_hash = parent_snapshot.consensus_hash.clone();
             }
         }
     }
@@ -623,7 +618,7 @@ impl TestBurnchainBlock {
         let blockstack_txs = self.txs.clone();
 
         let burnchain_db =
-            BurnchainDB::connect(&burnchain.get_burnchaindb_path(), &burnchain, true).unwrap();
+            BurnchainDB::connect(&burnchain.get_burnchaindb_path(), burnchain, true).unwrap();
 
         let new_snapshot = sortition_db_handle
             .process_block_txs(
@@ -719,7 +714,7 @@ impl TestBurnchainFork {
             start_height,
             mined: 0,
             tip_header_hash: start_header_hash.clone(),
-            tip_sortition_id: SortitionId::stubbed(&start_header_hash),
+            tip_sortition_id: SortitionId::stubbed(start_header_hash),
             tip_index_root: start_index_root.clone(),
             blocks: vec![],
             pending_blocks: vec![],

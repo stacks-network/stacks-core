@@ -152,7 +152,7 @@ pub(crate) fn apply_blockstack_txs_safety_checks(
     );
 
     // safety -- make sure these are in order
-    blockstack_txs.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
+    blockstack_txs.sort_by(|a, b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
 
     // safety -- no duplicate vtxindex (shouldn't happen but crash if so)
     if blockstack_txs.len() > 1 {
@@ -349,7 +349,7 @@ impl BurnchainDBTransaction<'_> {
         let args = params![affirmation_map.encode(), u64_to_sql(weight)?];
         match self.sql_tx.execute(sql, args) {
             Ok(_) => {
-                let am_id = BurnchainDB::get_affirmation_map_id(&self.sql_tx, &affirmation_map)?
+                let am_id = BurnchainDB::get_affirmation_map_id(&self.sql_tx, affirmation_map)?
                     .expect("BUG: no affirmation ID for affirmation map we just inserted");
                 Ok(am_id)
             }
@@ -1193,9 +1193,10 @@ impl BurnchainDB {
         let ops: Vec<BlockstackOperationType> =
             query_rows(&self.conn, qry, args).expect("FATAL: burnchain DB query error");
         for op in ops {
-            if let Some(_) = indexer
+            if indexer
                 .find_burnchain_header_height(&op.burn_header_hash())
                 .expect("FATAL: burnchain DB query error")
+                .is_some()
             {
                 // this is the op on the canonical fork
                 return Some(op);
@@ -1231,7 +1232,7 @@ impl BurnchainDB {
                 self,
                 block_header,
                 epoch_id,
-                &tx,
+                tx,
                 &pre_stx_ops,
             );
             if let Some(classified_tx) = result {
@@ -1409,7 +1410,7 @@ impl BurnchainDB {
             blockstack_ops.len()
         );
         db_tx.store_burnchain_db_entry(block_header)?;
-        db_tx.store_blockstack_ops(burnchain, indexer, &block_header, blockstack_ops)?;
+        db_tx.store_blockstack_ops(burnchain, indexer, block_header, blockstack_ops)?;
 
         db_tx.commit()?;
         Ok(())
@@ -1459,7 +1460,7 @@ impl BurnchainDB {
     ) -> Result<Option<LeaderBlockCommitOp>, DBError> {
         let qry = "SELECT txid FROM block_commit_metadata WHERE block_height = ?1 AND vtxindex = ?2 AND burn_block_hash = ?3";
         let args = params![block_ptr, vtxindex, header_hash];
-        let txid = match query_row(&conn, qry, args) {
+        let txid = match query_row(conn, qry, args) {
             Ok(Some(txid)) => txid,
             Ok(None) => {
                 test_debug!(

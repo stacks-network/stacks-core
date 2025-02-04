@@ -61,7 +61,7 @@ fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
     let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
 
-    let block = make_codec_test_nakamoto_block(StacksEpochId::Epoch30, &StacksPrivateKey::new());
+    let block = make_codec_test_nakamoto_block(StacksEpochId::Epoch30, &StacksPrivateKey::random());
     let proposal = NakamotoBlockProposal {
         block: block.clone(),
         chain_id: 0x80000000,
@@ -234,7 +234,7 @@ fn test_try_make_response() {
     let mut requests = vec![];
 
     let tip =
-        SortitionDB::get_canonical_burn_chain_tip(&rpc_test.peer_1.sortdb.as_ref().unwrap().conn())
+        SortitionDB::get_canonical_burn_chain_tip(rpc_test.peer_1.sortdb.as_ref().unwrap().conn())
             .unwrap();
 
     let (stacks_tip_ch, stacks_tip_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(
@@ -253,7 +253,7 @@ fn test_try_make_response() {
                 .unwrap();
 
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",

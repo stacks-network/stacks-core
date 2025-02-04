@@ -551,10 +551,7 @@ impl TransactionResult {
 
     /// Returns true iff this enum is backed by `TransactionSuccess`.
     pub fn is_ok(&self) -> bool {
-        match &self {
-            TransactionResult::Success(_) => true,
-            _ => false,
-        }
+        matches!(self, TransactionResult::Success(_))
     }
 
     /// Returns a TransactionSuccess result as a pair of 1) fee and 2) receipt.
@@ -568,10 +565,7 @@ impl TransactionResult {
 
     /// Returns true iff this enum is backed by `Error`.
     pub fn is_err(&self) -> bool {
-        match &self {
-            TransactionResult::ProcessingError(_) => true,
-            _ => false,
-        }
+        matches!(self, TransactionResult::ProcessingError(_))
     }
 
     /// Returns an Error result as an Error.
@@ -880,7 +874,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
         let tx_merkle_root = merkle_tree.root();
-        let mut next_microblock_header = if let Some(ref prev_microblock) = prev_microblock_header {
+        let mut next_microblock_header = if let Some(prev_microblock) = prev_microblock_header {
             StacksMicroblockHeader::from_parent_unsigned(prev_microblock, &tx_merkle_root)
                 .ok_or(Error::MicroblockStreamTooLongError)?
         } else {
@@ -1048,7 +1042,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                             // note: this path _does_ not perform the tx block budget % heuristic,
                             //  because this code path is not directly called with a mempool handle.
                             clarity_tx.reset_cost(cost_before.clone());
-                            if total_budget.proportion_largest_dimension(&cost_before)
+                            if total_budget.proportion_largest_dimension(cost_before)
                                 < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
                             {
                                 warn!(
@@ -1143,24 +1137,20 @@ impl<'a> StacksMicroblockBuilder<'a> {
                         TransactionResult::Skipped(TransactionSkipped { error, .. })
                         | TransactionResult::ProcessingError(TransactionError { error, .. }) => {
                             test_debug!("Exclude tx {} from microblock", tx.txid());
-                            match &error {
-                                Error::BlockTooBigError => {
-                                    // done mining -- our execution budget is exceeded.
-                                    // Make the block from the transactions we did manage to get
-                                    test_debug!("Block budget exceeded on tx {}", &tx.txid());
-                                    if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
-                                        test_debug!("Switch to mining stx-transfers only");
-                                        block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
-                                    } else if block_limit_hit
-                                        == BlockLimitFunction::CONTRACT_LIMIT_HIT
-                                    {
-                                        test_debug!(
-                                            "Stop mining microblock block due to limit exceeded"
-                                        );
-                                        break;
-                                    }
+                            if let Error::BlockTooBigError = &error {
+                                // done mining -- our execution budget is exceeded.
+                                // Make the block from the transactions we did manage to get
+                                test_debug!("Block budget exceeded on tx {}", &tx.txid());
+                                if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
+                                    test_debug!("Switch to mining stx-transfers only");
+                                    block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
+                                } else if block_limit_hit == BlockLimitFunction::CONTRACT_LIMIT_HIT
+                                {
+                                    test_debug!(
+                                        "Stop mining microblock block due to limit exceeded"
+                                    );
+                                    break;
                                 }
-                                _ => {}
                             }
                             continue;
                         }
@@ -1194,12 +1184,9 @@ impl<'a> StacksMicroblockBuilder<'a> {
         self.runtime.considered.replace(considered);
         self.runtime.num_mined = num_txs;
 
-        match result {
-            Err(e) => {
-                warn!("Error producing microblock: {}", e);
-                return Err(e);
-            }
-            _ => {}
+        if let Err(e) = result {
+            warn!("Error producing microblock: {}", e);
+            return Err(e);
         }
 
         return self.make_next_microblock(txs_included, miner_key, tx_events, None);
@@ -1354,7 +1341,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                                     if let Some(measured_cost) = measured_cost {
                                                         if let Err(e) = estimator.notify_event(
                                                             &mempool_tx.tx.payload,
-                                                            &measured_cost,
+                                                            measured_cost,
                                                             &block_limit,
                                                             &stacks_epoch_id,
                                                         ) {
@@ -1521,12 +1508,12 @@ impl StacksBlockBuilder {
             parent_microblock_hash: parent_chain_tip
                 .microblock_tail
                 .as_ref()
-                .map(|ref hdr| hdr.block_hash()),
+                .map(|hdr| hdr.block_hash()),
             prev_microblock_header: StacksMicroblockHeader::first_unsigned(
                 &EMPTY_MICROBLOCK_PARENT_HASH,
                 &Sha512Trunc256Sum([0u8; 32]),
             ), // will be updated
-            miner_privkey: StacksPrivateKey::new(), // caller should overwrite this, or refrain from mining microblocks
+            miner_privkey: StacksPrivateKey::random(), // caller should overwrite this, or refrain from mining microblocks
             miner_payouts: None,
             miner_id,
         }
@@ -1832,19 +1819,19 @@ impl StacksBlockBuilder {
         if let Some(microblock_parent_hash) = self.parent_microblock_hash.as_ref() {
             // load up a microblock fork
             let microblocks = StacksChainState::load_microblock_stream_fork(
-                &chainstate.db(),
-                &parent_consensus_hash,
-                &parent_header_hash,
-                &microblock_parent_hash,
+                chainstate.db(),
+                parent_consensus_hash,
+                parent_header_hash,
+                microblock_parent_hash,
             )?
             .ok_or(Error::NoSuchBlockError)?;
 
             debug!(
                 "Loaded {} microblocks made by {}/{} tipped at {}",
                 microblocks.len(),
-                &parent_consensus_hash,
-                &parent_header_hash,
-                &microblock_parent_hash
+                parent_consensus_hash,
+                parent_header_hash,
+                microblock_parent_hash
             );
             Ok(microblocks)
         } else {
@@ -1855,7 +1842,7 @@ impl StacksBlockBuilder {
             );
             let (parent_microblocks, _) =
                 match StacksChainState::load_descendant_staging_microblock_stream_with_poison(
-                    &chainstate.db(),
+                    chainstate.db(),
                     &parent_index_hash,
                     0,
                     u16::MAX,
@@ -1867,8 +1854,8 @@ impl StacksBlockBuilder {
             debug!(
                 "Loaded {} microblocks made by {}/{}",
                 parent_microblocks.len(),
-                &parent_consensus_hash,
-                &parent_header_hash
+                parent_consensus_hash,
+                parent_header_hash
             );
             Ok(parent_microblocks)
         }
@@ -2264,7 +2251,13 @@ impl StacksBlockBuilder {
         // nakamoto miner tenure start heuristic:
         //  mine an empty block so you can start your tenure quickly!
         if let Some(tx) = initial_txs.first() {
-            if matches!(&tx.payload, TransactionPayload::TenureChange(_)) {
+            if matches!(
+                &tx.payload,
+                TransactionPayload::TenureChange(TenureChangePayload {
+                    cause: TenureChangeCause::BlockFound,
+                    ..
+                })
+            ) {
                 info!("Nakamoto miner heuristic: during tenure change blocks, produce a fast short block to begin tenure");
                 return Ok((false, tx_events));
             }
@@ -2476,7 +2469,7 @@ impl StacksBlockBuilder {
                                             if let Some(measured_cost) = measured_cost {
                                                 if let Err(e) = estimator.notify_event(
                                                     &txinfo.tx.payload,
-                                                    &measured_cost,
+                                                    measured_cost,
                                                     &block_limit,
                                                     &stacks_epoch_id,
                                                 ) {
@@ -2714,7 +2707,7 @@ impl BlockBuilder for StacksBlockBuilder {
         ast_rules: ASTRules,
     ) -> TransactionResult {
         if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
-            return TransactionResult::skipped_due_to_error(&tx, Error::BlockTooBigError);
+            return TransactionResult::skipped_due_to_error(tx, Error::BlockTooBigError);
         }
 
         match limit_behavior {
@@ -2725,14 +2718,14 @@ impl BlockBuilder for StacksBlockBuilder {
                         //   other contract calls
                         if !cc.address.is_boot_code_addr() {
                             return TransactionResult::skipped(
-                                &tx,
+                                tx,
                                 "BlockLimitFunction::CONTRACT_LIMIT_HIT".to_string(),
                             );
                         }
                     }
                     TransactionPayload::SmartContract(..) => {
                         return TransactionResult::skipped(
-                            &tx,
+                            tx,
                             "BlockLimitFunction::CONTRACT_LIMIT_HIT".to_string(),
                         );
                     }
@@ -2741,7 +2734,7 @@ impl BlockBuilder for StacksBlockBuilder {
             }
             BlockLimitFunction::LIMIT_REACHED => {
                 return TransactionResult::skipped(
-                    &tx,
+                    tx,
                     "BlockLimitFunction::LIMIT_REACHED".to_string(),
                 )
             }
@@ -2767,14 +2760,14 @@ impl BlockBuilder for StacksBlockBuilder {
             if let Err(e) = Relayer::static_check_problematic_relayed_tx(
                 clarity_tx.config.mainnet,
                 clarity_tx.get_epoch(),
-                &tx,
+                tx,
                 ast_rules,
             ) {
                 info!(
                     "Detected problematic tx {} while mining; dropping from mempool",
                     tx.txid()
                 );
-                return TransactionResult::problematic(&tx, Error::NetError(e));
+                return TransactionResult::problematic(tx, Error::NetError(e));
             }
             let (fee, receipt) = match StacksChainState::process_transaction(
                 clarity_tx, tx, quiet, ast_rules,
@@ -2782,9 +2775,9 @@ impl BlockBuilder for StacksBlockBuilder {
                 Ok((fee, receipt)) => (fee, receipt),
                 Err(e) => {
                     let (is_problematic, e) =
-                        TransactionResult::is_problematic(&tx, e, clarity_tx.get_epoch());
+                        TransactionResult::is_problematic(tx, e, clarity_tx.get_epoch());
                     if is_problematic {
-                        return TransactionResult::problematic(&tx, e);
+                        return TransactionResult::problematic(tx, e);
                     } else {
                         match e {
                             Error::CostOverflowError(cost_before, cost_after, total_budget) => {
@@ -2808,7 +2801,7 @@ impl BlockBuilder for StacksBlockBuilder {
                                         None
                                     };
                                     return TransactionResult::error(
-                                        &tx,
+                                        tx,
                                         Error::TransactionTooBigError(measured_cost),
                                     );
                                 } else {
@@ -2819,12 +2812,12 @@ impl BlockBuilder for StacksBlockBuilder {
                                         &total_budget
                                     );
                                     return TransactionResult::skipped_due_to_error(
-                                        &tx,
+                                        tx,
                                         Error::BlockTooBigError,
                                     );
                                 }
                             }
-                            _ => return TransactionResult::error(&tx, e),
+                            _ => return TransactionResult::error(tx, e),
                         }
                     }
                 }
@@ -2838,7 +2831,7 @@ impl BlockBuilder for StacksBlockBuilder {
             self.txs.push(tx.clone());
             self.total_anchored_fees += fee;
 
-            TransactionResult::success(&tx, fee, receipt)
+            TransactionResult::success(tx, fee, receipt)
         } else {
             // building up the microblocks
             if tx.anchor_mode != TransactionAnchorMode::OffChainOnly
@@ -2857,14 +2850,14 @@ impl BlockBuilder for StacksBlockBuilder {
             if let Err(e) = Relayer::static_check_problematic_relayed_tx(
                 clarity_tx.config.mainnet,
                 clarity_tx.get_epoch(),
-                &tx,
+                tx,
                 ast_rules,
             ) {
                 info!(
                     "Detected problematic tx {} while mining; dropping from mempool",
                     tx.txid()
                 );
-                return TransactionResult::problematic(&tx, Error::NetError(e));
+                return TransactionResult::problematic(tx, Error::NetError(e));
             }
             let (fee, receipt) = match StacksChainState::process_transaction(
                 clarity_tx, tx, quiet, ast_rules,
@@ -2872,9 +2865,9 @@ impl BlockBuilder for StacksBlockBuilder {
                 Ok((fee, receipt)) => (fee, receipt),
                 Err(e) => {
                     let (is_problematic, e) =
-                        TransactionResult::is_problematic(&tx, e, clarity_tx.get_epoch());
+                        TransactionResult::is_problematic(tx, e, clarity_tx.get_epoch());
                     if is_problematic {
-                        return TransactionResult::problematic(&tx, e);
+                        return TransactionResult::problematic(tx, e);
                     } else {
                         match e {
                             Error::CostOverflowError(cost_before, cost_after, total_budget) => {
@@ -2899,23 +2892,21 @@ impl BlockBuilder for StacksBlockBuilder {
                                     };
 
                                     return TransactionResult::error(
-                                        &tx,
+                                        tx,
                                         Error::TransactionTooBigError(measured_cost),
                                     );
                                 } else {
                                     warn!(
-                                        "Transaction {} reached block cost {}; budget was {}",
-                                        tx.txid(),
-                                        &cost_after,
-                                        &total_budget
+                                        "Transaction {} reached block cost {cost_after}; budget was {total_budget}",
+                                        tx.txid()
                                     );
                                     return TransactionResult::skipped_due_to_error(
-                                        &tx,
+                                        tx,
                                         Error::BlockTooBigError,
                                     );
                                 }
                             }
-                            _ => return TransactionResult::error(&tx, e),
+                            _ => return TransactionResult::error(tx, e),
                         }
                     }
                 }
@@ -2930,7 +2921,7 @@ impl BlockBuilder for StacksBlockBuilder {
             self.micro_txs.push(tx.clone());
             self.total_streamed_fees += fee;
 
-            TransactionResult::success(&tx, fee, receipt)
+            TransactionResult::success(tx, fee, receipt)
         };
 
         self.bytes_so_far += tx_len;

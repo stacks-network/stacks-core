@@ -147,7 +147,7 @@ fn test_store_and_fetch() {
         &BurnchainHeaderHash::sentinel()
     );
 
-    let headers = vec![first_block_header.clone()];
+    let headers = vec![first_block_header];
     let canon_hash = BurnchainHeaderHash([1; 32]);
 
     let canonical_block =
@@ -554,7 +554,7 @@ pub fn make_simple_block_commit(
         new_op.commit_outs = vec![PoxAddress::standard_burn_address(false)];
     }
 
-    if let Some(ref op) = parent {
+    if let Some(op) = parent {
         new_op.parent_block_ptr = op.block_height as u32;
         new_op.parent_vtxindex = op.vtxindex as u16;
     };
@@ -639,18 +639,14 @@ fn test_get_commit_at() {
     }
 
     for i in 0..5 {
-        let cmt = BurnchainDB::get_commit_at(
-            &burnchain_db.conn(),
-            &headers,
-            (first_height + i) as u32,
-            0,
-        )
-        .unwrap()
-        .unwrap();
+        let cmt =
+            BurnchainDB::get_commit_at(burnchain_db.conn(), &headers, (first_height + i) as u32, 0)
+                .unwrap()
+                .unwrap();
         assert_eq!(cmt, cmts[i as usize]);
     }
 
-    let cmt = BurnchainDB::get_commit_at(&burnchain_db.conn(), &headers, 5, 0)
+    let cmt = BurnchainDB::get_commit_at(burnchain_db.conn(), &headers, 5, 0)
         .unwrap()
         .unwrap();
     assert_eq!(cmt, cmts[4]);
@@ -681,12 +677,12 @@ fn test_get_commit_at() {
         )
         .unwrap();
 
-    let cmt = BurnchainDB::get_commit_at(&burnchain_db.conn(), &headers, 5, 0)
+    let cmt = BurnchainDB::get_commit_at(burnchain_db.conn(), &headers, 5, 0)
         .unwrap()
         .unwrap();
     assert_eq!(cmt, cmts[4]);
 
-    let cmt = BurnchainDB::get_commit_at(&burnchain_db.conn(), &fork_headers, 5, 1)
+    let cmt = BurnchainDB::get_commit_at(burnchain_db.conn(), &fork_headers, 5, 1)
         .unwrap()
         .unwrap();
     assert_eq!(cmt, fork_cmt);
@@ -919,8 +915,6 @@ fn test_update_block_descendancy_with_fork() {
     let mut cmts_genesis = vec![];
     let mut cmts_invalid = vec![];
 
-    let mut fork_parent = None;
-    let mut fork_parent_block_header: Option<BurnchainBlockHeader> = None;
     let mut fork_cmts = vec![];
 
     for i in 0..5 {
@@ -954,7 +948,6 @@ fn test_update_block_descendancy_with_fork() {
         };
 
         fork_headers.push(block_header.clone());
-        fork_parent_block_header = Some(block_header);
     }
 
     let mut am_id = 0;
@@ -1018,7 +1011,6 @@ fn test_update_block_descendancy_with_fork() {
         fork_cmts.push(fork_cmt.clone());
 
         parent = Some(cmt);
-        fork_parent = Some(fork_cmt);
 
         if i == 0 {
             am_id = {
@@ -1098,7 +1090,7 @@ fn test_classify_delegate_stx() {
 
     let canonical_block =
         BurnchainBlock::Bitcoin(BitcoinBlock::new(500, &canon_hash, &first_bhh, vec![], 485));
-    let mut headers = vec![first_block_header.clone(), canonical_block.header().clone()];
+    let mut headers = vec![first_block_header, canonical_block.header()];
 
     let ops = burnchain_db
         .store_new_burnchain_block(
@@ -1291,8 +1283,8 @@ fn test_classify_delegate_stx() {
         360,
     ));
 
-    headers.push(block_0.header().clone());
-    headers.push(block_1.header().clone());
+    headers.push(block_0.header());
+    headers.push(block_1.header());
 
     test_debug!("store ops ({}) for block 0", ops_0_length);
     let processed_ops_0 = burnchain_db

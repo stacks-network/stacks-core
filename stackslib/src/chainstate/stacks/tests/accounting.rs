@@ -128,7 +128,7 @@ fn test_bad_microblock_fees_pre_v210() {
 
     let mut mblock_privks = vec![];
     for _ in 0..num_blocks {
-        let mblock_privk = StacksPrivateKey::new();
+        let mblock_privk = StacksPrivateKey::random();
         mblock_privks.push(mblock_privk);
     }
 
@@ -137,7 +137,7 @@ fn test_bad_microblock_fees_pre_v210() {
     let chainstate_path = peer.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
             .unwrap();
         sn.block_height
     };
@@ -148,7 +148,7 @@ fn test_bad_microblock_fees_pre_v210() {
     let mut block_ids = vec![];
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
             .unwrap();
 
         let acct = get_stacks_account(&mut peer, &addr.to_account_principal());
@@ -196,7 +196,7 @@ fn test_bad_microblock_fees_pre_v210() {
                         make_coinbase(miner, tenure_id / 2)
                     }
                     else {
-                        let pk = StacksPrivateKey::new();
+                        let pk = StacksPrivateKey::random();
                         let mut tx_coinbase = StacksTransaction::new(
                             TransactionVersion::Testnet,
                             TransactionAuth::from_p2pkh(&pk).unwrap(),
@@ -451,7 +451,7 @@ fn test_bad_microblock_fees_fix_transition() {
 
     let mut mblock_privks = vec![];
     for _ in 0..num_blocks {
-        let mblock_privk = StacksPrivateKey::new();
+        let mblock_privk = StacksPrivateKey::random();
         mblock_privks.push(mblock_privk);
     }
 
@@ -460,7 +460,7 @@ fn test_bad_microblock_fees_fix_transition() {
     let chainstate_path = peer.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
             .unwrap();
         sn.block_height
     };
@@ -471,7 +471,7 @@ fn test_bad_microblock_fees_fix_transition() {
     let mut block_ids = vec![];
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
             .unwrap();
 
         let acct = get_stacks_account(&mut peer, &addr.to_account_principal());
@@ -519,7 +519,7 @@ fn test_bad_microblock_fees_fix_transition() {
                         make_coinbase(miner, tenure_id / 2)
                     }
                     else {
-                        let pk = StacksPrivateKey::new();
+                        let pk = StacksPrivateKey::random();
                         let mut tx_coinbase = StacksTransaction::new(
                             TransactionVersion::Testnet,
                             TransactionAuth::from_p2pkh(&pk).unwrap(),
@@ -808,7 +808,7 @@ fn test_get_block_info_v210() {
 
     let mut mblock_privks = vec![];
     for _ in 0..num_blocks {
-        let mblock_privk = StacksPrivateKey::new();
+        let mblock_privk = StacksPrivateKey::random();
         mblock_privks.push(mblock_privk);
     }
 
@@ -817,7 +817,7 @@ fn test_get_block_info_v210() {
     let chainstate_path = peer.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
             .unwrap();
         sn.block_height
     };
@@ -827,7 +827,7 @@ fn test_get_block_info_v210() {
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
             .unwrap();
 
         let acct = get_stacks_account(&mut peer, &addr.to_account_principal());
@@ -875,7 +875,7 @@ fn test_get_block_info_v210() {
                         make_coinbase(miner, tenure_id / 2)
                     }
                     else {
-                        let pk = StacksPrivateKey::new();
+                        let pk = StacksPrivateKey::random();
                         let mut tx_coinbase = StacksTransaction::new(
                             TransactionVersion::Testnet,
                             TransactionAuth::from_p2pkh(&pk).unwrap(),
@@ -1180,7 +1180,7 @@ fn test_get_block_info_v210_no_microblocks() {
 
     let mut mblock_privks = vec![];
     for _ in 0..num_blocks {
-        let mblock_privk = StacksPrivateKey::new();
+        let mblock_privk = StacksPrivateKey::random();
         mblock_privks.push(mblock_privk);
     }
 
@@ -1189,7 +1189,7 @@ fn test_get_block_info_v210_no_microblocks() {
     let chainstate_path = peer.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
             .unwrap();
         sn.block_height
     };
@@ -1199,7 +1199,7 @@ fn test_get_block_info_v210_no_microblocks() {
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
             .unwrap();
 
         let acct = get_stacks_account(&mut peer, &addr.to_account_principal());
@@ -1247,7 +1247,7 @@ fn test_get_block_info_v210_no_microblocks() {
                         make_coinbase(miner, tenure_id / 2)
                     }
                     else {
-                        let pk = StacksPrivateKey::new();
+                        let pk = StacksPrivateKey::random();
                         let mut tx_coinbase = StacksTransaction::new(
                             TransactionVersion::Testnet,
                             TransactionAuth::from_p2pkh(&pk).unwrap(),
@@ -1414,7 +1414,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
         "f67c7437f948ca1834602b28595c12ac744f287a4efaf70d437042a6afed81bc01",
     )
     .unwrap();
-    let privk_recipient = StacksPrivateKey::new();
+    let privk_recipient = StacksPrivateKey::random();
 
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -1501,7 +1501,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
 
     let mut mblock_privks = vec![];
     for _ in 0..num_blocks {
-        let mblock_privk = StacksPrivateKey::new();
+        let mblock_privk = StacksPrivateKey::random();
         mblock_privks.push(mblock_privk);
     }
 
@@ -1510,7 +1510,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
     let chainstate_path = peer.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
             .unwrap();
         sn.block_height
     };
@@ -1526,7 +1526,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
             .unwrap();
 
         let acct = get_stacks_account(&mut peer, &addr.to_account_principal());
@@ -1613,7 +1613,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                             make_coinbase(miner, tenure_id)
                         }
                     } else {
-                        let pk = StacksPrivateKey::new();
+                        let pk = StacksPrivateKey::random();
                         let addr = StacksAddress::from_public_keys(
                             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
                             &AddressHashMode::SerializeP2PKH,
@@ -1885,7 +1885,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
 
                         if i > 2 {
                             eprintln!("recipient_total_reward: {} = {} + {}", recipient_total_reward + block_reward_opt.clone().unwrap().expect_u128().unwrap(), recipient_total_reward, block_reward_opt.clone().unwrap().expect_u128().unwrap());
-                            recipient_total_reward += block_reward_opt.clone().unwrap().expect_u128().unwrap();
+                            recipient_total_reward += block_reward_opt.unwrap().expect_u128().unwrap();
                         }
                     }
                     else {

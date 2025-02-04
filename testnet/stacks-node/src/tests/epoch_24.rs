@@ -88,10 +88,10 @@ fn fix_to_pox_contract() {
     let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let increase_by = 10_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
-    let spender_2_sk = StacksPrivateKey::new();
+    let spender_2_sk = StacksPrivateKey::random();
     let spender_2_addr: PrincipalData = to_addr(&spender_2_sk).into();
 
     let mut initial_balances = vec![];
@@ -102,7 +102,7 @@ fn fix_to_pox_contract() {
     });
 
     initial_balances.push(InitialBalance {
-        address: spender_2_addr.clone(),
+        address: spender_2_addr,
         amount: stacked + 100_000,
     });
 
@@ -243,7 +243,7 @@ fn fix_to_pox_contract() {
         "stack-stx",
         &[
             Value::UInt(stacked.into()),
-            pox_addr_tuple_1.clone(),
+            pox_addr_tuple_1,
             Value::UInt(sort_height as u128),
             Value::UInt(12),
         ],
@@ -393,7 +393,7 @@ fn fix_to_pox_contract() {
         "stack-stx",
         &[
             Value::UInt(stacked.into()),
-            pox_addr_tuple_2.clone(),
+            pox_addr_tuple_2,
             Value::UInt(sort_height as u128),
             Value::UInt(12),
         ],
@@ -413,7 +413,7 @@ fn fix_to_pox_contract() {
         "stack-stx",
         &[
             Value::UInt(stacked.into()),
-            pox_addr_tuple_3.clone(),
+            pox_addr_tuple_3,
             Value::UInt(sort_height as u128),
             Value::UInt(10),
         ],
@@ -571,7 +571,7 @@ fn fix_to_pox_contract() {
         ),
         (
             23u64,
-            HashMap::from([(pox_addr_1.clone(), 13u64), (burn_pox_addr.clone(), 1)]),
+            HashMap::from([(pox_addr_1, 13u64), (burn_pox_addr.clone(), 1)]),
         ),
         // cycle 24 is the first 2.1, it should have pox_2 and 1 burn slot
         (
@@ -601,11 +601,7 @@ fn fix_to_pox_contract() {
         // because pox-3 fixes the total-locked bug
         (
             30,
-            HashMap::from([
-                (pox_addr_2.clone(), 7u64),
-                (pox_addr_3.clone(), 6),
-                (burn_pox_addr.clone(), 1),
-            ]),
+            HashMap::from([(pox_addr_2, 7u64), (pox_addr_3, 6), (burn_pox_addr, 1)]),
         ),
     ]);
 
@@ -699,23 +695,23 @@ fn verify_auto_unlock_behavior() {
     let first_stacked_incr = 40_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let small_stacked = 17_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_stx_addr: StacksAddress = to_addr(&spender_sk);
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
-    let spender_2_sk = StacksPrivateKey::new();
+    let spender_2_sk = StacksPrivateKey::random();
     let spender_2_stx_addr: StacksAddress = to_addr(&spender_2_sk);
     let spender_2_addr: PrincipalData = to_addr(&spender_2_sk).into();
 
     let mut initial_balances = vec![];
 
     initial_balances.push(InitialBalance {
-        address: spender_addr.clone(),
+        address: spender_addr,
         amount: first_stacked_init + first_stacked_incr + 100_000,
     });
 
     initial_balances.push(InitialBalance {
-        address: spender_2_addr.clone(),
+        address: spender_2_addr,
         amount: small_stacked + 100_000,
     });
 
@@ -875,7 +871,7 @@ fn verify_auto_unlock_behavior() {
         "stack-stx",
         &[
             Value::UInt(first_stacked_init.into()),
-            pox_addr_tuple_1.clone(),
+            pox_addr_tuple_1,
             Value::UInt(sort_height as u128),
             Value::UInt(12),
         ],
@@ -1011,7 +1007,7 @@ fn verify_auto_unlock_behavior() {
         "stack-stx",
         &[
             Value::UInt(first_stacked_init.into()),
-            pox_addr_tuple_2.clone(),
+            pox_addr_tuple_2,
             Value::UInt(sort_height as u128),
             Value::UInt(12),
         ],
@@ -1031,7 +1027,7 @@ fn verify_auto_unlock_behavior() {
         "stack-stx",
         &[
             Value::UInt(small_stacked.into()),
-            pox_addr_tuple_3.clone(),
+            pox_addr_tuple_3,
             Value::UInt(sort_height as u128),
             Value::UInt(10),
         ],
@@ -1276,7 +1272,7 @@ fn verify_auto_unlock_behavior() {
         ),
         (
             23u64,
-            HashMap::from([(pox_addr_1.clone(), 13u64), (burn_pox_addr.clone(), 1)]),
+            HashMap::from([(pox_addr_1, 13u64), (burn_pox_addr.clone(), 1)]),
         ),
         // cycle 24 is the first 2.1, it should have pox_2 and 1 burn slot
         (
@@ -1298,16 +1294,13 @@ fn verify_auto_unlock_behavior() {
             29,
             HashMap::from([
                 (pox_addr_2.clone(), 12u64),
-                (pox_addr_3.clone(), 1),
+                (pox_addr_3, 1),
                 (burn_pox_addr.clone(), 1),
             ]),
         ),
         // stack-increase has been invoked, which causes spender_addr_2 to be below the stacking
         // minimum, and thus they have zero reward addresses in reward cycle 30.
-        (
-            30,
-            HashMap::from([(pox_addr_2.clone(), 13u64), (burn_pox_addr.clone(), 1)]),
-        ),
+        (30, HashMap::from([(pox_addr_2, 13u64), (burn_pox_addr, 1)])),
     ]);
 
     for reward_cycle in reward_cycle_min..(reward_cycle_max + 1) {

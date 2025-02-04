@@ -258,12 +258,11 @@ impl<T: MarfTrieId> TrieCache<T> {
             TrieCache::Everything(ref mut state) => {
                 state.store_node_and_hash(block_id, trieptr, node, hash);
             }
-            TrieCache::Node256(ref mut state) => match node {
-                TrieNodeType::Node256(data) => {
+            TrieCache::Node256(ref mut state) => {
+                if let TrieNodeType::Node256(data) = node {
                     state.store_node_and_hash(block_id, trieptr, TrieNodeType::Node256(data), hash);
                 }
-                _ => {}
-            },
+            }
         }
     }
 
@@ -273,12 +272,11 @@ impl<T: MarfTrieId> TrieCache<T> {
         match self {
             TrieCache::Noop(_) => {}
             TrieCache::Everything(ref mut state) => state.store_node(block_id, trieptr, node),
-            TrieCache::Node256(ref mut state) => match node {
-                TrieNodeType::Node256(data) => {
+            TrieCache::Node256(ref mut state) => {
+                if let TrieNodeType::Node256(data) = node {
                     state.store_node(block_id, trieptr, TrieNodeType::Node256(data))
                 }
-                _ => {}
-            },
+            }
         }
     }
 
@@ -468,7 +466,7 @@ pub mod test {
             total_read_time, &read_bench
         );
 
-        let mut bench = write_bench.clone();
+        let mut bench = write_bench;
         bench.add(&read_bench);
 
         eprintln!("MARF bench total: {:#?}", &bench);

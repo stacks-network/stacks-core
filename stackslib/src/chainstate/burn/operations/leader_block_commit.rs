@@ -543,7 +543,7 @@ impl RewardSetInfo {
     ) -> Result<Option<RewardSetInfo>, op_error> {
         // did this block-commit pay to the correct PoX addresses?
         let intended_recipients = tx
-            .get_reward_set_payouts_at(&intended_sortition)
+            .get_reward_set_payouts_at(intended_sortition)
             .map_err(|_e| op_error::BlockCommitBadOutputs)?
             .0;
         let block_height = SortitionDB::get_block_snapshot(tx.tx(), intended_sortition)
@@ -1131,19 +1131,17 @@ impl LeaderBlockCommitOp {
             .is_after_pox_sunset_end(self.block_height, epoch.epoch_id)
         {
             // sunset has begun and we're not in epoch 2.1 or later, so apply sunset check
-            self.check_after_pox_sunset().map_err(|e| {
-                warn!("Invalid block-commit: bad PoX after sunset: {:?}", &e;
+            self.check_after_pox_sunset().inspect_err(|e| {
+                warn!("Invalid block-commit: bad PoX after sunset: {e:?}";
                           "apparent_sender" => %apparent_sender_repr);
-                e
             })?;
             vec![]
         } else {
             // either in epoch 2.1, or the PoX sunset hasn't completed yet
             self.check_pox(epoch.epoch_id, burnchain, tx, reward_set_info)
-                .map_err(|e| {
-                    warn!("Invalid block-commit: bad PoX: {:?}", &e;
+                .inspect_err(|e| {
+                    warn!("Invalid block-commit: bad PoX: {e:?}";
                           "apparent_sender" => %apparent_sender_repr);
-                    e
                 })?
         };
 
@@ -1280,11 +1278,7 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(if let op_error::BlockCommitBadOutputs = err {
-            true
-        } else {
-            false
-        });
+        assert!(matches!(err, op_error::BlockCommitBadOutputs));
 
         // should succeed in epoch 2.1 -- can be PoX in 2.1
         let _op = LeaderBlockCommitOp::parse_from_tx(
@@ -2046,13 +2040,11 @@ mod tests {
             vec![],
             // 124
             vec![
-                BlockstackOperationType::LeaderKeyRegister(leader_key_1.clone()),
-                BlockstackOperationType::LeaderKeyRegister(leader_key_2.clone()),
+                BlockstackOperationType::LeaderKeyRegister(leader_key_1),
+                BlockstackOperationType::LeaderKeyRegister(leader_key_2),
             ],
             // 125
-            vec![BlockstackOperationType::LeaderBlockCommit(
-                block_commit_1.clone(),
-            )],
+            vec![BlockstackOperationType::LeaderBlockCommit(block_commit_1)],
             // 126
             vec![],
         ];
@@ -2581,13 +2573,11 @@ mod tests {
             vec![],
             // 124
             vec![
-                BlockstackOperationType::LeaderKeyRegister(leader_key_1.clone()),
-                BlockstackOperationType::LeaderKeyRegister(leader_key_2.clone()),
+                BlockstackOperationType::LeaderKeyRegister(leader_key_1),
+                BlockstackOperationType::LeaderKeyRegister(leader_key_2),
             ],
             // 125
-            vec![BlockstackOperationType::LeaderBlockCommit(
-                block_commit_1.clone(),
-            )],
+            vec![BlockstackOperationType::LeaderBlockCommit(block_commit_1)],
             // 126
             vec![],
         ];
@@ -3399,7 +3389,7 @@ mod tests {
             ),
             (
                 LeaderBlockCommitOp {
-                    commit_outs: vec![burn_addr_0.clone(), burn_addr_1.clone()],
+                    commit_outs: vec![burn_addr_0.clone(), burn_addr_1],
                     ..default_block_commit.clone()
                 },
                 Some(no_punish(&rs_pox_addrs_0b)),
@@ -3431,8 +3421,8 @@ mod tests {
             ),
             (
                 LeaderBlockCommitOp {
-                    commit_outs: vec![burn_addr_0.clone(), reward_addrs(3)],
-                    ..default_block_commit.clone()
+                    commit_outs: vec![burn_addr_0, reward_addrs(3)],
+                    ..default_block_commit
                 },
                 Some(rs_pox_addrs.clone()),
                 Err(op_error::BlockCommitBadOutputs),

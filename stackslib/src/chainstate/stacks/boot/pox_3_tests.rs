@@ -78,7 +78,7 @@ const USTX_PER_HOLDER: u128 = 1_000_000;
 /// Return the BlockSnapshot for the latest sortition in the provided
 ///  SortitionDB option-reference. Panics on any errors.
 fn get_tip(sortdb: Option<&SortitionDB>) -> BlockSnapshot {
-    SortitionDB::get_canonical_burn_chain_tip(&sortdb.unwrap().conn()).unwrap()
+    SortitionDB::get_canonical_burn_chain_tip(sortdb.unwrap().conn()).unwrap()
 }
 
 fn make_test_epochs_pox() -> (EpochList, PoxConstants) {
@@ -250,7 +250,7 @@ fn simple_pox_lockup_transition_pox_2() {
 
     // check the stacking minimum
     let total_liquid_ustx = get_liquid_ustx(&mut peer);
-    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
         chainstate.get_stacking_minimum(sortdb, &tip_index_block)
     })
     .unwrap();
@@ -260,7 +260,7 @@ fn simple_pox_lockup_transition_pox_2() {
     );
 
     // no reward addresses
-    let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+    let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
         get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
     })
     .unwrap();
@@ -930,16 +930,13 @@ fn pox_auto_unlock(alice_first: bool) {
                 coinbase_txs.push(r);
                 continue;
             }
-            match r.transaction {
-                TransactionOrigin::Stacks(ref t) => {
-                    let addr = t.auth.origin().address_testnet();
-                    if addr == alice_address {
-                        alice_txs.insert(t.auth.get_origin_nonce(), r);
-                    } else if addr == bob_address {
-                        bob_txs.insert(t.auth.get_origin_nonce(), r);
-                    }
+            if let TransactionOrigin::Stacks(ref t) = r.transaction {
+                let addr = t.auth.origin().address_testnet();
+                if addr == alice_address {
+                    alice_txs.insert(t.auth.get_origin_nonce(), r);
+                } else if addr == bob_address {
+                    bob_txs.insert(t.auth.get_origin_nonce(), r);
                 }
-                _ => {}
             }
         }
     }
@@ -1011,7 +1008,7 @@ fn delegate_stack_increase() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let first_v2_cycle = burnchain
         .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
@@ -1632,7 +1629,7 @@ fn stack_increase() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let first_v2_cycle = burnchain
         .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
@@ -2061,7 +2058,7 @@ fn pox_extend_transition() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let first_v2_cycle = burnchain
         .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
@@ -2108,7 +2105,7 @@ fn pox_extend_transition() {
         let cur_reward_cycle = burnchain
             .block_height_to_reward_cycle(tip_burn_block_height)
             .unwrap() as u128;
-        let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, ref sortdb| {
+        let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, sortdb| {
             (
                 c.get_stacking_minimum(sortdb, &tip_index_block).unwrap(),
                 get_reward_addresses_with_par_tip(c, &burnchain, sortdb, &tip_index_block).unwrap(),
@@ -2149,7 +2146,7 @@ fn pox_extend_transition() {
         let cur_reward_cycle = burnchain
             .block_height_to_reward_cycle(tip_burn_block_height)
             .unwrap() as u128;
-        let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, ref sortdb| {
+        let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, sortdb| {
             (
                 c.get_stacking_minimum(sortdb, &tip_index_block).unwrap(),
                 get_reward_addresses_with_par_tip(c, &burnchain, sortdb, &tip_index_block).unwrap(),
@@ -2213,7 +2210,7 @@ fn pox_extend_transition() {
 
     // check the stacking minimum
     let total_liquid_ustx = get_liquid_ustx(&mut peer);
-    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
         chainstate.get_stacking_minimum(sortdb, &tip_index_block)
     })
     .unwrap();
@@ -2223,7 +2220,7 @@ fn pox_extend_transition() {
     );
 
     // no reward addresses
-    let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+    let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
         get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
     })
     .unwrap();
@@ -2581,7 +2578,7 @@ fn delegate_extend_pox_3() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let first_v3_cycle = burnchain
         .block_height_to_reward_cycle(burnchain.pox_constants.pox_3_activation_height as u64)
@@ -3047,7 +3044,7 @@ fn delegate_extend_pox_3() {
     ]);
     let common_data = PoxPrintFields {
         op_name: "stack-aggregation-commit".to_string(),
-        stacker: Value::Principal(charlie_principal.clone()),
+        stacker: Value::Principal(charlie_principal),
         balance: Value::UInt(LOCKUP_AMT),
         locked: Value::UInt(0),
         burnchain_unlock_height: Value::UInt(0),
@@ -3067,7 +3064,7 @@ fn pox_3_getters() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let first_v3_cycle = burnchain
         .block_height_to_reward_cycle(burnchain.pox_constants.pox_3_activation_height as u64)
@@ -3422,7 +3419,7 @@ fn get_pox_addrs() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let first_v2_cycle = burnchain
         .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
@@ -3631,7 +3628,7 @@ fn stack_with_segwit() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let first_v2_cycle = burnchain
         .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
@@ -3846,7 +3843,7 @@ fn stack_aggregation_increase() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let first_v3_cycle = burnchain
         .block_height_to_reward_cycle(burnchain.pox_constants.pox_3_activation_height as u64)
@@ -4087,7 +4084,7 @@ fn stack_aggregation_increase() {
         charlie_nonce,
         "stack-aggregation-increase",
         vec![
-            charlie_pox_addr.clone(),
+            charlie_pox_addr,
             Value::UInt(cur_reward_cycle as u128),
             Value::UInt(0),
         ],
@@ -4286,7 +4283,7 @@ fn pox_3_delegate_stx_addr_validation() {
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
-    burnchain.pox_constants = pox_constants.clone();
+    burnchain.pox_constants = pox_constants;
 
     let first_v3_cycle = burnchain
         .block_height_to_reward_cycle(burnchain.pox_constants.pox_3_activation_height as u64)

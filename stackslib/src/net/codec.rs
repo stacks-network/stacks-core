@@ -1641,13 +1641,10 @@ pub mod test {
     fn check_deserialize<T: std::fmt::Debug>(r: Result<T, codec_error>) -> bool {
         match r {
             Ok(m) => {
-                test_debug!("deserialized {:?}", &m);
+                test_debug!("deserialized {m:?}");
                 false
             }
-            Err(e) => match e {
-                codec_error::DeserializeError(_) => true,
-                _ => false,
-            },
+            Err(e) => matches!(e, codec_error::DeserializeError(_)),
         }
     }
 
@@ -1889,7 +1886,7 @@ pub mod test {
         // pox bitvec
         maximal_poxinvdata_bytes
             .append(&mut ((GETPOXINV_MAX_BITLEN / 8) as u32).to_be_bytes().to_vec());
-        maximal_poxinvdata_bytes.append(&mut maximal_bitvec.clone());
+        maximal_poxinvdata_bytes.extend_from_slice(&maximal_bitvec);
 
         assert!((maximal_poxinvdata_bytes.len() as u32) < MAX_MESSAGE_LEN);
 
@@ -1962,10 +1959,10 @@ pub mod test {
         maximal_blocksinvdata_bytes.append(&mut (blocks_bitlen as u16).to_be_bytes().to_vec());
         // block bitvec
         maximal_blocksinvdata_bytes.append(&mut (blocks_bitlen / 8).to_be_bytes().to_vec());
-        maximal_blocksinvdata_bytes.append(&mut maximal_bitvec.clone());
+        maximal_blocksinvdata_bytes.extend_from_slice(&maximal_bitvec);
         // microblock bitvec
         maximal_blocksinvdata_bytes.append(&mut (blocks_bitlen / 8).to_be_bytes().to_vec());
-        maximal_blocksinvdata_bytes.append(&mut maximal_bitvec.clone());
+        maximal_blocksinvdata_bytes.extend_from_slice(&maximal_bitvec);
 
         assert!((maximal_blocksinvdata_bytes.len() as u32) < MAX_MESSAGE_LEN);
 
@@ -2776,7 +2773,7 @@ pub mod test {
 
     #[test]
     fn codec_sign_and_verify() {
-        let privkey = Secp256k1PrivateKey::new();
+        let privkey = Secp256k1PrivateKey::random();
         let pubkey_buf =
             StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(&privkey));
 
@@ -2797,7 +2794,7 @@ pub mod test {
     #[test]
     fn codec_stacks_public_key_roundtrip() {
         for i in 0..100 {
-            let privkey = Secp256k1PrivateKey::new();
+            let privkey = Secp256k1PrivateKey::random();
             let pubkey = Secp256k1PublicKey::from_private(&privkey);
 
             let pubkey_buf = StacksPublicKeyBuffer::from_public_key(&pubkey);

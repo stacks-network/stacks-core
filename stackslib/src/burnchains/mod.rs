@@ -150,10 +150,10 @@ impl BurnchainParameters {
     }
 
     pub fn is_testnet(network_id: u32) -> bool {
-        match network_id {
-            BITCOIN_NETWORK_ID_TESTNET | BITCOIN_NETWORK_ID_REGTEST => true,
-            _ => false,
-        }
+        matches!(
+            network_id,
+            BITCOIN_NETWORK_ID_TESTNET | BITCOIN_NETWORK_ID_REGTEST
+        )
     }
 }
 
@@ -231,7 +231,7 @@ impl BurnchainTransaction {
             BurnchainTransaction::Bitcoin(ref btc) => btc
                 .outputs
                 .iter()
-                .map(|ref o| BurnchainRecipient::try_from_bitcoin_output(o))
+                .map(BurnchainRecipient::try_from_bitcoin_output)
                 .collect(),
         }
     }

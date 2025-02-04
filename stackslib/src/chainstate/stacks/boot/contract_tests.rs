@@ -63,14 +63,14 @@ lazy_static! {
     pub static ref COST_VOTING_CONTRACT_TESTNET: QualifiedContractIdentifier =
         boot_code_id("cost-voting", false);
     pub static ref USER_KEYS: Vec<StacksPrivateKey> =
-        (0..50).map(|_| StacksPrivateKey::new()).collect();
+        (0..50).map(|_| StacksPrivateKey::random()).collect();
     pub static ref POX_ADDRS: Vec<Value> = (0..50u64)
         .map(|ix| execute(&format!(
             "{{ version: 0x00, hashbytes: 0x000000000000000000000000{} }}",
             &to_hex(&ix.to_le_bytes())
         )))
         .collect();
-    pub static ref MINER_KEY: StacksPrivateKey = StacksPrivateKey::new();
+    pub static ref MINER_KEY: StacksPrivateKey = StacksPrivateKey::random();
     pub static ref MINER_ADDR: StacksAddress = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -486,7 +486,7 @@ impl BurnStateDB for TestSimBurnStateDB {
         height: u32,
         sortition_id: &SortitionId,
     ) -> Option<(Vec<TupleData>, u128)> {
-        if let Some(_) = self.get_burn_header_hash(height, sortition_id) {
+        if self.get_burn_header_hash(height, sortition_id).is_some() {
             let first_block = self.get_burn_start_height();
             let prepare_len = self.get_pox_prepare_length();
             let rc_len = self.get_pox_reward_cycle_length();
@@ -663,7 +663,7 @@ impl HeadersDB for TestSimHeadersDB {
 fn pox_2_contract_caller_units() {
     let mut sim = ClarityTestSim::new();
     sim.epoch_bounds = vec![0, 1, 2];
-    let delegator = StacksPrivateKey::new();
+    let delegator = StacksPrivateKey::random();
 
     let expected_unlock_height = POX_TESTNET_CYCLE_LENGTH * 4;
 
@@ -846,7 +846,7 @@ fn pox_2_contract_caller_units() {
                 &symbols_from_values(vec![
                     Value::UInt(USTX_PER_HOLDER),
                     POX_ADDRS[0].clone(),
-                    burn_height.clone(),
+                    burn_height,
                     Value::UInt(3),
                 ])
             )
@@ -876,7 +876,7 @@ fn pox_2_contract_caller_units() {
                 &symbols_from_values(vec![
                     Value::UInt(USTX_PER_HOLDER),
                     POX_ADDRS[2].clone(),
-                    burn_height.clone(),
+                    burn_height,
                     Value::UInt(3),
                 ])
             )
@@ -893,7 +893,7 @@ fn pox_2_contract_caller_units() {
 fn pox_2_lock_extend_units() {
     let mut sim = ClarityTestSim::new();
     sim.epoch_bounds = vec![0, 1, 2];
-    let delegator = StacksPrivateKey::new();
+    let delegator = StacksPrivateKey::random();
 
     let reward_cycle_len = 5;
     let expected_user_1_unlock = 4 * reward_cycle_len + 9 * reward_cycle_len;
@@ -1020,7 +1020,7 @@ fn pox_2_lock_extend_units() {
                 &symbols_from_values(vec![
                     Value::UInt(USTX_PER_HOLDER),
                     POX_ADDRS[1].clone(),
-                    burn_height.clone(),
+                    burn_height,
                     Value::UInt(3),
                 ])
             )
@@ -1146,7 +1146,7 @@ fn pox_2_lock_extend_units() {
 fn pox_2_delegate_extend_units() {
     let mut sim = ClarityTestSim::new();
     sim.epoch_bounds = vec![0, 1, 2];
-    let delegator = StacksPrivateKey::new();
+    let delegator = StacksPrivateKey::random();
 
     // execute past 2.1 epoch initialization
     sim.execute_next_block(|_env| {});
@@ -1276,7 +1276,7 @@ fn pox_2_delegate_extend_units() {
                     (&USER_KEYS[1]).into(),
                     Value::UInt(1),
                     POX_ADDRS[1].clone(),
-                    burn_height.clone(),
+                    burn_height,
                     Value::UInt(2)
                 ])
             )
@@ -1682,7 +1682,7 @@ fn pox_2_delegate_extend_units() {
 fn simple_epoch21_test() {
     let mut sim = ClarityTestSim::new();
     sim.epoch_bounds = vec![0, 1, 3];
-    let delegator = StacksPrivateKey::new();
+    let delegator = StacksPrivateKey::random();
 
     let clarity_2_0_id =
         QualifiedContractIdentifier::new(StandardPrincipalData::transient(), "contract-2-0".into());
@@ -1778,9 +1778,9 @@ fn test_deploy_smart_contract(
 ) -> std::result::Result<(), ClarityError> {
     block.as_transaction(|tx| {
         let (ast, analysis) =
-            tx.analyze_smart_contract(&contract_id, version, content, ASTRules::PrecheckSize)?;
-        tx.initialize_smart_contract(&contract_id, version, &ast, content, None, |_, _| false)?;
-        tx.save_analysis(&contract_id, &analysis)?;
+            tx.analyze_smart_contract(contract_id, version, content, ASTRules::PrecheckSize)?;
+        tx.initialize_smart_contract(contract_id, version, &ast, content, None, |_, _| false)?;
+        tx.save_analysis(contract_id, &analysis)?;
         return Ok(());
     })
 }
@@ -1813,7 +1813,7 @@ fn max_stackerdb_list() {
 #[test]
 fn recency_tests() {
     let mut sim = ClarityTestSim::new();
-    let delegator = StacksPrivateKey::new();
+    let delegator = StacksPrivateKey::random();
 
     sim.execute_next_block(|env| {
         env.initialize_versioned_contract(
@@ -1890,7 +1890,7 @@ fn recency_tests() {
 #[test]
 fn delegation_tests() {
     let mut sim = ClarityTestSim::new();
-    let delegator = StacksPrivateKey::new();
+    let delegator = StacksPrivateKey::random();
     const REWARD_CYCLE_LENGTH: u128 = 1050;
 
     sim.execute_next_block(|env| {
@@ -2455,7 +2455,7 @@ fn delegation_tests() {
                     (&USER_KEYS[4]).into(),
                     Value::UInt(*MIN_THRESHOLD - 1),
                     POX_ADDRS[0].clone(),
-                    burn_height.clone(),
+                    burn_height,
                     Value::UInt(2)
                 ])
             )

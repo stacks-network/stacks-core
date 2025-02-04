@@ -461,17 +461,11 @@ pub enum TransactionAuthField {
 
 impl TransactionAuthField {
     pub fn is_public_key(&self) -> bool {
-        match *self {
-            TransactionAuthField::PublicKey(_) => true,
-            _ => false,
-        }
+        matches!(self, TransactionAuthField::PublicKey(_))
     }
 
     pub fn is_signature(&self) -> bool {
-        match *self {
-            TransactionAuthField::Signature(_, _) => true,
-            _ => false,
-        }
+        matches!(self, TransactionAuthField::Signature(..))
     }
 
     pub fn as_public_key(&self) -> Option<StacksPublicKey> {
@@ -1395,7 +1389,7 @@ pub mod test {
 
         let stx_address = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
         let mut tx_payloads = vec![
             TransactionPayload::TokenTransfer(
                 stx_address.into(),
@@ -1468,7 +1462,7 @@ pub mod test {
                     Some(PrincipalData::Standard(
                         StandardPrincipalData::new(0x01, [0x02; 20]).unwrap(),
                     )),
-                    Some(proof.clone()),
+                    Some(proof),
                 ),
             ])
         } else {
@@ -1531,7 +1525,7 @@ pub mod test {
 
     pub fn make_codec_test_block(num_txs: usize, epoch_id: StacksEpochId) -> StacksBlock {
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -1550,7 +1544,7 @@ pub mod test {
         );
         let tx_coinbase_proof = StacksTransaction::new(
             TransactionVersion::Mainnet,
-            origin_auth.clone(),
+            origin_auth,
             TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, Some(proof.clone())),
         );
 
@@ -1574,11 +1568,8 @@ pub mod test {
         }
 
         for tx in all_txs.into_iter() {
-            match tx.payload {
-                TransactionPayload::Coinbase(..) => {
-                    continue;
-                }
-                _ => {}
+            if let TransactionPayload::Coinbase(..) = tx.payload {
+                continue;
             }
             txs_anchored.push(tx);
             if txs_anchored.len() >= num_txs {
@@ -1606,7 +1597,7 @@ pub mod test {
                 burn: 234,
                 work: 567,
             },
-            proof: proof.clone(),
+            proof,
             parent_block: BlockHeaderHash([5u8; 32]),
             parent_microblock: BlockHeaderHash([6u8; 32]),
             parent_microblock_sequence: 4,
@@ -1626,7 +1617,7 @@ pub mod test {
         miner_privk: &StacksPrivateKey,
     ) -> NakamotoBlock {
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",

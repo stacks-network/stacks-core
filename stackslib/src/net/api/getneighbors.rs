@@ -136,7 +136,7 @@ impl RPCNeighborsInfo {
             .into_iter()
             .map(|n| {
                 let stackerdb_contract_ids =
-                    PeerDB::static_get_peer_stacker_dbs(peerdb_conn, &n).unwrap_or(vec![]);
+                    PeerDB::static_get_peer_stacker_dbs(peerdb_conn, &n).unwrap_or_default();
                 RPCNeighbor::from_neighbor_key_and_pubkh(
                     n.addr.clone(),
                     Hash160::from_node_public_key(&n.public_key),
@@ -163,7 +163,7 @@ impl RPCNeighborsInfo {
             .into_iter()
             .map(|n| {
                 let stackerdb_contract_ids =
-                    PeerDB::static_get_peer_stacker_dbs(peerdb_conn, &n).unwrap_or(vec![]);
+                    PeerDB::static_get_peer_stacker_dbs(peerdb_conn, &n).unwrap_or_default();
                 RPCNeighbor::from_neighbor_key_and_pubkh(
                     n.addr.clone(),
                     Hash160::from_node_public_key(&n.public_key),

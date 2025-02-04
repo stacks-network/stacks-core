@@ -694,6 +694,9 @@ impl RelayerThread {
     /// this sortition matches the sortition tip and we have a parent to build atop.
     ///
     /// Otherwise, returns None, meaning no action will be taken.
+    // This method is covered by the e2e bitcoind tests, which do not show up
+    //  in mutant coverage.
+    #[cfg_attr(test, mutants::skip)]
     fn process_sortition(
         &mut self,
         consensus_hash: ConsensusHash,
@@ -705,8 +708,16 @@ impl RelayerThread {
             .expect("FATAL: unknown consensus hash");
 
         // always clear this even if this isn't the latest sortition
-        let cleared = self.last_commits.remove(&sn.winning_block_txid);
-        let won_sortition = sn.sortition && cleared;
+        let _cleared = self.last_commits.remove(&sn.winning_block_txid);
+        let was_winning_pkh = if let (Some(ref winning_pkh), Some(ref my_pkh)) =
+            (sn.miner_pk_hash, self.get_mining_key_pkh())
+        {
+            winning_pkh == my_pkh
+        } else {
+            false
+        };
+
+        let won_sortition = sn.sortition && was_winning_pkh;
         if won_sortition {
             increment_stx_blocks_mined_counter();
         }
@@ -812,7 +823,7 @@ impl RelayerThread {
         tip_block_ch: &ConsensusHash,
         tip_block_bh: &BlockHeaderHash,
     ) -> Result<LastCommit, NakamotoNodeError> {
-        let tip_block_id = StacksBlockId::new(&tip_block_ch, &tip_block_bh);
+        let tip_block_id = StacksBlockId::new(tip_block_ch, tip_block_bh);
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn())
             .map_err(|_| NakamotoNodeError::SnapshotNotFoundForChainTip)?;
 
@@ -1628,7 +1639,7 @@ impl RelayerThread {
         self.last_commits.insert(txid);
         self.globals
             .counters
-            .bump_naka_submitted_commits(last_committed.burn_tip.block_height);
+            .bump_naka_submitted_commits(last_committed.burn_tip.block_height, tip_height);
         self.last_committed = Some(last_committed);
 
         Ok(())

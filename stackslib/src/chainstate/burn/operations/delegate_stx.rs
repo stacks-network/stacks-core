@@ -406,7 +406,7 @@ mod tests {
         let op = DelegateStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
-            &BurnchainTransaction::Bitcoin(tx.clone()),
+            &BurnchainTransaction::Bitcoin(tx),
             &sender,
         )
         .unwrap();
@@ -453,14 +453,11 @@ mod tests {
         let err = DelegateStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
-            &BurnchainTransaction::Bitcoin(tx.clone()),
+            &BurnchainTransaction::Bitcoin(tx),
             &sender,
         )
         .unwrap_err();
-        assert!(match err {
-            op_error::ParseError => true,
-            _ => false,
-        });
+        assert!(matches!(err, op_error::ParseError));
 
         // Data is length 17. The 16th byte is set to 1, which signals that until_burn_height
         // is Some(u64), so the deserialize function expects another 8 bytes
@@ -492,14 +489,11 @@ mod tests {
         let err = DelegateStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
-            &BurnchainTransaction::Bitcoin(tx.clone()),
+            &BurnchainTransaction::Bitcoin(tx),
             &sender,
         )
         .unwrap_err();
-        assert!(match err {
-            op_error::ParseError => true,
-            _ => false,
-        });
+        assert!(matches!(err, op_error::ParseError));
     }
 
     // This test sets the op code to the op code of the StackStx
@@ -535,15 +529,12 @@ mod tests {
         let err = DelegateStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
-            &BurnchainTransaction::Bitcoin(tx.clone()),
+            &BurnchainTransaction::Bitcoin(tx),
             &sender,
         )
         .unwrap_err();
 
-        assert!(match err {
-            op_error::InvalidInput => true,
-            _ => false,
-        });
+        assert!(matches!(err, op_error::InvalidInput));
     }
 
     // This test constructs a tx with zero outputs, which causes
@@ -571,15 +562,12 @@ mod tests {
         let err = DelegateStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
-            &BurnchainTransaction::Bitcoin(tx.clone()),
+            &BurnchainTransaction::Bitcoin(tx),
             &sender,
         )
         .unwrap_err();
 
-        assert!(match err {
-            op_error::InvalidInput => true,
-            _ => false,
-        });
+        assert!(matches!(err, op_error::InvalidInput));
     }
 
     // Parse a normal DelegateStx op in which the reward_addr is set to output index 2.
