@@ -347,14 +347,13 @@ impl NakamotoChainState {
         let vrf_proof =
             Self::get_block_vrf_proof(chainstate_conn, tip_block_id, &tenure_consensus_hash)?
                 .ok_or_else(|| {
-                    warn!("No VRF proof for {}", &tenure_consensus_hash);
+                    warn!("No VRF proof for {tenure_consensus_hash}");
                     ChainstateError::NoSuchBlockError
                 })
-                .map_err(|e| {
+                .inspect_err(|_e| {
                     warn!("Could not find shadow tenure VRF proof";
                       "tip_block_id" => %tip_block_id,
                       "shadow consensus_hash" => %tenure_consensus_hash);
-                    e
                 })?;
 
         return Ok(Some(vrf_proof));
@@ -643,7 +642,7 @@ impl NakamotoBlockBuilder {
         let coinbase_payload = CoinbasePayload(naka_tip_tenure_start_header.index_block_hash().0);
 
         // the miner key is irrelevant
-        let miner_key = StacksPrivateKey::new();
+        let miner_key = StacksPrivateKey::random();
         let miner_addr = StacksAddress::p2pkh(mainnet, &StacksPublicKey::from_private(&miner_key));
         let miner_tx_auth = TransactionAuth::from_p2pkh(&miner_key).ok_or_else(|| {
             Error::InvalidStacksBlock(

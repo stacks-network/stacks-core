@@ -49,34 +49,24 @@ fn is_working_tree_clean() -> bool {
 }
 
 fn main() {
-    let toml_content =
-        fs::read_to_string("../versions.toml").expect("Failed to read versions.toml");
+    let toml_file = "../versions.toml";
+    let toml_content = fs::read_to_string(toml_file).expect("Failed to read versions.toml");
 
     let config: Value = toml::from_str(&toml_content).expect("Failed to parse TOML");
 
     let mut rust_code = String::from("// Auto-generated code from versions.toml\n\n");
 
-    match config {
-        Value::Table(table) => {
-            for (key, val) in table {
-                match val {
-                    Value::String(s) => {
-                        let const_value = format!("\"{}\"", s);
-                        rust_code.push_str(&format!(
-                            "pub const {}: &str = {};\n",
-                            key.to_uppercase(),
-                            const_value
-                        ));
-                    }
-                    _ => {
-                        panic!("Invalid value type in versions.toml: {:?}", val);
-                    }
-                };
-            }
-        }
-        _ => {
-            panic!("Invalid value type in versions.toml: {:?}", config);
-        }
+    let Value::Table(table) = config else {
+        panic!("Invalid value type in versions.toml: {config:?}");
+    };
+    for (key, val) in table {
+        let Value::String(s) = val else {
+            panic!("Invalid value type in versions.toml: {val:?}");
+        };
+        rust_code.push_str(&format!(
+            "pub const {}: &str = {s:?};\n",
+            key.to_uppercase()
+        ));
     }
 
     let git_commit = current_git_hash();
@@ -107,5 +97,5 @@ fn main() {
     fs::write(&dest_path, rust_code).expect("Failed to write generated code");
 
     // Tell Cargo to rerun this script if the TOML file changes
-    println!("cargo:rerun-if-changed=../versions.toml");
+    println!("cargo:rerun-if-changed={toml_file}");
 }

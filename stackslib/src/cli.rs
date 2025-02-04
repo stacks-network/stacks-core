@@ -40,7 +40,7 @@ use crate::chainstate::burn::db::sortdb::{
 };
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::coordinator::OnChainRewardSetProvider;
-use crate::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
+use crate::chainstate::nakamoto::miner::{BlockMetadata, NakamotoBlockBuilder, NakamotoTenureInfo};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::blocks::StagingBlock;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
@@ -453,7 +453,7 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
 
     let result = match &parent_stacks_header.anchored_header {
         StacksBlockHeaderTypes::Epoch2(..) => {
-            let sk = StacksPrivateKey::new();
+            let sk = StacksPrivateKey::random();
             let mut tx_auth = TransactionAuth::from_p2pkh(&sk).unwrap();
             tx_auth.set_origin_nonce(0);
 
@@ -504,7 +504,21 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
                 None,
                 0,
             )
-            .map(|(block, cost, size, _)| (block.header.block_hash(), block.txs, cost, size))
+            .map(
+                |BlockMetadata {
+                     block,
+                     tenure_consumed,
+                     tenure_size,
+                     ..
+                 }| {
+                    (
+                        block.header.block_hash(),
+                        block.txs,
+                        tenure_consumed,
+                        tenure_size,
+                    )
+                },
+            )
         }
     };
 

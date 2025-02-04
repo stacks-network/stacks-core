@@ -177,7 +177,7 @@ fn load_stackerdb(peer: &TestPeer, idx: usize) -> Vec<(SlotMetadata, Vec<u8>)> {
             .stackerdbs
             .get_latest_chunk(&peer.config.stacker_dbs[idx], i)
             .unwrap()
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
         ret.push((chunk_metadata, chunk));
     }
     ret

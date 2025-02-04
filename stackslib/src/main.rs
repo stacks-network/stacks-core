@@ -211,7 +211,7 @@ impl P2PSession {
             peer_info.parent_network_id,
             PeerAddress::from_socketaddr(&peer_addr),
             peer_addr.port(),
-            Some(StacksPrivateKey::new()),
+            Some(StacksPrivateKey::random()),
             u64::MAX,
             UrlString::try_from(format!("http://127.0.0.1:{}", data_port).as_str()).unwrap(),
             vec![],
@@ -540,7 +540,7 @@ fn main() {
         let microblocks =
             StacksChainState::find_parent_microblock_stream(chainstate.db(), &block_info)
                 .unwrap()
-                .unwrap_or(vec![]);
+                .unwrap_or_default();
 
         let mut mblock_report = vec![];
         for mblock in microblocks.iter() {
@@ -1522,7 +1522,7 @@ check if the associated microblocks can be downloaded
                     while next_arrival < stacks_blocks_arrival_order.len()
                         && known_stacks_blocks.contains(&stacks_block_id)
                     {
-                        if let Some(_) = stacks_blocks_available.get(&stacks_block_id) {
+                        if stacks_blocks_available.get(&stacks_block_id).is_some() {
                             // load up the block
                             let stacks_block_opt = StacksChainState::load_block(
                                 &old_chainstate.blocks_path,
@@ -1811,7 +1811,7 @@ simulating a miner.
     .expect("Failed to load chain tip header info")
     .expect("Failed to load chain tip header info");
 
-    let sk = StacksPrivateKey::new();
+    let sk = StacksPrivateKey::random();
     let mut tx_auth = TransactionAuth::from_p2pkh(&sk).unwrap();
     tx_auth.set_origin_nonce(0);
 

@@ -683,11 +683,12 @@ impl Burnchain {
 
         if headers_height == 0 || headers_height < self.first_block_height {
             debug!("Fetch initial headers");
-            indexer.sync_headers(headers_height, None).map_err(|e| {
-                error!("Failed to sync initial headers");
-                sleep_ms(100);
-                e
-            })?;
+            indexer
+                .sync_headers(headers_height, None)
+                .inspect_err(|_e| {
+                    error!("Failed to sync initial headers");
+                    sleep_ms(100);
+                })?;
         }
         Ok(())
     }
@@ -1137,13 +1138,9 @@ impl Burnchain {
         let headers_path = indexer.get_headers_path();
 
         // sanity check -- what is the height of our highest header
-        let headers_height = indexer.get_highest_header_height().map_err(|e| {
-            error!(
-                "Failed to read headers height from {}: {:?}",
-                headers_path, &e
-            );
-            e
-        })?;
+        let headers_height = indexer
+            .get_highest_header_height()
+            .inspect_err(|e| error!("Failed to read headers height from {headers_path}: {e:?}"))?;
 
         if headers_height == 0 {
             return Ok((0, false));
@@ -1152,16 +1149,12 @@ impl Burnchain {
         // did we encounter a reorg since last sync?  Find the highest common ancestor of the
         // remote bitcoin peer's chain state.
         // Note that this value is 0-indexed -- the smallest possible value it returns is 0.
-        let reorg_height = indexer.find_chain_reorg().map_err(|e| {
-            error!("Failed to check for reorgs from {}: {:?}", headers_path, &e);
-            e
-        })?;
+        let reorg_height = indexer
+            .find_chain_reorg()
+            .inspect_err(|e| error!("Failed to check for reorgs from {headers_path}: {e:?}"))?;
 
         if reorg_height < headers_height {
-            warn!(
-                "Burnchain reorg detected: highest common ancestor at height {}",
-                reorg_height
-            );
+            warn!("Burnchain reorg detected: highest common ancestor at height {reorg_height}");
             return Ok((reorg_height, true));
         } else {
             // no reorg

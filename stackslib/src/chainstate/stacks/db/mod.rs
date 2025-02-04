@@ -1844,10 +1844,7 @@ impl StacksChainState {
         let nakamoto_staging_blocks_conn =
             StacksChainState::open_nakamoto_staging_blocks(&nakamoto_staging_blocks_path, true)?;
 
-        let init_required = match fs::metadata(&clarity_state_index_marf) {
-            Ok(_) => false,
-            Err(_) => true,
-        };
+        let init_required = fs::metadata(&clarity_state_index_marf).is_err();
 
         let state_index = StacksChainState::open_db(mainnet, chain_id, &header_index_root)?;
 
@@ -2511,7 +2508,7 @@ impl StacksChainState {
                 Ok(txids)
             })
             .optional()?
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
 
         Ok(txids)
     }
@@ -2754,11 +2751,8 @@ pub mod test {
         balances: Vec<(StacksAddress, u64)>,
     ) -> StacksChainState {
         let path = chainstate_path(test_name);
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            }
-            Err(_) => {}
+        if fs::metadata(&path).is_ok() {
+            fs::remove_dir_all(&path).unwrap();
         };
 
         let initial_balances = balances
@@ -2874,11 +2868,8 @@ pub mod test {
         };
 
         let path = chainstate_path(function_name!());
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            }
-            Err(_) => {}
+        if fs::metadata(&path).is_ok() {
+            fs::remove_dir_all(&path).unwrap();
         };
 
         let mut chainstate =
@@ -2964,11 +2955,8 @@ pub mod test {
         };
 
         let path = chainstate_path(function_name!());
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            }
-            Err(_) => {}
+        if fs::metadata(&path).is_ok() {
+            fs::remove_dir_all(&path).unwrap();
         };
 
         let mut chainstate =

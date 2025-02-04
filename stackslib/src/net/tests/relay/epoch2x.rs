@@ -1695,23 +1695,17 @@ fn test_get_blocks_and_microblocks_2_peers_push_transactions() {
                 let mut peer_0_to_1 = false;
                 let mut peer_1_to_0 = false;
                 for (nk, event_id) in peers[0].network.events.iter() {
-                    match peers[0].network.peers.get(event_id) {
-                        Some(convo) => {
-                            if *nk == peer_1_nk {
-                                peer_0_to_1 = true;
-                            }
+                    if let Some(convo) = peers[0].network.peers.get(event_id) {
+                        if *nk == peer_1_nk {
+                            peer_0_to_1 = true;
                         }
-                        None => {}
                     }
                 }
                 for (nk, event_id) in peers[1].network.events.iter() {
-                    match peers[1].network.peers.get(event_id) {
-                        Some(convo) => {
-                            if *nk == peer_0_nk {
-                                peer_1_to_0 = true;
-                            }
+                    if let Some(convo) = peers[1].network.peers.get(event_id) {
+                        if *nk == peer_0_nk {
+                            peer_1_to_0 = true;
                         }
-                        None => {}
                     }
                 }
 
@@ -1944,7 +1938,7 @@ fn test_get_blocks_and_microblocks_peers_broadcast() {
         let sent_txs = RefCell::new(vec![]);
         let done = RefCell::new(false);
         let num_peers = 3;
-        let privk = StacksPrivateKey::new();
+        let privk = StacksPrivateKey::random();
 
         let peers = run_get_blocks_and_microblocks(
             "test_get_blocks_and_microblocks_peers_broadcast",
@@ -2642,9 +2636,9 @@ pub fn make_contract_tx(
 
 #[test]
 fn test_static_problematic_tests() {
-    let spender_sk_1 = StacksPrivateKey::new();
-    let spender_sk_2 = StacksPrivateKey::new();
-    let spender_sk_3 = StacksPrivateKey::new();
+    let spender_sk_1 = StacksPrivateKey::random();
+    let spender_sk_2 = StacksPrivateKey::random();
+    let spender_sk_3 = StacksPrivateKey::random();
 
     let edge_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) - 1;
     let tx_edge_body_start = "{ a : ".repeat(edge_repeat_factor as usize);
@@ -2814,7 +2808,7 @@ fn process_new_blocks_rejects_problematic_asts() {
     let tip =
         SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
-    let mblock_privk = StacksPrivateKey::new();
+    let mblock_privk = StacksPrivateKey::random();
 
     // make one tenure with a valid block, but problematic microblocks
     let (burn_ops, block, microblocks) = peer.make_tenure(
@@ -3722,17 +3716,14 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
     // tenure 28
     let versioned_contract = (*versioned_contract_opt.borrow()).clone().unwrap();
     let versioned_contract_len = versioned_contract.serialize_to_vec().len();
-    match node.chainstate.will_admit_mempool_tx(
+    if let Err(e) = node.chainstate.will_admit_mempool_tx(
         &sortdb.index_handle(&tip.sortition_id),
         &consensus_hash,
         &stacks_block.block_hash(),
         &versioned_contract,
         versioned_contract_len as u64,
     ) {
-        Err(e) => {
-            panic!("will_admit_mempool_tx {:?}", &e);
-        }
-        Ok(_) => {}
+        panic!("will_admit_mempool_tx {:?}", &e);
     };
 
     peer.sortdb = Some(sortdb);

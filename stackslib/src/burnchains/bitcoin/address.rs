@@ -302,9 +302,8 @@ impl SegwitBitcoinAddress {
 
     pub fn from_bech32(s: &str) -> Option<SegwitBitcoinAddress> {
         let (hrp, quintets, variant) = bech32::decode(s)
-            .map_err(|e| {
-                test_debug!("Failed to decode '{}': {:?}", s, &e);
-                e
+            .inspect_err(|_e| {
+                test_debug!("Failed to decode '{s}': {_e:?}");
             })
             .ok()?;
 
@@ -327,9 +326,8 @@ impl SegwitBitcoinAddress {
         prog.append(&mut quintets[1..].to_vec());
 
         let bytes = Vec::from_base32(&prog)
-            .map_err(|e| {
-                test_debug!("Failed to decode quintets: {:?}", &e);
-                e
+            .inspect_err(|_e| {
+                test_debug!("Failed to decode quintets: {_e:?}");
             })
             .ok()?;
 
@@ -396,27 +394,15 @@ impl SegwitBitcoinAddress {
     }
 
     pub fn is_p2wpkh(&self) -> bool {
-        if let SegwitBitcoinAddress::P2WPKH(..) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, SegwitBitcoinAddress::P2WPKH(..))
     }
 
     pub fn is_p2wsh(&self) -> bool {
-        if let SegwitBitcoinAddress::P2WSH(..) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, SegwitBitcoinAddress::P2WSH(..))
     }
 
     pub fn is_p2tr(&self) -> bool {
-        if let SegwitBitcoinAddress::P2TR(..) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, SegwitBitcoinAddress::P2TR(..))
     }
 }
 

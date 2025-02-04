@@ -88,9 +88,5 @@ lazy_static! {
 
 #[test]
 fn test_version_string() {
-    let version = VERSION_STRING.to_string();
-    assert_eq!(
-        version.contains(format!("stacks-signer {}", STACKS_SIGNER_VERSION).as_str()),
-        true
-    );
+    assert!(VERSION_STRING.contains(format!("stacks-signer {}", STACKS_SIGNER_VERSION).as_str()));
 }

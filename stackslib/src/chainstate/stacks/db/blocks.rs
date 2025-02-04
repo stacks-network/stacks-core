@@ -475,7 +475,7 @@ impl StacksChainState {
 
         let _ = StacksChainState::mkdirs(&block_path)?;
 
-        block_path.push(to_hex(block_hash_bytes).to_string());
+        block_path.push(to_hex(block_hash_bytes));
         let blocks_path_str = block_path
             .to_str()
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
@@ -500,20 +500,19 @@ impl StacksChainState {
             .open(&path_tmp)
             .map_err(|e| {
                 if e.kind() == io::ErrorKind::NotFound {
-                    error!("File not found: {:?}", &path_tmp);
+                    error!("File not found: {path_tmp:?}");
                     Error::DBError(db_error::NotFoundError)
                 } else {
-                    error!("Failed to open {:?}: {:?}", &path_tmp, &e);
+                    error!("Failed to open {path_tmp:?}: {e:?}");
                     Error::DBError(db_error::IOError(e))
                 }
             })?;
 
-        writer(&mut fd).map_err(|e| {
+        writer(&mut fd).inspect_err(|_e| {
             if delete_on_error {
                 // abort
                 let _ = fs::remove_file(&path_tmp);
             }
-            e
         })?;
 
         fd.sync_all()
@@ -995,7 +994,7 @@ impl StacksChainState {
                 // load up associated block data
                 staging_block.block_data =
                     StacksChainState::load_block_bytes(blocks_path, consensus_hash, block_hash)?
-                        .unwrap_or(vec![]);
+                        .unwrap_or_default();
                 Ok(Some(staging_block))
             }
             _ => {
@@ -1161,7 +1160,7 @@ impl StacksChainState {
                 // load associated block data
                 staging_microblock.block_data =
                     StacksChainState::load_staging_microblock_bytes(blocks_conn, microblock_hash)?
-                        .unwrap_or(vec![]);
+                        .unwrap_or_default();
                 Ok(Some(staging_microblock))
             }
             None => {
@@ -3983,7 +3982,7 @@ impl StacksChainState {
         }
 
         for (consensus_hash, anchored_block_hash) in to_delete.into_iter() {
-            info!("Orphan {}/{}: it does not connect to a previously-accepted block, because its consensus hash does not match an existing snapshot on the valid PoX fork.", &consensus_hash, &anchored_block_hash);
+            info!("Orphan {consensus_hash}/{anchored_block_hash}: it does not connect to a previously-accepted block, because its consensus hash does not match an existing snapshot on the valid PoX fork.");
             let _ = StacksChainState::set_block_processed(
                 blocks_tx,
                 None,
@@ -3992,12 +3991,8 @@ impl StacksChainState {
                 &anchored_block_hash,
                 false,
             )
-            .map_err(|e| {
-                warn!(
-                    "Failed to orphan {}/{}: {:?}",
-                    &consensus_hash, &anchored_block_hash, &e
-                );
-                e
+            .inspect_err(|e| {
+                warn!("Failed to orphan {consensus_hash}/{anchored_block_hash}: {e:?}")
             });
         }
 
@@ -5142,7 +5137,7 @@ impl StacksChainState {
         ) {
             Ok(miner_rewards_opt) => miner_rewards_opt,
             Err(e) => {
-                if let Some(_) = miner_id_opt {
+                if miner_id_opt.is_some() {
                     return Err(e);
                 } else {
                     let msg = format!("Failed to load miner rewards: {:?}", &e);
@@ -6975,7 +6970,7 @@ pub mod test {
         .unwrap();
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -7040,7 +7035,7 @@ pub mod test {
         .unwrap();
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -8588,7 +8583,7 @@ pub mod test {
         let num_mblocks = microblocks.len();
 
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
         let child_block_header = StacksBlockHeader {
             version: 0x01,
@@ -9983,7 +9978,7 @@ pub mod test {
 
         for i in 0..32 {
             test_debug!("Making block {}", i);
-            let privk = StacksPrivateKey::new();
+            let privk = StacksPrivateKey::random();
             let block = make_empty_coinbase_block(&privk);
 
             blocks.push(block);
@@ -10198,7 +10193,7 @@ pub mod test {
     fn stacks_db_get_blocks_inventory_for_reward_cycle() {
         let mut peer_config = TestPeerConfig::new(function_name!(), 21313, 21314);
 
-        let privk = StacksPrivateKey::new();
+        let privk = StacksPrivateKey::random();
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -10290,7 +10285,7 @@ pub mod test {
                     let coinbase_tx =
                         make_coinbase_with_nonce(miner, tenure_id as usize, tenure_id, None);
 
-                    let microblock_privkey = StacksPrivateKey::new();
+                    let microblock_privkey = StacksPrivateKey::random();
                     let microblock_pubkeyhash = Hash160::from_node_public_key(
                         &StacksPublicKey::from_private(&microblock_privkey),
                     );
@@ -11008,13 +11003,13 @@ pub mod test {
                     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
                     &AddressHashMode::SerializeP2PKH,
                     1,
-                    &vec![StacksPublicKey::from_private(&StacksPrivateKey::new())],
+                    &vec![StacksPublicKey::from_private(&StacksPrivateKey::random())],
                 )
                 .unwrap()
             })
             .collect();
 
-        let recipient_privk = StacksPrivateKey::new();
+        let recipient_privk = StacksPrivateKey::random();
         let recipient_addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -11201,15 +11196,12 @@ pub mod test {
 
             let (_, burn_header_hash, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
 
-            match (stacks_block_opt, microblocks_opt) {
-                (Some(stacks_block), Some(microblocks)) => {
-                    peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-                    last_block_id = StacksBlockHeader::make_index_block_hash(
-                        &consensus_hash,
-                        &stacks_block.block_hash(),
-                    );
-                }
-                _ => {}
+            if let (Some(stacks_block), Some(microblocks)) = (stacks_block_opt, microblocks_opt) {
+                peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+                last_block_id = StacksBlockHeader::make_index_block_hash(
+                    &consensus_hash,
+                    &stacks_block.block_hash(),
+                );
             }
 
             let tip =
@@ -11333,13 +11325,13 @@ pub mod test {
                     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
                     &AddressHashMode::SerializeP2PKH,
                     1,
-                    &vec![StacksPublicKey::from_private(&StacksPrivateKey::new())],
+                    &vec![StacksPublicKey::from_private(&StacksPrivateKey::random())],
                 )
                 .unwrap()
             })
             .collect();
 
-        let recipient_privk = StacksPrivateKey::new();
+        let recipient_privk = StacksPrivateKey::random();
         let recipient_addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -11884,15 +11876,12 @@ pub mod test {
 
             let (_, burn_header_hash, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
 
-            match (stacks_block_opt, microblocks_opt) {
-                (Some(stacks_block), Some(microblocks)) => {
-                    peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-                    last_block_id = StacksBlockHeader::make_index_block_hash(
-                        &consensus_hash,
-                        &stacks_block.block_hash(),
-                    );
-                }
-                _ => {}
+            if let (Some(stacks_block), Some(microblocks)) = (stacks_block_opt, microblocks_opt) {
+                peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+                last_block_id = StacksBlockHeader::make_index_block_hash(
+                    &consensus_hash,
+                    &stacks_block.block_hash(),
+                );
             }
 
             let tip =

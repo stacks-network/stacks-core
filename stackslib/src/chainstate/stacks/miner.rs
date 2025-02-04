@@ -551,10 +551,7 @@ impl TransactionResult {
 
     /// Returns true iff this enum is backed by `TransactionSuccess`.
     pub fn is_ok(&self) -> bool {
-        match &self {
-            TransactionResult::Success(_) => true,
-            _ => false,
-        }
+        matches!(self, TransactionResult::Success(_))
     }
 
     /// Returns a TransactionSuccess result as a pair of 1) fee and 2) receipt.
@@ -568,10 +565,7 @@ impl TransactionResult {
 
     /// Returns true iff this enum is backed by `Error`.
     pub fn is_err(&self) -> bool {
-        match &self {
-            TransactionResult::ProcessingError(_) => true,
-            _ => false,
-        }
+        matches!(self, TransactionResult::ProcessingError(_))
     }
 
     /// Returns an Error result as an Error.
@@ -1143,24 +1137,20 @@ impl<'a> StacksMicroblockBuilder<'a> {
                         TransactionResult::Skipped(TransactionSkipped { error, .. })
                         | TransactionResult::ProcessingError(TransactionError { error, .. }) => {
                             test_debug!("Exclude tx {} from microblock", tx.txid());
-                            match &error {
-                                Error::BlockTooBigError => {
-                                    // done mining -- our execution budget is exceeded.
-                                    // Make the block from the transactions we did manage to get
-                                    test_debug!("Block budget exceeded on tx {}", &tx.txid());
-                                    if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
-                                        test_debug!("Switch to mining stx-transfers only");
-                                        block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
-                                    } else if block_limit_hit
-                                        == BlockLimitFunction::CONTRACT_LIMIT_HIT
-                                    {
-                                        test_debug!(
-                                            "Stop mining microblock block due to limit exceeded"
-                                        );
-                                        break;
-                                    }
+                            if let Error::BlockTooBigError = &error {
+                                // done mining -- our execution budget is exceeded.
+                                // Make the block from the transactions we did manage to get
+                                test_debug!("Block budget exceeded on tx {}", &tx.txid());
+                                if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
+                                    test_debug!("Switch to mining stx-transfers only");
+                                    block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
+                                } else if block_limit_hit == BlockLimitFunction::CONTRACT_LIMIT_HIT
+                                {
+                                    test_debug!(
+                                        "Stop mining microblock block due to limit exceeded"
+                                    );
+                                    break;
                                 }
-                                _ => {}
                             }
                             continue;
                         }
@@ -1194,12 +1184,9 @@ impl<'a> StacksMicroblockBuilder<'a> {
         self.runtime.considered.replace(considered);
         self.runtime.num_mined = num_txs;
 
-        match result {
-            Err(e) => {
-                warn!("Error producing microblock: {}", e);
-                return Err(e);
-            }
-            _ => {}
+        if let Err(e) = result {
+            warn!("Error producing microblock: {}", e);
+            return Err(e);
         }
 
         return self.make_next_microblock(txs_included, miner_key, tx_events, None);
@@ -1526,7 +1513,7 @@ impl StacksBlockBuilder {
                 &EMPTY_MICROBLOCK_PARENT_HASH,
                 &Sha512Trunc256Sum([0u8; 32]),
             ), // will be updated
-            miner_privkey: StacksPrivateKey::new(), // caller should overwrite this, or refrain from mining microblocks
+            miner_privkey: StacksPrivateKey::random(), // caller should overwrite this, or refrain from mining microblocks
             miner_payouts: None,
             miner_id,
         }
@@ -2264,7 +2251,13 @@ impl StacksBlockBuilder {
         // nakamoto miner tenure start heuristic:
         //  mine an empty block so you can start your tenure quickly!
         if let Some(tx) = initial_txs.first() {
-            if matches!(&tx.payload, TransactionPayload::TenureChange(_)) {
+            if matches!(
+                &tx.payload,
+                TransactionPayload::TenureChange(TenureChangePayload {
+                    cause: TenureChangeCause::BlockFound,
+                    ..
+                })
+            ) {
                 info!("Nakamoto miner heuristic: during tenure change blocks, produce a fast short block to begin tenure");
                 return Ok((false, tx_events));
             }

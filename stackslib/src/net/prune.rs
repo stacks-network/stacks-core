@@ -322,18 +322,15 @@ impl PeerNetwork {
             if preserve.contains(event_id) {
                 continue;
             }
-            match self.peers.get(event_id) {
-                Some(convo) => {
-                    if !convo.stats.outbound {
-                        let stats = convo.stats.clone();
-                        if let Some(entry) = ip_neighbor.get_mut(&nk.addrbytes) {
-                            entry.push((*event_id, nk.clone(), stats));
-                        } else {
-                            ip_neighbor.insert(nk.addrbytes, vec![(*event_id, nk.clone(), stats)]);
-                        }
+            if let Some(convo) = self.peers.get(event_id) {
+                if !convo.stats.outbound {
+                    let stats = convo.stats.clone();
+                    if let Some(entry) = ip_neighbor.get_mut(&nk.addrbytes) {
+                        entry.push((*event_id, nk.clone(), stats));
+                    } else {
+                        ip_neighbor.insert(nk.addrbytes, vec![(*event_id, nk.clone(), stats)]);
                     }
                 }
-                None => {}
             }
         }
 
@@ -378,15 +375,12 @@ impl PeerNetwork {
         let mut outbound: Vec<String> = vec![];
 
         for (nk, event_id) in self.events.iter() {
-            match self.peers.get(event_id) {
-                Some(convo) => {
-                    if convo.stats.outbound {
-                        outbound.push(format!("{:?}", &nk));
-                    } else {
-                        inbound.push(format!("{:?}", &nk));
-                    }
+            if let Some(convo) = self.peers.get(event_id) {
+                if convo.stats.outbound {
+                    outbound.push(format!("{:?}", &nk));
+                } else {
+                    inbound.push(format!("{:?}", &nk));
                 }
-                None => {}
             }
         }
         (inbound, outbound)
@@ -423,7 +417,7 @@ impl PeerNetwork {
 
         let pruned_by_org = self
             .prune_frontier_outbound_orgs(preserve)
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
 
         debug!(
             "{:?}: remove {} outbound peers by shared Org",
@@ -464,11 +458,8 @@ impl PeerNetwork {
                     inbound.join(", ")
                 );
 
-                match PeerDB::get_frontier_size(self.peerdb.conn()) {
-                    Ok(count) => {
-                        debug!("{:?}: Frontier size: {}", &self.local_peer, count);
-                    }
-                    Err(_) => {}
+                if let Ok(count) = PeerDB::get_frontier_size(self.peerdb.conn()) {
+                    debug!("{:?}: Frontier size: {}", &self.local_peer, count);
                 };
             }
         }

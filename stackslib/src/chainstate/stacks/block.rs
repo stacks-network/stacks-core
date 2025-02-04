@@ -353,16 +353,13 @@ impl StacksMessageCodec for StacksBlock {
         // must be only one coinbase
         let mut coinbase_count = 0;
         for tx in txs.iter() {
-            match tx.payload {
-                TransactionPayload::Coinbase(..) => {
-                    coinbase_count += 1;
-                    if coinbase_count > 1 {
-                        return Err(codec_error::DeserializeError(
-                            "Invalid block: multiple coinbases found".to_string(),
-                        ));
-                    }
+            if let TransactionPayload::Coinbase(..) = tx.payload {
+                coinbase_count += 1;
+                if coinbase_count > 1 {
+                    return Err(codec_error::DeserializeError(
+                        "Invalid block: multiple coinbases found".to_string(),
+                    ));
                 }
-                _ => {}
             }
         }
 
@@ -515,26 +512,23 @@ impl StacksBlock {
         let mut found_coinbase = false;
         let mut coinbase_index = 0;
         for (i, tx) in txs.iter().enumerate() {
-            match tx.payload {
-                TransactionPayload::Coinbase(..) => {
-                    if !check_present {
-                        warn!("Found unexpected coinbase tx {}", tx.txid());
-                        return false;
-                    }
-
-                    if found_coinbase {
-                        warn!("Found duplicate coinbase tx {}", tx.txid());
-                        return false;
-                    }
-
-                    if tx.anchor_mode != TransactionAnchorMode::OnChainOnly {
-                        warn!("Invalid coinbase tx {}: not on-chain only", tx.txid());
-                        return false;
-                    }
-                    found_coinbase = true;
-                    coinbase_index = i;
+            if let TransactionPayload::Coinbase(..) = tx.payload {
+                if !check_present {
+                    warn!("Found unexpected coinbase tx {}", tx.txid());
+                    return false;
                 }
-                _ => {}
+
+                if found_coinbase {
+                    warn!("Found duplicate coinbase tx {}", tx.txid());
+                    return false;
+                }
+
+                if tx.anchor_mode != TransactionAnchorMode::OnChainOnly {
+                    warn!("Invalid coinbase tx {}: not on-chain only", tx.txid());
+                    return false;
+                }
+                found_coinbase = true;
+                coinbase_index = i;
             }
         }
 
@@ -960,7 +954,7 @@ mod test {
     #[test]
     fn codec_stacks_block_ecvrf_proof() {
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
         check_codec_and_corruption::<VRFProof>(&proof, &proof_bytes);
     }
@@ -982,7 +976,7 @@ mod test {
     #[test]
     fn codec_stacks_block_header() {
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
         let header = StacksBlockHeader {
             version: 0x12,
@@ -1136,19 +1130,6 @@ mod test {
             &TransactionPostConditionMode::Allow,
             StacksEpochId::latest(),
         );
-
-        // remove all coinbases
-        let mut txs_anchored = vec![];
-
-        for tx in all_txs.iter() {
-            match tx.payload {
-                TransactionPayload::Coinbase(..) => {
-                    continue;
-                }
-                _ => {}
-            }
-            txs_anchored.push(tx);
-        }
 
         // make microblocks with 3 transactions each (or fewer)
         for i in 0..(all_txs.len() / 3) {
@@ -1701,7 +1682,7 @@ mod test {
             tx_merkle_root
         };
         let mut block_header_dup_tx = header.clone();
-        block_header_dup_tx.tx_merkle_root = get_tx_root(&txs.to_vec());
+        block_header_dup_tx.tx_merkle_root = get_tx_root(txs);
 
         let block = StacksBlock {
             header: block_header_dup_tx,
@@ -1948,7 +1929,7 @@ mod test {
         );
 
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
         let tx_coinbase_proof = StacksTransaction::new(
             TransactionVersion::Testnet,
             origin_auth.clone(),

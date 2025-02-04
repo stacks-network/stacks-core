@@ -18,8 +18,34 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  generate-tests:
+    name: Generate JSON of tests to run
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      ## Setup test environment
+      - name: Setup Test Environment
+        id: setup_tests
+        uses: stacks-network/actions/stacks-core/testenv@main
+        with:
+          btc-version: "25.0"
+      - name: Generate tests JSON
+        id: generate_tests_json
+        # List all of the tests using the nextest archive (so we don't need to do another build task)
+        # Filter them such that we only select tests from `--bin stacks-node` which are marked `ignored`
+        # Transform the output JSON into something that can be used as the matrix input
+        run: |
+          cargo nextest list --archive-file ~/test_archive.tar.zst -Tjson | \
+          jq -c '.["rust-suites"]["stacks-node::bin/stacks-node"]["testcases"] | map_values(select(.["ignored"] == true)) | keys' > ./tests.json
+      - id: set-matrix
+        run: |
+          json_obj=`cat ./tests.json`
+          echo "matrix=$json_obj" >> $GITHUB_OUTPUT
+
   # Bitcoin integration tests with code coverage
   integration-tests:
+    needs: generate-tests
     name: Integration Tests
     runs-on: ubuntu-latest
     strategy:
@@ -28,155 +54,76 @@ jobs:
       ## Run a maximum of 32 concurrent tests from the test matrix
       max-parallel: 32
       matrix:
-        test-name:
-          - tests::bitcoin_regtest::bitcoind_integration_test
-          - tests::integrations::integration_test_get_info
-          - tests::neon_integrations::antientropy_integration_test
-          - tests::neon_integrations::bitcoind_forking_test
-          - tests::neon_integrations::bitcoind_integration_test
-          - tests::neon_integrations::block_large_tx_integration_test
-          - tests::neon_integrations::block_limit_hit_integration_test
-          - tests::neon_integrations::cost_voting_integration
-          - tests::neon_integrations::filter_long_runtime_tx_integration_test
-          - tests::neon_integrations::filter_low_fee_tx_integration_test
-          - tests::neon_integrations::fuzzed_median_fee_rate_estimation_test_window10
-          - tests::neon_integrations::fuzzed_median_fee_rate_estimation_test_window5
-          - tests::neon_integrations::liquid_ustx_integration
+        test-name: ${{fromJson(needs.generate-tests.outputs.matrix)}}
+        exclude:
+          # The following tests are excluded from CI runs. Some of these may be
+          #  worth investigating adding back into the CI
+          - test-name: tests::bitcoin_regtest::bitcoind_integration_test_segwit
+          - test-name: tests::nakamoto_integrations::consensus_hash_event_dispatcher
+          - test-name: tests::neon_integrations::atlas_integration_test
+          - test-name: tests::neon_integrations::atlas_stress_integration_test
+          - test-name: tests::neon_integrations::bitcoind_resubmission_test
+          - test-name: tests::neon_integrations::block_replay_integration_test
+          - test-name: tests::neon_integrations::deep_contract
+          - test-name: tests::neon_integrations::filter_txs_by_origin
+          - test-name: tests::neon_integrations::filter_txs_by_type
+          - test-name: tests::neon_integrations::lockup_integration
+          - test-name: tests::neon_integrations::most_recent_utxo_integration_test
+          - test-name: tests::neon_integrations::run_with_custom_wallet
+          - test-name: tests::neon_integrations::test_competing_miners_build_anchor_blocks_and_microblocks_on_same_chain
+          - test-name: tests::neon_integrations::test_competing_miners_build_anchor_blocks_on_same_chain_without_rbf
+          - test-name: tests::neon_integrations::test_one_miner_build_anchor_blocks_on_same_chain_without_rbf
+          - test-name: tests::signer::v0::tenure_extend_after_2_bad_commits
+          - test-name: tests::stackerdb::test_stackerdb_event_observer
+          - test-name: tests::stackerdb::test_stackerdb_load_store
           # Microblock tests that are no longer needed on every CI run
           #  (microblocks are unsupported starting in Epoch 2.5)
-          # - tests::neon_integrations::bad_microblock_pubkey
-          # - tests::neon_integrations::microblock_fork_poison_integration_test
-          # - tests::neon_integrations::microblock_integration_test
-          # - tests::neon_integrations::microblock_limit_hit_integration_test
-          # - tests::neon_integrations::test_problematic_microblocks_are_not_mined
-          # - tests::neon_integrations::test_problematic_microblocks_are_not_relayed_or_stored
-          # - tests::neon_integrations::size_overflow_unconfirmed_invalid_stream_microblocks_integration_test
-          # - tests::neon_integrations::size_overflow_unconfirmed_microblocks_integration_test
-          # - tests::neon_integrations::size_overflow_unconfirmed_stream_microblocks_integration_test
-          # - tests::neon_integrations::runtime_overflow_unconfirmed_microblocks_integration_test
-          # - tests::epoch_25::microblocks_disabled
-          # Disable this flaky test. Microblocks are no longer supported anyways.
-          # - tests::neon_integrations::microblock_large_tx_integration_test_FLAKY
-          - tests::neon_integrations::miner_submit_twice
-          - tests::neon_integrations::mining_events_integration_test
-          - tests::neon_integrations::pox_integration_test
-          - tests::neon_integrations::push_boot_receipts
-          - tests::neon_integrations::should_fix_2771
-          - tests::neon_integrations::size_check_integration_test
-          - tests::neon_integrations::stx_delegate_btc_integration_test
-          - tests::neon_integrations::stx_transfer_btc_integration_test
-          - tests::neon_integrations::stack_stx_burn_op_test
-          - tests::neon_integrations::test_chainwork_first_intervals
-          - tests::neon_integrations::test_chainwork_partial_interval
-          - tests::neon_integrations::test_flash_block_skip_tenure
-          - tests::neon_integrations::test_problematic_blocks_are_not_mined
-          - tests::neon_integrations::test_problematic_blocks_are_not_relayed_or_stored
-          - tests::neon_integrations::test_problematic_txs_are_not_stored
-          - tests::neon_integrations::use_latest_tip_integration_test
-          - tests::neon_integrations::confirm_unparsed_ongoing_ops
-          - tests::neon_integrations::min_txs
-          - tests::neon_integrations::vote_for_aggregate_key_burn_op_test
-          - tests::neon_integrations::mock_miner_replay
-          - tests::neon_integrations::listunspent_max_utxos
-          - tests::neon_integrations::bitcoin_reorg_flap
-          - tests::neon_integrations::bitcoin_reorg_flap_with_follower
-          - tests::neon_integrations::start_stop_bitcoind
-          - tests::should_succeed_handling_malformed_and_valid_txs
-          - tests::nakamoto_integrations::simple_neon_integration
-          - tests::nakamoto_integrations::flash_blocks_on_epoch_3
-          - tests::nakamoto_integrations::mine_multiple_per_tenure_integration
-          - tests::nakamoto_integrations::block_proposal_api_endpoint
-          - tests::nakamoto_integrations::miner_writes_proposed_block_to_stackerdb
-          - tests::nakamoto_integrations::correct_burn_outs
-          - tests::nakamoto_integrations::vote_for_aggregate_key_burn_op
-          - tests::nakamoto_integrations::follower_bootup_simple
-          - tests::nakamoto_integrations::follower_bootup_custom_chain_id
-          - tests::nakamoto_integrations::forked_tenure_is_ignored
-          - tests::nakamoto_integrations::nakamoto_attempt_time
-          - tests::nakamoto_integrations::skip_mining_long_tx
-          - tests::signer::v0::block_proposal_rejection
-          - tests::signer::v0::miner_gather_signatures
-          - tests::signer::v0::end_of_tenure
-          - tests::signer::v0::forked_tenure_okay
-          - tests::signer::v0::forked_tenure_invalid
-          - tests::signer::v0::empty_sortition
-          - tests::signer::v0::empty_sortition_before_approval
-          - tests::signer::v0::empty_sortition_before_proposal
-          - tests::signer::v0::bitcoind_forking_test
-          - tests::signer::v0::multiple_miners
-          - tests::signer::v0::mock_sign_epoch_25
-          - tests::signer::v0::multiple_miners_mock_sign_epoch_25
-          - tests::signer::v0::miner_forking
-          - tests::signer::v0::reloads_signer_set_in
-          - tests::signer::v0::signers_broadcast_signed_blocks
-          - tests::signer::v0::min_gap_between_blocks
-          - tests::signer::v0::duplicate_signers
-          - tests::signer::v0::retry_on_rejection
-          - tests::signer::v0::locally_accepted_blocks_overriden_by_global_rejection
-          - tests::signer::v0::locally_rejected_blocks_overriden_by_global_acceptance
-          - tests::signer::v0::reorg_locally_accepted_blocks_across_tenures_succeeds
-          - tests::signer::v0::reorg_locally_accepted_blocks_across_tenures_fails
-          - tests::signer::v0::miner_recovers_when_broadcast_block_delay_across_tenures_occurs
-          - tests::signer::v0::multiple_miners_with_nakamoto_blocks
-          - tests::signer::v0::partial_tenure_fork
-          - tests::signer::v0::mine_2_nakamoto_reward_cycles
-          - tests::signer::v0::signer_set_rollover
-          - tests::signer::v0::signing_in_0th_tenure_of_reward_cycle
-          - tests::signer::v0::continue_after_tenure_extend
-          - tests::signer::v0::tenure_extend_after_idle_signers
-          - tests::signer::v0::tenure_extend_after_idle_miner
-          - tests::signer::v0::tenure_extend_after_failed_miner
-          - tests::signer::v0::tenure_extend_succeeds_after_rejected_attempt
-          - tests::signer::v0::stx_transfers_dont_effect_idle_timeout
-          - tests::signer::v0::idle_tenure_extend_active_mining
-          - tests::signer::v0::multiple_miners_with_custom_chain_id
-          - tests::signer::v0::block_commit_delay
-          - tests::signer::v0::continue_after_fast_block_no_sortition
-          - tests::signer::v0::block_validation_response_timeout
-          - tests::signer::v0::block_validation_pending_table
-          - tests::signer::v0::new_tenure_while_validating_previous_scenario
-          - tests::signer::v0::tenure_extend_after_bad_commit
-          - tests::signer::v0::block_proposal_max_age_rejections
-          - tests::signer::v0::global_acceptance_depends_on_block_announcement
-          - tests::signer::v0::no_reorg_due_to_successive_block_validation_ok
-          - tests::signer::v0::incoming_signers_ignore_block_proposals
-          - tests::signer::v0::outgoing_signers_ignore_block_proposals
-          - tests::signer::v0::injected_signatures_are_ignored_across_boundaries
-          - tests::signer::v0::fast_sortition
-          - tests::signer::v0::single_miner_empty_sortition
-          - tests::signer::v0::multiple_miners_empty_sortition
-          - tests::signer::v0::block_proposal_timeout
-          - tests::signer::v0::rejected_blocks_count_towards_miner_validity
-          - tests::signer::v0::allow_reorg_within_first_proposal_burn_block_timing_secs
-          - tests::nakamoto_integrations::burn_ops_integration_test
-          - tests::nakamoto_integrations::check_block_heights
-          - tests::nakamoto_integrations::clarity_burn_state
-          - tests::nakamoto_integrations::check_block_times
-          - tests::nakamoto_integrations::check_block_info
-          - tests::nakamoto_integrations::check_block_info_rewards
-          - tests::nakamoto_integrations::continue_tenure_extend
-          - tests::nakamoto_integrations::mock_mining
-          - tests::nakamoto_integrations::multiple_miners
-          - tests::nakamoto_integrations::follower_bootup_across_multiple_cycles
-          - tests::nakamoto_integrations::nakamoto_lockup_events
-          - tests::nakamoto_integrations::utxo_check_on_startup_panic
-          - tests::nakamoto_integrations::utxo_check_on_startup_recover
-          - tests::nakamoto_integrations::v3_signer_api_endpoint
-          - tests::nakamoto_integrations::test_shadow_recovery
-          - tests::nakamoto_integrations::signer_chainstate
-          - tests::nakamoto_integrations::sip029_coinbase_change
-          - tests::nakamoto_integrations::clarity_cost_spend_down
-          - tests::nakamoto_integrations::v3_blockbyheight_api_endpoint
-          - tests::nakamoto_integrations::mine_invalid_principal_from_consensus_buff
-          - tests::nakamoto_integrations::test_tenure_extend_from_flashblocks
-          # TODO: enable these once v1 signer is supported by a new nakamoto epoch
-          # - tests::signer::v1::dkg
-          # - tests::signer::v1::sign_request_rejected
-          # - tests::signer::v1::filter_bad_transactions
-          # - tests::signer::v1::delayed_dkg
-          # - tests::signer::v1::mine_2_nakamoto_reward_cycles
-          # - tests::signer::v1::sign_after_signer_reboot
-          # - tests::signer::v1::block_proposal
+          - test-name: tests::neon_integrations::bad_microblock_pubkey
+          - test-name: tests::neon_integrations::microblock_fork_poison_integration_test
+          - test-name: tests::neon_integrations::microblock_integration_test
+          - test-name: tests::neon_integrations::microblock_large_tx_integration_test_FLAKY
+          - test-name: tests::neon_integrations::microblock_limit_hit_integration_test
+          - test-name: tests::neon_integrations::microblock_miner_multiple_attempts
+          - test-name: tests::neon_integrations::test_problematic_microblocks_are_not_mined
+          - test-name: tests::neon_integrations::test_problematic_microblocks_are_not_relayed_or_stored
+          - test-name: tests::neon_integrations::runtime_overflow_unconfirmed_microblocks_integration_test
+          - test-name: tests::neon_integrations::size_overflow_unconfirmed_invalid_stream_microblocks_integration_test
+          - test-name: tests::neon_integrations::size_overflow_unconfirmed_microblocks_integration_test
+          - test-name: tests::neon_integrations::size_overflow_unconfirmed_stream_microblocks_integration_test
+          - test-name: tests::epoch_25::microblocks_disabled
+          # Epoch tests are covered by the epoch-tests CI workflow, and don't need to run
+          #  on every PR (for older epochs)
+          - test-name: tests::epoch_205::bigger_microblock_streams_in_2_05
+          - test-name: tests::epoch_205::test_cost_limit_switch_version205
+          - test-name: tests::epoch_205::test_dynamic_db_method_costs
+          - test-name: tests::epoch_205::test_exact_block_costs
+          - test-name: tests::epoch_205::transition_empty_blocks
+          - test-name: tests::epoch_21::test_pox_missing_five_anchor_blocks
+          - test-name: tests::epoch_21::test_pox_reorg_flap_duel
+          - test-name: tests::epoch_21::test_pox_reorg_flap_reward_cycles
+          - test-name: tests::epoch_21::test_pox_reorg_one_flap
+          - test-name: tests::epoch_21::test_pox_reorgs_three_flaps
+          - test-name: tests::epoch_21::test_sortition_divergence_pre_21
+          - test-name: tests::epoch_21::test_v1_unlock_height_with_current_stackers
+          - test-name: tests::epoch_21::test_v1_unlock_height_with_delay_and_current_stackers
+          - test-name: tests::epoch_21::trait_invocation_cross_epoch
+          - test-name: tests::epoch_21::transition_adds_burn_block_height
+          - test-name: tests::epoch_21::transition_adds_get_pox_addr_recipients
+          - test-name: tests::epoch_21::transition_adds_mining_from_segwit
+          - test-name: tests::epoch_21::transition_adds_pay_to_alt_recipient_contract
+          - test-name: tests::epoch_21::transition_adds_pay_to_alt_recipient_principal
+          - test-name: tests::epoch_21::transition_empty_blocks
+          - test-name: tests::epoch_21::transition_fixes_bitcoin_rigidity
+          - test-name: tests::epoch_21::transition_removes_pox_sunset
+          - test-name: tests::epoch_22::disable_pox
+          - test-name: tests::epoch_22::pox_2_unlock_all
+          - test-name: tests::epoch_22::test_pox_reorg_one_flap
+          - test-name: tests::epoch_23::trait_invocation_behavior
+          - test-name: tests::epoch_24::fix_to_pox_contract
+          - test-name: tests::epoch_24::verify_auto_unlock_behavior
+          # Disable this flaky test. We don't need continue testing Epoch 2 -> 3 transition
+          - test-name: tests::nakamoto_integrations::flash_blocks_on_epoch_3_FLAKY
+
     steps:
       ## Setup test environment
       - name: Setup Test Environment

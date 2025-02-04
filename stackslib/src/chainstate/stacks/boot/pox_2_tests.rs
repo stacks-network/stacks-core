@@ -1371,23 +1371,20 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
                 coinbase_txs.push(r);
                 continue;
             }
-            match r.transaction {
-                TransactionOrigin::Stacks(ref t) => {
-                    let addr = t.auth.origin().address_testnet();
-                    eprintln!("TX addr: {}", addr);
-                    if addr == alice_address {
-                        alice_txs.insert(t.auth.get_origin_nonce(), r);
-                    } else if addr == bob_address {
-                        bob_txs.insert(t.auth.get_origin_nonce(), r);
-                    } else if addr == charlie_address {
-                        assert!(
-                            r.execution_cost != ExecutionCost::ZERO,
-                            "Execution cost is not zero!"
-                        );
-                        charlie_txs.insert(t.auth.get_origin_nonce(), r);
-                    }
+            if let TransactionOrigin::Stacks(ref t) = r.transaction {
+                let addr = t.auth.origin().address_testnet();
+                eprintln!("TX addr: {}", addr);
+                if addr == alice_address {
+                    alice_txs.insert(t.auth.get_origin_nonce(), r);
+                } else if addr == bob_address {
+                    bob_txs.insert(t.auth.get_origin_nonce(), r);
+                } else if addr == charlie_address {
+                    assert!(
+                        r.execution_cost != ExecutionCost::ZERO,
+                        "Execution cost is not zero!"
+                    );
+                    charlie_txs.insert(t.auth.get_origin_nonce(), r);
                 }
-                _ => {}
             }
         }
     }
@@ -3724,7 +3721,7 @@ fn test_get_pox_addrs() {
     let mut all_reward_addrs = vec![];
 
     for tenure_id in 0..num_blocks {
-        let microblock_privkey = StacksPrivateKey::new();
+        let microblock_privkey = StacksPrivateKey::random();
         let microblock_pubkeyhash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
         let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
@@ -3997,7 +3994,7 @@ fn test_stack_with_segwit() {
     let mut all_reward_addrs = vec![];
 
     for tenure_id in 0..num_blocks {
-        let microblock_privkey = StacksPrivateKey::new();
+        let microblock_privkey = StacksPrivateKey::random();
         let microblock_pubkeyhash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
         let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
