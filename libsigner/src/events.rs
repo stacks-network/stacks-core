@@ -627,6 +627,8 @@ pub fn get_signers_db_signer_set_message_id(name: &str) -> Option<(u32, u32)> {
 
 #[cfg(test)]
 mod tests {
+    use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
+
     use super::*;
 
     #[test]
@@ -643,5 +645,102 @@ mod tests {
 
         let name = "signer--2";
         assert!(get_signers_db_signer_set_message_id(name).is_none());
+    }
+
+    // Older version of BlockProposal to ensure backwards compatibility
+
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    /// BlockProposal sent to signers
+    pub struct BlockProposalOld {
+        /// The block itself
+        pub block: NakamotoBlock,
+        /// The burn height the block is mined during
+        pub burn_height: u64,
+        /// The reward cycle the block is mined during
+        pub reward_cycle: u64,
+    }
+
+    impl StacksMessageCodec for BlockProposalOld {
+        fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+            self.block.consensus_serialize(fd)?;
+            self.burn_height.consensus_serialize(fd)?;
+            self.reward_cycle.consensus_serialize(fd)?;
+            Ok(())
+        }
+
+        fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+            let block = NakamotoBlock::consensus_deserialize(fd)?;
+            let burn_height = u64::consensus_deserialize(fd)?;
+            let reward_cycle = u64::consensus_deserialize(fd)?;
+            Ok(BlockProposalOld {
+                block,
+                burn_height,
+                reward_cycle,
+            })
+        }
+    }
+
+    #[test]
+    /// Test that the old version of the code can deserialize the new
+    /// version without crashing.
+    fn test_old_deserialization_works() {
+        let header = NakamotoBlockHeader::empty();
+        let block = NakamotoBlock {
+            header,
+            txs: vec![],
+        };
+        let new_block_proposal = BlockProposal {
+            block: block.clone(),
+            burn_height: 1,
+            reward_cycle: 2,
+            block_proposal_data: BlockProposalData::from_current_version(),
+        };
+        let mut bytes = vec![];
+        new_block_proposal.consensus_serialize(&mut bytes).unwrap();
+        let old_block_proposal =
+            BlockProposalOld::consensus_deserialize(&mut bytes.as_slice()).unwrap();
+        assert_eq!(old_block_proposal.block, block);
+        assert_eq!(
+            old_block_proposal.burn_height,
+            new_block_proposal.burn_height
+        );
+        assert_eq!(
+            old_block_proposal.reward_cycle,
+            new_block_proposal.reward_cycle
+        );
+        // assert_eq!();
+    }
+
+    #[test]
+    /// Test that the old version of the code can be serialized
+    /// and then deserialized into the new version.
+    fn test_old_proposal_can_deserialize() {
+        let header = NakamotoBlockHeader::empty();
+        let block = NakamotoBlock {
+            header,
+            txs: vec![],
+        };
+        let old_block_proposal = BlockProposalOld {
+            block: block.clone(),
+            burn_height: 1,
+            reward_cycle: 2,
+        };
+        let mut bytes = vec![];
+        old_block_proposal.consensus_serialize(&mut bytes).unwrap();
+        let new_block_proposal =
+            BlockProposal::consensus_deserialize(&mut bytes.as_slice()).unwrap();
+        assert_eq!(new_block_proposal.block, block);
+        assert_eq!(
+            new_block_proposal.burn_height,
+            old_block_proposal.burn_height
+        );
+        assert_eq!(
+            new_block_proposal.reward_cycle,
+            old_block_proposal.reward_cycle
+        );
+        assert_eq!(
+            new_block_proposal.block_proposal_data.server_version,
+            String::new()
+        );
     }
 }
