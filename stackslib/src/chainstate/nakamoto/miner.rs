@@ -150,6 +150,21 @@ pub struct MinerTenureInfo<'a> {
     pub tenure_block_commit_opt: Option<LeaderBlockCommitOp>,
 }
 
+/// Structure returned from `NakamotoBlockBuilder::build_nakamoto_block` with
+/// information about the block that was built.
+pub struct BlockMetadata {
+    /// The block that was built
+    pub block: NakamotoBlock,
+    /// The execution cost consumed so far by the current tenure
+    pub tenure_consumed: ExecutionCost,
+    /// The cost budget for the current tenure
+    pub tenure_budget: ExecutionCost,
+    /// The size of the blocks in the current tenure in bytes
+    pub tenure_size: u64,
+    /// The events emitted by the transactions included in this block
+    pub tx_events: Vec<TransactionEvent>,
+}
+
 impl NakamotoBlockBuilder {
     /// Make a block builder from genesis (testing only)
     pub fn new_first_block(
@@ -526,7 +541,7 @@ impl NakamotoBlockBuilder {
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         signer_bitvec_len: u16,
-    ) -> Result<(NakamotoBlock, ExecutionCost, u64, Vec<TransactionEvent>), Error> {
+    ) -> Result<BlockMetadata, Error> {
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
             parent_stacks_header.consensus_hash.clone(),
             parent_stacks_header.anchored_header.block_hash(),
@@ -556,7 +571,7 @@ impl NakamotoBlockBuilder {
             builder.load_tenure_info(&mut chainstate, burn_dbconn, tenure_info.cause())?;
         let mut tenure_tx = builder.tenure_begin(burn_dbconn, &mut miner_tenure_info)?;
 
-        let block_limit = tenure_tx
+        let tenure_budget = tenure_tx
             .block_limit()
             .expect("Failed to obtain block limit from miner's block connection");
 
@@ -570,7 +585,7 @@ impl NakamotoBlockBuilder {
                 (1..=100).contains(&percentage),
                 "BUG: tenure_cost_limit_per_block_percentage: {percentage}%. Must be between between 1 and 100"
             );
-            let mut remaining_limit = block_limit.clone();
+            let mut remaining_limit = tenure_budget.clone();
             let cost_so_far = tenure_tx.cost_so_far();
             if remaining_limit.sub(&cost_so_far).is_ok() && remaining_limit.divide(100).is_ok() {
                 remaining_limit.multiply(percentage.into()).expect(
@@ -581,7 +596,7 @@ impl NakamotoBlockBuilder {
                     "Setting soft limit for clarity cost to {percentage}% of remaining block limit";
                     "remaining_limit" => %remaining_limit,
                     "cost_so_far" => %cost_so_far,
-                    "block_limit" => %block_limit,
+                    "block_limit" => %tenure_budget,
                 );
                 soft_limit = Some(remaining_limit);
             };
@@ -630,13 +645,13 @@ impl NakamotoBlockBuilder {
 
         // save the block so we can build microblocks off of it
         let block = builder.mine_nakamoto_block(&mut tenure_tx);
-        let size = builder.bytes_so_far;
-        let consumed = builder.tenure_finish(tenure_tx)?;
+        let tenure_size = builder.bytes_so_far;
+        let tenure_consumed = builder.tenure_finish(tenure_tx)?;
 
         let ts_end = get_epoch_time_ms();
 
         set_last_mined_block_transaction_count(block.txs.len() as u64);
-        set_last_mined_execution_cost_observed(&consumed, &block_limit);
+        set_last_mined_execution_cost_observed(&tenure_consumed, &tenure_budget);
 
         info!(
             "Miner: mined Nakamoto block";
@@ -645,14 +660,20 @@ impl NakamotoBlockBuilder {
             "height" => block.header.chain_length,
             "tx_count" => block.txs.len(),
             "parent_block_id" => %block.header.parent_block_id,
-            "block_size" => size,
-            "execution_consumed" => %consumed,
-            "percent_full" => block_limit.proportion_largest_dimension(&consumed),
+            "block_size" => tenure_size,
+            "execution_consumed" => %tenure_consumed,
+            "percent_full" => tenure_budget.proportion_largest_dimension(&tenure_consumed),
             "assembly_time_ms" => ts_end.saturating_sub(ts_start),
             "consensus_hash" => %block.header.consensus_hash
         );
 
-        Ok((block, consumed, size, tx_events))
+        Ok(BlockMetadata {
+            block,
+            tenure_consumed,
+            tenure_budget,
+            tenure_size,
+            tx_events,
+        })
     }
 
     pub fn get_bytes_so_far(&self) -> u64 {
