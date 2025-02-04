@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
@@ -46,7 +47,7 @@ use crate::net::db::PeerDB;
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
 use crate::net::relay::Relayer;
 use crate::net::rpc::ConversationHttp;
-use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
+use crate::net::test::{RPCHandlerArgsType, TestEventObserver, TestPeer, TestPeerConfig};
 use crate::net::tests::inv::nakamoto::make_nakamoto_peers_from_invs_ext;
 use crate::net::{
     Attachment, AttachmentInstance, MemPoolEventDispatcher, RPCHandlerArgs, StackerDBConfig,
@@ -226,10 +227,28 @@ pub struct TestRPC<'a> {
 
 impl<'a> TestRPC<'a> {
     pub fn setup(test_name: &str) -> TestRPC<'a> {
-        Self::setup_ex(test_name, true)
+        Self::setup_ex(test_name, true, None, None)
     }
 
-    pub fn setup_ex(test_name: &str, process_microblock: bool) -> TestRPC<'a> {
+    pub fn setup_with_rpc_args(
+        test_name: &str,
+        rpc_handler_args_opt_1: Option<RPCHandlerArgsType>,
+        rpc_handler_args_opt_2: Option<RPCHandlerArgsType>,
+    ) -> TestRPC<'a> {
+        Self::setup_ex(
+            test_name,
+            true,
+            rpc_handler_args_opt_1,
+            rpc_handler_args_opt_2,
+        )
+    }
+
+    pub fn setup_ex(
+        test_name: &str,
+        process_microblock: bool,
+        rpc_handler_args_opt_1: Option<RPCHandlerArgsType>,
+        rpc_handler_args_opt_2: Option<RPCHandlerArgsType>,
+    ) -> TestRPC<'a> {
         // ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R
         let privk1 = StacksPrivateKey::from_hex(
             "9f1f85a512a96a244e4c0d762788500687feb97481639572e3bffbd6860e6ab001",
@@ -316,6 +335,9 @@ impl<'a> TestRPC<'a> {
 
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
+
+        peer_1.rpc_handler_args = rpc_handler_args_opt_1;
+        peer_2.rpc_handler_args = rpc_handler_args_opt_2;
 
         // mine one block with a contract in it
         // first the coinbase
@@ -976,7 +998,11 @@ impl<'a> TestRPC<'a> {
             }
 
             {
-                let mut rpc_args = RPCHandlerArgs::default();
+                let mut rpc_args = peer_1
+                    .rpc_handler_args
+                    .as_ref()
+                    .map(|args_type| args_type.instantiate())
+                    .unwrap_or(RPCHandlerArgsType::make_default());
                 rpc_args.event_observer = event_observer;
                 let mut node_state = StacksNodeState::new(
                     &mut peer_1.network,
@@ -1020,7 +1046,11 @@ impl<'a> TestRPC<'a> {
             }
 
             {
-                let mut rpc_args = RPCHandlerArgs::default();
+                let mut rpc_args = peer_2
+                    .rpc_handler_args
+                    .as_ref()
+                    .map(|args_type| args_type.instantiate())
+                    .unwrap_or(RPCHandlerArgsType::make_default());
                 rpc_args.event_observer = event_observer;
                 let mut node_state = StacksNodeState::new(
                     &mut peer_2.network,
@@ -1076,7 +1106,11 @@ impl<'a> TestRPC<'a> {
                     let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
                     let mut peer_1_mempool = peer_1.mempool.take().unwrap();
 
-                    let rpc_args = RPCHandlerArgs::default();
+                    let rpc_args = peer_1
+                        .rpc_handler_args
+                        .as_ref()
+                        .map(|args_type| args_type.instantiate())
+                        .unwrap_or(RPCHandlerArgsType::make_default());
                     let mut node_state = StacksNodeState::new(
                         &mut peer_1.network,
                         &peer_1_sortdb,
