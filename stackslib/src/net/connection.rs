@@ -379,6 +379,7 @@ pub struct ConnectionOptions {
     /// Units are milliseconds.  A value of 0 means "never".
     pub log_neighbors_freq: u64,
     pub inv_sync_interval: u64,
+    // how many reward cycles of blocks to sync in a non-full inventory sync
     pub inv_reward_cycles: u64,
     pub download_interval: u64,
     pub pingback_timeout: u64,
@@ -926,19 +927,16 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                 let bytes_consumed = if let Some(ref mut preamble) = preamble_opt {
                     let (message_opt, bytes_consumed) =
                         self.consume_payload(protocol, preamble, &buf[offset..])?;
-                    match message_opt {
-                        Some(message) => {
-                            // queue up
-                            test_debug!(
-                                "Consumed message '{}' (request {}) in {} bytes",
-                                message.get_message_name(),
-                                message.request_id(),
-                                bytes_consumed
-                            );
-                            self.inbox.push_back(message);
-                            consumed_message = true;
-                        }
-                        None => {}
+                    if let Some(message) = message_opt {
+                        // queue up
+                        test_debug!(
+                            "Consumed message '{}' (request {}) in {} bytes",
+                            message.get_message_name(),
+                            message.request_id(),
+                            bytes_consumed
+                        );
+                        self.inbox.push_back(message);
+                        consumed_message = true;
                     };
 
                     bytes_consumed
@@ -982,14 +980,11 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                     if let Some(ref mut preamble) = preamble_opt {
                         let (message_opt, _bytes_consumed) =
                             self.consume_payload(protocol, preamble, &[])?;
-                        match message_opt {
-                            Some(message) => {
-                                // queue up
-                                test_debug!("Consumed buffered message '{}' (request {}) from {} input buffer bytes", message.get_message_name(), message.request_id(), _bytes_consumed);
-                                self.inbox.push_back(message);
-                                consumed_message = true;
-                            }
-                            None => {}
+                        if let Some(message) = message_opt {
+                            // queue up
+                            test_debug!("Consumed buffered message '{}' (request {}) from {} input buffer bytes", message.get_message_name(), message.request_id(), _bytes_consumed);
+                            self.inbox.push_back(message);
+                            consumed_message = true;
                         }
                     }
                     self.preamble = preamble_opt;
