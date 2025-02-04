@@ -338,11 +338,8 @@ impl TestStacksNode {
             panic!("Tried to fork an unforkable chainstate instance");
         }
 
-        match fs::metadata(&chainstate_path(new_test_name)) {
-            Ok(_) => {
-                fs::remove_dir_all(&chainstate_path(new_test_name)).unwrap();
-            }
-            Err(_) => {}
+        if fs::metadata(&chainstate_path(new_test_name)).is_ok() {
+            fs::remove_dir_all(&chainstate_path(new_test_name)).unwrap();
         }
 
         copy_dir(
@@ -524,21 +521,14 @@ impl TestStacksNode {
         fork_tip: &BlockSnapshot,
         miner: &TestMiner,
     ) -> Option<BlockSnapshot> {
-        for commit_op in miner.block_commits.iter().rev() {
-            match SortitionDB::get_block_snapshot_for_winning_stacks_block(
+        miner.block_commits.iter().rev().find_map(|commit_op| {
+            SortitionDB::get_block_snapshot_for_winning_stacks_block(
                 ic,
                 &fork_tip.sortition_id,
                 &commit_op.block_header_hash,
             )
             .unwrap()
-            {
-                Some(sn) => {
-                    return Some(sn);
-                }
-                None => {}
-            }
-        }
-        return None;
+        })
     }
 
     pub fn get_miner_balance(clarity_tx: &mut ClarityTx, addr: &StacksAddress) -> u128 {
@@ -839,7 +829,6 @@ pub fn check_mining_reward(
     block_height: u64,
     prev_block_rewards: &[Vec<MinerPaymentSchedule>],
 ) -> bool {
-    let mut block_rewards = HashMap::new();
     let mut stream_rewards = HashMap::new();
     let mut heights = HashMap::new();
     let mut confirmed = HashSet::new();
@@ -849,9 +838,6 @@ pub fn check_mining_reward(
                 &reward.consensus_hash,
                 &reward.block_hash,
             );
-            if reward.coinbase > 0 {
-                block_rewards.insert(ibh.clone(), reward.clone());
-            }
             if let MinerPaymentTxFees::Epoch2 { streamed, .. } = &reward.tx_fees {
                 if *streamed > 0 {
                     stream_rewards.insert(ibh.clone(), reward.clone());
@@ -967,22 +953,11 @@ pub fn get_last_microblock_header(
     miner: &TestMiner,
     parent_block_opt: Option<&StacksBlock>,
 ) -> Option<StacksMicroblockHeader> {
-    let last_microblocks_opt =
-        parent_block_opt.and_then(|block| node.get_microblock_stream(miner, &block.block_hash()));
-
-    let last_microblock_header_opt = match last_microblocks_opt {
-        Some(last_microblocks) => {
-            if last_microblocks.is_empty() {
-                None
-            } else {
-                let l = last_microblocks.len() - 1;
-                Some(last_microblocks[l].header.clone())
-            }
-        }
-        None => None,
-    };
-
-    last_microblock_header_opt
+    parent_block_opt
+        .and_then(|block| node.get_microblock_stream(miner, &block.block_hash()))
+        .as_ref()
+        .and_then(|mblock_stream| mblock_stream.last())
+        .map(|mblock| mblock.header.clone())
 }
 
 pub fn get_all_mining_rewards(
@@ -990,17 +965,14 @@ pub fn get_all_mining_rewards(
     tip: &StacksHeaderInfo,
     block_height: u64,
 ) -> Vec<Vec<MinerPaymentSchedule>> {
-    let mut ret = vec![];
     let mut tx = chainstate.index_tx_begin();
 
-    for i in 0..block_height {
-        let block_rewards =
+    (0..block_height)
+        .map(|i| {
             StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, tip, i)
-                .unwrap();
-        ret.push(block_rewards);
-    }
-
-    ret
+                .unwrap()
+        })
+        .collect()
 }
 
 pub fn make_coinbase(miner: &mut TestMiner, burnchain_height: usize) -> StacksTransaction {
@@ -1422,11 +1394,8 @@ pub fn instantiate_and_exec(
     post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx)>>,
 ) -> StacksChainState {
     let path = chainstate_path(test_name);
-    match fs::metadata(&path) {
-        Ok(_) => {
-            fs::remove_dir_all(&path).unwrap();
-        }
-        Err(_) => {}
+    if fs::metadata(&path).is_ok() {
+        fs::remove_dir_all(&path).unwrap();
     };
 
     let initial_balances = balances
