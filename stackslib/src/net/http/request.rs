@@ -543,7 +543,7 @@ impl HttpRequestContents {
                 }
                 kv
             })
-            .unwrap_or(HashMap::new())
+            .unwrap_or_default()
     }
 
     /// chain constructor -- add a query strings' values to the existing values, and also
@@ -655,7 +655,7 @@ impl HttpRequestContents {
         let buf = "".to_string();
         let mut serializer = form_urlencoded::Serializer::new(buf);
         for (k, v) in self.query_args.iter() {
-            serializer.append_pair(&k, &v);
+            serializer.append_pair(k, v);
         }
         serializer.finish()
     }

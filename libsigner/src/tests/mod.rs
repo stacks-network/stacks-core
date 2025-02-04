@@ -128,7 +128,7 @@ fn test_simple_signer() {
         reward_cycle: 1,
     };
     for i in 0..max_events {
-        let privk = Secp256k1PrivateKey::new();
+        let privk = Secp256k1PrivateKey::random();
         let message = SignerMessage::BlockProposal(block_proposal.clone());
         let message_bytes = message.serialize_to_vec();
         let mut chunk = StackerDBChunkData::new(i as u32, 1, message_bytes);

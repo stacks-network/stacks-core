@@ -108,17 +108,17 @@ pub mod docs;
 
 lazy_static! {
     pub static ref BOOT_CODE_POX_MAINNET: String =
-        format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, BOOT_CODE_POX_BODY);
+        format!("{BOOT_CODE_POX_MAINNET_CONSTS}\n{BOOT_CODE_POX_BODY}");
     pub static ref BOOT_CODE_POX_TESTNET: String =
-        format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, BOOT_CODE_POX_BODY);
+        format!("{BOOT_CODE_POX_TESTNET_CONSTS}\n{BOOT_CODE_POX_BODY}");
     pub static ref POX_2_MAINNET_CODE: String =
-        format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, POX_2_BODY);
+        format!("{BOOT_CODE_POX_MAINNET_CONSTS}\n{POX_2_BODY}");
     pub static ref POX_2_TESTNET_CODE: String =
-        format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_2_BODY);
+        format!("{BOOT_CODE_POX_TESTNET_CONSTS}\n{POX_2_BODY}");
     pub static ref POX_3_MAINNET_CODE: String =
-        format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, POX_3_BODY);
+        format!("{BOOT_CODE_POX_MAINNET_CONSTS}\n{POX_3_BODY}");
     pub static ref POX_3_TESTNET_CODE: String =
-        format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_3_BODY);
+        format!("{BOOT_CODE_POX_TESTNET_CONSTS}\n{POX_3_BODY}");
     pub static ref POX_4_CODE: String = POX_4_BODY.to_string();
     pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
     pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
@@ -126,16 +126,16 @@ lazy_static! {
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
         ("cost-voting", BOOT_CODE_COST_VOTING_MAINNET),
-        ("bns", &BOOT_CODE_BNS),
-        ("genesis", &BOOT_CODE_GENESIS),
+        ("bns", BOOT_CODE_BNS),
+        ("genesis", BOOT_CODE_GENESIS),
     ];
     pub static ref STACKS_BOOT_CODE_TESTNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_TESTNET),
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
         ("cost-voting", &BOOT_CODE_COST_VOTING_TESTNET),
-        ("bns", &BOOT_CODE_BNS),
-        ("genesis", &BOOT_CODE_GENESIS),
+        ("bns", BOOT_CODE_BNS),
+        ("genesis", BOOT_CODE_GENESIS),
     ];
 }
 
@@ -528,7 +528,7 @@ impl StacksChainState {
             // 4. delete the user's stacking-state entry.
             clarity.with_clarity_db(|db| {
                 // lookup the Stacks account and alter their unlock height to next block
-                let mut balance = db.get_stx_balance_snapshot(&principal)?;
+                let mut balance = db.get_stx_balance_snapshot(principal)?;
                 let canonical_locked = balance.canonical_balance_repr()?.amount_locked();
                 if canonical_locked < *amount_locked {
                     panic!("Principal missed reward slots, but did not have as many locked tokens as expected. Actual: {}, Expected: {}", canonical_locked, *amount_locked);
@@ -597,7 +597,7 @@ impl StacksChainState {
         let headers_db = HeadersDBConn(StacksDBConn::new(&ro_index, ()));
         self.clarity_state
             .eval_read_only(
-                &stacks_block_id,
+                stacks_block_id,
                 &headers_db,
                 &iconn,
                 &boot::boot_code_id(boot_contract_name, self.mainnet),
@@ -1610,7 +1610,7 @@ pub mod test {
     }
 
     fn rand_addr() -> StacksAddress {
-        key_to_stacks_addr(&StacksPrivateKey::new())
+        key_to_stacks_addr(&StacksPrivateKey::random())
     }
 
     pub fn key_to_stacks_addr(key: &StacksPrivateKey) -> StacksAddress {
@@ -1851,7 +1851,7 @@ pub mod test {
             chainstate
                 .with_read_only_clarity_tx(
                     &sortdb
-                        .index_handle_at_block(&chainstate, &stacks_block_id)
+                        .index_handle_at_block(chainstate, &stacks_block_id)
                         .unwrap(),
                     &stacks_block_id,
                     |clarity_tx| StacksChainState::get_account(clarity_tx, addr),
@@ -2796,7 +2796,7 @@ pub mod test {
     }
 
     pub fn get_current_reward_cycle(peer: &TestPeer, burnchain: &Burnchain) -> u128 {
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
             .unwrap();
         burnchain
             .block_height_to_reward_cycle(tip.block_height)
@@ -2820,11 +2820,11 @@ pub mod test {
         let mut missed_initial_blocks = 0;
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
@@ -2947,11 +2947,11 @@ pub mod test {
                     assert_eq!(bob_balance, 4000);
                 }
             }
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
@@ -3014,11 +3014,11 @@ pub mod test {
         let alice = keys.pop().unwrap();
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
@@ -3131,11 +3131,11 @@ pub mod test {
         let alice = keys.pop().unwrap();
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
@@ -3242,11 +3242,11 @@ pub mod test {
         let mut alice_reward_cycle = 0;
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
@@ -3315,14 +3315,14 @@ pub mod test {
                     assert_eq!(alice_account.stx_balance.amount_locked(), 0);
                     assert_eq!(alice_account.stx_balance.unlock_height(), 0);
                 }
-                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
                 .unwrap();
                 assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
 
                 // no reward addresses
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
                         &burnchain,
@@ -3359,11 +3359,11 @@ pub mod test {
                 let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
                 assert_eq!(alice_balance, 0);
 
-                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
                 .unwrap();
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
                         &burnchain,
@@ -3372,7 +3372,7 @@ pub mod test {
                     )
                 })
                 .unwrap();
-                let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.test_get_total_ustx_stacked(
                         sortdb,
                         &tip_index_block,
@@ -3453,11 +3453,11 @@ pub mod test {
         let mut rewarded = false;
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let cur_reward_cycle = burnchain
@@ -3555,10 +3555,10 @@ pub mod test {
                     // No locks have taken place
                     for key in keys.iter() {
                         // has not locked up STX
-                        let balance = get_balance(&mut peer, &key_to_stacks_addr(&key).into());
+                        let balance = get_balance(&mut peer, &key_to_stacks_addr(key).into());
                         assert_eq!(balance, 1024 * POX_THRESHOLD_STEPS_USTX);
 
-                        let account = get_account(&mut peer, &key_to_stacks_addr(&key).into());
+                        let account = get_account(&mut peer, &key_to_stacks_addr(key).into());
                         assert_eq!(
                             account.stx_balance.amount_unlocked(),
                             1024 * POX_THRESHOLD_STEPS_USTX
@@ -3567,14 +3567,14 @@ pub mod test {
                         assert_eq!(account.stx_balance.unlock_height(), 0);
                     }
                 }
-                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
                 .unwrap();
                 assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
 
                 // no reward addresses
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
                         &burnchain,
@@ -3613,11 +3613,11 @@ pub mod test {
                     assert_eq!(balance, 0);
                 }
 
-                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
                 .unwrap();
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
                         &burnchain,
@@ -3626,7 +3626,7 @@ pub mod test {
                     )
                 })
                 .unwrap();
-                let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.test_get_total_ustx_stacked(
                         sortdb,
                         &tip_index_block,
@@ -3652,24 +3652,24 @@ pub mod test {
                     assert_eq!(reward_addrs.len(), 4);
                     let mut all_addrbytes = HashSet::new();
                     for key in keys.iter() {
-                        all_addrbytes.insert(key_to_stacks_addr(&key).destruct().1);
+                        all_addrbytes.insert(key_to_stacks_addr(key).destruct().1);
                     }
 
                     for key in keys.iter() {
                         let (amount_ustx, pox_addr, lock_period, first_reward_cycle) =
-                            get_stacker_info(&mut peer, &key_to_stacks_addr(&key).into()).unwrap();
+                            get_stacker_info(&mut peer, &key_to_stacks_addr(key).into()).unwrap();
                         eprintln!("\n{}: {} uSTX stacked for {} cycle(s); addr is {:?}; first reward cycle is {}\n", key.to_hex(), amount_ustx, lock_period, &pox_addr, first_reward_cycle);
 
                         assert_eq!(
                             (reward_addrs[0].0).version(),
                             AddressHashMode::SerializeP2PKH as u8
                         );
-                        assert!(all_addrbytes.contains(&key_to_stacks_addr(&key).destruct().1));
-                        all_addrbytes.remove(&key_to_stacks_addr(&key).destruct().1);
+                        assert!(all_addrbytes.contains(&key_to_stacks_addr(key).destruct().1));
+                        all_addrbytes.remove(&key_to_stacks_addr(key).destruct().1);
                         assert_eq!(reward_addrs[0].1, 1024 * POX_THRESHOLD_STEPS_USTX);
 
                         // Lock-up is consistent with stacker state
-                        let account = get_account(&mut peer, &key_to_stacks_addr(&key).into());
+                        let account = get_account(&mut peer, &key_to_stacks_addr(key).into());
                         assert_eq!(account.stx_balance.amount_unlocked(), 0);
                         assert_eq!(
                             account.stx_balance.amount_locked(),
@@ -3714,11 +3714,11 @@ pub mod test {
         let mut alice_reward_cycle = 0;
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
@@ -3783,14 +3783,14 @@ pub mod test {
                     let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
                     assert_eq!(alice_balance, 1024 * POX_THRESHOLD_STEPS_USTX);
                 }
-                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
                 .unwrap();
                 assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
 
                 // no reward addresses
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
                         &burnchain,
@@ -3826,11 +3826,11 @@ pub mod test {
                 let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
                 assert_eq!(alice_balance, 0);
 
-                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
                 .unwrap();
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
                         &burnchain,
@@ -3839,7 +3839,7 @@ pub mod test {
                     )
                 })
                 .unwrap();
-                let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.test_get_total_ustx_stacked(
                         sortdb,
                         &tip_index_block,
@@ -3981,11 +3981,11 @@ pub mod test {
         let mut first_reward_cycle = 0;
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
@@ -4063,14 +4063,14 @@ pub mod test {
                     assert_eq!(bob_balance, 1024 * POX_THRESHOLD_STEPS_USTX);
                 }
 
-                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
                 .unwrap();
                 assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
 
                 // no reward addresses
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
                         &burnchain,
@@ -4113,11 +4113,11 @@ pub mod test {
                     1024 * POX_THRESHOLD_STEPS_USTX - (4 * 1024 * POX_THRESHOLD_STEPS_USTX) / 5
                 );
 
-                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
                 .unwrap();
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
                         &burnchain,
@@ -4197,11 +4197,11 @@ pub mod test {
         let mut first_reward_cycle = 0;
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
@@ -4308,7 +4308,7 @@ pub mod test {
 
             if tenure_id <= 1 {
                 // no reward addresses
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
                         &burnchain,
@@ -4410,11 +4410,11 @@ pub mod test {
         let mut alice_reward_cycle = 0;
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
@@ -4476,14 +4476,14 @@ pub mod test {
                     assert_eq!(alice_balance, 1024 * POX_THRESHOLD_STEPS_USTX);
                 }
 
-                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
                 .unwrap();
                 assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
 
                 // no reward addresses
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
                         &burnchain,
@@ -4518,11 +4518,11 @@ pub mod test {
 
                 let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
 
-                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
                 .unwrap();
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
                         &burnchain,
@@ -4531,7 +4531,7 @@ pub mod test {
                     )
                 })
                 .unwrap();
-                let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.test_get_total_ustx_stacked(
                         sortdb,
                         &tip_index_block,
@@ -4659,11 +4659,11 @@ pub mod test {
         let mut test_after_second_reward_cycle = false;
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
@@ -4780,15 +4780,15 @@ pub mod test {
             );
             let charlie_balance = get_balance(&mut peer, &key_to_stacks_addr(&charlie).into());
 
-            let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
             })
             .unwrap();
-            let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 chainstate.get_stacking_minimum(sortdb, &tip_index_block)
             })
             .unwrap();
-            let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 chainstate.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
             })
             .unwrap();
@@ -4802,7 +4802,7 @@ pub mod test {
                     assert_eq!(charlie_contract_balance, 0);
                 }
 
-                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
                 .unwrap();
@@ -4838,7 +4838,7 @@ pub mod test {
                 // should have just re-locked
                 // stacking minimum should be minimum, since we haven't
                 // locked up 25% of the tokens yet
-                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
                 .unwrap();
@@ -5181,11 +5181,11 @@ pub mod test {
         let mut test_between_reward_cycles = false;
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
@@ -5425,15 +5425,15 @@ pub mod test {
                 512 * POX_THRESHOLD_STEPS_USTX - 1,
             ];
 
-            let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 chainstate.get_stacking_minimum(sortdb, &tip_index_block)
             })
             .unwrap();
-            let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
             })
             .unwrap();
-            let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 chainstate.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
             })
             .unwrap();
@@ -5452,7 +5452,7 @@ pub mod test {
                 assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
 
                 // no reward addresses
-                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
                         &burnchain,
@@ -5627,11 +5627,11 @@ pub mod test {
         let mut alice_reward_cycle = 0;
 
         for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
@@ -5727,19 +5727,19 @@ pub mod test {
                 .unwrap() as u128;
             let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
 
-            let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 chainstate.get_stacking_minimum(sortdb, &tip_index_block)
             })
             .unwrap();
-            let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
             })
             .unwrap();
-            let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 chainstate.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
             })
             .unwrap();
-            let total_stacked_next = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+            let total_stacked_next = with_sortdb(&mut peer, |ref mut chainstate, sortdb| {
                 chainstate.test_get_total_ustx_stacked(
                     sortdb,
                     &tip_index_block,

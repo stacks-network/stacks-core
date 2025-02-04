@@ -433,7 +433,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
         for i in 0..node_path.len() {
             if node_path[i] != path_bytes[self.index] {
                 // diverged
-                trace!("cursor: diverged({} != {}): i = {}, self.index = {}, self.node_path_index = {}", to_hex(&node_path), to_hex(path_bytes), i, self.index, self.node_path_index);
+                trace!("cursor: diverged({} != {}): i = {}, self.index = {}, self.node_path_index = {}", to_hex(node_path), to_hex(path_bytes), i, self.index, self.node_path_index);
                 self.last_error = Some(CursorError::PathDiverged);
                 return Err(CursorError::PathDiverged);
             }
@@ -1240,38 +1240,23 @@ macro_rules! with_node {
 
 impl TrieNodeType {
     pub fn is_leaf(&self) -> bool {
-        match self {
-            TrieNodeType::Leaf(_) => true,
-            _ => false,
-        }
+        matches!(self, TrieNodeType::Leaf(_))
     }
 
     pub fn is_node4(&self) -> bool {
-        match self {
-            TrieNodeType::Node4(_) => true,
-            _ => false,
-        }
+        matches!(self, TrieNodeType::Node4(_))
     }
 
     pub fn is_node16(&self) -> bool {
-        match self {
-            TrieNodeType::Node16(_) => true,
-            _ => false,
-        }
+        matches!(self, TrieNodeType::Node16(_))
     }
 
     pub fn is_node48(&self) -> bool {
-        match self {
-            TrieNodeType::Node48(_) => true,
-            _ => false,
-        }
+        matches!(self, TrieNodeType::Node48(_))
     }
 
     pub fn is_node256(&self) -> bool {
-        match self {
-            TrieNodeType::Node256(_) => true,
-            _ => false,
-        }
+        matches!(self, TrieNodeType::Node256(_))
     }
 
     pub fn id(&self) -> u8 {

@@ -290,7 +290,7 @@ impl SegwitBitcoinAddress {
         let mut bytes_u5: Vec<u5> = vec![u5::try_from_u8(self.witness_version())
             .expect("FATAL: bad witness version does not fit into a u5")];
         bytes_u5.extend_from_slice(&bytes.to_base32());
-        let addr = bech32::encode(&hrp, bytes_u5, self.bech32_variant())
+        let addr = bech32::encode(hrp, bytes_u5, self.bech32_variant())
             .expect("FATAL: could not encode segwit address");
         addr
     }
@@ -396,27 +396,15 @@ impl SegwitBitcoinAddress {
     }
 
     pub fn is_p2wpkh(&self) -> bool {
-        if let SegwitBitcoinAddress::P2WPKH(..) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, SegwitBitcoinAddress::P2WPKH(..))
     }
 
     pub fn is_p2wsh(&self) -> bool {
-        if let SegwitBitcoinAddress::P2WSH(..) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, SegwitBitcoinAddress::P2WSH(..))
     }
 
     pub fn is_p2tr(&self) -> bool {
-        if let SegwitBitcoinAddress::P2TR(..) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, SegwitBitcoinAddress::P2TR(..))
     }
 }
 

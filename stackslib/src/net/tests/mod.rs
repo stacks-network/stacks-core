@@ -280,7 +280,7 @@ impl NakamotoBootPlan {
                     &mut sort_handle,
                     &mut node.chainstate,
                     &peer.network.stacks_tip.block_id(),
-                    &block,
+                    block,
                     None,
                     NakamotoBlockObtainMethod::Pushed,
                 )
@@ -317,7 +317,7 @@ impl NakamotoBootPlan {
                     &mut sort_handle,
                     &mut node.chainstate,
                     &peer.network.stacks_tip.block_id(),
-                    &block,
+                    block,
                     None,
                     NakamotoBlockObtainMethod::Pushed,
                 )
@@ -515,7 +515,7 @@ impl NakamotoBootPlan {
             .config
             .test_stackers
             .clone()
-            .unwrap_or(vec![])
+            .unwrap_or_default()
             .iter()
             .map(|test_stacker| {
                 let pox_addr = test_stacker
@@ -1143,7 +1143,7 @@ fn test_boot_nakamoto_peer() {
         0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3,
     ]);
 
-    let plan = NakamotoBootPlan::new(&function_name!())
+    let plan = NakamotoBootPlan::new(function_name!())
         .with_private_key(private_key)
         .with_pox_constants(10, 3)
         .with_initial_balances(vec![(addr.into(), 1_000_000)])
@@ -1216,16 +1216,16 @@ fn test_network_result_update() {
         &BurnchainHeaderHash([0x22; 32]),
         StacksMessageType::Ping(PingData { nonce: 2 }),
     );
-    msg2.sign(2, &StacksPrivateKey::new()).unwrap();
+    msg2.sign(2, &StacksPrivateKey::random()).unwrap();
 
-    let pkey_1 = StacksPrivateKey::new();
-    let pkey_2 = StacksPrivateKey::new();
+    let pkey_1 = StacksPrivateKey::random();
+    let pkey_2 = StacksPrivateKey::random();
 
-    let pushed_pkey_1 = StacksPrivateKey::new();
-    let pushed_pkey_2 = StacksPrivateKey::new();
+    let pushed_pkey_1 = StacksPrivateKey::random();
+    let pushed_pkey_2 = StacksPrivateKey::random();
 
-    let uploaded_pkey_1 = StacksPrivateKey::new();
-    let uploaded_pkey_2 = StacksPrivateKey::new();
+    let uploaded_pkey_1 = StacksPrivateKey::random();
+    let uploaded_pkey_2 = StacksPrivateKey::random();
 
     let blk1 = make_empty_coinbase_block(&pkey_1);
     let blk2 = make_empty_coinbase_block(&pkey_2);

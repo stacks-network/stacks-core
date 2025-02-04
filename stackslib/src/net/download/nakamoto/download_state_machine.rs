@@ -182,7 +182,7 @@ impl NakamotoDownloadStateMachine {
                 StacksBlockId(cursor.winning_stacks_block_hash.0),
                 cursor.block_height,
             ));
-            cursor = SortitionDB::get_block_snapshot(&ih, &cursor.parent_sortition_id)?
+            cursor = SortitionDB::get_block_snapshot(ih, &cursor.parent_sortition_id)?
                 .ok_or(DBError::NotFoundError)?;
         }
         wanted_tenures.reverse();
@@ -759,7 +759,7 @@ impl NakamotoDownloadStateMachine {
                     inventories.iter(),
                 )
             })
-            .unwrap_or(HashMap::new());
+            .unwrap_or_default();
 
         let mut available = Self::find_available_tenures(
             self.reward_cycle,
@@ -783,7 +783,7 @@ impl NakamotoDownloadStateMachine {
                     inventories.iter(),
                 )
             })
-            .unwrap_or(HashMap::new());
+            .unwrap_or_default();
 
         let mut tenure_block_ids = {
             debug!(
@@ -822,7 +822,7 @@ impl NakamotoDownloadStateMachine {
                         &available,
                     )
                 })
-                .unwrap_or(VecDeque::new());
+                .unwrap_or_default();
 
             let schedule = Self::make_ibd_download_schedule(
                 self.nakamoto_start_height,
@@ -843,7 +843,7 @@ impl NakamotoDownloadStateMachine {
                         &available,
                     )
                 })
-                .unwrap_or(VecDeque::new());
+                .unwrap_or_default();
 
             let schedule = Self::make_rarest_first_download_schedule(
                 self.nakamoto_start_height,
@@ -1179,8 +1179,8 @@ impl NakamotoDownloadStateMachine {
                 finished.push(naddr.clone());
                 continue;
             }
-            if neighbor_rpc.has_inflight(&naddr) {
-                debug!("Peer {} has an inflight request", naddr);
+            if neighbor_rpc.has_inflight(naddr) {
+                debug!("Peer {naddr} has an inflight request");
                 continue;
             }
 
@@ -1564,7 +1564,7 @@ impl NakamotoDownloadStateMachine {
     ) -> Result<HashMap<ConsensusHash, Vec<NakamotoBlock>>, NetError> {
         self.nakamoto_tip = network.stacks_tip.block_id();
         debug!("Downloader: Nakamoto tip is {:?}", &self.nakamoto_tip);
-        self.update_wanted_tenures(&network, sortdb)?;
+        self.update_wanted_tenures(network, sortdb)?;
         self.update_processed_tenures(chainstate)?;
         let new_blocks = self.run_downloads(burnchain_height, network, sortdb, chainstate, ibd);
         self.last_sort_tip = Some(network.burnchain_tip.clone());

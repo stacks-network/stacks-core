@@ -227,7 +227,7 @@ impl BitcoinIndexer {
 
         // instantiate headers DB
         let _ = SpvClient::new(
-            &working_dir_path.to_str().unwrap().to_string(),
+            working_dir_path.to_str().unwrap(),
             0,
             None,
             BitcoinNetworkType::Regtest,
@@ -236,7 +236,7 @@ impl BitcoinIndexer {
         )
         .expect(&format!(
             "Failed to open {:?}",
-            &working_dir_path.to_str().unwrap().to_string()
+            working_dir_path.to_str().unwrap()
         ));
 
         BitcoinIndexer {
@@ -469,7 +469,7 @@ impl BitcoinIndexer {
         network_id: BitcoinNetworkType,
     ) -> Result<SpvClient, btc_error> {
         SpvClient::new_without_migration(
-            &reorg_headers_path,
+            reorg_headers_path,
             start_block,
             end_block,
             network_id,
@@ -486,7 +486,7 @@ impl BitcoinIndexer {
         network_id: BitcoinNetworkType,
     ) -> Result<SpvClient, btc_error> {
         SpvClient::new(
-            &reorg_headers_path,
+            reorg_headers_path,
             start_block,
             end_block,
             network_id,
@@ -3472,7 +3472,7 @@ mod test {
 
         // set up SPV client so we don't have chain work at first
         let mut spv_client = SpvClient::new_without_migration(
-            &db_path,
+            db_path,
             0,
             None,
             BitcoinNetworkType::Regtest,

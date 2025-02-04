@@ -86,7 +86,7 @@ impl Default for TestSigners {
 
         let mut signer_keys = Vec::<Secp256k1PrivateKey>::new();
         for _ in 0..num_signers {
-            signer_keys.push(Secp256k1PrivateKey::default());
+            signer_keys.push(Secp256k1PrivateKey::random());
         }
         Self {
             threshold,
@@ -128,7 +128,7 @@ impl TestSigners {
             self.generate_aggregate_key(cycle);
         }
 
-        let signer_signature = self.generate_block_signatures(&block);
+        let signer_signature = self.generate_block_signatures(block);
 
         test_debug!(
             "Signed Nakamoto block {} with {} signatures (rc {})",

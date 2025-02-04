@@ -388,10 +388,7 @@ impl StacksBlock {
         state_index_root: &TrieHash,
         microblock_pubkey_hash: &Hash160,
     ) -> StacksBlock {
-        let txids: Vec<_> = txs
-            .iter()
-            .map(|ref tx| tx.txid().as_bytes().to_vec())
-            .collect();
+        let txids: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
         let header = StacksBlockHeader::from_parent(
@@ -880,10 +877,7 @@ impl StacksMicroblock {
         parent_block_hash: &BlockHeaderHash,
         txs: Vec<StacksTransaction>,
     ) -> StacksMicroblock {
-        let txids: Vec<_> = txs
-            .iter()
-            .map(|ref tx| tx.txid().as_bytes().to_vec())
-            .collect();
+        let txids: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
         let header = StacksMicroblockHeader::first_unsigned(parent_block_hash, &tx_merkle_root);
@@ -894,10 +888,7 @@ impl StacksMicroblock {
         parent_header: &StacksMicroblockHeader,
         txs: Vec<StacksTransaction>,
     ) -> Option<StacksMicroblock> {
-        let txids: Vec<_> = txs
-            .iter()
-            .map(|ref tx| tx.txid().as_bytes().to_vec())
-            .collect();
+        let txids: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
         let header =
@@ -969,7 +960,7 @@ mod test {
     #[test]
     fn codec_stacks_block_ecvrf_proof() {
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
         check_codec_and_corruption::<VRFProof>(&proof, &proof_bytes);
     }
@@ -991,7 +982,7 @@ mod test {
     #[test]
     fn codec_stacks_block_header() {
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
         let header = StacksBlockHeader {
             version: 0x12,
@@ -1710,7 +1701,7 @@ mod test {
             tx_merkle_root
         };
         let mut block_header_dup_tx = header.clone();
-        block_header_dup_tx.tx_merkle_root = get_tx_root(&txs.to_vec());
+        block_header_dup_tx.tx_merkle_root = get_tx_root(txs);
 
         let block = StacksBlock {
             header: block_header_dup_tx,
@@ -1764,17 +1755,17 @@ mod test {
 
             if *epoch_id < activation_epoch_id {
                 assert!(!StacksBlock::validate_transactions_static_epoch(
-                    &txs,
+                    txs,
                     epoch_id.clone(),
                 ));
             } else if deactivation_epoch_id.is_none() || deactivation_epoch_id.unwrap() > *epoch_id
             {
                 assert!(StacksBlock::validate_transactions_static_epoch(
-                    &txs, *epoch_id,
+                    txs, *epoch_id,
                 ));
             } else {
                 assert!(!StacksBlock::validate_transactions_static_epoch(
-                    &txs, *epoch_id,
+                    txs, *epoch_id,
                 ));
             }
         }
@@ -1957,7 +1948,7 @@ mod test {
         );
 
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
         let tx_coinbase_proof = StacksTransaction::new(
             TransactionVersion::Testnet,
             origin_auth.clone(),
