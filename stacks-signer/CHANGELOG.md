@@ -20,6 +20,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   `StackerDB` messages, it logs `INFO` messages. Other interactions with the `stacks-node`
   behave normally (e.g., submitting validation requests, submitting finished blocks). A
   dry run signer will error out if the supplied key is actually a registered signer.
+- Reduce default value of `block_proposal_timeout_ms` to 120_000
 
 ## [3.1.0.0.4.0]
 

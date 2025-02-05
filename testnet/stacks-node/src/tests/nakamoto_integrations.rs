@@ -10897,7 +10897,7 @@ fn test_tenure_extend_from_flashblocks() {
     assert_ne!(sort_tip.consensus_hash, election_tip.consensus_hash);
 
     // we can, however, continue the tenure
-    let canonical_stacks_tip = RelayerThread::can_continue_tenure(
+    let (canonical_stacks_tip, wait) = RelayerThread::can_continue_tenure(
         &sortdb,
         &mut chainstate,
         sort_tip.consensus_hash.clone(),
@@ -10905,6 +10905,7 @@ fn test_tenure_extend_from_flashblocks() {
     )
     .unwrap()
     .unwrap();
+    assert!(!wait);
     assert_eq!(canonical_stacks_tip, election_tip);
 
     // if we didn't win the last block -- tantamount to the sortition winner miner key being
