@@ -10042,9 +10042,7 @@ fn test_shadow_recovery() {
     info!("Beginning post-shadow tenures");
 
     // revive ATC-C by waiting for commits
-    for _i in 0..4 {
-        next_block_and_commits_only(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
-    }
+    next_block_and_commits_only(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     // make another tenure
     next_block_and_mine_commit(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
