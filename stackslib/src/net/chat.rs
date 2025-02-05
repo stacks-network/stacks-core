@@ -515,13 +515,10 @@ impl Neighbor {
             // setting BLOCKSTACK_NEIGHBOR_TEST_${PORTNUMBER} will let us select an organization
             // for this peer
             use std::env;
-            match env::var(format!("BLOCKSTACK_NEIGHBOR_TEST_{}", addr.port)) {
-                Ok(asn_str) => {
-                    neighbor.asn = asn_str.parse().unwrap();
-                    neighbor.org = neighbor.asn;
-                    test_debug!("Override {:?} to ASN/org {}", &neighbor.addr, neighbor.asn);
-                }
-                Err(_) => {}
+            if let Ok(asn_str) = env::var(format!("BLOCKSTACK_NEIGHBOR_TEST_{}", addr.port)) {
+                neighbor.asn = asn_str.parse().unwrap();
+                neighbor.org = neighbor.asn;
+                test_debug!("Override {:?} to ASN/org {}", &neighbor.addr, neighbor.asn);
             };
         }
 
@@ -544,13 +541,10 @@ impl Neighbor {
                     let asn_opt =
                         PeerDB::asn_lookup(conn, &addr.addrbytes).map_err(net_error::DBError)?;
 
-                    match asn_opt {
-                        Some(a) => {
-                            if a != 0 {
-                                peer.asn = a;
-                            }
+                    if let Some(a) = asn_opt {
+                        if a != 0 {
+                            peer.asn = a;
                         }
-                        None => {}
                     };
                 }
                 Ok(Some(peer))
@@ -962,10 +956,9 @@ impl ConversationP2P {
             reply_message,
             request_preamble.seq,
         )?;
-        let reply_handle = self.relay_signed_message(reply).map_err(|e| {
-            debug!("Unable to reply a {}: {:?}", _msgtype, &e);
-            e
-        })?;
+        let reply_handle = self
+            .relay_signed_message(reply)
+            .inspect_err(|e| debug!("Unable to reply a {_msgtype}: {e:?}"))?;
 
         Ok(reply_handle)
     }
@@ -981,10 +974,9 @@ impl ConversationP2P {
         let _msgtype = forward_message.get_message_name().to_owned();
         let fwd =
             self.sign_relay_message(local_peer, burnchain_view, relay_hints, forward_message)?;
-        let fwd_handle = self.relay_signed_message(fwd).map_err(|e| {
-            debug!("Unable to forward a {}: {:?}", _msgtype, &e);
-            e
-        })?;
+        let fwd_handle = self
+            .relay_signed_message(fwd)
+            .inspect_err(|e| debug!("Unable to forward a {_msgtype}: {e:?}"))?;
 
         Ok(fwd_handle)
     }
@@ -1475,13 +1467,9 @@ impl ConversationP2P {
             neighbors: neighbor_addrs,
         });
         let reply = self.sign_reply(chain_view, &local_peer.private_key, payload, preamble.seq)?;
-        let reply_handle = self.relay_signed_message(reply).map_err(|e| {
-            debug!(
-                "Outbox to {:?} is full; cannot reply to GetNeighbors",
-                &self
-            );
-            e
-        })?;
+        let reply_handle = self
+            .relay_signed_message(reply)
+            .inspect_err(|_e| debug!("Outbox to {self:?} is full; cannot reply to GetNeighbors"))?;
 
         Ok(reply_handle)
     }
@@ -1747,12 +1735,8 @@ impl ConversationP2P {
             &network.stacks_tip.block_hash,
             reward_cycle,
         )?;
-        let nakamoto_inv = NakamotoInvData::try_from(&bitvec_bools).map_err(|e| {
-            warn!(
-                "Failed to create a NakamotoInv response to {:?}: {:?}",
-                get_nakamoto_inv, &e
-            );
-            e
+        let nakamoto_inv = NakamotoInvData::try_from(&bitvec_bools).inspect_err(|e| {
+            warn!("Failed to create a NakamotoInv response to {get_nakamoto_inv:?}: {e:?}")
         })?;
 
         debug!(
@@ -3110,11 +3094,8 @@ mod test {
         services: u16,
     ) -> (PeerDB, SortitionDB, StackerDBs, PoxId, StacksChainState) {
         let test_path = format!("/tmp/stacks-test-databases-{}", testname);
-        match fs::metadata(&test_path) {
-            Ok(_) => {
-                fs::remove_dir_all(&test_path).unwrap();
-            }
-            Err(_) => {}
+        if fs::metadata(&test_path).is_ok() {
+            fs::remove_dir_all(&test_path).unwrap();
         };
 
         fs::create_dir_all(&test_path).unwrap();

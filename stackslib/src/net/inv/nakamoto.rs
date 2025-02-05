@@ -982,29 +982,29 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
             );
             let Some(inv) = self.inventories.get_mut(&naddr) else {
                 debug!(
-                    "{:?}: Got a reply for an untracked inventory peer {}: {:?}",
+                    "{:?}: Got a reply for an untracked inventory peer {naddr}: {reply:?}",
                     network.get_local_peer(),
-                    &naddr,
-                    &reply
                 );
                 continue;
             };
 
-            let Ok(inv_learned) = inv.getnakamotoinv_try_finish(network, reply).map_err(|e| {
-                warn!(
-                    "{:?}: Failed to finish inventory sync to {}: {:?}",
-                    network.get_local_peer(),
-                    &naddr,
-                    &e
-                );
-                self.comms.add_broken(
-                    network,
-                    &naddr,
-                    DropReason::BrokenConnection(format!("Failed to finish inventory sync: {e}")),
-                    DropSource::NakamotoInvStateMachine,
-                );
-                e
-            }) else {
+            let Ok(inv_learned) = inv
+                .getnakamotoinv_try_finish(network, reply)
+                .inspect_err(|e| {
+                    warn!(
+                        "{:?}: Failed to finish inventory sync to {naddr}: {e:?}",
+                        network.get_local_peer()
+                    );
+                    self.comms.add_broken(
+                        network,
+                        &naddr,
+                        DropReason::BrokenConnection(format!(
+                            "Failed to finish inventory sync: {e}"
+                        )),
+                        DropSource::NakamotoInvStateMachine,
+                    );
+                })
+            else {
                 continue;
             };
 
@@ -1056,14 +1056,15 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
                 &e
             );
         }
-        let Ok((_, learned)) = self.process_getnakamotoinv_finishes(network).map_err(|e| {
-            warn!(
-                "{:?}: Failed to finish Nakamoto tenure inventory sync: {:?}",
-                network.get_local_peer(),
-                &e
-            );
-            e
-        }) else {
+        let Ok((_, learned)) = self
+            .process_getnakamotoinv_finishes(network)
+            .inspect_err(|e| {
+                warn!(
+                    "{:?}: Failed to finish Nakamoto tenure inventory sync: {e:?}",
+                    network.get_local_peer(),
+                )
+            })
+        else {
             self.last_sort_tip = Some(network.burnchain_tip.clone());
             return false;
         };

@@ -353,16 +353,13 @@ impl StacksMessageCodec for StacksBlock {
         // must be only one coinbase
         let mut coinbase_count = 0;
         for tx in txs.iter() {
-            match tx.payload {
-                TransactionPayload::Coinbase(..) => {
-                    coinbase_count += 1;
-                    if coinbase_count > 1 {
-                        return Err(codec_error::DeserializeError(
-                            "Invalid block: multiple coinbases found".to_string(),
-                        ));
-                    }
+            if let TransactionPayload::Coinbase(..) = tx.payload {
+                coinbase_count += 1;
+                if coinbase_count > 1 {
+                    return Err(codec_error::DeserializeError(
+                        "Invalid block: multiple coinbases found".to_string(),
+                    ));
                 }
-                _ => {}
             }
         }
 
@@ -515,26 +512,23 @@ impl StacksBlock {
         let mut found_coinbase = false;
         let mut coinbase_index = 0;
         for (i, tx) in txs.iter().enumerate() {
-            match tx.payload {
-                TransactionPayload::Coinbase(..) => {
-                    if !check_present {
-                        warn!("Found unexpected coinbase tx {}", tx.txid());
-                        return false;
-                    }
-
-                    if found_coinbase {
-                        warn!("Found duplicate coinbase tx {}", tx.txid());
-                        return false;
-                    }
-
-                    if tx.anchor_mode != TransactionAnchorMode::OnChainOnly {
-                        warn!("Invalid coinbase tx {}: not on-chain only", tx.txid());
-                        return false;
-                    }
-                    found_coinbase = true;
-                    coinbase_index = i;
+            if let TransactionPayload::Coinbase(..) = tx.payload {
+                if !check_present {
+                    warn!("Found unexpected coinbase tx {}", tx.txid());
+                    return false;
                 }
-                _ => {}
+
+                if found_coinbase {
+                    warn!("Found duplicate coinbase tx {}", tx.txid());
+                    return false;
+                }
+
+                if tx.anchor_mode != TransactionAnchorMode::OnChainOnly {
+                    warn!("Invalid coinbase tx {}: not on-chain only", tx.txid());
+                    return false;
+                }
+                found_coinbase = true;
+                coinbase_index = i;
             }
         }
 
@@ -1136,19 +1130,6 @@ mod test {
             &TransactionPostConditionMode::Allow,
             StacksEpochId::latest(),
         );
-
-        // remove all coinbases
-        let mut txs_anchored = vec![];
-
-        for tx in all_txs.iter() {
-            match tx.payload {
-                TransactionPayload::Coinbase(..) => {
-                    continue;
-                }
-                _ => {}
-            }
-            txs_anchored.push(tx);
-        }
 
         // make microblocks with 3 transactions each (or fewer)
         for i in 0..(all_txs.len() / 3) {

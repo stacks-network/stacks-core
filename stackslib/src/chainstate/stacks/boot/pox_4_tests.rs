@@ -928,6 +928,8 @@ fn pox_lock_unlock() {
 
     assert_eq!(burnchain.pox_constants.reward_slots(), 6);
     let mut coinbase_nonce = 0;
+    // Stores the result of a function with side effects, so have Clippy ignore it
+    #[allow(clippy::collection_is_never_read)]
     let mut latest_block = None;
 
     // Advance into pox4
@@ -2693,6 +2695,8 @@ fn pox_4_delegate_stack_increase_events() {
 
     assert_eq!(burnchain.pox_constants.reward_slots(), 6);
     let mut coinbase_nonce = 0;
+    // Stores the result of a function with side effects, so have Clippy ignore it
+    #[allow(clippy::collection_is_never_read)]
     let mut latest_block = None;
 
     let alice_key = keys.pop().unwrap();
@@ -9566,16 +9570,13 @@ fn missed_slots_no_unlock() {
                 coinbase_txs.push(r);
                 continue;
             }
-            match r.transaction {
-                TransactionOrigin::Stacks(ref t) => {
-                    let addr = t.auth.origin().address_testnet();
-                    if addr == alice_address {
-                        alice_txs.insert(t.auth.get_origin_nonce(), r);
-                    } else if addr == bob_address {
-                        bob_txs.insert(t.auth.get_origin_nonce(), r);
-                    }
+            if let TransactionOrigin::Stacks(ref t) = r.transaction {
+                let addr = t.auth.origin().address_testnet();
+                if addr == alice_address {
+                    alice_txs.insert(t.auth.get_origin_nonce(), r);
+                } else if addr == bob_address {
+                    bob_txs.insert(t.auth.get_origin_nonce(), r);
                 }
-                _ => {}
             }
         }
     }

@@ -1232,25 +1232,22 @@ impl StacksHttp {
     /// This method will set up this state machine to consume the message associated with this
     /// premable, if the response is chunked.
     fn set_preamble(&mut self, preamble: &StacksHttpPreamble) -> Result<(), NetError> {
-        match preamble {
-            StacksHttpPreamble::Response(ref http_response_preamble) => {
-                // we can only receive a response if we're expecting it
-                if self.request_handler_index.is_none() && !self.allow_arbitrary_response {
-                    return Err(NetError::DeserializeError(
-                        "Unexpected HTTP response: no active request handler".to_string(),
-                    ));
-                }
-                if http_response_preamble.is_chunked() {
-                    // we can only receive one response at a time
-                    if self.reply.is_some() {
-                        test_debug!("Have pending reply already");
-                        return Err(NetError::InProgress);
-                    }
-
-                    self.set_pending(http_response_preamble);
-                }
+        if let StacksHttpPreamble::Response(ref http_response_preamble) = preamble {
+            // we can only receive a response if we're expecting it
+            if self.request_handler_index.is_none() && !self.allow_arbitrary_response {
+                return Err(NetError::DeserializeError(
+                    "Unexpected HTTP response: no active request handler".to_string(),
+                ));
             }
-            _ => {}
+            if http_response_preamble.is_chunked() {
+                // we can only receive one response at a time
+                if self.reply.is_some() {
+                    test_debug!("Have pending reply already");
+                    return Err(NetError::InProgress);
+                }
+
+                self.set_pending(http_response_preamble);
+            }
         }
         Ok(())
     }
@@ -1275,9 +1272,8 @@ impl StacksHttp {
             return Err(NetError::InvalidState);
         }
         if let Some(reply) = self.reply.as_mut() {
-            match reply.stream.consume_data(fd).map_err(|e| {
+            match reply.stream.consume_data(fd).inspect_err(|_e| {
                 self.reset();
-                e
             })? {
                 (Some((byte_vec, bytes_total)), sz) => {
                     // done receiving
@@ -1491,11 +1487,11 @@ impl ProtocolFamily for StacksHttp {
                 }
 
                 // message of unknown length.  Buffer up and maybe we can parse it.
-                let (message_bytes_opt, num_read) =
-                    self.consume_data(http_response_preamble, fd).map_err(|e| {
-                        self.reset();
-                        e
-                    })?;
+                let (message_bytes_opt, num_read) = self
+                    .consume_data(http_response_preamble, fd)
+                    .inspect_err(|_e| {
+                    self.reset();
+                })?;
 
                 match message_bytes_opt {
                     Some((message_bytes, total_bytes_consumed)) => {

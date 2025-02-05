@@ -265,40 +265,31 @@ impl BitcoinIndexer {
             Ok(s) => {
                 // Disable Nagle algorithm
                 s.set_nodelay(true).map_err(|_e| {
-                    test_debug!("Failed to set TCP_NODELAY: {:?}", &_e);
+                    test_debug!("Failed to set TCP_NODELAY: {_e:?}");
                     btc_error::ConnectionError
                 })?;
 
                 // set timeout
                 s.set_read_timeout(Some(Duration::from_secs(self.runtime.timeout)))
                     .map_err(|_e| {
-                        test_debug!("Failed to set TCP read timeout: {:?}", &_e);
+                        test_debug!("Failed to set TCP read timeout: {_e:?}");
                         btc_error::ConnectionError
                     })?;
 
                 s.set_write_timeout(Some(Duration::from_secs(self.runtime.timeout)))
                     .map_err(|_e| {
-                        test_debug!("Failed to set TCP write timeout: {:?}", &_e);
+                        test_debug!("Failed to set TCP write timeout: {_e:?}");
                         btc_error::ConnectionError
                     })?;
 
-                match self.runtime.sock.take() {
-                    Some(s) => {
-                        let _ = s.shutdown(Shutdown::Both);
-                    }
-                    None => {}
+                if let Some(s_old) = self.runtime.sock.replace(s) {
+                    let _ = s_old.shutdown(Shutdown::Both);
                 }
-
-                self.runtime.sock = Some(s);
                 Ok(())
             }
             Err(_e) => {
-                let s = self.runtime.sock.take();
-                match s {
-                    Some(s) => {
-                        let _ = s.shutdown(Shutdown::Both);
-                    }
-                    None => {}
+                if let Some(s) = self.runtime.sock.take() {
+                    let _ = s.shutdown(Shutdown::Both);
                 }
                 Err(btc_error::ConnectionError)
             }
@@ -627,12 +618,8 @@ impl BitcoinIndexer {
         )?;
 
         // what's the last header we have from the canonical history?
-        let canonical_end_block = orig_spv_client.get_headers_height().map_err(|e| {
-            error!(
-                "Failed to get the last block from {}",
-                canonical_headers_path
-            );
-            e
+        let canonical_end_block = orig_spv_client.get_headers_height().inspect_err(|_e| {
+            error!("Failed to get the last block from {canonical_headers_path}");
         })?;
 
         // bootstrap reorg client
@@ -694,13 +681,12 @@ impl BitcoinIndexer {
 
             let reorg_headers = reorg_spv_client
                 .read_block_headers(start_block, start_block + REORG_BATCH_SIZE)
-                .map_err(|e| {
+                .inspect_err(|_e| {
                     error!(
                         "Failed to read reorg Bitcoin headers from {} to {}",
                         start_block,
                         start_block + REORG_BATCH_SIZE
                     );
-                    e
                 })?;
 
             if reorg_headers.is_empty() {
@@ -724,13 +710,12 @@ impl BitcoinIndexer {
             // got reorg headers.  Find the equivalent headers in our canonical history
             let canonical_headers = orig_spv_client
                 .read_block_headers(start_block, start_block + REORG_BATCH_SIZE)
-                .map_err(|e| {
+                .inspect_err(|_e| {
                     error!(
                         "Failed to read canonical headers from {} to {}",
                         start_block,
                         start_block + REORG_BATCH_SIZE
                     );
-                    e
                 })?;
 
             assert!(
@@ -932,11 +917,8 @@ impl BitcoinIndexer {
 
 impl Drop for BitcoinIndexer {
     fn drop(&mut self) {
-        match self.runtime.sock {
-            Some(ref mut s) => {
-                let _ = s.shutdown(Shutdown::Both);
-            }
-            None => {}
+        if let Some(ref mut s) = self.runtime.sock {
+            let _ = s.shutdown(Shutdown::Both);
         }
     }
 }

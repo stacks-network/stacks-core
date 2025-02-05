@@ -1535,15 +1535,12 @@ impl PeerNetwork {
         }
 
         // does the peer agree with our PoX view up to this reward cycle?
-        match stats.inv.pox_inv_cmp(&self.pox_id) {
-            Some((disagreed, _, _)) => {
-                if disagreed < target_block_reward_cycle {
-                    // can't proceed
-                    debug!("{:?}: remote neighbor {:?} disagrees with our PoX inventory at reward cycle {} (asked for {})", &self.local_peer, nk, disagreed, target_block_reward_cycle);
-                    return Ok(0);
-                }
+        if let Some((disagreed, _, _)) = stats.inv.pox_inv_cmp(&self.pox_id) {
+            if disagreed < target_block_reward_cycle {
+                // can't proceed
+                debug!("{:?}: remote neighbor {:?} disagrees with our PoX inventory at reward cycle {} (asked for {})", &self.local_peer, nk, disagreed, target_block_reward_cycle);
+                return Ok(0);
             }
-            None => {}
         }
 
         let target_block_height = self
@@ -1848,10 +1845,7 @@ impl PeerNetwork {
         let message = self.sign_for_neighbor(nk, payload)?;
         let request = self
             .send_neighbor_message(nk, message, request_timeout)
-            .map_err(|e| {
-                debug!("Failed to send GetPoxInv to {:?}: {:?}", &nk, &e);
-                e
-            })?;
+            .inspect_err(|e| debug!("Failed to send GetPoxInv to {nk:?}: {e:?}"))?;
 
         stats.getpoxinv_begin(request, target_pox_reward_cycle);
         if let Some(event_id) = event_id_opt {
@@ -2041,10 +2035,7 @@ impl PeerNetwork {
         let message = self.sign_for_neighbor(nk, payload)?;
         let request = self
             .send_neighbor_message(nk, message, request_timeout)
-            .map_err(|e| {
-                debug!("Failed to send GetPoxInv to {:?}: {:?}", &nk, &e);
-                e
-            })?;
+            .inspect_err(|e| debug!("Failed to send GetPoxInv to {nk:?}: {e:?}"))?;
 
         stats.getblocksinv_begin(request, target_block_reward_cycle, num_blocks_expected);
         if let Some(event_id) = event_id_opt {
@@ -2525,13 +2516,10 @@ impl PeerNetwork {
         let mut cur_neighbors = HashSet::new();
         for (nk, event_id) in self.events.iter() {
             // only outbound authenticated peers
-            match self.peers.get(event_id) {
-                Some(convo) => {
-                    if convo.is_outbound() && convo.is_authenticated() {
-                        cur_neighbors.insert(nk.clone());
-                    }
+            if let Some(convo) = self.peers.get(event_id) {
+                if convo.is_outbound() && convo.is_authenticated() {
+                    cur_neighbors.insert(nk.clone());
                 }
-                None => {}
             }
         }
 
@@ -2545,17 +2533,14 @@ impl PeerNetwork {
 
     /// Set a hint that we learned something new, and need to sync invs again
     pub fn hint_sync_invs(&mut self, target_height: u64) {
-        match self.inv_state {
-            Some(ref mut inv_state) => {
-                debug!(
-                    "Awaken inv sync to re-scan peer block inventories at height {}",
-                    target_height
-                );
-                inv_state.hint_learned_data = true;
-                inv_state.hint_do_rescan = true;
-                inv_state.hint_learned_data_height = target_height;
-            }
-            None => {}
+        if let Some(ref mut inv_state) = self.inv_state {
+            debug!(
+                "Awaken inv sync to re-scan peer block inventories at height {}",
+                target_height
+            );
+            inv_state.hint_learned_data = true;
+            inv_state.hint_do_rescan = true;
+            inv_state.hint_learned_data_height = target_height;
         }
     }
 
@@ -2607,18 +2592,13 @@ impl PeerNetwork {
         // if this succeeds, then we should be able to make a BlocksInv
         let ancestor_sn = self
             .get_ancestor_sortition_snapshot(sortdb, target_block_height)
-            .map_err(|e| {
-                debug!(
-                    "Failed to load ancestor sortition snapshot at height {}: {:?}",
-                    target_block_height, &e
-                );
-                e
+            .inspect_err(|e| {
+                debug!( "Failed to load ancestor sortition snapshot at height {target_block_height}: {e:?}")
             })?;
 
-        let tip_sn = self.get_tip_sortition_snapshot(sortdb).map_err(|e| {
-            debug!("Failed to load tip sortition snapshot: {:?}", &e);
-            e
-        })?;
+        let tip_sn = self
+            .get_tip_sortition_snapshot(sortdb)
+            .inspect_err(|e| debug!("Failed to load tip sortition snapshot: {e:?}"))?;
 
         let getblocksinv = GetBlocksInv {
             consensus_hash: ancestor_sn.consensus_hash,
@@ -2636,12 +2616,11 @@ impl PeerNetwork {
 
         let blocks_inv =
             ConversationP2P::make_getblocksinv_response(self, sortdb, chainstate, &getblocksinv)
-                .map_err(|e| {
+                .inspect_err(|e| {
                     debug!(
-                        "Failed to load blocks inventory at reward cycle {} ({:?}): {:?}",
-                        reward_cycle, &ancestor_sn.consensus_hash, &e
-                    );
-                    e
+                "Failed to load blocks inventory at reward cycle {reward_cycle} ({:?}): {e:?}",
+                &ancestor_sn.consensus_hash
+            );
                 })?;
 
         match blocks_inv {

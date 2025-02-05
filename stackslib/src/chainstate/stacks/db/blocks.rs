@@ -500,20 +500,19 @@ impl StacksChainState {
             .open(&path_tmp)
             .map_err(|e| {
                 if e.kind() == io::ErrorKind::NotFound {
-                    error!("File not found: {:?}", &path_tmp);
+                    error!("File not found: {path_tmp:?}");
                     Error::DBError(db_error::NotFoundError)
                 } else {
-                    error!("Failed to open {:?}: {:?}", &path_tmp, &e);
+                    error!("Failed to open {path_tmp:?}: {e:?}");
                     Error::DBError(db_error::IOError(e))
                 }
             })?;
 
-        writer(&mut fd).map_err(|e| {
+        writer(&mut fd).inspect_err(|_e| {
             if delete_on_error {
                 // abort
                 let _ = fs::remove_file(&path_tmp);
             }
-            e
         })?;
 
         fd.sync_all()
@@ -3983,7 +3982,7 @@ impl StacksChainState {
         }
 
         for (consensus_hash, anchored_block_hash) in to_delete.into_iter() {
-            info!("Orphan {}/{}: it does not connect to a previously-accepted block, because its consensus hash does not match an existing snapshot on the valid PoX fork.", &consensus_hash, &anchored_block_hash);
+            info!("Orphan {consensus_hash}/{anchored_block_hash}: it does not connect to a previously-accepted block, because its consensus hash does not match an existing snapshot on the valid PoX fork.");
             let _ = StacksChainState::set_block_processed(
                 blocks_tx,
                 None,
@@ -3992,12 +3991,8 @@ impl StacksChainState {
                 &anchored_block_hash,
                 false,
             )
-            .map_err(|e| {
-                warn!(
-                    "Failed to orphan {}/{}: {:?}",
-                    &consensus_hash, &anchored_block_hash, &e
-                );
-                e
+            .inspect_err(|e| {
+                warn!("Failed to orphan {consensus_hash}/{anchored_block_hash}: {e:?}")
             });
         }
 
@@ -5142,7 +5137,7 @@ impl StacksChainState {
         ) {
             Ok(miner_rewards_opt) => miner_rewards_opt,
             Err(e) => {
-                if let Some(_) = miner_id_opt {
+                if miner_id_opt.is_some() {
                     return Err(e);
                 } else {
                     let msg = format!("Failed to load miner rewards: {:?}", &e);
@@ -11201,15 +11196,12 @@ pub mod test {
 
             let (_, burn_header_hash, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
 
-            match (stacks_block_opt, microblocks_opt) {
-                (Some(stacks_block), Some(microblocks)) => {
-                    peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-                    last_block_id = StacksBlockHeader::make_index_block_hash(
-                        &consensus_hash,
-                        &stacks_block.block_hash(),
-                    );
-                }
-                _ => {}
+            if let (Some(stacks_block), Some(microblocks)) = (stacks_block_opt, microblocks_opt) {
+                peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+                last_block_id = StacksBlockHeader::make_index_block_hash(
+                    &consensus_hash,
+                    &stacks_block.block_hash(),
+                );
             }
 
             let tip =
@@ -11884,15 +11876,12 @@ pub mod test {
 
             let (_, burn_header_hash, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
 
-            match (stacks_block_opt, microblocks_opt) {
-                (Some(stacks_block), Some(microblocks)) => {
-                    peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-                    last_block_id = StacksBlockHeader::make_index_block_hash(
-                        &consensus_hash,
-                        &stacks_block.block_hash(),
-                    );
-                }
-                _ => {}
+            if let (Some(stacks_block), Some(microblocks)) = (stacks_block_opt, microblocks_opt) {
+                peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+                last_block_id = StacksBlockHeader::make_index_block_hash(
+                    &consensus_hash,
+                    &stacks_block.block_hash(),
+                );
             }
 
             let tip =

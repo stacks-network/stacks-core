@@ -1071,9 +1071,8 @@ impl PeerNetwork {
 
     /// Pass a hint to the downloader to re-scan
     pub fn hint_download_rescan(&mut self, target_height: u64, ibd: bool) {
-        match self.block_downloader {
-            Some(ref mut dl) => dl.hint_download_rescan(target_height, ibd),
-            None => {}
+        if let Some(ref mut dl) = self.block_downloader {
+            dl.hint_download_rescan(target_height, ibd)
         }
     }
 
@@ -2004,11 +2003,10 @@ impl PeerNetwork {
             for sortition_height in priority.into_iter() {
                 match downloader.blocks_to_try.get_mut(&sortition_height) {
                     Some(ref mut keys) => {
-                        match PeerNetwork::begin_request(network, &downloader.dns_lookups, keys) {
-                            Some((key, handle)) => {
-                                requests.insert(key.clone(), handle);
-                            }
-                            None => {}
+                        if let Some((key, handle)) =
+                            PeerNetwork::begin_request(network, &downloader.dns_lookups, keys)
+                        {
+                            requests.insert(key.clone(), handle);
                         }
                     }
                     None => {
@@ -2042,11 +2040,10 @@ impl PeerNetwork {
             for sortition_height in priority.into_iter() {
                 match downloader.microblocks_to_try.get_mut(&sortition_height) {
                     Some(ref mut keys) => {
-                        match PeerNetwork::begin_request(network, &downloader.dns_lookups, keys) {
-                            Some((key, handle)) => {
-                                requests.insert(key.clone(), handle);
-                            }
-                            None => {}
+                        if let Some((key, handle)) =
+                            PeerNetwork::begin_request(network, &downloader.dns_lookups, keys)
+                        {
+                            requests.insert(key.clone(), handle);
                         }
                     }
                     None => {
@@ -2506,9 +2503,8 @@ impl PeerNetwork {
 
         if done {
             // reset state if we're done
-            match self.block_downloader {
-                Some(ref mut downloader) => downloader.reset(),
-                None => {}
+            if let Some(ref mut downloader) = self.block_downloader {
+                downloader.reset()
             }
         }
 

@@ -1130,17 +1130,14 @@ impl StacksTransactionSigner {
     }
 
     pub fn sign_sponsor(&mut self, privk: &StacksPrivateKey) -> Result<(), net_error> {
-        match self.tx.auth {
-            TransactionAuth::Sponsored(_, ref sponsor_condition) => {
-                if self.check_oversign
-                    && sponsor_condition.num_signatures() >= sponsor_condition.signatures_required()
-                {
-                    return Err(net_error::SigningError(
-                        "Sponsor would have too many signatures".to_string(),
-                    ));
-                }
+        if let TransactionAuth::Sponsored(_, ref sponsor_condition) = self.tx.auth {
+            if self.check_oversign
+                && sponsor_condition.num_signatures() >= sponsor_condition.signatures_required()
+            {
+                return Err(net_error::SigningError(
+                    "Sponsor would have too many signatures".to_string(),
+                ));
             }
-            _ => {}
         }
 
         let next_sighash = self.tx.sign_next_sponsor(&self.sighash, privk)?;
@@ -1930,24 +1927,21 @@ mod test {
             // test_debug!("mutate byte {}", &i);
             let mut cursor = io::Cursor::new(&tx_bytes);
             let mut reader = LogReader::from_reader(&mut cursor);
-            match StacksTransaction::consensus_deserialize(&mut reader) {
-                Ok(corrupt_tx) => {
-                    let mut corrupt_tx_bytes = vec![];
-                    corrupt_tx
-                        .consensus_serialize(&mut corrupt_tx_bytes)
-                        .unwrap();
-                    if corrupt_tx_bytes.len() < tx_bytes.len() {
-                        // didn't parse fully; the block-parsing logic would reject this block.
-                        tx_bytes[i] = next_byte as u8;
-                        continue;
-                    }
-                    if corrupt_tx.verify().is_ok() && corrupt_tx != *signed_tx {
-                        eprintln!("corrupt tx: {:#?}", &corrupt_tx);
-                        eprintln!("signed tx:  {:#?}", &signed_tx);
-                        assert!(false);
-                    }
+            if let Ok(corrupt_tx) = StacksTransaction::consensus_deserialize(&mut reader) {
+                let mut corrupt_tx_bytes = vec![];
+                corrupt_tx
+                    .consensus_serialize(&mut corrupt_tx_bytes)
+                    .unwrap();
+                if corrupt_tx_bytes.len() < tx_bytes.len() {
+                    // didn't parse fully; the block-parsing logic would reject this block.
+                    tx_bytes[i] = next_byte as u8;
+                    continue;
                 }
-                Err(_) => {}
+                if corrupt_tx.verify().is_ok() && corrupt_tx != *signed_tx {
+                    eprintln!("corrupt tx: {:#?}", &corrupt_tx);
+                    eprintln!("signed tx:  {:#?}", &signed_tx);
+                    assert!(false);
+                }
             }
             // restore
             tx_bytes[i] = next_byte as u8;
@@ -3392,9 +3386,6 @@ mod test {
         let contract_name = "hello\x00contract-name";
         let function_name = ClarityName::try_from("hello-function-name").unwrap();
         let function_args = vec![Value::Int(0)];
-
-        let mut contract_name_bytes = vec![contract_name.len() as u8];
-        contract_name_bytes.extend_from_slice(contract_name.as_bytes());
 
         let mut contract_call_bytes = vec![];
         address
