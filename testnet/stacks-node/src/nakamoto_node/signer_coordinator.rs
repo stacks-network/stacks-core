@@ -321,6 +321,10 @@ impl SignerCoordinator {
                 )
             })?;
 
+        let parent_tenure_header =
+            NakamotoChainState::get_block_header(chain_state.db(), &parent_block_id)?
+                .ok_or(NakamotoNodeError::UnexpectedChainState)?;
+
         // this is used to track the start of the waiting cycle
         let rejections_timer = Instant::now();
         loop {
@@ -386,12 +390,14 @@ impl SignerCoordinator {
                         ));
                     }
 
-                    // Check if a new Stacks block has arrived
-                    let (canonical_stacks_tip_ch, canonical_stacks_tip_bh) =
-                        SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
-                    let canonical_stacks_tip =
-                        StacksBlockId::new(&canonical_stacks_tip_ch, &canonical_stacks_tip_bh);
-                    if canonical_stacks_tip != parent_block_id {
+                    // Check if a new Stacks block has arrived in the parent tenure
+                    let highest_in_tenure =
+                        NakamotoChainState::get_highest_known_block_header_in_tenure(
+                            &mut chain_state.index_conn(),
+                            &parent_tenure_header.consensus_hash,
+                        )?
+                        .ok_or(NakamotoNodeError::UnexpectedChainState)?;
+                    if highest_in_tenure.index_block_hash() != parent_block_id {
                         debug!("SignCoordinator: Exiting due to new stacks tip");
                         return Err(NakamotoNodeError::StacksTipChanged);
                     }
