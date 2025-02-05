@@ -114,7 +114,7 @@ const DEFAULT_TENURE_COST_LIMIT_PER_BLOCK_PERCENTAGE: u8 = 25;
 /// see if we need to extend the ongoing tenure (e.g. because the current
 /// sortition is empty or invalid).
 const DEFAULT_TENURE_EXTEND_POLL_SECS: u64 = 1;
-/// Default number of millis to wait to try to continue a tenure if a BlockFound is expected
+/// Default number of millis to wait before trying to continue a tenure because the next miner did not produce blocks
 const DEFAULT_TENURE_EXTEND_WAIT_MS: u64 = 120_000;
 /// Default duration to wait before attempting to issue a tenure extend.
 /// This should be greater than the signers' timeout. This is used for issuing
@@ -2182,7 +2182,7 @@ pub struct MinerConfig {
     /// Duration to wait in-between polling the sortition DB to see if we need to
     /// extend the ongoing tenure (e.g. because the current sortition is empty or invalid).
     pub tenure_extend_poll_timeout: Duration,
-    /// Duration to wait to try to continue a tenure if a BlockFound is expected
+    /// Duration to wait before trying to continue a tenure because the next miner did not produce blocks
     pub tenure_extend_wait_timeout: Duration,
     /// Duration to wait before attempting to issue a tenure extend
     pub tenure_timeout: Duration,

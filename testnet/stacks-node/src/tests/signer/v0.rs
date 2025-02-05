@@ -6586,8 +6586,8 @@ fn continue_after_fast_block_no_sortition() {
     let node_2_rpc = gen_random_port();
     let node_2_p2p = gen_random_port();
 
-    debug!("Node 1 bound at (p2p={}, rpc={})", node_1_p2p, node_1_rpc);
-    debug!("Node 2 bound at (p2p={}, rpc={})", node_2_p2p, node_2_rpc);
+    debug!("Node 1 bound at (p2p={node_1_p2p}, rpc={node_1_rpc})");
+    debug!("Node 2 bound at (p2p={node_2_p2p}, rpc={node_2_rpc})");
 
     let localhost = "127.0.0.1";
     let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
@@ -7058,6 +7058,9 @@ fn continue_after_fast_block_no_sortition() {
         &mut signer_test.running_nodes.btc_regtest_controller,
         60,
         || {
+            if blocks_mined1.load(Ordering::SeqCst) > blocks_processed_before_1 {
+                debug!("MINER 1 BLOCKS PROCESSED HERE");
+            }
             Ok(get_burn_height() > burn_height_before
                 && blocks_mined1.load(Ordering::SeqCst) > blocks_processed_before_1
                 && test_observer::get_blocks().len() > nmb_old_blocks)

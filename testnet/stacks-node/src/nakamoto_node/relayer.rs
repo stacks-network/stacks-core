@@ -581,12 +581,12 @@ impl RelayerThread {
                     // we can continue our ongoing tenure, but we should give the new winning miner
                     // a chance to send their BlockFound first.
                     if wait_for_miner {
-                        debug!("Relayer: Did not win sortition, but am mining the ongoing tenure. Allowing the new miner some time to come online before trying to continue.");
+                        info!("Did not win sortition, but am mining the ongoing tenure. Allowing the new miner some time to come online before trying to continue.");
                         self.tenure_extend_time = Some(TenureExtendTime::delayed(
                             self.config.miner.tenure_extend_wait_timeout,
                         ));
                     } else {
-                        debug!("Relayer: Did not win sortition, but am mining the ongoing tenure. Will try to continue tenure immediately.");
+                        info!("Did not win sortition, but am mining the ongoing tenure. Will try to continue tenure immediately.");
                         self.tenure_extend_time = Some(TenureExtendTime::immediate());
                     }
                     return Some(MinerDirective::StopTenure);

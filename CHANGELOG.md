@@ -18,7 +18,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Added
 
 - Add miner configuration option `tenure_extend_cost_threshold` to specify the percentage of the tenure budget that must be spent before a time-based tenure extend is attempted
-- Add miner configuration option `tenure_extend_wait_timeout_ms` to specify the time to wait to try to continue a tenure if a BlockFound is expected
+- Add miner configuration option `tenure_extend_wait_timeout_ms` to specify the time to wait before trying to continue a tenure because the next miner did not produce blocks
 
 ### Changed
 
