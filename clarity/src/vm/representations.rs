@@ -15,19 +15,16 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::borrow::Borrow;
-use std::cmp::Ordering;
 use std::fmt;
 use std::io::{Read, Write};
 use std::ops::Deref;
 
 use lazy_static::lazy_static;
 use regex::Regex;
-use stacks_common::codec::{
-    read_next, read_next_at_most, write_next, Error as codec_error, StacksMessageCodec,
-};
+use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 
 use crate::vm::errors::RuntimeErrorType;
-use crate::vm::types::{QualifiedContractIdentifier, TraitIdentifier, Value};
+use crate::vm::types::{TraitIdentifier, Value};
 
 pub const CONTRACT_MIN_NAME_LENGTH: usize = 1;
 pub const CONTRACT_MAX_NAME_LENGTH: usize = 40;
@@ -84,6 +81,7 @@ guarded_string!(
 );
 
 impl StacksMessageCodec for ClarityName {
+    #[allow(clippy::needless_as_bytes)] // as_bytes isn't necessary, but verbosity is preferable in the codec impls
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         // ClarityName can't be longer than vm::representations::MAX_STRING_LEN, which itself is
         // a u8, so we should be good here.
@@ -124,6 +122,7 @@ impl StacksMessageCodec for ClarityName {
 }
 
 impl StacksMessageCodec for ContractName {
+    #[allow(clippy::needless_as_bytes)] // as_bytes isn't necessary, but verbosity is preferable in the codec impls
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         if self.as_bytes().len() < CONTRACT_MIN_NAME_LENGTH
             || self.as_bytes().len() > CONTRACT_MAX_NAME_LENGTH

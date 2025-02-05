@@ -53,7 +53,7 @@ pub struct Globals<T> {
     unconfirmed_txs: Arc<Mutex<UnconfirmedTxMap>>,
     /// Writer endpoint to the relayer thread
     pub relay_send: SyncSender<T>,
-    /// Cointer state in the main thread
+    /// Counter state in the main thread
     pub counters: Counters,
     /// Connection to the PoX sync watchdog
     pub sync_comms: PoxSyncWatchdogComms,

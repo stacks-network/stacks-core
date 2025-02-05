@@ -436,7 +436,7 @@ impl NakamotoTenureDownloaderSet {
             if self.try_resume_peer(naddr.clone()) {
                 continue;
             };
-            if self.has_downloader_for_tenure(&ch) {
+            if self.has_downloader_for_tenure(ch) {
                 schedule.pop_front();
                 continue;
             }
@@ -499,11 +499,11 @@ impl NakamotoTenureDownloaderSet {
                 continue;
             };
 
-            let attempt_count = *self.attempted_tenures.get(&ch).unwrap_or(&0);
+            let attempt_count = *self.attempted_tenures.get(ch).unwrap_or(&0);
             self.attempted_tenures
                 .insert(ch.clone(), attempt_count.saturating_add(1));
 
-            let attempt_failed_count = *self.attempt_failed_tenures.get(&ch).unwrap_or(&0);
+            let attempt_failed_count = *self.attempt_failed_tenures.get(ch).unwrap_or(&0);
 
             info!("Download tenure {ch}";
                 "peer" => %naddr,
@@ -559,7 +559,7 @@ impl NakamotoTenureDownloaderSet {
 
         // send requests
         for (naddr, index) in self.peers.iter() {
-            if neighbor_rpc.has_inflight(&naddr) {
+            if neighbor_rpc.has_inflight(naddr) {
                 debug!("Peer {naddr} has an inflight request");
                 continue;
             }
@@ -579,12 +579,11 @@ impl NakamotoTenureDownloaderSet {
 
             let _ = downloader
                 .try_advance_from_chainstate(chainstate)
-                .map_err(|e| {
+                .inspect_err(|e| {
                     warn!(
-                        "Failed to advance downloader in state {} for {}: {:?}",
-                        &downloader.state, &downloader.naddr, &e
+                        "Failed to advance downloader in state {} for {}: {e:?}",
+                        &downloader.state, &downloader.naddr
                     );
-                    e
                 });
 
             debug!(
@@ -616,7 +615,7 @@ impl NakamotoTenureDownloaderSet {
         for naddr in addrs.iter() {
             if neighbor_rpc.is_dead_or_broken(network, naddr) {
                 debug!("Remove dead/broken downloader for {naddr}");
-                self.clear_downloader(&naddr);
+                self.clear_downloader(naddr);
             }
         }
         for done_naddr in finished.drain(..) {

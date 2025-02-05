@@ -131,7 +131,7 @@ impl PoxAddress {
     #[cfg(any(test, feature = "testing"))]
     pub fn hash160(&self) -> Hash160 {
         match *self {
-            PoxAddress::Standard(addr, _) => addr.bytes.clone(),
+            PoxAddress::Standard(addr, _) => addr.bytes().clone(),
             _ => panic!("Called hash160 on a non-standard PoX address"),
         }
     }
@@ -140,7 +140,7 @@ impl PoxAddress {
     /// version.
     pub fn bytes(&self) -> Vec<u8> {
         match *self {
-            PoxAddress::Standard(addr, _) => addr.bytes.0.to_vec(),
+            PoxAddress::Standard(addr, _) => addr.bytes().0.to_vec(),
             PoxAddress::Addr20(_, _, bytes) => bytes.to_vec(),
             PoxAddress::Addr32(_, _, bytes) => bytes.to_vec(),
         }
@@ -171,7 +171,7 @@ impl PoxAddress {
         };
 
         Some(PoxAddress::Standard(
-            StacksAddress { version, bytes },
+            StacksAddress::new(version, bytes).ok()?,
             Some(hashmode),
         ))
     }
@@ -293,7 +293,7 @@ impl PoxAddress {
     pub fn to_burnchain_repr(&self) -> String {
         match *self {
             PoxAddress::Standard(ref addr, _) => {
-                format!("{:02x}-{}", &addr.version, &addr.bytes)
+                format!("{:02x}-{}", &addr.version(), &addr.bytes())
             }
             PoxAddress::Addr20(_, ref addrtype, ref addrbytes) => {
                 format!("{:02x}-{}", addrtype.to_u8(), to_hex(addrbytes))
@@ -328,7 +328,7 @@ impl PoxAddress {
                     }
                 };
                 let version = Value::buff_from_byte(*hm as u8);
-                let hashbytes = Value::buff_from(Vec::from(addr.bytes.0.clone()))
+                let hashbytes = Value::buff_from(Vec::from(addr.bytes().0.clone()))
                     .expect("FATAL: hash160 does not fit into a Clarity value");
 
                 let tuple_data = TupleData::from_data(vec![
@@ -376,7 +376,7 @@ impl PoxAddress {
     pub fn coerce_hash_mode(self) -> PoxAddress {
         match self {
             PoxAddress::Standard(addr, _) => {
-                let hm = AddressHashMode::from_version(addr.version);
+                let hm = AddressHashMode::from_version(addr.version());
                 PoxAddress::Standard(addr, Some(hm))
             }
             _ => self,
@@ -429,7 +429,7 @@ impl PoxAddress {
         match *self {
             PoxAddress::Standard(addr, _) => {
                 // legacy Bitcoin address
-                let btc_version = to_b58_version_byte(addr.version).expect(
+                let btc_version = to_b58_version_byte(addr.version()).expect(
                     "BUG: failed to decode Stacks version byte to legacy Bitcoin version byte",
                 );
                 let btc_addr_type = legacy_version_byte_to_address_type(btc_version)
@@ -437,10 +437,10 @@ impl PoxAddress {
                     .0;
                 match btc_addr_type {
                     LegacyBitcoinAddressType::PublicKeyHash => {
-                        LegacyBitcoinAddress::to_p2pkh_tx_out(&addr.bytes, value)
+                        LegacyBitcoinAddress::to_p2pkh_tx_out(addr.bytes(), value)
                     }
                     LegacyBitcoinAddressType::ScriptHash => {
-                        LegacyBitcoinAddress::to_p2sh_tx_out(&addr.bytes, value)
+                        LegacyBitcoinAddress::to_p2sh_tx_out(addr.bytes(), value)
                     }
                 }
             }
@@ -500,10 +500,7 @@ impl PoxAddress {
     #[cfg(any(test, feature = "testing"))]
     pub fn from_legacy(hash_mode: AddressHashMode, hash_bytes: Hash160) -> PoxAddress {
         PoxAddress::Standard(
-            StacksAddress {
-                version: hash_mode.to_version_testnet(),
-                bytes: hash_bytes,
-            },
+            StacksAddress::new(hash_mode.to_version_testnet(), hash_bytes).unwrap(),
             Some(hash_mode),
         )
     }
@@ -524,14 +521,12 @@ impl StacksAddressExtensions for StacksAddress {
         // should not fail by construction
         let version = to_c32_version_byte(btc_version)
             .expect("Failed to decode Bitcoin version byte to Stacks version byte");
-        StacksAddress {
-            version,
-            bytes: addr.bytes.clone(),
-        }
+        StacksAddress::new(version, addr.bytes.clone())
+            .expect("FATAL: failed to convert bitcoin address type to stacks address version byte")
     }
 
     fn to_b58(self) -> String {
-        let StacksAddress { version, bytes } = self;
+        let (version, bytes) = self.destruct();
         let btc_version = to_b58_version_byte(version)
             // fallback to version
             .unwrap_or(version);
@@ -556,11 +551,8 @@ mod test {
 
     #[test]
     fn tx_stacks_address_codec() {
-        let addr = StacksAddress {
-            version: 1,
-            bytes: Hash160([0xff; 20]),
-        };
-        let addr_bytes = vec![
+        let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
+        let addr_bytes = [
             // version
             0x01, // bytes
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -574,7 +566,7 @@ mod test {
     fn tx_stacks_address_valid_p2pkh() {
         // p2pkh should accept compressed or uncompressed
         assert_eq!(StacksAddress::from_public_keys(1, &AddressHashMode::SerializeP2PKH, 1, &vec![PubKey::from_hex("04b7c7cbe36a1aed38c6324b143584a1e822bbf0c4435b102f0497ccb592baf8e964a5a270f9348285595b78855c3e33dc36708e34f9abdeeaad4d2977cb81e3a1").unwrap()]),
-                   Some(StacksAddress { version: 1, bytes: Hash160::from_hex("560ee9d7f5694dd4dbeddf55eff16bcc05409fef").unwrap() }));
+                   Some(StacksAddress::new(1, Hash160::from_hex("560ee9d7f5694dd4dbeddf55eff16bcc05409fef").unwrap()).unwrap()));
 
         assert_eq!(
             StacksAddress::from_public_keys(
@@ -586,10 +578,13 @@ mod test {
                 )
                 .unwrap()]
             ),
-            Some(StacksAddress {
-                version: 2,
-                bytes: Hash160::from_hex("e3771b5724d9a8daca46052bab5d0f533cd1e619").unwrap()
-            })
+            Some(
+                StacksAddress::new(
+                    2,
+                    Hash160::from_hex("e3771b5724d9a8daca46052bab5d0f533cd1e619").unwrap()
+                )
+                .unwrap()
+            )
         );
 
         // should fail if we have too many signatures
@@ -623,10 +618,13 @@ mod test {
                 )
                 .unwrap()]
             ),
-            Some(StacksAddress {
-                version: 4,
-                bytes: Hash160::from_hex("384d172898686fd0337fba27843add64cbe684f1").unwrap()
-            })
+            Some(
+                StacksAddress::new(
+                    4,
+                    Hash160::from_hex("384d172898686fd0337fba27843add64cbe684f1").unwrap()
+                )
+                .unwrap()
+            )
         );
     }
 
@@ -653,16 +651,19 @@ mod test {
                     .unwrap()
                 ]
             ),
-            Some(StacksAddress {
-                version: 5,
-                bytes: Hash160::from_hex("b01162ecda72c57ed419f7966ec4e8dd7987c704").unwrap()
-            })
+            Some(
+                StacksAddress::new(
+                    5,
+                    Hash160::from_hex("b01162ecda72c57ed419f7966ec4e8dd7987c704").unwrap()
+                )
+                .unwrap()
+            )
         );
 
         assert_eq!(StacksAddress::from_public_keys(6, &AddressHashMode::SerializeP2SH, 2, &vec![PubKey::from_hex("04b30fafab3a12372c5d150d567034f37d60a91168009a779498168b0e9d8ec7f259fc6bc2f317febe245344d9e11912427cee095b64418719207ac502e8cff0ce").unwrap(),
                                                                                                 PubKey::from_hex("04ce61f1d155738a5e434fc8a61c3e104f891d1ec71576e8ad85abb68b34670d35c61aec8a973b3b7d68c7325b03c1d18a82e88998b8307afeaa491c1e45e46255").unwrap(),
                                                                                                 PubKey::from_hex("04ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c771f112f919b00a6c6c5f51f7c63e1762fe9fac9b66ec75a053db7f51f4a52712b").unwrap()]),
-                   Some(StacksAddress { version: 6, bytes: Hash160::from_hex("1003ab7fc0ba18a343da2818c560109c170cdcbb").unwrap() }));
+                   Some(StacksAddress::new(6, Hash160::from_hex("1003ab7fc0ba18a343da2818c560109c170cdcbb").unwrap()).unwrap()));
     }
 
     #[test]
@@ -688,10 +689,13 @@ mod test {
                     .unwrap()
                 ]
             ),
-            Some(StacksAddress {
-                version: 7,
-                bytes: Hash160::from_hex("57130f08a480e7518c1d685e8bb88008d90a0a60").unwrap()
-            })
+            Some(
+                StacksAddress::new(
+                    7,
+                    Hash160::from_hex("57130f08a480e7518c1d685e8bb88008d90a0a60").unwrap()
+                )
+                .unwrap()
+            )
         );
 
         assert_eq!(StacksAddress::from_public_keys(8, &AddressHashMode::SerializeP2PKH, 2, &vec![PubKey::from_hex("04b30fafab3a12372c5d150d567034f37d60a91168009a779498168b0e9d8ec7f259fc6bc2f317febe245344d9e11912427cee095b64418719207ac502e8cff0ce").unwrap(),
@@ -721,10 +725,8 @@ mod test {
         assert_eq!(
             PoxAddress::try_from_pox_tuple(true, &make_pox_addr_raw(0x00, vec![0x01; 20])).unwrap(),
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                    bytes: Hash160([0x01; 20])
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_SINGLESIG, Hash160([0x01; 20]))
+                    .unwrap(),
                 Some(AddressHashMode::SerializeP2PKH)
             )
         );
@@ -732,20 +734,16 @@ mod test {
             PoxAddress::try_from_pox_tuple(false, &make_pox_addr_raw(0x00, vec![0x02; 20]))
                 .unwrap(),
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-                    bytes: Hash160([0x02; 20])
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0x02; 20]))
+                    .unwrap(),
                 Some(AddressHashMode::SerializeP2PKH)
             )
         );
         assert_eq!(
             PoxAddress::try_from_pox_tuple(true, &make_pox_addr_raw(0x01, vec![0x03; 20])).unwrap(),
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                    bytes: Hash160([0x03; 20])
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_MULTISIG, Hash160([0x03; 20]))
+                    .unwrap(),
                 Some(AddressHashMode::SerializeP2SH)
             )
         );
@@ -753,20 +751,16 @@ mod test {
             PoxAddress::try_from_pox_tuple(false, &make_pox_addr_raw(0x01, vec![0x04; 20]))
                 .unwrap(),
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_TESTNET_MULTISIG,
-                    bytes: Hash160([0x04; 20])
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_MULTISIG, Hash160([0x04; 20]))
+                    .unwrap(),
                 Some(AddressHashMode::SerializeP2SH)
             )
         );
         assert_eq!(
             PoxAddress::try_from_pox_tuple(true, &make_pox_addr_raw(0x02, vec![0x05; 20])).unwrap(),
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                    bytes: Hash160([0x05; 20])
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_MULTISIG, Hash160([0x05; 20]))
+                    .unwrap(),
                 Some(AddressHashMode::SerializeP2WPKH)
             )
         );
@@ -774,20 +768,16 @@ mod test {
             PoxAddress::try_from_pox_tuple(false, &make_pox_addr_raw(0x02, vec![0x06; 20]))
                 .unwrap(),
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_TESTNET_MULTISIG,
-                    bytes: Hash160([0x06; 20])
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_MULTISIG, Hash160([0x06; 20]))
+                    .unwrap(),
                 Some(AddressHashMode::SerializeP2WPKH)
             )
         );
         assert_eq!(
             PoxAddress::try_from_pox_tuple(true, &make_pox_addr_raw(0x03, vec![0x07; 20])).unwrap(),
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                    bytes: Hash160([0x07; 20])
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_MULTISIG, Hash160([0x07; 20]))
+                    .unwrap(),
                 Some(AddressHashMode::SerializeP2WSH)
             )
         );
@@ -795,10 +785,8 @@ mod test {
             PoxAddress::try_from_pox_tuple(false, &make_pox_addr_raw(0x03, vec![0x08; 20]))
                 .unwrap(),
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_TESTNET_MULTISIG,
-                    bytes: Hash160([0x08; 20])
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_MULTISIG, Hash160([0x08; 20]))
+                    .unwrap(),
                 Some(AddressHashMode::SerializeP2WSH)
             )
         );
@@ -943,10 +931,8 @@ mod test {
     fn test_as_clarity_tuple() {
         assert_eq!(
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                    bytes: Hash160([0x01; 20])
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_SINGLESIG, Hash160([0x01; 20]))
+                    .unwrap(),
                 Some(AddressHashMode::SerializeP2PKH)
             )
             .as_clarity_tuple()
@@ -957,10 +943,8 @@ mod test {
         );
         assert_eq!(
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-                    bytes: Hash160([0x02; 20])
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0x02; 20]))
+                    .unwrap(),
                 Some(AddressHashMode::SerializeP2PKH)
             )
             .as_clarity_tuple()
@@ -970,19 +954,13 @@ mod test {
                 .unwrap()
         );
         assert!(PoxAddress::Standard(
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160([0x01; 20])
-            },
+            StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_SINGLESIG, Hash160([0x01; 20])).unwrap(),
             None
         )
         .as_clarity_tuple()
         .is_none());
         assert!(PoxAddress::Standard(
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-                bytes: Hash160([0x02; 20])
-            },
+            StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0x02; 20])).unwrap(),
             None
         )
         .as_clarity_tuple()
@@ -990,10 +968,8 @@ mod test {
 
         assert_eq!(
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                    bytes: Hash160([0x01; 20])
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_MULTISIG, Hash160([0x01; 20]))
+                    .unwrap(),
                 Some(AddressHashMode::SerializeP2SH)
             )
             .as_clarity_tuple()
@@ -1004,10 +980,8 @@ mod test {
         );
         assert_eq!(
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_TESTNET_MULTISIG,
-                    bytes: Hash160([0x02; 20])
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_MULTISIG, Hash160([0x02; 20]))
+                    .unwrap(),
                 Some(AddressHashMode::SerializeP2SH)
             )
             .as_clarity_tuple()
@@ -1017,19 +991,13 @@ mod test {
                 .unwrap()
         );
         assert!(PoxAddress::Standard(
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160([0x01; 20])
-            },
+            StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_MULTISIG, Hash160([0x01; 20])).unwrap(),
             None
         )
         .as_clarity_tuple()
         .is_none());
         assert!(PoxAddress::Standard(
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_TESTNET_MULTISIG,
-                bytes: Hash160([0x02; 20])
-            },
+            StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_MULTISIG, Hash160([0x02; 20])).unwrap(),
             None
         )
         .as_clarity_tuple()
@@ -1037,10 +1005,8 @@ mod test {
 
         assert_eq!(
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                    bytes: Hash160([0x01; 20])
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_MULTISIG, Hash160([0x01; 20]))
+                    .unwrap(),
                 Some(AddressHashMode::SerializeP2WPKH)
             )
             .as_clarity_tuple()
@@ -1051,10 +1017,8 @@ mod test {
         );
         assert_eq!(
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_TESTNET_MULTISIG,
-                    bytes: Hash160([0x02; 20])
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_MULTISIG, Hash160([0x02; 20]))
+                    .unwrap(),
                 Some(AddressHashMode::SerializeP2WPKH)
             )
             .as_clarity_tuple()
@@ -1064,19 +1028,13 @@ mod test {
                 .unwrap()
         );
         assert!(PoxAddress::Standard(
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160([0x01; 20])
-            },
+            StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_MULTISIG, Hash160([0x01; 20])).unwrap(),
             None
         )
         .as_clarity_tuple()
         .is_none());
         assert!(PoxAddress::Standard(
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_TESTNET_MULTISIG,
-                bytes: Hash160([0x02; 20])
-            },
+            StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_MULTISIG, Hash160([0x02; 20])).unwrap(),
             None
         )
         .as_clarity_tuple()
@@ -1084,10 +1042,8 @@ mod test {
 
         assert_eq!(
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                    bytes: Hash160([0x01; 20])
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_MULTISIG, Hash160([0x01; 20]))
+                    .unwrap(),
                 Some(AddressHashMode::SerializeP2WSH)
             )
             .as_clarity_tuple()
@@ -1098,10 +1054,8 @@ mod test {
         );
         assert_eq!(
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_TESTNET_MULTISIG,
-                    bytes: Hash160([0x02; 20])
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_MULTISIG, Hash160([0x02; 20]))
+                    .unwrap(),
                 Some(AddressHashMode::SerializeP2WSH)
             )
             .as_clarity_tuple()
@@ -1111,19 +1065,13 @@ mod test {
                 .unwrap()
         );
         assert!(PoxAddress::Standard(
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160([0x01; 20])
-            },
+            StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_MULTISIG, Hash160([0x01; 20])).unwrap(),
             None
         )
         .as_clarity_tuple()
         .is_none());
         assert!(PoxAddress::Standard(
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_TESTNET_MULTISIG,
-                bytes: Hash160([0x02; 20])
-            },
+            StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_MULTISIG, Hash160([0x02; 20])).unwrap(),
             None
         )
         .as_clarity_tuple()
@@ -1185,10 +1133,8 @@ mod test {
     fn test_to_bitcoin_tx_out() {
         assert_eq!(
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                    bytes: Hash160([0x01; 20])
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_SINGLESIG, Hash160([0x01; 20]))
+                    .unwrap(),
                 Some(AddressHashMode::SerializeP2PKH)
             )
             .to_bitcoin_tx_out(123)
@@ -1198,10 +1144,8 @@ mod test {
         );
         assert_eq!(
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                    bytes: Hash160([0x01; 20])
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_MULTISIG, Hash160([0x01; 20]))
+                    .unwrap(),
                 Some(AddressHashMode::SerializeP2PKH)
             )
             .to_bitcoin_tx_out(123)
@@ -1239,10 +1183,8 @@ mod test {
         // representative test PoxAddresses
         let pox_addrs: Vec<PoxAddress> = vec![
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                    bytes: Hash160([0x01; 20]),
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_SINGLESIG, Hash160([0x01; 20]))
+                    .unwrap(),
                 Some(AddressHashMode::SerializeP2PKH),
             ),
             PoxAddress::Addr20(true, PoxAddressType20::P2WPKH, [0x01; 20]),
@@ -1252,31 +1194,23 @@ mod test {
             PoxAddress::Addr32(true, PoxAddressType32::P2TR, [0x01; 32]),
             PoxAddress::Addr32(false, PoxAddressType32::P2TR, [0x01; 32]),
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                    bytes: Hash160([0x01; 20]),
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_MULTISIG, Hash160([0x01; 20]))
+                    .unwrap(),
                 Some(AddressHashMode::SerializeP2SH),
             ),
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                    bytes: Hash160([0x01; 20]),
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_SINGLESIG, Hash160([0x01; 20]))
+                    .unwrap(),
                 Some(AddressHashMode::SerializeP2SH),
             ),
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                    bytes: Hash160([0x01; 20]),
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_MULTISIG, Hash160([0x01; 20]))
+                    .unwrap(),
                 Some(AddressHashMode::SerializeP2WSH),
             ),
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                    bytes: Hash160([0x01; 20]),
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_MULTISIG, Hash160([0x01; 20]))
+                    .unwrap(),
                 Some(AddressHashMode::SerializeP2WPKH),
             ),
         ];
@@ -1304,10 +1238,8 @@ mod test {
             })
             .unwrap(),
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                    bytes: Hash160([0x01; 20])
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_SINGLESIG, Hash160([0x01; 20]))
+                    .unwrap(),
                 None
             )
         );
@@ -1322,10 +1254,8 @@ mod test {
             })
             .unwrap(),
             PoxAddress::Standard(
-                StacksAddress {
-                    version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                    bytes: Hash160([0x01; 20])
-                },
+                StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_MULTISIG, Hash160([0x01; 20]))
+                    .unwrap(),
                 None
             )
         );

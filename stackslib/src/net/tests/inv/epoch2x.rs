@@ -34,11 +34,11 @@ use crate::util_lib::test::*;
 #[test]
 fn peerblocksinv_has_ith_block() {
     let peer_inv = PeerBlocksInv::new(vec![0x55, 0x77], vec![0x11, 0x22], vec![0x01], 16, 1, 12345);
-    let has_blocks = vec![
+    let has_blocks = [
         true, false, true, false, true, false, true, false, true, true, true, false, true, true,
         true, false,
     ];
-    let has_microblocks = vec![
+    let has_microblocks = [
         true, false, false, false, true, false, false, false, false, true, false, false, false,
         true, false, false,
     ];
@@ -138,7 +138,7 @@ fn peerblocksinv_merge() {
     );
 
     // merge above, non-overlapping, aligned
-    let mut peer_inv_above = peer_inv.clone();
+    let mut peer_inv_above = peer_inv;
     let (new_blocks, new_microblocks) =
         peer_inv_above.merge_blocks_inv(12345 + 32, 16, vec![0x11, 0x22], vec![0x11, 0x22], false);
     assert_eq!(peer_inv_above.num_sortitions, 48);
@@ -306,7 +306,7 @@ fn peerblocksinv_merge_clear_bits() {
     );
 
     // merge above, non-overlapping, aligned
-    let mut peer_inv_above = peer_inv.clone();
+    let mut peer_inv_above = peer_inv;
     let (new_blocks, new_microblocks) =
         peer_inv_above.merge_blocks_inv(12345 + 32, 16, vec![0x11, 0x22], vec![0x11, 0x22], true);
     assert_eq!(peer_inv_above.num_sortitions, 48);
@@ -527,7 +527,7 @@ fn test_sync_inv_set_blocks_microblocks_available() {
     ]
     .iter_mut()
     {
-        let working_dir = get_burnchain(&test_path, None).working_dir;
+        let working_dir = get_burnchain(test_path, None).working_dir;
 
         // pre-populate headers
         let mut indexer = BitcoinIndexer::new_unit_test(&working_dir);
@@ -578,11 +578,11 @@ fn test_sync_inv_set_blocks_microblocks_available() {
         peer_2_config.burnchain.first_block_hash
     );
 
-    let burnchain = peer_1_config.burnchain.clone();
+    let burnchain = peer_1_config.burnchain;
 
     let num_blocks = 5;
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
+        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
             .unwrap();
         sn.block_height
     };
@@ -752,7 +752,7 @@ fn test_sync_inv_make_inv_messages() {
     let mut peer_1 = TestPeer::new(peer_1_config);
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
+        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
             .unwrap();
         sn.block_height
     };
@@ -1140,7 +1140,7 @@ fn test_sync_inv_make_inv_messages() {
 fn test_sync_inv_diagnose_nack() {
     let peer_config = TestPeerConfig::new(function_name!(), 0, 0);
     let neighbor = peer_config.to_neighbor();
-    let neighbor_key = neighbor.addr.clone();
+    let neighbor_key = neighbor.addr;
     let nack_no_block = NackData {
         error_code: NackErrorCodes::NoSuchBurnchainBlock,
     };
@@ -1230,7 +1230,7 @@ fn test_sync_inv_diagnose_nack() {
         NodeStatus::Diverged,
         NeighborBlockStats::diagnose_nack(
             &neighbor_key,
-            nack_no_block.clone(),
+            nack_no_block,
             &burnchain_view,
             12346,
             12340,
@@ -1343,7 +1343,7 @@ fn test_sync_inv_2_peers_plain() {
         let num_blocks = GETPOXINV_MAX_BITLEN * 2;
         let first_stacks_block_height = {
             let sn =
-                SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
                     .unwrap();
             sn.block_height + 1
         };
@@ -1390,22 +1390,16 @@ fn test_sync_inv_2_peers_plain() {
             };
 
             // nothing should break
-            match peer_1.network.inv_state {
-                Some(ref inv) => {
-                    assert_eq!(inv.get_broken_peers().len(), 0);
-                    assert_eq!(inv.get_dead_peers().len(), 0);
-                    assert_eq!(inv.get_diverged_peers().len(), 0);
-                }
-                None => {}
+            if let Some(ref inv) = peer_1.network.inv_state {
+                assert_eq!(inv.get_broken_peers().len(), 0);
+                assert_eq!(inv.get_dead_peers().len(), 0);
+                assert_eq!(inv.get_diverged_peers().len(), 0);
             }
 
-            match peer_2.network.inv_state {
-                Some(ref inv) => {
-                    assert_eq!(inv.get_broken_peers().len(), 0);
-                    assert_eq!(inv.get_dead_peers().len(), 0);
-                    assert_eq!(inv.get_diverged_peers().len(), 0);
-                }
-                None => {}
+            if let Some(ref inv) = peer_2.network.inv_state {
+                assert_eq!(inv.get_broken_peers().len(), 0);
+                assert_eq!(inv.get_dead_peers().len(), 0);
+                assert_eq!(inv.get_diverged_peers().len(), 0);
             }
 
             round += 1;
@@ -1520,7 +1514,7 @@ fn test_sync_inv_2_peers_stale() {
         let num_blocks = GETPOXINV_MAX_BITLEN * 2;
         let first_stacks_block_height = {
             let sn =
-                SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
                     .unwrap();
             sn.block_height + 1
         };
@@ -1553,46 +1547,38 @@ fn test_sync_inv_2_peers_stale() {
                 None => 0,
             };
 
-            match peer_1.network.inv_state {
-                Some(ref inv) => {
-                    info!("Peer 1 stats: {:?}", &inv.block_stats);
-                    assert_eq!(inv.get_broken_peers().len(), 0);
-                    assert_eq!(inv.get_dead_peers().len(), 0);
-                    assert_eq!(inv.get_diverged_peers().len(), 0);
+            if let Some(ref inv) = peer_1.network.inv_state {
+                info!("Peer 1 stats: {:?}", &inv.block_stats);
+                assert_eq!(inv.get_broken_peers().len(), 0);
+                assert_eq!(inv.get_dead_peers().len(), 0);
+                assert_eq!(inv.get_diverged_peers().len(), 0);
 
-                    if let Some(ref peer_2_inv) = inv.block_stats.get(&peer_2.to_neighbor().addr) {
-                        if peer_2_inv.inv.num_sortitions
-                            == first_stacks_block_height
-                                - peer_1.config.burnchain.first_block_height
-                        {
-                            for i in 0..first_stacks_block_height {
-                                assert!(!peer_2_inv.inv.has_ith_block(i));
-                                assert!(!peer_2_inv.inv.has_ith_microblock_stream(i));
-                            }
-                            peer_2_check = true;
+                if let Some(peer_2_inv) = inv.block_stats.get(&peer_2.to_neighbor().addr) {
+                    if peer_2_inv.inv.num_sortitions
+                        == first_stacks_block_height - peer_1.config.burnchain.first_block_height
+                    {
+                        for i in 0..first_stacks_block_height {
+                            assert!(!peer_2_inv.inv.has_ith_block(i));
+                            assert!(!peer_2_inv.inv.has_ith_microblock_stream(i));
                         }
+                        peer_2_check = true;
                     }
                 }
-                None => {}
             }
 
-            match peer_2.network.inv_state {
-                Some(ref inv) => {
-                    info!("Peer 2 stats: {:?}", &inv.block_stats);
-                    assert_eq!(inv.get_broken_peers().len(), 0);
-                    assert_eq!(inv.get_dead_peers().len(), 0);
-                    assert_eq!(inv.get_diverged_peers().len(), 0);
+            if let Some(ref inv) = peer_2.network.inv_state {
+                info!("Peer 2 stats: {:?}", &inv.block_stats);
+                assert_eq!(inv.get_broken_peers().len(), 0);
+                assert_eq!(inv.get_dead_peers().len(), 0);
+                assert_eq!(inv.get_diverged_peers().len(), 0);
 
-                    if let Some(ref peer_1_inv) = inv.block_stats.get(&peer_1.to_neighbor().addr) {
-                        if peer_1_inv.inv.num_sortitions
-                            == first_stacks_block_height
-                                - peer_1.config.burnchain.first_block_height
-                        {
-                            peer_1_check = true;
-                        }
+                if let Some(peer_1_inv) = inv.block_stats.get(&peer_1.to_neighbor().addr) {
+                    if peer_1_inv.inv.num_sortitions
+                        == first_stacks_block_height - peer_1.config.burnchain.first_block_height
+                    {
+                        peer_1_check = true;
                     }
                 }
-                None => {}
             }
 
             round += 1;
@@ -1629,7 +1615,7 @@ fn test_sync_inv_2_peers_unstable() {
 
         let first_stacks_block_height = {
             let sn =
-                SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
                     .unwrap();
             sn.block_height + 1
         };
@@ -1703,54 +1689,48 @@ fn test_sync_inv_2_peers_unstable() {
                 None => 0,
             };
 
-            match peer_1.network.inv_state {
-                Some(ref inv) => {
-                    info!("Peer 1 stats: {:?}", &inv.block_stats);
-                    assert_eq!(inv.get_broken_peers().len(), 0);
-                    assert_eq!(inv.get_dead_peers().len(), 0);
-                    assert_eq!(inv.get_diverged_peers().len(), 0);
+            if let Some(ref inv) = peer_1.network.inv_state {
+                info!("Peer 1 stats: {:?}", &inv.block_stats);
+                assert_eq!(inv.get_broken_peers().len(), 0);
+                assert_eq!(inv.get_dead_peers().len(), 0);
+                assert_eq!(inv.get_diverged_peers().len(), 0);
 
-                    if let Some(stats) = inv.get_stats(&peer_2.to_neighbor().addr) {
-                        if stats.target_pox_reward_cycle > 0 {
-                            peer_1_pox_cycle_start = true;
-                        }
-                        if stats.target_block_reward_cycle > 0 {
-                            peer_1_block_cycle_start = true;
-                        }
-                        if stats.target_pox_reward_cycle == 0 && peer_1_pox_cycle_start {
-                            peer_1_pox_cycle = true;
-                        }
-                        if stats.target_block_reward_cycle == 0 && peer_1_block_cycle_start {
-                            peer_1_block_cycle = true;
-                        }
+                if let Some(stats) = inv.get_stats(&peer_2.to_neighbor().addr) {
+                    if stats.target_pox_reward_cycle > 0 {
+                        peer_1_pox_cycle_start = true;
+                    }
+                    if stats.target_block_reward_cycle > 0 {
+                        peer_1_block_cycle_start = true;
+                    }
+                    if stats.target_pox_reward_cycle == 0 && peer_1_pox_cycle_start {
+                        peer_1_pox_cycle = true;
+                    }
+                    if stats.target_block_reward_cycle == 0 && peer_1_block_cycle_start {
+                        peer_1_block_cycle = true;
                     }
                 }
-                None => {}
             }
 
-            match peer_2.network.inv_state {
-                Some(ref inv) => {
-                    info!("Peer 2 stats: {:?}", &inv.block_stats);
-                    assert_eq!(inv.get_broken_peers().len(), 0);
-                    assert_eq!(inv.get_dead_peers().len(), 0);
-                    assert_eq!(inv.get_diverged_peers().len(), 0);
+            if let Some(ref inv) = peer_2.network.inv_state {
+                info!("Peer 2 stats: {:?}", &inv.block_stats);
+                assert_eq!(inv.get_broken_peers().len(), 0);
+                assert_eq!(inv.get_dead_peers().len(), 0);
+                assert_eq!(inv.get_diverged_peers().len(), 0);
 
-                    if let Some(stats) = inv.get_stats(&peer_1.to_neighbor().addr) {
-                        if stats.target_pox_reward_cycle > 0 {
-                            peer_2_pox_cycle_start = true;
-                        }
-                        if stats.target_block_reward_cycle > 0 {
-                            peer_2_block_cycle_start = true;
-                        }
-                        if stats.target_pox_reward_cycle == 0 && peer_2_pox_cycle_start {
-                            peer_2_pox_cycle = true;
-                        }
-                        if stats.target_block_reward_cycle == 0 && peer_2_block_cycle_start {
-                            peer_2_block_cycle = true;
-                        }
+                if let Some(stats) = inv.get_stats(&peer_1.to_neighbor().addr) {
+                    if stats.target_pox_reward_cycle > 0 {
+                        peer_2_pox_cycle_start = true;
+                    }
+                    if stats.target_block_reward_cycle > 0 {
+                        peer_2_block_cycle_start = true;
+                    }
+                    if stats.target_pox_reward_cycle == 0 && peer_2_pox_cycle_start {
+                        peer_2_pox_cycle = true;
+                    }
+                    if stats.target_block_reward_cycle == 0 && peer_2_block_cycle_start {
+                        peer_2_block_cycle = true;
                     }
                 }
-                None => {}
             }
 
             round += 1;
@@ -1842,7 +1822,7 @@ fn test_sync_inv_2_peers_different_pox_vectors() {
 
         let first_stacks_block_height = {
             let sn =
-                SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
                     .unwrap();
             sn.block_height + 1
         };
@@ -1917,42 +1897,30 @@ fn test_sync_inv_2_peers_different_pox_vectors() {
             let _ = peer_2.step();
 
             // peer 1 should see that peer 2 has all blocks for reward cycles 5 through 9
-            match peer_1.network.inv_state {
-                Some(ref inv) => {
-                    inv_1_count = inv.get_inv_num_blocks(&peer_2.to_neighbor().addr);
-                    peer_1_sorts = inv.get_inv_sortitions(&peer_2.to_neighbor().addr);
-                }
-                None => {}
+            if let Some(ref inv) = peer_1.network.inv_state {
+                inv_1_count = inv.get_inv_num_blocks(&peer_2.to_neighbor().addr);
+                peer_1_sorts = inv.get_inv_sortitions(&peer_2.to_neighbor().addr);
             };
 
             // peer 2 should see that peer 1 has all blocks up to where we stopped feeding them to
             // it
-            match peer_2.network.inv_state {
-                Some(ref inv) => {
-                    inv_2_count = inv.get_inv_num_blocks(&peer_1.to_neighbor().addr);
-                    peer_2_sorts = inv.get_inv_sortitions(&peer_1.to_neighbor().addr);
-                }
-                None => {}
+            if let Some(ref inv) = peer_2.network.inv_state {
+                inv_2_count = inv.get_inv_num_blocks(&peer_1.to_neighbor().addr);
+                peer_2_sorts = inv.get_inv_sortitions(&peer_1.to_neighbor().addr);
             };
 
-            match peer_1.network.inv_state {
-                Some(ref inv) => {
-                    info!("Peer 1 stats: {:?}", &inv.block_stats);
-                    assert_eq!(inv.get_broken_peers().len(), 0);
-                    assert_eq!(inv.get_dead_peers().len(), 0);
-                    assert_eq!(inv.get_diverged_peers().len(), 0);
-                }
-                None => {}
+            if let Some(ref inv) = peer_1.network.inv_state {
+                info!("Peer 1 stats: {:?}", &inv.block_stats);
+                assert_eq!(inv.get_broken_peers().len(), 0);
+                assert_eq!(inv.get_dead_peers().len(), 0);
+                assert_eq!(inv.get_diverged_peers().len(), 0);
             }
 
-            match peer_2.network.inv_state {
-                Some(ref inv) => {
-                    info!("Peer 2 stats: {:?}", &inv.block_stats);
-                    assert_eq!(inv.get_broken_peers().len(), 0);
-                    assert_eq!(inv.get_dead_peers().len(), 0);
-                    assert_eq!(inv.get_diverged_peers().len(), 0);
-                }
-                None => {}
+            if let Some(ref inv) = peer_2.network.inv_state {
+                info!("Peer 2 stats: {:?}", &inv.block_stats);
+                assert_eq!(inv.get_broken_peers().len(), 0);
+                assert_eq!(inv.get_dead_peers().len(), 0);
+                assert_eq!(inv.get_diverged_peers().len(), 0);
             }
 
             round += 1;

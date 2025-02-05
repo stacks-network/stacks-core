@@ -355,16 +355,13 @@ impl NakamotoTenureDownloader {
     /// Determine how many blocks must be in this tenure.
     /// Returns None if we don't have the start and end blocks yet.
     pub fn tenure_length(&self) -> Option<u64> {
-        self.tenure_end_block
-            .as_ref()
-            .map(|tenure_end_block| {
-                let Some(tc_payload) = tenure_end_block.try_get_tenure_change_payload() else {
-                    return None;
-                };
+        self.tenure_end_block.as_ref().and_then(|tenure_end_block| {
+            let Some(tc_payload) = tenure_end_block.try_get_tenure_change_payload() else {
+                return None;
+            };
 
-                Some(u64::from(tc_payload.previous_tenure_blocks))
-            })
-            .flatten()
+            Some(u64::from(tc_payload.previous_tenure_blocks))
+        })
     }
 
     /// Add downloaded tenure blocks to this machine.
@@ -784,9 +781,8 @@ impl NakamotoTenureDownloader {
                     &block_id,
                     get_epoch_time_ms().saturating_sub(start_request_time)
                 );
-                let block = response.decode_nakamoto_block().map_err(|e| {
-                    warn!("Failed to decode response for a Nakamoto block: {:?}", &e);
-                    e
+                let block = response.decode_nakamoto_block().inspect_err(|e| {
+                    warn!("Failed to decode response for a Nakamoto block: {e:?}")
                 })?;
                 self.try_accept_tenure_start_block(block)?;
                 Ok(None)
@@ -797,9 +793,8 @@ impl NakamotoTenureDownloader {
                     &block_id,
                     get_epoch_time_ms().saturating_sub(start_request_time)
                 );
-                let block = response.decode_nakamoto_block().map_err(|e| {
-                    warn!("Failed to decode response for a Nakamoto block: {:?}", &e);
-                    e
+                let block = response.decode_nakamoto_block().inspect_err(|e| {
+                    warn!("Failed to decode response for a Nakamoto block: {e:?}")
                 })?;
                 self.try_accept_tenure_end_block(&block)?;
                 Ok(None)
@@ -810,9 +805,8 @@ impl NakamotoTenureDownloader {
                     &end_block_id,
                     get_epoch_time_ms().saturating_sub(start_request_time)
                 );
-                let blocks = response.decode_nakamoto_tenure().map_err(|e| {
-                    warn!("Failed to decode response for a Nakamoto tenure: {:?}", &e);
-                    e
+                let blocks = response.decode_nakamoto_tenure().inspect_err(|e| {
+                    warn!("Failed to decode response for a Nakamoto tenure: {e:?}")
                 })?;
                 let blocks_opt = self.try_accept_tenure_blocks(blocks)?;
                 Ok(blocks_opt)

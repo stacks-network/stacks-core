@@ -283,6 +283,7 @@ pub struct PeerInfo {
 }
 
 impl StacksMessageCodec for PeerInfo {
+    #[allow(clippy::needless_as_bytes)] // as_bytes isn't necessary, but verbosity is preferable in the codec impls
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.burn_block_height)?;
         write_next(fd, self.stacks_tip_consensus_hash.as_bytes())?;
@@ -681,6 +682,14 @@ impl BlockResponse {
 
     /// Get the signer signature hash from the block response
     pub fn get_signer_signature_hash(&self) -> Sha512Trunc256Sum {
+        match self {
+            BlockResponse::Accepted(accepted) => accepted.signer_signature_hash,
+            BlockResponse::Rejected(rejection) => rejection.signer_signature_hash,
+        }
+    }
+
+    /// The signer signature hash for the block response
+    pub fn signer_signature_hash(&self) -> Sha512Trunc256Sum {
         match self {
             BlockResponse::Accepted(accepted) => accepted.signer_signature_hash,
             BlockResponse::Rejected(rejection) => rejection.signer_signature_hash,
@@ -1183,7 +1192,7 @@ mod test {
         let rejection = BlockRejection::new(
             Sha512Trunc256Sum([0u8; 32]),
             RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock),
-            &StacksPrivateKey::new(),
+            &StacksPrivateKey::random(),
             thread_rng().gen_bool(0.5),
             thread_rng().next_u64(),
         );
@@ -1195,7 +1204,7 @@ mod test {
         let rejection = BlockRejection::new(
             Sha512Trunc256Sum([1u8; 32]),
             RejectCode::ConnectivityIssues,
-            &StacksPrivateKey::new(),
+            &StacksPrivateKey::random(),
             thread_rng().gen_bool(0.5),
             thread_rng().next_u64(),
         );
@@ -1222,7 +1231,7 @@ mod test {
         let response = BlockResponse::Rejected(BlockRejection::new(
             Sha512Trunc256Sum([1u8; 32]),
             RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock),
-            &StacksPrivateKey::new(),
+            &StacksPrivateKey::random(),
             thread_rng().gen_bool(0.5),
             thread_rng().next_u64(),
         ));
@@ -1309,10 +1318,10 @@ mod test {
 
     #[test]
     fn verify_sign_mock_proposal() {
-        let private_key = StacksPrivateKey::new();
+        let private_key = StacksPrivateKey::random();
         let public_key = StacksPublicKey::from_private(&private_key);
 
-        let bad_private_key = StacksPrivateKey::new();
+        let bad_private_key = StacksPrivateKey::random();
         let bad_public_key = StacksPublicKey::from_private(&bad_private_key);
 
         let mut mock_proposal = random_mock_proposal();
@@ -1344,7 +1353,7 @@ mod test {
     #[test]
     fn serde_mock_proposal() {
         let mut mock_signature = random_mock_proposal();
-        mock_signature.sign(&StacksPrivateKey::new()).unwrap();
+        mock_signature.sign(&StacksPrivateKey::random()).unwrap();
         let serialized_signature = mock_signature.serialize_to_vec();
         let deserialized_signature = read_next::<MockProposal, _>(&mut &serialized_signature[..])
             .expect("Failed to deserialize MockSignature");
@@ -1359,7 +1368,7 @@ mod test {
             metadata: SignerMessageMetadata::default(),
         };
         mock_signature
-            .sign(&StacksPrivateKey::new())
+            .sign(&StacksPrivateKey::random())
             .expect("Failed to sign MockSignature");
         let serialized_signature = mock_signature.serialize_to_vec();
         let deserialized_signature = read_next::<MockSignature, _>(&mut &serialized_signature[..])
@@ -1370,8 +1379,10 @@ mod test {
     #[test]
     fn serde_mock_block() {
         let mock_proposal = random_mock_proposal();
-        let mock_signature_1 = MockSignature::new(mock_proposal.clone(), &StacksPrivateKey::new());
-        let mock_signature_2 = MockSignature::new(mock_proposal.clone(), &StacksPrivateKey::new());
+        let mock_signature_1 =
+            MockSignature::new(mock_proposal.clone(), &StacksPrivateKey::random());
+        let mock_signature_2 =
+            MockSignature::new(mock_proposal.clone(), &StacksPrivateKey::random());
         let mock_block = MockBlock {
             mock_proposal,
             mock_signatures: vec![mock_signature_1, mock_signature_2],

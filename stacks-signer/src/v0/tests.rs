@@ -45,6 +45,9 @@ pub static TEST_SKIP_BLOCK_BROADCAST: LazyLock<TestFlag<bool>> = LazyLock::new(T
 pub static TEST_STALL_BLOCK_VALIDATION_SUBMISSION: LazyLock<TestFlag<bool>> =
     LazyLock::new(TestFlag::default);
 
+/// A global variable that can be used to prevent signer cleanup
+pub static TEST_SKIP_SIGNER_CLEANUP: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+
 impl Signer {
     /// Skip the block broadcast if the TEST_SKIP_BLOCK_BROADCAST flag is set
     pub fn test_skip_block_broadcast(&self, block: &NakamotoBlock) -> bool {

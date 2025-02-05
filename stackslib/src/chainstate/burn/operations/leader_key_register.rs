@@ -72,7 +72,7 @@ impl LeaderKeyRegisterOp {
     /// Interpret the first 20 bytes of the key registration's memo field as the Hash160 of
     ///  of the public key that will sign this miner's nakamoto blocks.
     pub fn interpret_nakamoto_signing_key(&self) -> Option<Hash160> {
-        self.memo.get(0..20).map(Hash160::from_bytes).flatten()
+        self.memo.get(0..20).and_then(Hash160::from_bytes)
     }
 
     /// Set the miner public key hash160 for block-signing
@@ -85,7 +85,7 @@ impl LeaderKeyRegisterOp {
         self.memo[0..20].copy_from_slice(&pubkey_hash160.0);
     }
 
-    fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
+    fn parse_data(data: &[u8]) -> Option<ParsedData> {
         /*
             Wire format:
 
@@ -503,13 +503,11 @@ pub mod tests {
             burn_header_hash: block_123_hash.clone(),
         };
 
-        let block_ops = vec![
+        let block_ops = [
             // 122
             vec![],
             // 123
-            vec![BlockstackOperationType::LeaderKeyRegister(
-                leader_key_1.clone(),
-            )],
+            vec![BlockstackOperationType::LeaderKeyRegister(leader_key_1)],
             // 124
             vec![],
             // 125
@@ -598,7 +596,7 @@ pub mod tests {
                         &prev_snapshot,
                         &snapshot_row,
                         &block_ops[i as usize],
-                        &vec![],
+                        &[],
                         None,
                         None,
                         None,

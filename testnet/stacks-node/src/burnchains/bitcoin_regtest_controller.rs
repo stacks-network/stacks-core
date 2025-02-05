@@ -664,7 +664,7 @@ impl BitcoinRegtestController {
             params: vec![
                 min_conf.into(),
                 max_conf.into(),
-                filter_addresses.clone().into(),
+                filter_addresses.into(),
                 true.into(),
                 json!({ "minimumAmount": minimum_amount, "maximumCount": self.config.burnchain.max_unspent_utxos }),
             ],
@@ -2302,7 +2302,7 @@ pub struct SerializedTx {
 
 impl SerializedTx {
     pub fn new(tx: Transaction) -> SerializedTx {
-        let txid = Txid::from_vec_be(&tx.txid().as_bytes().to_vec()).unwrap();
+        let txid = Txid::from_vec_be(tx.txid().as_bytes()).unwrap();
         let mut encoder = RawEncoder::new(Cursor::new(vec![]));
         tx.consensus_encode(&mut encoder)
             .expect("BUG: failed to serialize to a vec");
@@ -2317,7 +2317,7 @@ impl SerializedTx {
 
     pub fn to_hex(&self) -> String {
         let formatted_bytes: Vec<String> = self.bytes.iter().map(|b| format!("{b:02x}")).collect();
-        formatted_bytes.join("").to_string()
+        formatted_bytes.join("")
     }
 }
 
@@ -2916,7 +2916,7 @@ mod tests {
         // test send_block_commit_operation_at_burn_height()
         let utxo_set = UTXOSet {
             bhh: BurnchainHeaderHash([0x01; 32]),
-            utxos: spend_utxos.clone(),
+            utxos: spend_utxos,
         };
 
         let commit_op = LeaderBlockCommitOp {
@@ -2986,6 +2986,6 @@ mod tests {
         debug!("{}", &SerializedTx::new(block_commit.clone()).to_hex());
         assert_eq!(block_commit.output[3].value, 323507);
 
-        assert_eq!(&SerializedTx::new(block_commit.clone()).to_hex(), "0100000002eeda098987728e4a2e21b34b74000dcb0bd0e4d20e55735492ec3cba3afbead3030000006a4730440220558286e20e10ce31537f0625dae5cc62fac7961b9d2cf272c990de96323d7e2502202255adbea3d2e0509b80c5d8a3a4fe6397a87bcf18da1852740d5267d89a0cb20121035379aa40c02890d253cfa577964116eb5295570ae9f7287cbae5f2585f5b2c7cfdffffff243b0b329a5889ab8801b315eea19810848d4c2133e0245671cc984a2d2f1301000000006a47304402206d9f8de107f9e1eb15aafac66c2bb34331a7523260b30e18779257e367048d34022013c7dabb32a5c281aa00d405e2ccbd00f34f03a65b2336553a4acd6c52c251ef0121035379aa40c02890d253cfa577964116eb5295570ae9f7287cbae5f2585f5b2c7cfdffffff040000000000000000536a4c5054335be88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32afd5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375000008a300010000059800015a10270000000000001976a914000000000000000000000000000000000000000088ac10270000000000001976a914000000000000000000000000000000000000000088acb3ef0400000000001976a9141dc27eba0247f8cc9575e7d45e50a0bc7e72427d88ac00000000");
+        assert_eq!(&SerializedTx::new(block_commit).to_hex(), "0100000002eeda098987728e4a2e21b34b74000dcb0bd0e4d20e55735492ec3cba3afbead3030000006a4730440220558286e20e10ce31537f0625dae5cc62fac7961b9d2cf272c990de96323d7e2502202255adbea3d2e0509b80c5d8a3a4fe6397a87bcf18da1852740d5267d89a0cb20121035379aa40c02890d253cfa577964116eb5295570ae9f7287cbae5f2585f5b2c7cfdffffff243b0b329a5889ab8801b315eea19810848d4c2133e0245671cc984a2d2f1301000000006a47304402206d9f8de107f9e1eb15aafac66c2bb34331a7523260b30e18779257e367048d34022013c7dabb32a5c281aa00d405e2ccbd00f34f03a65b2336553a4acd6c52c251ef0121035379aa40c02890d253cfa577964116eb5295570ae9f7287cbae5f2585f5b2c7cfdffffff040000000000000000536a4c5054335be88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32afd5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375000008a300010000059800015a10270000000000001976a914000000000000000000000000000000000000000088ac10270000000000001976a914000000000000000000000000000000000000000088acb3ef0400000000001976a9141dc27eba0247f8cc9575e7d45e50a0bc7e72427d88ac00000000");
     }
 }

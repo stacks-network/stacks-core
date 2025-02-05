@@ -19,12 +19,12 @@ use std::time::{Duration, Instant};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::net::api::postblock_proposal::{
-    BlockValidateOk, BlockValidateReject, BlockValidateResponse,
+    BlockValidateOk, BlockValidateReject, BlockValidateResponse, TOO_MANY_REQUESTS_STATUS,
 };
 use blockstack_lib::util_lib::db::Error as DBError;
 use clarity::types::chainstate::StacksPrivateKey;
 use clarity::types::{PrivateKey, StacksEpochId};
-use clarity::util::hash::MerkleHashFunc;
+use clarity::util::hash::{MerkleHashFunc, Sha512Trunc256Sum};
 use clarity::util::secp256k1::Secp256k1PublicKey;
 use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MockProposal, MockSignature,
@@ -38,11 +38,25 @@ use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, error, info, warn};
 
 use crate::chainstate::{ProposalEvalConfig, SortitionsView};
-use crate::client::{SignerSlotID, StackerDB, StacksClient};
-use crate::config::SignerConfig;
+use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
+use crate::config::{SignerConfig, SignerConfigMode};
 use crate::runloop::SignerResult;
 use crate::signerdb::{BlockInfo, BlockState, SignerDb};
 use crate::Signer as SignerTrait;
+
+/// Signer running mode (whether dry-run or real)
+#[derive(Debug)]
+pub enum SignerMode {
+    /// Dry run operation: signer is not actually registered, the signer
+    ///  will not submit stackerdb messages, etc.
+    DryRun,
+    /// Normal signer operation: if registered, the signer will submit
+    /// stackerdb messages, etc.
+    Normal {
+        /// The signer ID assigned to this signer (may be different from signer_slot_id)
+        signer_id: u32,
+    },
+}
 
 /// The stacks signer registered for the reward cycle
 #[derive(Debug)]
@@ -57,8 +71,8 @@ pub struct Signer {
     pub stackerdb: StackerDB<MessageSlotID>,
     /// Whether the signer is a mainnet signer or not
     pub mainnet: bool,
-    /// The signer id
-    pub signer_id: u32,
+    /// The running mode of the signer (whether dry-run or normal)
+    pub mode: SignerMode,
     /// The signer slot ids for the signers in the reward cycle
     pub signer_slot_ids: Vec<SignerSlotID>,
     /// The addresses of other signers
@@ -75,14 +89,23 @@ pub struct Signer {
     /// marking a submitted block as invalid
     pub block_proposal_validation_timeout: Duration,
     /// The current submitted block proposal and its submission time
-    pub submitted_block_proposal: Option<(BlockProposal, Instant)>,
+    pub submitted_block_proposal: Option<(Sha512Trunc256Sum, Instant)>,
     /// Maximum age of a block proposal in seconds before it is dropped without processing
     pub block_proposal_max_age_secs: u64,
 }
 
+impl std::fmt::Display for SignerMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SignerMode::DryRun => write!(f, "Dry-Run signer"),
+            SignerMode::Normal { signer_id } => write!(f, "Signer #{signer_id}"),
+        }
+    }
+}
+
 impl std::fmt::Display for Signer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Cycle #{} Signer #{}", self.reward_cycle, self.signer_id,)
+        write!(f, "Cycle #{} {}", self.reward_cycle, self.mode)
     }
 }
 
@@ -128,6 +151,17 @@ impl SignerTrait<SignerMessage> for Signer {
             debug!("{self}: No event received");
             return;
         };
+        if self.reward_cycle > current_reward_cycle
+            && !matches!(
+                event,
+                SignerEvent::StatusCheck | SignerEvent::NewBurnBlock { .. }
+            )
+        {
+            // The reward cycle has not yet started for this signer instance
+            // Do not process any events other than status checks or new burn blocks
+            debug!("{self}: Signer reward cycle has not yet started. Ignoring event.");
+            return;
+        }
         match event {
             SignerEvent::BlockValidationResponse(block_validate_response) => {
                 debug!("{self}: Received a block proposal result from the stacks node...");
@@ -238,7 +272,7 @@ impl SignerTrait<SignerMessage> for Signer {
                         // We have already globally accepted this block. Do nothing.
                         return;
                     }
-                    if let Err(e) = block_info.mark_globally_accepted() {
+                    if let Err(e) = self.signer_db.mark_block_globally_accepted(&mut block_info) {
                         warn!("{self}: Failed to mark block as globally accepted: {e:?}");
                         return;
                     }
@@ -264,10 +298,13 @@ impl SignerTrait<SignerMessage> for Signer {
 impl From<SignerConfig> for Signer {
     fn from(signer_config: SignerConfig) -> Self {
         let stackerdb = StackerDB::from(&signer_config);
-        debug!(
-            "Reward cycle #{} Signer #{}",
-            signer_config.reward_cycle, signer_config.signer_id,
-        );
+        let mode = match signer_config.signer_mode {
+            SignerConfigMode::DryRun => SignerMode::DryRun,
+            SignerConfigMode::Normal { signer_id, .. } => SignerMode::Normal { signer_id },
+        };
+
+        debug!("Reward cycle #{} {mode}", signer_config.reward_cycle);
+
         let signer_db =
             SignerDb::new(&signer_config.db_path).expect("Failed to connect to signer Db");
         let proposal_config = ProposalEvalConfig::from(&signer_config);
@@ -276,7 +313,7 @@ impl From<SignerConfig> for Signer {
             private_key: signer_config.stacks_private_key,
             stackerdb,
             mainnet: signer_config.mainnet,
-            signer_id: signer_config.signer_id,
+            mode,
             signer_addresses: signer_config.signer_entries.signer_addresses.clone(),
             signer_weights: signer_config.signer_entries.signer_addr_to_weight.clone(),
             signer_slot_ids: signer_config.signer_slot_ids.clone(),
@@ -444,11 +481,7 @@ impl Signer {
         // TODO: should add a check to ignore an old burn block height if we know its outdated. Would require us to store the burn block height we last saw on the side.
         //  the signer needs to be able to determine whether or not the block they're about to sign would conflict with an already-signed Stacks block
         let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
-        if let Some(block_info) = self
-            .signer_db
-            .block_lookup(&signer_signature_hash)
-            .expect("Failed to connect to signer DB")
-        {
+        if let Some(block_info) = self.block_lookup_by_reward_cycle(&signer_signature_hash) {
             let Some(block_response) = self.determine_response(&block_info) else {
                 // We are still waiting for a response for this block. Do nothing.
                 debug!("{self}: Received a block proposal for a block we are already validating.";
@@ -465,7 +498,10 @@ impl Signer {
                 .send_message_with_retry::<SignerMessage>(block_response.into())
             {
                 Ok(_) => {
-                    crate::monitoring::increment_block_responses_sent(accepted);
+                    crate::monitoring::actions::increment_block_responses_sent(accepted);
+                    crate::monitoring::actions::record_block_response_latency(
+                        &block_proposal.block,
+                    );
                 }
                 Err(e) => {
                     warn!("{self}: Failed to send block response to stacker-db: {e:?}",);
@@ -480,8 +516,9 @@ impl Signer {
             "block_id" => %block_proposal.block.block_id(),
             "block_height" => block_proposal.block.header.chain_length,
             "burn_height" => block_proposal.burn_height,
+            "consensus_hash" => %block_proposal.block.header.consensus_hash,
         );
-        crate::monitoring::increment_block_proposals_received();
+        crate::monitoring::actions::increment_block_proposals_received();
         #[cfg(any(test, feature = "testing"))]
         let mut block_info = BlockInfo::from(block_proposal.clone());
         #[cfg(not(any(test, feature = "testing")))]
@@ -540,23 +577,23 @@ impl Signer {
                     "block_height" => block_proposal.block.header.chain_length,
                     "burn_height" => block_proposal.burn_height,
                 );
+
                 #[cfg(any(test, feature = "testing"))]
                 self.test_stall_block_validation_submission();
-                match stacks_client.submit_block_for_validation(block_info.block.clone()) {
-                    Ok(_) => {
-                        self.submitted_block_proposal =
-                            Some((block_proposal.clone(), Instant::now()));
-                    }
-                    Err(e) => {
-                        warn!("{self}: Failed to submit block for validation: {e:?}");
-                    }
-                };
+                self.submit_block_for_validation(stacks_client, &block_proposal.block);
             } else {
                 // Still store the block but log we can't submit it for validation. We may receive enough signatures/rejections
                 // from other signers to push the proposed block into a global rejection/acceptance regardless of our participation.
                 // However, we will not be able to participate beyond this until our block submission times out or we receive a response
                 // from our node.
-                warn!("{self}: cannot submit block proposal for validation as we are already waiting for a response for a prior submission")
+                warn!("{self}: cannot submit block proposal for validation as we are already waiting for a response for a prior submission. Inserting pending proposal.";
+                    "signer_signature_hash" => signer_signature_hash.to_string(),
+                );
+                self.signer_db
+                    .insert_pending_block_validation(&signer_signature_hash, get_epoch_time_secs())
+                    .unwrap_or_else(|e| {
+                        warn!("{self}: Failed to insert pending block validation: {e:?}")
+                    });
             }
 
             // Do not store KNOWN invalid blocks as this could DOS the signer. We only store blocks that are valid or unknown.
@@ -579,68 +616,83 @@ impl Signer {
             BlockResponse::Rejected(block_rejection) => {
                 self.handle_block_rejection(block_rejection);
             }
-        }
+        };
     }
 
-    /// WARNING: Do NOT call this function PRIOR to check_proposal or block_proposal validation succeeds.
+    /// WARNING: This is an incomplete check. Do NOT call this function PRIOR to check_proposal or block_proposal validation succeeds.
     ///
     /// Re-verify a block's chain length against the last signed block within signerdb.
     /// This is required in case a block has been approved since the initial checks of the block validation endpoint.
     fn check_block_against_signer_db_state(
-        &self,
+        &mut self,
+        stacks_client: &StacksClient,
         proposed_block: &NakamotoBlock,
     ) -> Option<BlockResponse> {
         let signer_signature_hash = proposed_block.header.signer_signature_hash();
         let proposed_block_consensus_hash = proposed_block.header.consensus_hash;
-
-        match self.signer_db.get_signer_last_accepted_block() {
-            Ok(Some(last_block_info)) => {
-                if proposed_block.header.chain_length <= last_block_info.block.header.chain_length {
-                    // We do not allow reorgs at any time within the same consensus hash OR of globally accepted blocks
-                    let non_reorgable_block = last_block_info.block.header.consensus_hash
-                        == proposed_block_consensus_hash
-                        || last_block_info.state == BlockState::GloballyAccepted;
-                    // Is the reorg timeout requirement exceeded?
-                    let reorg_timeout_exceeded = last_block_info
-                        .signed_self
-                        .map(|signed_over_time| {
-                            signed_over_time.saturating_add(
-                                self.proposal_config
-                                    .tenure_last_block_proposal_timeout
-                                    .as_secs(),
-                            ) <= get_epoch_time_secs()
-                        })
-                        .unwrap_or(false);
-                    if non_reorgable_block || !reorg_timeout_exceeded {
-                        warn!(
-                            "Miner's block proposal does not confirm as many blocks as we expect";
-                            "proposed_block_consensus_hash" => %proposed_block_consensus_hash,
-                            "proposed_block_signer_sighash" => %signer_signature_hash,
-                            "proposed_chain_length" => proposed_block.header.chain_length,
-                            "expected_at_least" => last_block_info.block.header.chain_length + 1,
-                            "last_block_info.block.header.consensus_hash" => %last_block_info.block.header.consensus_hash,
-                            "proposed_block_consensus_hash" => %proposed_block_consensus_hash,
-                            "last_block_info.state" => %last_block_info.state,
-                            "non_reorgable_block" => non_reorgable_block,
-                            "reorg_timeout_exceeded" => reorg_timeout_exceeded
-                        );
-                        return Some(self.create_block_rejection(
+        // If this is a tenure change block, ensure that it confirms the correct number of blocks from the parent tenure.
+        if let Some(tenure_change) = proposed_block.get_tenure_change_tx_payload() {
+            // Ensure that the tenure change block confirms the expected parent block
+            match SortitionsView::check_tenure_change_confirms_parent(
+                tenure_change,
+                proposed_block,
+                &mut self.signer_db,
+                stacks_client,
+                self.proposal_config.tenure_last_block_proposal_timeout,
+            ) {
+                Ok(true) => {}
+                Ok(false) => {
+                    return Some(
+                        self.create_block_rejection(
                             RejectCode::SortitionViewMismatch,
                             proposed_block,
-                        ));
-                    }
+                        ),
+                    )
                 }
-                None
+                Err(e) => {
+                    warn!("{self}: Error checking block proposal: {e}";
+                        "signer_sighash" => %signer_signature_hash,
+                        "block_id" => %proposed_block.block_id()
+                    );
+                    return Some(
+                        self.create_block_rejection(RejectCode::ConnectivityIssues, proposed_block),
+                    );
+                }
             }
-            Ok(_) => None,
+        }
+
+        // Ensure that the block is the last block in the chain of its current tenure.
+        match self
+            .signer_db
+            .get_last_accepted_block(&proposed_block_consensus_hash)
+        {
+            Ok(Some(last_block_info)) => {
+                if proposed_block.header.chain_length <= last_block_info.block.header.chain_length {
+                    warn!(
+                        "Miner's block proposal does not confirm as many blocks as we expect";
+                        "proposed_block_consensus_hash" => %proposed_block_consensus_hash,
+                        "proposed_block_signer_sighash" => %signer_signature_hash,
+                        "proposed_chain_length" => proposed_block.header.chain_length,
+                        "expected_at_least" => last_block_info.block.header.chain_length + 1,
+                    );
+                    return Some(self.create_block_rejection(
+                        RejectCode::SortitionViewMismatch,
+                        proposed_block,
+                    ));
+                }
+            }
+            Ok(_) => {}
             Err(e) => {
                 warn!("{self}: Failed to check block against signer db: {e}";
                     "signer_sighash" => %signer_signature_hash,
                     "block_id" => %proposed_block.block_id()
                 );
-                Some(self.create_block_rejection(RejectCode::ConnectivityIssues, proposed_block))
+                return Some(
+                    self.create_block_rejection(RejectCode::ConnectivityIssues, proposed_block),
+                );
             }
         }
+        None
     }
 
     /// Handle the block validate ok response. Returns our block response if we have one
@@ -649,39 +701,29 @@ impl Signer {
         stacks_client: &StacksClient,
         block_validate_ok: &BlockValidateOk,
     ) -> Option<BlockResponse> {
-        crate::monitoring::increment_block_validation_responses(true);
+        crate::monitoring::actions::increment_block_validation_responses(true);
         let signer_signature_hash = block_validate_ok.signer_signature_hash;
         if self
             .submitted_block_proposal
-            .as_ref()
-            .map(|(proposal, _)| {
-                proposal.block.header.signer_signature_hash() == signer_signature_hash
-            })
+            .map(|(proposal_hash, _)| proposal_hash == signer_signature_hash)
             .unwrap_or(false)
         {
             self.submitted_block_proposal = None;
         }
         // For mutability reasons, we need to take the block_info out of the map and add it back after processing
-        let mut block_info = match self.signer_db.block_lookup(&signer_signature_hash) {
-            Ok(Some(block_info)) => {
-                if block_info.is_locally_finalized() {
-                    debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
-                    return None;
-                }
-                block_info
-            }
-            Ok(None) => {
-                // We have not seen this block before. Why are we getting a response for it?
-                debug!("{self}: Received a block validate response for a block we have not seen before. Ignoring...");
-                return None;
-            }
-            Err(e) => {
-                error!("{self}: Failed to lookup block in signer db: {e:?}",);
-                return None;
-            }
+        let Some(mut block_info) = self.block_lookup_by_reward_cycle(&signer_signature_hash) else {
+            // We have not seen this block before. Why are we getting a response for it?
+            debug!("{self}: Received a block validate response for a block we have not seen before. Ignoring...");
+            return None;
         };
+        if block_info.is_locally_finalized() {
+            debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
+            return None;
+        }
 
-        if let Some(block_response) = self.check_block_against_signer_db_state(&block_info.block) {
+        if let Some(block_response) =
+            self.check_block_against_signer_db_state(stacks_client, &block_info.block)
+        {
             // The signer db state has changed. We no longer view this block as valid. Override the validation response.
             if let Err(e) = block_info.mark_locally_rejected() {
                 if !block_info.has_reached_consensus() {
@@ -692,6 +734,8 @@ impl Signer {
             let res = self
                 .stackerdb
                 .send_message_with_retry::<SignerMessage>(block_response.into());
+
+            crate::monitoring::actions::record_block_response_latency(&block_info.block);
 
             match res {
                 Err(e) => warn!("{self}: Failed to send block rejection to stacker-db: {e:?}"),
@@ -735,36 +779,24 @@ impl Signer {
         &mut self,
         block_validate_reject: &BlockValidateReject,
     ) -> Option<BlockResponse> {
-        crate::monitoring::increment_block_validation_responses(false);
+        crate::monitoring::actions::increment_block_validation_responses(false);
         let signer_signature_hash = block_validate_reject.signer_signature_hash;
         if self
             .submitted_block_proposal
-            .as_ref()
-            .map(|(proposal, _)| {
-                proposal.block.header.signer_signature_hash() == signer_signature_hash
-            })
+            .map(|(proposal_hash, _)| proposal_hash == signer_signature_hash)
             .unwrap_or(false)
         {
             self.submitted_block_proposal = None;
         }
-        let mut block_info = match self.signer_db.block_lookup(&signer_signature_hash) {
-            Ok(Some(block_info)) => {
-                if block_info.is_locally_finalized() {
-                    debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
-                    return None;
-                }
-                block_info
-            }
-            Ok(None) => {
-                // We have not seen this block before. Why are we getting a response for it?
-                debug!("{self}: Received a block validate response for a block we have not seen before. Ignoring...");
-                return None;
-            }
-            Err(e) => {
-                error!("{self}: Failed to lookup block in signer db: {e:?}");
-                return None;
-            }
+        let Some(mut block_info) = self.block_lookup_by_reward_cycle(&signer_signature_hash) else {
+            // We have not seen this block before. Why are we getting a response for it?
+            debug!("{self}: Received a block validate response for a block we have not seen before. Ignoring...");
+            return None;
         };
+        if block_info.is_locally_finalized() {
+            debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
+            return None;
+        }
         if let Err(e) = block_info.mark_locally_rejected() {
             if !block_info.has_reached_consensus() {
                 warn!("{self}: Failed to mark block as locally rejected: {e:?}",);
@@ -797,52 +829,88 @@ impl Signer {
         info!("{self}: Received a block validate response: {block_validate_response:?}");
         let block_response = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
+                crate::monitoring::actions::record_block_validation_latency(
+                    block_validate_ok.validation_time_ms,
+                );
                 self.handle_block_validate_ok(stacks_client, block_validate_ok)
             }
             BlockValidateResponse::Reject(block_validate_reject) => {
                 self.handle_block_validate_reject(block_validate_reject)
             }
         };
-        let Some(response) = block_response else {
-            return;
+        // Remove this block validation from the pending table
+        let signer_sig_hash = block_validate_response.signer_signature_hash();
+        self.signer_db
+            .remove_pending_block_validation(&signer_sig_hash)
+            .unwrap_or_else(|e| warn!("{self}: Failed to remove pending block validation: {e:?}"));
+
+        if let Some(response) = block_response {
+            // Submit a proposal response to the .signers contract for miners
+            info!(
+                "{self}: Broadcasting a block response to stacks node: {response:?}";
+            );
+            let accepted = matches!(response, BlockResponse::Accepted(..));
+            match self
+                .stackerdb
+                .send_message_with_retry::<SignerMessage>(response.into())
+            {
+                Ok(_) => {
+                    crate::monitoring::actions::increment_block_responses_sent(accepted);
+                    if let Ok(Some(block_info)) = self
+                        .signer_db
+                        .block_lookup(&block_validate_response.signer_signature_hash())
+                    {
+                        crate::monitoring::actions::record_block_response_latency(
+                            &block_info.block,
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
+                }
+            }
         };
-        // Submit a proposal response to the .signers contract for miners
-        info!(
-            "{self}: Broadcasting a block response to stacks node: {response:?}";
-        );
-        let accepted = matches!(response, BlockResponse::Accepted(..));
-        match self
-            .stackerdb
-            .send_message_with_retry::<SignerMessage>(response.into())
-        {
-            Ok(_) => {
-                crate::monitoring::increment_block_responses_sent(accepted);
+
+        // Check if there is a pending block validation that we need to submit to the node
+        match self.signer_db.get_and_remove_pending_block_validation() {
+            Ok(Some(signer_sig_hash)) => {
+                info!("{self}: Found a pending block validation: {signer_sig_hash:?}");
+                match self.signer_db.block_lookup(&signer_sig_hash) {
+                    Ok(Some(block_info)) => {
+                        self.submit_block_for_validation(stacks_client, &block_info.block);
+                    }
+                    Ok(None) => {
+                        // This should never happen
+                        error!(
+                            "{self}: Pending block validation not found in DB: {signer_sig_hash:?}"
+                        );
+                    }
+                    Err(e) => error!("{self}: Failed to get block info: {e:?}"),
+                }
             }
-            Err(e) => {
-                warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
-            }
+            Ok(None) => {}
+            Err(e) => warn!("{self}: Failed to get pending block validation: {e:?}"),
         }
     }
 
     /// Check the current tracked submitted block proposal to see if it has timed out.
     /// Broadcasts a rejection and marks the block locally rejected if it has.
     fn check_submitted_block_proposal(&mut self) {
-        let Some((block_proposal, block_submission)) = self.submitted_block_proposal.take() else {
+        let Some((proposal_signer_sighash, block_submission)) =
+            self.submitted_block_proposal.take()
+        else {
             // Nothing to check.
             return;
         };
         if block_submission.elapsed() < self.block_proposal_validation_timeout {
             // Not expired yet. Put it back!
-            self.submitted_block_proposal = Some((block_proposal, block_submission));
+            self.submitted_block_proposal = Some((proposal_signer_sighash, block_submission));
             return;
         }
-        let signature_sighash = block_proposal.block.header.signer_signature_hash();
         // For mutability reasons, we need to take the block_info out of the map and add it back after processing
-        let mut block_info = match self.signer_db.block_lookup(&signature_sighash) {
+        let mut block_info = match self.signer_db.block_lookup(&proposal_signer_sighash) {
             Ok(Some(block_info)) => {
-                if block_info.state == BlockState::GloballyRejected
-                    || block_info.state == BlockState::GloballyAccepted
-                {
+                if block_info.has_reached_consensus() {
                     // The block has already reached consensus.
                     return;
                 }
@@ -852,8 +920,7 @@ impl Signer {
                 // This is weird. If this is reached, its probably an error in code logic or the db was flushed.
                 // Why are we tracking a block submission for a block we have never seen / stored before.
                 error!("{self}: tracking an unknown block validation submission.";
-                    "signer_sighash" => %signature_sighash,
-                    "block_id" => %block_proposal.block.block_id(),
+                    "signer_sighash" => %proposal_signer_sighash,
                 );
                 return;
             }
@@ -866,11 +933,10 @@ impl Signer {
         // Reject it so we aren't holding up the network because of our inaction.
         warn!(
             "{self}: Failed to receive block validation response within {} ms. Rejecting block.", self.block_proposal_validation_timeout.as_millis();
-            "signer_sighash" => %signature_sighash,
-            "block_id" => %block_proposal.block.block_id(),
+            "signer_sighash" => %proposal_signer_sighash,
         );
         let rejection =
-            self.create_block_rejection(RejectCode::ConnectivityIssues, &block_proposal.block);
+            self.create_block_rejection(RejectCode::ConnectivityIssues, &block_info.block);
         if let Err(e) = block_info.mark_locally_rejected() {
             if !block_info.has_reached_consensus() {
                 warn!("{self}: Failed to mark block as locally rejected: {e:?}");
@@ -880,6 +946,8 @@ impl Signer {
         let res = self
             .stackerdb
             .send_message_with_retry::<SignerMessage>(rejection.into());
+
+        crate::monitoring::actions::record_block_response_latency(&block_info.block);
 
         match res {
             Err(e) => warn!("{self}: Failed to send block rejection to stacker-db: {e:?}"),
@@ -919,25 +987,16 @@ impl Signer {
         let block_hash = &rejection.signer_signature_hash;
         let signature = &rejection.signature;
 
-        let mut block_info = match self.signer_db.block_lookup(block_hash) {
-            Ok(Some(block_info)) => {
-                if block_info.state == BlockState::GloballyRejected
-                    || block_info.state == BlockState::GloballyAccepted
-                {
-                    debug!("{self}: Received block rejection for a block that is already marked as {}. Ignoring...", block_info.state);
-                    return;
-                }
-                block_info
-            }
-            Ok(None) => {
-                debug!("{self}: Received block rejection for a block we have not seen before. Ignoring...");
-                return;
-            }
-            Err(e) => {
-                warn!("{self}: Failed to load block state: {e:?}",);
-                return;
-            }
+        let Some(mut block_info) = self.block_lookup_by_reward_cycle(block_hash) else {
+            debug!(
+                "{self}: Received block rejection for a block we have not seen before. Ignoring..."
+            );
+            return;
         };
+        if block_info.has_reached_consensus() {
+            debug!("{self}: Received block rejection for a block that is already marked as {}. Ignoring...", block_info.state);
+            return;
+        }
 
         // recover public key
         let Ok(public_key) = rejection.recover_public_key() else {
@@ -953,7 +1012,7 @@ impl Signer {
         // authenticate the signature -- it must be signed by one of the stacking set
         let is_valid_sig = self.signer_addresses.iter().any(|addr| {
             // it only matters that the address hash bytes match
-            signer_address.bytes == addr.bytes
+            signer_address.bytes() == addr.bytes()
         });
 
         if !is_valid_sig {
@@ -993,7 +1052,7 @@ impl Signer {
             return;
         }
         debug!("{self}: {total_reject_weight}/{total_weight} signers voted to reject the block {block_hash}");
-        if let Err(e) = block_info.mark_globally_rejected() {
+        if let Err(e) = self.signer_db.mark_block_globally_rejected(&mut block_info) {
             warn!("{self}: Failed to mark block as globally rejected: {e:?}",);
         }
         if let Err(e) = self.signer_db.insert_block(&block_info) {
@@ -1003,7 +1062,7 @@ impl Signer {
         if self
             .submitted_block_proposal
             .as_ref()
-            .map(|(proposal, _)| &proposal.block.header.signer_signature_hash() == block_hash)
+            .map(|(proposal_signer_sighash, _)| proposal_signer_sighash == block_hash)
             .unwrap_or(false)
         {
             // Consensus reached! No longer bother tracking its validation submission to the node as we are too late to participate in the decision anyway.
@@ -1023,23 +1082,15 @@ impl Signer {
             "{self}: Received a block-accept signature: ({block_hash}, {signature}, {})",
             metadata.server_version
         );
-
-        // Have we already processed this block?
-        match self.signer_db.get_block_state(block_hash) {
-            Ok(Some(state)) => {
-                if state == BlockState::GloballyAccepted || state == BlockState::GloballyRejected {
-                    debug!("{self}: Received block signature for a block that is already marked as {}. Ignoring...", state);
-                    return;
-                }
-            }
-            Ok(None) => {
-                debug!("{self}: Received block signature for a block we have not seen before. Ignoring...");
-                return;
-            }
-            Err(e) => {
-                warn!("{self}: Failed to load block state: {e:?}",);
-                return;
-            }
+        let Some(mut block_info) = self.block_lookup_by_reward_cycle(block_hash) else {
+            debug!(
+                "{self}: Received block signature for a block we have not seen before. Ignoring..."
+            );
+            return;
+        };
+        if block_info.has_reached_consensus() {
+            debug!("{self}: Received block signature for a block that is already marked as {}. Ignoring...", block_info.state);
+            return;
         }
 
         // recover public key
@@ -1057,7 +1108,7 @@ impl Signer {
             let stacker_address = StacksAddress::p2pkh(self.mainnet, &public_key);
 
             // it only matters that the address hash bytes match
-            stacker_address.bytes == addr.bytes
+            stacker_address.bytes() == addr.bytes()
         });
 
         if !is_valid_sig {
@@ -1107,12 +1158,6 @@ impl Signer {
         }
 
         // have enough signatures to broadcast!
-        let Ok(Some(mut block_info)) = self.signer_db.block_lookup(block_hash).inspect_err(|e| {
-            warn!("{self}: Failed to load block {block_hash}: {e:?})");
-        }) else {
-            warn!("{self}: No such block {block_hash}");
-            return;
-        };
         // move block to LOCALLY accepted state.
         // It is only considered globally accepted IFF we receive a new block event confirming it OR see the chain tip of the node advance to it.
         if let Err(e) = block_info.mark_locally_accepted(true) {
@@ -1133,7 +1178,7 @@ impl Signer {
         if self
             .submitted_block_proposal
             .as_ref()
-            .map(|(proposal, _)| &proposal.block.header.signer_signature_hash() == block_hash)
+            .map(|(proposal_hash, _)| proposal_hash == block_hash)
             .unwrap_or(false)
         {
             // Consensus reached! No longer bother tracking its validation submission to the node as we are too late to participate in the decision anyway.
@@ -1176,6 +1221,37 @@ impl Signer {
         }
     }
 
+    /// Submit a block for validation, and mark it as pending if the node
+    /// is busy with a previous request.
+    fn submit_block_for_validation(&mut self, stacks_client: &StacksClient, block: &NakamotoBlock) {
+        let signer_signature_hash = block.header.signer_signature_hash();
+        match stacks_client.submit_block_for_validation(block.clone()) {
+            Ok(_) => {
+                self.submitted_block_proposal = Some((signer_signature_hash, Instant::now()));
+            }
+            Err(ClientError::RequestFailure(status)) => {
+                if status.as_u16() == TOO_MANY_REQUESTS_STATUS {
+                    info!("{self}: Received 429 from stacks node for block validation request. Inserting pending block validation...";
+                        "signer_signature_hash" => %signer_signature_hash,
+                    );
+                    self.signer_db
+                        .insert_pending_block_validation(
+                            &signer_signature_hash,
+                            get_epoch_time_secs(),
+                        )
+                        .unwrap_or_else(|e| {
+                            warn!("{self}: Failed to insert pending block validation: {e:?}")
+                        });
+                } else {
+                    warn!("{self}: Received non-429 status from stacks node: {status}");
+                }
+            }
+            Err(e) => {
+                warn!("{self}: Failed to submit block for validation: {e:?}");
+            }
+        }
+    }
+
     /// Send a mock signature to stackerdb to prove we are still alive
     fn mock_sign(&mut self, mock_proposal: MockProposal) {
         info!("{self}: Mock signing mock proposal: {mock_proposal:?}");
@@ -1193,5 +1269,25 @@ impl Signer {
     pub fn handle_insert_block_error(&self, e: DBError) {
         error!("{self}: Failed to insert block into signer-db: {e:?}");
         panic!("{self} Failed to write block to signerdb: {e}");
+    }
+
+    /// Helper for getting the block info from the db while accommodating for reward cycle
+    pub fn block_lookup_by_reward_cycle(
+        &self,
+        block_hash: &Sha512Trunc256Sum,
+    ) -> Option<BlockInfo> {
+        let block_info = self
+            .signer_db
+            .block_lookup(block_hash)
+            .inspect_err(|e| {
+                error!("{self}: Failed to lookup block hash {block_hash} in signer db: {e:?}");
+            })
+            .ok()
+            .flatten()?;
+        if block_info.reward_cycle == self.reward_cycle {
+            Some(block_info)
+        } else {
+            None
+        }
     }
 }

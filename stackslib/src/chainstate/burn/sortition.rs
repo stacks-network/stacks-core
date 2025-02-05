@@ -445,7 +445,7 @@ impl BlockSnapshot {
             BlockHeaderHash(bhh_bytes)
         };
 
-        let mut null_sample_winner = BurnSamplePoint::zero(null_winner.clone());
+        let mut null_sample_winner = BurnSamplePoint::zero(null_winner);
         let mut burn_sample_winner = BurnSamplePoint::zero(commit_winner.clone());
 
         let null_prob = Self::null_miner_probability(atc);
@@ -731,8 +731,7 @@ impl BlockSnapshot {
                 winning_block.key_vtxindex.into(),
                 &parent_snapshot.sortition_id,
             )?
-            .map(|key_op| key_op.interpret_nakamoto_signing_key())
-            .flatten();
+            .and_then(|key_op| key_op.interpret_nakamoto_signing_key());
 
         Ok(BlockSnapshot {
             block_height,
@@ -909,8 +908,8 @@ mod test {
                 &initial_snapshot,
                 &empty_block_header,
                 &BurnchainStateTransition {
-                    burn_dist: vec![empty_burn_point.clone()],
-                    accepted_ops: vec![BlockstackOperationType::LeaderKeyRegister(key.clone())],
+                    burn_dist: vec![empty_burn_point],
+                    accepted_ops: vec![BlockstackOperationType::LeaderKeyRegister(key)],
                     ..BurnchainStateTransition::noop()
                 },
             )
@@ -1133,7 +1132,7 @@ mod test {
             test_append_snapshot_with_winner(
                 &mut db,
                 header.block_hash.clone(),
-                &vec![BlockstackOperationType::LeaderBlockCommit(
+                &[BlockstackOperationType::LeaderBlockCommit(
                     commit_winner.clone(),
                 )],
                 Some(tip),

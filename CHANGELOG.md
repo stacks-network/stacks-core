@@ -9,22 +9,59 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
-- Add `tenure_timeout_secs` to the miner for determining when a time-based tenure extend should be attempted.
-
 ### Changed
 
-- When a transaction is dropped due to replace-by-fee, the `/drop_mempool_tx` event observer payload now includes `new_txid`, which is the transaction that replaced this dropped transaction. When a transaction is dropped for other reasons, `new_txid` is `null`. [#5381](https://github.com/stacks-network/stacks-core/pull/5381)
-- Nodes will assume that all PoX anchor blocks exist by default, and stall initial block download indefinitely to await their arrival (#5502)
+### Fixed
 
-## [3.1.0.0.1]
+## [3.1.0.0.5]
 
 ### Added
 
-- A miner will now generate a tenure-extend when at least 70% of the signers have confirmed that they are willing to allow one, via the new timestamp included in block responses. This allows the miner to refresh its budget in between Bitcoin blocks. ([#5476](https://github.com/stacks-network/stacks-core/discussions/5476))
+- Add miner configuration option `tenure_extend_cost_threshold` to specify the percentage of the tenure budget that must be spent before a time-based tenure extend is attempted
 
 ### Changed
 
-## [3.1.0.0.0]
+- Miner will include other transactions in blocks with tenure extend transactions (#5760)
+- Add `block_rejection_timeout_steps` to miner configuration for defining rejections-based timeouts while waiting for signers response (#5705)
+- Miner will not issue a tenure extend until at least half of the block budget has been spent (#5757)
+
+### Fixed
+
+- Miners who restart their nodes immediately before a winning tenure now correctly detect that
+  they won the tenure after their nodes restart ([#5750](https://github.com/stacks-network/stacks-core/issues/5750)).
+
+## [3.1.0.0.4]
+
+### Added
+
+- The stacks-node miner now performs accurate tenure-extensions in certain bitcoin block production
+  cases: when a bitcoin block is produced before the previous bitcoin block's Stacks tenure started.
+  Previously, the miner had difficulty restarting their missed tenure and extending into the new
+  bitcoin block, leading to 1-2 bitcoin blocks of missed Stacks block production.
+- The event dispatcher now includes `consensus_hash` in the `/new_block` and `/new_burn_block` payloads. ([#5677](https://github.com/stacks-network/stacks-core/pull/5677))
+
+## Changed
+
+- When a miner reorgs the previous tenure due to a poorly timed block, it can now continue to build blocks on this new chain tip (#5691)
+
+## [3.1.0.0.3]
+
+### Added
+
+- Add `tenure_timeout_secs` to the miner for determining when a time-based tenure extend should be attempted.
+- Added configuration option `block_proposal_max_age_secs` under `[connection_options]` to prevent processing stale block proposals
+
+### Changed
+
+- The RPC endpoint `/v3/block_proposal` no longer will evaluate block proposals more than `block_proposal_max_age_secs` old
+- When a transaction is dropped due to replace-by-fee, the `/drop_mempool_tx` event observer payload now includes `new_txid`, which is the transaction that replaced this dropped transaction. When a transaction is dropped for other reasons, `new_txid` is `null`. [#5381](https://github.com/stacks-network/stacks-core/pull/5381)
+- Nodes will assume that all PoX anchor blocks exist by default, and stall initial block download indefinitely to await their arrival (#5502)
+
+### Fixed
+
+- Signers no longer accept messages for blocks from different reward cycles (#5662)
+
+## [3.1.0.0.2]
 
 ### Added
 
@@ -33,6 +70,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   - `/v2/clarity/marf/:marf_key_hash`
   - `/v2/clarity/metadata/:principal/:contract_name/:clarity_metadata_key`
 - When a proposed block is validated by a node, the block can be validated even when the block version is different than the node's default ([#5539](https://github.com/stacks-network/stacks-core/pull/5539))
+- A miner will now generate a tenure-extend when at least 70% of the signers have confirmed that they are willing to allow one, via the new timestamp included in block responses. This allows the miner to refresh its budget in between Bitcoin blocks. ([#5476](https://github.com/stacks-network/stacks-core/discussions/5476))
+- Set the epoch to 3.1 in the Clarity DB upon activation.
 
 ### Changed
 

@@ -130,7 +130,7 @@ impl DNSResolver {
     }
 
     pub fn resolve(&self, req: DNSRequest) -> DNSResponse {
-        if let Some(ref addrs) = self.hardcoded.get(&(req.host.clone(), req.port)) {
+        if let Some(addrs) = self.hardcoded.get(&(req.host.clone(), req.port)) {
             return DNSResponse::new(req, Ok(addrs.to_vec()));
         }
 
@@ -377,13 +377,10 @@ mod test {
         let mut resolved_addrs = None;
         loop {
             client.try_recv().unwrap();
-            match client.poll_lookup("www.google.com", 80).unwrap() {
-                Some(addrs) => {
-                    test_debug!("addrs: {:?}", &addrs);
-                    resolved_addrs = Some(addrs);
-                    break;
-                }
-                None => {}
+            if let Some(addrs) = client.poll_lookup("www.google.com", 80).unwrap() {
+                test_debug!("addrs: {:?}", &addrs);
+                resolved_addrs = Some(addrs);
+                break;
             }
             sleep_ms(100);
         }
@@ -396,7 +393,7 @@ mod test {
     #[test]
     fn dns_resolve_10_names() {
         let (mut client, thread_handle) = dns_thread_start(100);
-        let names = vec![
+        let names = [
             "www.google.com",
             "www.facebook.com",
             "www.twitter.com",
@@ -420,16 +417,13 @@ mod test {
             client.try_recv().unwrap();
 
             for name in names.iter() {
-                if resolved_addrs.contains_key(&name.to_string()) {
+                if resolved_addrs.contains_key(*name) {
                     continue;
                 }
-                match client.poll_lookup(name, 80).unwrap() {
-                    Some(addrs) => {
-                        test_debug!("name {} addrs: {:?}", name, &addrs);
-                        resolved_addrs.insert(name.to_string(), addrs);
-                        break;
-                    }
-                    None => {}
+                if let Some(addrs) = client.poll_lookup(name, 80).unwrap() {
+                    test_debug!("name {name} addrs: {addrs:?}");
+                    resolved_addrs.insert(name.to_string(), addrs);
+                    break;
                 }
             }
 
@@ -452,13 +446,10 @@ mod test {
         let mut resolved_error = None;
         loop {
             client.try_recv().unwrap();
-            match client.poll_lookup("asdfjkl;", 80).unwrap() {
-                Some(resp) => {
-                    test_debug!("addrs: {:?}", &resp);
-                    resolved_error = Some(resp);
-                    break;
-                }
-                None => {}
+            if let Some(resp) = client.poll_lookup("asdfjkl;", 80).unwrap() {
+                test_debug!("addrs: {:?}", &resp);
+                resolved_error = Some(resp);
+                break;
             }
             sleep_ms(100);
         }

@@ -183,7 +183,7 @@ impl StackStxOp {
 
     // TODO: add tests from mutation testing results #4850
     #[cfg_attr(test, mutants::skip)]
-    fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
+    fn parse_data(data: &[u8]) -> Option<ParsedData> {
         /*
             Wire format:
             0      2  3                             19           20                  53                 69                        73
@@ -374,7 +374,7 @@ impl StacksMessageCodec for StackStxOp {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &(Opcodes::StackStx as u8))?;
         fd.write_all(&self.stacked_ustx.to_be_bytes())
-            .map_err(|e| codec_error::WriteError(e))?;
+            .map_err(codec_error::WriteError)?;
         write_next(fd, &self.num_cycles)?;
 
         if let Some(signer_key) = &self.signer_key {
@@ -383,11 +383,11 @@ impl StacksMessageCodec for StackStxOp {
         }
         if let Some(max_amount) = &self.max_amount {
             fd.write_all(&max_amount.to_be_bytes())
-                .map_err(|e| codec_error::WriteError(e))?;
+                .map_err(codec_error::WriteError)?;
         }
         if let Some(auth_id) = &self.auth_id {
             fd.write_all(&auth_id.to_be_bytes())
-                .map_err(|e| codec_error::WriteError(e))?;
+                .map_err(codec_error::WriteError)?;
         }
         Ok(())
     }
@@ -507,10 +507,7 @@ mod tests {
             ],
         };
 
-        let sender = StacksAddress {
-            version: 0,
-            bytes: Hash160([0; 20]),
-        };
+        let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let op = PreStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
@@ -571,10 +568,7 @@ mod tests {
             ],
         };
 
-        let sender = StacksAddress {
-            version: 0,
-            bytes: Hash160([0; 20]),
-        };
+        let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
 
         // pre-2.1 this fails
         let op_err = PreStxOp::parse_from_tx(
@@ -652,10 +646,7 @@ mod tests {
             ],
         };
 
-        let sender = StacksAddress {
-            version: 0,
-            bytes: Hash160([0; 20]),
-        };
+        let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let op = StackStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
@@ -726,10 +717,7 @@ mod tests {
             ],
         };
 
-        let sender = StacksAddress {
-            version: 0,
-            bytes: Hash160([0; 20]),
-        };
+        let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
         let op = StackStxOp::parse_from_tx(
             16843022,
             &BurnchainHeaderHash([0; 32]),
@@ -798,10 +786,7 @@ mod tests {
             ],
         };
 
-        let sender = StacksAddress {
-            version: 0,
-            bytes: Hash160([0; 20]),
-        };
+        let sender = StacksAddress::new(0, Hash160([0; 20])).unwrap();
 
         // pre-2.1: this fails
         let op_err = StackStxOp::parse_from_tx(
@@ -849,10 +834,7 @@ mod tests {
         let sender_addr = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2";
         let sender = StacksAddress::from_string(sender_addr).unwrap();
         let reward_addr = PoxAddress::Standard(
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160([0x01; 20]),
-            },
+            StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_SINGLESIG, Hash160([0x01; 20])).unwrap(),
             None,
         );
         let op = StackStxOp {
