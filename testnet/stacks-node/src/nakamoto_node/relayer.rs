@@ -1445,7 +1445,7 @@ impl RelayerThread {
             "canonical_stacks_tip_id" => %canonical_stacks_tip,
             "canonical_stacks_tip_ch" => %canonical_stacks_tip_ch,
             "canonical_stacks_tip_miner" => ?canonical_stacks_snapshot.miner_pk_hash,
-            "burn_view_ch" => %new_burn_view,
+            "burn_view_ch" => %new_burn_view
         );
 
         if !won_ongoing_tenure_sortition {
@@ -1458,8 +1458,8 @@ impl RelayerThread {
             return Ok(None);
         }
 
-        // Allow the miner to extend its tenure if won the highest valid sortition IFF
-        // it determines that the miners of the sortition fails to produce a block
+        // Allow the miner to extend its tenure even if there are higher valid sortition IFF
+        // it determines that the miners of the higher sortition fails to produce a block
         // by the required timeout.
         if let Some(highest_valid_sortition) = Self::find_highest_valid_sortition(
             sortdb,
@@ -1467,12 +1467,7 @@ impl RelayerThread {
             &sort_tip,
             &canonical_stacks_snapshot.consensus_hash,
         )? {
-            // TODO: I don't understand why this works? HELP???
-            if sort_tip.consensus_hash != highest_valid_sortition.consensus_hash {
-                info!("Relayer: will not extend tenure -- we won sortition {}, but the highest valid sortition is {}", &canonical_stacks_snapshot.consensus_hash, &highest_valid_sortition.consensus_hash);
-                return Ok(None);
-            }
-            info!("Relayer: MAY extend tenure -- we won sortition {}, but must give miner time to produce a valid block for the highest valid sortition {}", &canonical_stacks_snapshot.consensus_hash, &highest_valid_sortition.consensus_hash);
+            info!("Relayer: waiting to extend tenure -- we won sortition {}, but the highest valid sortition is {}. Must give the incoming miner time to produce a block.", &canonical_stacks_snapshot.consensus_hash, &highest_valid_sortition.consensus_hash);
             return Ok(Some((canonical_stacks_snapshot, true)));
         }
         // There cannot be any higher sortitions that are valid (as defined above).
@@ -1819,7 +1814,7 @@ impl RelayerThread {
         // Should begin a tenure-extend?
         if let Some(tenure_extend_time) = &self.tenure_extend_time {
             if !tenure_extend_time.should_extend() {
-                test_debug!(
+                debug!(
                     "Relayer: will not try to tenure-extend yet ({} <= {})",
                     tenure_extend_time.elapsed().as_secs(),
                     tenure_extend_time.timeout().as_secs()
@@ -1833,6 +1828,7 @@ impl RelayerThread {
 
         // reset timer so we can try again if for some reason a miner was already running (e.g. a
         // blockfound from earlier).
+        debug!("NO HERE");
         self.tenure_extend_time = Some(TenureExtendTime::delayed(
             self.config.miner.tenure_extend_poll_timeout,
         ));
