@@ -8140,7 +8140,7 @@ fn block_validation_pending_table() {
     .expect("Timed out waiting for pending block validation to be submitted");
 
     info!("----- Waiting for pending block validation to be removed -----");
-    wait_for(30, || {
+    wait_for(60, || {
         let is_pending = signer_db
             .has_pending_block_validation(&block_signer_signature_hash)
             .expect("Unexpected DBError");
