@@ -73,7 +73,6 @@ use stacks::net::api::getstackers::GetStackersResponse;
 use stacks::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, NakamotoBlockProposal, ValidateRejectCode,
 };
-use stacks::net::relay;
 use stacks::types::chainstate::{ConsensusHash, StacksBlockId};
 use stacks::util::hash::hex_bytes;
 use stacks::util_lib::boot::boot_code_id;
@@ -97,7 +96,9 @@ use stacks_signer::signerdb::{BlockInfo, BlockState, ExtraBlockInfo, SignerDb};
 use stacks_signer::v0::SpawnedSigner;
 
 use super::bitcoin_regtest::BitcoinCoreController;
-use crate::nakamoto_node::miner::{TEST_BROADCAST_STALL, TEST_MINE_STALL, TEST_SKIP_P2P_BROADCAST};
+use crate::nakamoto_node::miner::{
+    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL, TEST_SKIP_P2P_BROADCAST,
+};
 use crate::nakamoto_node::relayer::{RelayerThread, TEST_MINER_THREAD_STALL};
 use crate::neon::{Counters, RunLoopCounter};
 use crate::operations::BurnchainOpSigner;
@@ -5193,7 +5194,7 @@ fn forked_tenure_is_ignored() {
     // For the next tenure, submit the commit op but do not allow any stacks blocks to be broadcasted.
     // Stall the miner thread; only wait until the number of submitted commits increases.
     TEST_BROADCAST_STALL.set(true);
-    relay::fault_injection::block_stacks_announce();
+    TEST_BLOCK_ANNOUNCE_STALL.set(true);
 
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let commits_before = commits_submitted.load(Ordering::SeqCst);
@@ -5264,7 +5265,7 @@ fn forked_tenure_is_ignored() {
         .get_stacks_blocks_processed();
     next_block_and(&mut btc_regtest_controller, 60, || {
         test_skip_commit_op.set(false);
-        relay::fault_injection::unblock_stacks_announce();
+        TEST_BLOCK_ANNOUNCE_STALL.set(false);
 
         let commits_count = commits_submitted.load(Ordering::SeqCst);
         let blocks_count = mined_blocks.load(Ordering::SeqCst);

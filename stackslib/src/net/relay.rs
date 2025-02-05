@@ -75,10 +75,6 @@ pub mod fault_injection {
     use std::path::Path;
 
     static IGNORE_BLOCK: std::sync::Mutex<Option<(u64, String)>> = std::sync::Mutex::new(None);
-    pub static TEST_BLOCK_ANNOUNCE_STALL: std::sync::Mutex<Option<bool>> =
-        std::sync::Mutex::new(None);
-    pub static TEST_BLOCK_ANNOUNCE_SKIP: std::sync::Mutex<Option<bool>> =
-        std::sync::Mutex::new(None);
 
     pub fn ignore_block(height: u64, working_dir: &str) -> bool {
         if let Some((ignore_height, ignore_dir)) = &*IGNORE_BLOCK.lock().unwrap() {
@@ -106,34 +102,6 @@ pub mod fault_injection {
         warn!("Fault injection: clear ignore block");
         *IGNORE_BLOCK.lock().unwrap() = None;
     }
-
-    pub fn stacks_announce_is_blocked() -> bool {
-        *TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap() == Some(true)
-    }
-
-    pub fn stacks_announce_is_skipped() -> bool {
-        *TEST_BLOCK_ANNOUNCE_SKIP.lock().unwrap() == Some(true)
-    }
-
-    pub fn no_stacks_announce() -> bool {
-        stacks_announce_is_blocked() || stacks_announce_is_skipped()
-    }
-
-    pub fn block_stacks_announce() {
-        *TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap() = Some(true);
-    }
-
-    pub fn unblock_stacks_announce() {
-        *TEST_BLOCK_ANNOUNCE_STALL.lock().unwrap() = None;
-    }
-
-    pub fn skip_stacks_announce() {
-        *TEST_BLOCK_ANNOUNCE_SKIP.lock().unwrap() = Some(true);
-    }
-
-    pub fn unskip_stacks_announce() {
-        *TEST_BLOCK_ANNOUNCE_SKIP.lock().unwrap() = None;
-    }
 }
 
 #[cfg(not(any(test, feature = "testing")))]
@@ -145,14 +113,6 @@ pub mod fault_injection {
     pub fn set_ignore_block(_height: u64, _working_dir: &str) {}
 
     pub fn clear_ignore_block() {}
-
-    pub fn no_stacks_announce() -> bool {
-        false
-    }
-
-    pub fn stacks_announce_is_skipped() -> bool {
-        false
-    }
 }
 
 pub struct Relayer {
@@ -1123,9 +1083,7 @@ impl Relayer {
         if accepted {
             info!("{}", &accept_msg);
             if let Some(coord_comms) = coord_comms {
-                if !fault_injection::no_stacks_announce()
-                    && !coord_comms.announce_new_stacks_block()
-                {
+                if !coord_comms.announce_new_stacks_block() {
                     return Err(chainstate_error::NetError(net_error::CoordinatorClosed));
                 }
             }
@@ -2123,9 +2081,7 @@ impl Relayer {
                 new_confirmed_microblocks.len()
             );
             if let Some(coord_comms) = coord_comms {
-                if !fault_injection::no_stacks_announce()
-                    && !coord_comms.announce_new_stacks_block()
-                {
+                if !coord_comms.announce_new_stacks_block() {
                     return Err(net_error::CoordinatorClosed);
                 }
             }
@@ -2214,9 +2170,7 @@ impl Relayer {
         }
         if !http_uploaded_blocks.is_empty() {
             coord_comms.inspect(|comm| {
-                if !fault_injection::no_stacks_announce() {
-                    comm.announce_new_stacks_block();
-                }
+                comm.announce_new_stacks_block();
             });
         }
 
