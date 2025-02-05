@@ -13195,8 +13195,9 @@ fn interrupt_miner_on_new_stacks_tip() {
 
     info!("------------------------- Block N is Announced -------------------------");
 
-    let proposals_before = proposed_blocks_rl2.load(Ordering::SeqCst);
+    TEST_BROADCAST_PROPOSAL_STALL.set(true);
     TEST_P2P_BROADCAST_STALL.set(false);
+    let proposals_before = proposed_blocks_rl2.load(Ordering::SeqCst);
 
     // Wait for RL2's tip to advance to the last block
     wait_for(30, || {
@@ -13212,6 +13213,7 @@ fn interrupt_miner_on_new_stacks_tip() {
 
     info!("Stop signers from ignoring proposals");
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(Vec::new());
+    TEST_BROADCAST_PROPOSAL_STALL.set(false);
 
     wait_for(30, || {
         Ok(proposed_blocks_rl2.load(Ordering::SeqCst) > proposals_before)
