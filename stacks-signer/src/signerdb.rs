@@ -480,6 +480,12 @@ CREATE TABLE IF NOT EXISTS block_validations_pending (
     PRIMARY KEY (signer_signature_hash)
 ) STRICT;"#;
 
+static CREATE_TENURE_ACTIVTY_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS tenure_activity (
+    consensus_hash TEXT NOT NULL PRIMARY KEY,
+    last_activity_time INTEGER NOT NULL
+) STRICT;"#;
+
 static SCHEMA_1: &[&str] = &[
     DROP_SCHEMA_0,
     CREATE_DB_CONFIG,
@@ -534,9 +540,14 @@ static SCHEMA_6: &[&str] = &[
     "INSERT OR REPLACE INTO db_config (version) VALUES (6);",
 ];
 
+static SCHEMA_7: &[&str] = &[
+    CREATE_TENURE_ACTIVTY_TABLE,
+    "INSERT OR REPLACE INTO db_config (version) VALUES (7);",
+];
+
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = 6;
+    pub const SCHEMA_VERSION: u32 = 7;
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -650,6 +661,20 @@ impl SignerDb {
         Ok(())
     }
 
+    /// Migrate from schema 6 to schema 7
+    fn schema_7_migration(tx: &Transaction) -> Result<(), DBError> {
+        if Self::get_schema_version(tx)? >= 7 {
+            // no migration necessary
+            return Ok(());
+        }
+
+        for statement in SCHEMA_7.iter() {
+            tx.execute_batch(statement)?;
+        }
+
+        Ok(())
+    }
+
     /// Register custom scalar functions used by the database
     fn register_scalar_functions(&self) -> Result<(), DBError> {
         // Register helper function for determining if a block is a tenure change transaction
@@ -689,7 +714,8 @@ impl SignerDb {
                 3 => Self::schema_4_migration(&sql_tx)?,
                 4 => Self::schema_5_migration(&sql_tx)?,
                 5 => Self::schema_6_migration(&sql_tx)?,
-                6 => break,
+                6 => Self::schema_7_migration(&sql_tx)?,
+                7 => break,
                 x => return Err(DBError::Other(format!(
                     "Database schema is newer than supported by this binary. Expected version = {}, Database version = {x}",
                     Self::SCHEMA_VERSION,
@@ -746,10 +772,10 @@ impl SignerDb {
         try_deserialize(result)
     }
 
-    /// Return whether a block proposal has been stored for a tenure (identified by its consensus hash)
-    /// Does not consider the block's state.
-    pub fn has_proposed_block_in_tenure(&self, tenure: &ConsensusHash) -> Result<bool, DBError> {
-        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ? LIMIT 1";
+    /// Return whether there was signed block in a tenure (identified by its consensus hash)
+    pub fn has_signed_block_in_tenure(&self, tenure: &ConsensusHash) -> Result<bool, DBError> {
+        let query =
+            "SELECT block_info FROM blocks WHERE consensus_hash = ? AND signed_over = 1 LIMIT 1";
         let result: Option<String> = query_row(&self.db, query, [tenure])?;
 
         Ok(result.is_some())
@@ -1111,6 +1137,30 @@ impl SignerDb {
             .map_err(DBError::Other)?;
         self.remove_pending_block_validation(&block_info.signer_signature_hash())?;
         Ok(())
+    }
+    /// Update the tenure (identified by consensus_hash) last activity timestamp
+    pub fn update_last_activity_time(
+        &mut self,
+        tenure: &ConsensusHash,
+        last_activity_time: u64,
+    ) -> Result<(), DBError> {
+        debug!("Updating last activity for tenure"; "consensus_hash" => %tenure, "last_activity_time" => last_activity_time);
+        self.db.execute("INSERT OR REPLACE INTO tenure_activity (consensus_hash, last_activity_time) VALUES (?1, ?2)", params![tenure, u64_to_sql(last_activity_time)?])?;
+        Ok(())
+    }
+
+    /// Get the last activity timestamp for a tenure (identified by consensus_hash)
+    pub fn get_last_activity_time(&self, tenure: &ConsensusHash) -> Result<Option<u64>, DBError> {
+        let query =
+            "SELECT last_activity_time FROM tenure_activity WHERE consensus_hash = ? LIMIT 1";
+        let Some(last_activity_time_i64) = query_row::<i64, _>(&self.db, query, &[tenure])? else {
+            return Ok(None);
+        };
+        let last_activity_time = u64::try_from(last_activity_time_i64).map_err(|e| {
+            error!("Failed to parse db last_activity_time as u64: {e}");
+            DBError::Corruption
+        })?;
+        Ok(Some(last_activity_time))
     }
 }
 
@@ -1903,7 +1953,7 @@ mod tests {
     }
 
     #[test]
-    fn has_proposed_block() {
+    fn has_signed_block() {
         let db_path = tmp_db_path();
         let consensus_hash_1 = ConsensusHash([0x01; 20]);
         let consensus_hash_2 = ConsensusHash([0x02; 20]);
@@ -1913,16 +1963,59 @@ mod tests {
             b.block.header.chain_length = 1;
         });
 
-        assert!(!db.has_proposed_block_in_tenure(&consensus_hash_1).unwrap());
-        assert!(!db.has_proposed_block_in_tenure(&consensus_hash_2).unwrap());
+        assert!(!db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(!db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
 
+        block_info.signed_over = true;
         db.insert_block(&block_info).unwrap();
 
+        assert!(db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(!db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
+
+        block_info.block.header.consensus_hash = consensus_hash_2;
         block_info.block.header.chain_length = 2;
+        block_info.signed_over = false;
 
         db.insert_block(&block_info).unwrap();
 
-        assert!(db.has_proposed_block_in_tenure(&consensus_hash_1).unwrap());
-        assert!(!db.has_proposed_block_in_tenure(&consensus_hash_2).unwrap());
+        assert!(db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(!db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
+
+        block_info.signed_over = true;
+
+        db.insert_block(&block_info).unwrap();
+
+        assert!(db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
+    }
+
+    #[test]
+    fn update_last_activity() {
+        let db_path = tmp_db_path();
+        let consensus_hash_1 = ConsensusHash([0x01; 20]);
+        let consensus_hash_2 = ConsensusHash([0x02; 20]);
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+        assert!(db
+            .get_last_activity_time(&consensus_hash_1)
+            .unwrap()
+            .is_none());
+        assert!(db
+            .get_last_activity_time(&consensus_hash_2)
+            .unwrap()
+            .is_none());
+
+        let time = get_epoch_time_secs();
+        db.update_last_activity_time(&consensus_hash_1, time)
+            .unwrap();
+        let retrieved_time = db
+            .get_last_activity_time(&consensus_hash_1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(time, retrieved_time);
+        assert!(db
+            .get_last_activity_time(&consensus_hash_2)
+            .unwrap()
+            .is_none());
     }
 }

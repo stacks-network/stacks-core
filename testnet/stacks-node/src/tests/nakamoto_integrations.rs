@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::ops::RangeBounds;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -1438,6 +1439,26 @@ fn wait_for_first_naka_block_commit(timeout_secs: u64, naka_commits_submitted: &
     }
 }
 
+// Check for missing burn blocks in `range`, but allow for a missed block at
+// the epoch 3 transition. Panic if any other blocks are missing.
+fn check_nakamoto_no_missing_blocks(conf: &Config, range: impl RangeBounds<u64>) {
+    let epoch_3 = &conf.burnchain.epochs.as_ref().unwrap()[StacksEpochId::Epoch30];
+    let missing = test_observer::get_missing_burn_blocks(range).unwrap();
+    let missing_is_error: Vec<_> = missing
+        .into_iter()
+        .filter(|&i| {
+            (i != epoch_3.start_height - 1) || {
+                warn!("Missing burn block {} at epoch 3 transition", i);
+                false
+            }
+        })
+        .collect();
+
+    if !missing_is_error.is_empty() {
+        panic!("Missing the following burn blocks: {missing_is_error:?}");
+    }
+}
+
 #[test]
 #[ignore]
 /// This test spins up a nakamoto-neon node.
@@ -1629,28 +1650,9 @@ fn simple_neon_integration() {
     assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
     assert!(tip.stacks_block_height >= block_height_pre_3_0 + 30);
 
-    // Check that we aren't missing burn blocks
+    // Check that we aren't missing burn blocks (except during the Nakamoto transition)
     let bhh = u64::from(tip.burn_header_height);
-    let missing = test_observer::get_missing_burn_blocks(220..=bhh).unwrap();
-
-    // This test was flakey because it was sometimes missing burn block 230, which is right at the Nakamoto transition
-    // So it was possible to miss a burn block during the transition
-    // But I don't it matters at this point since the Nakamoto transition has already happened on mainnet
-    // So just print a warning instead, don't count it as an error
-    let missing_is_error: Vec<_> = missing
-        .into_iter()
-        .filter(|i| match i {
-            230 => {
-                warn!("Missing burn block {i}");
-                false
-            }
-            _ => true,
-        })
-        .collect();
-
-    if !missing_is_error.is_empty() {
-        panic!("Missing the following burn blocks: {missing_is_error:?}");
-    }
+    check_nakamoto_no_missing_blocks(&naka_conf, 220..=bhh);
 
     // make sure prometheus returns an updated number of processed blocks
     #[cfg(feature = "monitoring_prom")]
@@ -6573,6 +6575,7 @@ fn signer_chainstate() {
             block_proposal_timeout: Duration::from_secs(100),
             tenure_last_block_proposal_timeout: Duration::from_secs(30),
             tenure_idle_timeout: Duration::from_secs(300),
+            reorg_attempts_activity_timeout: Duration::from_secs(30),
         };
         let mut sortitions_view =
             SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
@@ -6704,6 +6707,7 @@ fn signer_chainstate() {
             block_proposal_timeout: Duration::from_secs(100),
             tenure_last_block_proposal_timeout: Duration::from_secs(30),
             tenure_idle_timeout: Duration::from_secs(300),
+            reorg_attempts_activity_timeout: Duration::from_secs(30),
         };
         let burn_block_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .unwrap()
@@ -6783,6 +6787,7 @@ fn signer_chainstate() {
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
         tenure_idle_timeout: Duration::from_secs(300),
+        reorg_attempts_activity_timeout: Duration::from_secs(30),
     };
     let mut sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
     assert!(
@@ -9942,9 +9947,9 @@ fn skip_mining_long_tx() {
     assert_eq!(sender_2_nonce, 0);
     assert_eq!(sender_1_nonce, 4);
 
-    // Check that we aren't missing burn blocks
+    // Check that we aren't missing burn blocks (except during the Nakamoto transition)
     let bhh = u64::from(tip.burn_header_height);
-    test_observer::contains_burn_block_range(220..=bhh).unwrap();
+    check_nakamoto_no_missing_blocks(&naka_conf, 220..=bhh);
 
     check_nakamoto_empty_block_heuristics();
 
@@ -10043,9 +10048,7 @@ fn test_shadow_recovery() {
     info!("Beginning post-shadow tenures");
 
     // revive ATC-C by waiting for commits
-    for _i in 0..4 {
-        next_block_and_commits_only(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
-    }
+    next_block_and_commits_only(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     // make another tenure
     next_block_and_mine_commit(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
