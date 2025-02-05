@@ -619,7 +619,7 @@ impl PeerHostExtensions for PeerHost {
 }
 
 /// Runtime arguments to an RPC handler
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct RPCHandlerArgs<'a> {
     /// What height at which this node will terminate (testnet only)
     pub exit_at_block_height: Option<u64>,
@@ -2222,7 +2222,7 @@ pub mod test {
     use std::net::*;
     use std::ops::{Deref, DerefMut};
     use std::sync::mpsc::sync_channel;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
     use std::{fs, io, thread};
 
     use clarity::boot_util::boot_code_id;
@@ -2277,6 +2277,9 @@ pub mod test {
     use crate::chainstate::*;
     use crate::clarity::vm::clarity::TransactionConnection;
     use crate::core::{EpochList, StacksEpoch, StacksEpochExtension, NETWORK_P2P_PORT};
+    use crate::cost_estimates::metrics::UnitMetric;
+    use crate::cost_estimates::tests::fee_rate_fuzzer::ConstantFeeEstimator;
+    use crate::cost_estimates::UnitEstimator;
     use crate::net::asn::*;
     use crate::net::atlas::*;
     use crate::net::chat::*;
@@ -2287,7 +2290,7 @@ pub mod test {
     use crate::net::p2p::*;
     use crate::net::poll::*;
     use crate::net::relay::*;
-    use crate::net::Error as net_error;
+    use crate::net::{Error as net_error, ProtocolFamily, TipRequest};
     use crate::util_lib::boot::boot_code_test_addr;
     use crate::util_lib::strings::*;
 
@@ -2552,6 +2555,75 @@ pub mod test {
         }
     }
 
+    const DEFAULT_RPC_HANDLER_ARGS: RPCHandlerArgs<'static> = RPCHandlerArgs {
+        exit_at_block_height: None,
+        genesis_chainstate_hash: Sha256Sum([0x00; 32]),
+        event_observer: None,
+        cost_estimator: None,
+        fee_estimator: None,
+        cost_metric: None,
+        coord_comms: None,
+    };
+
+    const NULL_COST_ESTIMATOR: () = ();
+    const NULL_FEE_ESTIMATOR: () = ();
+    const NULL_COST_METRIC: UnitMetric = UnitMetric {};
+    const NULL_RPC_HANDLER_ARGS: RPCHandlerArgs<'static> = RPCHandlerArgs {
+        exit_at_block_height: None,
+        genesis_chainstate_hash: Sha256Sum([0x00; 32]),
+        event_observer: None,
+        cost_estimator: Some(&NULL_COST_ESTIMATOR),
+        fee_estimator: Some(&NULL_FEE_ESTIMATOR),
+        cost_metric: Some(&NULL_COST_METRIC),
+        coord_comms: None,
+    };
+
+    const UNIT_COST_ESTIMATOR: UnitEstimator = UnitEstimator {};
+    const CONSTANT_FEE_ESTIMATOR: ConstantFeeEstimator = ConstantFeeEstimator {};
+    const UNIT_COST_METRIC: UnitMetric = UnitMetric {};
+    const UNIT_RPC_HANDLER_ARGS: RPCHandlerArgs<'static> = RPCHandlerArgs {
+        exit_at_block_height: None,
+        genesis_chainstate_hash: Sha256Sum([0x00; 32]),
+        event_observer: None,
+        cost_estimator: Some(&UNIT_COST_ESTIMATOR),
+        fee_estimator: Some(&CONSTANT_FEE_ESTIMATOR),
+        cost_metric: Some(&UNIT_COST_METRIC),
+        coord_comms: None,
+    };
+
+    /// Templates for RPC Handler Args (which must be owned by the TestPeer, and cannot be a bare
+    /// RPCHandlerArgs since references to the inner members cannot be made thread-safe).
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum RPCHandlerArgsType {
+        Default,
+        Null,
+        Unit,
+    }
+
+    impl RPCHandlerArgsType {
+        pub fn instantiate(&self) -> RPCHandlerArgs<'static> {
+            match self {
+                Self::Default => {
+                    debug!("Default RPC Handler Args");
+                    DEFAULT_RPC_HANDLER_ARGS.clone()
+                }
+                Self::Null => {
+                    debug!("Null RPC Handler Args");
+                    NULL_RPC_HANDLER_ARGS.clone()
+                }
+                Self::Unit => {
+                    debug!("Unit RPC Handler Args");
+                    UNIT_RPC_HANDLER_ARGS.clone()
+                }
+            }
+        }
+
+        pub fn make_default() -> RPCHandlerArgs<'static> {
+            debug!("Default RPC Handler Args");
+            DEFAULT_RPC_HANDLER_ARGS.clone()
+        }
+    }
+
     // describes a peer's initial configuration
     #[derive(Debug, Clone)]
     pub struct TestPeerConfig {
@@ -2771,6 +2843,8 @@ pub mod test {
         /// tenure-start block of tenure to mine on.
         /// gets consumed on the call to begin_nakamoto_tenure
         pub nakamoto_parent_tenure_opt: Option<Vec<NakamotoBlock>>,
+        /// RPC handler args to use
+        pub rpc_handler_args: Option<RPCHandlerArgsType>,
     }
 
     impl<'a> TestPeer<'a> {
@@ -3190,6 +3264,7 @@ pub mod test {
                 malleablized_blocks: vec![],
                 mine_malleablized_blocks: true,
                 nakamoto_parent_tenure_opt: None,
+                rpc_handler_args: None,
             }
         }
 
@@ -3301,6 +3376,11 @@ pub mod test {
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
             let indexer = self.indexer.take().unwrap();
+            let rpc_handler_args = self
+                .rpc_handler_args
+                .as_ref()
+                .map(|args_type| args_type.instantiate())
+                .unwrap_or(RPCHandlerArgsType::make_default());
 
             let old_tip = self.network.stacks_tip.clone();
 
@@ -3317,7 +3397,7 @@ pub mod test {
                 false,
                 ibd,
                 100,
-                &RPCHandlerArgs::default(),
+                &rpc_handler_args,
             );
 
             if self.network.get_current_epoch().epoch_id >= StacksEpochId::Epoch30 {
@@ -3348,7 +3428,6 @@ pub mod test {
             self.stacks_node = Some(stacks_node);
             self.mempool = Some(mempool);
             self.indexer = Some(indexer);
-
             ret
         }
 
@@ -3409,7 +3488,11 @@ pub mod test {
                 burn_tip_height,
             );
             let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
-
+            let rpc_handler_args = self
+                .rpc_handler_args
+                .as_ref()
+                .map(|args_type| args_type.instantiate())
+                .unwrap_or(RPCHandlerArgsType::make_default());
             let old_tip = self.network.stacks_tip.clone();
 
             // make sure the right state machines run
@@ -3425,7 +3508,7 @@ pub mod test {
                 false,
                 ibd,
                 100,
-                &RPCHandlerArgs::default(),
+                &rpc_handler_args,
             );
 
             if self.network.get_current_epoch().epoch_id >= StacksEpochId::Epoch30 {

@@ -13,6 +13,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Fixed
 
+- Error responses to /v2/transactions/fees are once again expressed as JSON ([#4145](https://github.com/stacks-network/stacks-core/issues/4145)).
+
 ## [3.1.0.0.5]
 
 ### Added
