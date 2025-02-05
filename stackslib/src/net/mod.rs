@@ -3325,7 +3325,9 @@ pub mod test {
                     self.network.nakamoto_state_machine_passes,
                     nakamoto_passes + 1
                 );
-                let epoch2_expected_passes = if self.network.stacks_tip.is_nakamoto {
+                let epoch2_expected_passes = if self.network.stacks_tip.is_nakamoto
+                    && !self.network.connection_opts.force_nakamoto_epoch_transition
+                {
                     epoch2_passes
                 } else {
                     epoch2_passes + 1
@@ -3431,7 +3433,9 @@ pub mod test {
                     self.network.nakamoto_state_machine_passes,
                     nakamoto_passes + 1
                 );
-                let epoch2_expected_passes = if self.network.stacks_tip.is_nakamoto {
+                let epoch2_expected_passes = if self.network.stacks_tip.is_nakamoto
+                    && !self.network.connection_opts.force_nakamoto_epoch_transition
+                {
                     epoch2_passes
                 } else {
                     epoch2_passes + 1
