@@ -83,6 +83,7 @@ pub struct RunningNodes {
     pub nakamoto_blocks_signer_pushed: RunLoopCounter,
     pub nakamoto_miner_directives: Arc<AtomicU64>,
     pub nakamoto_test_skip_commit_op: TestFlag<bool>,
+    pub counters: Counters,
     pub coord_channel: Arc<Mutex<CoordinatorChannels>>,
     pub conf: NeonConfig,
 }
@@ -335,15 +336,14 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     /// Mine a BTC block and wait for a new Stacks block to be mined
     /// Note: do not use nakamoto blocks mined heuristic if running a test with multiple miners
     fn mine_nakamoto_block(&mut self, timeout: Duration, use_nakamoto_blocks_mined: bool) {
-        let commits_submitted = self.running_nodes.commits_submitted.clone();
         let mined_block_time = Instant::now();
         let mined_before = self.running_nodes.nakamoto_blocks_mined.get();
         let info_before = self.get_peer_info();
         next_block_and_mine_commit(
             &mut self.running_nodes.btc_regtest_controller,
             timeout.as_secs(),
-            &self.running_nodes.coord_channel,
-            &commits_submitted,
+            &self.running_nodes.conf,
+            &self.running_nodes.counters,
         )
         .unwrap();
 
@@ -360,8 +360,8 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
     fn mine_block_wait_on_processing(
         &mut self,
-        coord_channels: &[&Arc<Mutex<CoordinatorChannels>>],
-        commits_submitted: &[&Arc<AtomicU64>],
+        node_confs: &[&NeonConfig],
+        node_counters: &[&Counters],
         timeout: Duration,
     ) {
         let blocks_len = test_observer::get_blocks().len();
@@ -369,8 +369,8 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         next_block_and_wait_for_commits(
             &mut self.running_nodes.btc_regtest_controller,
             timeout.as_secs(),
-            coord_channels,
-            commits_submitted,
+            node_confs,
+            node_counters,
             true,
         )
         .unwrap();
@@ -933,6 +933,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
         naka_signer_pushed_blocks,
         ..
     } = run_loop.counters();
+    let counters = run_loop.counters();
 
     let coord_channel = run_loop.coordinator_channels();
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
@@ -970,6 +971,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
         nakamoto_test_skip_commit_op,
         nakamoto_miner_directives: naka_miner_directives.0,
         coord_channel,
+        counters,
         conf: naka_conf,
     }
 }
