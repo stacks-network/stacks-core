@@ -99,7 +99,7 @@ use super::bitcoin_regtest::BitcoinCoreController;
 use crate::nakamoto_node::miner::{
     TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL, TEST_SKIP_P2P_BROADCAST,
 };
-use crate::nakamoto_node::relayer::{RelayerThread, TEST_MINER_THREAD_STALL};
+use crate::nakamoto_node::relayer::TEST_MINER_THREAD_STALL;
 use crate::neon::{Counters, RunLoopCounter};
 use crate::operations::BurnchainOpSigner;
 use crate::run_loop::boot_nakamoto;
@@ -10764,8 +10764,6 @@ fn test_tenure_extend_from_flashblocks() {
     signer_test.boot_to_epoch_3();
 
     let naka_conf = signer_test.running_nodes.conf.clone();
-    let mining_key = naka_conf.miner.mining_key.clone().unwrap();
-    let mining_key_pkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(&mining_key));
 
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     let btc_regtest_controller = &mut signer_test.running_nodes.btc_regtest_controller;
@@ -10781,13 +10779,6 @@ fn test_tenure_extend_from_flashblocks() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
-        naka_conf.is_mainnet(),
-        naka_conf.burnchain.chain_id,
-        &naka_conf.get_chainstate_path_str(),
-        None,
-    )
-    .unwrap();
 
     for _ in 0..3 {
         next_block_and_mine_commit(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
@@ -10895,29 +10886,6 @@ fn test_tenure_extend_from_flashblocks() {
     assert_eq!(new_canonical_stacks_tip_ch, canonical_stacks_tip_ch);
     // the sortition that elected the ongoing tenure is not the canonical sortition tip
     assert_ne!(sort_tip.consensus_hash, election_tip.consensus_hash);
-
-    // we can, however, continue the tenure
-    let (canonical_stacks_tip, wait) = RelayerThread::can_continue_tenure(
-        &sortdb,
-        &mut chainstate,
-        sort_tip.consensus_hash.clone(),
-        Some(mining_key_pkh.clone()),
-    )
-    .unwrap()
-    .unwrap();
-    assert!(!wait);
-    assert_eq!(canonical_stacks_tip, election_tip);
-
-    // if we didn't win the last block -- tantamount to the sortition winner miner key being
-    // different -- then we can't continue the tenure.
-    assert!(RelayerThread::can_continue_tenure(
-        &sortdb,
-        &mut chainstate,
-        sort_tip.consensus_hash.clone(),
-        Some(Hash160([0x11; 20]))
-    )
-    .unwrap()
-    .is_none());
 
     let mut accounts_before = vec![];
     let mut sent_txids = vec![];

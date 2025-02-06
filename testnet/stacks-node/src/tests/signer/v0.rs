@@ -3747,6 +3747,8 @@ fn empty_sortition_before_proposal() {
     let info = get_chain_info(&signer_test.running_nodes.conf);
     info!("Current state: {:?}", info);
 
+    info!("------------------------- Ensure Miner Extends Tenure  -------------------------");
+
     // Wait for a block with a tenure extend to be mined
     wait_for(60, || {
         let blocks = test_observer::get_blocks();
@@ -3773,6 +3775,8 @@ fn empty_sortition_before_proposal() {
     })
     .expect("Timed out waiting for tenure extend");
 
+    info!("------------------------- Test Miner Mines Transfer Tx  -------------------------");
+
     let stacks_height_before = get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height;
 
     // submit a tx so that the miner will mine an extra block
@@ -3793,12 +3797,16 @@ fn empty_sortition_before_proposal() {
     })
     .expect("Failed to advance chain tip with STX transfer");
 
+    info!("------------------------- Test Miner Tenure C  -------------------------");
+
     next_block_and_process_new_stacks_block(
         &mut signer_test.running_nodes.btc_regtest_controller,
         60,
         &signer_test.running_nodes.coord_channel,
     )
     .expect("Failed to mine a normal tenure after the tenure extend");
+
+    info!("------------------------- Shutdown -------------------------");
 
     signer_test.shutdown();
 }
@@ -7058,9 +7066,6 @@ fn continue_after_fast_block_no_sortition() {
         &mut signer_test.running_nodes.btc_regtest_controller,
         60,
         || {
-            if blocks_mined1.load(Ordering::SeqCst) > blocks_processed_before_1 {
-                debug!("MINER 1 BLOCKS PROCESSED HERE");
-            }
             Ok(get_burn_height() > burn_height_before
                 && blocks_mined1.load(Ordering::SeqCst) > blocks_processed_before_1
                 && test_observer::get_blocks().len() > nmb_old_blocks)
@@ -13109,6 +13114,9 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine() {
     assert!(tip.sortition);
     assert_eq!(tip.miner_pk_hash.unwrap(), mining_pkh_2);
 
+    info!(
+        "------------------------- Wait for Miner 2 to be Marked Invalid -------------------------"
+    );
     // Make sure that miner 2 gets marked invalid by not proposing a block BEFORE block_proposal_timeout
     std::thread::sleep(block_proposal_timeout.add(Duration::from_secs(1)));
 
@@ -13124,7 +13132,7 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine() {
     // Unpause both miner's block proposals
     TEST_BROADCAST_STALL.set(false);
 
-    info!("------------------------- Wait for Miner 2's Block N+1' ------------------------";
+    info!("------------------------- Wait for Miner 1's Block N+1 to be Mined ------------------------";
         "stacks_height_before" => %stacks_height_before,
         "nmb_old_blocks" => %nmb_old_blocks);
 
@@ -13146,7 +13154,7 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine() {
     let mut miner_1_block_n_1 = None;
     let mut miner_2_block_n_1 = None;
 
-    wait_for(30, || {
+    wait_for(60, || {
         let chunks = test_observer::get_stackerdb_chunks();
         for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
             let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
