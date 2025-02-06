@@ -11714,7 +11714,7 @@ fn reorg_attempts_activity_timeout_exceeded() {
     let block_proposal_n = wait_for_block_proposal().expect("Failed to get block proposal N");
     let chain_after = get_chain_info(&signer_test.running_nodes.conf);
     assert_eq!(chain_after, chain_before);
-    TEST_BROADCAST_STALL.set(true);
+    TEST_BROADCAST_PROPOSAL_STALL.set(true);
 
     info!("------------------------- Start Tenure B  -------------------------");
     let commits_before = signer_test
@@ -11752,7 +11752,7 @@ fn reorg_attempts_activity_timeout_exceeded() {
     // Make sure to wait the reorg_attempts_activity_timeout AFTER the block is globally signed over
     // as this is the point where signers start considering from.
     std::thread::sleep(reorg_attempts_activity_timeout.add(Duration::from_secs(1)));
-    TEST_BROADCAST_STALL.set(false);
+    TEST_BROADCAST_PROPOSAL_STALL.set(false);
     let block_proposal_n_prime =
         wait_for_block_proposal().expect("Failed to get block proposal N'");
     assert_eq!(
@@ -11760,7 +11760,7 @@ fn reorg_attempts_activity_timeout_exceeded() {
         chain_after.stacks_tip_height
     );
     // Make sure that no subsequent proposal arrives before the block_proposal_timeout is exceeded
-    TEST_BROADCAST_STALL.set(true);
+    TEST_BROADCAST_PROPOSAL_STALL.set(true);
     TEST_VALIDATE_STALL.set(false);
     // We only need to wait the difference between the two timeouts now since we already slept for a min of reorg_attempts_activity_timeout + 1
     std::thread::sleep(block_proposal_timeout.saturating_sub(reorg_attempts_activity_timeout));
@@ -11777,7 +11777,7 @@ fn reorg_attempts_activity_timeout_exceeded() {
 
     info!("------------------------- Wait for Block N+1 Proposal -------------------------");
     test_observer::clear();
-    TEST_BROADCAST_STALL.set(false);
+    TEST_BROADCAST_PROPOSAL_STALL.set(false);
     wait_for(30, || {
         let block_proposal_n_1 =
             wait_for_block_proposal().expect("Failed to get block proposal N+1");
