@@ -13077,8 +13077,13 @@ fn tenure_extend_cost_threshold() {
 /// The stacks node is then advanced to Epoch 3.0 boundary to allow block signing.
 ///
 /// Test Execution:
-/// The node mines 1 stacks block N (all signers sign it). The subsequent block N+1 is proposed, but <30% accept it. The remaining signers
-/// do not make a decision on the block. A new tenure begins and the miner proposes a new block N+1' which all signers accept.
+/// Miner 1 mines a tenure change block, then mines a second block, block N,
+/// but the signers will not broadcast it, and the miner will stall before
+/// broadcasting. Miner 2 wins the next sortition and proposes a block N',
+/// since it has not seen N, but signers are ignoring proposals so that it is
+/// not rejected. Miner 1 then announces N. Miner 2 sees N, stops waiting
+/// for signatures on N' and submits a new proposal, N+1, which is accepted.
+/// Finally a new tenure arrives and N+2 is mined.
 ///
 /// Test Assertion:
 /// Stacks tip advances to N+1'
@@ -13141,6 +13146,7 @@ fn interrupt_miner_on_new_stacks_tip() {
             config.node.pox_sync_sample_secs = 30;
             config.miner.block_commit_delay = Duration::from_secs(0);
             config.miner.tenure_cost_limit_per_block_percentage = None;
+            config.miner.block_rejection_timeout_steps = [(0, Duration::from_secs(1200))].into();
 
             config.events_observers.retain(|listener| {
                 match std::net::SocketAddr::from_str(&listener.endpoint) {
@@ -13330,7 +13336,6 @@ fn interrupt_miner_on_new_stacks_tip() {
 
     // Make the miner stall before broadcasting the block once it has been approved
     TEST_P2P_BROADCAST_STALL.set(true);
-    // TEST_BLOCK_ANNOUNCE_STALL.set(true);
     // Make the signers not broadcast the block once it has been approved
     TEST_SKIP_BLOCK_BROADCAST.set(true);
 
@@ -13482,7 +13487,15 @@ fn interrupt_miner_on_new_stacks_tip() {
     )
     .expect("Timed out waiting for the next block to be mined");
 
-    wait_for_chains().expect("Timed out waiting for Rl1 and Rl2 chains to advance");
+    wait_for(30, || {
+        let Some(chain_info) = get_chain_info_opt(&conf) else {
+            return Ok(false);
+        };
+        Ok(chain_info.stacks_tip_height == block_n.stacks_height + 2)
+    })
+    .expect("Timed out waiting for height to advance to block N+2");
+
+    wait_for_chains().expect("Timed out waiting for Rl2 to reach N+2");
 
     info!("------------------------- Shutdown -------------------------");
     signer_test.shutdown();
