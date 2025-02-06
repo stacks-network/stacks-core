@@ -3384,6 +3384,10 @@ pub mod test {
 
             let old_tip = self.network.stacks_tip.clone();
 
+            // make sure the right state machines run
+            let epoch2_passes = self.network.epoch2_state_machine_passes;
+            let nakamoto_passes = self.network.nakamoto_state_machine_passes;
+
             let ret = self.network.run(
                 &indexer,
                 &sortdb,
@@ -3395,6 +3399,30 @@ pub mod test {
                 100,
                 &rpc_handler_args,
             );
+
+            if self.network.get_current_epoch().epoch_id >= StacksEpochId::Epoch30 {
+                assert_eq!(
+                    self.network.nakamoto_state_machine_passes,
+                    nakamoto_passes + 1
+                );
+                let epoch2_expected_passes = if self.network.stacks_tip.is_nakamoto
+                    && !self.network.connection_opts.force_nakamoto_epoch_transition
+                {
+                    epoch2_passes
+                } else {
+                    epoch2_passes + 1
+                };
+                assert_eq!(
+                    self.network.epoch2_state_machine_passes,
+                    epoch2_expected_passes
+                );
+            }
+            if self
+                .network
+                .need_epoch2_state_machines(self.network.get_current_epoch().epoch_id)
+            {
+                assert_eq!(self.network.epoch2_state_machine_passes, epoch2_passes + 1);
+            }
 
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(stacks_node);
@@ -3467,6 +3495,10 @@ pub mod test {
                 .unwrap_or(RPCHandlerArgsType::make_default());
             let old_tip = self.network.stacks_tip.clone();
 
+            // make sure the right state machines run
+            let epoch2_passes = self.network.epoch2_state_machine_passes;
+            let nakamoto_passes = self.network.nakamoto_state_machine_passes;
+
             let ret = self.network.run(
                 &indexer,
                 &sortdb,
@@ -3478,6 +3510,30 @@ pub mod test {
                 100,
                 &rpc_handler_args,
             );
+
+            if self.network.get_current_epoch().epoch_id >= StacksEpochId::Epoch30 {
+                assert_eq!(
+                    self.network.nakamoto_state_machine_passes,
+                    nakamoto_passes + 1
+                );
+                let epoch2_expected_passes = if self.network.stacks_tip.is_nakamoto
+                    && !self.network.connection_opts.force_nakamoto_epoch_transition
+                {
+                    epoch2_passes
+                } else {
+                    epoch2_passes + 1
+                };
+                assert_eq!(
+                    self.network.epoch2_state_machine_passes,
+                    epoch2_expected_passes
+                );
+            }
+            if self
+                .network
+                .need_epoch2_state_machines(self.network.get_current_epoch().epoch_id)
+            {
+                assert_eq!(self.network.epoch2_state_machine_passes, epoch2_passes + 1);
+            }
 
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(stacks_node);
