@@ -953,7 +953,6 @@ fn forked_tenure_testing(
         |config| {
             // make the duration long enough that the reorg attempt will definitely be accepted
             config.first_proposal_burn_block_timing = proposal_limit;
-            config.tenure_last_block_proposal_timeout = Duration::from_secs(0);
 
             // don't allow signers to post signed blocks (limits the amount of fault injection we
             // need)

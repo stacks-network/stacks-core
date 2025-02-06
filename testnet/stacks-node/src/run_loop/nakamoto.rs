@@ -447,7 +447,7 @@ impl RunLoop {
         let (relay_send, relay_recv) = sync_channel(RELAYER_MAX_BUFFER);
 
         // set up globals so other subsystems can instantiate off of the runloop state.
-        let globals = Globals::new(
+        let mut globals = Globals::new(
             coordinator_senders,
             self.get_miner_status(),
             relay_send,
@@ -523,7 +523,15 @@ impl RunLoop {
             burnchain.get_headers_height() - 1,
         );
 
-        debug!("Runloop: Begin main runloop starting a burnchain block {sortition_db_height}");
+        let sortition_height =
+            SortitionDB::get_canonical_burn_chain_tip(burnchain.sortdb_ref().conn())
+                .map(|snapshot| snapshot.block_height)
+                .unwrap_or(0);
+
+        let initial_ibd = sortition_height < burnchain.get_headers_height() - 1;
+
+        debug!("Runloop: Begin main runloop starting a burnchain block {sortition_db_height}. IBD={initial_ibd}");
+        globals.set_initial_block_download(initial_ibd);
 
         let mut last_tenure_sortition_height = 0;
         let mut poll_deadline = 0;
@@ -681,7 +689,7 @@ impl RunLoop {
                 remote_chain_height,
             );
 
-            debug!("Runloop: Advance target burnchain block height from {target_burnchain_block_height} to {next_target_burnchain_block_height} (sortition height {sortition_db_height})");
+            debug!("Runloop: Advance target burnchain block height from {target_burnchain_block_height} to {next_target_burnchain_block_height} (sortition height {sortition_db_height}, ibd={ibd})");
             target_burnchain_block_height = next_target_burnchain_block_height;
 
             if sortition_db_height >= burnchain_height && !ibd {
