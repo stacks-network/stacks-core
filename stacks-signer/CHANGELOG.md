@@ -7,9 +7,15 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
-### Added
+## Added
+
+- Introduced the `reorg_attempts_activity_timeout_ms` configuration option for signers which is used to determine the length of time after the last block of a tenure is confirmed that an incoming miner's attempts to reorg it are considered valid miner activity. 
 
 ### Changed
+
+- Increase default `block_proposal_timeout_ms` from 10 minutes to 4 hours. Until #5729 is implemented, there is no value in rejecting a late block from a miner, since a late block is better than no block at all.
+
+- Signers no longer view any block proposal by a miner in their DB as indicative of valid miner activity.
 
 ## [3.1.0.0.5.0]
 
