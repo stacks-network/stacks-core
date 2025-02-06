@@ -417,6 +417,7 @@ pub(crate) mod tests {
             block_proposal_validation_timeout: config.block_proposal_validation_timeout,
             tenure_idle_timeout: config.tenure_idle_timeout,
             block_proposal_max_age_secs: config.block_proposal_max_age_secs,
+            reorg_attempts_activity_timeout: config.reorg_attempts_activity_timeout,
         }
     }
 
