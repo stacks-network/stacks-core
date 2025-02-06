@@ -828,7 +828,6 @@ impl BlockResponseData {
     /// Serialize the "inner" block response data. Used to determine the bytes length of the serialized block response data
     fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.tenure_extend_timestamp)?;
-        // write_next(fd, &self.unknown_bytes)?;
         fd.write_all(&self.unknown_bytes)
             .map_err(CodecError::WriteError)?;
         Ok(())

@@ -9,6 +9,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
+- The `BlockProposal` StackerDB message serialization struct now includes a `server_version` string, which represents the version of the node that the mienr is using. ([#5803](https://github.com/stacks-network/stacks-core/pull/5803))
+
 ### Changed
 
 ### Fixed

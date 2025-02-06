@@ -141,7 +141,6 @@ impl BlockProposalData {
     /// Serialize the "inner" block response data. Used to determine the bytes length of the serialized block response data
     fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.server_version.as_bytes().to_vec())?;
-        // write_next(fd, &self.unknown_bytes)?;
         fd.write_all(&self.unknown_bytes)
             .map_err(CodecError::WriteError)?;
         Ok(())
@@ -708,7 +707,6 @@ mod tests {
             old_block_proposal.reward_cycle,
             new_block_proposal.reward_cycle
         );
-        // assert_eq!();
     }
 
     #[test]
