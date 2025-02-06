@@ -47,7 +47,11 @@ use stacks::net::stackerdb::StackerDBs;
 use stacks::net::{NakamotoBlocksData, StacksMessageType};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::secp256k1::MessageSignature;
+#[cfg(test)]
+use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
+#[cfg(test)]
+use stacks_common::types::PublicKey;
 use stacks_common::types::{PrivateKey, StacksEpochId};
 #[cfg(test)]
 use stacks_common::util::tests::TestFlag;
@@ -64,8 +68,9 @@ use crate::run_loop::RegisteredKey;
 /// Test flag to stall the miner thread
 pub static TEST_MINE_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 #[cfg(test)]
-/// Test flag to stall block proposal broadcasting
-pub static TEST_BROADCAST_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+/// Test flag to stall block proposal broadcasting for the specified miner keys
+pub static TEST_BROADCAST_STALL: LazyLock<TestFlag<Vec<Secp256k1PublicKey>>> =
+    LazyLock::new(TestFlag::default);
 #[cfg(test)]
 pub static TEST_BLOCK_ANNOUNCE_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 #[cfg(test)]
@@ -253,21 +258,32 @@ impl BlockMinerThread {
 
     #[cfg(test)]
     fn fault_injection_block_broadcast_stall(new_block: &NakamotoBlock) {
-        if TEST_BROADCAST_STALL.get() {
-            // Do an extra check just so we don't log EVERY time.
+        if TEST_BROADCAST_STALL.get().iter().any(|key| {
+            key.verify(
+                new_block.header.miner_signature_hash().as_bytes(),
+                &new_block.header.miner_signature,
+            )
+            .unwrap_or_default()
+        }) {
             warn!("Fault injection: Broadcasting is stalled due to testing directive.";
-                      "stacks_block_id" => %new_block.block_id(),
-                      "stacks_block_hash" => %new_block.header.block_hash(),
-                      "height" => new_block.header.chain_length,
-                      "consensus_hash" => %new_block.header.consensus_hash
+                        "stacks_block_id" => %new_block.block_id(),
+                        "stacks_block_hash" => %new_block.header.block_hash(),
+                        "height" => new_block.header.chain_length,
+                        "consensus_hash" => %new_block.header.consensus_hash
             );
-            while TEST_BROADCAST_STALL.get() {
+            while TEST_BROADCAST_STALL.get().iter().any(|key| {
+                key.verify(
+                    new_block.header.miner_signature_hash().as_bytes(),
+                    &new_block.header.miner_signature,
+                )
+                .unwrap_or_default()
+            }) {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
             info!("Fault injection: Broadcasting is no longer stalled due to testing directive.";
-                  "block_id" => %new_block.block_id(),
-                  "height" => new_block.header.chain_length,
-                  "consensus_hash" => %new_block.header.consensus_hash
+                    "block_id" => %new_block.block_id(),
+                    "height" => new_block.header.chain_length,
+                    "consensus_hash" => %new_block.header.consensus_hash
             );
         }
     }

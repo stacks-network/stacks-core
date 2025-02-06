@@ -5111,6 +5111,9 @@ fn forked_tenure_is_ignored() {
         &[EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
     );
 
+    let miner_sk = naka_conf.miner.mining_key.unwrap();
+    let miner_pk = StacksPublicKey::from_private(&miner_sk);
+
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
         .start_bitcoind()
@@ -5188,7 +5191,7 @@ fn forked_tenure_is_ignored() {
 
     // For the next tenure, submit the commit op but do not allow any stacks blocks to be broadcasted.
     // Stall the miner thread; only wait until the number of submitted commits increases.
-    TEST_BROADCAST_STALL.set(true);
+    TEST_BROADCAST_STALL.set(vec![miner_pk]);
     TEST_BLOCK_ANNOUNCE_STALL.set(true);
 
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
@@ -5207,7 +5210,7 @@ fn forked_tenure_is_ignored() {
     // Unpause the broadcast of Tenure B's block, do not submit commits, and do not allow blocks to
     // be processed
     test_skip_commit_op.set(true);
-    TEST_BROADCAST_STALL.set(false);
+    TEST_BROADCAST_STALL.set(vec![]);
 
     // Wait for a stacks block to be broadcasted.
     // However, it will not be processed.
