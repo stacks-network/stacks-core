@@ -557,6 +557,7 @@ fn check_proposal_refresh() {
             stacks_parent_ch: Some(view.cur_sortition.parent_tenure_id),
             last_sortition_ch: Some(view.cur_sortition.parent_tenure_id),
             committed_block_hash: None,
+            vrf_seed: None,
         },
         SortitionInfo {
             burn_block_hash: BurnchainHeaderHash([128; 32]),
@@ -570,6 +571,7 @@ fn check_proposal_refresh() {
             stacks_parent_ch: Some(view.cur_sortition.parent_tenure_id),
             last_sortition_ch: Some(view.cur_sortition.parent_tenure_id),
             committed_block_hash: None,
+            vrf_seed: None,
         },
     ];
 

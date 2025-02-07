@@ -16,6 +16,7 @@
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
+use clarity::types::chainstate::VRFSeed;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, ConsensusHash};
 use stacks_common::types::net::PeerHost;
 
@@ -159,6 +160,13 @@ fn response() {
     let second_entry: SortitionInfo = serde_json::from_value(info_array[1].clone())
         .expect("Response array elements should parse to SortitionInfo");
     assert!(first_entry.was_sortition);
+    assert_eq!(
+        first_entry.vrf_seed,
+        Some(
+            VRFSeed::from_hex("48b754acc291a5bfad1354ee19bbc471f14af2b21dc7eccc0f929bd16798defe")
+                .unwrap()
+        )
+    );
     assert!(second_entry.was_sortition);
     assert_eq!(
         first_entry.last_sortition_ch.as_ref().unwrap(),
