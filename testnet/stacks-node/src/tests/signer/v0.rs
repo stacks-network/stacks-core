@@ -13500,3 +13500,55 @@ fn interrupt_miner_on_new_stacks_tip() {
     info!("------------------------- Shutdown -------------------------");
     signer_test.shutdown();
 }
+
+#[test]
+#[ignore]
+/// This test verifies that a miner will produce a TenureExtend transaction
+/// after the signers' idle timeout, plus buffer, is reached.
+fn tenure_extend_after_idle_signers_with_buffer() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let idle_timeout = Duration::from_secs(1);
+    let buffer_secs = 20;
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![],
+        |config| {
+            config.tenure_idle_timeout = idle_timeout;
+        },
+        |config| {
+            config.miner.tenure_extend_cost_threshold = 0;
+            config.miner.tenure_extend_buffer_secs = buffer_secs;
+        },
+        None,
+        None,
+    );
+
+    signer_test.boot_to_epoch_3();
+
+    info!("---- Nakamoto booted, starting test ----");
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+
+    info!("---- Waiting for a tenure extend ----");
+
+    // Now, wait for a block with a tenure extend
+    wait_for(idle_timeout.as_secs() + buffer_secs / 2, || {
+        Ok(last_block_contains_tenure_change_tx(
+            TenureChangeCause::Extended,
+        ))
+    })
+    .expect_err(
+        "Received a tenure extend before idle timeout plus buffer should have been reached",
+    );
+
+    signer_test.shutdown();
+}

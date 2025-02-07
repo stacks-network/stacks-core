@@ -10,6 +10,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Added
 
 - Add `vrf_seed` to the `/v3/sortitions` rpc endpoint
+- Add miner configuration option `tenure_extend_buffer_secs` to specify the number of seconds of buffer the miner should wait, after reaching the 70% threshold for tenure extension time, before issuing a tenure extension, to allow for clock skew between the miner and signers
 
 ### Changed
 
