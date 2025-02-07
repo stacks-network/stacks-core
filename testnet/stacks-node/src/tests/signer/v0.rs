@@ -11640,6 +11640,7 @@ fn reorg_attempts_activity_timeout_exceeded() {
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let block_proposal_timeout = Duration::from_secs(30);
     let reorg_attempts_activity_timeout = Duration::from_secs(20);
+    let tenure_extend_wait_timeout = Duration::from_secs(1000);
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(sender_addr, send_amt + send_fee)],
@@ -11647,7 +11648,9 @@ fn reorg_attempts_activity_timeout_exceeded() {
             config.block_proposal_timeout = block_proposal_timeout;
             config.reorg_attempts_activity_timeout = reorg_attempts_activity_timeout;
         },
-        |_| {},
+        |config| {
+            config.miner.tenure_extend_wait_timeout = tenure_extend_wait_timeout;
+        },
         None,
         None,
     );
@@ -11789,7 +11792,7 @@ fn reorg_attempts_activity_timeout_exceeded() {
 
     info!("------------------------- Wait for Block N+1 Proposal -------------------------");
     test_observer::clear();
-    TEST_BROADCAST_STALL.set(vec![miner_pk]);
+    TEST_BROADCAST_STALL.set(vec![]);
     wait_for(30, || {
         let block_proposal_n_1 =
             wait_for_block_proposal().expect("Failed to get block proposal N+1");

@@ -1760,9 +1760,11 @@ impl RelayerThread {
     }
 
     /// Try to start up a tenure-extend.
-    /// Only do this if:
+    /// Will check if the tenure-extend time was set and has expired and one of the following is true:
     /// - the miner won the highest valid sortition but the burn view has changed.
     /// - the subsequent miner appears to be offline.
+    /// If so, it will stop any existing tenure and attempt to start a new one with an Extended reason.
+    /// Otherwise, it will do nothing.
     fn try_continue_tenure(&mut self) {
         // Should begin a tenure-extend?
         if let Some(tenure_extend_time) = &self.tenure_extend_time {
@@ -1778,6 +1780,13 @@ impl RelayerThread {
             // No tenure extend time set, so nothing to do.
             return;
         }
+        let Some(mining_pk) = self.get_mining_key_pkh() else {
+            // This shouldn't really ever hit, but just in case.
+            warn!("Will not tenure extend -- no mining key");
+            // If we don't have a mining key set, don't bother checking again.
+            self.tenure_extend_time = None;
+            return;
+        };
         // reset timer so we can try again if for some reason a miner was already running (e.g. a
         // blockfound from earlier).
         self.tenure_extend_time = Some(TenureExtendTime::delayed(
@@ -1785,46 +1794,42 @@ impl RelayerThread {
         ));
         // try to extend, but only if we aren't already running a thread for the current or newer
         // burnchain view
-        let Ok(sn) =
-            SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn()).inspect_err(|e| {
+        let Ok(burn_tip) = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn())
+            .inspect_err(|e| {
                 error!("Failed to read canonical burnchain sortition: {e:?}");
             })
         else {
             return;
         };
 
+        let won_sortition = burn_tip.sortition && burn_tip.miner_pk_hash == Some(mining_pk);
+
+        if won_sortition {
+            debug!("Will not tenure extend. Won current sortition";
+                "burn_chain_sortition_tip_ch" => %burn_tip.consensus_hash
+            );
+            self.tenure_extend_time = None;
+            return;
+        }
+
         if let Some(miner_thread_burn_view) = self.miner_thread_burn_view.as_ref() {
             // a miner thread is already running.  If its burn view is the same as the canonical
             // tip, then do nothing for now
-            if sn.consensus_hash == miner_thread_burn_view.consensus_hash {
-                info!("Will not try to start a tenure extend -- the current miner thread's burn view matches the sortition tip"; "sortition tip" => %sn.consensus_hash);
+            if burn_tip.consensus_hash == miner_thread_burn_view.consensus_hash {
+                info!("Will not try to start a tenure extend -- the current miner thread's burn view matches the sortition tip"; "sortition tip" => %burn_tip.consensus_hash);
                 return;
             }
         }
 
-        let Some(mining_pk) = self.get_mining_key_pkh() else {
-            // This shouldn't really ever hit, but just in case.
-            warn!("Will not tenure extend -- no mining key");
-            return;
-        };
-
-        let (canonical_stacks_tip_ch, _) =
+        let (canonical_stacks_tip_ch, canonical_stacks_tip_bh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn())
                 .expect("FATAL: failed to query sortition DB for stacks tip");
+        let canonical_stacks_tip =
+            StacksBlockId::new(&canonical_stacks_tip_ch, &canonical_stacks_tip_bh);
         let canonical_stacks_snapshot =
             SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), &canonical_stacks_tip_ch)
                 .expect("FATAL: failed to query sortiiton DB for epoch")
                 .expect("FATAL: no sortition for canonical stacks tip");
-
-        let won_sortition = sn.sortition && sn.miner_pk_hash == Some(mining_pk);
-
-        if won_sortition {
-            debug!("Will not tenure extend. Won current sortition";
-                "burn_chain_sortition_tip_ch" => %sn.consensus_hash,
-                "canonical_stacks_tip_ch" => %canonical_stacks_tip_ch,
-            );
-            return;
-        }
 
         let won_ongoing_tenure_sortition =
             canonical_stacks_snapshot.miner_pk_hash == Some(mining_pk);
@@ -1832,14 +1837,14 @@ impl RelayerThread {
         if !won_ongoing_tenure_sortition {
             // We did not win the ongoing tenure sortition, so nothing we can even do.
             debug!("Will not tenure extend. Did not win ongoing tenure sortition";
-                "burn_chain_sortition_tip_ch" => %sn.consensus_hash,
+                "burn_chain_sortition_tip_ch" => %burn_tip.consensus_hash,
                 "canonical_stacks_tip_ch" => %canonical_stacks_tip_ch,
-                "burn_chain_sortition_tip_mining_pk" => ?sn.miner_pk_hash,
+                "burn_chain_sortition_tip_mining_pk" => ?burn_tip.miner_pk_hash,
                 "mining_pk" => %mining_pk,
             );
             return;
         }
-        let Ok(last_winning_snapshot) = Self::get_last_winning_snapshot(&self.sortdb, &sn)
+        let Ok(last_winning_snapshot) = Self::get_last_winning_snapshot(&self.sortdb, &burn_tip)
             .inspect_err(|e| {
                 warn!("Failed to load last winning snapshot: {e:?}");
             })
@@ -1854,14 +1859,31 @@ impl RelayerThread {
             return;
         }
 
-        if let Err(e) = self.continue_tenure(sn.consensus_hash.clone()) {
-            warn!(
-                "Failed to continue tenure for burn view {}: {e:?}",
-                &sn.consensus_hash
-            );
-        } else {
-            self.tenure_extend_time = None;
+        if let Err(e) = self.stop_tenure() {
+            error!("Relayer: Failed to stop tenure: {e:?}");
+            return;
         }
+        let reason = MinerReason::Extended {
+            burn_view_consensus_hash: burn_tip.consensus_hash.clone(),
+        };
+        debug!("Relayer: successfully stopped tenure; will try to continue.");
+        if let Err(e) = self.start_new_tenure(
+            canonical_stacks_tip.clone(),
+            canonical_stacks_snapshot.clone(),
+            burn_tip.clone(),
+            reason.clone(),
+            &burn_tip.consensus_hash,
+        ) {
+            error!("Relayer: Failed to start new tenure: {e:?}");
+        } else {
+            debug!("Relayer: successfully started new tenure.";
+                   "parent_tenure_start" => %canonical_stacks_tip,
+                   "burn_tip" => %burn_tip.consensus_hash,
+                   "burn_view_snapshot" => %burn_tip.consensus_hash,
+                   "block_election_snapshot" => %canonical_stacks_snapshot.consensus_hash,
+                   "reason" => %reason);
+        }
+        self.tenure_extend_time = None;
     }
 
     /// Main loop of the relayer.
