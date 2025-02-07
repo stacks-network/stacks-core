@@ -217,22 +217,19 @@ impl Trie {
             // ptr is a backptr -- find the block
             let back_block_hash = storage
                 .get_block_from_local_id(ptr.back_block())
-                .map_err(|e| {
+                .inspect_err(|_e| {
                     test_debug!("Failed to get block from local ID {}", ptr.back_block());
-                    e
                 })?
                 .clone();
 
             storage
                 .open_block_known_id(&back_block_hash, ptr.back_block())
-                .map_err(|e| {
+                .inspect_err(|_e| {
                     test_debug!(
-                        "Failed to open block {} with id {}: {:?}",
+                        "Failed to open block {} with id {}: {_e:?}",
                         &back_block_hash,
                         ptr.back_block(),
-                        &e
                     );
-                    e
                 })?;
 
             let backptr = ptr.from_backptr();
@@ -641,7 +638,7 @@ impl Trie {
 
         node.set_path(new_cur_node_path);
 
-        let new_cur_node_hash = get_nodetype_hash(storage, &node)?;
+        let new_cur_node_hash = get_nodetype_hash(storage, node)?;
 
         let mut new_node4 = TrieNode4::new(&shared_path_prefix);
         new_node4.insert(&leaf_ptr);
@@ -684,7 +681,7 @@ impl Trie {
         );
         cursor.repair_retarget(&new_node, &ret, &storage.get_cur_block());
 
-        trace!("splice_leaf: node-X' at {:?}", &ret);
+        trace!("splice_leaf: node-X' at {ret:?}");
         Ok(ret)
     }
 

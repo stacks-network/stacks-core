@@ -340,14 +340,14 @@ pub fn parse_pox_addr(pox_address_literal: &str) -> Result<PoxAddress, String> {
         Ok,
     );
     match parsed_addr {
-        Ok(PoxAddress::Standard(addr, None)) => match addr.version {
+        Ok(PoxAddress::Standard(addr, None)) => match addr.version() {
             C32_ADDRESS_VERSION_MAINNET_MULTISIG | C32_ADDRESS_VERSION_TESTNET_MULTISIG => Ok(
                 PoxAddress::Standard(addr, Some(AddressHashMode::SerializeP2SH)),
             ),
             C32_ADDRESS_VERSION_MAINNET_SINGLESIG | C32_ADDRESS_VERSION_TESTNET_SINGLESIG => Ok(
                 PoxAddress::Standard(addr, Some(AddressHashMode::SerializeP2PKH)),
             ),
-            _ => Err(format!("Invalid address version: {}", addr.version)),
+            _ => Err(format!("Invalid address version: {}", addr.version())),
         },
         _ => parsed_addr,
     }
@@ -451,7 +451,7 @@ mod tests {
         );
         match pox_addr {
             PoxAddress::Standard(stacks_addr, hash_mode) => {
-                assert_eq!(stacks_addr.version, 22);
+                assert_eq!(stacks_addr.version(), 22);
                 assert_eq!(hash_mode, Some(AddressHashMode::SerializeP2PKH));
             }
             _ => panic!("Invalid parsed address"),
@@ -467,7 +467,7 @@ mod tests {
         make_message_hash(&pox_addr);
         match pox_addr {
             PoxAddress::Standard(stacks_addr, hash_mode) => {
-                assert_eq!(stacks_addr.version, 20);
+                assert_eq!(stacks_addr.version(), 20);
                 assert_eq!(hash_mode, Some(AddressHashMode::SerializeP2SH));
             }
             _ => panic!("Invalid parsed address"),
@@ -483,7 +483,7 @@ mod tests {
         make_message_hash(&pox_addr);
         match pox_addr {
             PoxAddress::Standard(stacks_addr, hash_mode) => {
-                assert_eq!(stacks_addr.version, C32_ADDRESS_VERSION_TESTNET_SINGLESIG);
+                assert_eq!(stacks_addr.version(), C32_ADDRESS_VERSION_TESTNET_SINGLESIG);
                 assert_eq!(hash_mode, Some(AddressHashMode::SerializeP2PKH));
             }
             _ => panic!("Invalid parsed address"),

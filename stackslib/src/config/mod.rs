@@ -16,7 +16,7 @@
 
 pub mod chain_data;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -86,18 +86,41 @@ pub const OP_TX_ANY_ESTIM_SIZE: u64 = fmax!(
     OP_TX_VOTE_AGG_ESTIM_SIZE
 );
 
+/// Default maximum percentage of `satoshis_per_byte` that a Bitcoin fee rate
+/// may be increased to when RBFing a transaction
 const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
+/// Amount to increment the fee by, in Sats/vByte, when RBFing a Bitcoin
+/// transaction
 const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
+/// Default number of reward cycles of blocks to sync in a non-full inventory
+/// sync
 const INV_REWARD_CYCLES_TESTNET: u64 = 6;
+/// Default minimum time to wait between mining blocks in milliseconds. The
+/// value must be greater than or equal to 1000 ms because if a block is mined
+/// within the same second as its parent, it will be rejected by the signers.
 const DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS: u64 = 1_000;
+/// Default time in milliseconds to pause after receiving the first threshold
+/// rejection, before proposing a new block.
 const DEFAULT_FIRST_REJECTION_PAUSE_MS: u64 = 5_000;
+/// Default time in milliseconds to pause after receiving subsequent threshold
+/// rejections, before proposing a new block.
 const DEFAULT_SUBSEQUENT_REJECTION_PAUSE_MS: u64 = 10_000;
+/// Default time in milliseconds to wait for a Nakamoto block after seeing a
+/// burnchain block before submitting a block commit.
 const DEFAULT_BLOCK_COMMIT_DELAY_MS: u64 = 20_000;
+/// Default percentage of the remaining tenure cost limit to consume each block
 const DEFAULT_TENURE_COST_LIMIT_PER_BLOCK_PERCENTAGE: u8 = 25;
+/// Default number of seconds to wait in-between polling the sortition DB to
+/// see if we need to extend the ongoing tenure (e.g. because the current
+/// sortition is empty or invalid).
 const DEFAULT_TENURE_EXTEND_POLL_SECS: u64 = 1;
-
-// This should be greater than the signers' timeout. This is used for issuing fallback tenure extends
-const DEFAULT_TENURE_TIMEOUT_SECS: u64 = 420;
+/// Default duration to wait before attempting to issue a tenure extend.
+/// This should be greater than the signers' timeout. This is used for issuing
+/// fallback tenure extends
+const DEFAULT_TENURE_TIMEOUT_SECS: u64 = 180;
+/// Default percentage of block budget that must be used before attempting a
+/// time-based tenure extend
+const DEFAULT_TENURE_EXTEND_COST_THRESHOLD: u64 = 50;
 
 static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
     LazyLock::new(|| ConnectionOptions {
@@ -1191,9 +1214,13 @@ pub struct BurnchainConfig {
     pub process_exit_at_block_height: Option<u64>,
     pub poll_time_secs: u64,
     pub satoshis_per_byte: u64,
+    /// Maximum percentage of `satoshis_per_byte` that a Bitcoin fee rate may
+    /// be increased to when RBFing a transaction
     pub max_rbf: u64,
     pub leader_key_tx_estimated_size: u64,
     pub block_commit_tx_estimated_size: u64,
+    /// Amount to increment the fee by, in Sats/vByte, when RBFing a Bitcoin
+    /// transaction
     pub rbf_fee_increment: u64,
     pub first_burn_block_height: Option<u64>,
     pub first_burn_block_timestamp: Option<u32>,
@@ -1579,9 +1606,8 @@ impl BurnchainConfigFile {
                 .unwrap_or(default_burnchain_config.fault_injection_burnchain_block_delay),
             max_unspent_utxos: self
                 .max_unspent_utxos
-                .map(|val| {
+                .inspect(|&val| {
                     assert!(val <= 1024, "Value for max_unspent_utxos should be <= 1024");
-                    val
                 })
                 .or(default_burnchain_config.max_unspent_utxos),
         };
@@ -2061,7 +2087,7 @@ impl NodeConfig {
         let sockaddr = deny_node.to_socket_addrs().unwrap().next().unwrap();
         let neighbor = NodeConfig::default_neighbor(
             sockaddr,
-            Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
+            Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random()),
             chain_id,
             peer_version,
         );
@@ -2156,6 +2182,10 @@ pub struct MinerConfig {
     pub tenure_extend_poll_secs: Duration,
     /// Duration to wait before attempting to issue a tenure extend
     pub tenure_timeout: Duration,
+    /// Percentage of block budget that must be used before attempting a time-based tenure extend
+    pub tenure_extend_cost_threshold: u64,
+    /// Define the timeout to apply while waiting for signers responses, based on the amount of rejections
+    pub block_rejection_timeout_steps: HashMap<u32, Duration>,
 }
 
 impl Default for MinerConfig {
@@ -2194,6 +2224,16 @@ impl Default for MinerConfig {
             ),
             tenure_extend_poll_secs: Duration::from_secs(DEFAULT_TENURE_EXTEND_POLL_SECS),
             tenure_timeout: Duration::from_secs(DEFAULT_TENURE_TIMEOUT_SECS),
+            tenure_extend_cost_threshold: DEFAULT_TENURE_EXTEND_COST_THRESHOLD,
+
+            block_rejection_timeout_steps: {
+                let mut rejections_timeouts_default_map = HashMap::<u32, Duration>::new();
+                rejections_timeouts_default_map.insert(0, Duration::from_secs(600));
+                rejections_timeouts_default_map.insert(10, Duration::from_secs(300));
+                rejections_timeouts_default_map.insert(20, Duration::from_secs(150));
+                rejections_timeouts_default_map.insert(30, Duration::from_secs(0));
+                rejections_timeouts_default_map
+            },
         }
     }
 }
@@ -2590,6 +2630,8 @@ pub struct MinerConfigFile {
     pub tenure_cost_limit_per_block_percentage: Option<u8>,
     pub tenure_extend_poll_secs: Option<u64>,
     pub tenure_timeout_secs: Option<u64>,
+    pub tenure_extend_cost_threshold: Option<u64>,
+    pub block_rejection_timeout_steps: Option<HashMap<String, u64>>,
 }
 
 impl MinerConfigFile {
@@ -2732,6 +2774,25 @@ impl MinerConfigFile {
             tenure_cost_limit_per_block_percentage,
             tenure_extend_poll_secs: self.tenure_extend_poll_secs.map(Duration::from_secs).unwrap_or(miner_default_config.tenure_extend_poll_secs),
             tenure_timeout: self.tenure_timeout_secs.map(Duration::from_secs).unwrap_or(miner_default_config.tenure_timeout),
+            tenure_extend_cost_threshold: self.tenure_extend_cost_threshold.unwrap_or(miner_default_config.tenure_extend_cost_threshold),
+
+            block_rejection_timeout_steps: {
+                if let Some(block_rejection_timeout_items) = self.block_rejection_timeout_steps {
+                    let mut rejection_timeout_durations = HashMap::<u32, Duration>::new();
+                    for (slice, seconds) in block_rejection_timeout_items.iter() {
+                        match slice.parse::<u32>() {
+                            Ok(slice_slot) => rejection_timeout_durations.insert(slice_slot, Duration::from_secs(*seconds)),
+                            Err(e) => panic!("block_rejection_timeout_steps keys must be unsigned integers: {}", e)
+                        };
+                    }
+                    if !rejection_timeout_durations.contains_key(&0) {
+                        panic!("block_rejection_timeout_steps requires a definition for the '0' key/step");
+                    }
+                    rejection_timeout_durations
+                } else{
+                    miner_default_config.block_rejection_timeout_steps
+                }
+            }
         })
     }
 }
@@ -3310,7 +3371,7 @@ mod tests {
             let config_file = make_burnchain_config_file(false, None);
 
             let config = config_file
-                .into_config_default(default_burnchain_config.clone())
+                .into_config_default(default_burnchain_config)
                 .expect("Should not panic");
             assert_eq!(config.chain_id, CHAIN_ID_TESTNET);
         }

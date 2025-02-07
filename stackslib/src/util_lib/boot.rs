@@ -25,7 +25,7 @@ pub fn boot_code_addr(mainnet: bool) -> StacksAddress {
 pub fn boot_code_tx_auth(boot_code_address: StacksAddress) -> TransactionAuth {
     TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(
         SinglesigSpendingCondition {
-            signer: boot_code_address.bytes.clone(),
+            signer: boot_code_address.bytes().clone(),
             hash_mode: SinglesigHashMode::P2PKH,
             key_encoding: TransactionPublicKeyEncoding::Uncompressed,
             nonce: 0,

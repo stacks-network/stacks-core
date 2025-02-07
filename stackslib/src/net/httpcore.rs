@@ -189,7 +189,7 @@ pub mod request {
         contract_key: &str,
     ) -> Result<QualifiedContractIdentifier, HttpError> {
         let address = if let Some(address_str) = captures.name(address_key) {
-            if let Some(addr) = StacksAddress::from_string(&address_str.as_str()) {
+            if let Some(addr) = StacksAddress::from_string(address_str.as_str()) {
                 addr
             } else {
                 return Err(HttpError::Http(
@@ -383,7 +383,7 @@ pub trait RPCRequestHandler: HttpRequest + HttpResponse + RPCRequestHandlerClone
     ) -> Result<BlockSnapshot, StacksHttpResponse> {
         SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).map_err(|e| {
             StacksHttpResponse::new_error(
-                &preamble,
+                preamble,
                 &HttpServerError::new(format!("Failed to load canonical burnchain tip: {:?}", &e)),
             )
         })
@@ -398,7 +398,7 @@ pub trait RPCRequestHandler: HttpRequest + HttpResponse + RPCRequestHandlerClone
     ) -> Result<StacksEpoch, StacksHttpResponse> {
         SortitionDB::get_stacks_epoch(sortdb.conn(), block_height)
             .map_err(|e| {
-                StacksHttpResponse::new_error(&preamble, &HttpServerError::new(format!("Could not load Stacks epoch for canonical burn height: {:?}", &e)))
+                StacksHttpResponse::new_error(preamble, &HttpServerError::new(format!("Could not load Stacks epoch for canonical burn height: {:?}", &e)))
             })?
             .ok_or_else(|| {
                 let msg = format!(
@@ -406,7 +406,7 @@ pub trait RPCRequestHandler: HttpRequest + HttpResponse + RPCRequestHandlerClone
                     block_height
                 );
                 warn!("{}", &msg);
-                StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
+                StacksHttpResponse::new_error(preamble, &HttpServerError::new(msg))
             })
     }
 
@@ -421,14 +421,14 @@ pub trait RPCRequestHandler: HttpRequest + HttpResponse + RPCRequestHandlerClone
             .map_err(|e| {
                 let msg = format!("Failed to load stacks chain tip header: {:?}", &e);
                 warn!("{}", &msg);
-                StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
+                StacksHttpResponse::new_error(preamble, &HttpServerError::new(msg))
             })?
             .ok_or_else(|| {
                 let msg =
                     "No stacks tip exists yet. Perhaps no blocks have been processed by this node"
                         .to_string();
                 warn!("{}", &msg);
-                StacksHttpResponse::new_error(&preamble, &HttpNotFound::new(msg))
+                StacksHttpResponse::new_error(preamble, &HttpNotFound::new(msg))
             })
     }
 }
@@ -1232,25 +1232,22 @@ impl StacksHttp {
     /// This method will set up this state machine to consume the message associated with this
     /// premable, if the response is chunked.
     fn set_preamble(&mut self, preamble: &StacksHttpPreamble) -> Result<(), NetError> {
-        match preamble {
-            StacksHttpPreamble::Response(ref http_response_preamble) => {
-                // we can only receive a response if we're expecting it
-                if self.request_handler_index.is_none() && !self.allow_arbitrary_response {
-                    return Err(NetError::DeserializeError(
-                        "Unexpected HTTP response: no active request handler".to_string(),
-                    ));
-                }
-                if http_response_preamble.is_chunked() {
-                    // we can only receive one response at a time
-                    if self.reply.is_some() {
-                        test_debug!("Have pending reply already");
-                        return Err(NetError::InProgress);
-                    }
-
-                    self.set_pending(http_response_preamble);
-                }
+        if let StacksHttpPreamble::Response(ref http_response_preamble) = preamble {
+            // we can only receive a response if we're expecting it
+            if self.request_handler_index.is_none() && !self.allow_arbitrary_response {
+                return Err(NetError::DeserializeError(
+                    "Unexpected HTTP response: no active request handler".to_string(),
+                ));
             }
-            _ => {}
+            if http_response_preamble.is_chunked() {
+                // we can only receive one response at a time
+                if self.reply.is_some() {
+                    test_debug!("Have pending reply already");
+                    return Err(NetError::InProgress);
+                }
+
+                self.set_pending(http_response_preamble);
+            }
         }
         Ok(())
     }
@@ -1275,9 +1272,8 @@ impl StacksHttp {
             return Err(NetError::InvalidState);
         }
         if let Some(reply) = self.reply.as_mut() {
-            match reply.stream.consume_data(fd).map_err(|e| {
+            match reply.stream.consume_data(fd).inspect_err(|_e| {
                 self.reset();
-                e
             })? {
                 (Some((byte_vec, bytes_total)), sz) => {
                     // done receiving
@@ -1332,7 +1328,7 @@ impl StacksHttp {
     /// This can only return a finite set of identifiers, which makes it safer to use for Prometheus metrics
     /// For details see https://github.com/stacks-network/stacks-core/issues/4574
     pub fn metrics_identifier(&self, req: &mut StacksHttpRequest) -> &str {
-        let Ok((decoded_path, _)) = decode_request_path(&req.request_path()) else {
+        let Ok((decoded_path, _)) = decode_request_path(req.request_path()) else {
             return "<err-url-decode>";
         };
 
@@ -1385,7 +1381,7 @@ impl StacksHttp {
                 )),
             }
         } else {
-            let (message, _) = http.read_payload(&preamble, &message_bytes)?;
+            let (message, _) = http.read_payload(&preamble, message_bytes)?;
             Ok(message)
         }
     }
@@ -1491,11 +1487,11 @@ impl ProtocolFamily for StacksHttp {
                 }
 
                 // message of unknown length.  Buffer up and maybe we can parse it.
-                let (message_bytes_opt, num_read) =
-                    self.consume_data(http_response_preamble, fd).map_err(|e| {
-                        self.reset();
-                        e
-                    })?;
+                let (message_bytes_opt, num_read) = self
+                    .consume_data(http_response_preamble, fd)
+                    .inspect_err(|_e| {
+                    self.reset();
+                })?;
 
                 match message_bytes_opt {
                     Some((message_bytes, total_bytes_consumed)) => {

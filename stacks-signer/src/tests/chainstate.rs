@@ -91,11 +91,12 @@ fn setup_test_environment(
             block_proposal_timeout: Duration::from_secs(5),
             tenure_last_block_proposal_timeout: Duration::from_secs(30),
             tenure_idle_timeout: Duration::from_secs(300),
+            reorg_attempts_activity_timeout: Duration::from_secs(3),
         },
     };
 
     let stacks_client = StacksClient::new(
-        StacksPrivateKey::new(),
+        StacksPrivateKey::random(),
         SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 10000).to_string(),
         "FOO".into(),
         false,

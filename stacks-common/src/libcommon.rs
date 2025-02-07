@@ -1,5 +1,4 @@
 #![allow(unused_macros)]
-#![allow(unused_imports)]
 #![allow(dead_code)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
@@ -7,6 +6,7 @@
 #![cfg_attr(test, allow(unused_variables, unused_assignments))]
 #![allow(clippy::assertions_on_constants)]
 
+#[allow(unused_imports)]
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
@@ -32,8 +32,6 @@ pub mod address;
 pub mod deps_common;
 
 pub mod bitvec;
-
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId};
 
 pub mod consts {
     use crate::types::chainstate::{BlockHeaderHash, ConsensusHash};
@@ -97,6 +95,10 @@ pub mod consts {
 
     /// number of uSTX per STX
     pub const MICROSTACKS_PER_STACKS: u32 = 1_000_000;
+}
+
+pub mod versions {
+    include!(concat!(env!("OUT_DIR"), "/versions.rs"));
 }
 
 /// This test asserts that the constant above doesn't change.

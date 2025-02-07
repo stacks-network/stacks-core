@@ -172,7 +172,7 @@ fn trie_cursor_try_attach_leaf() {
                 assert!(leaf_opt.is_some());
 
                 let leaf = leaf_opt.unwrap();
-                assert_eq!(leaf, TrieLeaf::new(&path[i + 1..].to_vec(), &[i as u8; 40]));
+                assert_eq!(leaf, TrieLeaf::new(&path[i + 1..], &[i as u8; 40]));
 
                 // without a MARF commit, merkle tests will fail in deferred mode
                 if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
@@ -1232,8 +1232,6 @@ fn trie_cursor_splice_leaf_4() {
             let (nodes, node_ptrs, hashes) =
                 make_node_path(&mut f, node_id.to_u8(), &path_segments, [31u8; 40].to_vec());
 
-            let mut ptrs = vec![];
-
             // splice in a node in each path segment
             for k in 0..5 {
                 let mut path = vec![
@@ -1261,7 +1259,6 @@ fn trie_cursor_splice_leaf_4() {
                     &mut node,
                 )
                 .unwrap();
-                ptrs.push(new_ptr);
 
                 Trie::update_root_hash(&mut f, &c).unwrap();
 
@@ -1325,7 +1322,6 @@ fn trie_cursor_splice_leaf_2() {
 
             let (nodes, node_ptrs, hashes) =
                 make_node_path(&mut f, node_id.to_u8(), &path_segments, [31u8; 40].to_vec());
-            let mut ptrs = vec![];
 
             // splice in a node in each path segment
             for k in 0..10 {
@@ -1350,7 +1346,6 @@ fn trie_cursor_splice_leaf_2() {
                     &mut node,
                 )
                 .unwrap();
-                ptrs.push(new_ptr);
 
                 Trie::update_root_hash(&mut f, &c).unwrap();
 
