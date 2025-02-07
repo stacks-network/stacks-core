@@ -207,6 +207,10 @@ impl SignerTrait<SignerMessage> for Signer {
                                 "block_height" => b.header.chain_length,
                                 "signer_sighash" => %b.header.signer_signature_hash(),
                             );
+                            #[cfg(any(test, feature = "testing"))]
+                            if self.test_skip_block_broadcast(b) {
+                                return;
+                            }
                             stacks_client.post_block_until_ok(self, b);
                         }
                         SignerMessage::MockProposal(mock_proposal) => {
