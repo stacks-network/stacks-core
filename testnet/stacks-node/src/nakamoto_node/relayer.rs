@@ -504,13 +504,11 @@ impl RelayerThread {
         }
     }
 
-    /// Choose a miner directive based on the outcome of a sortition.
+    /// Choose a miner directive for a sortition with a winner.
     ///
     /// The decision process is a little tricky, because the right decision depends on:
     /// * whether or not we won the _given_ sortition (`sn`)
     /// * whether or not we won the sortition that started the ongoing Stacks tenure
-    /// * whether or not we won the last sortition with a winner
-    /// * whether or not the last sortition winner has produced a Stacks block
     /// * whether or not the ongoing Stacks tenure is at or descended from the last-winning
     /// sortition
     ///
@@ -520,31 +518,30 @@ impl RelayerThread {
     /// tenure-change.  Otherwise, if we won the tenure which started the ongoing Stacks tenure
     /// (i.e. we're the active miner), then we _may_ start mining after a timeout _if_ the winning
     /// miner (not us) fails to submit a `BlockFound` tenure-change block for `sn`.
-    ///
-    /// Otherwise, if the given sortition `sn` has no winner, the find out who won the last sortition
-    /// with a winner.  If it was us, and if we haven't yet submitted a `BlockFound` tenure-change
-    /// for it (which can happen if this given sortition is from a flash block), then start mining
-    /// immediately with a "late" `BlockFound` tenure, _and_ prepare to start mining right afterwards
-    /// with an `Extended` tenure-change so as to represent the given sortition `sn`'s burn view in
-    /// the Stacks chain.
-    ///
-    /// Otherwise, if this sortition has no winner, and we did not win the last-winning sortition,
-    /// then check to see if we're the ongoing Stack's tenure's miner. If so, then we _may_ start
-    /// mining after a timeout _if_ the winner of the last-good sortition (not us) fails to submit
-    /// a `BlockFound` tenure-change block.  This can happen if `sn` was a flash block, and the
-    /// remote miner has yet to process it.
-    ///
-    /// We won't always be able to mine -- for example, this could be an empty sortition, but the
-    /// parent block could be an epoch 2 block.  In this case, the right thing to do is to wait for
-    /// the next block-commit.
-    pub(crate) fn choose_miner_directive(
+    fn choose_directive_sortition_with_winner(
         &mut self,
         sn: BlockSnapshot,
-        won_sortition: bool,
+        mining_pk: Hash160,
         committed_index_hash: StacksBlockId,
     ) -> Option<MinerDirective> {
-        // Reset the tenure extend time as we need to process this new sortition to deterine if we should extend
-        self.tenure_extend_time = None;
+        let won_sortition = sn.miner_pk_hash == Some(mining_pk);
+        if won_sortition || self.config.get_node_config(false).mock_mining {
+            // a sortition happenend, and we won
+            info!("Won sortition; begin tenure.";
+                    "winning_sortition" => %sn.consensus_hash);
+            return Some(MinerDirective::BeginTenure {
+                parent_tenure_start: committed_index_hash,
+                burnchain_tip: sn.clone(),
+                election_block: sn,
+                late: false,
+            });
+        }
+
+        // a sortition happened, but we didn't win. Check if we won the ongoing tenure.
+        debug!(
+            "Relayer: did not win sortition {}, so stopping tenure",
+            &sn.sortition
+        );
         let (canonical_stacks_tip_ch, _) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn())
                 .expect("FATAL: failed to query sortition DB for stacks tip");
@@ -553,56 +550,68 @@ impl RelayerThread {
                 .expect("FATAL: failed to query sortiiton DB for epoch")
                 .expect("FATAL: no sortition for canonical stacks tip");
 
-        let mining_pkh_opt = self.get_mining_key_pkh();
-
         let won_ongoing_tenure_sortition =
-            mining_pkh_opt.is_some() && canonical_stacks_snapshot.miner_pk_hash == mining_pkh_opt;
-
-        if sn.sortition {
-            // a sortition happened
-            if won_sortition || self.config.get_node_config(false).mock_mining {
-                // a sortition happenend, and we won
-                info!("Relayer: Won sortition; begin tenure.";
-                      "winning_sortition" => %sn.consensus_hash);
-                return Some(MinerDirective::BeginTenure {
-                    parent_tenure_start: committed_index_hash,
-                    burnchain_tip: sn.clone(),
-                    election_block: sn,
-                    late: false,
-                });
-            }
-
-            // a sortition happened, but we didn't win.
-            debug!(
-                "Relayer: did not win sortition {}, so stopping tenure",
-                &sn.sortition
-            );
-
-            if won_ongoing_tenure_sortition {
-                // we won the current ongoing tenure, but not the most recent sortition. Should we attempt to extend immediately or wait for the incoming miner?
-                if let Ok(result) = Self::find_highest_valid_sortition(
-                    &self.sortdb,
-                    &mut self.chainstate,
-                    &sn,
-                    &canonical_stacks_snapshot.consensus_hash,
-                ) {
-                    if result.is_some() {
-                        debug!("Relayer: Did not win current sortition but won the prior valid sortition. Will attempt to extend tenure after allowing the new miner some time to come online.";
-                                "tenure_extend_wait_timeout_ms" => self.config.miner.tenure_extend_wait_timeout.as_millis(),
-                        );
-                        self.tenure_extend_time = Some(TenureExtendTime::delayed(
-                            self.config.miner.tenure_extend_wait_timeout,
-                        ));
-                    } else {
-                        info!("Relayer: no valid sortition since our last winning sortition. Will extend tenure.");
-                        self.tenure_extend_time = Some(TenureExtendTime::immediate());
-                    }
+            canonical_stacks_snapshot.miner_pk_hash == Some(mining_pk);
+        if won_ongoing_tenure_sortition {
+            // we won the current ongoing tenure, but not the most recent sortition. Should we attempt to extend immediately or wait for the incoming miner?
+            if let Ok(result) = Self::find_highest_valid_sortition(
+                &self.sortdb,
+                &mut self.chainstate,
+                &sn,
+                &canonical_stacks_snapshot.consensus_hash,
+            ) {
+                if result.is_some() {
+                    debug!("Relayer: Did not win current sortition but won the prior valid sortition. Will attempt to extend tenure after allowing the new miner some time to come online.";
+                            "tenure_extend_wait_timeout_ms" => self.config.miner.tenure_extend_wait_timeout.as_millis(),
+                    );
+                    self.tenure_extend_time = Some(TenureExtendTime::delayed(
+                        self.config.miner.tenure_extend_wait_timeout,
+                    ));
+                } else {
+                    info!("Relayer: no valid sortition since our last winning sortition. Will extend tenure.");
+                    self.tenure_extend_time = Some(TenureExtendTime::immediate());
                 }
             }
-            return Some(MinerDirective::StopTenure);
         }
+        return Some(MinerDirective::StopTenure);
+    }
 
-        // no sortition happened.
+    /// Choose a miner directive for a sortition with no winner.
+    ///
+    /// The decision process is a little tricky, because the right decision depends on:
+    /// * whether or not we won the sortition that started the ongoing Stacks tenure
+    /// * whether or not we won the last sortition with a winner
+    /// * whether or not the last sortition winner has produced a Stacks block
+    /// * whether or not the ongoing Stacks tenure is at or descended from the last-winning
+    /// sortition
+    ///
+    /// Find out who won the last sortition with a winner.  If it was us, and if we haven't yet
+    /// submitted a `BlockFound` tenure-change for it (which can happen if this given sortition is
+    /// from a flash block), then start mining immediately with a "late" `BlockFound` tenure, _and_
+    /// prepare to start mining right afterwards with an `Extended` tenure-change so as to represent
+    /// the given sortition `sn`'s burn view in the Stacks chain.
+    ///
+    /// Otherwise, if did not win the last-winning sortition, then check to see if we're the ongoing
+    /// Stack's tenure's miner. If so, then we _may_ start mining after a timeout _if_ the winner of
+    /// the last-good sortition (not us) fails to submit a `BlockFound` tenure-change block.
+    /// This can happen if `sn` was a flash block, and the remote miner has yet to process it.
+    ///
+    /// We won't always be able to mine -- for example, this could be an empty sortition, but the
+    /// parent block could be an epoch 2 block.  In this case, the right thing to do is to wait for
+    /// the next block-commit.
+    fn choose_directive_sortition_without_winner(
+        &mut self,
+        sn: BlockSnapshot,
+        mining_pk: Hash160,
+    ) -> Option<MinerDirective> {
+        let (canonical_stacks_tip_ch, _) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn())
+                .expect("FATAL: failed to query sortition DB for stacks tip");
+        let canonical_stacks_snapshot =
+            SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), &canonical_stacks_tip_ch)
+                .expect("FATAL: failed to query sortiiton DB for epoch")
+                .expect("FATAL: no sortition for canonical stacks tip");
+
         // find out what epoch the Stacks tip is in.
         // If it's in epoch 2.x, then we must always begin a new tenure, but we can't do so
         // right now since this sortition has no winner.
@@ -632,9 +641,7 @@ impl RelayerThread {
             return None;
         };
 
-        let won_last_winning_snapshot =
-            mining_pkh_opt.is_some() && last_winning_snapshot.miner_pk_hash == mining_pkh_opt;
-
+        let won_last_winning_snapshot = last_winning_snapshot.miner_pk_hash == Some(mining_pk);
         if won_last_winning_snapshot {
             debug!(
                 "Relayer: we won the last winning sortition {}",
@@ -657,8 +664,8 @@ impl RelayerThread {
                     late: true,
                 });
             }
-            let tip_is_last_winning_snapshot = mining_pkh_opt.is_some()
-                && canonical_stacks_snapshot.block_height == last_winning_snapshot.block_height
+            let tip_is_last_winning_snapshot = canonical_stacks_snapshot.block_height
+                == last_winning_snapshot.block_height
                 && canonical_stacks_snapshot.consensus_hash == last_winning_snapshot.consensus_hash;
 
             if tip_is_last_winning_snapshot {
@@ -671,6 +678,8 @@ impl RelayerThread {
             }
         }
 
+        let won_ongoing_tenure_sortition =
+            canonical_stacks_snapshot.miner_pk_hash == Some(mining_pk);
         if won_ongoing_tenure_sortition {
             info!("Relayer: No sortition, but we produced the canonical Stacks tip. Will extend tenure.");
             if !won_last_winning_snapshot {
@@ -818,8 +827,17 @@ impl RelayerThread {
                 .raise_initiative("process_sortition".to_string());
             return Ok(None);
         }
-
-        let directive_opt = self.choose_miner_directive(sn, won_sortition, committed_index_hash);
+        // Reset the tenure extend time
+        self.tenure_extend_time = None;
+        let Some(mining_pk) = self.get_mining_key_pkh() else {
+            debug!("No mining key, will not mine");
+            return Ok(None);
+        };
+        let directive_opt = if sn.sortition {
+            self.choose_directive_sortition_with_winner(sn, mining_pk, committed_index_hash)
+        } else {
+            self.choose_directive_sortition_without_winner(sn, mining_pk)
+        };
         debug!(
             "Relayer: Processed sortition {}: Miner directive is {:?}",
             &consensus_hash, &directive_opt
