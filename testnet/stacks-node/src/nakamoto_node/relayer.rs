@@ -632,37 +632,45 @@ impl RelayerThread {
             return None;
         };
 
-        if self.need_block_found(&canonical_stacks_snapshot, &last_winning_snapshot) {
-            info!(
-                "Relayer: will submit late BlockFound for {}",
-                &last_winning_snapshot.consensus_hash
-            );
-            // prepare to immediately extend after our BlockFound gets mined.
-            self.tenure_extend_time = Some(TenureExtendTime::immediate());
-            return Some(MinerDirective::BeginTenure {
-                parent_tenure_start: StacksBlockId(
-                    last_winning_snapshot.winning_stacks_block_hash.clone().0,
-                ),
-                burnchain_tip: sn,
-                election_block: last_winning_snapshot,
-                late: true,
-            });
-        }
-
         let won_last_winning_snapshot =
             mining_pkh_opt.is_some() && last_winning_snapshot.miner_pk_hash == mining_pkh_opt;
-        let tip_is_last_winning_snapshot = mining_pkh_opt.is_some()
-            && canonical_stacks_snapshot.block_height == last_winning_snapshot.block_height
-            && canonical_stacks_snapshot.consensus_hash == last_winning_snapshot.consensus_hash;
 
-        if won_last_winning_snapshot && tip_is_last_winning_snapshot {
-            // this is the ongoing tenure snapshot. A BlockFound has already been issued. We
-            // can instead opt to Extend immediately
-            info!("Relayer: BlockFound already issued for the last winning sortition. Will extend tenure.");
-            return Some(MinerDirective::ContinueTenure {
-                new_burn_view: sn.consensus_hash,
-            });
+        if won_last_winning_snapshot {
+            debug!(
+                "Relayer: we won the last winning sortition {}",
+                &last_winning_snapshot.consensus_hash
+            );
+
+            if self.need_block_found(&canonical_stacks_snapshot, &last_winning_snapshot) {
+                info!(
+                    "Relayer: will submit late BlockFound for {}",
+                    &last_winning_snapshot.consensus_hash
+                );
+                // prepare to immediately extend after our BlockFound gets mined.
+                self.tenure_extend_time = Some(TenureExtendTime::immediate());
+                return Some(MinerDirective::BeginTenure {
+                    parent_tenure_start: StacksBlockId(
+                        last_winning_snapshot.winning_stacks_block_hash.clone().0,
+                    ),
+                    burnchain_tip: sn,
+                    election_block: last_winning_snapshot,
+                    late: true,
+                });
+            }
+            let tip_is_last_winning_snapshot = mining_pkh_opt.is_some()
+                && canonical_stacks_snapshot.block_height == last_winning_snapshot.block_height
+                && canonical_stacks_snapshot.consensus_hash == last_winning_snapshot.consensus_hash;
+
+            if tip_is_last_winning_snapshot {
+                // this is the ongoing tenure snapshot. A BlockFound has already been issued. We
+                // can instead opt to Extend immediately
+                info!("Relayer: BlockFound already issued for the last winning sortition. Will extend tenure.");
+                return Some(MinerDirective::ContinueTenure {
+                    new_burn_view: sn.consensus_hash,
+                });
+            }
         }
+
         if won_ongoing_tenure_sortition {
             info!("Relayer: No sortition, but we produced the canonical Stacks tip. Will extend tenure.");
             if !won_last_winning_snapshot {
@@ -684,27 +692,16 @@ impl RelayerThread {
         return None;
     }
 
-    /// Determine if we need to issue a BlockFound.
+    /// Determine if we the current tenure winner needs to issue a BlockFound.
+    /// Assumes the caller has already checked that the last-winning snapshot was won by us.
     ///
-    /// Returns true if we won the last non-empty sortition, and the stacks tip's snapshot is an ancestor of the last-won sortition
+    /// Returns true if the stacks tip's snapshot is an ancestor of the last-won sortition
     /// Returns false otherwise.
     fn need_block_found(
         &mut self,
         canonical_stacks_snapshot: &BlockSnapshot,
         last_winning_snapshot: &BlockSnapshot,
     ) -> bool {
-        if last_winning_snapshot.miner_pk_hash != self.get_mining_key_pkh() {
-            debug!(
-                "Relayer: we did not win the last winning sortition {}",
-                &last_winning_snapshot.consensus_hash
-            );
-            // We did not win the last winning snapshot, we do not need to issue a block found.
-            return false;
-        }
-        debug!(
-            "Relayer: we won the last winning sortition {}",
-            &last_winning_snapshot.consensus_hash
-        );
         // we won the last non-empty sortition. Has there been a BlockFound issued for it?
         // This would be true if the stacks tip's tenure is at or descends from this snapshot.
         // If there has _not_ been a BlockFound, then we should issue one.
@@ -1854,11 +1851,15 @@ impl RelayerThread {
             return;
         };
 
-        if self.need_block_found(&canonical_stacks_snapshot, &last_winning_snapshot) {
+        let won_last_winning_snapshot = last_winning_snapshot.miner_pk_hash == Some(mining_pk);
+        if won_last_winning_snapshot
+            && self.need_block_found(&canonical_stacks_snapshot, &last_winning_snapshot)
+        {
             info!("Will not extend tenure -- need to issue a BlockFound first");
             return;
         }
-
+        // If we reach this code, we have either won the last winning snapshot and have already issued a block found for it and should extend.
+        // OR we did not win the last snapshot, but the person who did has failed to produce a block and we should extend our old tenure.
         if let Err(e) = self.stop_tenure() {
             error!("Relayer: Failed to stop tenure: {e:?}");
             return;
