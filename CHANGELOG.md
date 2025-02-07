@@ -9,6 +9,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
+- Add `vrf_seed` to the `/v3/sortitions` rpc endpoint
+
 ### Changed
 
 ### Fixed
