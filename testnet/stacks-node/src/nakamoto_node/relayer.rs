@@ -1756,12 +1756,16 @@ impl RelayerThread {
         ))
     }
 
-    /// Try to start up a tenure-extend.
+    /// Try to start up a tenure-extend if the tenure_extend_time has expired.
+    ///
     /// Will check if the tenure-extend time was set and has expired and one of the following is true:
-    /// - the miner won the highest valid sortition but the burn view has changed.
+    /// - this miner won the highest valid sortition but the burn view has changed.
     /// - the subsequent miner appears to be offline.
     /// If so, it will stop any existing tenure and attempt to start a new one with an Extended reason.
     /// Otherwise, it will do nothing.
+    ///
+    /// Note: tenure_extend_time is only set to Some(_) if during sortition processing, the sortition
+    /// winner commit is corrupted or the winning miner has yet to produce a block.
     fn try_continue_tenure(&mut self) {
         // Should begin a tenure-extend?
         if let Some(tenure_extend_time) = &self.tenure_extend_time {
