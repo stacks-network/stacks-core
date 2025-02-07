@@ -9,7 +9,11 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
+- Add `vrf_seed` to the `/v3/sortitions` rpc endpoint
+
 ### Changed
+
+- Miner will stop waiting for signatures on a block if the Stacks tip advances (causing the block it had proposed to be invalid).
 
 ### Fixed
 
