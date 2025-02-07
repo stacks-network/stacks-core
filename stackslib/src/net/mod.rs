@@ -3384,6 +3384,10 @@ pub mod test {
 
             let old_tip = self.network.stacks_tip.clone();
 
+            // make sure the right state machines run
+            let epoch2_passes = self.network.epoch2_state_machine_passes;
+            let nakamoto_passes = self.network.nakamoto_state_machine_passes;
+
             let ret = self.network.run(
                 &indexer,
                 &sortdb,
@@ -3395,6 +3399,30 @@ pub mod test {
                 100,
                 &rpc_handler_args,
             );
+
+            if self.network.get_current_epoch().epoch_id >= StacksEpochId::Epoch30 {
+                assert_eq!(
+                    self.network.nakamoto_state_machine_passes,
+                    nakamoto_passes + 1
+                );
+                let epoch2_expected_passes = if self.network.stacks_tip.is_nakamoto
+                    && !self.network.connection_opts.force_nakamoto_epoch_transition
+                {
+                    epoch2_passes
+                } else {
+                    epoch2_passes + 1
+                };
+                assert_eq!(
+                    self.network.epoch2_state_machine_passes,
+                    epoch2_expected_passes
+                );
+            }
+            if self
+                .network
+                .need_epoch2_state_machines(self.network.get_current_epoch().epoch_id)
+            {
+                assert_eq!(self.network.epoch2_state_machine_passes, epoch2_passes + 1);
+            }
 
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(stacks_node);
@@ -3467,6 +3495,10 @@ pub mod test {
                 .unwrap_or(RPCHandlerArgsType::make_default());
             let old_tip = self.network.stacks_tip.clone();
 
+            // make sure the right state machines run
+            let epoch2_passes = self.network.epoch2_state_machine_passes;
+            let nakamoto_passes = self.network.nakamoto_state_machine_passes;
+
             let ret = self.network.run(
                 &indexer,
                 &sortdb,
@@ -3478,6 +3510,30 @@ pub mod test {
                 100,
                 &rpc_handler_args,
             );
+
+            if self.network.get_current_epoch().epoch_id >= StacksEpochId::Epoch30 {
+                assert_eq!(
+                    self.network.nakamoto_state_machine_passes,
+                    nakamoto_passes + 1
+                );
+                let epoch2_expected_passes = if self.network.stacks_tip.is_nakamoto
+                    && !self.network.connection_opts.force_nakamoto_epoch_transition
+                {
+                    epoch2_passes
+                } else {
+                    epoch2_passes + 1
+                };
+                assert_eq!(
+                    self.network.epoch2_state_machine_passes,
+                    epoch2_expected_passes
+                );
+            }
+            if self
+                .network
+                .need_epoch2_state_machines(self.network.get_current_epoch().epoch_id)
+            {
+                assert_eq!(self.network.epoch2_state_machine_passes, epoch2_passes + 1);
+            }
 
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(stacks_node);
@@ -4328,18 +4384,15 @@ pub mod test {
             let mut stacks_node = self.stacks_node.take().unwrap();
 
             let parent_block_opt = stacks_node.get_last_anchored_block(&self.miner);
-            let parent_sortition_opt = match parent_block_opt.as_ref() {
-                Some(parent_block) => {
-                    let ic = sortdb.index_conn();
-                    SortitionDB::get_block_snapshot_for_winning_stacks_block(
-                        &ic,
-                        &tip.sortition_id,
-                        &parent_block.block_hash(),
-                    )
-                    .unwrap()
-                }
-                None => None,
-            };
+            let parent_sortition_opt = parent_block_opt.as_ref().and_then(|parent_block| {
+                let ic = sortdb.index_conn();
+                SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                    &ic,
+                    &tip.sortition_id,
+                    &parent_block.block_hash(),
+                )
+                .unwrap()
+            });
 
             let parent_microblock_header_opt =
                 get_last_microblock_header(&stacks_node, &self.miner, parent_block_opt.as_ref());
@@ -4355,10 +4408,7 @@ pub mod test {
                     &last_key.public_key,
                     &burn_block.parent_snapshot.sortition_hash,
                 )
-                .expect(&format!(
-                    "FATAL: no private key for {}",
-                    last_key.public_key.to_hex()
-                ));
+                .unwrap_or_else(|| panic!("FATAL: no private key for {:?}", last_key.public_key));
 
             let (stacks_block, microblocks) = tenure_builder(
                 &mut self.miner,
@@ -4618,10 +4668,9 @@ pub mod test {
             self.config
                 .burnchain
                 .block_height_to_reward_cycle(block_height)
-                .expect(&format!(
-                    "Failed to get reward cycle for block height {}",
-                    block_height
-                ))
+                .unwrap_or_else(|| {
+                    panic!("Failed to get reward cycle for block height {block_height}")
+                })
         }
 
         /// Verify that the sortition DB migration into Nakamoto worked correctly.
