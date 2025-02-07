@@ -9,6 +9,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## Added
 
+- Add `vrf_seed` to the `/v3/sortitions` rpc endpoint
+
 ### Changed
 
 - Logging improvements:
@@ -16,6 +18,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   - Imrpovements to how a PeerAddress is logged (human readable format vs hex)
 
 ### Fixed
+
+- Error responses to /v2/transactions/fees are once again expressed as JSON ([#4145](https://github.com/stacks-network/stacks-core/issues/4145)).
 
 ## [3.1.0.0.5]
 
