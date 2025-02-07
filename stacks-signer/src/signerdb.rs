@@ -561,7 +561,7 @@ static SCHEMA_7: &[&str] = &[
 
 static SCHEMA_8: &[&str] = &[
     CREATE_INDEXES_8,
-    "INSERT OR REPLACE INTO db_config (version) VALUES (8);",
+    "INSERT INTO db_config (version) VALUES (8);",
 ];
 
 impl SignerDb {
