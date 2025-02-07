@@ -8353,9 +8353,9 @@ fn test_scenario_three(use_nakamoto: bool) {
     assert_eq!(amount_locked_actual, amount_locked_expected);
 
     // Check Bob signer key
-    let signer_key_expected = Value::buff_from(bob.public_key.to_bytes_compressed());
+    let signer_key_expected = Value::buff_from(bob.public_key.to_bytes_compressed()).unwrap();
     let signer_key_actual = bob_stack_tx_ok.data_map.get("signer-key").unwrap().clone();
-    assert_eq!(signer_key_actual, signer_key_actual);
+    assert_eq!(signer_key_actual, signer_key_expected);
 
     // 5. Check that David can't delegate-stack-stx Eve if delegation expires during lock period
     let eve_delegate_stx_to_david_err = receipts
@@ -10262,7 +10262,7 @@ fn test_scenario_five(use_nakamoto: bool) {
     for (idx, (stacker, stacker_lock_period)) in davids_stackers.iter().enumerate() {
         let (pox_address, first_reward_cycle, lock_period, _indices) =
             get_stacker_info_pox_4(&mut peer, &stacker.principal)
-                .expect(format!("Failed to find stacker {}", idx).as_str());
+                .unwrap_or_else(|| panic!("Failed to find stacker {idx}"));
         assert_eq!(first_reward_cycle, reward_cycle);
         assert_eq!(pox_address, david.pox_address);
         assert_eq!(lock_period, *stacker_lock_period);
@@ -10271,7 +10271,7 @@ fn test_scenario_five(use_nakamoto: bool) {
     for (idx, (stacker, stacker_lock_period)) in eves_stackers.iter().enumerate() {
         let (pox_address, first_reward_cycle, lock_period, _indices) =
             get_stacker_info_pox_4(&mut peer, &stacker.principal)
-                .expect(format!("Failed to find stacker {}", idx).as_str());
+                .unwrap_or_else(|| panic!("Failed to find stacker {idx}"));
         assert_eq!(first_reward_cycle, reward_cycle);
         assert_eq!(pox_address, eve.pox_address);
         assert_eq!(lock_period, *stacker_lock_period);

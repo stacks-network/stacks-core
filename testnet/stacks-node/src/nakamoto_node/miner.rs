@@ -69,12 +69,20 @@ use crate::run_loop::RegisteredKey;
 pub static TEST_MINE_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 #[cfg(test)]
 /// Test flag to stall block proposal broadcasting for the specified miner keys
-pub static TEST_BROADCAST_STALL: LazyLock<TestFlag<Vec<Secp256k1PublicKey>>> =
+pub static TEST_BROADCAST_PROPOSAL_STALL: LazyLock<TestFlag<Vec<Secp256k1PublicKey>>> =
     LazyLock::new(TestFlag::default);
 #[cfg(test)]
+// Test flag to stall the miner from announcing a block while this flag is true
 pub static TEST_BLOCK_ANNOUNCE_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 #[cfg(test)]
-pub static TEST_SKIP_P2P_BROADCAST: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+// Test flag to skip broadcasting blocks over the p2p network
+pub static TEST_P2P_BROADCAST_SKIP: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+#[cfg(test)]
+// Test flag to stall broadcasting blocks over the p2p network
+pub static TEST_P2P_BROADCAST_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+#[cfg(test)]
+// Test flag to skip pushing blocks to the signers
+pub static TEST_BLOCK_PUSH_SKIP: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
 /// If the miner was interrupted while mining a block, how long should the
 ///  miner thread sleep before trying again?
@@ -257,21 +265,21 @@ impl BlockMinerThread {
     }
 
     #[cfg(test)]
-    fn fault_injection_block_broadcast_stall(new_block: &NakamotoBlock) {
-        if TEST_BROADCAST_STALL.get().iter().any(|key| {
+    fn fault_injection_block_proposal_stall(new_block: &NakamotoBlock) {
+        if TEST_BROADCAST_PROPOSAL_STALL.get().iter().any(|key| {
             key.verify(
                 new_block.header.miner_signature_hash().as_bytes(),
                 &new_block.header.miner_signature,
             )
             .unwrap_or_default()
         }) {
-            warn!("Fault injection: Broadcasting is stalled due to testing directive.";
+            warn!("Fault injection: Block proposal broadcast is stalled due to testing directive.";
                         "stacks_block_id" => %new_block.block_id(),
                         "stacks_block_hash" => %new_block.header.block_hash(),
                         "height" => new_block.header.chain_length,
                         "consensus_hash" => %new_block.header.consensus_hash
             );
-            while TEST_BROADCAST_STALL.get().iter().any(|key| {
+            while TEST_BROADCAST_PROPOSAL_STALL.get().iter().any(|key| {
                 key.verify(
                     new_block.header.miner_signature_hash().as_bytes(),
                     &new_block.header.miner_signature,
@@ -280,7 +288,7 @@ impl BlockMinerThread {
             }) {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
-            info!("Fault injection: Broadcasting is no longer stalled due to testing directive.";
+            info!("Fault injection: Block proposal broadcast is no longer stalled due to testing directive.";
                     "block_id" => %new_block.block_id(),
                     "height" => new_block.header.chain_length,
                     "consensus_hash" => %new_block.header.consensus_hash
@@ -289,7 +297,7 @@ impl BlockMinerThread {
     }
 
     #[cfg(not(test))]
-    fn fault_injection_block_broadcast_stall(_ignored: &NakamotoBlock) {}
+    fn fault_injection_block_proposal_stall(_ignored: &NakamotoBlock) {}
 
     #[cfg(test)]
     fn fault_injection_block_announce_stall(new_block: &NakamotoBlock) {
@@ -317,14 +325,45 @@ impl BlockMinerThread {
 
     #[cfg(test)]
     fn fault_injection_skip_block_broadcast() -> bool {
-        if TEST_SKIP_P2P_BROADCAST.get() {
-            return true;
-        }
-        false
+        TEST_P2P_BROADCAST_SKIP.get()
     }
 
     #[cfg(not(test))]
     fn fault_injection_skip_block_broadcast() -> bool {
+        false
+    }
+
+    #[cfg(test)]
+    fn fault_injection_block_broadcast_stall(new_block: &NakamotoBlock) {
+        if TEST_P2P_BROADCAST_STALL.get() {
+            // Do an extra check just so we don't log EVERY time.
+            warn!("Fault injection: P2P block broadcast is stalled due to testing directive.";
+                      "stacks_block_id" => %new_block.block_id(),
+                      "stacks_block_hash" => %new_block.header.block_hash(),
+                      "height" => new_block.header.chain_length,
+                      "consensus_hash" => %new_block.header.consensus_hash
+            );
+            while TEST_P2P_BROADCAST_STALL.get() {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            info!("Fault injection: P2P block broadcast is no longer stalled due to testing directive.";
+                  "block_id" => %new_block.block_id(),
+                  "height" => new_block.header.chain_length,
+                  "consensus_hash" => %new_block.header.consensus_hash
+            );
+        }
+    }
+
+    #[cfg(not(test))]
+    fn fault_injection_block_broadcast_stall(_ignored: &NakamotoBlock) {}
+
+    #[cfg(test)]
+    fn fault_injection_skip_block_push() -> bool {
+        TEST_BLOCK_PUSH_SKIP.get()
+    }
+
+    #[cfg(not(test))]
+    fn fault_injection_skip_block_push() -> bool {
         false
     }
 
@@ -532,7 +571,7 @@ impl BlockMinerThread {
         };
 
         if let Some(mut new_block) = new_block {
-            Self::fault_injection_block_broadcast_stall(&new_block);
+            Self::fault_injection_block_proposal_stall(&new_block);
 
             let signer_signature = match self.propose_block(
                 coordinator,
@@ -548,7 +587,7 @@ impl BlockMinerThread {
                             "block_height" => new_block.header.chain_length,
                             "consensus_hash" => %new_block.header.consensus_hash,
                         );
-                        return Err(e);
+                        return Ok(());
                     }
                     NakamotoNodeError::BurnchainTipChanged => {
                         info!("Burnchain tip changed while waiting for signatures";
@@ -755,6 +794,7 @@ impl BlockMinerThread {
             );
             return Ok(());
         }
+        Self::fault_injection_block_broadcast_stall(block);
 
         let parent_block_info =
             NakamotoChainState::get_block_header(chain_state.db(), &block.header.parent_block_id)?
@@ -849,6 +889,14 @@ impl BlockMinerThread {
         })?;
         let miners_contract_id = boot_code_id(MINERS_NAME, chain_state.mainnet);
         let mut miners_session = StackerDBSession::new(&rpc_socket.to_string(), miners_contract_id);
+
+        if Self::fault_injection_skip_block_push() {
+            warn!(
+                "Fault injection: Skipping block push for {}",
+                block.block_id()
+            );
+            return Ok(());
+        }
 
         SignerCoordinator::send_miners_message(
             miner_privkey,

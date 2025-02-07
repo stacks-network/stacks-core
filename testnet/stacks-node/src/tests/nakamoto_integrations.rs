@@ -98,7 +98,8 @@ use stacks_signer::v0::SpawnedSigner;
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::nakamoto_node::miner::{
-    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_STALL, TEST_MINE_STALL, TEST_SKIP_P2P_BROADCAST,
+    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_PROPOSAL_STALL, TEST_MINE_STALL,
+    TEST_P2P_BROADCAST_SKIP,
 };
 use crate::nakamoto_node::relayer::TEST_MINER_THREAD_STALL;
 use crate::neon::{Counters, RunLoopCounter};
@@ -5191,7 +5192,7 @@ fn forked_tenure_is_ignored() {
 
     // For the next tenure, submit the commit op but do not allow any stacks blocks to be broadcasted.
     // Stall the miner thread; only wait until the number of submitted commits increases.
-    TEST_BROADCAST_STALL.set(vec![miner_pk]);
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk]);
     TEST_BLOCK_ANNOUNCE_STALL.set(true);
 
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
@@ -5210,7 +5211,7 @@ fn forked_tenure_is_ignored() {
     // Unpause the broadcast of Tenure B's block, do not submit commits, and do not allow blocks to
     // be processed
     test_skip_commit_op.set(true);
-    TEST_BROADCAST_STALL.set(vec![]);
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
 
     // Wait for a stacks block to be broadcasted.
     // However, it will not be processed.
@@ -9884,7 +9885,7 @@ fn skip_mining_long_tx() {
             })
             .unwrap();
 
-            TEST_SKIP_P2P_BROADCAST.set(true);
+            TEST_P2P_BROADCAST_SKIP.set(true);
             let tx = make_contract_publish(
                 &sender_2_sk,
                 0,
@@ -9911,7 +9912,7 @@ fn skip_mining_long_tx() {
             })
             .unwrap();
 
-            TEST_SKIP_P2P_BROADCAST.set(false);
+            TEST_P2P_BROADCAST_SKIP.set(false);
         } else {
             let transfer_tx = make_stacks_transfer(
                 &sender_1_sk,
