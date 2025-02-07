@@ -1289,10 +1289,9 @@ impl RelayerThread {
         Ok(ih.get_last_snapshot_with_sortition(sort_tip.block_height)?)
     }
 
-    /// Is the given sortition a valid sortition?
-    /// I.e. whose winning commit's parent tenure ID is on the canonical Stacks history,
-    /// and whose consensus hash corresponds to the ongoing tenure or a confirmed tenure?
-    fn is_valid_sortition(
+    /// Returns true if the sortition `sn` commits to the tenure start block of the ongoing Stacks tenure `stacks_tip_sn`.
+    /// Returns false otherwise.
+    fn sortition_commits_to_stacks_tip_tenure(
         chain_state: &mut StacksChainState,
         stacks_tip_id: &StacksBlockId,
         stacks_tip_sn: &BlockSnapshot,
@@ -1303,22 +1302,9 @@ impl RelayerThread {
             debug!("Relayer: Sortition {} is empty", &sn.consensus_hash);
             return Ok(false);
         }
-
-        // check that this commit's parent tenure ID is on the history tipped at
-        // `stacks_tip_id`
+        // The sortition must commit to the tenure start block of the ongoing Stacks tenure.
         let mut ic = chain_state.index_conn();
         let parent_tenure_id = StacksBlockId(sn.winning_stacks_block_hash.clone().0);
-        let height_opt = ic.get_ancestor_block_height(&parent_tenure_id, stacks_tip_id)?;
-        if height_opt.is_none() {
-            // parent_tenure_id is not an ancestor of stacks_tip_id
-            debug!(
-                "Relayer: Sortition {} has winning commit hash {parent_tenure_id}, which is not canonical",
-                &sn.consensus_hash
-            );
-            return Ok(false);
-        }
-
-        // The sortition must commit to the tenure start block of the ongoing Stacks tenure.
         let highest_tenure_start_block_header = NakamotoChainState::get_tenure_start_block_header(
             &mut ic,
             stacks_tip_id,
@@ -1382,8 +1368,7 @@ impl RelayerThread {
                 &cursor.consensus_hash
             );
 
-            // is this a valid sortiton?
-            if Self::is_valid_sortition(
+            if Self::sortition_commits_to_stacks_tip_tenure(
                 chain_state,
                 &canonical_stacks_tip,
                 &canonical_stacks_tip_sn,
@@ -1803,21 +1788,12 @@ impl RelayerThread {
             return;
         };
 
-        let won_sortition = burn_tip.sortition && burn_tip.miner_pk_hash == Some(mining_pk);
-
-        if won_sortition {
-            debug!("Will not tenure extend. Won current sortition";
-                "burn_chain_sortition_tip_ch" => %burn_tip.consensus_hash
-            );
-            self.tenure_extend_time = None;
-            return;
-        }
-
         if let Some(miner_thread_burn_view) = self.miner_thread_burn_view.as_ref() {
             // a miner thread is already running.  If its burn view is the same as the canonical
             // tip, then do nothing for now
             if burn_tip.consensus_hash == miner_thread_burn_view.consensus_hash {
                 info!("Will not try to start a tenure extend -- the current miner thread's burn view matches the sortition tip"; "sortition tip" => %burn_tip.consensus_hash);
+                // Do not reset the timer, as we may be able to extend later.
                 return;
             }
         }
@@ -1831,20 +1807,6 @@ impl RelayerThread {
             SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), &canonical_stacks_tip_ch)
                 .expect("FATAL: failed to query sortiiton DB for epoch")
                 .expect("FATAL: no sortition for canonical stacks tip");
-
-        let won_ongoing_tenure_sortition =
-            canonical_stacks_snapshot.miner_pk_hash == Some(mining_pk);
-
-        if !won_ongoing_tenure_sortition {
-            // We did not win the ongoing tenure sortition, so nothing we can even do.
-            debug!("Will not tenure extend. Did not win ongoing tenure sortition";
-                "burn_chain_sortition_tip_ch" => %burn_tip.consensus_hash,
-                "canonical_stacks_tip_ch" => %canonical_stacks_tip_ch,
-                "burn_chain_sortition_tip_mining_pk" => ?burn_tip.miner_pk_hash,
-                "mining_pk" => %mining_pk,
-            );
-            return;
-        }
         let Ok(last_winning_snapshot) = Self::get_last_winning_snapshot(&self.sortdb, &burn_tip)
             .inspect_err(|e| {
                 warn!("Failed to load last winning snapshot: {e:?}");
@@ -1852,14 +1814,31 @@ impl RelayerThread {
         else {
             // this should be unreachable, but don't tempt fate.
             info!("No prior snapshots have a winning sortition. Will not try to mine.");
+            self.tenure_extend_time = None;
             return;
         };
-
         let won_last_winning_snapshot = last_winning_snapshot.miner_pk_hash == Some(mining_pk);
         if won_last_winning_snapshot
             && self.need_block_found(&canonical_stacks_snapshot, &last_winning_snapshot)
         {
             info!("Will not extend tenure -- need to issue a BlockFound first");
+            // We may manage to extend later, so don't set the timer to None.
+            return;
+        }
+        let won_ongoing_tenure_sortition =
+            canonical_stacks_snapshot.miner_pk_hash == Some(mining_pk);
+        if !won_ongoing_tenure_sortition {
+            // We did not win the ongoing tenure sortition, so nothing we can even do.
+            // Make sure this check is done AFTER checking for the BlockFound so that
+            // we can set tenure_extend_time to None in this case without causing problems
+            // (If we need to issue a block found, we may not have won_ongoing_tenure_sortition)
+            debug!("Will not tenure extend. Did not win ongoing tenure sortition";
+                "burn_chain_sortition_tip_ch" => %burn_tip.consensus_hash,
+                "canonical_stacks_tip_ch" => %canonical_stacks_tip_ch,
+                "burn_chain_sortition_tip_mining_pk" => ?burn_tip.miner_pk_hash,
+                "mining_pk" => %mining_pk,
+            );
+            self.tenure_extend_time = None;
             return;
         }
         // If we reach this code, we have either won the last winning snapshot and have already issued a block found for it and should extend.
@@ -1887,8 +1866,8 @@ impl RelayerThread {
                    "burn_view_snapshot" => %burn_tip.consensus_hash,
                    "block_election_snapshot" => %canonical_stacks_snapshot.consensus_hash,
                    "reason" => %reason);
+            self.tenure_extend_time = None;
         }
-        self.tenure_extend_time = None;
     }
 
     /// Main loop of the relayer.
