@@ -2302,9 +2302,8 @@ impl PeerNetwork {
                     stats.done
                 );
                 if !stats.done {
-                    // TODO: the result of this match doesn't seem to be used? is that intentional?
                     match network.inv_sync_run(&mut new_pins, sortdb, nk, stats, inv_state.request_timeout, ibd) {
-                        Ok(d) => d,
+                        Ok(_) => {}
                         Err(net_error::StaleView) => {
                             // stop work on this state machine -- it needs to be restarted.
                             // we'll need to keep scanning.
@@ -2312,19 +2311,16 @@ impl PeerNetwork {
                             stats.done = true;
                             inv_state.hint_learned_data = true;
                             inv_state.hint_learned_data_height = u64::MAX;
-                            true
                         }
                         Err(net_error::PeerNotConnected) | Err(net_error::SendError(..)) => {
                             stats.status = NodeStatus::Dead;
-                            true
                         }
                         Err(e) => {
                             debug!(
-                                "{:?}: remote neighbor inv_sync_run finished with error {:?}",
-                                &network.local_peer, &e
+                                "{:?}: remote neighbor inv_sync_run finished with error {e:?}",
+                                &network.local_peer
                             );
                             stats.status = NodeStatus::Broken;
-                            true
                         }
                     };
 

@@ -15,7 +15,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - Logging improvements:
   - P2P logs now includes a reason for dropping a peer or neighbor
-  - Imrpovements to how a PeerAddress is logged (human readable format vs hex)
+  - Improvements to how a PeerAddress is logged (human readable format vs hex)
 
 ### Fixed
 
