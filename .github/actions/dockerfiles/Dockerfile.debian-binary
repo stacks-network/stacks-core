@@ -10,7 +10,6 @@ ARG TARGETVARIANT
 ARG REPO
 
 RUN case ${TARGETPLATFORM} in \
-    linux/amd64/v2) BIN_ARCH=linux-glibc-x64-v2 ;; \
     linux/amd64*) BIN_ARCH=linux-glibc-x64 ;; \
     linux/arm64*) BIN_ARCH=linux-glibc-arm64 ;; \
     linux/arm/v7) BIN_ARCH=linux-glibc-armv7 ;; \
