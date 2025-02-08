@@ -1691,38 +1691,23 @@ pub struct NodeConfig {
     pub stacker_dbs: Vec<QualifiedContractIdentifier>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub enum CostEstimatorName {
+    #[default]
     NaivePessimistic,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub enum FeeEstimatorName {
+    #[default]
     ScalarFeeRate,
     FuzzedWeightedMedianFeeRate,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub enum CostMetricName {
+    #[default]
     ProportionDotProduct,
-}
-
-impl Default for CostEstimatorName {
-    fn default() -> Self {
-        CostEstimatorName::NaivePessimistic
-    }
-}
-
-impl Default for FeeEstimatorName {
-    fn default() -> Self {
-        FeeEstimatorName::ScalarFeeRate
-    }
-}
-
-impl Default for CostMetricName {
-    fn default() -> Self {
-        CostMetricName::ProportionDotProduct
-    }
 }
 
 impl CostEstimatorName {

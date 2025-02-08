@@ -4409,18 +4409,15 @@ pub mod test {
             let mut stacks_node = self.stacks_node.take().unwrap();
 
             let parent_block_opt = stacks_node.get_last_anchored_block(&self.miner);
-            let parent_sortition_opt = match parent_block_opt.as_ref() {
-                Some(parent_block) => {
-                    let ic = sortdb.index_conn();
-                    SortitionDB::get_block_snapshot_for_winning_stacks_block(
-                        &ic,
-                        &tip.sortition_id,
-                        &parent_block.block_hash(),
-                    )
-                    .unwrap()
-                }
-                None => None,
-            };
+            let parent_sortition_opt = parent_block_opt.as_ref().and_then(|parent_block| {
+                let ic = sortdb.index_conn();
+                SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                    &ic,
+                    &tip.sortition_id,
+                    &parent_block.block_hash(),
+                )
+                .unwrap()
+            });
 
             let parent_microblock_header_opt =
                 get_last_microblock_header(&stacks_node, &self.miner, parent_block_opt.as_ref());
@@ -4436,10 +4433,7 @@ pub mod test {
                     &last_key.public_key,
                     &burn_block.parent_snapshot.sortition_hash,
                 )
-                .expect(&format!(
-                    "FATAL: no private key for {}",
-                    last_key.public_key.to_hex()
-                ));
+                .unwrap_or_else(|| panic!("FATAL: no private key for {:?}", last_key.public_key));
 
             let (stacks_block, microblocks) = tenure_builder(
                 &mut self.miner,
@@ -4699,10 +4693,9 @@ pub mod test {
             self.config
                 .burnchain
                 .block_height_to_reward_cycle(block_height)
-                .expect(&format!(
-                    "Failed to get reward cycle for block height {}",
-                    block_height
-                ))
+                .unwrap_or_else(|| {
+                    panic!("Failed to get reward cycle for block height {block_height}")
+                })
         }
 
         /// Verify that the sortition DB migration into Nakamoto worked correctly.
