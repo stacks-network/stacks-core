@@ -133,6 +133,7 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::net::connection::ConnectionOptions;
 use crate::net::neighbors::NeighborComms;
 use crate::net::p2p::PeerNetwork;
 use crate::net::{
@@ -155,7 +156,7 @@ pub const STACKERDB_CONFIG_FUNCTION: &str = "stackerdb-get-config";
 pub const MINER_SLOT_COUNT: u32 = 2;
 
 /// Final result of synchronizing state with a remote set of DB replicas
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct StackerDBSyncResult {
     /// which contract this is a replica for
     pub contract_id: QualifiedContractIdentifier,
@@ -285,8 +286,9 @@ impl StackerDBs {
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
         stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
-        num_neighbors: u64,
+        connection_opts: &ConnectionOptions,
     ) -> Result<HashMap<QualifiedContractIdentifier, StackerDBConfig>, net_error> {
+        let num_neighbors = connection_opts.num_neighbors;
         let existing_contract_ids = self.get_stackerdb_contract_ids()?;
         let mut new_stackerdb_configs = HashMap::new();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
@@ -311,9 +313,13 @@ impl StackerDBs {
                 // attempt to load the config from the contract itself
                 StackerDBConfig::from_smart_contract(
                     chainstate,
-                    &sortdb,
+                    sortdb,
                     &stackerdb_contract_id,
                     num_neighbors,
+                    connection_opts
+                        .stackerdb_hint_replicas
+                        .get(&stackerdb_contract_id)
+                        .cloned(),
                 )
                 .unwrap_or_else(|e| {
                     if matches!(e, net_error::NoSuchStackerDB(_)) && stackerdb_contract_id.is_boot()
@@ -341,7 +347,7 @@ impl StackerDBs {
                         &e
                     );
                 }
-            } else if (new_config != stackerdb_config && new_config.signers.len() > 0)
+            } else if (new_config != stackerdb_config && !new_config.signers.is_empty())
                 || (new_config == stackerdb_config
                     && new_config.signers.len()
                         != self.get_slot_versions(&stackerdb_contract_id)?.len())
@@ -540,7 +546,7 @@ impl PeerNetwork {
             if let Ok(Some(_)) = NakamotoChainState::get_tenure_start_block_header(
                 &mut chainstate.index_conn(),
                 &tip_block_id,
-                &rc_consensus_hash,
+                rc_consensus_hash,
             ) {
                 debug!("{:?}: NACK StackerDBGetChunksInv / StackerDBPushChunk from {} since {} != {} (remote is stale)", self.get_local_peer(), &naddr, &self.get_chain_view().rc_consensus_hash, rc_consensus_hash);
                 return StacksMessageType::Nack(NackData::new(NackErrorCodes::StaleView));

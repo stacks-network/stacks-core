@@ -59,7 +59,7 @@ impl BurnchainDB {
         let sql = "SELECT op FROM burnchain_db_block_ops WHERE block_hash = ?1";
         let args = params![block_hash];
         let mut ops: Vec<BlockstackOperationType> = query_rows(&self.conn, sql, args)?;
-        ops.sort_by(|a, b| a.vtxindex().cmp(&b.vtxindex()));
+        ops.sort_by_key(|op| op.vtxindex());
         Ok(ops)
     }
 
@@ -147,7 +147,7 @@ fn test_store_and_fetch() {
         &BurnchainHeaderHash::sentinel()
     );
 
-    let headers = vec![first_block_header.clone()];
+    let headers = vec![first_block_header];
     let canon_hash = BurnchainHeaderHash([1; 32]);
 
     let canonical_block =
@@ -545,7 +545,7 @@ pub fn make_simple_block_commit(
 
         txid: next_txid(),
         vtxindex: 0,
-        block_height: block_height,
+        block_height,
         burn_parent_modulus: ((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
         burn_header_hash: burn_header.block_hash.clone(),
     };
@@ -554,7 +554,7 @@ pub fn make_simple_block_commit(
         new_op.commit_outs = vec![PoxAddress::standard_burn_address(false)];
     }
 
-    if let Some(ref op) = parent {
+    if let Some(op) = parent {
         new_op.parent_block_ptr = op.block_height as u32;
         new_op.parent_vtxindex = op.vtxindex as u16;
     };
@@ -602,14 +602,14 @@ fn test_get_commit_at() {
     for i in 0..5 {
         let hdr = BurnchainHeaderHash([(i + 1) as u8; 32]);
         let block_header = BurnchainBlockHeader {
-            block_height: (first_height + i) as u64,
+            block_height: first_height + i,
             block_hash: hdr,
             parent_block_hash: parent_block_header
                 .as_ref()
                 .map(|blk| blk.block_hash.clone())
                 .unwrap_or(first_block_header.block_hash.clone()),
             num_txs: 1,
-            timestamp: i as u64,
+            timestamp: i,
         };
 
         headers.push(block_header.clone());
@@ -639,30 +639,26 @@ fn test_get_commit_at() {
     }
 
     for i in 0..5 {
-        let cmt = BurnchainDB::get_commit_at(
-            &burnchain_db.conn(),
-            &headers,
-            (first_height + i) as u32,
-            0,
-        )
-        .unwrap()
-        .unwrap();
+        let cmt =
+            BurnchainDB::get_commit_at(burnchain_db.conn(), &headers, (first_height + i) as u32, 0)
+                .unwrap()
+                .unwrap();
         assert_eq!(cmt, cmts[i as usize]);
     }
 
-    let cmt = BurnchainDB::get_commit_at(&burnchain_db.conn(), &headers, 5, 0)
+    let cmt = BurnchainDB::get_commit_at(burnchain_db.conn(), &headers, 5, 0)
         .unwrap()
         .unwrap();
     assert_eq!(cmt, cmts[4]);
 
     // fork off the last stored commit block
-    let fork_hdr = BurnchainHeaderHash([90 as u8; 32]);
+    let fork_hdr = BurnchainHeaderHash([90; 32]);
     let fork_block_header = BurnchainBlockHeader {
         block_height: 5,
         block_hash: fork_hdr,
-        parent_block_hash: BurnchainHeaderHash([4 as u8; 32]),
+        parent_block_hash: BurnchainHeaderHash([4; 32]),
         num_txs: 1,
-        timestamp: 4 as u64,
+        timestamp: 4,
     };
 
     let mut fork_cmt = cmts[4].clone();
@@ -681,12 +677,12 @@ fn test_get_commit_at() {
         )
         .unwrap();
 
-    let cmt = BurnchainDB::get_commit_at(&burnchain_db.conn(), &headers, 5, 0)
+    let cmt = BurnchainDB::get_commit_at(burnchain_db.conn(), &headers, 5, 0)
         .unwrap()
         .unwrap();
     assert_eq!(cmt, cmts[4]);
 
-    let cmt = BurnchainDB::get_commit_at(&burnchain_db.conn(), &fork_headers, 5, 1)
+    let cmt = BurnchainDB::get_commit_at(burnchain_db.conn(), &fork_headers, 5, 1)
         .unwrap()
         .unwrap();
     assert_eq!(cmt, fork_cmt);
@@ -716,14 +712,14 @@ fn test_get_set_check_anchor_block() {
     for i in 0..5 {
         let hdr = BurnchainHeaderHash([(i + 1) as u8; 32]);
         let block_header = BurnchainBlockHeader {
-            block_height: (first_height + i) as u64,
+            block_height: first_height + i,
             block_hash: hdr,
             parent_block_hash: parent_block_header
                 .as_ref()
                 .map(|blk| blk.block_hash.clone())
                 .unwrap_or(first_block_header.block_hash.clone()),
             num_txs: 1,
-            timestamp: i as u64,
+            timestamp: i,
         };
 
         headers.push(block_header.clone());
@@ -802,14 +798,14 @@ fn test_update_block_descendancy() {
     for i in 0..5 {
         let hdr = BurnchainHeaderHash([(i + 1) as u8; 32]);
         let block_header = BurnchainBlockHeader {
-            block_height: (first_height + i) as u64,
+            block_height: first_height + i,
             block_hash: hdr,
             parent_block_hash: parent_block_header
                 .as_ref()
                 .map(|blk| blk.block_hash.clone())
                 .unwrap_or(first_block_header.block_hash.clone()),
             num_txs: 3,
-            timestamp: i as u64,
+            timestamp: i,
         };
 
         headers.push(block_header.clone());
@@ -919,21 +915,19 @@ fn test_update_block_descendancy_with_fork() {
     let mut cmts_genesis = vec![];
     let mut cmts_invalid = vec![];
 
-    let mut fork_parent = None;
-    let mut fork_parent_block_header: Option<BurnchainBlockHeader> = None;
     let mut fork_cmts = vec![];
 
     for i in 0..5 {
         let hdr = BurnchainHeaderHash([(i + 1) as u8; 32]);
         let block_header = BurnchainBlockHeader {
-            block_height: (first_height + i) as u64,
+            block_height: first_height + i,
             block_hash: hdr,
             parent_block_hash: parent_block_header
                 .as_ref()
                 .map(|blk| blk.block_hash.clone())
                 .unwrap_or(first_block_header.block_hash.clone()),
             num_txs: 3,
-            timestamp: i as u64,
+            timestamp: i,
         };
 
         headers.push(block_header.clone());
@@ -943,18 +937,17 @@ fn test_update_block_descendancy_with_fork() {
     for i in 0..5 {
         let hdr = BurnchainHeaderHash([(i + 128 + 1) as u8; 32]);
         let block_header = BurnchainBlockHeader {
-            block_height: (first_height + i) as u64,
+            block_height: first_height + i,
             block_hash: hdr,
             parent_block_hash: parent_block_header
                 .as_ref()
                 .map(|blk| blk.block_hash.clone())
                 .unwrap_or(first_block_header.block_hash.clone()),
             num_txs: 3,
-            timestamp: i as u64,
+            timestamp: i,
         };
 
         fork_headers.push(block_header.clone());
-        fork_parent_block_header = Some(block_header);
     }
 
     let mut am_id = 0;
@@ -1018,7 +1011,6 @@ fn test_update_block_descendancy_with_fork() {
         fork_cmts.push(fork_cmt.clone());
 
         parent = Some(cmt);
-        fork_parent = Some(fork_cmt);
 
         if i == 0 {
             am_id = {
@@ -1098,7 +1090,7 @@ fn test_classify_delegate_stx() {
 
     let canonical_block =
         BurnchainBlock::Bitcoin(BitcoinBlock::new(500, &canon_hash, &first_bhh, vec![], 485));
-    let mut headers = vec![first_block_header.clone(), canonical_block.header().clone()];
+    let mut headers = vec![first_block_header, canonical_block.header()];
 
     let ops = burnchain_db
         .store_new_burnchain_block(
@@ -1291,8 +1283,8 @@ fn test_classify_delegate_stx() {
         360,
     ));
 
-    headers.push(block_0.header().clone());
-    headers.push(block_1.header().clone());
+    headers.push(block_0.header());
+    headers.push(block_1.header());
 
     test_debug!("store ops ({}) for block 0", ops_0_length);
     let processed_ops_0 = burnchain_db
@@ -1316,38 +1308,30 @@ fn test_classify_delegate_stx() {
         "Only one delegate_stx op should have been accepted"
     );
 
-    let expected_pre_delegate_addr = StacksAddress::from_legacy_bitcoin_address(
-        &LegacyBitcoinAddress {
+    let expected_pre_delegate_addr =
+        StacksAddress::from_legacy_bitcoin_address(&LegacyBitcoinAddress {
             addrtype: LegacyBitcoinAddressType::PublicKeyHash,
             network_id: BitcoinNetworkType::Mainnet,
             bytes: Hash160([1; 20]),
-        }
-        .into(),
-    );
+        });
 
     let expected_delegate_addr = PoxAddress::Standard(
-        StacksAddress::from_legacy_bitcoin_address(
-            &LegacyBitcoinAddress {
-                addrtype: LegacyBitcoinAddressType::PublicKeyHash,
-                network_id: BitcoinNetworkType::Mainnet,
-                bytes: Hash160([2; 20]),
-            }
-            .into(),
-        ),
+        StacksAddress::from_legacy_bitcoin_address(&LegacyBitcoinAddress {
+            addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+            network_id: BitcoinNetworkType::Mainnet,
+            bytes: Hash160([2; 20]),
+        }),
         Some(AddressHashMode::SerializeP2PKH),
     );
 
     let expected_reward_addr = Some((
         1,
         PoxAddress::Standard(
-            StacksAddress::from_legacy_bitcoin_address(
-                &LegacyBitcoinAddress {
-                    addrtype: LegacyBitcoinAddressType::PublicKeyHash,
-                    network_id: BitcoinNetworkType::Mainnet,
-                    bytes: Hash160([1; 20]),
-                }
-                .into(),
-            ),
+            StacksAddress::from_legacy_bitcoin_address(&LegacyBitcoinAddress {
+                addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                network_id: BitcoinNetworkType::Mainnet,
+                bytes: Hash160([1; 20]),
+            }),
             Some(AddressHashMode::SerializeP2PKH),
         ),
     ));
@@ -1361,7 +1345,10 @@ fn test_classify_delegate_stx() {
     if let BlockstackOperationType::DelegateStx(op) = &processed_ops_1[0] {
         assert_eq!(&op.sender, &expected_pre_delegate_addr);
         assert_eq!(op.delegated_ustx, u128::from_be_bytes([1; 16]));
-        assert_eq!(op.delegate_to, StacksAddress::new(22, Hash160([2u8; 20])));
+        assert_eq!(
+            op.delegate_to,
+            StacksAddress::new(22, Hash160([2u8; 20])).unwrap()
+        );
         assert_eq!(&op.reward_addr, &expected_reward_addr);
         assert_eq!(op.until_burn_height, Some(u64::from_be_bytes([1; 8])));
     } else {

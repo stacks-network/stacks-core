@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::Mutex;
@@ -23,10 +24,11 @@ use stacks::chainstate::stacks::{
 };
 use stacks::clarity_vm::clarity::ClarityConnection;
 use stacks::codec::StacksMessageCodec;
+use stacks::config::InitialBalance;
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use stacks::core::{
-    StacksEpoch, StacksEpochId, CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
-    PEER_VERSION_EPOCH_2_1,
+    EpochList, StacksEpoch, StacksEpochId, CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_0,
+    PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
 };
 use stacks::net::api::callreadonly::CallReadOnlyRequestBody;
 use stacks::net::api::getaccount::AccountEntryResponse;
@@ -39,11 +41,10 @@ use super::{
     make_contract_call, make_contract_publish, make_stacks_transfer, to_addr, ADDR_4, SK_1, SK_2,
     SK_3,
 };
-use crate::config::InitialBalance;
 use crate::helium::RunLoop;
 use crate::tests::make_sponsored_stacks_transfer_on_testnet;
 
-const OTHER_CONTRACT: &'static str = "
+const OTHER_CONTRACT: &str = "
   (define-data-var x uint u0)
   (define-public (f1)
     (ok (var-get x)))
@@ -51,14 +52,14 @@ const OTHER_CONTRACT: &'static str = "
     (ok (var-set x val)))
 ";
 
-const CALL_READ_CONTRACT: &'static str = "
+const CALL_READ_CONTRACT: &str = "
   (define-public (public-no-write)
     (ok (contract-call? .other f1)))
   (define-public (public-write)
     (ok (contract-call? .other f2 u5)))
 ";
 
-const GET_INFO_CONTRACT: &'static str = "
+const GET_INFO_CONTRACT: &str = "
         (define-map block-data
           { height: uint }
           { stacks-hash: (buff 32),
@@ -143,7 +144,7 @@ const GET_INFO_CONTRACT: &'static str = "
             (fn-2 (uint) (response uint uint))))
        ";
 
-const IMPL_TRAIT_CONTRACT: &'static str = "
+const IMPL_TRAIT_CONTRACT: &str = "
         ;; explicit trait compliance for trait 1
         (impl-trait .get-info.trait-1)
         (define-private (test-height) burn-block-height)
@@ -193,7 +194,7 @@ fn integration_test_get_info() {
 
     {
         let mut http_opt = HTTP_BINDING.lock().unwrap();
-        http_opt.replace(format!("http://{}", &rpc_bind));
+        http_opt.replace(format!("http://{rpc_bind}"));
     }
 
     run_loop
@@ -279,10 +280,10 @@ fn integration_test_get_info() {
                 let old_tip = StacksBlockId::new(&consensus_hash, &header_hash);
                 use std::fs;
                 use std::io::Write;
-                if fs::metadata(&tmppath).is_ok() {
-                    fs::remove_file(&tmppath).unwrap();
+                if fs::metadata(tmppath).is_ok() {
+                    fs::remove_file(tmppath).unwrap();
                 }
-                let mut f = fs::File::create(&tmppath).unwrap();
+                let mut f = fs::File::create(tmppath).unwrap();
                 f.write_all(&old_tip.serialize_to_vec()).unwrap();
             } else if round == 2 {
                 // block-height = 3
@@ -311,7 +312,7 @@ fn integration_test_get_info() {
                 // block-height > 3
                 let tx = make_contract_call(
                     &principal_sk,
-                    (round - 3).into(),
+                    round - 3,
                     10,
                     CHAIN_ID_TESTNET,
                     &to_addr(&contract_sk),
@@ -337,7 +338,7 @@ fn integration_test_get_info() {
             if round >= 1 {
                 let tx_xfer = make_stacks_transfer(
                     &spender_sk,
-                    (round - 1).into(),
+                    round - 1,
                     10,
                     CHAIN_ID_TESTNET,
                     &StacksAddress::from_string(ADDR_4).unwrap().into(),
@@ -356,16 +357,14 @@ fn integration_test_get_info() {
                     )
                     .unwrap();
             }
-
-            return;
         });
 
     run_loop.callbacks.on_new_stacks_chain_state(|round, _burnchain_tip, chain_tip, chain_state, burn_dbconn| {
         let contract_addr = to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap());
         let contract_identifier =
-            QualifiedContractIdentifier::parse(&format!("{}.{}", &contract_addr, "get-info")).unwrap();
+            QualifiedContractIdentifier::parse(&format!("{contract_addr}.get-info")).unwrap();
         let impl_trait_contract_identifier =
-            QualifiedContractIdentifier::parse(&format!("{}.{}", &contract_addr, "impl-trait-contract")).unwrap();
+            QualifiedContractIdentifier::parse(&format!("{contract_addr}.impl-trait-contract")).unwrap();
 
         let http_origin = {
             HTTP_BINDING.lock().unwrap().clone().unwrap()
@@ -374,7 +373,7 @@ fn integration_test_get_info() {
         match round {
             1 => {
                 // - Chain length should be 2.
-                let blocks = StacksChainState::list_blocks(&chain_state.db()).unwrap();
+                let blocks = StacksChainState::list_blocks(chain_state.db()).unwrap();
                 assert!(chain_tip.metadata.stacks_block_height == 2);
 
                 // Block #1 should have 5 txs
@@ -382,14 +381,14 @@ fn integration_test_get_info() {
 
                 let parent = chain_tip.block.header.parent_block;
                 let bhh = &chain_tip.metadata.index_block_hash();
-                eprintln!("Current Block: {}       Parent Block: {}", bhh, parent);
+                eprintln!("Current Block: {bhh}       Parent Block: {parent}");
                 let parent_val = Value::buff_from(parent.as_bytes().to_vec()).unwrap();
 
                 // find header metadata
                 let mut headers = vec![];
                 for block in blocks.iter() {
                     let header = StacksChainState::get_anchored_block_header_info(chain_state.db(), &block.0, &block.1).unwrap().unwrap();
-                    eprintln!("{}/{}: {:?}", &block.0, &block.1, &header);
+                    eprintln!("{}/{}: {header:?}", &block.0, &block.1);
                     headers.push(header);
                 }
 
@@ -500,13 +499,12 @@ fn integration_test_get_info() {
                     burn_dbconn, bhh, &contract_identifier, "(exotic-data-checks u4)"));
 
                 let client = reqwest::blocking::Client::new();
-                let path = format!("{}/v2/map_entry/{}/{}/{}",
-                                   &http_origin, &contract_addr, "get-info", "block-data");
+                let path = format!("{http_origin}/v2/map_entry/{contract_addr}/get-info/block-data");
 
                 let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(3))])
                     .unwrap().into();
 
-                eprintln!("Test: POST {}", path);
+                eprintln!("Test: POST {path}");
                 let res = client.post(&path)
                     .json(&key.serialize_to_hex().unwrap())
                     .send()
@@ -514,14 +512,14 @@ fn integration_test_get_info() {
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(burn_dbconn, bhh, &contract_identifier,
                                                                        "(some (get-exotic-data-info u3))");
-                assert!(res.get("proof").is_some());
+                assert!(res.contains_key("proof"));
 
                 assert_eq!(result_data, expected_data);
 
                 let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(100))])
                     .unwrap().into();
 
-                eprintln!("Test: POST {}", path);
+                eprintln!("Test: POST {path}");
                 let res = client.post(&path)
                     .json(&key.serialize_to_hex().unwrap())
                     .send()
@@ -532,19 +530,18 @@ fn integration_test_get_info() {
                 let sender_addr = to_addr(&StacksPrivateKey::from_hex(SK_3).unwrap());
 
                 // now, let's use a query string to get data without a proof
-                let path = format!("{}/v2/map_entry/{}/{}/{}?proof=0",
-                                   &http_origin, &contract_addr, "get-info", "block-data");
+                let path = format!("{http_origin}/v2/map_entry/{contract_addr}/get-info/block-data?proof=0");
 
                 let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(3))])
                     .unwrap().into();
 
-                eprintln!("Test: POST {}", path);
+                eprintln!("Test: POST {path}");
                 let res = client.post(&path)
                     .json(&key.serialize_to_hex().unwrap())
                     .send()
                     .unwrap().json::<HashMap<String, String>>().unwrap();
 
-                assert!(res.get("proof").is_none());
+                assert!(!res.contains_key("proof"));
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(burn_dbconn, bhh, &contract_identifier,
                                                                        "(some (get-exotic-data-info u3))");
@@ -553,19 +550,18 @@ fn integration_test_get_info() {
                 assert_eq!(result_data, expected_data);
 
                 // now, let's use a query string to get data _with_ a proof
-                let path = format!("{}/v2/map_entry/{}/{}/{}?proof=1",
-                                   &http_origin, &contract_addr, "get-info", "block-data");
+                let path = format!("{http_origin}/v2/map_entry/{contract_addr}/get-info/block-data?proof=1");
 
                 let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(3))])
                     .unwrap().into();
 
-                eprintln!("Test: POST {}", path);
+                eprintln!("Test: POST {path}");
                 let res = client.post(&path)
                     .json(&key.serialize_to_hex().unwrap())
                     .send()
                     .unwrap().json::<HashMap<String, String>>().unwrap();
 
-                assert!(res.get("proof").is_some());
+                assert!(res.contains_key("proof"));
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
                 let expected_data = chain_state.clarity_eval_read_only(burn_dbconn, bhh, &contract_identifier,
                                                                        "(some (get-exotic-data-info u3))");
@@ -574,9 +570,8 @@ fn integration_test_get_info() {
                 assert_eq!(result_data, expected_data);
 
                 // account with a nonce entry + a balance entry
-                let path = format!("{}/v2/accounts/{}",
-                                   &http_origin, &sender_addr);
-                eprintln!("Test: GET {}", path);
+                let path = format!("{http_origin}/v2/accounts/{sender_addr}");
+                eprintln!("Test: GET {path}");
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
                 assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 99860);
                 assert_eq!(res.nonce, 4);
@@ -584,9 +579,8 @@ fn integration_test_get_info() {
                 assert!(res.balance_proof.is_some());
 
                 // account with a nonce entry but not a balance entry
-                let path = format!("{}/v2/accounts/{}",
-                                   &http_origin, &contract_addr);
-                eprintln!("Test: GET {}", path);
+                let path = format!("{http_origin}/v2/accounts/{contract_addr}");
+                eprintln!("Test: GET {path}");
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
                 assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 960);
                 assert_eq!(res.nonce, 4);
@@ -594,9 +588,8 @@ fn integration_test_get_info() {
                 assert!(res.balance_proof.is_some());
 
                 // account with a balance entry but not a nonce entry
-                let path = format!("{}/v2/accounts/{}",
-                                   &http_origin, ADDR_4);
-                eprintln!("Test: GET {}", path);
+                let path = format!("{http_origin}/v2/accounts/{ADDR_4}");
+                eprintln!("Test: GET {path}");
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
                 assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 400);
                 assert_eq!(res.nonce, 0);
@@ -604,27 +597,24 @@ fn integration_test_get_info() {
                 assert!(res.balance_proof.is_some());
 
                 // account with neither!
-                let path = format!("{}/v2/accounts/{}.get-info",
-                                   &http_origin, &contract_addr);
-                eprintln!("Test: GET {}", path);
+                let path = format!("{http_origin}/v2/accounts/{contract_addr}.get-info");
+                eprintln!("Test: GET {path}");
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
                 assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
                 assert_eq!(res.nonce, 0);
                 assert!(res.nonce_proof.is_some());
                 assert!(res.balance_proof.is_some());
 
-                let path = format!("{}/v2/accounts/{}?proof=0",
-                                   &http_origin, ADDR_4);
-                eprintln!("Test: GET {}", path);
+                let path = format!("{http_origin}/v2/accounts/{ADDR_4}?proof=0");
+                eprintln!("Test: GET {path}");
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
                 assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 400);
                 assert_eq!(res.nonce, 0);
                 assert!(res.nonce_proof.is_none());
                 assert!(res.balance_proof.is_none());
 
-                let path = format!("{}/v2/accounts/{}?proof=1",
-                                   &http_origin, ADDR_4);
-                eprintln!("Test: GET {}", path);
+                let path = format!("{http_origin}/v2/accounts/{ADDR_4}?proof=1");
+                eprintln!("Test: GET {path}");
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
                 assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 400);
                 assert_eq!(res.nonce, 0);
@@ -632,15 +622,15 @@ fn integration_test_get_info() {
                 assert!(res.balance_proof.is_some());
 
                 // let's try getting the transfer cost
-                let path = format!("{}/v2/fees/transfer", &http_origin);
-                eprintln!("Test: GET {}", path);
+                let path = format!("{http_origin}/v2/fees/transfer");
+                eprintln!("Test: GET {path}");
                 let res = client.get(&path).send().unwrap().json::<u64>().unwrap();
                 assert!(res > 0);
 
                 // let's get a contract ABI
 
-                let path = format!("{}/v2/contracts/interface/{}/{}", &http_origin, &contract_addr, "get-info");
-                eprintln!("Test: GET {}", path);
+                let path = format!("{http_origin}/v2/contracts/interface/{contract_addr}/get-info");
+                eprintln!("Test: GET {path}");
                 let res = client.get(&path).send().unwrap().json::<ContractInterface>().unwrap();
 
                 let contract_analysis = mem_type_check(GET_INFO_CONTRACT, ClarityVersion::Clarity2, StacksEpochId::Epoch21).unwrap().1;
@@ -652,14 +642,14 @@ fn integration_test_get_info() {
 
                 // a missing one?
 
-                let path = format!("{}/v2/contracts/interface/{}/{}", &http_origin, &contract_addr, "not-there");
-                eprintln!("Test: GET {}", path);
+                let path = format!("{http_origin}/v2/contracts/interface/{contract_addr}/not-there");
+                eprintln!("Test: GET {path}");
                 assert_eq!(client.get(&path).send().unwrap().status(), 404);
 
                 // let's get a contract SRC
 
-                let path = format!("{}/v2/contracts/source/{}/{}", &http_origin, &contract_addr, "get-info");
-                eprintln!("Test: GET {}", path);
+                let path = format!("{http_origin}/v2/contracts/source/{contract_addr}/get-info");
+                eprintln!("Test: GET {path}");
                 let res = client.get(&path).send().unwrap().json::<ContractSrcResponse>().unwrap();
 
                 assert_eq!(res.source, GET_INFO_CONTRACT);
@@ -667,8 +657,8 @@ fn integration_test_get_info() {
                 assert!(res.marf_proof.is_some());
 
 
-                let path = format!("{}/v2/contracts/source/{}/{}?proof=0", &http_origin, &contract_addr, "get-info");
-                eprintln!("Test: GET {}", path);
+                let path = format!("{http_origin}/v2/contracts/source/{contract_addr}/get-info?proof=0");
+                eprintln!("Test: GET {path}");
                 let res = client.get(&path).send().unwrap().json::<ContractSrcResponse>().unwrap();
 
                 assert_eq!(res.source, GET_INFO_CONTRACT);
@@ -677,14 +667,14 @@ fn integration_test_get_info() {
 
                 // a missing one?
 
-                let path = format!("{}/v2/contracts/source/{}/{}", &http_origin, &contract_addr, "not-there");
-                eprintln!("Test: GET {}", path);
+                let path = format!("{http_origin}/v2/contracts/source/{contract_addr}/not-there");
+                eprintln!("Test: GET {path}");
                 assert_eq!(client.get(&path).send().unwrap().status(), 404);
 
 
                 // how about a read-only function call!
-                let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, &contract_addr, "get-info", "get-exotic-data-info");
-                eprintln!("Test: POST {}", path);
+                let path = format!("{http_origin}/v2/contracts/call-read/{contract_addr}/get-info/get-exotic-data-info");
+                eprintln!("Test: POST {path}");
 
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
@@ -705,8 +695,8 @@ fn integration_test_get_info() {
                 assert_eq!(result_data, expected_data);
 
                 // how about a non read-only function call which does not modify anything
-                let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, &contract_addr, "main", "public-no-write");
-                eprintln!("Test: POST {}", path);
+                let path = format!("{http_origin}/v2/contracts/call-read/{contract_addr}/main/public-no-write");
+                eprintln!("Test: POST {path}");
 
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
@@ -732,8 +722,8 @@ fn integration_test_get_info() {
                 assert_eq!(result_data, expected_data);
 
                 // how about a non read-only function call which does modify something and should fail
-                let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, &contract_addr, "main", "public-write");
-                eprintln!("Test: POST {}", path);
+                let path = format!("{http_origin}/v2/contracts/call-read/{contract_addr}/main/public-write");
+                eprintln!("Test: POST {path}");
 
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
@@ -750,9 +740,8 @@ fn integration_test_get_info() {
                 assert!(res["cause"].as_str().unwrap().contains("NotReadOnly"));
 
                 // let's try a call with a url-encoded string.
-                let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, &contract_addr, "get-info",
-                                   "get-exotic-data-info%3F");
-                eprintln!("Test: POST {}", path);
+                let path = format!("{http_origin}/v2/contracts/call-read/{contract_addr}/get-info/get-exotic-data-info%3F");
+                eprintln!("Test: POST {path}");
 
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
@@ -774,8 +763,8 @@ fn integration_test_get_info() {
                 assert_eq!(result_data, expected_data);
 
                 // let's have a runtime error!
-                let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, &contract_addr, "get-info", "get-exotic-data-info");
-                eprintln!("Test: POST {}", path);
+                let path = format!("{http_origin}/v2/contracts/call-read/{contract_addr}/get-info/get-exotic-data-info");
+                eprintln!("Test: POST {path}");
 
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
@@ -793,8 +782,8 @@ fn integration_test_get_info() {
                 assert!(res["cause"].as_str().unwrap().contains("UnwrapFailure"));
 
                 // let's have a runtime error!
-                let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, &contract_addr, "get-info", "update-info");
-                eprintln!("Test: POST {}", path);
+                let path = format!("{http_origin}/v2/contracts/call-read/{contract_addr}/get-info/update-info");
+                eprintln!("Test: POST {path}");
 
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
@@ -814,13 +803,13 @@ fn integration_test_get_info() {
 
                 // let's submit a valid transaction!
                 let spender_sk = StacksPrivateKey::from_hex(SK_3).unwrap();
-                let path = format!("{}/v2/transactions", &http_origin);
-                eprintln!("Test: POST {} (valid)", path);
+                let path = format!("{http_origin}/v2/transactions");
+                eprintln!("Test: POST {path} (valid)");
 
                 // tx_xfer is 180 bytes long
                 let tx_xfer = make_stacks_transfer(
                     &spender_sk,
-                    round.into(),
+                    round,
                     200,
                     CHAIN_ID_TESTNET,
                     &StacksAddress::from_string(ADDR_4).unwrap().into(),
@@ -842,66 +831,66 @@ fn integration_test_get_info() {
 
                 let res = client.post(&path)
                     .header("Content-Type", "application/octet-stream")
-                    .body(tx_xfer_invalid.clone())
+                    .body(tx_xfer_invalid)
                     .send()
                     .unwrap().json::<serde_json::Value>().unwrap();
 
-                eprintln!("{}", res);
+                eprintln!("{res}");
                 assert_eq!(res.get("error").unwrap().as_str().unwrap(), "transaction rejected");
                 assert!(res.get("reason").is_some());
 
                 // let's submit an invalid transaction!
-                let path = format!("{}/v2/transactions", &http_origin);
-                eprintln!("Test: POST {} (invalid)", path);
+                let path = format!("{http_origin}/v2/transactions");
+                eprintln!("Test: POST {path} (invalid)");
 
                 // tx_xfer_invalid is 180 bytes long
                 // bad nonce
-                let tx_xfer_invalid = make_stacks_transfer(&spender_sk, (round + 30).into(), 200, CHAIN_ID_TESTNET,
+                let tx_xfer_invalid = make_stacks_transfer(&spender_sk, round + 30, 200, CHAIN_ID_TESTNET,
                                                            &StacksAddress::from_string(ADDR_4).unwrap().into(), 456);
 
                 let tx_xfer_invalid_tx = StacksTransaction::consensus_deserialize(&mut &tx_xfer_invalid[..]).unwrap();
 
                 let res = client.post(&path)
                     .header("Content-Type", "application/octet-stream")
-                    .body(tx_xfer_invalid.clone())
+                    .body(tx_xfer_invalid)
                     .send()
                     .unwrap()
                     .json::<serde_json::Value>()
                     .unwrap();
 
-                eprintln!("{}", res);
+                eprintln!("{res}");
                 assert_eq!(res.get("txid").unwrap().as_str().unwrap(), format!("{}", tx_xfer_invalid_tx.txid()));
                 assert_eq!(res.get("error").unwrap().as_str().unwrap(), "transaction rejected");
                 assert!(res.get("reason").is_some());
 
                 // testing /v2/trait/<contract info>/<trait info>
                 // trait does not exist
-                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}", &http_origin, &contract_addr, "get-info", &contract_addr, "get-info", "dummy-trait");
-                eprintln!("Test: GET {}", path);
+                let path = format!("{http_origin}/v2/traits/{contract_addr}/get-info/{contract_addr}/get-info/dummy-trait");
+                eprintln!("Test: GET {path}");
                 assert_eq!(client.get(&path).send().unwrap().status(), 404);
 
                 // explicit trait compliance
-                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info",  "trait-1");
+                let path = format!("{http_origin}/v2/traits/{contract_addr}/impl-trait-contract/{contract_addr}/get-info/trait-1");
                 let res = client.get(&path).send().unwrap().json::<GetIsTraitImplementedResponse>().unwrap();
-                eprintln!("Test: GET {}", path);
+                eprintln!("Test: GET {path}");
                 assert!(res.is_implemented);
 
                 // No trait found
-                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info", "trait-4");
-                eprintln!("Test: GET {}", path);
+                let path = format!("{http_origin}/v2/traits/{contract_addr}/impl-trait-contract/{contract_addr}/get-info/trait-4");
+                eprintln!("Test: GET {path}");
                 assert_eq!(client.get(&path).send().unwrap().status(), 404);
 
                 // implicit trait compliance
-                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info", "trait-2");
+                let path = format!("{http_origin}/v2/traits/{contract_addr}/impl-trait-contract/{contract_addr}/get-info/trait-2");
                 let res = client.get(&path).send().unwrap().json::<GetIsTraitImplementedResponse>().unwrap();
-                eprintln!("Test: GET {}", path);
+                eprintln!("Test: GET {path}");
                 assert!(res.is_implemented);
 
 
                 // invalid trait compliance
-                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info", "trait-3");
+                let path = format!("{http_origin}/v2/traits/{contract_addr}/impl-trait-contract/{contract_addr}/get-info/trait-3");
                 let res = client.get(&path).send().unwrap().json::<GetIsTraitImplementedResponse>().unwrap();
-                eprintln!("Test: GET {}", path);
+                eprintln!("Test: GET {path}");
                 assert!(!res.is_implemented);
 
                 // test query parameters for v2/trait endpoint
@@ -911,35 +900,35 @@ fn integration_test_get_info() {
                 let tmppath = "/tmp/integration_test_get_info-old-tip";
                 use std::fs;
                 use std::io::Read;
-                let mut f = fs::File::open(&tmppath).unwrap();
+                let mut f = fs::File::open(tmppath).unwrap();
                 let mut buf = vec![];
                 f.read_to_end(&mut buf).unwrap();
                 let old_tip = StacksBlockId::consensus_deserialize(&mut &buf[..]).unwrap();
 
-                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}?tip={}", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info",  "trait-1", &old_tip);
+                let path = format!("{http_origin}/v2/traits/{contract_addr}/impl-trait-contract/{contract_addr}/get-info/trait-1?tip={old_tip}");
 
                 let res = client.get(&path).send().unwrap();
-                eprintln!("Test: GET {}", path);
+                eprintln!("Test: GET {path}");
                 assert_eq!(res.text().unwrap(), "No contract analysis found or trait definition not found");
 
                 // evaluate check for explicit compliance where tip is the chain tip of the first block (contract DNE at that block), but tip is "latest"
-                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}?tip=latest", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info",  "trait-1");
+                let path = format!("{http_origin}/v2/traits/{contract_addr}/impl-trait-contract/{contract_addr}/get-info/trait-1?tip=latest");
                 let res = client.get(&path).send().unwrap().json::<GetIsTraitImplementedResponse>().unwrap();
-                eprintln!("Test: GET {}", path);
+                eprintln!("Test: GET {path}");
                 assert!(res.is_implemented);
 
                 // perform some tests of the fee rate interface
-                let path = format!("{}/v2/fees/transaction", &http_origin);
+                let path = format!("{http_origin}/v2/fees/transaction");
 
                 let tx_payload =
-                    TransactionPayload::TokenTransfer(contract_addr.clone().into(), 10_000_000, TokenTransferMemo([0; 34]));
+                    TransactionPayload::TokenTransfer(contract_addr.into(), 10_000_000, TokenTransferMemo([0; 34]));
 
                 let payload_data = tx_payload.serialize_to_vec();
                 let payload_hex = format!("0x{}", to_hex(&payload_data));
 
-                eprintln!("Test: POST {}", path);
+                eprintln!("Test: POST {path}");
 
-                let body = json!({ "transaction_payload": payload_hex.clone() });
+                let body = json!({ "transaction_payload": payload_hex });
 
                 let res = client.post(&path)
                     .json(&body)
@@ -948,7 +937,7 @@ fn integration_test_get_info() {
                     .json::<serde_json::Value>()
                     .expect("Failed to parse result into JSON");
 
-                eprintln!("{}", res);
+                eprintln!("{res}");
 
                 // destruct the json result
                 //  estimated_cost for transfers should be 0 -- their cost is just in their length
@@ -966,20 +955,18 @@ fn integration_test_get_info() {
                     .as_array()
                     .expect("Fees should be array");
 
-                let estimated_fee_rates: Vec<_> = estimations
+                let estimated_fee_rates = estimations
                     .iter()
-                    .map(|x| x.get("fee_rate").expect("Should have fee_rate field"))
-                    .collect();
-                let estimated_fees: Vec<_> = estimations
+                    .map(|x| x.get("fee_rate").expect("Should have fee_rate field"));
+                let estimated_fees = estimations
                     .iter()
-                    .map(|x| x.get("fee").expect("Should have fee field"))
-                    .collect();
+                    .map(|x| x.get("fee").expect("Should have fee field"));
 
-                assert!(estimated_fee_rates.len() == 3, "Fee rates should be length 3 array");
-                assert!(estimated_fees.len() == 3, "Fees should be length 3 array");
+                assert_eq!(estimated_fee_rates.count(), 3, "Fee rates should be length 3 array");
+                assert_eq!(estimated_fees.count(), 3, "Fees should be length 3 array");
 
                 let tx_payload = TransactionPayload::from(TransactionContractCall {
-                    address: contract_addr.clone(),
+                    address: contract_addr,
                     contract_name: "get-info".into(),
                     function_name: "update-info".into(),
                     function_args: vec![],
@@ -988,9 +975,9 @@ fn integration_test_get_info() {
                 let payload_data = tx_payload.serialize_to_vec();
                 let payload_hex = to_hex(&payload_data);
 
-                eprintln!("Test: POST {}", path);
+                eprintln!("Test: POST {path}");
 
-                let body = json!({ "transaction_payload": payload_hex.clone() });
+                let body = json!({ "transaction_payload": payload_hex });
 
                 let res = client.post(&path)
                     .json(&body)
@@ -999,7 +986,7 @@ fn integration_test_get_info() {
                     .json::<serde_json::Value>()
                     .expect("Failed to parse result into JSON");
 
-                eprintln!("{}", res);
+                eprintln!("{res}");
 
                 // destruct the json result
                 //  estimated_cost for transfers should be non-zero
@@ -1017,20 +1004,19 @@ fn integration_test_get_info() {
                     .as_array()
                     .expect("Fees should be array");
 
-                let estimated_fee_rates: Vec<_> = estimations
+                let estimated_fee_rates = estimations
                     .iter()
-                    .map(|x| x.get("fee_rate").expect("Should have fee_rate field"))
-                    .collect();
+                    .map(|x| x.get("fee_rate").expect("Should have fee_rate field"));
                 let estimated_fees: Vec<_> = estimations
                     .iter()
                     .map(|x| x.get("fee").expect("Should have fee field"))
                     .collect();
 
-                assert!(estimated_fee_rates.len() == 3, "Fee rates should be length 3 array");
-                assert!(estimated_fees.len() == 3, "Fees should be length 3 array");
+                assert_eq!(estimated_fee_rates.count(), 3, "Fee rates should be length 3 array");
+                assert_eq!(estimated_fees.len(), 3, "Fees should be length 3 array");
 
                 let tx_payload = TransactionPayload::from(TransactionContractCall {
-                    address: contract_addr.clone(),
+                    address: contract_addr,
                     contract_name: "get-info".into(),
                     function_name: "update-info".into(),
                     function_args: vec![],
@@ -1040,8 +1026,8 @@ fn integration_test_get_info() {
                 let payload_hex = to_hex(&payload_data);
 
                 let estimated_len = 1550;
-                let body = json!({ "transaction_payload": payload_hex.clone(), "estimated_len": estimated_len });
-                info!("POST body\n {}", body);
+                let body = json!({ "transaction_payload": payload_hex, "estimated_len": estimated_len });
+                info!("POST body\n {body}");
 
                 let res = client.post(&path)
                     .json(&body)
@@ -1050,7 +1036,7 @@ fn integration_test_get_info() {
                     .json::<serde_json::Value>()
                     .expect("Failed to parse result into JSON");
 
-                info!("{}", res);
+                info!("{res}");
 
                 // destruct the json result
                 //  estimated_cost for transfers should be non-zero
@@ -1094,7 +1080,7 @@ fn integration_test_get_info() {
     run_loop.start(num_rounds).unwrap();
 }
 
-const FAUCET_CONTRACT: &'static str = "
+const FAUCET_CONTRACT: &str = "
   (define-public (spout)
     (let ((recipient tx-sender))
       (print (as-contract (stx-transfer? u1 .faucet recipient)))))
@@ -1111,7 +1097,7 @@ fn contract_stx_transfer() {
     conf.burnchain.commit_anchor_block_within = 5000;
     conf.add_initial_balance(addr_3.to_string(), 100000);
     conf.add_initial_balance(
-        to_addr(&StacksPrivateKey::from_hex(&SK_2).unwrap()).to_string(),
+        to_addr(&StacksPrivateKey::from_hex(SK_2).unwrap()).to_string(),
         1000,
     );
     conf.add_initial_balance(to_addr(&contract_sk).to_string(), 1000);
@@ -1133,9 +1119,8 @@ fn contract_stx_transfer() {
             let consensus_hash = chain_tip.metadata.consensus_hash;
 
             let contract_identifier = QualifiedContractIdentifier::parse(&format!(
-                "{}.{}",
-                to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap()).to_string(),
-                "faucet"
+                "{}.faucet",
+                to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap())
             ))
             .unwrap();
 
@@ -1226,7 +1211,7 @@ fn contract_stx_transfer() {
                     .submit_raw(
                         &mut chainstate_copy,
                         &sortdb,
-                        &consensus_hash,
+                        consensus_hash,
                         &header_hash,
                         tx,
                         &ExecutionCost::max_value(),
@@ -1267,7 +1252,7 @@ fn contract_stx_transfer() {
                     3,
                     190,
                     CHAIN_ID_TESTNET,
-                    &contract_identifier.clone().into(),
+                    &contract_identifier.into(),
                     1000,
                 );
                 let xfer_to_contract =
@@ -1287,30 +1272,27 @@ fn contract_stx_transfer() {
                     .unwrap_err()
                 {
                     MemPoolRejection::ConflictingNonceInMempool => (),
-                    e => panic!("{:?}", e),
+                    e => panic!("{e:?}"),
                 };
             }
-
-            return;
         });
 
     run_loop.callbacks.on_new_stacks_chain_state(
         |round, _burnchain_tip, chain_tip, chain_state, burn_dbconn| {
             let contract_identifier = QualifiedContractIdentifier::parse(&format!(
-                "{}.{}",
-                to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap()).to_string(),
-                "faucet"
+                "{}.faucet",
+                to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap())
             ))
             .unwrap();
 
             match round {
                 1 => {
-                    assert!(chain_tip.metadata.stacks_block_height == 2);
+                    assert_eq!(chain_tip.metadata.stacks_block_height, 2);
                     // Block #1 should have 2 txs -- coinbase + transfer
                     assert_eq!(chain_tip.block.txs.len(), 2);
 
                     let cur_tip = (
-                        chain_tip.metadata.consensus_hash.clone(),
+                        chain_tip.metadata.consensus_hash,
                         chain_tip.metadata.anchored_header.block_hash(),
                     );
                     // check that 1000 stx _was_ transfered to the contract principal
@@ -1353,19 +1335,19 @@ fn contract_stx_transfer() {
                     );
                 }
                 2 => {
-                    assert!(chain_tip.metadata.stacks_block_height == 3);
+                    assert_eq!(chain_tip.metadata.stacks_block_height, 3);
                     // Block #2 should have 2 txs -- coinbase + publish
                     assert_eq!(chain_tip.block.txs.len(), 2);
                 }
                 3 => {
-                    assert!(chain_tip.metadata.stacks_block_height == 4);
+                    assert_eq!(chain_tip.metadata.stacks_block_height, 4);
                     // Block #3 should have 2 txs -- coinbase + contract-call,
                     //   the second publish _should have been rejected_
                     assert_eq!(chain_tip.block.txs.len(), 2);
 
                     // check that 1 stx was transfered to SK_2 via the contract-call
                     let cur_tip = (
-                        chain_tip.metadata.consensus_hash.clone(),
+                        chain_tip.metadata.consensus_hash,
                         chain_tip.metadata.anchored_header.block_hash(),
                     );
 
@@ -1408,7 +1390,7 @@ fn contract_stx_transfer() {
                     );
                 }
                 4 => {
-                    assert!(chain_tip.metadata.stacks_block_height == 5);
+                    assert_eq!(chain_tip.metadata.stacks_block_height, 5);
                     assert_eq!(
                         chain_tip.block.txs.len() as u64,
                         MAXIMUM_MEMPOOL_TX_CHAINING + 1,
@@ -1416,7 +1398,7 @@ fn contract_stx_transfer() {
                     );
 
                     let cur_tip = (
-                        chain_tip.metadata.consensus_hash.clone(),
+                        chain_tip.metadata.consensus_hash,
                         chain_tip.metadata.anchored_header.block_hash(),
                     );
 
@@ -1491,9 +1473,8 @@ fn mine_transactions_out_of_order() {
             let consensus_hash = chain_tip.metadata.consensus_hash;
 
             let contract_identifier = QualifiedContractIdentifier::parse(&format!(
-                "{}.{}",
-                to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap()).to_string(),
-                "faucet"
+                "{}.faucet",
+                to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap())
             ))
             .unwrap();
 
@@ -1578,16 +1559,13 @@ fn mine_transactions_out_of_order() {
                     )
                     .unwrap();
             }
-
-            return;
         });
 
     run_loop.callbacks.on_new_stacks_chain_state(
         |round, _burnchain_tip, chain_tip, chain_state, burn_dbconn| {
             let contract_identifier = QualifiedContractIdentifier::parse(&format!(
-                "{}.{}",
-                to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap()).to_string(),
-                "faucet"
+                "{}.faucet",
+                to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap())
             ))
             .unwrap();
 
@@ -1610,7 +1588,7 @@ fn mine_transactions_out_of_order() {
 
                     // check that 1000 stx _was_ transfered to the contract principal
                     let curr_tip = (
-                        chain_tip.metadata.consensus_hash.clone(),
+                        chain_tip.metadata.consensus_hash,
                         chain_tip.metadata.anchored_header.block_hash(),
                     );
                     assert_eq!(
@@ -1698,15 +1676,14 @@ fn mine_contract_twice() {
     run_loop.callbacks.on_new_stacks_chain_state(
         |round, _burnchain_tip, chain_tip, chain_state, burn_dbconn| {
             let contract_identifier = QualifiedContractIdentifier::parse(&format!(
-                "{}.{}",
-                to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap()).to_string(),
-                "faucet"
+                "{}.faucet",
+                to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap())
             ))
             .unwrap();
 
             if round == 2 {
                 let cur_tip = (
-                    chain_tip.metadata.consensus_hash.clone(),
+                    chain_tip.metadata.consensus_hash,
                     chain_tip.metadata.anchored_header.block_hash(),
                 );
                 // check that the contract published!
@@ -1761,9 +1738,8 @@ fn bad_contract_tx_rollback() {
             let addr_2 = to_addr(&sk_2);
 
             let contract_identifier = QualifiedContractIdentifier::parse(&format!(
-                "{}.{}",
-                to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap()).to_string(),
-                "faucet"
+                "{}.faucet",
+                to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap())
             ))
             .unwrap();
 
@@ -1872,16 +1848,13 @@ fn bad_contract_tx_rollback() {
                     )
                     .unwrap();
             }
-
-            return;
         });
 
     run_loop.callbacks.on_new_stacks_chain_state(
         |round, _burnchain_tip, chain_tip, chain_state, burn_dbconn| {
             let contract_identifier = QualifiedContractIdentifier::parse(&format!(
-                "{}.{}",
-                to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap()).to_string(),
-                "faucet"
+                "{}.faucet",
+                to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap())
             ))
             .unwrap();
 
@@ -1892,7 +1865,7 @@ fn bad_contract_tx_rollback() {
                     assert_eq!(chain_tip.block.txs.len(), 2);
 
                     let cur_tip = (
-                        chain_tip.metadata.consensus_hash.clone(),
+                        chain_tip.metadata.consensus_hash,
                         chain_tip.metadata.anchored_header.block_hash(),
                     );
                     // check that 1000 stx _was_ transfered to the contract principal
@@ -1967,10 +1940,8 @@ fn make_expensive_contract(inner_loop: &str, other_decl: &str) -> String {
     for i in 0..10 {
         contract.push('\n');
         contract.push_str(&format!(
-            "(define-constant list-{} (concat list-{} list-{}))",
+            "(define-constant list-{} (concat list-{i} list-{i}))",
             i + 1,
-            i,
-            i
         ));
     }
 
@@ -2013,7 +1984,7 @@ fn make_keys(seed: &str, count: u64) -> Vec<StacksPrivateKey> {
 fn block_limit_runtime_test() {
     let mut conf = super::new_test_conf();
 
-    conf.burnchain.epochs = Some(vec![
+    conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -2074,7 +2045,7 @@ fn block_limit_runtime_test() {
             },
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
-    ]);
+    ]));
     conf.burnchain.commit_anchor_block_within = 5000;
 
     let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
@@ -2083,7 +2054,7 @@ fn block_limit_runtime_test() {
     let seed = "a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447";
     let spender_sks = make_keys(seed, 500);
     for sk in spender_sks.iter() {
-        conf.add_initial_balance(to_addr(&sk).to_string(), 1000);
+        conf.add_initial_balance(to_addr(sk).to_string(), 1000);
     }
 
     let num_rounds = 6;
@@ -2097,9 +2068,8 @@ fn block_limit_runtime_test() {
 
             let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
             let _contract_identifier = QualifiedContractIdentifier::parse(&format!(
-                "{}.{}",
-                to_addr(&contract_sk),
-                "hello-contract"
+                "{}.hello-contract",
+                to_addr(&contract_sk)
             ))
             .unwrap();
             let (consensus_hash, block_hash) = (
@@ -2107,45 +2077,15 @@ fn block_limit_runtime_test() {
                 &tenure.parent_block.metadata.anchored_header.block_hash(),
             );
 
-            if round == 1 {
-                let publish_tx = make_contract_publish(
-                    &contract_sk,
-                    0,
-                    10,
-                    CHAIN_ID_TESTNET,
-                    "hello-contract",
-                    EXPENSIVE_CONTRACT.as_str(),
-                );
-                tenure
-                    .mem_pool
-                    .submit_raw(
-                        &mut chainstate_copy,
-                        &sortdb,
-                        consensus_hash,
-                        block_hash,
-                        publish_tx,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch21,
-                    )
-                    .unwrap();
-            } else if round > 1 {
-                eprintln!("Begin Round: {}", round);
-                let to_submit = 2 * (round - 1);
-
-                let seed = "a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447";
-                let spender_sks = make_keys(seed, 500);
-
-                for i in 0..to_submit {
-                    let sk = &spender_sks[(i + round * round) as usize];
-                    let tx = make_contract_call(
-                        sk,
+            match round.cmp(&1) {
+                Ordering::Equal => {
+                    let publish_tx = make_contract_publish(
+                        &contract_sk,
                         0,
                         10,
                         CHAIN_ID_TESTNET,
-                        &to_addr(&contract_sk),
                         "hello-contract",
-                        "do-it",
-                        &[],
+                        EXPENSIVE_CONTRACT.as_str(),
                     );
                     tenure
                         .mem_pool
@@ -2154,24 +2094,55 @@ fn block_limit_runtime_test() {
                             &sortdb,
                             consensus_hash,
                             block_hash,
-                            tx,
+                            publish_tx,
                             &ExecutionCost::max_value(),
                             &StacksEpochId::Epoch21,
                         )
                         .unwrap();
                 }
-            }
+                Ordering::Greater => {
+                    eprintln!("Begin Round: {round}");
+                    let to_submit = 2 * (round - 1);
 
-            return;
+                    let seed = "a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447";
+                    let spender_sks = make_keys(seed, 500);
+
+                    for i in 0..to_submit {
+                        let sk = &spender_sks[(i + round * round) as usize];
+                        let tx = make_contract_call(
+                            sk,
+                            0,
+                            10,
+                            CHAIN_ID_TESTNET,
+                            &to_addr(&contract_sk),
+                            "hello-contract",
+                            "do-it",
+                            &[],
+                        );
+                        tenure
+                            .mem_pool
+                            .submit_raw(
+                                &mut chainstate_copy,
+                                &sortdb,
+                                consensus_hash,
+                                block_hash,
+                                tx,
+                                &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch21,
+                            )
+                            .unwrap();
+                    }
+                }
+                Ordering::Less => {}
+            };
         });
 
     run_loop.callbacks.on_new_stacks_chain_state(
         |round, _chain_state, block, _chain_tip_info, _burn_dbconn| {
             let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
             let _contract_identifier = QualifiedContractIdentifier::parse(&format!(
-                "{}.{}",
-                to_addr(&contract_sk),
-                "hello-contract"
+                "{}.hello-contract",
+                to_addr(&contract_sk)
             ))
             .unwrap();
 
@@ -2180,7 +2151,7 @@ fn block_limit_runtime_test() {
                     // Block #1 should have 3 txs -- coinbase + 2 contract calls...
                     assert_eq!(block.block.txs.len(), 3);
                 }
-                3 | 4 | 5 => {
+                3..=5 => {
                     // Block >= 2 should have 4 txs -- coinbase + 3 contract calls
                     //   because the _subsequent_ transactions should never have been
                     //   included.
@@ -2215,7 +2186,7 @@ fn mempool_errors() {
 
     {
         let mut http_opt = HTTP_BINDING.lock().unwrap();
-        http_opt.replace(format!("http://{}", &rpc_bind));
+        http_opt.replace(format!("http://{rpc_bind}"));
     }
 
     let mut run_loop = RunLoop::new(conf);
@@ -2254,22 +2225,19 @@ fn mempool_errors() {
                     )
                     .unwrap();
             }
-
-            return;
         });
 
     run_loop.callbacks.on_new_stacks_chain_state(
         |round, _chain_state, _block, _chain_tip_info, _burn_dbconn| {
             let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
             let _contract_identifier = QualifiedContractIdentifier::parse(&format!(
-                "{}.{}",
-                to_addr(&contract_sk),
-                "hello-contract"
+                "{}.hello-contract",
+                to_addr(&contract_sk)
             ))
             .unwrap();
             let http_origin = { HTTP_BINDING.lock().unwrap().clone().unwrap() };
             let client = reqwest::blocking::Client::new();
-            let path = format!("{}/v2/transactions", &http_origin);
+            let path = format!("{http_origin}/v2/transactions");
             let spender_sk = StacksPrivateKey::from_hex(SK_3).unwrap();
             let spender_addr = to_addr(&spender_sk);
 
@@ -2277,7 +2245,7 @@ fn mempool_errors() {
 
             if round == 1 {
                 // let's submit an invalid transaction!
-                eprintln!("Test: POST {} (invalid)", path);
+                eprintln!("Test: POST {path} (invalid)");
                 let tx_xfer_invalid = make_stacks_transfer(
                     &spender_sk,
                     30, // bad nonce -- too much chaining
@@ -2292,13 +2260,13 @@ fn mempool_errors() {
                 let res = client
                     .post(&path)
                     .header("Content-Type", "application/octet-stream")
-                    .body(tx_xfer_invalid.clone())
+                    .body(tx_xfer_invalid)
                     .send()
                     .unwrap()
                     .json::<serde_json::Value>()
                     .unwrap();
 
-                eprintln!("{}", res);
+                eprintln!("{res}");
                 assert_eq!(
                     res.get("txid").unwrap().as_str().unwrap(),
                     tx_xfer_invalid_tx.txid().to_string()
@@ -2312,7 +2280,7 @@ fn mempool_errors() {
                     "TooMuchChaining"
                 );
                 let data = res.get("reason_data").unwrap();
-                assert_eq!(data.get("is_origin").unwrap().as_bool().unwrap(), true);
+                assert!(data.get("is_origin").unwrap().as_bool().unwrap());
                 assert_eq!(
                     data.get("principal").unwrap().as_str().unwrap(),
                     &spender_addr.to_string()
@@ -2334,13 +2302,13 @@ fn mempool_errors() {
                 let res = client
                     .post(&path)
                     .header("Content-Type", "application/octet-stream")
-                    .body(tx_xfer_invalid.clone())
+                    .body(tx_xfer_invalid)
                     .send()
                     .unwrap()
                     .json::<serde_json::Value>()
                     .unwrap();
 
-                eprintln!("{}", res);
+                eprintln!("{res}");
                 assert_eq!(
                     res.get("txid").unwrap().as_str().unwrap(),
                     tx_xfer_invalid_tx.txid().to_string()
@@ -2368,13 +2336,13 @@ fn mempool_errors() {
                 let res = client
                     .post(&path)
                     .header("Content-Type", "application/octet-stream")
-                    .body(tx_xfer_invalid.clone())
+                    .body(tx_xfer_invalid)
                     .send()
                     .unwrap()
                     .json::<serde_json::Value>()
                     .unwrap();
 
-                eprintln!("{}", res);
+                eprintln!("{res}");
                 assert_eq!(
                     res.get("txid").unwrap().as_str().unwrap(),
                     tx_xfer_invalid_tx.txid().to_string()
@@ -2413,13 +2381,13 @@ fn mempool_errors() {
                 let res = client
                     .post(&path)
                     .header("Content-Type", "application/octet-stream")
-                    .body(tx_xfer_invalid.clone())
+                    .body(tx_xfer_invalid)
                     .send()
                     .unwrap()
                     .json::<serde_json::Value>()
                     .unwrap();
 
-                eprintln!("{}", res);
+                eprintln!("{res}");
                 assert_eq!(
                     res.get("txid").unwrap().as_str().unwrap(),
                     tx_xfer_invalid_tx.txid().to_string()

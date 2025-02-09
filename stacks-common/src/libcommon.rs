@@ -1,5 +1,4 @@
 #![allow(unused_macros)]
-#![allow(unused_imports)]
 #![allow(dead_code)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
@@ -7,6 +6,7 @@
 #![cfg_attr(test, allow(unused_variables, unused_assignments))]
 #![allow(clippy::assertions_on_constants)]
 
+#[allow(unused_imports)]
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
@@ -32,8 +32,6 @@ pub mod address;
 pub mod deps_common;
 
 pub mod bitvec;
-
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId};
 
 pub mod consts {
     use crate::types::chainstate::{BlockHeaderHash, ConsensusHash};
@@ -81,10 +79,11 @@ pub mod consts {
     pub const PEER_VERSION_EPOCH_2_4: u8 = 0x09;
     pub const PEER_VERSION_EPOCH_2_5: u8 = 0x0a;
     pub const PEER_VERSION_EPOCH_3_0: u8 = 0x0b;
+    pub const PEER_VERSION_EPOCH_3_1: u8 = 0x0c;
 
     /// this should be updated to the latest network epoch version supported by
     ///  this node. this will be checked by the `validate_epochs()` method.
-    pub const PEER_NETWORK_EPOCH: u32 = PEER_VERSION_EPOCH_3_0 as u32;
+    pub const PEER_NETWORK_EPOCH: u32 = PEER_VERSION_EPOCH_3_1 as u32;
 
     /// set the fourth byte of the peer version
     pub const PEER_VERSION_MAINNET: u32 = PEER_VERSION_MAINNET_MAJOR | PEER_NETWORK_EPOCH;
@@ -93,6 +92,9 @@ pub mod consts {
     /// network identifiers
     pub const NETWORK_ID_MAINNET: u32 = 0x17000000;
     pub const NETWORK_ID_TESTNET: u32 = 0xff000000;
+
+    /// number of uSTX per STX
+    pub const MICROSTACKS_PER_STACKS: u32 = 1_000_000;
 }
 
 /// This test asserts that the constant above doesn't change.

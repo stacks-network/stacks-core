@@ -1,5 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
+use clarity::types::chainstate::TrieHash;
 use clarity::util::hash::Sha512Trunc256Sum;
 use clarity::vm::analysis::AnalysisDatabase;
 use clarity::vm::database::sqlite::{
@@ -69,9 +70,8 @@ impl GetTenureStartId for StacksDBConn<'_> {
                 tip,
                 &nakamoto_keys::tenure_start_block_id(tenure_id_consensus_hash),
             )?
-            .map(|id_str| nakamoto_keys::parse_block_id(&id_str))
-            .flatten()
-            .map(|block_id| TenureBlockId::from(block_id)))
+            .and_then(|id_str| nakamoto_keys::parse_block_id(&id_str))
+            .map(TenureBlockId::from))
     }
 
     fn get_tenure_block_id_at_cb_height(
@@ -84,8 +84,7 @@ impl GetTenureStartId for StacksDBConn<'_> {
                 tip,
                 &nakamoto_keys::ongoing_tenure_coinbase_height(coinbase_height),
             )?
-            .map(|hex_inp| nakamoto_keys::parse_block_id(&hex_inp))
-            .flatten();
+            .and_then(|hex_inp| nakamoto_keys::parse_block_id(&hex_inp));
         Ok(opt_out)
     }
 
@@ -105,9 +104,8 @@ impl GetTenureStartId for StacksDBTx<'_> {
                 tip,
                 &nakamoto_keys::tenure_start_block_id(tenure_id_consensus_hash),
             )?
-            .map(|id_str| nakamoto_keys::parse_block_id(&id_str))
-            .flatten()
-            .map(|block_id| TenureBlockId::from(block_id)))
+            .and_then(|id_str| nakamoto_keys::parse_block_id(&id_str))
+            .map(TenureBlockId::from))
     }
 
     fn get_tenure_block_id_at_cb_height(
@@ -120,8 +118,7 @@ impl GetTenureStartId for StacksDBTx<'_> {
                 tip,
                 &nakamoto_keys::ongoing_tenure_coinbase_height(coinbase_height),
             )?
-            .map(|hex_inp| nakamoto_keys::parse_block_id(&hex_inp))
-            .flatten();
+            .and_then(|hex_inp| nakamoto_keys::parse_block_id(&hex_inp));
         Ok(opt_out)
     }
 
@@ -156,7 +153,7 @@ impl GetTenureStartId for MARF<StacksBlockId> {
 
 pub struct HeadersDBConn<'a>(pub StacksDBConn<'a>);
 
-impl<'a> HeadersDB for HeadersDBConn<'a> {
+impl HeadersDB for HeadersDBConn<'_> {
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
@@ -323,11 +320,11 @@ impl<'a> HeadersDB for HeadersDBConn<'a> {
         epoch: &StacksEpochId,
     ) -> Option<u128> {
         let tenure_id_bhh = get_first_block_in_tenure(&self.0, id_bhh, Some(epoch));
-        get_matured_reward(&self.0, &tenure_id_bhh, epoch).map(|x| x.total().into())
+        get_matured_reward(&self.0, &tenure_id_bhh, epoch).map(|x| x.total())
     }
 }
 
-impl<'a> HeadersDB for ChainstateTx<'a> {
+impl HeadersDB for ChainstateTx<'_> {
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
@@ -478,7 +475,7 @@ impl<'a> HeadersDB for ChainstateTx<'a> {
         epoch: &StacksEpochId,
     ) -> Option<u128> {
         let tenure_id_bhh = get_first_block_in_tenure(self.deref(), id_bhh, Some(epoch));
-        get_matured_reward(self.deref(), &tenure_id_bhh, epoch).map(|x| x.total().into())
+        get_matured_reward(self.deref(), &tenure_id_bhh, epoch).map(|x| x.total())
     }
 
     fn get_stacks_height_for_tenure_height(
@@ -652,7 +649,7 @@ impl HeadersDB for MARF<StacksBlockId> {
         epoch: &StacksEpochId,
     ) -> Option<u128> {
         let tenure_id_bhh = get_first_block_in_tenure(self, id_bhh, Some(epoch));
-        get_matured_reward(self, &tenure_id_bhh, epoch).map(|x| x.total().into())
+        get_matured_reward(self, &tenure_id_bhh, epoch).map(|x| x.total())
     }
 
     fn get_stacks_height_for_tenure_height(
@@ -740,13 +737,15 @@ fn get_first_block_in_tenure<GTS: GetTenureStartId>(
             }
         }
         None => {
-            if let Some(_) = get_stacks_header_column_from_table(
+            if get_stacks_header_column_from_table(
                 conn.conn(),
                 id_bhh,
                 "consensus_hash",
                 &|r| ConsensusHash::from_row(r).expect("FATAL: malformed consensus_hash"),
                 false,
-            ) {
+            )
+            .is_some()
+            {
                 return id_bhh.clone().into();
             } else {
                 get_stacks_header_column_from_table(
@@ -1204,7 +1203,7 @@ impl MemoryBackingStore {
         memory_marf
     }
 
-    pub fn as_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
+    pub fn as_clarity_db(&mut self) -> ClarityDatabase<'_> {
         ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
     }
 
@@ -1218,7 +1217,7 @@ impl MemoryBackingStore {
         ClarityDatabase::new(self, headers_db, burn_state_db)
     }
 
-    pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
+    pub fn as_analysis_db(&mut self) -> AnalysisDatabase<'_> {
         AnalysisDatabase::new(self)
     }
 }
@@ -1232,8 +1231,22 @@ impl ClarityBackingStore for MemoryBackingStore {
         SqliteConnection::get(self.get_side_store(), key)
     }
 
+    fn get_data_from_path(&mut self, hash: &TrieHash) -> InterpreterResult<Option<String>> {
+        SqliteConnection::get(self.get_side_store(), hash.to_string().as_str())
+    }
+
     fn get_data_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
         Ok(SqliteConnection::get(self.get_side_store(), key)?.map(|x| (x, vec![])))
+    }
+
+    fn get_data_with_proof_from_path(
+        &mut self,
+        key: &TrieHash,
+    ) -> InterpreterResult<Option<(String, Vec<u8>)>> {
+        Ok(
+            SqliteConnection::get(self.get_side_store(), key.to_string().as_str())?
+                .map(|x| (x, vec![])),
+        )
     }
 
     fn get_side_store(&mut self) -> &Connection {

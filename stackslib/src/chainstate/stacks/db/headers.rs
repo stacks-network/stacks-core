@@ -35,7 +35,7 @@ use crate::util_lib::db::{
 };
 
 impl FromRow<StacksBlockHeader> for StacksBlockHeader {
-    fn from_row<'a>(row: &'a Row) -> Result<StacksBlockHeader, db_error> {
+    fn from_row(row: &Row) -> Result<StacksBlockHeader, db_error> {
         let version: u8 = row.get_unwrap("version");
         let total_burn_str: String = row.get_unwrap("total_burn");
         let total_work_str: String = row.get_unwrap("total_work");
@@ -80,7 +80,7 @@ impl FromRow<StacksBlockHeader> for StacksBlockHeader {
 }
 
 impl FromRow<StacksMicroblockHeader> for StacksMicroblockHeader {
-    fn from_row<'a>(row: &'a Row) -> Result<StacksMicroblockHeader, db_error> {
+    fn from_row(row: &Row) -> Result<StacksMicroblockHeader, db_error> {
         let version: u8 = row.get_unwrap("version");
         let sequence: u16 = row.get_unwrap("sequence");
         let prev_block = BlockHeaderHash::from_column(row, "prev_block")?;
@@ -135,7 +135,7 @@ impl StacksChainState {
         let block_hash = header.block_hash();
 
         let index_block_hash =
-            StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
+            StacksBlockHeader::make_index_block_hash(consensus_hash, &block_hash);
 
         assert!(block_height < (i64::MAX as u64));
 
@@ -362,7 +362,7 @@ impl StacksChainState {
         for _i in 0..count {
             let parent_index_block_hash = {
                 let cur_index_block_hash = ret.last().expect("FATAL: empty list of ancestors");
-                match StacksChainState::get_parent_block_id(conn, &cur_index_block_hash)? {
+                match StacksChainState::get_parent_block_id(conn, cur_index_block_hash)? {
                     Some(ibhh) => ibhh,
                     None => {
                         // out of ancestors

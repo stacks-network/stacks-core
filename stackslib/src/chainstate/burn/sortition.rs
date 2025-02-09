@@ -40,7 +40,7 @@ use crate::chainstate::burn::{
     SortitionHash,
 };
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId, TrieHashExtension};
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId};
 use crate::core::*;
 use crate::util_lib::db::Error as db_error;
 
@@ -132,7 +132,7 @@ impl BlockSnapshot {
         VRF_seed: &VRFSeed,
         sortition_hash: &SortitionHash,
     ) -> Option<usize> {
-        if dist.len() == 0 {
+        if dist.is_empty() {
             // no winners
             return None;
         }
@@ -254,12 +254,12 @@ impl BlockSnapshot {
         debug!("SORTITION({}): NO BLOCK CHOSEN", block_height);
 
         Ok(BlockSnapshot {
-            block_height: block_height,
+            block_height,
             burn_header_hash: block_hash,
             burn_header_timestamp: block_header.timestamp,
             parent_burn_header_hash: parent_block_hash,
             consensus_hash: ch,
-            ops_hash: ops_hash,
+            ops_hash,
             total_burn: burn_total,
             sortition: false,
             sortition_hash: sortition_hash.clone(),
@@ -445,7 +445,7 @@ impl BlockSnapshot {
             BlockHeaderHash(bhh_bytes)
         };
 
-        let mut null_sample_winner = BurnSamplePoint::zero(null_winner.clone());
+        let mut null_sample_winner = BurnSamplePoint::zero(null_winner);
         let mut burn_sample_winner = BurnSamplePoint::zero(commit_winner.clone());
 
         let null_prob = Self::null_miner_probability(atc);
@@ -498,6 +498,7 @@ impl BlockSnapshot {
     ///
     /// Call this *after* you store all of the block's transactions to the burn db.
     pub fn make_snapshot(
+        mainnet: bool,
         sort_tx: &mut SortitionHandleTx,
         burnchain: &Burnchain,
         my_sortition_id: &SortitionId,
@@ -518,6 +519,7 @@ impl BlockSnapshot {
             .epoch_id;
 
         Self::make_snapshot_in_epoch(
+            mainnet,
             sort_tx,
             burnchain,
             my_sortition_id,
@@ -531,6 +533,7 @@ impl BlockSnapshot {
     }
 
     pub fn make_snapshot_in_epoch(
+        mainnet: bool,
         sort_tx: &mut SortitionHandleTx,
         burnchain: &Burnchain,
         my_sortition_id: &SortitionId,
@@ -561,6 +564,8 @@ impl BlockSnapshot {
             initial_mining_bonus_ustx
         } else {
             let missed_coinbase = StacksChainState::get_coinbase_reward(
+                epoch_id,
+                mainnet,
                 parent_snapshot.block_height,
                 first_block_height,
             );
@@ -587,7 +592,7 @@ impl BlockSnapshot {
             )
         };
 
-        if state_transition.burn_dist.len() == 0 {
+        if state_transition.burn_dist.is_empty() {
             // no burns happened
             debug!(
                 "No burns happened in block";
@@ -726,8 +731,7 @@ impl BlockSnapshot {
                 winning_block.key_vtxindex.into(),
                 &parent_snapshot.sortition_id,
             )?
-            .map(|key_op| key_op.interpret_nakamoto_signing_key())
-            .flatten();
+            .and_then(|key_op| key_op.interpret_nakamoto_signing_key());
 
         Ok(BlockSnapshot {
             block_height,
@@ -788,6 +792,7 @@ mod test {
         burnchain_state_transition: &BurnchainStateTransition,
     ) -> Result<BlockSnapshot, db_error> {
         BlockSnapshot::make_snapshot(
+            false,
             sort_tx,
             burnchain,
             my_sortition_id,
@@ -903,8 +908,8 @@ mod test {
                 &initial_snapshot,
                 &empty_block_header,
                 &BurnchainStateTransition {
-                    burn_dist: vec![empty_burn_point.clone()],
-                    accepted_ops: vec![BlockstackOperationType::LeaderKeyRegister(key.clone())],
+                    burn_dist: vec![empty_burn_point],
+                    accepted_ops: vec![BlockstackOperationType::LeaderKeyRegister(key)],
                     ..BurnchainStateTransition::noop()
                 },
             )
@@ -1093,18 +1098,18 @@ mod test {
         for i in 0..100 {
             let header = BurnchainBlockHeader {
                 block_height: prev_block_header.block_height + 1,
-                block_hash: BurnchainHeaderHash([i as u8; 32]),
+                block_hash: BurnchainHeaderHash([i; 32]),
                 parent_block_hash: prev_block_header.block_hash.clone(),
                 num_txs: 0,
-                timestamp: prev_block_header.timestamp + (i as u64) + 1,
+                timestamp: prev_block_header.timestamp + u64::from(i) + 1,
             };
 
-            let sortition_hash = SortitionHash([i as u8; 32]);
+            let sortition_hash = SortitionHash([i; 32]);
 
             let commit_winner = LeaderBlockCommitOp {
                 sunset_burn: 0,
-                block_header_hash: BlockHeaderHash([i as u8; 32]),
-                new_seed: VRFSeed([i as u8; 32]),
+                block_header_hash: BlockHeaderHash([i; 32]),
+                new_seed: VRFSeed([i; 32]),
                 parent_block_ptr: 0,
                 parent_vtxindex: 0,
                 key_block_ptr: 0,
@@ -1114,11 +1119,11 @@ mod test {
 
                 burn_fee: 100,
                 input: (Txid([0; 32]), 0),
-                apparent_sender: BurnchainSigner(format!("signer {}", i)),
-                txid: Txid([i as u8; 32]),
+                apparent_sender: BurnchainSigner(format!("signer {i}")),
+                txid: Txid([i; 32]),
                 vtxindex: 0,
                 block_height: header.block_height,
-                burn_parent_modulus: (i % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+                burn_parent_modulus: i % BURN_BLOCK_MINED_AT_MODULUS as u8,
                 burn_header_hash: header.block_hash.clone(),
                 treatment: vec![],
             };
@@ -1127,7 +1132,7 @@ mod test {
             test_append_snapshot_with_winner(
                 &mut db,
                 header.block_hash.clone(),
-                &vec![BlockstackOperationType::LeaderBlockCommit(
+                &[BlockstackOperationType::LeaderBlockCommit(
                     commit_winner.clone(),
                 )],
                 Some(tip),

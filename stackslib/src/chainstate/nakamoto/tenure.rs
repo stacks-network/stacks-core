@@ -120,7 +120,7 @@ use crate::util_lib::db::{
     FromRow,
 };
 
-pub static NAKAMOTO_TENURES_SCHEMA_1: &'static str = r#"
+pub static NAKAMOTO_TENURES_SCHEMA_1: &str = r#"
     CREATE TABLE nakamoto_tenures (
         -- consensus hash of start-tenure block (i.e. the consensus hash of the sortition in which the miner's block-commit
         -- was mined)
@@ -157,7 +157,7 @@ pub static NAKAMOTO_TENURES_SCHEMA_1: &'static str = r#"
     CREATE INDEX nakamoto_tenures_by_parent ON nakamoto_tenures(tenure_id_consensus_hash,prev_tenure_id_consensus_hash);
 "#;
 
-pub static NAKAMOTO_TENURES_SCHEMA_2: &'static str = r#"
+pub static NAKAMOTO_TENURES_SCHEMA_2: &str = r#"
     -- Drop the nakamoto_tenures table if it exists
     DROP TABLE IF EXISTS nakamoto_tenures;
 
@@ -197,7 +197,7 @@ pub static NAKAMOTO_TENURES_SCHEMA_2: &'static str = r#"
     CREATE INDEX nakamoto_tenures_by_parent ON nakamoto_tenures(tenure_id_consensus_hash,prev_tenure_id_consensus_hash);
 "#;
 
-pub static NAKAMOTO_TENURES_SCHEMA_3: &'static str = r#"
+pub static NAKAMOTO_TENURES_SCHEMA_3: &str = r#"
     -- Drop the nakamoto_tenures table if it exists
     DROP TABLE IF EXISTS nakamoto_tenures;
 
@@ -372,7 +372,7 @@ impl NakamotoChainState {
         let matured_coinbase_height = coinbase_height - MINER_REWARD_MATURITY;
         let matured_tenure_block_header = Self::get_header_by_coinbase_height(
             chainstate_tx.deref_mut(),
-            &tip_index_hash,
+            tip_index_hash,
             matured_coinbase_height,
         )?
         .ok_or_else(|| {
@@ -749,8 +749,18 @@ impl NakamotoChainState {
                 warn!("Invalid tenure-change: parent snapshot comes after current tip"; "burn_view_consensus_hash" => %tenure_payload.burn_view_consensus_hash, "prev_tenure_consensus_hash" => %tenure_payload.prev_tenure_consensus_hash);
                 return Ok(None);
             }
-            if !prev_sn.sortition {
-                // parent wasn't a sortition-induced tenure change
+
+            // is the parent a shadow block?
+            // Only possible if the parent is also a nakamoto block
+            let is_parent_shadow_block = NakamotoChainState::get_nakamoto_block_version(
+                headers_conn.sqlite(),
+                &block_header.parent_block_id,
+            )?
+            .map(NakamotoBlockHeader::is_shadow_block_version)
+            .unwrap_or(false);
+
+            if !is_parent_shadow_block && !prev_sn.sortition {
+                // parent wasn't a shadow block (we expect a sortition), but this wasn't a sortition-induced tenure change
                 warn!("Invalid tenure-change: no block found";
                       "prev_tenure_consensus_hash" => %tenure_payload.prev_tenure_consensus_hash
                 );
@@ -758,8 +768,8 @@ impl NakamotoChainState {
             }
         }
 
-        // the tenure must correspond to sortitions
-        if !tenure_sn.sortition {
+        // if this isn't a shadow block, then the tenure must correspond to sortitions
+        if !block_header.is_shadow_block() && !tenure_sn.sortition {
             warn!("Invalid tenure-change: no block found";
                   "tenure_consensus_hash" => %tenure_payload.tenure_consensus_hash
             );
@@ -840,6 +850,7 @@ impl NakamotoChainState {
         handle: &mut SH,
         block: &NakamotoBlock,
         parent_coinbase_height: u64,
+        do_not_advance: bool,
     ) -> Result<u64, ChainstateError> {
         let Some(tenure_payload) = block.get_tenure_tx_payload() else {
             // no new tenure
@@ -867,6 +878,9 @@ impl NakamotoChainState {
             ));
         };
 
+        if do_not_advance {
+            return Ok(coinbase_height);
+        }
         Self::insert_nakamoto_tenure(headers_tx, &block.header, coinbase_height, tenure_payload)?;
         return Ok(coinbase_height);
     }
@@ -957,6 +971,8 @@ impl NakamotoChainState {
         .accumulated_coinbase_ustx;
 
         let coinbase_at_block = StacksChainState::get_coinbase_reward(
+            evaluated_epoch,
+            chainstate_tx.config.mainnet,
             chain_tip_burn_header_height,
             burn_dbconn.context.first_block_height,
         );
@@ -1051,6 +1067,15 @@ impl NakamotoChainState {
                 );
                 ChainstateError::NoSuchBlockError
             })?;
+
+        if snapshot.consensus_hash != *block_consensus_hash {
+            // should be unreachable, but check defensively
+            warn!(
+                "Snapshot for {} is not the same as the one for {}",
+                &burn_header_hash, block_consensus_hash
+            );
+            return Err(ChainstateError::NoSuchBlockError);
+        }
 
         Ok(snapshot)
     }

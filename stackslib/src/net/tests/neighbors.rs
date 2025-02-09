@@ -21,7 +21,7 @@ use stacks_common::util::hash::*;
 use stacks_common::util::sleep_ms;
 
 use crate::core::{
-    StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
+    EpochList, StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     PEER_VERSION_TESTNET, STACKS_EPOCH_MAX,
 };
 use crate::net::asn::*;
@@ -68,20 +68,14 @@ fn test_step_walk_1_neighbor_plain() {
                 walk_2_count
             );
 
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                }
-                None => {}
+            if let Some(ref w) = peer_1.network.walk {
+                assert_eq!(w.result.broken_connections.len(), 0);
+                assert_eq!(w.result.replaced_neighbors.len(), 0);
             };
 
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                }
-                None => {}
+            if let Some(ref w) = peer_2.network.walk {
+                assert_eq!(w.result.broken_connections.len(), 0);
+                assert_eq!(w.result.replaced_neighbors.len(), 0);
             };
 
             i += 1;
@@ -136,9 +130,7 @@ fn test_step_walk_1_neighbor_plain() {
                 .clone()
                 .unwrap(),
             (
-                PeerAddress::from_socketaddr(
-                    &format!("127.0.0.1:1").parse::<SocketAddr>().unwrap()
-                ),
+                PeerAddress::from_socketaddr(&"127.0.0.1:1".parse::<SocketAddr>().unwrap()),
                 peer_1.config.server_port,
             )
         );
@@ -186,22 +178,16 @@ fn test_step_walk_1_neighbor_plain_no_natpunch() {
                 walk_2_count
             );
 
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.dead_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                }
-                None => {}
+            if let Some(ref w) = peer_1.network.walk {
+                assert_eq!(w.result.broken_connections.len(), 0);
+                assert_eq!(w.result.dead_connections.len(), 0);
+                assert_eq!(w.result.replaced_neighbors.len(), 0);
             };
 
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.dead_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                }
-                None => {}
+            if let Some(ref w) = peer_2.network.walk {
+                assert_eq!(w.result.broken_connections.len(), 0);
+                assert_eq!(w.result.dead_connections.len(), 0);
+                assert_eq!(w.result.replaced_neighbors.len(), 0);
             };
 
             if let Some(s) = peer_1
@@ -277,8 +263,8 @@ fn test_step_walk_1_neighbor_denied() {
         // peer 1 crawls peer 2, but peer 1 has denied peer 2
         peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
         {
-            let mut tx = peer_1.network.peerdb.tx_begin().unwrap();
-            PeerDB::add_deny_cidr(&mut tx, &PeerAddress::from_ipv4(127, 0, 0, 1), 128).unwrap();
+            let tx = peer_1.network.peerdb.tx_begin().unwrap();
+            PeerDB::add_deny_cidr(&tx, &PeerAddress::from_ipv4(127, 0, 0, 1), 128).unwrap();
             tx.commit().unwrap();
         }
 
@@ -308,20 +294,14 @@ fn test_step_walk_1_neighbor_denied() {
             walk_1_retries = peer_1.network.walk_retries;
             walk_2_retries = peer_2.network.walk_retries;
 
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                }
-                None => {}
+            if let Some(ref w) = peer_1.network.walk {
+                assert_eq!(w.result.broken_connections.len(), 0);
+                assert_eq!(w.result.replaced_neighbors.len(), 0);
             };
 
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                }
-                None => {}
+            if let Some(ref w) = peer_2.network.walk {
+                assert_eq!(w.result.broken_connections.len(), 0);
+                assert_eq!(w.result.replaced_neighbors.len(), 0);
             };
 
             i += 1;
@@ -350,23 +330,23 @@ fn test_step_walk_1_neighbor_bad_epoch() {
 
         // peer 1 thinks its always epoch 2.0
         peer_1_config.peer_version = 0x18000000;
-        peer_1_config.epochs = Some(vec![StacksEpoch {
+        peer_1_config.epochs = Some(EpochList::new(&[StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: STACKS_EPOCH_MAX,
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_0,
-        }]);
+        }]));
 
         // peer 2 thinks its always epoch 2.05
         peer_2_config.peer_version = 0x18000005;
-        peer_2_config.epochs = Some(vec![StacksEpoch {
+        peer_2_config.epochs = Some(EpochList::new(&[StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 0,
             end_height: STACKS_EPOCH_MAX,
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_05,
-        }]);
+        }]));
 
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
@@ -402,20 +382,14 @@ fn test_step_walk_1_neighbor_bad_epoch() {
             walk_1_retries = peer_1.network.walk_attempts;
             walk_2_retries = peer_2.network.walk_attempts;
 
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                }
-                None => {}
+            if let Some(ref w) = peer_1.network.walk {
+                assert_eq!(w.result.broken_connections.len(), 0);
+                assert_eq!(w.result.replaced_neighbors.len(), 0);
             };
 
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                }
-                None => {}
+            if let Some(ref w) = peer_2.network.walk {
+                assert_eq!(w.result.broken_connections.len(), 0);
+                assert_eq!(w.result.replaced_neighbors.len(), 0);
             };
 
             i += 1;
@@ -465,20 +439,14 @@ fn test_step_walk_1_neighbor_heartbeat_ping() {
                 walk_2_count
             );
 
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                }
-                None => {}
+            if let Some(ref w) = peer_1.network.walk {
+                assert_eq!(w.result.broken_connections.len(), 0);
+                assert_eq!(w.result.replaced_neighbors.len(), 0);
             };
 
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                }
-                None => {}
+            if let Some(ref w) = peer_2.network.walk {
+                assert_eq!(w.result.broken_connections.len(), 0);
+                assert_eq!(w.result.replaced_neighbors.len(), 0);
             };
 
             i += 1;
@@ -575,29 +543,23 @@ fn test_step_walk_1_neighbor_bootstrapping() {
                 walk_2_count
             );
 
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+            if let Some(ref w) = peer_1.network.walk {
+                assert_eq!(w.result.broken_connections.len(), 0);
+                assert_eq!(w.result.replaced_neighbors.len(), 0);
 
-                    // peer 2 never gets added to peer 1's frontier
-                    assert!(w.frontier.get(&neighbor_2.addr).is_none());
-                }
-                None => {}
+                // peer 2 never gets added to peer 1's frontier
+                assert!(!w.frontier.contains_key(&neighbor_2.addr));
             };
 
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                }
-                None => {}
+            if let Some(ref w) = peer_2.network.walk {
+                assert_eq!(w.result.broken_connections.len(), 0);
+                assert_eq!(w.result.replaced_neighbors.len(), 0);
             };
 
             i += 1;
         }
 
-        debug!("Completed walk round {} step(s)", i);
+        debug!("Completed walk round {i} step(s)");
 
         // peer 1 contacted peer 2
         let stats_1 = peer_1
@@ -659,23 +621,17 @@ fn test_step_walk_1_neighbor_behind() {
                 walk_2_count
             );
 
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                }
-                None => {}
+            if let Some(ref w) = peer_1.network.walk {
+                assert_eq!(w.result.broken_connections.len(), 0);
+                assert_eq!(w.result.replaced_neighbors.len(), 0);
             };
 
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
+            if let Some(ref w) = peer_2.network.walk {
+                assert_eq!(w.result.broken_connections.len(), 0);
+                assert_eq!(w.result.replaced_neighbors.len(), 0);
 
-                    // peer 1 never gets added to peer 2's frontier
-                    assert!(w.frontier.get(&neighbor_1.addr).is_none());
-                }
-                None => {}
+                // peer 1 never gets added to peer 2's frontier
+                assert!(!w.frontier.contains_key(&neighbor_1.addr));
             };
 
             i += 1;
@@ -791,20 +747,14 @@ fn test_step_walk_10_neighbors_of_neighbor_plain() {
                     walk_2_count
                 );
 
-                match peer_1.network.walk {
-                    Some(ref w) => {
-                        assert_eq!(w.result.broken_connections.len(), 0);
-                        assert_eq!(w.result.replaced_neighbors.len(), 0);
-                    }
-                    None => {}
+                if let Some(ref w) = peer_1.network.walk {
+                    assert_eq!(w.result.broken_connections.len(), 0);
+                    assert_eq!(w.result.replaced_neighbors.len(), 0);
                 };
 
-                match peer_2.network.walk {
-                    Some(ref w) => {
-                        assert_eq!(w.result.broken_connections.len(), 0);
-                        assert_eq!(w.result.replaced_neighbors.len(), 0);
-                    }
-                    None => {}
+                if let Some(ref w) = peer_2.network.walk {
+                    assert_eq!(w.result.broken_connections.len(), 0);
+                    assert_eq!(w.result.replaced_neighbors.len(), 0);
                 };
 
                 i += 1;
@@ -944,20 +894,14 @@ fn test_step_walk_10_neighbors_of_neighbor_bootstrapping() {
                     walk_2_count
                 );
 
-                match peer_1.network.walk {
-                    Some(ref w) => {
-                        assert_eq!(w.result.broken_connections.len(), 0);
-                        assert_eq!(w.result.replaced_neighbors.len(), 0);
-                    }
-                    None => {}
+                if let Some(ref w) = peer_1.network.walk {
+                    assert_eq!(w.result.broken_connections.len(), 0);
+                    assert_eq!(w.result.replaced_neighbors.len(), 0);
                 };
 
-                match peer_2.network.walk {
-                    Some(ref w) => {
-                        assert_eq!(w.result.broken_connections.len(), 0);
-                        assert_eq!(w.result.replaced_neighbors.len(), 0);
-                    }
-                    None => {}
+                if let Some(ref w) = peer_2.network.walk {
+                    assert_eq!(w.result.broken_connections.len(), 0);
+                    assert_eq!(w.result.replaced_neighbors.len(), 0);
                 };
 
                 steps += 1;
@@ -1093,20 +1037,14 @@ fn test_step_walk_2_neighbors_plain() {
                 walk_2_count
             );
 
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                }
-                None => {}
+            if let Some(ref w) = peer_1.network.walk {
+                assert_eq!(w.result.broken_connections.len(), 0);
+                assert_eq!(w.result.replaced_neighbors.len(), 0);
             };
 
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                }
-                None => {}
+            if let Some(ref w) = peer_2.network.walk {
+                assert_eq!(w.result.broken_connections.len(), 0);
+                assert_eq!(w.result.replaced_neighbors.len(), 0);
             };
 
             i += 1;
@@ -1373,28 +1311,19 @@ fn test_step_walk_3_neighbors_inbound() {
             );
             test_debug!("========");
 
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                }
-                None => {}
+            if let Some(ref w) = peer_1.network.walk {
+                assert_eq!(w.result.broken_connections.len(), 0);
+                assert_eq!(w.result.replaced_neighbors.len(), 0);
             };
 
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                }
-                None => {}
+            if let Some(ref w) = peer_2.network.walk {
+                assert_eq!(w.result.broken_connections.len(), 0);
+                assert_eq!(w.result.replaced_neighbors.len(), 0);
             };
 
-            match peer_3.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                }
-                None => {}
+            if let Some(ref w) = peer_3.network.walk {
+                assert_eq!(w.result.broken_connections.len(), 0);
+                assert_eq!(w.result.replaced_neighbors.len(), 0);
             };
 
             for (i, peer) in [&peer_1, &peer_2, &peer_3].iter().enumerate() {
@@ -1544,20 +1473,14 @@ fn test_step_walk_2_neighbors_rekey() {
                 let _ = peer_1.step();
                 let _ = peer_2.step();
 
-                match peer_1.network.walk {
-                    Some(ref w) => {
-                        assert_eq!(w.result.broken_connections.len(), 0);
-                        assert_eq!(w.result.replaced_neighbors.len(), 0);
-                    }
-                    None => {}
+                if let Some(ref w) = peer_1.network.walk {
+                    assert_eq!(w.result.broken_connections.len(), 0);
+                    assert_eq!(w.result.replaced_neighbors.len(), 0);
                 };
 
-                match peer_2.network.walk {
-                    Some(ref w) => {
-                        assert_eq!(w.result.broken_connections.len(), 0);
-                        assert_eq!(w.result.replaced_neighbors.len(), 0);
-                    }
-                    None => {}
+                if let Some(ref w) = peer_2.network.walk {
+                    assert_eq!(w.result.broken_connections.len(), 0);
+                    assert_eq!(w.result.replaced_neighbors.len(), 0);
                 };
             }
 
@@ -1651,20 +1574,14 @@ fn test_step_walk_2_neighbors_different_networks() {
                 walk_2_count
             );
 
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                }
-                None => {}
+            if let Some(ref w) = peer_1.network.walk {
+                assert_eq!(w.result.broken_connections.len(), 0);
+                assert_eq!(w.result.replaced_neighbors.len(), 0);
             };
 
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert_eq!(w.result.broken_connections.len(), 0);
-                    assert_eq!(w.result.replaced_neighbors.len(), 0);
-                }
-                None => {}
+            if let Some(ref w) = peer_2.network.walk {
+                assert_eq!(w.result.broken_connections.len(), 0);
+                assert_eq!(w.result.replaced_neighbors.len(), 0);
             };
 
             i += 1;

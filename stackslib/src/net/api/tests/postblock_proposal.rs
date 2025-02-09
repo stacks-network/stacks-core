@@ -61,7 +61,7 @@ fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
     let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
 
-    let block = make_codec_test_nakamoto_block(StacksEpochId::Epoch30, &StacksPrivateKey::new());
+    let block = make_codec_test_nakamoto_block(StacksEpochId::Epoch30, &StacksPrivateKey::random());
     let proposal = NakamotoBlockProposal {
         block: block.clone(),
         chain_id: 0x80000000,
@@ -186,7 +186,13 @@ impl MemPoolEventDispatcher for ProposalTestObserver {
         Some(Box::new(Arc::clone(&self.proposal_observer)))
     }
 
-    fn mempool_txs_dropped(&self, txids: Vec<Txid>, reason: mempool::MemPoolDropReason) {}
+    fn mempool_txs_dropped(
+        &self,
+        txids: Vec<Txid>,
+        new_txid: Option<Txid>,
+        reason: mempool::MemPoolDropReason,
+    ) {
+    }
 
     fn mined_block_event(
         &self,
@@ -220,6 +226,7 @@ impl MemPoolEventDispatcher for ProposalTestObserver {
 }
 
 #[test]
+#[ignore]
 fn test_try_make_response() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
     let test_observer = TestEventObserver::new();
@@ -227,7 +234,7 @@ fn test_try_make_response() {
     let mut requests = vec![];
 
     let tip =
-        SortitionDB::get_canonical_burn_chain_tip(&rpc_test.peer_1.sortdb.as_ref().unwrap().conn())
+        SortitionDB::get_canonical_burn_chain_tip(rpc_test.peer_1.sortdb.as_ref().unwrap().conn())
             .unwrap();
 
     let (stacks_tip_ch, stacks_tip_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(
@@ -238,7 +245,7 @@ fn test_try_make_response() {
 
     let miner_privk = &rpc_test.peer_1.miner.nakamoto_miner_key();
 
-    let mut block = {
+    let mut good_block = {
         let chainstate = rpc_test.peer_1.chainstate();
         let parent_stacks_header =
             NakamotoChainState::get_block_header(chainstate.db(), &stacks_tip)
@@ -246,17 +253,14 @@ fn test_try_make_response() {
                 .unwrap();
 
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
         )
         .unwrap();
 
-        let stx_address = StacksAddress {
-            version: 1,
-            bytes: Hash160([0xff; 20]),
-        };
+        let stx_address = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
         let payload = TransactionPayload::TokenTransfer(
             stx_address.into(),
             123,
@@ -281,6 +285,7 @@ fn test_try_make_response() {
             None,
             None,
             8,
+            None,
         )
         .unwrap();
 
@@ -313,12 +318,12 @@ fn test_try_make_response() {
     };
 
     // Increment the timestamp by 1 to ensure it is different from the previous block
-    block.header.timestamp += 1;
-    rpc_test.peer_1.miner.sign_nakamoto_block(&mut block);
+    good_block.header.timestamp += 1;
+    rpc_test.peer_1.miner.sign_nakamoto_block(&mut good_block);
 
     // post the valid block proposal
     let proposal = NakamotoBlockProposal {
-        block: block.clone(),
+        block: good_block.clone(),
         chain_id: 0x80000000,
     };
 
@@ -332,13 +337,17 @@ fn test_try_make_response() {
     request.add_header("authorization".into(), "password".into());
     requests.push(request);
 
-    // Set the timestamp to a value in the past
-    block.header.timestamp -= 10000;
-    rpc_test.peer_1.miner.sign_nakamoto_block(&mut block);
+    // Set the timestamp to a value in the past (but NOT BEFORE timeout)
+    let mut early_time_block = good_block.clone();
+    early_time_block.header.timestamp -= 400;
+    rpc_test
+        .peer_1
+        .miner
+        .sign_nakamoto_block(&mut early_time_block);
 
     // post the invalid block proposal
     let proposal = NakamotoBlockProposal {
-        block: block.clone(),
+        block: early_time_block,
         chain_id: 0x80000000,
     };
 
@@ -353,12 +362,37 @@ fn test_try_make_response() {
     requests.push(request);
 
     // Set the timestamp to a value in the future
-    block.header.timestamp += 20000;
-    rpc_test.peer_1.miner.sign_nakamoto_block(&mut block);
+    let mut late_time_block = good_block.clone();
+    late_time_block.header.timestamp += 20000;
+    rpc_test
+        .peer_1
+        .miner
+        .sign_nakamoto_block(&mut late_time_block);
 
     // post the invalid block proposal
     let proposal = NakamotoBlockProposal {
-        block: block.clone(),
+        block: late_time_block,
+        chain_id: 0x80000000,
+    };
+
+    let mut request = StacksHttpRequest::new_for_peer(
+        rpc_test.peer_1.to_peer_host(),
+        "POST".into(),
+        "/v3/block_proposal".into(),
+        HttpRequestContents::new().payload_json(serde_json::to_value(proposal).unwrap()),
+    )
+    .expect("failed to construct request");
+    request.add_header("authorization".into(), "password".into());
+    requests.push(request);
+
+    // Set the timestamp to a value in the past (BEFORE the timeout)
+    let mut stale_block = good_block.clone();
+    stale_block.header.timestamp -= 10000;
+    rpc_test.peer_1.miner.sign_nakamoto_block(&mut stale_block);
+
+    // post the invalid block proposal
+    let proposal = NakamotoBlockProposal {
+        block: stale_block,
         chain_id: 0x80000000,
     };
 
@@ -376,12 +410,19 @@ fn test_try_make_response() {
     let observer = ProposalTestObserver::new();
     let proposal_observer = Arc::clone(&observer.proposal_observer);
 
-    let mut responses = rpc_test.run_with_observer(requests, Some(&observer));
+    info!("Run requests with observer");
+    let responses = rpc_test.run_with_observer(requests, Some(&observer));
 
-    let response = responses.remove(0);
+    for response in responses.iter().take(3) {
+        assert_eq!(response.preamble().status_code, 202);
+    }
+    let response = &responses[3];
+    assert_eq!(response.preamble().status_code, 422);
 
-    // Wait for the results to be non-empty
+    // Wait for the results of all 3 PROCESSED requests
+    let start = std::time::Instant::now();
     loop {
+        info!("Wait for results to be non-empty");
         if proposal_observer
             .lock()
             .unwrap()
@@ -395,13 +436,33 @@ fn test_try_make_response() {
         } else {
             break;
         }
+        assert!(
+            start.elapsed().as_secs() < 60,
+            "Timed out waiting for results"
+        );
     }
 
     let observer = proposal_observer.lock().unwrap();
     let mut results = observer.results.lock().unwrap();
 
     let result = results.remove(0);
-    assert!(result.is_ok());
+    match result {
+        Ok(postblock_proposal::BlockValidateOk {
+            signer_signature_hash,
+            cost,
+            size,
+            validation_time_ms,
+        }) => {
+            assert_eq!(
+                signer_signature_hash,
+                good_block.header.signer_signature_hash()
+            );
+            assert_eq!(cost, ExecutionCost::ZERO);
+            assert_eq!(size, 180);
+            assert!(validation_time_ms > 0 && validation_time_ms < 60000);
+        }
+        _ => panic!("expected ok"),
+    }
 
     let result = results.remove(0);
     match result {

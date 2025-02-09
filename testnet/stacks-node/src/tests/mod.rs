@@ -81,11 +81,11 @@ pub const STORE_CONTRACT: &str = r#"(define-map store { key: (string-ascii 32) }
         (ok true)))"#;
 // ./blockstack-cli --testnet publish 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 0 store /tmp/out.clar
 
-pub const SK_1: &'static str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
-pub const SK_2: &'static str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
-pub const SK_3: &'static str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd86245aef78501";
+pub const SK_1: &str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
+pub const SK_2: &str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
+pub const SK_3: &str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd86245aef78501";
 
-pub const ADDR_4: &'static str = "ST31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZZ239N96";
+pub const ADDR_4: &str = "ST31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZZ239N96";
 
 lazy_static! {
     pub static ref PUBLISH_CONTRACT: Vec<u8> = make_contract_publish(
@@ -133,6 +133,7 @@ pub fn insert_new_port(port: u16) -> bool {
     ports.insert(port)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn serialize_sign_sponsored_sig_tx_anchor_mode_version(
     payload: TransactionPayload,
     sender: &StacksPrivateKey,
@@ -215,6 +216,7 @@ pub fn serialize_sign_standard_single_sig_tx_anchor_mode_version(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn serialize_sign_tx_anchor_mode_version(
     payload: TransactionPayload,
     sender: &StacksPrivateKey,
@@ -401,10 +403,10 @@ pub fn set_random_binds(config: &mut Config) {
     let rpc_port = gen_random_port();
     let p2p_port = gen_random_port();
     let localhost = "127.0.0.1";
-    config.node.rpc_bind = format!("{}:{}", localhost, rpc_port);
-    config.node.p2p_bind = format!("{}:{}", localhost, p2p_port);
-    config.node.data_url = format!("http://{}:{}", localhost, rpc_port);
-    config.node.p2p_address = format!("{}:{}", localhost, p2p_port);
+    config.node.rpc_bind = format!("{localhost}:{rpc_port}");
+    config.node.p2p_bind = format!("{localhost}:{p2p_port}");
+    config.node.data_url = format!("http://{localhost}:{rpc_port}");
+    config.node.p2p_address = format!("{localhost}:{p2p_port}");
 }
 
 pub fn to_addr(sk: &StacksPrivateKey) -> StacksAddress {
@@ -427,9 +429,10 @@ pub fn make_stacks_transfer(
 ) -> Vec<u8> {
     let payload =
         TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee, chain_id)
+    serialize_sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn make_sponsored_stacks_transfer_on_testnet(
     sender: &StacksPrivateKey,
     payer: &StacksPrivateKey,
@@ -443,7 +446,7 @@ pub fn make_sponsored_stacks_transfer_on_testnet(
     let payload =
         TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
     serialize_sign_sponsored_sig_tx_anchor_mode_version(
-        payload.into(),
+        payload,
         sender,
         payer,
         sender_nonce,
@@ -466,7 +469,7 @@ pub fn make_stacks_transfer_mblock_only(
     let payload =
         TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
     serialize_sign_standard_single_sig_tx_anchor_mode(
-        payload.into(),
+        payload,
         sender,
         nonce,
         tx_fee,
@@ -484,14 +487,15 @@ pub fn make_poison(
     header_2: StacksMicroblockHeader,
 ) -> Vec<u8> {
     let payload = TransactionPayload::PoisonMicroblock(header_1, header_2);
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee, chain_id)
+    serialize_sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id)
 }
 
 pub fn make_coinbase(sender: &StacksPrivateKey, nonce: u64, tx_fee: u64, chain_id: u32) -> Vec<u8> {
     let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None, None);
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee, chain_id)
+    serialize_sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn make_contract_call(
     sender: &StacksPrivateKey,
     nonce: u64,
@@ -506,15 +510,16 @@ pub fn make_contract_call(
     let function_name = ClarityName::from(function_name);
 
     let payload = TransactionContractCall {
-        address: contract_addr.clone(),
+        address: *contract_addr,
         contract_name,
         function_name,
-        function_args: function_args.iter().map(|x| x.clone()).collect(),
+        function_args: function_args.to_vec(),
     };
 
     serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee, chain_id)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn make_contract_call_mblock_only(
     sender: &StacksPrivateKey,
     nonce: u64,
@@ -529,10 +534,10 @@ pub fn make_contract_call_mblock_only(
     let function_name = ClarityName::from(function_name);
 
     let payload = TransactionContractCall {
-        address: contract_addr.clone(),
+        address: *contract_addr,
         contract_name,
         function_name,
-        function_args: function_args.iter().map(|x| x.clone()).collect(),
+        function_args: function_args.to_vec(),
     };
 
     serialize_sign_standard_single_sig_tx_anchor_mode(
@@ -558,7 +563,7 @@ fn make_microblock(
 
     let mut microblock_builder = StacksMicroblockBuilder::new(
         block.block_hash(),
-        consensus_hash.clone(),
+        consensus_hash,
         chainstate,
         burn_dbconn,
         BlockBuilderSettings::max_value(),
@@ -576,10 +581,9 @@ fn make_microblock(
 
     // NOTE: we intentionally do not check the block's microblock pubkey hash against the private
     // key, because we may need to test that microblocks get rejected due to bad signatures.
-    let microblock = microblock_builder
+    microblock_builder
         .mine_next_microblock_from_txs(mempool_txs, privk)
-        .unwrap();
-    microblock
+        .unwrap()
 }
 
 /// Deserializes the `StacksTransaction` objects from `blocks` and returns all those that
@@ -601,7 +605,7 @@ pub fn select_transactions_where(
         }
     }
 
-    return result;
+    result
 }
 
 /// This function will call `next_block_and_wait` until the burnchain height underlying `BitcoinRegtestController`
@@ -614,20 +618,19 @@ pub fn run_until_burnchain_height(
     target_height: u64,
     conf: &Config,
 ) -> bool {
-    let tip_info = get_chain_info(&conf);
+    let tip_info = get_chain_info(conf);
     let mut current_height = tip_info.burn_block_height;
 
     while current_height < target_height {
         eprintln!(
-            "run_until_burnchain_height: Issuing block at {}, current_height burnchain height is ({})",
-            get_epoch_time_secs(),
-            current_height
+            "run_until_burnchain_height: Issuing block at {}, current_height burnchain height is ({current_height})",
+            get_epoch_time_secs()
         );
-        let next_result = next_block_and_wait(btc_regtest_controller, &blocks_processed);
+        let next_result = next_block_and_wait(btc_regtest_controller, blocks_processed);
         if !next_result {
             return false;
         }
-        let tip_info = get_chain_info(&conf);
+        let tip_info = get_chain_info(conf);
         current_height = tip_info.burn_block_height;
     }
 
@@ -717,7 +720,6 @@ fn should_succeed_mining_valid_txs() {
             },
             _ => {}
         };
-        return
     });
 
     // Use block's hook for asserting expectations
@@ -743,26 +745,22 @@ fn should_succeed_mining_valid_txs() {
                     // Transaction #1 should be the coinbase from the leader
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        coinbase_tx.payload,
+                        TransactionPayload::Coinbase(..)
+                    ));
 
                     // Transaction #2 should be the smart contract published
                     let contract_tx = &chain_tip.block.txs[1];
                     assert!(contract_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match contract_tx.payload {
-                        TransactionPayload::SmartContract(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        contract_tx.payload,
+                        TransactionPayload::SmartContract(..)
+                    ));
 
                     // 0 event should have been produced
-                    let events: Vec<StacksTransactionEvent> = chain_tip
-                        .receipts
-                        .iter()
-                        .flat_map(|a| a.events.clone())
-                        .collect();
-                    assert!(events.len() == 0);
+                    let events = chain_tip.receipts.iter().flat_map(|a| a.events.clone());
+                    assert!(events.count() == 0);
                 }
                 2 => {
                     // Inspecting the chain at round 2.
@@ -775,26 +773,22 @@ fn should_succeed_mining_valid_txs() {
                     // Transaction #1 should be the coinbase from the leader
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        coinbase_tx.payload,
+                        TransactionPayload::Coinbase(..)
+                    ));
 
                     // Transaction #2 should be the get-value contract-call
                     let contract_tx = &chain_tip.block.txs[1];
                     assert!(contract_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match contract_tx.payload {
-                        TransactionPayload::ContractCall(_) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        contract_tx.payload,
+                        TransactionPayload::ContractCall(_)
+                    ));
 
                     // 2 lockup events should have been produced
-                    let events: Vec<StacksTransactionEvent> = chain_tip
-                        .receipts
-                        .iter()
-                        .flat_map(|a| a.events.clone())
-                        .collect();
-                    assert_eq!(events.len(), 2);
+                    let events = chain_tip.receipts.iter().flat_map(|a| a.events.clone());
+                    assert_eq!(events.count(), 2);
                 }
                 3 => {
                     // Inspecting the chain at round 3.
@@ -807,18 +801,18 @@ fn should_succeed_mining_valid_txs() {
                     // Transaction #1 should be the coinbase from the leader
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        coinbase_tx.payload,
+                        TransactionPayload::Coinbase(..)
+                    ));
 
                     // Transaction #2 should be the set-value contract-call
                     let contract_tx = &chain_tip.block.txs[1];
                     assert!(contract_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match contract_tx.payload {
-                        TransactionPayload::ContractCall(_) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        contract_tx.payload,
+                        TransactionPayload::ContractCall(_)
+                    ));
 
                     // 2 lockup events + 1 contract event should have been produced
                     let events: Vec<StacksTransactionEvent> = chain_tip
@@ -832,7 +826,7 @@ fn should_succeed_mining_valid_txs() {
                             format!("{}", data.key.0)
                                 == "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.store"
                                 && data.key.1 == "print"
-                                && format!("{}", data.value) == "\"Setting key foo\"".to_string()
+                                && format!("{}", data.value) == "\"Setting key foo\""
                         }
                         _ => false,
                     });
@@ -848,18 +842,18 @@ fn should_succeed_mining_valid_txs() {
                     // Transaction #1 should be the coinbase from the leader
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        coinbase_tx.payload,
+                        TransactionPayload::Coinbase(..)
+                    ));
 
                     // Transaction #2 should be the get-value contract-call
                     let contract_tx = &chain_tip.block.txs[1];
                     assert!(contract_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match contract_tx.payload {
-                        TransactionPayload::ContractCall(_) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        contract_tx.payload,
+                        TransactionPayload::ContractCall(_)
+                    ));
 
                     // 1 event should have been produced
                     let events: Vec<StacksTransactionEvent> = chain_tip
@@ -873,7 +867,7 @@ fn should_succeed_mining_valid_txs() {
                             format!("{}", data.key.0)
                                 == "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.store"
                                 && data.key.1 == "print"
-                                && format!("{}", data.value) == "\"Getting key foo\"".to_string()
+                                && format!("{}", data.value) == "\"Getting key foo\""
                         }
                         _ => false,
                     });
@@ -889,19 +883,19 @@ fn should_succeed_mining_valid_txs() {
                     // Transaction #1 should be the coinbase from the leader
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        coinbase_tx.payload,
+                        TransactionPayload::Coinbase(..)
+                    ));
 
                     // Transaction #2 should be the STX transfer
                     let contract_tx = &chain_tip.block.txs[1];
                     assert!(contract_tx.chain_id == CHAIN_ID_TESTNET);
 
-                    assert!(match contract_tx.payload {
-                        TransactionPayload::TokenTransfer(_, _, _) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        contract_tx.payload,
+                        TransactionPayload::TokenTransfer(_, _, _)
+                    ));
 
                     // 1 event should have been produced
                     let events: Vec<StacksTransactionEvent> = chain_tip
@@ -996,7 +990,6 @@ fn should_succeed_handling_malformed_and_valid_txs() {
             },
             _ => {}
         };
-        return
     });
 
     // Use block's hook for asserting expectations
@@ -1014,10 +1007,10 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                     // Transaction #1 should be the coinbase from the leader
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        coinbase_tx.payload,
+                        TransactionPayload::Coinbase(..)
+                    ));
                 }
                 1 => {
                     // Inspecting the chain at round 1.
@@ -1030,18 +1023,18 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                     // Transaction #1 should be the coinbase from the leader
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        coinbase_tx.payload,
+                        TransactionPayload::Coinbase(..)
+                    ));
 
                     // Transaction #2 should be the smart contract published
                     let contract_tx = &chain_tip.block.txs[1];
                     assert!(contract_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match contract_tx.payload {
-                        TransactionPayload::SmartContract(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        contract_tx.payload,
+                        TransactionPayload::SmartContract(..)
+                    ));
                 }
                 2 => {
                     // Inspecting the chain at round 2.
@@ -1054,10 +1047,10 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                     // Transaction #1 should be the coinbase from the leader
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        coinbase_tx.payload,
+                        TransactionPayload::Coinbase(..)
+                    ));
                 }
                 3 => {
                     // Inspecting the chain at round 3.
@@ -1070,10 +1063,10 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                     // Transaction #1 should be the coinbase from the leader
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        coinbase_tx.payload,
+                        TransactionPayload::Coinbase(..)
+                    ));
                 }
                 4 => {
                     // Inspecting the chain at round 4.
@@ -1086,18 +1079,18 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                     // Transaction #1 should be the coinbase from the leader
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        coinbase_tx.payload,
+                        TransactionPayload::Coinbase(..)
+                    ));
 
                     // Transaction #2 should be the contract-call
                     let contract_tx = &chain_tip.block.txs[1];
                     assert!(contract_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match contract_tx.payload {
-                        TransactionPayload::ContractCall(_) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        contract_tx.payload,
+                        TransactionPayload::ContractCall(_)
+                    ));
                 }
                 _ => {}
             }
@@ -1338,7 +1331,7 @@ fn test_inner_pick_best_tip() {
         },
     ];
 
-    let sorted_candidates = BlockMinerThread::sort_and_populate_candidates(candidates.clone());
+    let sorted_candidates = BlockMinerThread::sort_and_populate_candidates(candidates);
     assert_eq!(
         None,
         BlockMinerThread::inner_pick_best_tip(vec![], HashMap::new())

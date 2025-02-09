@@ -15,7 +15,12 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::io::{Read, Write};
+#[cfg(any(test, feature = "testing"))]
+use std::sync::LazyLock;
 use std::thread::{self, JoinHandle, Thread};
+#[cfg(any(test, feature = "testing"))]
+use std::time::Duration;
+use std::time::Instant;
 
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
@@ -32,13 +37,15 @@ use stacks_common::types::net::PeerHost;
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
+#[cfg(any(test, feature = "testing"))]
+use stacks_common::util::tests::TestFlag;
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NAKAMOTO_BLOCK_VERSION};
 use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
 use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
@@ -64,7 +71,11 @@ use crate::net::{
 use crate::util_lib::db::Error as DBError;
 
 #[cfg(any(test, feature = "testing"))]
-pub static TEST_VALIDATE_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+pub static TEST_VALIDATE_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+#[cfg(any(test, feature = "testing"))]
+/// Artificial delay to add to block validation.
+pub static TEST_VALIDATE_DELAY_DURATION_SECS: LazyLock<TestFlag<u64>> =
+    LazyLock::new(TestFlag::default);
 
 // This enum is used to supply a `reason_code` for validation
 //  rejection responses. This is serialized as an enum with string
@@ -78,6 +89,8 @@ define_u8_enum![ValidateRejectCode {
     NonCanonicalTenure = 5,
     NoSuchTenure = 6
 }];
+
+pub static TOO_MANY_REQUESTS_STATUS: u16 = 429;
 
 impl TryFrom<u8> for ValidateRejectCode {
     type Error = CodecError;
@@ -145,6 +158,7 @@ pub struct BlockValidateOk {
     pub signer_signature_hash: Sha512Trunc256Sum,
     pub cost: ExecutionCost,
     pub size: u64,
+    pub validation_time_ms: u64,
 }
 
 /// This enum is used for serializing the response to block
@@ -164,6 +178,26 @@ impl From<Result<BlockValidateOk, BlockValidateReject>> for BlockValidateRespons
         }
     }
 }
+
+impl BlockValidateResponse {
+    /// Get the signer signature hash from the response
+    pub fn signer_signature_hash(&self) -> Sha512Trunc256Sum {
+        match self {
+            BlockValidateResponse::Ok(o) => o.signer_signature_hash,
+            BlockValidateResponse::Reject(r) => r.signer_signature_hash,
+        }
+    }
+}
+
+#[cfg(any(test, feature = "testing"))]
+fn fault_injection_validation_delay() {
+    let delay = TEST_VALIDATE_DELAY_DURATION_SECS.get();
+    warn!("Sleeping for {} seconds to simulate slow processing", delay);
+    thread::sleep(Duration::from_secs(delay));
+}
+
+#[cfg(not(any(test, feature = "testing")))]
+fn fault_injection_validation_delay() {}
 
 /// Represents a block proposed to the `v3/block_proposal` endpoint for validation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -343,9 +377,22 @@ impl NakamotoBlockProposal {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState, // not directly used; used as a handle to open other chainstates
     ) -> Result<BlockValidateOk, BlockValidateRejectReason> {
-        let ts_start = get_epoch_time_ms();
-        // Measure time from start of function
-        let time_elapsed = || get_epoch_time_ms().saturating_sub(ts_start);
+        #[cfg(any(test, feature = "testing"))]
+        {
+            if TEST_VALIDATE_STALL.get() {
+                // Do an extra check just so we don't log EVERY time.
+                warn!("Block validation is stalled due to testing directive.");
+                while TEST_VALIDATE_STALL.get() {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                info!(
+                    "Block validation is no longer stalled due to testing directive. Continuing..."
+                );
+            }
+        }
+        let start = Instant::now();
+
+        fault_injection_validation_delay();
 
         let mainnet = self.chain_id == CHAIN_ID_MAINNET;
         if self.chain_id != chainstate.chain_id || mainnet != chainstate.mainnet {
@@ -363,9 +410,39 @@ impl NakamotoBlockProposal {
             });
         }
 
-        let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
-        let burn_dbconn: SortitionHandleConn = sortdb.index_handle(&sort_tip);
-        let mut db_handle = sortdb.index_handle(&sort_tip);
+        // Check block version. If it's less than the compiled-in version, just emit a warning
+        // because there's a new version of the node / signer binary available that really ought to
+        // be used (hint, hint)
+        if self.block.header.version != NAKAMOTO_BLOCK_VERSION {
+            warn!("Proposed block has unexpected version. Upgrade your node and/or signer ASAP.";
+                  "block.header.version" => %self.block.header.version,
+                  "expected" => %NAKAMOTO_BLOCK_VERSION);
+        }
+
+        // open sortition view to the current burn view.
+        // If the block has a TenureChange with an Extend cause, then the burn view is whatever is
+        // indicated in the TenureChange.
+        // Otherwise, it's the same as the block's parent's burn view.
+        let parent_stacks_header = NakamotoChainState::get_block_header(
+            chainstate.db(),
+            &self.block.header.parent_block_id,
+        )?
+        .ok_or_else(|| BlockValidateRejectReason {
+            reason_code: ValidateRejectCode::InvalidBlock,
+            reason: "Invalid parent block".into(),
+        })?;
+
+        let burn_view_consensus_hash =
+            NakamotoChainState::get_block_burn_view(sortdb, &self.block, &parent_stacks_header)?;
+        let sort_tip =
+            SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &burn_view_consensus_hash)?
+                .ok_or_else(|| BlockValidateRejectReason {
+                    reason_code: ValidateRejectCode::NoSuchTenure,
+                    reason: "Failed to find sortition for block tenure".to_string(),
+                })?;
+
+        let burn_dbconn: SortitionHandleConn = sortdb.index_handle(&sort_tip.sortition_id);
+        let db_handle = sortdb.index_handle(&sort_tip.sortition_id);
 
         // (For the signer)
         // Verify that the block's tenure is on the canonical sortition history
@@ -379,7 +456,7 @@ impl NakamotoBlockProposal {
         // there must be a block-commit for this), or otherwise this block doesn't correspond to
         // any burnchain chainstate.
         let expected_burn_opt =
-            NakamotoChainState::get_expected_burns(&mut db_handle, chainstate.db(), &self.block)?;
+            NakamotoChainState::get_expected_burns(&db_handle, chainstate.db(), &self.block)?;
         if expected_burn_opt.is_none() {
             warn!(
                 "Rejected block proposal";
@@ -392,7 +469,8 @@ impl NakamotoBlockProposal {
         };
 
         // Static validation checks
-        NakamotoChainState::validate_nakamoto_block_burnchain(
+        NakamotoChainState::validate_normal_nakamoto_block_burnchain(
+            chainstate.nakamoto_blocks_db(),
             &db_handle,
             expected_burn_opt,
             &self.block,
@@ -401,14 +479,6 @@ impl NakamotoBlockProposal {
         )?;
 
         // Validate txs against chainstate
-        let parent_stacks_header = NakamotoChainState::get_block_header(
-            chainstate.db(),
-            &self.block.header.parent_block_id,
-        )?
-        .ok_or_else(|| BlockValidateRejectReason {
-            reason_code: ValidateRejectCode::InvalidBlock,
-            reason: "Invalid parent block".into(),
-        })?;
 
         // Validate the block's timestamp. It must be:
         // - Greater than the parent block's timestamp
@@ -464,6 +534,7 @@ impl NakamotoBlockProposal {
             tenure_change,
             coinbase,
             self.block.header.pox_treatment.len(),
+            None,
         )?;
 
         let mut miner_tenure_info =
@@ -474,7 +545,7 @@ impl NakamotoBlockProposal {
             let tx_len = tx.tx_len();
             let tx_result = builder.try_mine_tx_with_len(
                 &mut tenure_tx,
-                &tx,
+                tx,
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
                 ASTRules::PrecheckSize,
@@ -503,13 +574,20 @@ impl NakamotoBlockProposal {
         }
 
         let mut block = builder.mine_nakamoto_block(&mut tenure_tx);
+        // Override the block version with the one from the proposal. This must be
+        // done before computing the block hash, because the block hash includes the
+        // version in its computation.
+        block.header.version = self.block.header.version;
         let size = builder.get_bytes_so_far();
         let cost = builder.tenure_finish(tenure_tx)?;
 
         // Clone signatures from block proposal
         // These have already been validated by `validate_nakamoto_block_burnchain()``
         block.header.miner_signature = self.block.header.miner_signature.clone();
-        block.header.signer_signature = self.block.header.signer_signature.clone();
+        block
+            .header
+            .signer_signature
+            .clone_from(&self.block.header.signer_signature);
 
         // Clone the timestamp from the block proposal, which has already been validated
         block.header.timestamp = self.block.header.timestamp;
@@ -533,23 +611,7 @@ impl NakamotoBlockProposal {
             });
         }
 
-        #[cfg(any(test, feature = "testing"))]
-        {
-            if *TEST_VALIDATE_STALL.lock().unwrap() == Some(true) {
-                // Do an extra check just so we don't log EVERY time.
-                warn!("Block validation is stalled due to testing directive.";
-                    "block_id" => %block.block_id(),
-                    "height" => block.header.chain_length,
-                );
-                while *TEST_VALIDATE_STALL.lock().unwrap() == Some(true) {
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                }
-                info!("Block validation is no longer stalled due to testing directive.";
-                    "block_id" => %block.block_id(),
-                    "height" => block.header.chain_length,
-                );
-            }
-        }
+        let validation_time_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
 
         info!(
             "Participant: validated anchored block";
@@ -559,7 +621,7 @@ impl NakamotoBlockProposal {
             "parent_stacks_block_id" => %block.header.parent_block_id,
             "block_size" => size,
             "execution_cost" => %cost,
-            "validation_time_ms" => time_elapsed(),
+            "validation_time_ms" => validation_time_ms,
             "tx_fees_microstacks" => block.txs.iter().fold(0, |agg: u64, tx| {
                 agg.saturating_add(tx.get_tx_fee())
             })
@@ -569,6 +631,7 @@ impl NakamotoBlockProposal {
             signer_signature_hash: block.header.signer_signature_hash(),
             cost,
             size,
+            validation_time_ms,
         })
     }
 }
@@ -653,6 +716,12 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
             }
         };
 
+        if block_proposal.block.is_shadow_block() {
+            return Err(Error::DecodeError(
+                "Shadow blocks cannot be submitted for validation".to_string(),
+            ));
+        }
+
         self.block_proposal = Some(block_proposal);
         Ok(HttpRequestContents::new().query_string(query))
     }
@@ -694,10 +763,24 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
         let res = node.with_node_state(|network, sortdb, chainstate, _mempool, rpc_args| {
             if network.is_proposal_thread_running() {
                 return Err((
-                    429,
+                    TOO_MANY_REQUESTS_STATUS,
                     NetError::SendError("Proposal currently being evaluated".into()),
                 ));
             }
+
+            if block_proposal
+                .block
+                .header
+                .timestamp
+                .saturating_add(network.get_connection_opts().block_proposal_max_age_secs)
+                < get_epoch_time_secs()
+            {
+                return Err((
+                    422,
+                    NetError::SendError("Block proposal is too old to process.".into()),
+                ));
+            }
+
             let (chainstate, _) = chainstate.reopen().map_err(|e| (400, NetError::from(e)))?;
             let sortdb = sortdb.reopen().map_err(|e| (400, NetError::from(e)))?;
             let receiver = rpc_args
@@ -715,7 +798,7 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
                 .spawn_validation_thread(sortdb, chainstate, receiver)
                 .map_err(|_e| {
                     (
-                        429,
+                        TOO_MANY_REQUESTS_STATUS,
                         NetError::SendError(
                             "IO error while spawning proposal callback thread".into(),
                         ),

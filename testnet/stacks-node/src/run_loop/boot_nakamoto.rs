@@ -22,9 +22,8 @@ use std::{fs, thread};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
-use stacks::core::StacksEpochExtension;
 use stacks::net::p2p::PeerNetwork;
-use stacks_common::types::{StacksEpoch, StacksEpochId};
+use stacks_common::types::StacksEpochId;
 
 use crate::event_dispatcher::EventDispatcher;
 use crate::globals::NeonGlobals;
@@ -137,8 +136,8 @@ impl BootRunLoop {
     /// node depending on the current burnchain height.
     pub fn start(&mut self, burnchain_opt: Option<Burnchain>, mine_start: u64) {
         match self.active_loop {
-            InnerLoops::Epoch2(_) => return self.start_from_neon(burnchain_opt, mine_start),
-            InnerLoops::Epoch3(_) => return self.start_from_naka(burnchain_opt, mine_start),
+            InnerLoops::Epoch2(_) => self.start_from_neon(burnchain_opt, mine_start),
+            InnerLoops::Epoch3(_) => self.start_from_naka(burnchain_opt, mine_start),
         }
     }
 
@@ -227,18 +226,16 @@ impl BootRunLoop {
                 // if loop exited, do the transition
                 info!("Epoch-3.0 boundary reached, stopping Epoch-2.x run loop");
                 neon_term_switch.store(false, Ordering::SeqCst);
-                return true
+                true
             })
     }
 
     fn reached_epoch_30_transition(config: &Config) -> Result<bool, String> {
         let burn_height = Self::get_burn_height(config)?;
-        let epochs = StacksEpoch::get_epochs(
-            config.burnchain.get_bitcoin_network().1,
-            config.burnchain.epochs.as_ref(),
-        );
-        let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30)
-            .ok_or("No Epoch-3.0 defined")?];
+        let epochs = config.burnchain.get_epoch_list();
+        let epoch_3 = epochs
+            .get(StacksEpochId::Epoch30)
+            .ok_or("No Epoch-3.0 defined")?;
 
         Ok(u64::from(burn_height) >= epoch_3.start_height - 1)
     }

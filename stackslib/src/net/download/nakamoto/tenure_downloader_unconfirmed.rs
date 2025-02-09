@@ -250,7 +250,7 @@ impl NakamotoUnconfirmedTenureDownloader {
                     &local_tenure_sn.sortition_id,
                     &local_tenure_sn.consensus_hash
                 );
-                NetError::DBError(DBError::NotFoundError.into())
+                NetError::DBError(DBError::NotFoundError)
             })?;
 
         if ancestor_parent_local_tenure_sn.sortition_id != parent_local_tenure_sn.sortition_id {
@@ -735,7 +735,9 @@ impl NakamotoUnconfirmedTenureDownloader {
         );
         let ntd = NakamotoTenureDownloader::new(
             tenure_tip.parent_consensus_hash.clone(),
+            tenure_tip.consensus_hash.clone(),
             tenure_tip.parent_tenure_start_block_id.clone(),
+            tenure_tip.consensus_hash.clone(),
             tenure_tip.tenure_start_block_id.clone(),
             self.naddr.clone(),
             confirmed_signer_keys.clone(),
@@ -775,6 +777,44 @@ impl NakamotoUnconfirmedTenureDownloader {
                 return None;
             }
         }
+    }
+
+    /// Advance the state of the downloader from chainstate, if possible.
+    /// For example, a tenure-start block may have been pushed to us already (or it
+    /// may be a shadow block)
+    pub fn try_advance_from_chainstate(
+        &mut self,
+        chainstate: &StacksChainState,
+    ) -> Result<(), NetError> {
+        loop {
+            match self.state {
+                NakamotoUnconfirmedDownloadState::GetTenureInfo => {
+                    // gotta send that request
+                    break;
+                }
+                NakamotoUnconfirmedDownloadState::GetTenureStartBlock(start_block_id) => {
+                    // if we have this, then load it up
+                    let Some((tenure_start_block, _sz)) = chainstate
+                        .nakamoto_blocks_db()
+                        .get_nakamoto_block(&start_block_id)?
+                    else {
+                        break;
+                    };
+                    self.try_accept_unconfirmed_tenure_start_block(tenure_start_block)?;
+                    if let NakamotoUnconfirmedDownloadState::GetTenureStartBlock(..) = &self.state {
+                        break;
+                    }
+                }
+                NakamotoUnconfirmedDownloadState::GetUnconfirmedTenureBlocks(..) => {
+                    // TODO: look at the chainstate and find out what we don't have to download
+                    break;
+                }
+                NakamotoUnconfirmedDownloadState::Done => {
+                    break;
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Begin the next download request for this state machine.

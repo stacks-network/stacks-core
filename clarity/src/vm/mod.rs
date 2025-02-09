@@ -13,6 +13,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#![allow(clippy::result_large_err)]
 
 pub mod diagnostic;
 pub mod errors;
@@ -58,7 +59,7 @@ use serde_json;
 use stacks_common::types::StacksEpochId;
 
 use self::analysis::ContractAnalysis;
-use self::ast::{ASTRules, ContractAST};
+use self::ast::ContractAST;
 use self::costs::ExecutionCost;
 use self::diagnostic::Diagnostic;
 use crate::vm::callables::CallableType;
@@ -68,8 +69,7 @@ pub use crate::vm::contexts::{
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
-    cost_functions, runtime_cost, CostOverflowingMath, CostTracker, LimitedCostTracker,
-    MemoryConsumer,
+    runtime_cost, CostOverflowingMath, CostTracker, LimitedCostTracker, MemoryConsumer,
 };
 // publish the non-generic StacksEpoch form for use throughout module
 pub use crate::vm::database::clarity_db::StacksEpoch;
@@ -82,9 +82,7 @@ pub use crate::vm::representations::{
     ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType,
 };
 pub use crate::vm::types::Value;
-use crate::vm::types::{
-    PrincipalData, QualifiedContractIdentifier, TraitIdentifier, TypeSignature,
-};
+use crate::vm::types::{PrincipalData, TypeSignature};
 pub use crate::vm::version::ClarityVersion;
 
 pub const MAX_CALL_STACK_DEPTH: usize = 64;
@@ -172,33 +170,31 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
             name
         ))
         .into())
+    } else if let Some(value) = variables::lookup_reserved_variable(name, context, env)? {
+        Ok(value)
     } else {
-        if let Some(value) = variables::lookup_reserved_variable(name, context, env)? {
+        runtime_cost(
+            ClarityCostFunction::LookupVariableDepth,
+            env,
+            context.depth(),
+        )?;
+        if let Some(value) = context.lookup_variable(name) {
+            runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size()?)?;
+            Ok(value.clone())
+        } else if let Some(value) = env.contract_context.lookup_variable(name).cloned() {
+            runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size()?)?;
+            let (value, _) =
+                Value::sanitize_value(env.epoch(), &TypeSignature::type_of(&value)?, value)
+                    .ok_or_else(|| CheckErrors::CouldNotDetermineType)?;
             Ok(value)
-        } else {
-            runtime_cost(
-                ClarityCostFunction::LookupVariableDepth,
-                env,
-                context.depth(),
-            )?;
-            if let Some(value) = context.lookup_variable(name) {
-                runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size()?)?;
-                Ok(value.clone())
-            } else if let Some(value) = env.contract_context.lookup_variable(name).cloned() {
-                runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size()?)?;
-                let (value, _) =
-                    Value::sanitize_value(env.epoch(), &TypeSignature::type_of(&value)?, value)
-                        .ok_or_else(|| CheckErrors::CouldNotDetermineType)?;
-                Ok(value)
-            } else if let Some(callable_data) = context.lookup_callable_contract(name) {
-                if env.contract_context.get_clarity_version() < &ClarityVersion::Clarity2 {
-                    Ok(callable_data.contract_identifier.clone().into())
-                } else {
-                    Ok(Value::CallableContract(callable_data.clone()))
-                }
+        } else if let Some(callable_data) = context.lookup_callable_contract(name) {
+            if env.contract_context.get_clarity_version() < &ClarityVersion::Clarity2 {
+                Ok(callable_data.contract_identifier.clone().into())
             } else {
-                Err(CheckErrors::UndefinedVariable(name.to_string()).into())
+                Ok(Value::CallableContract(callable_data.clone()))
             }
+        } else {
+            Err(CheckErrors::UndefinedVariable(name.to_string()).into())
         }
     }
 }
@@ -238,11 +234,7 @@ pub fn apply(
     //        only enough to do recursion detection.
 
     // do recursion check on user functions.
-    let track_recursion = match function {
-        CallableType::UserFunction(_) => true,
-        _ => false,
-    };
-
+    let track_recursion = matches!(function, CallableType::UserFunction(_));
     if track_recursion && env.call_stack.contains(&identifier) {
         return Err(CheckErrors::CircularReference(vec![identifier.to_string()]).into());
     }
@@ -311,9 +303,9 @@ pub fn apply(
     }
 }
 
-pub fn eval<'a>(
+pub fn eval(
     exp: &SymbolicExpression,
-    env: &'a mut Environment,
+    env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
     use crate::vm::representations::SymbolicExpressionType::{
@@ -329,7 +321,7 @@ pub fn eval<'a>(
 
     let res = match exp.expr {
         AtomValue(ref value) | LiteralValue(ref value) => Ok(value.clone()),
-        Atom(ref value) => lookup_variable(&value, context, env),
+        Atom(ref value) => lookup_variable(value, context, env),
         List(ref children) => {
             let (function_variable, rest) = children
                 .split_first()
@@ -338,8 +330,8 @@ pub fn eval<'a>(
             let function_name = function_variable
                 .match_atom()
                 .ok_or(CheckErrors::BadFunctionName)?;
-            let f = lookup_function(&function_name, env)?;
-            apply(&f, &rest, env, context)
+            let f = lookup_function(function_name, env)?;
+            apply(&f, rest, env, context)
         }
         TraitReference(_, _) | Field(_) => {
             return Err(InterpreterError::BadSymbolicRepresentation(
@@ -360,13 +352,8 @@ pub fn eval<'a>(
 }
 
 pub fn is_reserved(name: &str, version: &ClarityVersion) -> bool {
-    if let Some(_result) = functions::lookup_reserved_functions(name, version) {
-        true
-    } else if variables::is_reserved_name(name, version) {
-        true
-    } else {
-        false
-    }
+    functions::lookup_reserved_functions(name, version).is_some()
+        || variables::is_reserved_name(name, version)
 }
 
 /// This function evaluates a list of expressions, sharing a global context.
@@ -524,6 +511,7 @@ pub fn execute_with_parameters(
 ) -> Result<Option<Value>> {
     use crate::vm::database::MemoryBackingStore;
     use crate::vm::tests::test_only_mainnet_to_chain_id;
+    use crate::vm::types::QualifiedContractIdentifier;
 
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
@@ -575,21 +563,20 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
     )
 }
 
-/// Execute for test in in Clarity2, Epoch21, testnet.
+/// Execute for test in Clarity2, Epoch21, testnet.
 #[cfg(any(test, feature = "testing"))]
 pub fn execute_v2(program: &str) -> Result<Option<Value>> {
     execute_with_parameters(
         program,
         ClarityVersion::Clarity2,
         StacksEpochId::Epoch21,
-        ASTRules::PrecheckSize,
+        ast::ASTRules::PrecheckSize,
         false,
     )
 }
 
 #[cfg(test)]
 mod test {
-    use hashbrown::HashMap;
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::StacksEpochId;
 
@@ -597,10 +584,9 @@ mod test {
     use crate::vm::callables::{DefineType, DefinedFunction};
     use crate::vm::costs::LimitedCostTracker;
     use crate::vm::database::MemoryBackingStore;
-    use crate::vm::errors::RuntimeErrorType;
     use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
     use crate::vm::{
-        eval, execute, CallStack, ContractContext, Environment, GlobalContext, LocalContext,
+        eval, CallStack, ContractContext, Environment, GlobalContext, LocalContext,
         SymbolicExpression, Value,
     };
 
@@ -629,7 +615,7 @@ mod test {
             func_body,
             DefineType::Private,
             &"do_work".into(),
-            &"",
+            "",
         );
 
         let context = LocalContext::new();

@@ -84,7 +84,7 @@ pub struct BlockCommitMetadata {
 }
 
 impl FromColumn<AffirmationMap> for AffirmationMap {
-    fn from_column<'a>(row: &'a Row, col_name: &str) -> Result<AffirmationMap, DBError> {
+    fn from_column(row: &Row, col_name: &str) -> Result<AffirmationMap, DBError> {
         let txt: String = row.get_unwrap(col_name);
         let am = AffirmationMap::decode(&txt).ok_or(DBError::ParseError)?;
         Ok(am)
@@ -92,13 +92,13 @@ impl FromColumn<AffirmationMap> for AffirmationMap {
 }
 
 impl FromRow<AffirmationMap> for AffirmationMap {
-    fn from_row<'a>(row: &'a Row) -> Result<AffirmationMap, DBError> {
+    fn from_row(row: &Row) -> Result<AffirmationMap, DBError> {
         AffirmationMap::from_column(row, "affirmation_map")
     }
 }
 
 impl FromRow<BlockCommitMetadata> for BlockCommitMetadata {
-    fn from_row<'a>(row: &'a Row) -> Result<BlockCommitMetadata, DBError> {
+    fn from_row(row: &Row) -> Result<BlockCommitMetadata, DBError> {
         let burn_block_hash = BurnchainHeaderHash::from_column(row, "burn_block_hash")?;
         let txid = Txid::from_column(row, "txid")?;
         let block_height = u64::from_column(row, "block_height")?;
@@ -132,7 +132,7 @@ impl FromRow<BlockCommitMetadata> for BlockCommitMetadata {
             block_height,
             vtxindex,
             affirmation_id,
-            anchor_block: anchor_block,
+            anchor_block,
             anchor_block_descendant,
         })
     }
@@ -144,7 +144,7 @@ impl FromRow<BlockCommitMetadata> for BlockCommitMetadata {
 pub(crate) fn apply_blockstack_txs_safety_checks(
     block_height: u64,
     blockstack_txs: &mut Vec<BlockstackOperationType>,
-) -> () {
+) {
     test_debug!(
         "Apply safety checks on {} txs at burnchain height {}",
         blockstack_txs.len(),
@@ -152,7 +152,7 @@ pub(crate) fn apply_blockstack_txs_safety_checks(
     );
 
     // safety -- make sure these are in order
-    blockstack_txs.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
+    blockstack_txs.sort_by(|a, b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
 
     // safety -- no duplicate vtxindex (shouldn't happen but crash if so)
     if blockstack_txs.len() > 1 {
@@ -207,9 +207,9 @@ impl FromRow<BlockstackOperationType> for BlockstackOperationType {
     }
 }
 
-pub const BURNCHAIN_DB_VERSION: &'static str = "2";
+pub const BURNCHAIN_DB_VERSION: &str = "2";
 
-const BURNCHAIN_DB_SCHEMA: &'static str = r#"
+const BURNCHAIN_DB_SCHEMA: &str = r#"
 CREATE TABLE burnchain_db_block_headers (
     -- height of the block (non-negative)
     block_height INTEGER NOT NULL,
@@ -299,9 +299,8 @@ CREATE TABLE db_config(version TEXT NOT NULL);
 INSERT INTO affirmation_maps(affirmation_id,weight,affirmation_map) VALUES (0,0,"");
 "#;
 
-const LAST_BURNCHAIN_DB_INDEX: &'static str =
-    "index_block_commit_metadata_burn_block_hash_anchor_block";
-const BURNCHAIN_DB_INDEXES: &'static [&'static str] = &[
+const LAST_BURNCHAIN_DB_INDEX: &str = "index_block_commit_metadata_burn_block_hash_anchor_block";
+const BURNCHAIN_DB_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS index_burnchain_db_block_headers_height_hash ON burnchain_db_block_headers(block_height DESC, block_hash ASC);",
     "CREATE INDEX IF NOT EXISTS index_burnchain_db_block_hash ON burnchain_db_block_ops(block_hash);",
     "CREATE INDEX IF NOT EXISTS index_burnchain_db_txid ON burnchain_db_block_ops(txid);",
@@ -312,7 +311,7 @@ const BURNCHAIN_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_block_commit_metadata_burn_block_hash_anchor_block ON block_commit_metadata(burn_block_hash,anchor_block);",
 ];
 
-impl<'a> BurnchainDBTransaction<'a> {
+impl BurnchainDBTransaction<'_> {
     /// Store a burnchain block header into the burnchain database.
     /// Returns the row ID on success.
     pub(crate) fn store_burnchain_db_entry(
@@ -350,7 +349,7 @@ impl<'a> BurnchainDBTransaction<'a> {
         let args = params![affirmation_map.encode(), u64_to_sql(weight)?];
         match self.sql_tx.execute(sql, args) {
             Ok(_) => {
-                let am_id = BurnchainDB::get_affirmation_map_id(&self.sql_tx, &affirmation_map)?
+                let am_id = BurnchainDB::get_affirmation_map_id(&self.sql_tx, affirmation_map)?
                     .expect("BUG: no affirmation ID for affirmation map we just inserted");
                 Ok(am_id)
             }
@@ -394,7 +393,7 @@ impl<'a> BurnchainDBTransaction<'a> {
         let args = params![u64_to_sql(target_reward_cycle)?];
         self.sql_tx
             .execute(sql, args)
-            .map_err(|e| DBError::SqliteError(e))?;
+            .map_err(DBError::SqliteError)?;
 
         let sql = "UPDATE block_commit_metadata SET anchor_block = ?1 WHERE burn_block_hash = ?2 AND txid = ?3";
         let args = params![
@@ -425,7 +424,7 @@ impl<'a> BurnchainDBTransaction<'a> {
         self.sql_tx
             .execute(sql, args)
             .map(|_| ())
-            .map_err(|e| DBError::SqliteError(e))
+            .map_err(DBError::SqliteError)
     }
 
     /// Calculate a burnchain block's block-commits' descendancy information.
@@ -452,7 +451,7 @@ impl<'a> BurnchainDBTransaction<'a> {
                 })
                 .collect()
         };
-        if commits.len() == 0 {
+        if commits.is_empty() {
             test_debug!("No block-commits for block {}", hdr.block_height);
             return Ok(());
         }
@@ -1000,33 +999,38 @@ impl BurnchainDB {
         readwrite: bool,
     ) -> Result<BurnchainDB, BurnchainError> {
         let mut create_flag = false;
-        let open_flags = match fs::metadata(path) {
-            Err(e) => {
-                if e.kind() == io::ErrorKind::NotFound {
-                    // need to create
-                    if readwrite {
-                        create_flag = true;
-                        let ppath = Path::new(path);
-                        let pparent_path = ppath
-                            .parent()
-                            .unwrap_or_else(|| panic!("BUG: no parent of '{}'", path));
-                        fs::create_dir_all(&pparent_path)
-                            .map_err(|e| BurnchainError::from(DBError::IOError(e)))?;
+        let open_flags = if path == ":memory:" {
+            create_flag = true;
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
+        } else {
+            match fs::metadata(path) {
+                Err(e) => {
+                    if e.kind() == io::ErrorKind::NotFound {
+                        // need to create
+                        if readwrite {
+                            create_flag = true;
+                            let ppath = Path::new(path);
+                            let pparent_path = ppath
+                                .parent()
+                                .unwrap_or_else(|| panic!("BUG: no parent of '{}'", path));
+                            fs::create_dir_all(&pparent_path)
+                                .map_err(|e| BurnchainError::from(DBError::IOError(e)))?;
 
-                        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
+                            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
+                        } else {
+                            return Err(BurnchainError::from(DBError::NoDBError));
+                        }
                     } else {
-                        return Err(BurnchainError::from(DBError::NoDBError));
+                        return Err(BurnchainError::from(DBError::IOError(e)));
                     }
-                } else {
-                    return Err(BurnchainError::from(DBError::IOError(e)));
                 }
-            }
-            Ok(_md) => {
-                // can just open
-                if readwrite {
-                    OpenFlags::SQLITE_OPEN_READ_WRITE
-                } else {
-                    OpenFlags::SQLITE_OPEN_READ_ONLY
+                Ok(_md) => {
+                    // can just open
+                    if readwrite {
+                        OpenFlags::SQLITE_OPEN_READ_WRITE
+                    } else {
+                        OpenFlags::SQLITE_OPEN_READ_ONLY
+                    }
                 }
             }
         };
@@ -1089,7 +1093,7 @@ impl BurnchainDB {
         let conn = sqlite_open(path, open_flags, true)?;
         let mut db = BurnchainDB { conn };
 
-        if readwrite {
+        if readwrite || path == ":memory:" {
             db.add_indexes()?;
         }
         Ok(db)
@@ -1099,9 +1103,9 @@ impl BurnchainDB {
         &self.conn
     }
 
-    pub fn tx_begin<'a>(&'a mut self) -> Result<BurnchainDBTransaction<'a>, BurnchainError> {
+    pub fn tx_begin(&mut self) -> Result<BurnchainDBTransaction<'_>, BurnchainError> {
         let sql_tx = tx_begin_immediate(&mut self.conn)?;
-        Ok(BurnchainDBTransaction { sql_tx: sql_tx })
+        Ok(BurnchainDBTransaction { sql_tx })
     }
 
     fn inner_get_canonical_chain_tip(
@@ -1189,9 +1193,10 @@ impl BurnchainDB {
         let ops: Vec<BlockstackOperationType> =
             query_rows(&self.conn, qry, args).expect("FATAL: burnchain DB query error");
         for op in ops {
-            if let Some(_) = indexer
+            if indexer
                 .find_burnchain_header_height(&op.burn_header_hash())
                 .expect("FATAL: burnchain DB query error")
+                .is_some()
             {
                 // this is the op on the canonical fork
                 return Some(op);
@@ -1227,7 +1232,7 @@ impl BurnchainDB {
                 self,
                 block_header,
                 epoch_id,
-                &tx,
+                tx,
                 &pre_stx_ops,
             );
             if let Some(classified_tx) = result {
@@ -1241,8 +1246,8 @@ impl BurnchainDB {
 
         ops.extend(
             pre_stx_ops
-                .into_iter()
-                .map(|(_, op)| BlockstackOperationType::PreStx(op)),
+                .into_values()
+                .map(BlockstackOperationType::PreStx),
         );
 
         ops.sort_by_key(|op| op.vtxindex());
@@ -1405,7 +1410,7 @@ impl BurnchainDB {
             blockstack_ops.len()
         );
         db_tx.store_burnchain_db_entry(block_header)?;
-        db_tx.store_blockstack_ops(burnchain, indexer, &block_header, blockstack_ops)?;
+        db_tx.store_blockstack_ops(burnchain, indexer, block_header, blockstack_ops)?;
 
         db_tx.commit()?;
         Ok(())
@@ -1455,7 +1460,7 @@ impl BurnchainDB {
     ) -> Result<Option<LeaderBlockCommitOp>, DBError> {
         let qry = "SELECT txid FROM block_commit_metadata WHERE block_height = ?1 AND vtxindex = ?2 AND burn_block_hash = ?3";
         let args = params![block_ptr, vtxindex, header_hash];
-        let txid = match query_row(&conn, qry, args) {
+        let txid = match query_row(conn, qry, args) {
             Ok(Some(txid)) => txid,
             Ok(None) => {
                 test_debug!(
@@ -1616,7 +1621,7 @@ impl BurnchainDB {
             conn,
             "SELECT affirmation_map FROM overrides WHERE reward_cycle = ?1",
             params![u64_to_sql(reward_cycle)?],
-            || format!("BUG: more than one override affirmation map for the same reward cycle"),
+            || "BUG: more than one override affirmation map for the same reward cycle".to_string(),
         )?;
         if let Some(am) = &am_opt {
             assert_eq!((am.len() + 1) as u64, reward_cycle);

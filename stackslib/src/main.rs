@@ -49,6 +49,10 @@ use blockstack_lib::chainstate::burn::db::sortdb::{
 use blockstack_lib::chainstate::burn::operations::BlockstackOperationType;
 use blockstack_lib::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use blockstack_lib::chainstate::coordinator::{get_reward_cycle_info, OnChainRewardSetProvider};
+use blockstack_lib::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use blockstack_lib::chainstate::nakamoto::shadow::{
+    process_shadow_block, shadow_chainstate_repair,
+};
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use blockstack_lib::chainstate::stacks::db::blocks::{DummyEventDispatcher, StagingBlock};
 use blockstack_lib::chainstate::stacks::db::{
@@ -207,7 +211,7 @@ impl P2PSession {
             peer_info.parent_network_id,
             PeerAddress::from_socketaddr(&peer_addr),
             peer_addr.port(),
-            Some(StacksPrivateKey::new()),
+            Some(StacksPrivateKey::random()),
             u64::MAX,
             UrlString::try_from(format!("http://127.0.0.1:{}", data_port).as_str()).unwrap(),
             vec![],
@@ -247,6 +251,56 @@ impl P2PSession {
     }
 }
 
+fn open_nakamoto_chainstate_dbs(
+    chainstate_dir: &str,
+    network: &str,
+) -> (SortitionDB, StacksChainState) {
+    let (mainnet, chain_id, pox_constants, dirname) = match network {
+        "mainnet" => (
+            true,
+            CHAIN_ID_MAINNET,
+            PoxConstants::mainnet_default(),
+            network,
+        ),
+        "krypton" => (
+            false,
+            0x80000100,
+            PoxConstants::nakamoto_testnet_default(),
+            network,
+        ),
+        "naka3" => (
+            false,
+            0x80000000,
+            PoxConstants::new(20, 5, 3, 100, 0, u64::MAX, u64::MAX, 104, 105, 106, 107),
+            "nakamoto-neon",
+        ),
+        _ => {
+            panic!("Unrecognized network name '{}'", network);
+        }
+    };
+
+    let chain_state_path = format!("{}/{}/chainstate/", chainstate_dir, dirname);
+    let sort_db_path = format!("{}/{}/burnchain/sortition/", chainstate_dir, dirname);
+
+    let sort_db = SortitionDB::open(&sort_db_path, true, pox_constants)
+        .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
+
+    let (chain_state, _) = StacksChainState::open(mainnet, chain_id, &chain_state_path, None)
+        .expect("Failed to open stacks chain state");
+
+    (sort_db, chain_state)
+}
+
+fn check_shadow_network(network: &str) {
+    if network != "mainnet" && network != "krypton" && network != "naka3" {
+        eprintln!(
+            "Unknown network '{}': only support 'mainnet', 'krypton', or 'naka3'",
+            &network
+        );
+        process::exit(1);
+    }
+}
+
 #[cfg_attr(test, mutants::skip)]
 fn main() {
     let mut argv: Vec<String> = env::args().collect();
@@ -254,6 +308,8 @@ fn main() {
         eprintln!("Usage: {} command [args...]", argv[0]);
         process::exit(1);
     }
+
+    let common_opts = cli::drain_common_opts(&mut argv, 1);
 
     if argv[1] == "--version" {
         println!(
@@ -451,7 +507,7 @@ fn main() {
         }
 
         let index_block_hash = &argv[3];
-        let index_block_hash = StacksBlockId::from_hex(&index_block_hash).unwrap();
+        let index_block_hash = StacksBlockId::from_hex(index_block_hash).unwrap();
         let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
 
         let (chainstate, _) =
@@ -484,7 +540,7 @@ fn main() {
         let microblocks =
             StacksChainState::find_parent_microblock_stream(chainstate.db(), &block_info)
                 .unwrap()
-                .unwrap_or(vec![]);
+                .unwrap_or_default();
 
         let mut mblock_report = vec![];
         for mblock in microblocks.iter() {
@@ -630,11 +686,11 @@ check if the associated microblocks can be downloaded
             };
 
             let index_block_hash =
-                StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
+                StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
             let start_load_header = get_epoch_time_ms();
             let parent_header_opt = {
                 let child_block_info = match StacksChainState::load_staging_block_info(
-                    &chain_state.db(),
+                    chain_state.db(),
                     &index_block_hash,
                 ) {
                     Ok(Some(hdr)) => hdr,
@@ -669,8 +725,8 @@ check if the associated microblocks can be downloaded
                     &chain_state,
                     &parent_consensus_hash,
                     &parent_header.block_hash(),
-                    &consensus_hash,
-                    &block_hash,
+                    consensus_hash,
+                    block_hash,
                 )
                 .unwrap();
             } else {
@@ -742,128 +798,7 @@ check if the associated microblocks can be downloaded
     }
 
     if argv[1] == "try-mine" {
-        if argv.len() < 3 {
-            eprintln!(
-                "Usage: {} try-mine <working-dir> [min-fee [max-time]]
-
-Given a <working-dir>, try to ''mine'' an anchored block. This invokes the miner block
-assembly, but does not attempt to broadcast a block commit. This is useful for determining
-what transactions a given chain state would include in an anchor block, or otherwise
-simulating a miner.
-",
-                argv[0]
-            );
-            process::exit(1);
-        }
-
-        let start = get_epoch_time_ms();
-        let burnchain_path = format!("{}/mainnet/burnchain", &argv[2]);
-        let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
-        let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
-
-        let mut min_fee = u64::MAX;
-        let mut max_time = u64::MAX;
-
-        if argv.len() >= 4 {
-            min_fee = argv[3].parse().expect("Could not parse min_fee");
-        }
-        if argv.len() >= 5 {
-            max_time = argv[4].parse().expect("Could not parse max_time");
-        }
-
-        let sort_db = SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default())
-            .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
-        let chain_id = CHAIN_ID_MAINNET;
-        let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path, None)
-            .expect("Failed to open stacks chain state");
-        let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
-            .expect("Failed to get sortition chain tip");
-
-        let estimator = Box::new(UnitEstimator);
-        let metric = Box::new(UnitMetric);
-
-        let mut mempool_db = MemPoolDB::open(true, chain_id, &chain_state_path, estimator, metric)
-            .expect("Failed to open mempool db");
-
-        let header_tip = NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)
-            .unwrap()
-            .unwrap();
-        let parent_header = StacksChainState::get_anchored_block_header_info(
-            chain_state.db(),
-            &header_tip.consensus_hash,
-            &header_tip.anchored_header.block_hash(),
-        )
-        .expect("Failed to load chain tip header info")
-        .expect("Failed to load chain tip header info");
-
-        let sk = StacksPrivateKey::new();
-        let mut tx_auth = TransactionAuth::from_p2pkh(&sk).unwrap();
-        tx_auth.set_origin_nonce(0);
-
-        let mut coinbase_tx = StacksTransaction::new(
-            TransactionVersion::Mainnet,
-            tx_auth,
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
-        );
-
-        coinbase_tx.chain_id = chain_id;
-        coinbase_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
-        let mut tx_signer = StacksTransactionSigner::new(&coinbase_tx);
-        tx_signer.sign_origin(&sk).unwrap();
-        let coinbase_tx = tx_signer.get_tx().unwrap();
-
-        let mut settings = BlockBuilderSettings::limited();
-        settings.max_miner_time_ms = max_time;
-
-        let result = StacksBlockBuilder::build_anchored_block(
-            &chain_state,
-            &sort_db.index_handle(&chain_tip.sortition_id),
-            &mut mempool_db,
-            &parent_header,
-            chain_tip.total_burn,
-            VRFProof::empty(),
-            Hash160([0; 20]),
-            &coinbase_tx,
-            settings,
-            None,
-            &Burnchain::new(&burnchain_path, "bitcoin", "main").unwrap(),
-        );
-
-        let stop = get_epoch_time_ms();
-
-        println!(
-            "{} mined block @ height = {} off of {} ({}/{}) in {}ms. Min-fee: {}, Max-time: {}",
-            if result.is_ok() {
-                "Successfully"
-            } else {
-                "Failed to"
-            },
-            parent_header.stacks_block_height + 1,
-            StacksBlockHeader::make_index_block_hash(
-                &parent_header.consensus_hash,
-                &parent_header.anchored_header.block_hash()
-            ),
-            &parent_header.consensus_hash,
-            &parent_header.anchored_header.block_hash(),
-            stop.saturating_sub(start),
-            min_fee,
-            max_time
-        );
-
-        if let Ok((block, execution_cost, size)) = result {
-            let mut total_fees = 0;
-            for tx in block.txs.iter() {
-                total_fees += tx.get_tx_fee();
-            }
-            println!(
-                "Block {}: {} uSTX, {} bytes, cost {:?}",
-                block.block_hash(),
-                total_fees,
-                size,
-                &execution_cost
-            );
-        }
-
+        cli::command_try_mine(&argv[1..], common_opts.config.as_ref());
         process::exit(0);
     }
 
@@ -1088,13 +1023,13 @@ simulating a miner.
             }
             i += 1;
             let line = line.unwrap().trim().to_string();
-            if line.len() == 0 {
+            if line.is_empty() {
                 continue;
             }
             let vals: Vec<_> = line.split(" => ").map(|x| x.trim()).collect();
             let hex_string = &vals[0];
             let expected_value_display = &vals[1];
-            let value = clarity::vm::Value::try_deserialize_hex_untyped(&hex_string).unwrap();
+            let value = clarity::vm::Value::try_deserialize_hex_untyped(hex_string).unwrap();
             assert_eq!(&value.to_string(), expected_value_display);
         }
 
@@ -1166,6 +1101,204 @@ simulating a miner.
         println!("{:?}", inv);
     }
 
+    if argv[1] == "get-nakamoto-tip" {
+        if argv.len() < 4 {
+            eprintln!(
+                "Usage: {} get-nakamoto-tip CHAINSTATE_DIR NETWORK",
+                &argv[0]
+            );
+            process::exit(1);
+        }
+
+        let chainstate_dir = argv[2].as_str();
+        let network = argv[3].as_str();
+
+        check_shadow_network(network);
+        let (sort_db, chain_state) = open_nakamoto_chainstate_dbs(chainstate_dir, network);
+
+        let header = NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)
+            .unwrap()
+            .unwrap();
+        println!("{}", &header.index_block_hash());
+        process::exit(0);
+    }
+
+    if argv[1] == "get-account" {
+        if argv.len() < 5 {
+            eprintln!(
+                "Usage: {} get-account CHAINSTATE_DIR mainnet|krypton ADDRESS [CHAIN_TIP]",
+                &argv[0]
+            );
+            process::exit(1);
+        }
+
+        let chainstate_dir = argv[2].as_str();
+        let network = argv[3].as_str();
+        let addr = StacksAddress::from_string(&argv[4]).unwrap();
+        let chain_tip: Option<StacksBlockId> =
+            argv.get(5).map(|tip| StacksBlockId::from_hex(tip).unwrap());
+
+        check_shadow_network(network);
+        let (sort_db, mut chain_state) = open_nakamoto_chainstate_dbs(chainstate_dir, network);
+
+        let chain_tip_header = chain_tip
+            .map(|tip| {
+                let header = NakamotoChainState::get_block_header_nakamoto(chain_state.db(), &tip)
+                    .unwrap()
+                    .unwrap();
+                header
+            })
+            .unwrap_or_else(|| {
+                let header =
+                    NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)
+                        .unwrap()
+                        .unwrap();
+                header
+            });
+
+        let account =
+            NakamotoBlockBuilder::get_account(&mut chain_state, &sort_db, &addr, &chain_tip_header)
+                .unwrap();
+        println!("{:#?}", &account);
+        process::exit(0);
+    }
+
+    if argv[1] == "make-shadow-block" {
+        if argv.len() < 5 {
+            eprintln!(
+                "Usage: {} make-shadow-block CHAINSTATE_DIR NETWORK CHAIN_TIP_HASH [TX...]",
+                &argv[0]
+            );
+            process::exit(1);
+        }
+        let chainstate_dir = argv[2].as_str();
+        let network = argv[3].as_str();
+        let chain_tip = StacksBlockId::from_hex(argv[4].as_str()).unwrap();
+        let txs = argv[5..]
+            .iter()
+            .map(|tx_str| {
+                let tx_bytes = hex_bytes(tx_str).unwrap();
+                let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+                tx
+            })
+            .collect();
+
+        check_shadow_network(network);
+        let (sort_db, mut chain_state) = open_nakamoto_chainstate_dbs(chainstate_dir, network);
+        let header = NakamotoChainState::get_block_header(chain_state.db(), &chain_tip)
+            .unwrap()
+            .unwrap();
+
+        let shadow_block = NakamotoBlockBuilder::make_shadow_tenure(
+            &mut chain_state,
+            &sort_db,
+            chain_tip,
+            header.consensus_hash,
+            txs,
+        )
+        .unwrap();
+
+        println!("{}", to_hex(&shadow_block.serialize_to_vec()));
+        process::exit(0);
+    }
+
+    // Generates the shadow blocks needed to restore this node to working order.
+    // Automatically inserts and processes them as well.
+    // Prints out the generated shadow blocks (as JSON)
+    if argv[1] == "shadow-chainstate-repair" {
+        if argv.len() < 4 {
+            eprintln!(
+                "Usage: {} shadow-chainstate-repair CHAINSTATE_DIR NETWORK",
+                &argv[0]
+            );
+            process::exit(1);
+        }
+
+        let chainstate_dir = argv[2].as_str();
+        let network = argv[3].as_str();
+
+        check_shadow_network(network);
+
+        let (mut sort_db, mut chain_state) = open_nakamoto_chainstate_dbs(chainstate_dir, network);
+        let shadow_blocks = shadow_chainstate_repair(&mut chain_state, &mut sort_db).unwrap();
+
+        let shadow_blocks_hex: Vec<_> = shadow_blocks
+            .into_iter()
+            .map(|blk| to_hex(&blk.serialize_to_vec()))
+            .collect();
+
+        println!("{}", serde_json::to_string(&shadow_blocks_hex).unwrap());
+        process::exit(0);
+    }
+
+    // Inserts and processes shadow blocks generated from `shadow-chainstate-repair`
+    if argv[1] == "shadow-chainstate-patch" {
+        if argv.len() < 5 {
+            eprintln!(
+                "Usage: {} shadow-chainstate-patch CHAINSTATE_DIR NETWORK SHADOW_BLOCKS_PATH.JSON",
+                &argv[0]
+            );
+            process::exit(1);
+        }
+
+        let chainstate_dir = argv[2].as_str();
+        let network = argv[3].as_str();
+        let shadow_blocks_json_path = argv[4].as_str();
+
+        let shadow_blocks_hex = {
+            let mut blocks_json_file =
+                File::open(shadow_blocks_json_path).expect("Unable to open file");
+            let mut buffer = vec![];
+            blocks_json_file.read_to_end(&mut buffer).unwrap();
+            let shadow_blocks_hex: Vec<String> = serde_json::from_slice(&buffer).unwrap();
+            shadow_blocks_hex
+        };
+
+        let shadow_blocks: Vec<_> = shadow_blocks_hex
+            .into_iter()
+            .map(|blk_hex| {
+                NakamotoBlock::consensus_deserialize(&mut hex_bytes(&blk_hex).unwrap().as_slice())
+                    .unwrap()
+            })
+            .collect();
+
+        check_shadow_network(network);
+
+        let (mut sort_db, mut chain_state) = open_nakamoto_chainstate_dbs(chainstate_dir, network);
+        for shadow_block in shadow_blocks.into_iter() {
+            process_shadow_block(&mut chain_state, &mut sort_db, shadow_block).unwrap();
+        }
+
+        process::exit(0);
+    }
+
+    if argv[1] == "add-shadow-block" {
+        if argv.len() < 5 {
+            eprintln!(
+                "Usage: {} add-shadow-block CHAINSTATE_DIR NETWORK SHADOW_BLOCK_HEX",
+                &argv[0]
+            );
+            process::exit(1);
+        }
+        let chainstate_dir = argv[2].as_str();
+        let network = argv[3].as_str();
+        let block_hex = argv[4].as_str();
+        let shadow_block =
+            NakamotoBlock::consensus_deserialize(&mut hex_bytes(block_hex).unwrap().as_slice())
+                .unwrap();
+
+        assert!(shadow_block.is_shadow_block());
+
+        check_shadow_network(network);
+        let (_, mut chain_state) = open_nakamoto_chainstate_dbs(chainstate_dir, network);
+
+        let tx = chain_state.staging_db_tx_begin().unwrap();
+        tx.add_shadow_block(&shadow_block).unwrap();
+        tx.commit().unwrap();
+
+        process::exit(0);
+    }
+
     if argv[1] == "replay-chainstate" {
         if argv.len() < 7 {
             eprintln!("Usage: {} OLD_CHAINSTATE_PATH OLD_SORTITION_DB_PATH OLD_BURNCHAIN_DB_PATH NEW_CHAINSTATE_PATH NEW_BURNCHAIN_DB_PATH", &argv[0]);
@@ -1184,7 +1317,7 @@ simulating a miner.
         let old_sortition_db =
             SortitionDB::open(old_sort_path, true, PoxConstants::mainnet_default()).unwrap();
 
-        // initial argon balances -- see testnet/stacks-node/conf/testnet-follower-conf.toml
+        // initial argon balances -- see sample/conf/testnet-follower-conf.toml
         let initial_balances = vec![
             (
                 StacksAddress::from_string("ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2")
@@ -1212,7 +1345,7 @@ simulating a miner.
             ),
         ];
 
-        let burnchain = Burnchain::regtest(&burnchain_db_path);
+        let burnchain = Burnchain::regtest(burnchain_db_path);
         let first_burnchain_block_height = burnchain.first_block_height;
         let first_burnchain_block_hash = burnchain.first_block_hash;
         let epochs = StacksEpoch::all(first_burnchain_block_height, u64::MAX, u64::MAX);
@@ -1225,8 +1358,7 @@ simulating a miner.
             )
             .unwrap();
 
-        let old_burnchaindb =
-            BurnchainDB::connect(&old_burnchaindb_path, &burnchain, true).unwrap();
+        let old_burnchaindb = BurnchainDB::connect(old_burnchaindb_path, &burnchain, true).unwrap();
 
         let mut boot_data = ChainStateBootData {
             initial_balances,
@@ -1252,7 +1384,7 @@ simulating a miner.
 
         let all_snapshots = old_sortition_db.get_all_snapshots().unwrap();
         let all_stacks_blocks =
-            StacksChainState::get_all_staging_block_headers(&old_chainstate.db()).unwrap();
+            StacksChainState::get_all_staging_block_headers(old_chainstate.db()).unwrap();
 
         // order block hashes by arrival index
         let mut stacks_blocks_arrival_indexes = vec![];
@@ -1269,7 +1401,7 @@ simulating a miner.
             );
             stacks_blocks_arrival_indexes.push((index_hash, snapshot.arrival_index));
         }
-        stacks_blocks_arrival_indexes.sort_by(|ref a, ref b| a.1.partial_cmp(&b.1).unwrap());
+        stacks_blocks_arrival_indexes.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
         let stacks_blocks_arrival_order: Vec<StacksBlockId> = stacks_blocks_arrival_indexes
             .into_iter()
             .map(|(h, _)| h)
@@ -1331,7 +1463,7 @@ simulating a miner.
                 header: burn_block_header,
                 ops: blockstack_txs,
             } = BurnchainDB::get_burnchain_block(
-                &old_burnchaindb.conn(),
+                old_burnchaindb.conn(),
                 &old_snapshot.burn_header_hash,
             )
             .unwrap();
@@ -1345,12 +1477,13 @@ simulating a miner.
                     SortitionDB::get_canonical_burn_chain_tip(new_sortition_db.conn()).unwrap();
                 new_sortition_db
                     .evaluate_sortition(
+                        false,
                         &burn_block_header,
                         blockstack_txs,
                         &burnchain,
                         &sortition_tip.sortition_id,
                         None,
-                        |_| {},
+                        |_, _| {},
                     )
                     .unwrap()
             };
@@ -1389,7 +1522,7 @@ simulating a miner.
                     while next_arrival < stacks_blocks_arrival_order.len()
                         && known_stacks_blocks.contains(&stacks_block_id)
                     {
-                        if let Some(_) = stacks_blocks_available.get(&stacks_block_id) {
+                        if stacks_blocks_available.get(&stacks_block_id).is_some() {
                             // load up the block
                             let stacks_block_opt = StacksChainState::load_block(
                                 &old_chainstate.blocks_path,
@@ -1451,7 +1584,7 @@ simulating a miner.
                         null_event_dispatcher,
                     )
                     .unwrap();
-                if receipts.len() == 0 {
+                if receipts.is_empty() {
                     break;
                 }
             }
@@ -1466,19 +1599,47 @@ simulating a miner.
     }
 
     if argv[1] == "replay-block" {
-        cli::command_replay_block(&argv[1..], None);
+        cli::command_replay_block(&argv[1..], common_opts.config.as_ref());
+        process::exit(0);
+    }
+
+    if argv[1] == "replay-naka-block" {
+        cli::command_replay_block_nakamoto(&argv[1..], common_opts.config.as_ref());
         process::exit(0);
     }
 
     if argv[1] == "replay-mock-mining" {
-        cli::command_replay_mock_mining(&argv[1..], None);
+        cli::command_replay_mock_mining(&argv[1..], common_opts.config.as_ref());
         process::exit(0);
+    }
+
+    if argv[1] == "dump-consts" {
+        dump_consts();
     }
 
     if argv.len() < 4 {
         eprintln!("Usage: {} blockchain network working_dir", argv[0]);
         process::exit(1);
     }
+}
+
+#[cfg_attr(test, mutants::skip)]
+pub fn dump_consts() {
+    use stacks_common::consts;
+    let json_out = json!({
+        "miner_reward_maturity": consts::MINER_REWARD_MATURITY,
+        "chain_id_mainnet": consts::CHAIN_ID_MAINNET,
+        "chain_id_testnet": consts::CHAIN_ID_TESTNET,
+        "signer_slots_per_user": consts::SIGNER_SLOTS_PER_USER,
+        "network_id_mainnet": consts::NETWORK_ID_MAINNET,
+        "network_id_testnet": consts::NETWORK_ID_TESTNET,
+        "microstacks_per_stacks": consts::MICROSTACKS_PER_STACKS,
+        "stacks_epoch_max": consts::STACKS_EPOCH_MAX,
+        "peer_version_mainnet_major": consts::PEER_VERSION_MAINNET_MAJOR,
+        "peer_version_testnet_major": consts::PEER_VERSION_TESTNET_MAJOR,
+    });
+    println!("{}", serde_json::to_string_pretty(&json_out).unwrap());
+    process::exit(0);
 }
 
 #[cfg_attr(test, mutants::skip)]
@@ -1650,7 +1811,7 @@ simulating a miner.
     .expect("Failed to load chain tip header info")
     .expect("Failed to load chain tip header info");
 
-    let sk = StacksPrivateKey::new();
+    let sk = StacksPrivateKey::random();
     let mut tx_auth = TransactionAuth::from_p2pkh(&sk).unwrap();
     tx_auth.set_origin_nonce(0);
 
@@ -1813,12 +1974,13 @@ fn analyze_sortition_mev(argv: Vec<String>) {
         debug!("Re-evaluate sortition at height {}", height);
         let (next_sn, state_transition) = sortdb
             .evaluate_sortition(
+                true,
                 &burn_block.header,
                 burn_block.ops.clone(),
                 &burnchain,
                 &tip_sort_id,
                 rc_info_opt,
-                |_| (),
+                |_, _| (),
             )
             .unwrap();
 
@@ -1828,6 +1990,7 @@ fn analyze_sortition_mev(argv: Vec<String>) {
         let mut sort_tx = sortdb.tx_begin_at_tip();
         let tip_pox_id = sort_tx.get_pox_id().unwrap();
         let next_sn_nakamoto = BlockSnapshot::make_snapshot_in_epoch(
+            true,
             &mut sort_tx,
             &burnchain,
             &ancestor_sn.sortition_id,
@@ -1930,10 +2093,10 @@ fn analyze_sortition_mev(argv: Vec<String>) {
     for (winner, count) in all_wins_epoch3.into_iter() {
         let degradation = (count as f64)
             / (all_wins_epoch2
-                .get(&winner)
+                .get(winner)
                 .map(|cnt| *cnt as f64)
                 .unwrap_or(0.00000000000001f64));
-        println!("{},{},{}", &winner, count, degradation);
+        println!("{winner},{count},{degradation}");
     }
 
     process::exit(0);

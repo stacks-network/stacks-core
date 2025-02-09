@@ -22,16 +22,11 @@ use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 /// This codebase is based on routines defined in the IETF draft for verifiable random functions
 /// over elliptic curves (https://tools.ietf.org/id/draft-irtf-cfrg-vrf-02.html).
-use std::ops::Deref;
-use std::ops::DerefMut;
 use std::{error, fmt};
 
 use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
 use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
 use curve25519_dalek::scalar::Scalar as ed25519_Scalar;
-use ed25519_dalek::{
-    SecretKey as EdDalekSecretKeyBytes, SigningKey as EdPrivateKey, VerifyingKey as EdPublicKey,
-};
 use rand;
 use sha2::{Digest, Sha512};
 
@@ -158,10 +153,7 @@ impl VRFPublicKey {
         //  that's what the docs say to do!
 
         let checked_pubkey = CompressedEdwardsY(pubkey_slice);
-        if checked_pubkey.decompress().is_none() {
-            // invalid
-            return None;
-        }
+        checked_pubkey.decompress()?;
 
         let key = ed25519_dalek::VerifyingKey::from_bytes(&pubkey_slice).ok()?;
         Some(VRFPublicKey(key))
@@ -432,7 +424,7 @@ impl VRF {
     /// * its public key (an ed25519 curve point)
     /// * a new private key derived from the hash of the private key
     /// * a truncated hash of the private key
-    /// Idea borroed from Algorand (https://github.com/algorand/libsodium/blob/draft-irtf-cfrg-vrf-03/src/libsodium/crypto_vrf/ietfdraft03/prove.c)
+    ///   Idea borrowed from Algorand (https://github.com/algorand/libsodium/blob/draft-irtf-cfrg-vrf-03/src/libsodium/crypto_vrf/ietfdraft03/prove.c)
     fn expand_privkey(secret: &VRFPrivateKey) -> (VRFPublicKey, ed25519_Scalar, [u8; 32]) {
         let mut hasher = Sha512::new();
         let mut h = [0u8; 64];
@@ -538,10 +530,8 @@ impl VRF {
 
 #[cfg(test)]
 mod tests {
-    use curve25519_dalek::scalar::Scalar as ed25519_Scalar;
     use rand;
     use rand::RngCore;
-    use sha2::Sha512;
 
     use super::*;
     use crate::util::hash::hex_bytes;

@@ -32,8 +32,8 @@ use crate::chainstate::stacks::index::bits::{
     get_path_byte_len, get_ptrs_byte_len, path_from_bytes, ptrs_from_bytes, write_path_to_bytes,
 };
 use crate::chainstate::stacks::index::{
-    BlockMap, ClarityMarfTrieId, Error, MARFValue, MarfTrieId, TrieHashExtension, TrieHasher,
-    TrieLeaf, MARF_VALUE_ENCODED_SIZE,
+    BlockMap, ClarityMarfTrieId, Error, MARFValue, MarfTrieId, TrieHasher, TrieLeaf,
+    MARF_VALUE_ENCODED_SIZE,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -104,23 +104,6 @@ fn ptrs_consensus_hash<W: Write, M: BlockMap>(
         ptr.write_consensus_bytes(map, w)?;
     }
     Ok(())
-}
-
-/// A path in the Trie is the SHA2-512/256 hash of its key.
-pub struct TriePath([u8; 32]);
-impl_array_newtype!(TriePath, u8, 32);
-impl_array_hexstring_fmt!(TriePath);
-impl_byte_array_newtype!(TriePath, u8, 32);
-
-pub const TRIEPATH_MAX_LEN: usize = 32;
-
-impl TriePath {
-    pub fn from_key(k: &str) -> TriePath {
-        let h = TrieHash::from_data(k.as_bytes());
-        let mut hb = [0u8; TRIEPATH_MAX_LEN];
-        hb.copy_from_slice(h.as_bytes());
-        TriePath(hb)
-    }
 }
 
 /// All Trie nodes implement the following methods:
@@ -248,9 +231,9 @@ impl TriePtr {
     #[inline]
     pub fn new(id: u8, chr: u8, ptr: u32) -> TriePtr {
         TriePtr {
-            id: id,
-            chr: chr,
-            ptr: ptr,
+            id,
+            chr,
+            ptr,
             back_block: 0,
         }
     }
@@ -325,10 +308,10 @@ impl TriePtr {
         let back_block = u32::from_be_bytes([bytes[6], bytes[7], bytes[8], bytes[9]]);
 
         TriePtr {
-            id: id,
-            chr: chr,
-            ptr: ptr,
-            back_block: back_block,
+            id,
+            chr,
+            ptr,
+            back_block,
         }
     }
 }
@@ -339,7 +322,7 @@ impl TriePtr {
 /// nodes to visit when updating the root node hash.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrieCursor<T: MarfTrieId> {
-    pub path: TriePath,                  // the path to walk
+    pub path: TrieHash,                  // the path to walk
     pub index: usize,                    // index into the path
     pub node_path_index: usize,          // index into the currently-visited node's compressed path
     pub nodes: Vec<TrieNodeType>,        // list of nodes this cursor visits
@@ -349,7 +332,7 @@ pub struct TrieCursor<T: MarfTrieId> {
 }
 
 impl<T: MarfTrieId> TrieCursor<T> {
-    pub fn new(path: &TriePath, root_ptr: TriePtr) -> TrieCursor<T> {
+    pub fn new(path: &TrieHash, root_ptr: TriePtr) -> TrieCursor<T> {
         TrieCursor {
             path: path.clone(),
             index: 0,
@@ -389,7 +372,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
     /// last ptr visited
     pub fn ptr(&self) -> TriePtr {
         // should always be true by construction
-        assert!(self.node_ptrs.len() > 0);
+        assert!(!self.node_ptrs.is_empty());
         self.node_ptrs[self.node_ptrs.len() - 1].clone()
     }
 
@@ -450,7 +433,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
         for i in 0..node_path.len() {
             if node_path[i] != path_bytes[self.index] {
                 // diverged
-                trace!("cursor: diverged({} != {}): i = {}, self.index = {}, self.node_path_index = {}", to_hex(&node_path), to_hex(path_bytes), i, self.index, self.node_path_index);
+                trace!("cursor: diverged({} != {}): i = {}, self.index = {}, self.node_path_index = {}", to_hex(node_path), to_hex(path_bytes), i, self.index, self.node_path_index);
                 self.last_error = Some(CursorError::PathDiverged);
                 return Err(CursorError::PathDiverged);
             }
@@ -512,7 +495,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
     /// Replace the last-visited node and ptr within this trie.  Used when doing a copy-on-write or
     /// promoting a node, so the cursor state accurately reflects the nodes and tries visited.
     #[inline]
-    pub fn repair_retarget(&mut self, node: &TrieNodeType, ptr: &TriePtr, hash: &T) -> () {
+    pub fn repair_retarget(&mut self, node: &TrieNodeType, ptr: &TriePtr, hash: &T) {
         // this can only be called if we failed to walk to a node (this method _should not_ be
         // called if we walked to a backptr).
         if Some(CursorError::ChrNotFound) != self.last_error
@@ -543,7 +526,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
         next_node: &TrieNodeType,
         ptr: &TriePtr,
         block_hash: T,
-    ) -> () {
+    ) {
         // this can only be called if we walked to a backptr.
         // If it's anything else, we're in trouble.
         if Some(CursorError::ChrNotFound) == self.last_error
@@ -570,7 +553,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
     /// Record that we landed on a non-backptr from a backptr.
     /// ptr is a non-backptr that refers to the node we landed on.
     #[inline]
-    pub fn repair_backptr_finish(&mut self, ptr: &TriePtr, block_hash: T) -> () {
+    pub fn repair_backptr_finish(&mut self, ptr: &TriePtr, block_hash: T) {
         // this can only be called if we walked to a backptr.
         // If it's anything else, we're in trouble.
         if Some(CursorError::ChrNotFound) == self.last_error
@@ -601,7 +584,7 @@ impl PartialEq for TrieLeaf {
 }
 
 impl TrieLeaf {
-    pub fn new(path: &[u8], data: &Vec<u8>) -> TrieLeaf {
+    pub fn new(path: &[u8], data: &[u8]) -> TrieLeaf {
         assert!(data.len() <= 40);
         let mut bytes = [0u8; 40];
         bytes.copy_from_slice(&data[..]);
@@ -798,7 +781,7 @@ impl TrieNode256 {
         }
         TrieNode256 {
             path: node4.path.clone(),
-            ptrs: ptrs,
+            ptrs,
         }
     }
 
@@ -811,7 +794,7 @@ impl TrieNode256 {
         }
         TrieNode256 {
             path: node48.path.clone(),
-            ptrs: ptrs,
+            ptrs,
         }
     }
 }
@@ -1161,7 +1144,7 @@ impl TrieNode for TrieLeaf {
     }
 
     fn empty() -> TrieLeaf {
-        TrieLeaf::new(&[], &[0u8; 40].to_vec())
+        TrieLeaf::new(&[], &[0u8; 40])
     }
 
     fn walk(&self, _chr: u8) -> Option<TriePtr> {
@@ -1208,7 +1191,7 @@ impl TrieNode for TrieLeaf {
         }
 
         Ok(TrieLeaf {
-            path: path,
+            path,
             data: MARFValue(leaf_data),
         })
     }
@@ -1257,38 +1240,23 @@ macro_rules! with_node {
 
 impl TrieNodeType {
     pub fn is_leaf(&self) -> bool {
-        match self {
-            TrieNodeType::Leaf(_) => true,
-            _ => false,
-        }
+        matches!(self, TrieNodeType::Leaf(_))
     }
 
     pub fn is_node4(&self) -> bool {
-        match self {
-            TrieNodeType::Node4(_) => true,
-            _ => false,
-        }
+        matches!(self, TrieNodeType::Node4(_))
     }
 
     pub fn is_node16(&self) -> bool {
-        match self {
-            TrieNodeType::Node16(_) => true,
-            _ => false,
-        }
+        matches!(self, TrieNodeType::Node16(_))
     }
 
     pub fn is_node48(&self) -> bool {
-        match self {
-            TrieNodeType::Node48(_) => true,
-            _ => false,
-        }
+        matches!(self, TrieNodeType::Node48(_))
     }
 
     pub fn is_node256(&self) -> bool {
-        match self {
-            TrieNodeType::Node256(_) => true,
-            _ => false,
-        }
+        matches!(self, TrieNodeType::Node256(_))
     }
 
     pub fn id(&self) -> u8 {
@@ -1351,7 +1319,7 @@ impl TrieNodeType {
         with_node!(self, ref data, &data.path)
     }
 
-    pub fn set_path(&mut self, new_path: Vec<u8>) -> () {
+    pub fn set_path(&mut self, new_path: Vec<u8>) {
         with_node!(self, ref mut data, data.path = new_path)
     }
 }

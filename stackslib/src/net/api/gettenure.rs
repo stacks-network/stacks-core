@@ -188,10 +188,10 @@ impl HttpRequest for RPCNakamotoTenureRequestHandler {
         let req_contents = HttpRequestContents::new().query_string(query);
         let last_block_id = req_contents
             .get_query_arg("stop")
-            .map(|last_block_id_hex| StacksBlockId::from_hex(&last_block_id_hex))
+            .map(|last_block_id_hex| StacksBlockId::from_hex(last_block_id_hex))
             .transpose()
             .map_err(|e| {
-                Error::DecodeError(format!("Failed to parse stop= query parameter: {:?}", &e))
+                Error::DecodeError(format!("Failed to parse stop= query parameter: {e:?}"))
             })?;
 
         self.last_block_id = last_block_id;
@@ -304,7 +304,7 @@ impl HttpChunkGenerator for NakamotoTenureStream {
 
     fn generate_next_chunk(&mut self) -> Result<Vec<u8>, String> {
         let next_block_chunk = self.block_stream.generate_next_chunk()?;
-        if next_block_chunk.len() > 0 {
+        if !next_block_chunk.is_empty() {
             // have block data to send
             return Ok(next_block_chunk);
         }
@@ -358,7 +358,7 @@ impl StacksHttpResponse {
         let ptr = &mut tenure_bytes.as_slice();
 
         let mut blocks = vec![];
-        while ptr.len() > 0 {
+        while !ptr.is_empty() {
             let block = NakamotoBlock::consensus_deserialize(ptr)?;
             blocks.push(block);
         }

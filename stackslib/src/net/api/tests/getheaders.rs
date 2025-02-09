@@ -295,11 +295,8 @@ fn test_stream_getheaders() {
     let block_expected_headers: Vec<StacksBlockHeader> =
         blocks.iter().rev().map(|blk| blk.header.clone()).collect();
 
-    let block_expected_index_hashes: Vec<StacksBlockId> = blocks_index_hashes
-        .iter()
-        .rev()
-        .map(|idx| idx.clone())
-        .collect();
+    let block_expected_index_hashes: Vec<StacksBlockId> =
+        blocks_index_hashes.iter().rev().copied().collect();
 
     let block_fork_expected_headers: Vec<StacksBlockHeader> = blocks_fork
         .iter()
@@ -307,11 +304,8 @@ fn test_stream_getheaders() {
         .map(|blk| blk.header.clone())
         .collect();
 
-    let block_fork_expected_index_hashes: Vec<StacksBlockId> = blocks_fork_index_hashes
-        .iter()
-        .rev()
-        .map(|idx| idx.clone())
-        .collect();
+    let block_fork_expected_index_hashes: Vec<StacksBlockId> =
+        blocks_fork_index_hashes.iter().rev().copied().collect();
 
     // get them all -- ask for more than there is
     let mut stream =
@@ -386,8 +380,7 @@ fn test_stream_getheaders() {
 
     // ask for only a few
     let mut stream =
-        StacksHeaderStream::new(&chainstate, &blocks_fork_index_hashes.last().unwrap(), 10)
-            .unwrap();
+        StacksHeaderStream::new(&chainstate, blocks_fork_index_hashes.last().unwrap(), 10).unwrap();
     let header_bytes = stream_headers_to_vec(&mut stream);
     let headers: Vec<ExtendedStacksHeader> =
         serde_json::from_reader(&mut &header_bytes[..]).unwrap();

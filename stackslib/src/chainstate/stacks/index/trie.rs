@@ -39,9 +39,7 @@ use crate::chainstate::stacks::index::node::{
 use crate::chainstate::stacks::index::storage::{
     TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection,
 };
-use crate::chainstate::stacks::index::{
-    Error, MarfTrieId, TrieHashExtension, TrieHasher, TrieLeaf,
-};
+use crate::chainstate::stacks::index::{Error, MarfTrieId, TrieHasher, TrieLeaf};
 
 /// We don't actually instantiate a Trie, but we still need to pass a type parameter for the
 /// storage implementation.
@@ -219,22 +217,19 @@ impl Trie {
             // ptr is a backptr -- find the block
             let back_block_hash = storage
                 .get_block_from_local_id(ptr.back_block())
-                .map_err(|e| {
+                .inspect_err(|_e| {
                     test_debug!("Failed to get block from local ID {}", ptr.back_block());
-                    e
                 })?
                 .clone();
 
             storage
                 .open_block_known_id(&back_block_hash, ptr.back_block())
-                .map_err(|e| {
+                .inspect_err(|_e| {
                     test_debug!(
-                        "Failed to open block {} with id {}: {:?}",
+                        "Failed to open block {} with id {}: {_e:?}",
                         &back_block_hash,
                         ptr.back_block(),
-                        &e
                     );
-                    e
                 })?;
 
             let backptr = ptr.from_backptr();
@@ -283,7 +278,7 @@ impl Trie {
             )));
         }
 
-        value.path = cur_leaf.path_bytes().clone();
+        value.path.clone_from(cur_leaf.path_bytes());
 
         let leaf_hash = get_leaf_hash(value);
 
@@ -343,7 +338,7 @@ impl Trie {
     ) -> Result<TriePtr, Error> {
         // can only work if we're not at the end of the path, and the current node has a path
         assert!(!cursor.eop());
-        assert!(cur_leaf_data.path.len() > 0);
+        assert!(!cur_leaf_data.path.is_empty());
 
         // switch from lazy expansion to path compression --
         // * the current and new leaves will have unique suffixes
@@ -363,11 +358,8 @@ impl Trie {
 
         // update current leaf (path changed) and save it
         let cur_leaf_disk_ptr = cur_leaf_ptr.ptr();
-        let cur_leaf_new_ptr = TriePtr::new(
-            TrieNodeID::Leaf as u8,
-            cur_leaf_chr,
-            cur_leaf_disk_ptr as u32,
-        );
+        let cur_leaf_new_ptr =
+            TriePtr::new(TrieNodeID::Leaf as u8, cur_leaf_chr, cur_leaf_disk_ptr);
 
         assert!(cur_leaf_path.len() <= cur_leaf_data.path.len());
         let _sav_cur_leaf_data = cur_leaf_data.clone();
@@ -402,7 +394,7 @@ impl Trie {
 
         let node4_hash = get_node_hash(
             &node4_data,
-            &vec![
+            &[
                 cur_leaf_hash,
                 new_leaf_hash,
                 TrieHash::from_data(&[]),
@@ -565,7 +557,7 @@ impl Trie {
         // append this leaf to the Trie
         let new_node_disk_ptr = storage.last_ptr()?;
 
-        let ret = TriePtr::new(new_node.id(), node_ptr.chr(), new_node_disk_ptr as u32);
+        let ret = TriePtr::new(new_node.id(), node_ptr.chr(), new_node_disk_ptr);
         storage.write_nodetype(new_node_disk_ptr, &new_node, new_node_hash)?;
 
         // update the cursor so its path of nodes and ptrs accurately reflects that we would have
@@ -641,12 +633,12 @@ impl Trie {
         let new_cur_node_ptr = TriePtr::new(
             cur_node_cur_ptr.id(),
             new_cur_node_chr,
-            new_cur_node_disk_ptr as u32,
+            new_cur_node_disk_ptr,
         );
 
         node.set_path(new_cur_node_path);
 
-        let new_cur_node_hash = get_nodetype_hash(storage, &node)?;
+        let new_cur_node_hash = get_nodetype_hash(storage, node)?;
 
         let mut new_node4 = TrieNode4::new(&shared_path_prefix);
         new_node4.insert(&leaf_ptr);
@@ -654,7 +646,7 @@ impl Trie {
 
         let new_node_hash = get_node_hash(
             &new_node4,
-            &vec![
+            &[
                 leaf_hash,
                 new_cur_node_hash,
                 TrieHash::from_data(&[]),
@@ -689,7 +681,7 @@ impl Trie {
         );
         cursor.repair_retarget(&new_node, &ret, &storage.get_cur_block());
 
-        trace!("splice_leaf: node-X' at {:?}", &ret);
+        trace!("splice_leaf: node-X' at {ret:?}");
         Ok(ret)
     }
 
@@ -875,13 +867,13 @@ impl Trie {
         cursor: &TrieCursor<T>,
         update_skiplist: bool,
     ) -> Result<(), Error> {
-        assert!(cursor.node_ptrs.len() > 0);
+        assert!(!cursor.node_ptrs.is_empty());
 
         let mut ptrs = cursor.node_ptrs.clone();
         trace!("update_root_hash: ptrs = {:?}", &ptrs);
         let mut child_ptr = ptrs.pop().unwrap();
 
-        if ptrs.len() == 0 {
+        if ptrs.is_empty() {
             // root node was already updated by trie operations, but it will have the wrong hash.
             // we need to "fix" the root node so it mixes in its ancestor hashes.
             trace!("Fix up root node so it mixes in its ancestor hashes");
@@ -912,10 +904,9 @@ impl Trie {
             if cfg!(test) && is_trace() {
                 let node_hash = my_hash.clone();
                 let _ = Trie::get_trie_root_ancestor_hashes_bytes(storage, &node_hash)
-                    .and_then(|_hs| {
+                    .map(|_hs| {
                         storage.clear_cached_ancestor_hashes_bytes();
                         trace!("update_root_hash: Updated {:?} with {:?} from {} to {} + {:?} = {} (fixed root)", &node, &child_ptr, &_cur_hash, &node_hash, &_hs[1..].to_vec(), &h);
-                        Ok(())
                     });
             }
 
@@ -976,10 +967,9 @@ impl Trie {
 
                         if cfg!(test) && is_trace() {
                             let _ = Trie::get_trie_root_ancestor_hashes_bytes(storage, &content_hash)
-                                        .and_then(|_hs| {
+                                        .map(|_hs| {
                                             storage.clear_cached_ancestor_hashes_bytes();
                                             trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?} + {:?} = {:?}", &node, &child_ptr, &_cur_hash, &content_hash, &_hs[1..].to_vec(), &h);
-                                            Ok(())
                                         });
                         }
 

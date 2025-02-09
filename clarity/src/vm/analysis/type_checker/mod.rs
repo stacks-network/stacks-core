@@ -20,19 +20,11 @@ pub mod v2_1;
 
 use stacks_common::types::StacksEpochId;
 
-use super::errors::{
-    check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckError,
-    CheckErrors, CheckResult,
-};
+use super::errors::{CheckErrors, CheckResult};
 pub use super::types::{AnalysisPass, ContractAnalysis};
 use super::AnalysisDatabase;
-use crate::vm::costs::{analysis_typecheck_cost, CostTracker, LimitedCostTracker};
-use crate::vm::types::signatures::{
-    CallableSubtype, FunctionArgSignature, FunctionReturnsSignature,
-};
-use crate::vm::types::{
-    FixedFunction, FunctionType, PrincipalData, SequenceSubtype, StringSubtype, TypeSignature,
-};
+use crate::vm::costs::CostTracker;
+use crate::vm::types::{FunctionType, TypeSignature};
 use crate::vm::{ClarityVersion, Value};
 
 impl FunctionType {
@@ -52,9 +44,10 @@ impl FunctionType {
             | StacksEpochId::Epoch23
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30 => self.check_args_2_1(accounting, args, clarity_version),
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31 => self.check_args_2_1(accounting, args, clarity_version),
             StacksEpochId::Epoch10 => {
-                return Err(CheckErrors::Expects("Epoch10 is not supported".into()).into())
+                Err(CheckErrors::Expects("Epoch10 is not supported".into()).into())
             }
         }
     }
@@ -75,21 +68,19 @@ impl FunctionType {
             | StacksEpochId::Epoch23
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30 => {
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31 => {
                 self.check_args_by_allowing_trait_cast_2_1(db, clarity_version, func_args)
             }
             StacksEpochId::Epoch10 => {
-                return Err(CheckErrors::Expects("Epoch10 is not supported".into()).into())
+                Err(CheckErrors::Expects("Epoch10 is not supported".into()).into())
             }
         }
     }
 }
 
 fn is_reserved_word_v3(word: &str) -> bool {
-    match word {
-        "block-height" => true,
-        _ => false,
-    }
+    word == "block-height"
 }
 
 /// Is this a reserved word that should trigger an analysis error for the given

@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::BTreeMap;
 use std::{cmp, fmt};
 
 use hashbrown::HashMap;
@@ -23,20 +22,18 @@ use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
 
 use crate::boot_util::boot_code_id;
-use crate::vm::ast::ContractAST;
-use crate::vm::contexts::{ContractContext, Environment, GlobalContext, OwnedEnvironment};
+use crate::vm::contexts::{ContractContext, GlobalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::database::clarity_store::NullBackingStore;
 use crate::vm::database::ClarityDatabase;
-use crate::vm::errors::{Error, InterpreterResult};
+use crate::vm::errors::InterpreterResult;
 use crate::vm::types::signatures::FunctionType::Fixed;
-use crate::vm::types::signatures::{FunctionSignature, TupleTypeSignature};
+use crate::vm::types::signatures::TupleTypeSignature;
 use crate::vm::types::Value::UInt;
 use crate::vm::types::{
-    FunctionArg, FunctionType, PrincipalData, QualifiedContractIdentifier, TupleData,
-    TypeSignature, NONE,
+    FunctionType, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
 };
-use crate::vm::{ast, eval_all, ClarityName, SymbolicExpression, Value};
+use crate::vm::{eval_all, ClarityName, SymbolicExpression, Value};
 
 pub mod constants;
 pub mod cost_functions;
@@ -46,9 +43,9 @@ type Result<T> = std::result::Result<T, CostErrors>;
 pub const CLARITY_MEMORY_LIMIT: u64 = 100 * 1000 * 1000;
 
 // TODO: factor out into a boot lib?
-pub const COSTS_1_NAME: &'static str = "costs";
-pub const COSTS_2_NAME: &'static str = "costs-2";
-pub const COSTS_3_NAME: &'static str = "costs-3";
+pub const COSTS_1_NAME: &str = "costs";
+pub const COSTS_2_NAME: &str = "costs-2";
+pub const COSTS_3_NAME: &str = "costs-3";
 
 lazy_static! {
     static ref COST_TUPLE_TYPE_SIGNATURE: TypeSignature = {
@@ -140,7 +137,7 @@ impl CostTracker for () {
         _cost_function: ClarityCostFunction,
         _input: &[u64],
     ) -> std::result::Result<ExecutionCost, CostErrors> {
-        Ok(ExecutionCost::zero())
+        Ok(ExecutionCost::ZERO)
     }
     fn add_cost(&mut self, _cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
         Ok(())
@@ -254,6 +251,7 @@ pub struct TrackerData {
 }
 
 #[derive(Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum LimitedCostTracker {
     Limited(TrackerData),
     Free,
@@ -334,11 +332,7 @@ pub enum CostErrors {
 
 impl CostErrors {
     fn rejectable(&self) -> bool {
-        match self {
-            CostErrors::InterpreterFailure => true,
-            CostErrors::Expect(_) => true,
-            _ => false,
-        }
+        matches!(self, CostErrors::InterpreterFailure | CostErrors::Expect(_))
     }
 }
 
@@ -650,7 +644,7 @@ fn load_cost_functions(
                             continue;
                         }
                         for arg in &cost_func_type.args {
-                            if &arg.signature != &TypeSignature::UIntType {
+                            if arg.signature != TypeSignature::UIntType {
                                 warn!("Confirmed cost proposal invalid: contains non uint argument";
                                       "confirmed_proposal_id" => confirmed_proposal,
                                 );
@@ -707,7 +701,7 @@ impl LimitedCostTracker {
             contract_call_circuits: HashMap::new(),
             limit,
             memory_limit: CLARITY_MEMORY_LIMIT,
-            total: ExecutionCost::zero(),
+            total: ExecutionCost::ZERO,
             memory: 0,
             epoch,
             mainnet,
@@ -731,7 +725,7 @@ impl LimitedCostTracker {
             contract_call_circuits: HashMap::new(),
             limit,
             memory_limit: CLARITY_MEMORY_LIMIT,
-            total: ExecutionCost::zero(),
+            total: ExecutionCost::ZERO,
             memory: 0,
             epoch,
             mainnet,
@@ -775,7 +769,8 @@ impl LimitedCostTracker {
             | StacksEpochId::Epoch23
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30 => COSTS_3_NAME.to_string(),
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31 => COSTS_3_NAME.to_string(),
         };
         Ok(result)
     }
@@ -871,7 +866,7 @@ impl TrackerData {
                 .map_err(|e| CostErrors::Expect(e.to_string()))?;
         }
 
-        return Ok(());
+        Ok(())
     }
 }
 
@@ -879,11 +874,11 @@ impl LimitedCostTracker {
     pub fn get_total(&self) -> ExecutionCost {
         match self {
             Self::Limited(TrackerData { total, .. }) => total.clone(),
-            Self::Free => ExecutionCost::zero(),
+            Self::Free => ExecutionCost::ZERO,
         }
     }
     #[allow(clippy::panic)]
-    pub fn set_total(&mut self, total: ExecutionCost) -> () {
+    pub fn set_total(&mut self, total: ExecutionCost) {
         // used by the miner to "undo" the cost of a transaction when trying to pack a block.
         match self {
             Self::Limited(ref mut data) => data.total = total,
@@ -896,6 +891,7 @@ impl LimitedCostTracker {
             Self::Free => ExecutionCost::max_value(),
         }
     }
+
     pub fn get_memory(&self) -> u64 {
         match self {
             Self::Limited(TrackerData { memory, .. }) => *memory,
@@ -980,8 +976,7 @@ fn compute_cost(
         .cost_contracts
         .get_mut(&cost_function_reference.contract_id)
         .ok_or(CostErrors::CostComputationFailed(format!(
-            "CostFunction not found: {}",
-            &cost_function_reference
+            "CostFunction not found: {cost_function_reference}"
         )))?;
 
     let mut program = vec![SymbolicExpression::atom(
@@ -1048,7 +1043,7 @@ impl CostTracker for LimitedCostTracker {
         match self {
             Self::Free => {
                 // tracker is free, return zero!
-                return Ok(ExecutionCost::zero());
+                Ok(ExecutionCost::ZERO)
             }
             Self::Limited(ref mut data) => {
                 if cost_function == ClarityCostFunction::Unimplemented {
@@ -1060,8 +1055,7 @@ impl CostTracker for LimitedCostTracker {
                     .cost_function_references
                     .get(&cost_function)
                     .ok_or(CostErrors::CostComputationFailed(format!(
-                        "CostFunction not defined: {}",
-                        &cost_function
+                        "CostFunction not defined: {cost_function}"
                     )))?
                     .clone();
 
@@ -1170,39 +1164,38 @@ pub trait CostOverflowingMath<T> {
     fn cost_overflow_mul(self, other: T) -> Result<T>;
     fn cost_overflow_add(self, other: T) -> Result<T>;
     fn cost_overflow_sub(self, other: T) -> Result<T>;
+    fn cost_overflow_div(self, other: T) -> Result<T>;
 }
 
 impl CostOverflowingMath<u64> for u64 {
     fn cost_overflow_mul(self, other: u64) -> Result<u64> {
-        self.checked_mul(other)
-            .ok_or_else(|| CostErrors::CostOverflow)
+        self.checked_mul(other).ok_or(CostErrors::CostOverflow)
     }
     fn cost_overflow_add(self, other: u64) -> Result<u64> {
-        self.checked_add(other)
-            .ok_or_else(|| CostErrors::CostOverflow)
+        self.checked_add(other).ok_or(CostErrors::CostOverflow)
     }
     fn cost_overflow_sub(self, other: u64) -> Result<u64> {
-        self.checked_sub(other)
-            .ok_or_else(|| CostErrors::CostOverflow)
+        self.checked_sub(other).ok_or(CostErrors::CostOverflow)
+    }
+    fn cost_overflow_div(self, other: u64) -> Result<u64> {
+        self.checked_div(other).ok_or(CostErrors::CostOverflow)
     }
 }
 
 impl ExecutionCost {
-    pub fn zero() -> ExecutionCost {
-        Self {
-            runtime: 0,
-            write_length: 0,
-            read_count: 0,
-            write_count: 0,
-            read_length: 0,
-        }
-    }
+    pub const ZERO: Self = Self {
+        runtime: 0,
+        write_length: 0,
+        read_count: 0,
+        write_count: 0,
+        read_length: 0,
+    };
 
     /// Returns the percentage of self consumed in `numerator`'s largest proportion dimension.
     pub fn proportion_largest_dimension(&self, numerator: &ExecutionCost) -> u64 {
         // max() should always return because there are > 0 elements
         #[allow(clippy::expect_used)]
-        [
+        *[
             numerator.runtime / cmp::max(1, self.runtime / 100),
             numerator.write_length / cmp::max(1, self.write_length / 100),
             numerator.write_count / cmp::max(1, self.write_count / 100),
@@ -1212,7 +1205,6 @@ impl ExecutionCost {
         .iter()
         .max()
         .expect("BUG: should find maximum")
-        .clone()
     }
 
     /// Returns the dot product of this execution cost with `resolution`/block_limit
@@ -1293,6 +1285,15 @@ impl ExecutionCost {
         Ok(())
     }
 
+    pub fn divide(&mut self, divisor: u64) -> Result<()> {
+        self.runtime = self.runtime.cost_overflow_div(divisor)?;
+        self.read_count = self.read_count.cost_overflow_div(divisor)?;
+        self.read_length = self.read_length.cost_overflow_div(divisor)?;
+        self.write_length = self.write_length.cost_overflow_div(divisor)?;
+        self.write_count = self.write_count.cost_overflow_div(divisor)?;
+        Ok(())
+    }
+
     /// Returns whether or not this cost exceeds any dimension of the
     ///  other cost.
     pub fn exceeds(&self, other: &ExecutionCost) -> bool {
@@ -1311,6 +1312,10 @@ impl ExecutionCost {
             read_count: first.read_count.max(second.read_count),
             read_length: first.read_length.max(second.read_length),
         }
+    }
+
+    pub fn is_zero(&self) -> bool {
+        *self == Self::ZERO
     }
 }
 

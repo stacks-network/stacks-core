@@ -17,20 +17,21 @@
 use std::collections::HashMap;
 use std::process::{Command, Stdio};
 
-use stacks::burnchains::bitcoin::address::BitcoinAddress;
-use stacks::burnchains::bitcoin::{BitcoinNetworkType, BitcoinTxOutput};
-use stacks::burnchains::{Burnchain, BurnchainSigner, Error as BurnchainError, Txid};
-use stacks::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
-use stacks::chainstate::burn::distribution::BurnSamplePoint;
-use stacks::chainstate::burn::operations::leader_block_commit::{
-    MissedBlockCommit, BURN_BLOCK_MINED_AT_MODULUS,
-};
-use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
-use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::core::MINING_COMMITMENT_WINDOW;
-use stacks::util_lib::db::Error as DBError;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
 use stacks_common::util::hash::hex_bytes;
+
+use crate::burnchains::bitcoin::address::BitcoinAddress;
+use crate::burnchains::bitcoin::{BitcoinNetworkType, BitcoinTxOutput};
+use crate::burnchains::{Burnchain, BurnchainSigner, Error as BurnchainError, Txid};
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
+use crate::chainstate::burn::distribution::BurnSamplePoint;
+use crate::chainstate::burn::operations::leader_block_commit::{
+    MissedBlockCommit, BURN_BLOCK_MINED_AT_MODULUS,
+};
+use crate::chainstate::burn::operations::LeaderBlockCommitOp;
+use crate::chainstate::stacks::address::PoxAddress;
+use crate::core::MINING_COMMITMENT_WINDOW;
+use crate::util_lib::db::Error as DBError;
 
 pub struct MinerStats {
     pub unconfirmed_commits_helper: String,
@@ -81,7 +82,7 @@ impl MinerStats {
                 {
                     commits_at_sortition.push(missed);
                 } else {
-                    missed_commits_map.insert(missed.intended_sortition.clone(), vec![missed]);
+                    missed_commits_map.insert(missed.intended_sortition, vec![missed]);
                 }
             }
 
@@ -106,8 +107,7 @@ impl MinerStats {
                     &sortition_id,
                 )?;
                 if let Some(missed_commit_in_block) = missed_commits_map.remove(&sortition_id) {
-                    missed_commits_at_height
-                        .extend(missed_commit_in_block.into_iter().map(|x| x.clone()));
+                    missed_commits_at_height.extend(missed_commit_in_block.into_iter().cloned());
                 }
 
                 windowed_missed_commits.push(missed_commits_at_height);
@@ -115,8 +115,7 @@ impl MinerStats {
         } else {
             // PoX reward-phase is not active
             debug!(
-                "Block {} is in a prepare phase or post-PoX sunset, so no windowing will take place",
-                burn_block_height;
+                "Block {burn_block_height} is in a prepare phase or post-PoX sunset, so no windowing will take place"
             );
 
             assert_eq!(windowed_block_commits.len(), 1);
@@ -197,19 +196,19 @@ impl MinerStats {
             .stderr(Stdio::piped())
             .args(args);
 
-        debug!("Run: `{:?}`", &cmd);
+        debug!("Run: `{cmd:?}`");
 
         let output = cmd
             .spawn()
-            .map_err(|e| format!("Failed to run `{}`: {:?}", &full_args, &e))?
+            .map_err(|e| format!("Failed to run `{full_args}`: {e:?}"))?
             .wait_with_output()
-            .map_err(|ioe| format!("Failed to run `{}`: {:?}", &full_args, &ioe))?;
+            .map_err(|ioe| format!("Failed to run `{full_args}`: {ioe:?}"))?;
 
         let exit_code = match output.status.code() {
             Some(code) => code,
             None => {
                 // failed due to signal
-                return Err(format!("Failed to run `{}`: killed by signal", &full_args));
+                return Err(format!("Failed to run `{full_args}`: killed by signal"));
             }
         };
 
@@ -223,11 +222,11 @@ impl MinerStats {
         all_miners: &[&str],
     ) -> Result<Vec<LeaderBlockCommitOp>, String> {
         let (exit_code, stdout, _stderr) =
-            Self::run_subprocess(&self.unconfirmed_commits_helper, &all_miners)?;
+            Self::run_subprocess(&self.unconfirmed_commits_helper, all_miners)?;
         if exit_code != 0 {
             return Err(format!(
-                "Failed to run `{}`: exit code {}",
-                &self.unconfirmed_commits_helper, exit_code
+                "Failed to run `{}`: exit code {exit_code}",
+                &self.unconfirmed_commits_helper
             ));
         }
 
@@ -235,9 +234,8 @@ impl MinerStats {
         let unconfirmed_commits: Vec<UnconfirmedBlockCommit> = serde_json::from_slice(&stdout)
             .map_err(|e| {
                 format!(
-                    "Failed to decode output from `{}`: {:?}. Output was `{}`",
+                    "Failed to decode output from `{}`: {e:?}. Output was `{}`",
                     &self.unconfirmed_commits_helper,
-                    &e,
                     String::from_utf8_lossy(&stdout)
                 )
             })?;
@@ -255,22 +253,21 @@ impl MinerStats {
             };
             let mut decoded_pox_addrs = vec![];
             for pox_addr_hex in unconfirmed_commit.pox_addrs.iter() {
-                let Ok(pox_addr_bytes) = hex_bytes(&pox_addr_hex) else {
-                    return Err(format!("Not a hex string: `{}`", &pox_addr_hex));
+                let Ok(pox_addr_bytes) = hex_bytes(pox_addr_hex) else {
+                    return Err(format!("Not a hex string: `{pox_addr_hex}`"));
                 };
                 let Some(bitcoin_addr) =
                     BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Mainnet, &pox_addr_bytes)
                 else {
                     return Err(format!(
-                        "Not a recognized Bitcoin scriptpubkey: {}",
-                        &pox_addr_hex
+                        "Not a recognized Bitcoin scriptpubkey: {pox_addr_hex}"
                     ));
                 };
                 let Some(pox_addr) = PoxAddress::try_from_bitcoin_output(&BitcoinTxOutput {
                     address: bitcoin_addr.clone(),
                     units: 1,
                 }) else {
-                    return Err(format!("Not a recognized PoX address: {}", &bitcoin_addr));
+                    return Err(format!("Not a recognized PoX address: {bitcoin_addr}"));
                 };
                 decoded_pox_addrs.push(pox_addr);
             }
@@ -279,8 +276,8 @@ impl MinerStats {
             let mocked_commit = LeaderBlockCommitOp {
                 treatment: vec![],
                 sunset_burn: 0,
-                block_header_hash: BlockHeaderHash(DEADBEEF.clone()),
-                new_seed: VRFSeed(DEADBEEF.clone()),
+                block_header_hash: BlockHeaderHash(DEADBEEF),
+                new_seed: VRFSeed(DEADBEEF),
                 parent_block_ptr: 1,
                 parent_vtxindex: 1,
                 key_block_ptr: 1,
@@ -295,7 +292,7 @@ impl MinerStats {
                 block_height: next_block_height,
                 burn_parent_modulus: ((next_block_height.saturating_sub(1))
                     % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-                burn_header_hash: BurnchainHeaderHash(DEADBEEF.clone()),
+                burn_header_hash: BurnchainHeaderHash(DEADBEEF),
             };
 
             unconfirmed_spends.push(mocked_commit);
@@ -306,7 +303,7 @@ impl MinerStats {
     /// Convert a list of burn sample points into a probability distribution by candidate's
     /// apparent sender (e.g. miner address).
     pub fn burn_dist_to_prob_dist(burn_dist: &[BurnSamplePoint]) -> HashMap<String, f64> {
-        if burn_dist.len() == 0 {
+        if burn_dist.is_empty() {
             return HashMap::new();
         }
         if burn_dist.len() == 1 {
@@ -343,13 +340,11 @@ impl MinerStats {
                 if commit.commit_outs.len() != expected_pox_addrs.len() {
                     return false;
                 }
-                for i in 0..commit.commit_outs.len() {
-                    if commit.commit_outs[i].to_burnchain_repr()
-                        != expected_pox_addrs[i].to_burnchain_repr()
-                    {
+                for (i, commit_out) in commit.commit_outs.iter().enumerate() {
+                    if commit_out.to_burnchain_repr() != expected_pox_addrs[i].to_burnchain_repr() {
                         info!(
                             "Skipping invalid unconfirmed block-commit: {:?} != {:?}",
-                            &commit.commit_outs[i].to_burnchain_repr(),
+                            &commit_out.to_burnchain_repr(),
                             expected_pox_addrs[i].to_burnchain_repr()
                         );
                         return false;
@@ -391,7 +386,7 @@ impl MinerStats {
         let (dist, total_spend) = Self::get_spend_distribution(
             active_miners_and_commits,
             unconfirmed_block_commits,
-            &expected_pox_addrs,
+            expected_pox_addrs,
         );
 
         let mut probs = HashMap::new();
@@ -444,8 +439,8 @@ impl MinerStats {
                 let mocked_commit = LeaderBlockCommitOp {
                     treatment: vec![],
                     sunset_burn: 0,
-                    block_header_hash: BlockHeaderHash(DEADBEEF.clone()),
-                    new_seed: VRFSeed(DEADBEEF.clone()),
+                    block_header_hash: BlockHeaderHash(DEADBEEF),
+                    new_seed: VRFSeed(DEADBEEF),
                     parent_block_ptr: 2,
                     parent_vtxindex: 2,
                     key_block_ptr: 2,
@@ -455,13 +450,13 @@ impl MinerStats {
                     burn_fee: last_commit.burn_fee,
                     input: (last_commit.txid, expected_input_index),
                     apparent_sender: last_commit.apparent_sender.clone(),
-                    txid: Txid(DEADBEEF.clone()),
+                    txid: Txid(DEADBEEF),
                     vtxindex: 1,
                     block_height: next_block_height,
                     burn_parent_modulus: ((next_block_height.saturating_sub(1))
                         % BURN_BLOCK_MINED_AT_MODULUS)
                         as u8,
-                    burn_header_hash: BurnchainHeaderHash(DEADBEEF.clone()),
+                    burn_header_hash: BurnchainHeaderHash(DEADBEEF),
                 };
                 commit_table.insert(miner.to_string(), mocked_commit);
             }
@@ -473,13 +468,11 @@ impl MinerStats {
                 if commit.commit_outs.len() != expected_pox_addrs.len() {
                     return false;
                 }
-                for i in 0..commit.commit_outs.len() {
-                    if commit.commit_outs[i].to_burnchain_repr()
-                        != expected_pox_addrs[i].to_burnchain_repr()
-                    {
+                for (i, commit_out) in commit.commit_outs.iter().enumerate() {
+                    if commit_out.to_burnchain_repr() != expected_pox_addrs[i].to_burnchain_repr() {
                         info!(
                             "Skipping invalid unconfirmed block-commit: {:?} != {:?}",
-                            &commit.commit_outs[i].to_burnchain_repr(),
+                            &commit_out.to_burnchain_repr(),
                             expected_pox_addrs[i].to_burnchain_repr()
                         );
                         return false;
@@ -520,9 +513,7 @@ impl MinerStats {
                 SortitionDB::get_block_commits_by_block(sortdb.conn(), &tip.sortition_id)?;
             for commit in commits.into_iter() {
                 let miner = commit.apparent_sender.to_string();
-                if miners.get(&miner).is_none() {
-                    miners.insert(miner, commit);
-                }
+                miners.entry(miner).or_insert(commit);
             }
             tip = SortitionDB::get_block_snapshot(sortdb.conn(), &tip.parent_sortition_id)?
                 .ok_or(DBError::NotFoundError)?;
@@ -536,11 +527,6 @@ pub mod tests {
     use std::fs;
     use std::io::Write;
 
-    use stacks::burnchains::{BurnchainSigner, Txid};
-    use stacks::chainstate::burn::distribution::BurnSamplePoint;
-    use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
-    use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
-    use stacks::chainstate::stacks::address::{PoxAddress, PoxAddressType20};
     use stacks_common::types::chainstate::{
         BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksPublicKey, VRFSeed,
     };
@@ -548,6 +534,11 @@ pub mod tests {
     use stacks_common::util::uint::{BitArray, Uint256};
 
     use super::MinerStats;
+    use crate::burnchains::{BurnchainSigner, Txid};
+    use crate::chainstate::burn::distribution::BurnSamplePoint;
+    use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
+    use crate::chainstate::burn::operations::LeaderBlockCommitOp;
+    use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20};
 
     #[test]
     fn test_burn_dist_to_prob_dist() {
@@ -750,11 +741,11 @@ echo <<EOF '[
 EOF
 "#;
         let path = "/tmp/test-get-unconfirmed-commits.sh";
-        if fs::metadata(&path).is_ok() {
-            fs::remove_file(&path).unwrap();
+        if fs::metadata(path).is_ok() {
+            fs::remove_file(path).unwrap();
         }
         {
-            let mut f = fs::File::create(&path).unwrap();
+            let mut f = fs::File::create(path).unwrap();
             f.write_all(shell_code.as_bytes()).unwrap();
 
             let md = f.metadata().unwrap();
@@ -803,13 +794,14 @@ EOF
                     ]
                 ),
                 PoxAddress::Standard(
-                    StacksAddress {
-                        version: 20,
-                        bytes: Hash160([
+                    StacksAddress::new(
+                        20,
+                        Hash160([
                             0x18, 0xc4, 0x20, 0x80, 0xa1, 0xe8, 0x7f, 0xd0, 0x2d, 0xd3, 0xfc, 0xa9,
                             0x4c, 0x45, 0x13, 0xf9, 0xec, 0xfe, 0x74, 0x14
                         ])
-                    },
+                    )
+                    .unwrap(),
                     None
                 )
             ]
@@ -1049,7 +1041,7 @@ EOF
         ] {
             let spend = *spend_dist
                 .get(miner)
-                .unwrap_or_else(|| panic!("no spend for {}", &miner));
+                .unwrap_or_else(|| panic!("no spend for {miner}"));
             match miner.as_str() {
                 "miner-1" => {
                     assert_eq!(spend, 2);
@@ -1064,7 +1056,7 @@ EOF
                     assert_eq!(spend, 10);
                 }
                 _ => {
-                    panic!("unknown miner {}", &miner);
+                    panic!("unknown miner {miner}");
                 }
             }
         }
@@ -1082,7 +1074,7 @@ EOF
         ] {
             let prob = *win_probs
                 .get(miner)
-                .unwrap_or_else(|| panic!("no probability for {}", &miner));
+                .unwrap_or_else(|| panic!("no probability for {miner}"));
             match miner.as_str() {
                 "miner-1" => {
                     assert!((prob - (2.0 / 25.0)).abs() < 0.00001);
@@ -1097,7 +1089,7 @@ EOF
                     assert!((prob - (10.0 / 25.0)).abs() < 0.00001);
                 }
                 _ => {
-                    panic!("unknown miner {}", &miner);
+                    panic!("unknown miner {miner}");
                 }
             }
         }

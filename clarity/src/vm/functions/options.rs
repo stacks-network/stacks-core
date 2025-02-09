@@ -16,10 +16,10 @@
 
 use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{cost_functions, runtime_cost, CostTracker, MemoryConsumer};
+use crate::vm::costs::{runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterError,
-    InterpreterResult as Result, RuntimeErrorType, ShortReturnType,
+    check_arguments_at_least, CheckErrors, InterpreterError, InterpreterResult as Result,
+    RuntimeErrorType, ShortReturnType,
 };
 use crate::vm::types::{CallableData, OptionalData, ResponseData, TypeSignature, Value};
 use crate::vm::Value::CallableContract;
@@ -212,7 +212,7 @@ pub fn special_match(
     match input {
         Value::Response(data) => special_match_resp(data, &args[1..], env, context),
         Value::Optional(data) => special_match_opt(data, &args[1..], env, context),
-        _ => return Err(CheckErrors::BadMatchInput(TypeSignature::type_of(&input)?).into()),
+        _ => Err(CheckErrors::BadMatchInput(TypeSignature::type_of(&input)?).into()),
     }
 }
 

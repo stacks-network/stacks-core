@@ -133,7 +133,7 @@ impl HttpResponseContents {
             HttpResponseContents::RAM(ref mut buf) => {
                 // dump directly into the pipewrite
                 // TODO: zero-copy?
-                if buf.len() > 0 {
+                if !buf.is_empty() {
                     fd.write_all(&buf[..]).map_err(Error::WriteError)?;
                     buf.clear();
                 }
@@ -159,12 +159,12 @@ impl HttpResponsePreamble {
         keep_alive: bool,
     ) -> HttpResponsePreamble {
         HttpResponsePreamble {
-            client_http_version: client_http_version,
-            status_code: status_code,
-            reason: reason,
-            keep_alive: keep_alive,
+            client_http_version,
+            status_code,
+            reason,
+            keep_alive,
             content_length: content_length_opt,
-            content_type: content_type,
+            content_type,
             headers: BTreeMap::new(),
         }
     }
@@ -259,7 +259,7 @@ impl HttpResponsePreamble {
         keep_alive: bool,
         content_length: Option<u32>,
         content_type: HttpContentType,
-        mut keys: Vec<String>,
+        keys: Vec<String>,
         values: Vec<String>,
     ) -> HttpResponsePreamble {
         assert_eq!(keys.len(), values.len());
@@ -272,7 +272,7 @@ impl HttpResponsePreamble {
             keep_alive,
         );
 
-        for (k, v) in keys.drain(..).zip(values) {
+        for (k, v) in keys.into_iter().zip(values) {
             res.add_header(k, v);
         }
         res
@@ -280,7 +280,7 @@ impl HttpResponsePreamble {
 
     /// Add a header.
     /// Reserved headers will not be directly added to self.headers.
-    pub fn add_header(&mut self, key: String, value: String) -> () {
+    pub fn add_header(&mut self, key: String, value: String) {
         let hdr = key.to_lowercase();
         if HttpReservedHeader::is_reserved(&hdr) {
             match HttpReservedHeader::try_from_str(&hdr, &value) {
@@ -336,7 +336,7 @@ impl HttpResponsePreamble {
         }
     }
 
-    pub fn add_CORS_headers(&mut self) -> () {
+    pub fn add_CORS_headers(&mut self) {
         self.headers
             .insert("Access-Control-Allow-Origin".to_string(), "*".to_string());
     }
@@ -520,14 +520,14 @@ impl StacksMessageCodec for HttpResponsePreamble {
                             )
                         })?;
                     if !value.is_ascii() {
-                        return Err(CodecError::DeserializeError(format!(
-                            "Invalid HTTP request: header value is not ASCII-US"
-                        )));
+                        return Err(CodecError::DeserializeError(
+                            "Invalid HTTP request: header value is not ASCII-US".to_string(),
+                        ));
                     }
                     if value.len() > HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize {
-                        return Err(CodecError::DeserializeError(format!(
-                            "Invalid HTTP request: header value is too big"
-                        )));
+                        return Err(CodecError::DeserializeError(
+                            "Invalid HTTP request: header value is too big".to_string(),
+                        ));
                     }
 
                     let key = resp.headers[i].name.to_string().to_lowercase();
@@ -590,12 +590,12 @@ impl StacksMessageCodec for HttpResponsePreamble {
 
                 Ok(HttpResponsePreamble {
                     client_http_version,
-                    status_code: status_code,
-                    reason: reason,
-                    keep_alive: keep_alive,
+                    status_code,
+                    reason,
+                    keep_alive,
                     content_type: content_type.unwrap_or(HttpContentType::Bytes), // per the RFC
-                    content_length: content_length,
-                    headers: headers,
+                    content_length,
+                    headers,
                 })
             }
         }
@@ -668,7 +668,7 @@ impl HttpResponsePayload {
         match self {
             Self::Empty => Ok(()),
             Self::JSON(value) => serde_json::to_writer(fd, &value).map_err(Error::JsonError),
-            Self::Bytes(value) => fd.write_all(&value).map_err(Error::WriteError),
+            Self::Bytes(value) => fd.write_all(value).map_err(Error::WriteError),
             Self::Text(value) => fd.write_all(value.as_bytes()).map_err(Error::WriteError),
         }
     }

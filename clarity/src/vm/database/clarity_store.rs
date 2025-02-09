@@ -14,26 +14,18 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::path::PathBuf;
-
 #[cfg(feature = "canonical")]
 use rusqlite::Connection;
-use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, VRFSeed};
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
+use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
+use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 
 use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::contexts::GlobalContext;
 #[cfg(feature = "canonical")]
-use crate::vm::database::SqliteConnection;
 use crate::vm::database::{
-    BurnStateDB, ClarityDatabase, ClarityDeserializable, ClaritySerializable, HeadersDB,
-    NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    ClarityDatabase, ClarityDeserializable, ClaritySerializable, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
-use crate::vm::errors::{
-    CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result,
-    InterpreterResult, RuntimeErrorType,
-};
-use crate::vm::events::StacksTransactionEvent;
+use crate::vm::errors::{InterpreterError, InterpreterResult as Result};
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::vm::Value;
 
@@ -64,9 +56,15 @@ pub trait ClarityBackingStore {
     fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<()>;
     /// fetch K-V out of the committed datastore
     fn get_data(&mut self, key: &str) -> Result<Option<String>>;
+    /// fetch Hash(K)-V out of the commmitted datastore
+    fn get_data_from_path(&mut self, hash: &TrieHash) -> Result<Option<String>>;
     /// fetch K-V out of the committed datastore, along with the byte representation
     ///  of the Merkle proof for that key-value pair
     fn get_data_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>>;
+    fn get_data_with_proof_from_path(
+        &mut self,
+        hash: &TrieHash,
+    ) -> Result<Option<(String, Vec<u8>)>>;
     fn has_entry(&mut self, key: &str) -> Result<bool> {
         Ok(self.get_data(key)?.is_some())
     }
@@ -209,7 +207,18 @@ impl ClarityBackingStore for NullBackingStore {
         panic!("NullBackingStore can't retrieve data")
     }
 
+    fn get_data_from_path(&mut self, _hash: &TrieHash) -> Result<Option<String>> {
+        panic!("NullBackingStore can't retrieve data")
+    }
+
     fn get_data_with_proof(&mut self, _key: &str) -> Result<Option<(String, Vec<u8>)>> {
+        panic!("NullBackingStore can't retrieve data")
+    }
+
+    fn get_data_with_proof_from_path(
+        &mut self,
+        _hash: &TrieHash,
+    ) -> Result<Option<(String, Vec<u8>)>> {
         panic!("NullBackingStore can't retrieve data")
     }
 

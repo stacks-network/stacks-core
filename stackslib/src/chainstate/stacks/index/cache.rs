@@ -40,7 +40,7 @@ use crate::chainstate::stacks::index::bits::{
 };
 use crate::chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
-    TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr,
+    TrieNode48, TrieNodeID, TrieNodeType, TriePtr,
 };
 use crate::chainstate::stacks::index::{trie_sql, ClarityMarfTrieId, Error, MarfTrieId, TrieLeaf};
 use crate::util_lib::db::{
@@ -151,7 +151,7 @@ impl<T: MarfTrieId> TrieCacheState<T> {
 
     /// Get the block ID, given its hash
     pub fn load_block_id(&self, block_hash: &T) -> Option<u32> {
-        self.block_id_cache.get(block_hash).map(|id| *id)
+        self.block_id_cache.get(block_hash).copied()
     }
 }
 
@@ -258,12 +258,11 @@ impl<T: MarfTrieId> TrieCache<T> {
             TrieCache::Everything(ref mut state) => {
                 state.store_node_and_hash(block_id, trieptr, node, hash);
             }
-            TrieCache::Node256(ref mut state) => match node {
-                TrieNodeType::Node256(data) => {
+            TrieCache::Node256(ref mut state) => {
+                if let TrieNodeType::Node256(data) = node {
                     state.store_node_and_hash(block_id, trieptr, TrieNodeType::Node256(data), hash);
                 }
-                _ => {}
-            },
+            }
         }
     }
 
@@ -273,12 +272,11 @@ impl<T: MarfTrieId> TrieCache<T> {
         match self {
             TrieCache::Noop(_) => {}
             TrieCache::Everything(ref mut state) => state.store_node(block_id, trieptr, node),
-            TrieCache::Node256(ref mut state) => match node {
-                TrieNodeType::Node256(data) => {
+            TrieCache::Node256(ref mut state) => {
+                if let TrieNodeType::Node256(data) = node {
                     state.store_node(block_id, trieptr, TrieNodeType::Node256(data))
                 }
-                _ => {}
-            },
+            }
         }
     }
 
@@ -414,14 +412,14 @@ pub mod test {
             if batch_size > 0 {
                 for b in (0..block_data.len()).step_by(batch_size) {
                     let batch = &block_data[b..cmp::min(block_data.len(), b + batch_size)];
-                    let keys = batch.iter().map(|(k, _)| k.clone()).collect();
+                    let keys: Vec<_> = batch.iter().map(|(k, _)| k.clone()).collect();
                     let values = batch.iter().map(|(_, v)| v.clone()).collect();
                     marf.insert_batch(&keys, values).unwrap();
                 }
             } else {
                 for (key, value) in block_data.iter() {
-                    let path = TriePath::from_key(key);
-                    let leaf = TrieLeaf::from_value(&vec![], value.clone());
+                    let path = TrieHash::from_key(key);
+                    let leaf = TrieLeaf::from_value(&[], value.clone());
                     marf.insert_raw(path, leaf).unwrap();
                 }
             }
@@ -443,8 +441,8 @@ pub mod test {
         for (i, block_data) in data.iter().enumerate() {
             test_debug!("Read block {}", i);
             for (key, value) in block_data.iter() {
-                let path = TriePath::from_key(key);
-                let marf_leaf = TrieLeaf::from_value(&vec![], value.clone());
+                let path = TrieHash::from_key(key);
+                let marf_leaf = TrieLeaf::from_value(&[], value.clone());
 
                 let read_time = SystemTime::now();
                 let leaf = MARF::get_path(
@@ -468,7 +466,7 @@ pub mod test {
             total_read_time, &read_bench
         );
 
-        let mut bench = write_bench.clone();
+        let mut bench = write_bench;
         bench.add(&read_bench);
 
         eprintln!("MARF bench total: {:#?}", &bench);

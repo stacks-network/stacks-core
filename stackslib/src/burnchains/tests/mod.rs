@@ -74,9 +74,9 @@ impl BurnchainBlockHeader {
     ) -> BurnchainBlockHeader {
         BurnchainBlockHeader {
             block_height: parent_sn.block_height + 1,
-            block_hash: block_hash,
+            block_hash,
             parent_block_hash: parent_sn.burn_header_hash.clone(),
-            num_txs: num_txs,
+            num_txs,
             timestamp: get_epoch_time_secs(),
         }
     }
@@ -135,14 +135,14 @@ pub struct TestMinerFactory {
 impl TestMiner {
     pub fn new(
         burnchain: &Burnchain,
-        privks: &Vec<StacksPrivateKey>,
+        privks: Vec<StacksPrivateKey>,
         num_sigs: u16,
         hash_mode: &AddressHashMode,
         chain_id: u32,
     ) -> TestMiner {
         TestMiner {
             burnchain: burnchain.clone(),
-            privks: privks.clone(),
+            privks,
             num_sigs,
             hash_mode: hash_mode.clone(),
             microblock_privks: vec![],
@@ -178,7 +178,7 @@ impl TestMiner {
     }
 
     pub fn next_VRF_key(&mut self) -> VRFPrivateKey {
-        let pk = if self.vrf_keys.len() == 0 {
+        let pk = if self.vrf_keys.is_empty() {
             // first key is simply the 32-byte hash of the secret state
             let mut buf: Vec<u8> = vec![];
             for i in 0..self.privks.len() {
@@ -204,7 +204,7 @@ impl TestMiner {
     }
 
     pub fn next_microblock_privkey(&mut self) -> StacksPrivateKey {
-        let pk = if self.microblock_privks.len() == 0 {
+        let pk = if self.microblock_privks.is_empty() {
             // first key is simply the 32-byte hash of the secret state
             let mut buf: Vec<u8> = vec![];
             for i in 0..self.privks.len() {
@@ -240,14 +240,12 @@ impl TestMiner {
             last_sortition_hash
         );
         match self.vrf_key_map.get(vrf_pubkey) {
-            Some(ref prover_key) => {
-                let proof = VRF::prove(prover_key, &last_sortition_hash.as_bytes().to_vec());
-                let valid =
-                    match VRF::verify(vrf_pubkey, &proof, &last_sortition_hash.as_bytes().to_vec())
-                    {
-                        Ok(v) => v,
-                        Err(e) => false,
-                    };
+            Some(prover_key) => {
+                let proof = VRF::prove(prover_key, last_sortition_hash.as_bytes());
+                let valid = match VRF::verify(vrf_pubkey, &proof, last_sortition_hash.as_bytes()) {
+                    Ok(v) => v,
+                    Err(e) => false,
+                };
                 assert!(valid);
                 Some(proof)
             }
@@ -279,11 +277,11 @@ impl TestMiner {
         self.nonce
     }
 
-    pub fn set_nonce(&mut self, n: u64) -> () {
+    pub fn set_nonce(&mut self, n: u64) {
         self.nonce = n;
     }
 
-    pub fn sign_as_origin(&mut self, tx_signer: &mut StacksTransactionSigner) -> () {
+    pub fn sign_as_origin(&mut self, tx_signer: &mut StacksTransactionSigner) {
         let num_keys = if self.privks.len() < self.num_sigs as usize {
             self.privks.len()
         } else {
@@ -297,7 +295,7 @@ impl TestMiner {
         self.nonce += 1
     }
 
-    pub fn sign_as_sponsor(&mut self, tx_signer: &mut StacksTransactionSigner) -> () {
+    pub fn sign_as_sponsor(&mut self, tx_signer: &mut StacksTransactionSigner) {
         let num_keys = if self.privks.len() < self.num_sigs as usize {
             self.privks.len()
         } else {
@@ -342,7 +340,7 @@ impl TestMinerFactory {
         }
 
         test_debug!("New miner: {:?} {}:{:?}", &hash_mode, num_sigs, &keys);
-        let mut m = TestMiner::new(burnchain, &keys, num_sigs, &hash_mode, self.chain_id);
+        let mut m = TestMiner::new(burnchain, keys, num_sigs, &hash_mode, self.chain_id);
         m.id = self.next_miner_id;
         self.next_miner_id += 1;
         m
@@ -351,11 +349,31 @@ impl TestMinerFactory {
 
 impl TestBurnchainBlock {
     pub fn new(parent_snapshot: &BlockSnapshot, fork_id: u64) -> TestBurnchainBlock {
+        let burn_header_hash = BurnchainHeaderHash::from_test_data(
+            parent_snapshot.block_height + 1,
+            &parent_snapshot.index_root,
+            fork_id,
+        );
         TestBurnchainBlock {
             parent_snapshot: parent_snapshot.clone(),
             block_height: parent_snapshot.block_height + 1,
-            txs: vec![],
-            fork_id: fork_id,
+            txs: vec![
+                // make sure that no block-commit gets vtxindex == 0 unless explicitly structured.
+                // This prestx mocks a burnchain coinbase
+                BlockstackOperationType::PreStx(PreStxOp {
+                    output: StacksAddress::burn_address(false),
+                    txid: Txid::from_test_data(
+                        parent_snapshot.block_height + 1,
+                        0,
+                        &burn_header_hash,
+                        128,
+                    ),
+                    vtxindex: 0,
+                    block_height: parent_snapshot.block_height + 1,
+                    burn_header_hash,
+                }),
+            ],
+            fork_id,
             timestamp: get_epoch_time_secs(),
         }
     }
@@ -397,11 +415,12 @@ impl TestBurnchainBlock {
         parent_block_snapshot: Option<&BlockSnapshot>,
         new_seed: Option<VRFSeed>,
         epoch_marker: u8,
+        parent_is_shadow: bool,
     ) -> LeaderBlockCommitOp {
         let pubks = miner
             .privks
             .iter()
-            .map(|ref pk| StacksPublicKey::from_private(pk))
+            .map(StacksPublicKey::from_private)
             .collect();
         let apparent_sender =
             BurnchainSigner::mock_parts(miner.hash_mode.clone(), miner.num_sigs as usize, pubks);
@@ -435,6 +454,13 @@ impl TestBurnchainBlock {
         )
         .expect("FATAL: failed to read block commit");
 
+        if parent_is_shadow {
+            assert!(
+                get_commit_res.is_none(),
+                "FATAL: shadow parent should not have a block-commit"
+            );
+        }
+
         let input = SortitionDB::get_last_block_commit_by_sender(ic.conn(), &apparent_sender)
             .unwrap()
             .map(|commit| (commit.txid.clone(), 1 + (commit.commit_outs.len() as u32)))
@@ -454,7 +480,8 @@ impl TestBurnchainBlock {
                     block_hash,
                     self.block_height,
                     &new_seed,
-                    &parent,
+                    parent.block_height as u32,
+                    parent.vtxindex as u16,
                     leader_key.block_height as u32,
                     leader_key.vtxindex as u16,
                     burn_fee,
@@ -464,16 +491,42 @@ impl TestBurnchainBlock {
                 txop
             }
             None => {
-                // initial
-                let txop = LeaderBlockCommitOp::initial(
-                    block_hash,
-                    self.block_height,
-                    &new_seed,
-                    leader_key,
-                    burn_fee,
-                    &input,
-                    &apparent_sender,
-                );
+                let txop = if parent_is_shadow {
+                    test_debug!(
+                        "Block-commit for {} (burn height {}) builds on shadow sortition",
+                        block_hash,
+                        self.block_height
+                    );
+
+                    LeaderBlockCommitOp::new(
+                        block_hash,
+                        self.block_height,
+                        &new_seed,
+                        last_snapshot_with_sortition.block_height as u32,
+                        0,
+                        leader_key.block_height as u32,
+                        leader_key.vtxindex as u16,
+                        burn_fee,
+                        &input,
+                        &apparent_sender,
+                    )
+                } else {
+                    // initial
+                    test_debug!(
+                        "Block-commit for {} (burn height {}) builds on genesis",
+                        block_hash,
+                        self.block_height,
+                    );
+                    LeaderBlockCommitOp::initial(
+                        block_hash,
+                        self.block_height,
+                        &new_seed,
+                        leader_key,
+                        burn_fee,
+                        &input,
+                        &apparent_sender,
+                    )
+                };
                 txop
             }
         };
@@ -517,19 +570,17 @@ impl TestBurnchainBlock {
             parent_block_snapshot,
             None,
             STACKS_EPOCH_2_4_MARKER,
+            false,
         )
     }
 
-    pub fn patch_from_chain_tip(&mut self, parent_snapshot: &BlockSnapshot) -> () {
+    pub fn patch_from_chain_tip(&mut self, parent_snapshot: &BlockSnapshot) {
         assert_eq!(parent_snapshot.block_height + 1, self.block_height);
 
-        for i in 0..self.txs.len() {
-            match self.txs[i] {
-                BlockstackOperationType::LeaderKeyRegister(ref mut data) => {
-                    assert_eq!(data.block_height, self.block_height);
-                    data.consensus_hash = parent_snapshot.consensus_hash.clone();
-                }
-                _ => {}
+        for tx in self.txs.iter_mut() {
+            if let BlockstackOperationType::LeaderKeyRegister(ref mut data) = tx {
+                assert_eq!(data.block_height, self.block_height);
+                data.consensus_hash = parent_snapshot.consensus_hash.clone();
             }
         }
     }
@@ -567,10 +618,11 @@ impl TestBurnchainBlock {
         let blockstack_txs = self.txs.clone();
 
         let burnchain_db =
-            BurnchainDB::connect(&burnchain.get_burnchaindb_path(), &burnchain, true).unwrap();
+            BurnchainDB::connect(&burnchain.get_burnchaindb_path(), burnchain, true).unwrap();
 
         let new_snapshot = sortition_db_handle
             .process_block_txs(
+                false,
                 &parent_snapshot,
                 &header,
                 burnchain,
@@ -587,7 +639,6 @@ impl TestBurnchainBlock {
     }
 
     pub fn mine_pox<
-        'a,
         T: BlockEventDispatcher,
         N: CoordinatorNotices,
         R: RewardSetProvider,
@@ -598,7 +649,7 @@ impl TestBurnchainBlock {
         &self,
         db: &mut SortitionDB,
         burnchain: &Burnchain,
-        coord: &mut ChainsCoordinator<'a, T, N, R, CE, FE, B>,
+        coord: &mut ChainsCoordinator<'_, T, N, R, CE, FE, B>,
     ) -> BlockSnapshot {
         let mut indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
         let parent_hdr = indexer
@@ -663,11 +714,11 @@ impl TestBurnchainFork {
             start_height,
             mined: 0,
             tip_header_hash: start_header_hash.clone(),
-            tip_sortition_id: SortitionId::stubbed(&start_header_hash),
+            tip_sortition_id: SortitionId::stubbed(start_header_hash),
             tip_index_root: start_index_root.clone(),
             blocks: vec![],
             pending_blocks: vec![],
-            fork_id: fork_id,
+            fork_id,
         }
     }
 
@@ -677,7 +728,7 @@ impl TestBurnchainFork {
         new_fork
     }
 
-    pub fn append_block(&mut self, b: TestBurnchainBlock) -> () {
+    pub fn append_block(&mut self, b: TestBurnchainBlock) {
         self.pending_blocks.push(b);
     }
 
@@ -726,7 +777,6 @@ impl TestBurnchainFork {
     }
 
     pub fn mine_pending_blocks_pox<
-        'a,
         T: BlockEventDispatcher,
         N: CoordinatorNotices,
         R: RewardSetProvider,
@@ -737,7 +787,7 @@ impl TestBurnchainFork {
         &mut self,
         db: &mut SortitionDB,
         burnchain: &Burnchain,
-        coord: &mut ChainsCoordinator<'a, T, N, R, CE, FE, B>,
+        coord: &mut ChainsCoordinator<'_, T, N, R, CE, FE, B>,
     ) -> BlockSnapshot {
         let mut snapshot = {
             let ic = db.index_conn();
@@ -783,9 +833,9 @@ impl TestBurnchainNode {
 fn process_next_sortition(
     node: &mut TestBurnchainNode,
     fork: &mut TestBurnchainFork,
-    miners: &mut Vec<TestMiner>,
-    prev_keys: &Vec<LeaderKeyRegisterOp>,
-    block_hashes: &Vec<BlockHeaderHash>,
+    miners: &mut [TestMiner],
+    prev_keys: &[LeaderKeyRegisterOp],
+    block_hashes: &[BlockHeaderHash],
 ) -> (
     BlockSnapshot,
     Vec<LeaderKeyRegisterOp>,
@@ -801,7 +851,7 @@ fn process_next_sortition(
     let mut next_commits = vec![];
     let mut next_prev_keys = vec![];
 
-    if prev_keys.len() > 0 {
+    if !prev_keys.is_empty() {
         assert_eq!(miners.len(), prev_keys.len());
 
         // make a Stacks block (hash) for each of the prior block's keys
@@ -837,7 +887,7 @@ fn process_next_sortition(
     (tip_snapshot, next_prev_keys, next_commits)
 }
 
-fn verify_keys_accepted(node: &mut TestBurnchainNode, prev_keys: &Vec<LeaderKeyRegisterOp>) -> () {
+fn verify_keys_accepted(node: &mut TestBurnchainNode, prev_keys: &[LeaderKeyRegisterOp]) {
     // all keys accepted
     for key in prev_keys.iter() {
         let tx_opt = SortitionDB::get_burnchain_transaction(node.sortdb.conn(), &key.txid).unwrap();
@@ -855,10 +905,7 @@ fn verify_keys_accepted(node: &mut TestBurnchainNode, prev_keys: &Vec<LeaderKeyR
     }
 }
 
-fn verify_commits_accepted(
-    node: &TestBurnchainNode,
-    next_block_commits: &Vec<LeaderBlockCommitOp>,
-) -> () {
+fn verify_commits_accepted(node: &TestBurnchainNode, next_block_commits: &[LeaderBlockCommitOp]) {
     // all commits accepted
     for commit in next_block_commits.iter() {
         let tx_opt =
@@ -917,7 +964,7 @@ fn mine_10_stacks_blocks_1_fork() {
         );
 
         verify_keys_accepted(&mut node, &prev_keys);
-        verify_commits_accepted(&mut node, &next_block_commits);
+        verify_commits_accepted(&node, &next_block_commits);
 
         prev_keys.clear();
         prev_keys.append(&mut next_prev_keys);
@@ -965,7 +1012,7 @@ fn mine_10_stacks_blocks_2_forks_disjoint() {
         );
 
         verify_keys_accepted(&mut node, &prev_keys_1);
-        verify_commits_accepted(&mut node, &next_block_commits);
+        verify_commits_accepted(&node, &next_block_commits);
 
         prev_keys_1.clear();
         prev_keys_1.append(&mut next_prev_keys);
@@ -978,13 +1025,13 @@ fn mine_10_stacks_blocks_2_forks_disjoint() {
     let mut miners_1 = vec![];
     let mut miners_2 = vec![];
 
-    let mut miners_drain = miners.drain(..);
+    let mut miners_iter = miners.into_iter();
     for i in 0..5 {
-        let m = miners_drain.next().unwrap();
+        let m = miners_iter.next().unwrap();
         miners_1.push(m);
     }
     for i in 0..5 {
-        let m = miners_drain.next().unwrap();
+        let m = miners_iter.next().unwrap();
         miners_2.push(m);
     }
 
@@ -1026,10 +1073,10 @@ fn mine_10_stacks_blocks_2_forks_disjoint() {
         assert!(next_snapshot_1.burn_header_hash != next_snapshot_2.burn_header_hash);
 
         verify_keys_accepted(&mut node, &prev_keys_1);
-        verify_commits_accepted(&mut node, &next_block_commits_1);
+        verify_commits_accepted(&node, &next_block_commits_1);
 
         verify_keys_accepted(&mut node, &prev_keys_2);
-        verify_commits_accepted(&mut node, &next_block_commits_2);
+        verify_commits_accepted(&node, &next_block_commits_2);
 
         prev_keys_1.clear();
         prev_keys_1.append(&mut next_prev_keys_1);
@@ -1080,7 +1127,7 @@ fn mine_10_stacks_blocks_2_forks_disjoint_same_blocks() {
         );
 
         verify_keys_accepted(&mut node, &prev_keys_1);
-        verify_commits_accepted(&mut node, &next_block_commits);
+        verify_commits_accepted(&node, &next_block_commits);
 
         prev_keys_1.clear();
         prev_keys_1.append(&mut next_prev_keys);
@@ -1093,13 +1140,13 @@ fn mine_10_stacks_blocks_2_forks_disjoint_same_blocks() {
     let mut miners_1 = vec![];
     let mut miners_2 = vec![];
 
-    let mut miners_drain = miners.drain(..);
+    let mut miners_iter = miners.into_iter();
     for i in 0..5 {
-        let m = miners_drain.next().unwrap();
+        let m = miners_iter.next().unwrap();
         miners_1.push(m);
     }
     for i in 0..5 {
-        let m = miners_drain.next().unwrap();
+        let m = miners_iter.next().unwrap();
         miners_2.push(m);
     }
 
@@ -1153,10 +1200,10 @@ fn mine_10_stacks_blocks_2_forks_disjoint_same_blocks() {
         }
 
         verify_keys_accepted(&mut node, &prev_keys_1);
-        verify_commits_accepted(&mut node, &next_block_commits_1);
+        verify_commits_accepted(&node, &next_block_commits_1);
 
         verify_keys_accepted(&mut node, &prev_keys_2);
-        verify_commits_accepted(&mut node, &next_block_commits_2);
+        verify_commits_accepted(&node, &next_block_commits_2);
 
         prev_keys_1.clear();
         prev_keys_1.append(&mut next_prev_keys_1);

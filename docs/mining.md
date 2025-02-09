@@ -1,7 +1,7 @@
 # Stacks Mining
 
 Stacks tokens (STX) are mined by transferring BTC via PoX. To run as a miner,
-you should make sure to add the following config fields to your [config file](../testnet/stacks-node/conf/mainnet-miner-conf.toml):
+you should make sure to add the following config fields to your [config file](../sample/conf/mainnet-miner-conf.toml):
 
 ```toml
 [node]
@@ -19,13 +19,25 @@ nakamoto_attempt_time_ms = 20000
 [burnchain]
 # Maximum amount (in sats) of "burn commitment" to broadcast for the next block's leader election
 burn_fee_cap = 20000
-# Amount (in sats) per byte - Used to calculate the transaction fees
-satoshis_per_byte = 25
-# Amount of sats to add when RBF'ing bitcoin tx  (default: 5)
+# Amount in sats per byte used to calculate the Bitcoin transaction fee (default: 50)
+satoshis_per_byte = 50
+# Amount of sats per byte to add when RBF'ing a Bitcoin tx  (default: 5)
 rbf_fee_increment = 5
-# Maximum percentage to RBF bitcoin tx (default: 150% of satsv/B)
+# Maximum percentage of satoshis_per_byte to allow in RBF fee (default: 150)
 max_rbf = 150
 ```
+
+NOTE: Ensuring that your miner can successfully use RBF (Replace-by-Fee) is
+critical for reliable block production. If a miner fails to replace an outdated
+block commit with a higher-fee transaction, it risks committing to an incorrect
+tenure. This would prevent the miner from producing valid blocks during its
+tenure, as it would be building on an invalid chain tip, causing the signers to
+reject its blocks.
+
+To avoid this, configure satoshis_per_byte, rbf_fee_increment, and max_rbf to
+allow for at least three fee increments within the max_rbf limit. This helps
+ensure that your miner can adjust its fees sufficiently to stay on the canonical
+chain.
 
 You can verify that your node is operating as a miner by checking its log output
 to verify that it was able to find its Bitcoin UTXOs:

@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
 use std::sync::mpsc::{
@@ -24,7 +24,7 @@ use std::time::Duration;
 use std::{io, net};
 
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::types::BOUND_VALUE_SERIALIZATION_HEX;
+use clarity::vm::types::{QualifiedContractIdentifier, BOUND_VALUE_SERIALIZATION_HEX};
 use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::net::PeerAddress;
 use stacks_common::util::hash::to_hex;
@@ -44,8 +44,12 @@ use crate::net::neighbors::{
     WALK_SEED_PROBABILITY, WALK_STATE_TIMEOUT,
 };
 use crate::net::{
-    Error as net_error, MessageSequence, Preamble, ProtocolFamily, RelayData, StacksHttp, StacksP2P,
+    Error as net_error, MessageSequence, NeighborAddress, Preamble, ProtocolFamily, RelayData,
+    StacksHttp, StacksP2P,
 };
+
+/// The default maximum age in seconds of a block that can be validated by the block proposal endpoint
+pub const DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS: u64 = 600;
 
 /// Receiver notification handle.
 /// When a message with the expected `seq` value arrives, send it to an expected receiver (possibly
@@ -62,7 +66,7 @@ impl<P: ProtocolFamily> ReceiverNotify<P> {
         ReceiverNotify {
             expected_seq: seq,
             receiver_input: input,
-            ttl: ttl,
+            ttl,
         }
     }
 
@@ -103,7 +107,7 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
             receiver_output: Some(output),
             request_pipe_write: Some(write),
             deadline: 0,
-            socket_event_id: socket_event_id,
+            socket_event_id,
         }
     }
 
@@ -112,12 +116,12 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
             receiver_output: None,
             request_pipe_write: Some(write),
             deadline: 0,
-            socket_event_id: socket_event_id,
+            socket_event_id,
         }
     }
 
     /// deadline is in seconds
-    pub fn set_deadline(&mut self, dl: u64) -> () {
+    pub fn set_deadline(&mut self, dl: u64) {
         self.deadline = dl;
     }
 
@@ -375,6 +379,7 @@ pub struct ConnectionOptions {
     /// Units are milliseconds.  A value of 0 means "never".
     pub log_neighbors_freq: u64,
     pub inv_sync_interval: u64,
+    // how many reward cycles of blocks to sync in a non-full inventory sync
     pub inv_reward_cycles: u64,
     pub download_interval: u64,
     pub pingback_timeout: u64,
@@ -433,6 +438,10 @@ pub struct ConnectionOptions {
     pub nakamoto_unconfirmed_downloader_interval_ms: u128,
     /// The authorization token to enable privileged RPC endpoints
     pub auth_token: Option<String>,
+    /// The maximum age in seconds of a block that can be validated by the block proposal endpoint
+    pub block_proposal_max_age_secs: u64,
+    /// StackerDB replicas to talk to for a particular smart contract
+    pub stackerdb_hint_replicas: HashMap<QualifiedContractIdentifier, Vec<NeighborAddress>>,
 
     // fault injection
     /// Disable neighbor walk and discovery
@@ -474,6 +483,8 @@ pub struct ConnectionOptions {
     /// the reward cycle in which Nakamoto activates, and thus needs to run both the epoch
     /// 2.x and Nakamoto state machines.
     pub force_nakamoto_epoch_transition: bool,
+    /// Reject blocks that were pushed
+    pub reject_blocks_pushed: bool,
 
     // test facilitation
     /// Do not require that an unsolicited message originate from an authenticated, connected
@@ -563,6 +574,8 @@ impl std::default::Default for ConnectionOptions {
             nakamoto_inv_sync_burst_interval_ms: 1_000, // wait 1 second after a sortition before running inventory sync
             nakamoto_unconfirmed_downloader_interval_ms: 5_000, // run unconfirmed downloader once every 5 seconds
             auth_token: None,
+            block_proposal_max_age_secs: DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS,
+            stackerdb_hint_replicas: HashMap::new(),
 
             // no faults on by default
             disable_neighbor_walk: false,
@@ -583,6 +596,7 @@ impl std::default::Default for ConnectionOptions {
             disable_stackerdb_sync: false,
             force_disconnect_interval: None,
             force_nakamoto_epoch_transition: false,
+            reject_blocks_pushed: false,
 
             // no test facilitations on by default
             test_disable_unsolicited_message_authentication: false,
@@ -682,7 +696,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
             }
             Err(net_error::UnderflowError(_)) => {
                 // not enough data to form a preamble yet
-                if bytes_consumed == 0 && bytes.len() > 0 {
+                if bytes_consumed == 0 && !bytes.is_empty() {
                     // preamble is too long
                     return Err(net_error::DeserializeError(
                         "Preamble size would exceed maximum allowed size".to_string(),
@@ -766,7 +780,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                     self.payload_ptr = 0;
                     self.buf = trailer;
 
-                    if self.buf.len() > 0 {
+                    if !self.buf.is_empty() {
                         test_debug!(
                             "Buffer has {} bytes remaining: {:?}",
                             self.buf.len(),
@@ -913,19 +927,16 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                 let bytes_consumed = if let Some(ref mut preamble) = preamble_opt {
                     let (message_opt, bytes_consumed) =
                         self.consume_payload(protocol, preamble, &buf[offset..])?;
-                    match message_opt {
-                        Some(message) => {
-                            // queue up
-                            test_debug!(
-                                "Consumed message '{}' (request {}) in {} bytes",
-                                message.get_message_name(),
-                                message.request_id(),
-                                bytes_consumed
-                            );
-                            self.inbox.push_back(message);
-                            consumed_message = true;
-                        }
-                        None => {}
+                    if let Some(message) = message_opt {
+                        // queue up
+                        test_debug!(
+                            "Consumed message '{}' (request {}) in {} bytes",
+                            message.get_message_name(),
+                            message.request_id(),
+                            bytes_consumed
+                        );
+                        self.inbox.push_back(message);
+                        consumed_message = true;
                     };
 
                     bytes_consumed
@@ -949,7 +960,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
 
         // we can buffer bytes faster than we can process messages, so be sure to drain the buffer
         // before returning.
-        if self.buf.len() > 0 {
+        if !self.buf.is_empty() {
             loop {
                 let mut consumed_message = false;
 
@@ -969,14 +980,11 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                     if let Some(ref mut preamble) = preamble_opt {
                         let (message_opt, _bytes_consumed) =
                             self.consume_payload(protocol, preamble, &[])?;
-                        match message_opt {
-                            Some(message) => {
-                                // queue up
-                                test_debug!("Consumed buffered message '{}' (request {}) from {} input buffer bytes", message.get_message_name(), message.request_id(), _bytes_consumed);
-                                self.inbox.push_back(message);
-                                consumed_message = true;
-                            }
-                            None => {}
+                        if let Some(message) = message_opt {
+                            // queue up
+                            test_debug!("Consumed buffered message '{}' (request {}) from {} input buffer bytes", message.get_message_name(), message.request_id(), _bytes_consumed);
+                            self.inbox.push_back(message);
+                            consumed_message = true;
                         }
                     }
                     self.preamble = preamble_opt;
@@ -1077,7 +1085,7 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
     pub fn new(outbox_maxlen: usize) -> ConnectionOutbox<P> {
         ConnectionOutbox {
             outbox: VecDeque::with_capacity(outbox_maxlen),
-            outbox_maxlen: outbox_maxlen,
+            outbox_maxlen,
             pending_message_fd: None,
             socket_out_buf: vec![],
             socket_out_ptr: 0,
@@ -1086,7 +1094,7 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
     }
 
     fn begin_next_message(&mut self) -> Option<PipeRead> {
-        if self.outbox.len() == 0 {
+        if self.outbox.is_empty() {
             // nothing to send
             return None;
         }
@@ -1102,8 +1110,8 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
         pending_message_fd
     }
 
-    fn finish_message(&mut self) -> () {
-        assert!(self.outbox.len() > 0);
+    fn finish_message(&mut self) {
+        assert!(!self.outbox.is_empty());
 
         // wake up any receivers when (if) we get a reply
         let mut inflight_message = self.outbox.pop_front();
@@ -1271,10 +1279,8 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
             message_eof,
         );
 
-        if total_sent == 0 {
-            if disconnected && !blocked {
-                return Err(net_error::PeerNotConnected);
-            }
+        if total_sent == 0 && disconnected && !blocked {
+            return Err(net_error::PeerNotConnected);
         }
         update_outbound_bandwidth(total_sent as i64);
         Ok(total_sent)
@@ -1294,7 +1300,7 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
         public_key_opt: Option<Secp256k1PublicKey>,
     ) -> NetworkConnection<P> {
         NetworkConnection {
-            protocol: protocol,
+            protocol,
             options: (*options).clone(),
 
             inbox: ConnectionInbox::new(options.inbox_maxlen, public_key_opt),
@@ -1463,7 +1469,7 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
     }
 
     /// set the public key
-    pub fn set_public_key(&mut self, pubk: Option<Secp256k1PublicKey>) -> () {
+    pub fn set_public_key(&mut self, pubk: Option<Secp256k1PublicKey>) {
         self.inbox.public_key = pubk;
     }
 
@@ -1555,7 +1561,7 @@ mod test {
             let mut i = 0;
 
             // push the message, and force pipes to go out of scope to close the write end
-            while pipes.len() > 0 {
+            while !pipes.is_empty() {
                 let mut p = pipes.remove(0);
                 protocol.write_message(&mut p, &messages[i]).unwrap();
                 i += 1;
@@ -1718,7 +1724,7 @@ mod test {
             let mut rhs = vec![];
 
             // push the message, and force pipes to go out of scope to close the write end
-            while handles.len() > 0 {
+            while !handles.is_empty() {
                 let mut rh = handles.remove(0);
                 protocol.write_message(&mut rh, &messages[i]).unwrap();
                 i += 1;
@@ -1804,7 +1810,7 @@ mod test {
 
         test_debug!("Received {} bytes in total", total_bytes);
 
-        let mut flushed_handles = rx.recv().unwrap();
+        let flushed_handles = rx.recv().unwrap();
 
         match shared_state.lock() {
             Ok(ref mut conn) => {
@@ -1831,15 +1837,15 @@ mod test {
                 assert_eq!(recved.len(), 0);
             }
             Err(e) => {
-                assert!(false, "{:?}", &e);
+                assert!(false, "{e:?}");
                 unreachable!();
             }
         }
 
         // got all messages
         let mut recved = vec![];
-        for (i, rh) in flushed_handles.drain(..).enumerate() {
-            test_debug!("recv {}", i);
+        for (i, rh) in flushed_handles.into_iter().enumerate() {
+            test_debug!("recv {i}");
             let res = rh.recv(0).unwrap();
             recved.push(res);
         }
@@ -1860,9 +1866,9 @@ mod test {
             &BurnchainHeaderHash([0x11; 32]),
             12339,
             &BurnchainHeaderHash([0x22; 32]),
-            StacksMessageType::Ping(PingData { nonce: nonce }),
+            StacksMessageType::Ping(PingData { nonce }),
         );
-        let privkey = Secp256k1PrivateKey::new();
+        let privkey = Secp256k1PrivateKey::random();
         ping.sign(request_id, &privkey).unwrap();
         ping
     }
@@ -1908,7 +1914,7 @@ mod test {
             StacksMessageType::Ping(PingData { nonce: 0x01020304 }),
         );
 
-        let privkey = Secp256k1PrivateKey::new();
+        let privkey = Secp256k1PrivateKey::random();
         ping.sign(1, &privkey).unwrap();
 
         let mut pipes = vec![]; // keep pipes in-scope
@@ -1982,12 +1988,12 @@ mod test {
         let mut serialized_ping = vec![];
         ping.consensus_serialize(&mut serialized_ping).unwrap();
         assert_eq!(
-            conn.outbox.socket_out_buf[0..(conn.outbox.socket_out_ptr as usize)],
-            serialized_ping[0..(conn.outbox.socket_out_ptr as usize)]
+            conn.outbox.socket_out_buf[0..conn.outbox.socket_out_ptr],
+            serialized_ping[0..conn.outbox.socket_out_ptr]
         );
 
         let mut half_ping =
-            conn.outbox.socket_out_buf.clone()[0..(conn.outbox.socket_out_ptr as usize)].to_vec();
+            conn.outbox.socket_out_buf.clone()[0..conn.outbox.socket_out_ptr].to_vec();
         let mut ping_buf_05 = vec![0; 2 * ping_size - (ping_size + ping_size / 2)];
 
         // flush the remaining half-ping
@@ -2009,7 +2015,7 @@ mod test {
         // the combined ping buffers should be the serialized ping
         let mut combined_ping_buf = vec![];
         combined_ping_buf.append(&mut half_ping);
-        combined_ping_buf.extend_from_slice(&write_buf_05.get_mut());
+        combined_ping_buf.extend_from_slice(write_buf_05.get_mut());
 
         assert_eq!(combined_ping_buf, serialized_ping);
 
@@ -2030,7 +2036,7 @@ mod test {
 
     #[test]
     fn connection_relay_send_recv() {
-        let privkey = Secp256k1PrivateKey::new();
+        let privkey = Secp256k1PrivateKey::random();
         let pubkey = Secp256k1PublicKey::from_private(&privkey);
 
         let neighbor = Neighbor {
@@ -2090,7 +2096,7 @@ mod test {
 
         let pinger = thread::spawn(move || {
             let mut i = 0;
-            while pipes.len() > 0 {
+            while !pipes.is_empty() {
                 let mut p = pipes.remove(0);
                 i += 1;
 
@@ -2128,7 +2134,7 @@ mod test {
     #[test]
     fn connection_send_recv() {
         with_timeout(100, || {
-            let privkey = Secp256k1PrivateKey::new();
+            let privkey = Secp256k1PrivateKey::random();
             let pubkey = Secp256k1PublicKey::from_private(&privkey);
 
             let neighbor = Neighbor {
@@ -2196,7 +2202,7 @@ mod test {
             let pinger = thread::spawn(move || {
                 let mut rhs = vec![];
 
-                while handle_vec.len() > 0 {
+                while !handle_vec.is_empty() {
                     let mut handle = handle_vec.remove(0);
                     handle.flush().unwrap();
                     rhs.push(handle);
@@ -2243,7 +2249,7 @@ mod test {
 
     #[test]
     fn connection_send_recv_timeout() {
-        let privkey = Secp256k1PrivateKey::new();
+        let privkey = Secp256k1PrivateKey::random();
         let pubkey = Secp256k1PublicKey::from_private(&privkey);
 
         let neighbor = Neighbor {
@@ -2310,7 +2316,7 @@ mod test {
         let pinger = thread::spawn(move || {
             let mut rhs = vec![];
 
-            while handle_vec.len() > 0 {
+            while !handle_vec.is_empty() {
                 let mut handle = handle_vec.remove(0);
                 handle.flush().unwrap();
                 rhs.push(handle);

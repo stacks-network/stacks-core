@@ -48,7 +48,7 @@ use crate::chainstate::stacks::db::test::{
 };
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
-use crate::chainstate::stacks::index::{MarfTrieId, TrieHashExtension};
+use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::miner::TransactionResult;
 use crate::chainstate::stacks::test::codec_all_transactions;
 use crate::chainstate::stacks::{
@@ -71,11 +71,11 @@ use crate::util_lib::bloom::*;
 use crate::util_lib::db::{tx_begin_immediate, DBConn, FromRow};
 use crate::util_lib::strings::StacksString;
 
-const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
+const FOO_CONTRACT: &str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";
-const SK_1: &'static str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
-const SK_2: &'static str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
-const SK_3: &'static str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd86245aef78501";
+const SK_1: &str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
+const SK_2: &str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
+const SK_3: &str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd86245aef78501";
 
 #[test]
 fn mempool_db_init() {
@@ -142,16 +142,16 @@ pub fn make_block(
         .put_indexed_all(
             &StacksBlockId::new(&parent.0, &parent.1),
             &new_index_hash,
-            &vec![],
-            &vec![],
+            &[],
+            &[],
         )
         .unwrap();
 
     StacksChainState::insert_stacks_block_header(
-        &mut chainstate_tx,
+        &chainstate_tx,
         &new_index_hash,
         &new_tip_info,
-        &ExecutionCost::zero(),
+        &ExecutionCost::ZERO,
         block_height,
     )
     .unwrap();
@@ -215,14 +215,9 @@ fn mempool_walk_over_fork() {
         let block = &blocks_to_broadcast_in[ix];
         let good_tx = &txs[ix];
 
-        let origin_address = StacksAddress {
-            version: 22,
-            bytes: Hash160::from_data(&[ix as u8; 32]),
-        };
-        let sponsor_address = StacksAddress {
-            version: 22,
-            bytes: Hash160::from_data(&[0x80 | (ix as u8); 32]),
-        };
+        let origin_address = StacksAddress::new(22, Hash160::from_data(&[ix as u8; 32])).unwrap();
+        let sponsor_address =
+            StacksAddress::new(22, Hash160::from_data(&[0x80 | (ix as u8); 32])).unwrap();
 
         let txid = good_tx.txid();
         let tx_bytes = good_tx.serialize_to_vec();
@@ -288,7 +283,7 @@ fn mempool_walk_over_fork() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event(),
@@ -326,7 +321,7 @@ fn mempool_walk_over_fork() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event(),
@@ -363,7 +358,7 @@ fn mempool_walk_over_fork() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event(),
@@ -405,7 +400,7 @@ fn mempool_walk_over_fork() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event(),
@@ -445,7 +440,7 @@ fn mempool_walk_over_fork() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event(),
@@ -469,14 +464,8 @@ fn mempool_walk_over_fork() {
     let mut mempool_tx = mempool.tx_begin().unwrap();
     let block = &b_1;
     let tx = &txs[1];
-    let origin_address = StacksAddress {
-        version: 22,
-        bytes: Hash160::from_data(&[1; 32]),
-    };
-    let sponsor_address = StacksAddress {
-        version: 22,
-        bytes: Hash160::from_data(&[0x81; 32]),
-    };
+    let origin_address = StacksAddress::new(22, Hash160::from_data(&[1; 32])).unwrap();
+    let sponsor_address = StacksAddress::new(22, Hash160::from_data(&[0x81; 32])).unwrap();
 
     let txid = tx.txid();
     let tx_bytes = tx.serialize_to_vec();
@@ -523,14 +512,8 @@ fn mempool_walk_over_fork() {
     let mut mempool_tx = mempool.tx_begin().unwrap();
     let block = &b_4;
     let tx = &txs[1];
-    let origin_address = StacksAddress {
-        version: 22,
-        bytes: Hash160::from_data(&[0; 32]),
-    };
-    let sponsor_address = StacksAddress {
-        version: 22,
-        bytes: Hash160::from_data(&[1; 32]),
-    };
+    let origin_address = StacksAddress::new(22, Hash160::from_data(&[0; 32])).unwrap();
+    let sponsor_address = StacksAddress::new(22, Hash160::from_data(&[1; 32])).unwrap();
 
     let txid = tx.txid();
     let tx_bytes = tx.serialize_to_vec();
@@ -683,7 +666,7 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event(),
@@ -720,7 +703,7 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event(),
@@ -757,7 +740,7 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event(),
@@ -866,7 +849,7 @@ fn test_iterate_candidates_skipped_transaction() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event()
@@ -981,7 +964,7 @@ fn test_iterate_candidates_processing_error_transaction() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event()
@@ -1096,7 +1079,7 @@ fn test_iterate_candidates_problematic_transaction() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event()
@@ -1211,10 +1194,10 @@ fn test_iterate_candidates_concurrent_write_lock() {
 
         mempool_tx.commit().unwrap();
     }
-    assert!(expected_addr_nonces.len() > 0);
+    assert!(!expected_addr_nonces.is_empty());
 
     let all_addr_nonces = db_get_all_nonces(mempool.conn()).unwrap();
-    assert_eq!(all_addr_nonces.len(), 0);
+    assert!(all_addr_nonces.is_empty());
 
     // start a thread that holds a write-lock on the mempool
     let write_thread = std::thread::spawn(move || {
@@ -1248,7 +1231,7 @@ fn test_iterate_candidates_concurrent_write_lock() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event(),
@@ -1266,7 +1249,7 @@ fn test_iterate_candidates_concurrent_write_lock() {
     assert_eq!(all_addr_nonces.len(), expected_addr_nonces.len());
 
     for (addr, nonce) in all_addr_nonces {
-        assert!(expected_addr_nonces.get(&addr).is_some());
+        assert!(expected_addr_nonces.contains_key(&addr));
         assert_eq!(nonce, 24);
     }
 }
@@ -1307,14 +1290,8 @@ fn mempool_do_not_replace_tx() {
     let mut mempool_tx = mempool.tx_begin().unwrap();
 
     // do an initial insert
-    let origin_address = StacksAddress {
-        version: 22,
-        bytes: Hash160::from_data(&[0; 32]),
-    };
-    let sponsor_address = StacksAddress {
-        version: 22,
-        bytes: Hash160::from_data(&[1; 32]),
-    };
+    let origin_address = StacksAddress::new(22, Hash160::from_data(&[0; 32])).unwrap();
+    let sponsor_address = StacksAddress::new(22, Hash160::from_data(&[1; 32])).unwrap();
 
     tx.set_tx_fee(123);
 
@@ -1397,7 +1374,7 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
     let chainstate_path = chainstate_path(&path_name);
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
-    let mut txs = codec_all_transactions(
+    let txs = codec_all_transactions(
         &TransactionVersion::Testnet,
         0x80000000,
         &TransactionAnchorMode::Any,
@@ -1409,16 +1386,11 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
     let mut mempool_tx = mempool.tx_begin().unwrap();
 
     eprintln!("add all txs");
-    for (i, mut tx) in txs.drain(..).enumerate() {
+    for (i, mut tx) in txs.into_iter().enumerate() {
         // make sure each address is unique per tx (not the case in codec_all_transactions)
-        let origin_address = StacksAddress {
-            version: 22,
-            bytes: Hash160::from_data(&i.to_be_bytes()),
-        };
-        let sponsor_address = StacksAddress {
-            version: 22,
-            bytes: Hash160::from_data(&(i + 1).to_be_bytes()),
-        };
+        let origin_address = StacksAddress::new(22, Hash160::from_data(&i.to_be_bytes())).unwrap();
+        let sponsor_address =
+            StacksAddress::new(22, Hash160::from_data(&(i + 1).to_be_bytes())).unwrap();
 
         tx.set_tx_fee(123);
 
@@ -1627,15 +1599,15 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
     assert_eq!(txs.len(), 0);
 
     eprintln!("garbage-collect");
-    let mut mempool_tx = mempool.tx_begin().unwrap();
+    let mempool_tx = mempool.tx_begin().unwrap();
     match behavior {
         MempoolCollectionBehavior::ByStacksHeight => {
-            MemPoolDB::garbage_collect_by_coinbase_height(&mut mempool_tx, 101, None)
+            MemPoolDB::garbage_collect_by_coinbase_height(&mempool_tx, 101, None)
         }
         MempoolCollectionBehavior::ByReceiveTime => {
             let test_max_age = Duration::from_secs(1);
             std::thread::sleep(2 * test_max_age);
-            MemPoolDB::garbage_collect_by_time(&mut mempool_tx, &test_max_age, None)
+            MemPoolDB::garbage_collect_by_time(&mempool_tx, &test_max_age, None)
         }
     }
     .unwrap();
@@ -1666,12 +1638,9 @@ fn mempool_db_test_rbf() {
         key_encoding: TransactionPublicKeyEncoding::Uncompressed,
         nonce: 123,
         tx_fee: 456,
-        signature: MessageSignature::from_raw(&vec![0xff; 65]),
+        signature: MessageSignature::from_raw(&[0xff; 65]),
     });
-    let stx_address = StacksAddress {
-        version: 1,
-        bytes: Hash160([0xff; 20]),
-    };
+    let stx_address = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
     let payload = TransactionPayload::TokenTransfer(
         PrincipalData::from(QualifiedContractIdentifier {
             issuer: stx_address.into(),
@@ -1683,7 +1652,7 @@ fn mempool_db_test_rbf() {
     let mut tx = StacksTransaction {
         version: TransactionVersion::Testnet,
         chain_id: 0x80000000,
-        auth: TransactionAuth::Standard(spending_condition.clone()),
+        auth: TransactionAuth::Standard(spending_condition),
         anchor_mode: TransactionAnchorMode::Any,
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: Vec::new(),
@@ -1691,14 +1660,9 @@ fn mempool_db_test_rbf() {
     };
 
     let i: usize = 0;
-    let origin_address = StacksAddress {
-        version: 22,
-        bytes: Hash160::from_data(&i.to_be_bytes()),
-    };
-    let sponsor_address = StacksAddress {
-        version: 22,
-        bytes: Hash160::from_data(&(i + 1).to_be_bytes()),
-    };
+    let origin_address = StacksAddress::new(22, Hash160::from_data(&i.to_be_bytes())).unwrap();
+    let sponsor_address =
+        StacksAddress::new(22, Hash160::from_data(&(i + 1).to_be_bytes())).unwrap();
 
     tx.set_tx_fee(123);
     let txid = tx.txid();
@@ -1807,10 +1771,7 @@ fn test_add_txs_bloom_filter() {
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
-    let addr = StacksAddress {
-        version: 1,
-        bytes: Hash160([0xff; 20]),
-    };
+    let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
 
     let mut all_txids: Vec<Vec<Txid>> = vec![];
 
@@ -1822,7 +1783,7 @@ fn test_add_txs_bloom_filter() {
         let bf = mempool.get_txid_bloom_filter().unwrap();
         let mut mempool_tx = mempool.tx_begin().unwrap();
         for i in 0..128 {
-            let pk = StacksPrivateKey::new();
+            let pk = StacksPrivateKey::random();
             let mut tx = StacksTransaction {
                 version: TransactionVersion::Testnet,
                 chain_id: 0x80000000,
@@ -1916,10 +1877,7 @@ fn test_txtags() {
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
-    let addr = StacksAddress {
-        version: 1,
-        bytes: Hash160([0xff; 20]),
-    };
+    let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
 
     let mut seed = [0u8; 32];
     thread_rng().fill_bytes(&mut seed);
@@ -1931,7 +1889,7 @@ fn test_txtags() {
 
         let mut mempool_tx = mempool.tx_begin().unwrap();
         for i in 0..128 {
-            let pk = StacksPrivateKey::new();
+            let pk = StacksPrivateKey::random();
             let mut tx = StacksTransaction {
                 version: TransactionVersion::Testnet,
                 chain_id: 0x80000000,
@@ -1992,8 +1950,7 @@ fn test_txtags() {
 
         let txtags = mempool.get_txtags(&seed).unwrap();
         let len_txtags = all_txtags.len();
-        let last_txtags =
-            &all_txtags[len_txtags.saturating_sub(BLOOM_COUNTER_DEPTH as usize)..len_txtags];
+        let last_txtags = &all_txtags[len_txtags.saturating_sub(BLOOM_COUNTER_DEPTH)..len_txtags];
 
         let mut expected_txtag_set = HashSet::new();
         for txtags in last_txtags.iter() {
@@ -2016,10 +1973,7 @@ fn test_make_mempool_sync_data() {
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
-    let addr = StacksAddress {
-        version: 1,
-        bytes: Hash160([0xff; 20]),
-    };
+    let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
 
     let mut txids = vec![];
     let mut nonrecent_fp_rates = vec![];
@@ -2027,7 +1981,7 @@ fn test_make_mempool_sync_data() {
         for i in 0..((MAX_BLOOM_COUNTER_TXS + 128) as usize) {
             let mut mempool_tx = mempool.tx_begin().unwrap();
             for j in 0..128 {
-                let pk = StacksPrivateKey::new();
+                let pk = StacksPrivateKey::random();
                 let mut tx = StacksTransaction {
                     version: TransactionVersion::Testnet,
                     chain_id: 0x80000000,
@@ -2120,7 +2074,7 @@ fn test_make_mempool_sync_data() {
                     assert!(in_bf >= recent_txids.len());
 
                     for txid in txids.iter() {
-                        if !recent_set.contains(&txid) && bf.contains_raw(&txid.0) {
+                        if !recent_set.contains(txid) && bf.contains_raw(&txid.0) {
                             fp_count += 1;
                         }
                         if bf.contains_raw(&txid.0) {
@@ -2131,9 +2085,7 @@ fn test_make_mempool_sync_data() {
                     }
 
                     // all recent transactions should be present
-                    assert!(
-                        present_count >= cmp::min(MAX_BLOOM_COUNTER_TXS.into(), txids.len() as u32)
-                    );
+                    assert!(present_count >= cmp::min(MAX_BLOOM_COUNTER_TXS, txids.len() as u32));
                 }
                 MemPoolSyncData::TxTags(ref seed, ref tags) => {
                     eprintln!("txtags({}); txids.len() == {}", block_height, txids.len());
@@ -2167,7 +2119,7 @@ fn test_make_mempool_sync_data() {
                 );
             }
 
-            let total_count = MemPoolDB::get_num_recent_txs(&mempool.conn()).unwrap();
+            let total_count = MemPoolDB::get_num_recent_txs(mempool.conn()).unwrap();
             eprintln!(
                 "present_count: {}, absent count: {}, total sent: {}, total recent: {}",
                 present_count,
@@ -2195,17 +2147,14 @@ fn test_find_next_missing_transactions() {
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
-    let addr = StacksAddress {
-        version: 1,
-        bytes: Hash160([0xff; 20]),
-    };
+    let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
 
     let block_height = 10;
     let mut txids = vec![];
 
     let mut mempool_tx = mempool.tx_begin().unwrap();
     for i in 0..(2 * MAX_BLOOM_COUNTER_TXS) {
-        let pk = StacksPrivateKey::new();
+        let pk = StacksPrivateKey::random();
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
@@ -2240,7 +2189,7 @@ fn test_find_next_missing_transactions() {
             txid.clone(),
             tx_bytes,
             tx_fee,
-            block_height as u64,
+            block_height,
             &origin_addr,
             origin_nonce,
             &sponsor_addr,
@@ -2375,9 +2324,9 @@ fn test_find_next_missing_transactions() {
             )
             .unwrap();
         assert!(txs.len() <= page_size as usize);
-        assert!(num_visited <= page_size as u64);
+        assert!(num_visited <= page_size);
 
-        if txs.len() == 0 {
+        if txs.is_empty() {
             assert!(next_page_opt.is_none());
             break;
         }
@@ -2414,9 +2363,9 @@ fn test_find_next_missing_transactions() {
         eprintln!("find_next_missing_transactions with empty bloom filter took {} ms to serve {} transactions", ts_after.saturating_sub(ts_before), page_size);
 
         assert!(txs.len() <= page_size as usize);
-        assert!(num_visited <= page_size as u64);
+        assert!(num_visited <= page_size);
 
-        if txs.len() == 0 {
+        if txs.is_empty() {
             assert!(next_page_opt.is_none());
             break;
         }
@@ -2466,16 +2415,13 @@ fn test_drop_and_blacklist_txs_by_time() {
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
-    let addr = StacksAddress {
-        version: 1,
-        bytes: Hash160([0xff; 20]),
-    };
+    let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
     let mut txs = vec![];
     let block_height = 10;
 
     let mut mempool_tx = mempool.tx_begin().unwrap();
     for i in 0..10 {
-        let pk = StacksPrivateKey::new();
+        let pk = StacksPrivateKey::random();
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
@@ -2586,16 +2532,13 @@ fn test_drop_and_blacklist_txs_by_size() {
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
-    let addr = StacksAddress {
-        version: 1,
-        bytes: Hash160([0xff; 20]),
-    };
+    let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
     let mut txs = vec![];
     let block_height = 10;
 
     let mut mempool_tx = mempool.tx_begin().unwrap();
     for i in 0..10 {
-        let pk = StacksPrivateKey::new();
+        let pk = StacksPrivateKey::random();
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
@@ -2689,11 +2632,7 @@ fn test_filter_txs_by_type() {
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
-    let addr = StacksAddress {
-        version: 1,
-        bytes: Hash160([0xff; 20]),
-    };
-    let mut txs = vec![];
+    let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
     let block_height = 10;
     let mut total_len = 0;
 
@@ -2711,7 +2650,7 @@ fn test_filter_txs_by_type() {
 
     let mut mempool_tx = mempool.tx_begin().unwrap();
     for i in 0..10 {
-        let pk = StacksPrivateKey::new();
+        let pk = StacksPrivateKey::random();
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
@@ -2757,8 +2696,7 @@ fn test_filter_txs_by_type() {
         )
         .unwrap();
 
-        eprintln!("Added {} {}", i, &txid);
-        txs.push(tx);
+        eprintln!("Added {i} {txid}");
     }
     mempool_tx.commit().unwrap();
 
@@ -2792,7 +2730,7 @@ fn test_filter_txs_by_type() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event(),
@@ -2827,7 +2765,7 @@ fn test_filter_txs_by_type() {
                                     available_tx.tx.tx.clone(),
                                     vec![],
                                     Value::okay(Value::Bool(true)).unwrap(),
-                                    ExecutionCost::zero(),
+                                    ExecutionCost::ZERO,
                                 ),
                             )
                             .convert_to_event(),

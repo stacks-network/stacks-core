@@ -21,14 +21,13 @@ use std::io;
 use std::io::{Read, Write};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError, TrySendError};
 
-use crate::util::log;
-
 /// Inter-thread pipe for streaming messages, built on channels.
 /// Used mainly in conjunction with networking.
-/// * The read endpoint lives inside the connection, and will consume data from another thread to
-/// be sent out on the network.
-/// * The write endpoint gets fed into calls to consensus_serialize(), to be sent out on the
-/// network.
+///
+/// * The read endpoint lives inside the connection and will consume data from another thread
+///   to be sent out on the network.
+/// * The write endpoint gets fed into calls to `consensus_serialize()` to be sent out on the
+///   network.
 #[derive(Debug)]
 pub struct PipeRead {
     input: Receiver<Vec<u8>>,
@@ -187,7 +186,7 @@ impl PipeWrite {
     }
 
     fn write_or_buffer(&mut self, buf: &[u8]) -> io::Result<usize> {
-        if buf.len() == 0 {
+        if buf.is_empty() {
             return Ok(0);
         }
 
@@ -315,7 +314,6 @@ impl Write for PipeWrite {
 
 #[cfg(test)]
 mod test {
-    use std::io::prelude::*;
     use std::io::{Read, Write};
     use std::{io, thread};
 
@@ -323,7 +321,6 @@ mod test {
     use rand::RngCore;
 
     use super::*;
-    use crate::util::*;
 
     #[test]
     fn test_connection_pipe_oneshot() {

@@ -378,6 +378,10 @@ impl AffirmationMap {
         self.affirmations.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.affirmations.is_empty()
+    }
+
     pub fn as_slice(&self) -> &[AffirmationMapEntry] {
         &self.affirmations
     }
@@ -553,7 +557,7 @@ pub fn read_prepare_phase_commits<B: BurnchainHeaderReader>(
 
     let mut ret = vec![];
     for header in headers.into_iter() {
-        let blk = BurnchainDB::get_burnchain_block(&burnchain_tx.conn(), &header.block_hash)
+        let blk = BurnchainDB::get_burnchain_block(burnchain_tx.conn(), &header.block_hash)
             .unwrap_or_else(|_| {
                 panic!(
                     "BUG: failed to load prepare-phase block {} ({})",
@@ -675,7 +679,7 @@ pub fn read_parent_block_commits<B: BurnchainHeaderReader>(
             }
         }
     }
-    let mut parent_list: Vec<_> = parents.into_iter().map(|(_, cmt)| cmt).collect();
+    let mut parent_list: Vec<_> = parents.into_values().collect();
     parent_list.sort_by(|a, b| {
         if a.block_height != b.block_height {
             a.block_height.cmp(&b.block_height)
@@ -876,7 +880,7 @@ fn inner_find_heaviest_block_commit_ptr(
     test_debug!("ancestors = {:?}", &ancestors);
     test_debug!("ancestor_confirmations = {:?}", &ancestor_confirmations);
 
-    if ancestor_confirmations.len() == 0 {
+    if ancestor_confirmations.is_empty() {
         // empty prepare phase
         test_debug!("Prepare-phase has no block-commits");
         return None;
@@ -933,7 +937,7 @@ fn inner_find_heaviest_block_commit_ptr(
 pub fn find_heaviest_block_commit<B: BurnchainHeaderReader>(
     burnchain_tx: &BurnchainDBTransaction,
     indexer: &B,
-    prepare_phase_ops: &Vec<Vec<LeaderBlockCommitOp>>,
+    prepare_phase_ops: &[Vec<LeaderBlockCommitOp>],
     anchor_threshold: u32,
 ) -> Result<Option<(LeaderBlockCommitOp, Vec<Vec<bool>>, u64, u64)>, DBError> {
     let (pox_anchor_ptr, ancestors) =
@@ -1122,7 +1126,7 @@ pub fn find_pox_anchor_block<B: BurnchainHeaderReader>(
     let prepare_ops_valid =
         inner_find_valid_prepare_phase_commits(burnchain_tx, reward_cycle, indexer, burnchain)?;
     let anchor_block_and_descendancy_opt = find_heaviest_block_commit(
-        &burnchain_tx,
+        burnchain_tx,
         indexer,
         &prepare_ops_valid,
         burnchain.pox_constants.anchor_threshold,
@@ -1178,7 +1182,7 @@ pub fn update_pox_affirmation_maps<B: BurnchainHeaderReader>(
     let (prepare_ops, pox_anchor_block_info_opt) =
         find_pox_anchor_block(&tx, reward_cycle, indexer, burnchain)?;
 
-    if let Some((anchor_block, descendancy)) = pox_anchor_block_info_opt.clone() {
+    if let Some((anchor_block, descendancy)) = pox_anchor_block_info_opt {
         debug!(
             "PoX anchor block elected in reward cycle {} for reward cycle {} is {}",
             reward_cycle,

@@ -7,6 +7,119 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+### Added
+
+### Changed
+
+### Fixed
+
+## [3.1.0.0.5]
+
+### Added
+
+- Add miner configuration option `tenure_extend_cost_threshold` to specify the percentage of the tenure budget that must be spent before a time-based tenure extend is attempted
+
+### Changed
+
+- Miner will include other transactions in blocks with tenure extend transactions (#5760)
+- Add `block_rejection_timeout_steps` to miner configuration for defining rejections-based timeouts while waiting for signers response (#5705)
+- Miner will not issue a tenure extend until at least half of the block budget has been spent (#5757)
+
+### Fixed
+
+- Miners who restart their nodes immediately before a winning tenure now correctly detect that
+  they won the tenure after their nodes restart ([#5750](https://github.com/stacks-network/stacks-core/issues/5750)).
+
+## [3.1.0.0.4]
+
+### Added
+
+- The stacks-node miner now performs accurate tenure-extensions in certain bitcoin block production
+  cases: when a bitcoin block is produced before the previous bitcoin block's Stacks tenure started.
+  Previously, the miner had difficulty restarting their missed tenure and extending into the new
+  bitcoin block, leading to 1-2 bitcoin blocks of missed Stacks block production.
+- The event dispatcher now includes `consensus_hash` in the `/new_block` and `/new_burn_block` payloads. ([#5677](https://github.com/stacks-network/stacks-core/pull/5677))
+
+## Changed
+
+- When a miner reorgs the previous tenure due to a poorly timed block, it can now continue to build blocks on this new chain tip (#5691)
+
+## [3.1.0.0.3]
+
+### Added
+
+- Add `tenure_timeout_secs` to the miner for determining when a time-based tenure extend should be attempted.
+- Added configuration option `block_proposal_max_age_secs` under `[connection_options]` to prevent processing stale block proposals
+
+### Changed
+
+- The RPC endpoint `/v3/block_proposal` no longer will evaluate block proposals more than `block_proposal_max_age_secs` old
+- When a transaction is dropped due to replace-by-fee, the `/drop_mempool_tx` event observer payload now includes `new_txid`, which is the transaction that replaced this dropped transaction. When a transaction is dropped for other reasons, `new_txid` is `null`. [#5381](https://github.com/stacks-network/stacks-core/pull/5381)
+- Nodes will assume that all PoX anchor blocks exist by default, and stall initial block download indefinitely to await their arrival (#5502)
+
+### Fixed
+
+- Signers no longer accept messages for blocks from different reward cycles (#5662)
+
+## [3.1.0.0.2]
+
+### Added
+
+- **SIP-029 consensus rules, activating in epoch 3.1 at block 875,000** (see [SIP-029](https://github.com/stacksgov/sips/blob/main/sips/sip-029/sip-029-halving-alignment.md) for details)
+- New RPC endpoints
+  - `/v2/clarity/marf/:marf_key_hash`
+  - `/v2/clarity/metadata/:principal/:contract_name/:clarity_metadata_key`
+- When a proposed block is validated by a node, the block can be validated even when the block version is different than the node's default ([#5539](https://github.com/stacks-network/stacks-core/pull/5539))
+- A miner will now generate a tenure-extend when at least 70% of the signers have confirmed that they are willing to allow one, via the new timestamp included in block responses. This allows the miner to refresh its budget in between Bitcoin blocks. ([#5476](https://github.com/stacks-network/stacks-core/discussions/5476))
+- Set the epoch to 3.1 in the Clarity DB upon activation.
+
+### Changed
+
+## [3.0.0.0.4]
+
+### Added
+
+### Changed
+
+- Use the same burn view loader in both block validation and block processing
+
+## [3.0.0.0.3]
+
+### Added
+
+### Changed
+- Add index for StacksBlockId to nakamoto block headers table (improves node performance)
+- Remove the panic for reporting DB deadlocks (just error and continue waiting)
+- Add index to `metadata_table` in Clarity DB on `blockhash`
+- Add `block_commit_delay_ms` to the config file to control the time to wait after seeing a new burn block, before submitting a block commit, to allow time for the first Nakamoto block of the new tenure to be mined, allowing this miner to avoid the need to RBF the block commit.
+- Add `tenure_cost_limit_per_block_percentage` to the miner config file to control the percentage remaining tenure cost limit to consume per nakamoto block.
+- Add `/v3/blocks/height/:block_height` rpc endpoint
+- If the winning miner of a sortition is committed to the wrong parent tenure, the previous miner can immediately tenure extend and continue mining since the winning miner would never be able to propose a valid block. (#5361)
+
+## [3.0.0.0.2]
+
+### Added
+
+### Changed
+- Fixes  a few bugs in the relayer and networking stack
+  - detects and deprioritizes unhealthy replicas
+  - fixes an issue in the p2p stack which was preventing it from caching the reward set.
+
+## [3.0.0.0.1]
+
+### Changed
+- Add index for StacksBlockId to nakamoto block headers table (improves node performance)
+- Remove the panic for reporting DB deadlocks (just error and continue waiting)
+- Various test fixes for CI (5353, 5368, 5372, 5371, 5380, 5378, 5387, 5396, 5390, 5394)
+- Various log fixes:
+    - don't say proceeding to mine blocks if not a miner
+    - misc. warns downgraded to debugs
+- 5391: Update default block proposal timeout to 10 minutes
+- 5406: After block rejection, miner pauses
+- Docs fixes
+    - Fix signer docs link
+    - Specify burn block in clarity docs
+
 ## [3.0.0.0.0]
 
 ### Added

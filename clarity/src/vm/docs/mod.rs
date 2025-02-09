@@ -17,11 +17,9 @@
 use super::types::signatures::{FunctionArgSignature, FunctionReturnsSignature};
 use crate::vm::analysis::type_checker::v2_1::natives::SimpleNativeFunction;
 use crate::vm::analysis::type_checker::v2_1::TypedNativeFunction;
-use crate::vm::costs::ExecutionCost;
 use crate::vm::functions::define::DefineFunctions;
 use crate::vm::functions::NativeFunctions;
-use crate::vm::types::signatures::ASCII_40;
-use crate::vm::types::{FixedFunction, FunctionType, SequenceSubtype, StringSubtype, Value};
+use crate::vm::types::{FixedFunction, FunctionType};
 use crate::vm::variables::NativeVariables;
 use crate::vm::ClarityVersion;
 
@@ -529,7 +527,7 @@ const LOG2_API: SimpleFunctionAPI = SimpleFunctionAPI {
     snippet: "log2 ${1:expr-1}",
     signature: "(log2 n)",
     description:
-        "Returns the power to which the number 2 must be raised to to obtain the value `n`, rounded 
+        "Returns the power to which the number 2 must be raised to obtain the value `n`, rounded 
 down to the nearest integer. Fails on a negative numbers.
 ",
     example: "(log2 u8) ;; Returns u3
@@ -814,19 +812,19 @@ pub fn get_output_type_string(function_type: &FunctionType) -> String {
         FunctionType::Binary(left, right, ref out_sig) => match out_sig {
             FunctionReturnsSignature::Fixed(out_type) => format!("{}", out_type),
             FunctionReturnsSignature::TypeOfArgAtPosition(pos) => {
-                let arg_sig: &FunctionArgSignature;
-                match pos {
-                        0 => arg_sig = left,
-                        1 => arg_sig = right,
-                        _ => panic!("Index out of range: TypeOfArgAtPosition for FunctionType::Binary can only handle two arguments, zero-indexed (0 or 1).")
-                    }
+                let arg_sig = match pos {
+                    0 => left,
+                    1 => right,
+                    _ => panic!("Index out of range: TypeOfArgAtPosition for FunctionType::Binary can only handle two arguments, zero-indexed (0 or 1).")
+                };
+
                 match arg_sig {
-                    FunctionArgSignature::Single(arg_type) => format!("{}", arg_type),
-                    FunctionArgSignature::Union(arg_types) => {
-                        let out_types: Vec<String> =
-                            arg_types.iter().map(|x| format!("{}", x)).collect();
-                        out_types.join(" | ")
-                    }
+                    FunctionArgSignature::Single(arg_type) => arg_type.to_string(),
+                    FunctionArgSignature::Union(arg_types) => arg_types
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(" | "),
                 }
             }
         },
@@ -835,15 +833,12 @@ pub fn get_output_type_string(function_type: &FunctionType) -> String {
 
 pub fn get_signature(function_name: &str, function_type: &FunctionType) -> Option<String> {
     if let FunctionType::Fixed(FixedFunction { ref args, .. }) = function_type {
-        let in_names: Vec<String> = args
-            .iter()
-            .map(|x| format!("{}", x.name.as_str()))
-            .collect();
+        let in_names: Vec<String> = args.iter().map(|x| x.name.to_string()).collect();
         let arg_examples = in_names.join(" ");
         Some(format!(
             "({}{}{})",
             function_name,
-            if arg_examples.len() == 0 { "" } else { " " },
+            if arg_examples.is_empty() { "" } else { " " },
             arg_examples
         ))
     } else {
@@ -860,7 +855,7 @@ fn make_for_simple_native(
 ) -> FunctionAPI {
     let (input_type, output_type) = {
         if let TypedNativeFunction::Simple(SimpleNativeFunction(function_type)) =
-            TypedNativeFunction::type_native_function(&function)
+            TypedNativeFunction::type_native_function(function)
                 .expect("Failed to type a native function")
         {
             let input_type = get_input_type_string(&function_type);
@@ -877,8 +872,8 @@ fn make_for_simple_native(
     FunctionAPI {
         name: api.name.map_or(name, |x| x.to_string()),
         snippet: api.snippet.to_string(),
-        input_type: input_type,
-        output_type: output_type,
+        input_type,
+        output_type,
         signature: api.signature.to_string(),
         description: api.description.to_string(),
         example: api.example.to_string(),
@@ -1402,7 +1397,7 @@ You _may not_ use this function to call a public function defined in the current
 function returns _err_, any database changes resulting from calling `contract-call?` are aborted.
 If the function returns _ok_, database changes occurred.",
     example: "
-;; instantiate the sample-contracts/tokens.clar contract first!
+;; instantiate the sample/contracts/tokens.clar contract first!
 (as-contract (contract-call? .tokens mint! u19)) ;; Returns (ok u19)"
 };
 
@@ -1775,17 +1770,17 @@ this value is less than or equal to the value for `miner-spend-total` at the sam
 const GET_BURN_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
     input_type: "BurnBlockInfoPropertyName, uint",
     output_type: "(optional buff) | (optional (tuple (addrs (list 2 (tuple (hashbytes (buff 32)) (version (buff 1))))) (payout uint)))",
-    snippet: "get-burn-block-info? ${1:prop} ${2:block-height}",
-    signature: "(get-burn-block-info? prop-name block-height)",
+    snippet: "get-burn-block-info? ${1:prop} ${2:burn-block-height}",
+    signature: "(get-burn-block-info? prop-name burn-block-height)",
     description: "The `get-burn-block-info?` function fetches data for a block of the given *burnchain* block height. The
-value and type returned are determined by the specified `BlockInfoPropertyName`.  Valid values for `block-height` only
+value and type returned are determined by the specified `BlockInfoPropertyName`.  Valid values for `burn-block-height` only
 include heights between the burnchain height at the time the Stacks chain was launched, and the last-processed burnchain
-block.  If the `block-height` argument falls outside of this range, then `none` shall be returned.
+block.  If the `burn-block-height` argument falls outside of this range, then `none` shall be returned.
 
 The following `BlockInfoPropertyName` values are defined:
 
 * The `header-hash` property returns a 32-byte buffer representing the header hash of the burnchain block at
-burnchain height `block-height`.
+burnchain height `burn-block-height`.
 
 * The `pox-addrs` property returns a tuple with two items: a list of up to two PoX addresses that received a PoX payout at that block height, and the amount of burnchain
 tokens paid to each address (note that per the blockchain consensus rules, each PoX payout will be the same for each address in the block-commit transaction).
@@ -1811,11 +1806,11 @@ The `addrs` list contains the same PoX address values passed into the PoX smart 
 
 const GET_STACKS_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
     input_type: "StacksBlockInfoPropertyName, uint",
-    snippet: "get-stacks-block-info? ${1:prop} ${2:block-height}",
+    snippet: "get-stacks-block-info? ${1:prop} ${2:stacks-block-height}",
     output_type: "(optional buff) | (optional uint)",
-    signature: "(get-stacks-block-info? prop-name block-height)",
+    signature: "(get-stacks-block-info? prop-name stacks-block-height)",
     description: "The `get-stacks-block-info?` function fetches data for a block of the given *Stacks* block height. The
-value and type returned are determined by the specified `StacksBlockInfoPropertyName`. If the provided `block-height` does
+value and type returned are determined by the specified `StacksBlockInfoPropertyName`. If the provided `stacks-block-height` does
 not correspond to an existing block prior to the current block, the function returns `none`. The currently available property names
 are as follows:
 
@@ -1840,11 +1835,11 @@ the mining of this block started, but is not guaranteed to be accurate. This tim
 
 const GET_TENURE_INFO_API: SpecialAPI = SpecialAPI {
     input_type: "TenureInfoPropertyName, uint",
-    snippet: "get-tenure-info? ${1:prop} ${2:block-height}",
+    snippet: "get-tenure-info? ${1:prop} ${2:stacks-block-height}",
     output_type: "(optional buff) | (optional uint)",
-    signature: "(get-tenure-info? prop-name block-height)",
+    signature: "(get-tenure-info? prop-name stacks-block-height)",
     description: "The `get-tenure-info?` function fetches data for the tenure at the given block height. The
-value and type returned are determined by the specified `TenureInfoPropertyName`. If the provided `block-height` does
+value and type returned are determined by the specified `TenureInfoPropertyName`. If the provided `stacks-block-height` does
 not correspond to an existing block prior to the current block, the function returns `none`. The currently available property names
 are as follows:
 
@@ -2526,35 +2521,35 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     use crate::vm::functions::NativeFunctions::*;
     let name = function.get_name();
     match function {
-        Add => make_for_simple_native(&ADD_API, &function, name),
-        ToUInt => make_for_simple_native(&TO_UINT_API, &function, name),
-        ToInt => make_for_simple_native(&TO_INT_API, &function, name),
-        Subtract => make_for_simple_native(&SUB_API, &function, name),
-        Multiply => make_for_simple_native(&MUL_API, &function, name),
-        Divide => make_for_simple_native(&DIV_API, &function, name),
-        BuffToIntLe => make_for_simple_native(&BUFF_TO_INT_LE_API, &function, name),
-        BuffToUIntLe => make_for_simple_native(&BUFF_TO_UINT_LE_API, &function, name),
-        BuffToIntBe => make_for_simple_native(&BUFF_TO_INT_BE_API, &function, name),
-        BuffToUIntBe => make_for_simple_native(&BUFF_TO_UINT_BE_API, &function, name),
-        IsStandard => make_for_simple_native(&IS_STANDARD_API, &function, name),
-        PrincipalDestruct => make_for_simple_native(&PRINCPIPAL_DESTRUCT_API, &function, name),
-        PrincipalConstruct => make_for_special(&PRINCIPAL_CONSTRUCT_API, &function),
-        StringToInt => make_for_simple_native(&STRING_TO_INT_API, &function, name),
-        StringToUInt => make_for_simple_native(&STRING_TO_UINT_API, &function, name),
-        IntToAscii => make_for_simple_native(&INT_TO_ASCII_API, &function, name),
-        IntToUtf8 => make_for_simple_native(&INT_TO_UTF8_API, &function, name),
-        CmpGeq => make_for_simple_native(&GEQ_API, &function, name),
-        CmpLeq => make_for_simple_native(&LEQ_API, &function, name),
-        CmpLess => make_for_simple_native(&LESS_API, &function, name),
-        CmpGreater => make_for_simple_native(&GREATER_API, &function, name),
-        Modulo => make_for_simple_native(&MOD_API, &function, name),
-        Power => make_for_simple_native(&POW_API, &function, name),
-        Sqrti => make_for_simple_native(&SQRTI_API, &function, name),
-        Log2 => make_for_simple_native(&LOG2_API, &function, name),
-        BitwiseXor => make_for_simple_native(&XOR_API, &function, name),
-        And => make_for_simple_native(&AND_API, &function, name),
-        Or => make_for_simple_native(&OR_API, &function, name),
-        Not => make_for_simple_native(&NOT_API, &function, name),
+        Add => make_for_simple_native(&ADD_API, function, name),
+        ToUInt => make_for_simple_native(&TO_UINT_API, function, name),
+        ToInt => make_for_simple_native(&TO_INT_API, function, name),
+        Subtract => make_for_simple_native(&SUB_API, function, name),
+        Multiply => make_for_simple_native(&MUL_API, function, name),
+        Divide => make_for_simple_native(&DIV_API, function, name),
+        BuffToIntLe => make_for_simple_native(&BUFF_TO_INT_LE_API, function, name),
+        BuffToUIntLe => make_for_simple_native(&BUFF_TO_UINT_LE_API, function, name),
+        BuffToIntBe => make_for_simple_native(&BUFF_TO_INT_BE_API, function, name),
+        BuffToUIntBe => make_for_simple_native(&BUFF_TO_UINT_BE_API, function, name),
+        IsStandard => make_for_simple_native(&IS_STANDARD_API, function, name),
+        PrincipalDestruct => make_for_simple_native(&PRINCPIPAL_DESTRUCT_API, function, name),
+        PrincipalConstruct => make_for_special(&PRINCIPAL_CONSTRUCT_API, function),
+        StringToInt => make_for_simple_native(&STRING_TO_INT_API, function, name),
+        StringToUInt => make_for_simple_native(&STRING_TO_UINT_API, function, name),
+        IntToAscii => make_for_simple_native(&INT_TO_ASCII_API, function, name),
+        IntToUtf8 => make_for_simple_native(&INT_TO_UTF8_API, function, name),
+        CmpGeq => make_for_simple_native(&GEQ_API, function, name),
+        CmpLeq => make_for_simple_native(&LEQ_API, function, name),
+        CmpLess => make_for_simple_native(&LESS_API, function, name),
+        CmpGreater => make_for_simple_native(&GREATER_API, function, name),
+        Modulo => make_for_simple_native(&MOD_API, function, name),
+        Power => make_for_simple_native(&POW_API, function, name),
+        Sqrti => make_for_simple_native(&SQRTI_API, function, name),
+        Log2 => make_for_simple_native(&LOG2_API, function, name),
+        BitwiseXor => make_for_simple_native(&XOR_API, function, name),
+        And => make_for_simple_native(&AND_API, function, name),
+        Or => make_for_simple_native(&OR_API, function, name),
+        Not => make_for_simple_native(&NOT_API, function, name),
         Equals => make_for_special(&EQUALS_API, function),
         If => make_for_special(&IF_API, function),
         Let => make_for_special(&LET_API, function),
@@ -2620,20 +2615,20 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BurnAsset => make_for_special(&BURN_ASSET, function),
         GetTokenSupply => make_for_special(&GET_TOKEN_SUPPLY, function),
         AtBlock => make_for_special(&AT_BLOCK, function),
-        GetStxBalance => make_for_simple_native(&STX_GET_BALANCE, &function, name),
-        StxGetAccount => make_for_simple_native(&STX_GET_ACCOUNT, &function, name),
+        GetStxBalance => make_for_simple_native(&STX_GET_BALANCE, function, name),
+        StxGetAccount => make_for_simple_native(&STX_GET_ACCOUNT, function, name),
         StxTransfer => make_for_special(&STX_TRANSFER, function),
         StxTransferMemo => make_for_special(&STX_TRANSFER_MEMO, function),
-        StxBurn => make_for_simple_native(&STX_BURN, &function, name),
+        StxBurn => make_for_simple_native(&STX_BURN, function, name),
         ToConsensusBuff => make_for_special(&TO_CONSENSUS_BUFF, function),
         FromConsensusBuff => make_for_special(&FROM_CONSENSUS_BUFF, function),
         ReplaceAt => make_for_special(&REPLACE_AT, function),
-        BitwiseXor2 => make_for_simple_native(&BITWISE_XOR_API, &function, name),
-        BitwiseAnd => make_for_simple_native(&BITWISE_AND_API, &function, name),
-        BitwiseOr => make_for_simple_native(&BITWISE_OR_API, &function, name),
-        BitwiseNot => make_for_simple_native(&BITWISE_NOT_API, &function, name),
-        BitwiseLShift => make_for_simple_native(&BITWISE_LEFT_SHIFT_API, &function, name),
-        BitwiseRShift => make_for_simple_native(&BITWISE_RIGHT_SHIFT_API, &function, name),
+        BitwiseXor2 => make_for_simple_native(&BITWISE_XOR_API, function, name),
+        BitwiseAnd => make_for_simple_native(&BITWISE_AND_API, function, name),
+        BitwiseOr => make_for_simple_native(&BITWISE_OR_API, function, name),
+        BitwiseNot => make_for_simple_native(&BITWISE_NOT_API, function, name),
+        BitwiseLShift => make_for_simple_native(&BITWISE_LEFT_SHIFT_API, function, name),
+        BitwiseRShift => make_for_simple_native(&BITWISE_RIGHT_SHIFT_API, function, name),
     }
 }
 
@@ -2726,7 +2721,7 @@ fn make_all_api_reference() -> ReferenceAPIs {
         .filter_map(make_keyword_reference)
         .collect();
 
-    keywords.sort_by(|x, y| x.name.cmp(&y.name));
+    keywords.sort_by_key(|x| x.name);
 
     ReferenceAPIs {
         functions,
@@ -2737,21 +2732,17 @@ fn make_all_api_reference() -> ReferenceAPIs {
 #[allow(clippy::expect_used)]
 pub fn make_json_api_reference() -> String {
     let api_out = make_all_api_reference();
-    format!(
-        "{}",
-        serde_json::to_string(&api_out).expect("Failed to serialize documentation")
-    )
+    serde_json::to_string(&api_out).expect("Failed to serialize documentation")
 }
 
 #[cfg(test)]
 mod test {
-    use stacks_common::address::AddressHashMode;
     use stacks_common::consts::{CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_1};
     use stacks_common::types::chainstate::{
         BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress,
         StacksBlockId, VRFSeed,
     };
-    use stacks_common::types::{Address, StacksEpochId};
+    use stacks_common::types::StacksEpochId;
     use stacks_common::util::hash::hex_bytes;
 
     use super::{get_input_type_string, make_all_api_reference, make_json_api_reference};
@@ -2765,19 +2756,18 @@ mod test {
     use crate::vm::docs::get_output_type_string;
     use crate::vm::types::signatures::{FunctionArgSignature, FunctionReturnsSignature, ASCII_40};
     use crate::vm::types::{
-        BufferLength, FunctionType, PrincipalData, SequenceSubtype, StringSubtype, TupleData,
-        TypeSignature,
+        FunctionType, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
     };
     use crate::vm::{
-        ast, eval_all, execute, ClarityVersion, ContractContext, Error, GlobalContext,
-        LimitedCostTracker, QualifiedContractIdentifier, StacksEpoch, Value,
+        ast, eval_all, execute, ClarityVersion, ContractContext, GlobalContext, LimitedCostTracker,
+        StacksEpoch, Value,
     };
 
     struct DocHeadersDB {}
     const DOC_HEADER_DB: DocHeadersDB = DocHeadersDB {};
 
     impl MemoryBackingStore {
-        pub fn as_docs_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
+        pub fn as_docs_clarity_db(&mut self) -> ClarityDatabase<'_> {
             ClarityDatabase::new(self, &DOC_HEADER_DB, &DOC_POX_STATE_DB)
         }
     }
@@ -3001,13 +2991,13 @@ mod test {
         let mut current_segment: String = "".into();
         for line in program.lines() {
             current_segment.push_str(line);
-            current_segment.push_str("\n");
+            current_segment.push('\n');
             if line.contains(";;") && line.contains("Returns ") {
                 segments.push(current_segment);
                 current_segment = "".into();
             }
         }
-        if current_segment.len() > 0 {
+        if !current_segment.is_empty() {
             segments.push(current_segment);
         }
 
@@ -3067,7 +3057,7 @@ mod test {
                     .type_map
                     .as_ref()
                     .unwrap()
-                    .get_type_expected(&analysis.expressions.last().unwrap())
+                    .get_type_expected(analysis.expressions.last().unwrap())
                     .cloned(),
             );
         }
@@ -3135,7 +3125,7 @@ mod test {
     fn test_examples() {
         // Execute test examples against the latest version of Clarity
         let apis = make_all_api_reference();
-        let token_contract_content = include_str!("../../../../sample-contracts/tokens.clar");
+        let token_contract_content = include_str!("../../../../sample/contracts/tokens.clar");
         for func_api in apis.functions.iter() {
             if func_api.name == "at-block" {
                 eprintln!("Skipping at-block, because it cannot be evaluated without a MARF");
@@ -3162,7 +3152,7 @@ mod test {
                     let mut analysis_db = store.as_analysis_db();
                     let mut parsed = ast::build_ast(
                         &contract_id,
-                        &token_contract_content,
+                        token_contract_content,
                         &mut (),
                         ClarityVersion::latest(),
                         StacksEpochId::latest(),
@@ -3178,7 +3168,7 @@ mod test {
                         &StacksEpochId::latest(),
                         &ClarityVersion::latest(),
                     )
-                    .expect("Failed to type check sample-contracts/tokens");
+                    .expect("Failed to type check sample/contracts/tokens");
                 }
 
                 {
@@ -3201,7 +3191,7 @@ mod test {
                         &StacksEpochId::latest(),
                         &ClarityVersion::latest(),
                     )
-                    .expect("Failed to type check sample-contracts/tokens");
+                    .expect("Failed to type check sample/contracts/tokens");
                 }
 
                 let conn = store.as_docs_clarity_db();
@@ -3232,7 +3222,7 @@ mod test {
 
                 env.initialize_contract(
                     contract_id,
-                    &token_contract_content,
+                    token_contract_content,
                     None,
                     ASTRules::PrecheckSize,
                 )

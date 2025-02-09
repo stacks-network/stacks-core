@@ -16,7 +16,6 @@
 
 #[warn(unused_imports)]
 use std::collections::HashMap;
-#[cfg(any(test, feature = "testing"))]
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::io::prelude::*;
@@ -638,7 +637,7 @@ pub struct RPCHandlerArgs<'a> {
     pub coord_comms: Option<&'a CoordinatorChannels>,
 }
 
-impl<'a> RPCHandlerArgs<'a> {
+impl RPCHandlerArgs<'_> {
     pub fn get_estimators_ref(
         &self,
     ) -> Option<(&dyn CostEstimator, &dyn FeeEstimator, &dyn CostMetric)> {
@@ -983,7 +982,7 @@ impl fmt::Debug for NeighborAddress {
 }
 
 impl NeighborAddress {
-    pub fn clear_public_key(&mut self) -> () {
+    pub fn clear_public_key(&mut self) {
         self.public_key_hash = Hash160([0u8; 20]);
     }
 
@@ -1385,8 +1384,8 @@ impl NeighborKey {
         na: &NeighborAddress,
     ) -> NeighborKey {
         NeighborKey {
-            peer_version: peer_version,
-            network_id: network_id,
+            peer_version,
+            network_id,
             addrbytes: na.addrbytes.clone(),
             port: na.port,
         }
@@ -1466,7 +1465,7 @@ pub const DENY_BAN_DURATION: u64 = 86400; // seconds (1 day)
 pub const DENY_MIN_BAN_DURATION: u64 = 2;
 
 /// Result of doing network work
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct NetworkResult {
     /// Stacks chain tip when we began this pass
     pub stacks_tip: StacksBlockId,
@@ -1516,6 +1515,10 @@ pub struct NetworkResult {
     pub num_connected_peers: usize,
     /// The observed burnchain height
     pub burn_height: u64,
+    /// The observed stacks coinbase height
+    pub coinbase_height: u64,
+    /// The observed stacks tip height (different in Nakamoto from coinbase height)
+    pub stacks_tip_height: u64,
     /// The consensus hash of the stacks tip (prefixed `rc_` for historical reasons)
     pub rc_consensus_hash: ConsensusHash,
     /// The current StackerDB configs
@@ -1530,6 +1533,8 @@ impl NetworkResult {
         num_download_passes: u64,
         num_connected_peers: usize,
         burn_height: u64,
+        coinbase_height: u64,
+        stacks_tip_height: u64,
         rc_consensus_hash: ConsensusHash,
         stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
     ) -> NetworkResult {
@@ -1553,57 +1558,541 @@ impl NetworkResult {
             attachments: vec![],
             synced_transactions: vec![],
             stacker_db_sync_results: vec![],
-            num_state_machine_passes: num_state_machine_passes,
-            num_inv_sync_passes: num_inv_sync_passes,
-            num_download_passes: num_download_passes,
+            num_state_machine_passes,
+            num_inv_sync_passes,
+            num_download_passes,
             num_connected_peers,
             burn_height,
+            coinbase_height,
+            stacks_tip_height,
             rc_consensus_hash,
             stacker_db_configs,
         }
     }
 
+    /// Get the set of all StacksBlocks represented
+    fn all_block_ids(&self) -> HashSet<StacksBlockId> {
+        let mut blocks: HashSet<_> = self
+            .blocks
+            .iter()
+            .map(|(ch, blk, _)| StacksBlockId::new(ch, &blk.block_hash()))
+            .collect();
+
+        let pushed_blocks: HashSet<_> = self
+            .pushed_blocks
+            .values()
+            .flat_map(|block_list| {
+                block_list.iter().flat_map(|block_data| {
+                    block_data
+                        .blocks
+                        .iter()
+                        .map(|block_datum| {
+                            StacksBlockId::new(&block_datum.0, &block_datum.1.block_hash())
+                        })
+                        .collect::<HashSet<_>>()
+                })
+            })
+            .collect();
+
+        let uploaded_blocks: HashSet<_> = self
+            .uploaded_blocks
+            .iter()
+            .flat_map(|blk_data| {
+                blk_data
+                    .blocks
+                    .iter()
+                    .map(|blk| StacksBlockId::new(&blk.0, &blk.1.block_hash()))
+            })
+            .collect();
+
+        blocks.extend(pushed_blocks);
+        blocks.extend(uploaded_blocks);
+        blocks
+    }
+
+    /// Get the set of all microblocks represented
+    fn all_microblock_hashes(&self) -> HashSet<BlockHeaderHash> {
+        let mut mblocks: HashSet<_> = self
+            .confirmed_microblocks
+            .iter()
+            .flat_map(|(_, mblocks, _)| mblocks.iter().map(|mblk| mblk.block_hash()))
+            .collect();
+
+        let pushed_microblocks: HashSet<_> = self
+            .pushed_microblocks
+            .values()
+            .flat_map(|mblock_list| {
+                mblock_list.iter().flat_map(|(_, mblock_data)| {
+                    mblock_data
+                        .microblocks
+                        .iter()
+                        .map(|mblock| mblock.block_hash())
+                })
+            })
+            .collect();
+
+        let uploaded_microblocks: HashSet<_> = self
+            .uploaded_microblocks
+            .iter()
+            .flat_map(|mblk_data| mblk_data.microblocks.iter().map(|mblk| mblk.block_hash()))
+            .collect();
+
+        mblocks.extend(pushed_microblocks);
+        mblocks.extend(uploaded_microblocks);
+        mblocks
+    }
+
+    /// Get the set of all nakamoto blocks represented
+    fn all_nakamoto_block_ids(&self) -> HashSet<StacksBlockId> {
+        let mut naka_block_ids: HashSet<_> = self
+            .nakamoto_blocks
+            .values()
+            .map(|nblk| nblk.block_id())
+            .collect();
+
+        let pushed_nakamoto_blocks: HashSet<_> = self
+            .pushed_nakamoto_blocks
+            .values()
+            .map(|naka_blocks_list| {
+                naka_blocks_list
+                    .iter()
+                    .map(|(_, naka_blocks)| {
+                        naka_blocks
+                            .blocks
+                            .iter()
+                            .map(|nblk| nblk.block_id())
+                            .collect::<HashSet<_>>()
+                    })
+                    .collect::<Vec<HashSet<_>>>()
+            })
+            .collect::<Vec<Vec<HashSet<_>>>>()
+            .into_iter()
+            .flatten()
+            .fold(HashSet::new(), |mut acc, next| {
+                acc.extend(next);
+                acc
+            });
+
+        let uploaded_nakamoto_blocks: HashSet<_> = self
+            .uploaded_nakamoto_blocks
+            .iter()
+            .map(|nblk| nblk.block_id())
+            .collect();
+
+        naka_block_ids.extend(pushed_nakamoto_blocks);
+        naka_block_ids.extend(uploaded_nakamoto_blocks);
+        naka_block_ids
+    }
+
+    /// Get the set of all txids represented
+    fn all_txids(&self) -> HashSet<Txid> {
+        let mut txids: HashSet<_> = self
+            .uploaded_transactions
+            .iter()
+            .map(|tx| tx.txid())
+            .collect();
+        let pushed_txids: HashSet<_> = self
+            .pushed_transactions
+            .values()
+            .map(|tx_list| {
+                tx_list
+                    .iter()
+                    .map(|(_, tx)| tx.txid())
+                    .collect::<HashSet<_>>()
+            })
+            .collect::<Vec<HashSet<_>>>()
+            .into_iter()
+            .fold(HashSet::new(), |mut acc, next| {
+                acc.extend(next);
+                acc
+            });
+
+        let synced_txids: HashSet<_> = self
+            .synced_transactions
+            .iter()
+            .map(|tx| tx.txid())
+            .collect();
+
+        txids.extend(pushed_txids);
+        txids.extend(synced_txids);
+        txids
+    }
+
+    /// Get all unhandled message signatures.
+    /// This is unique per message.
+    fn all_msg_sigs(&self) -> HashSet<MessageSignature> {
+        self.unhandled_messages
+            .values()
+            .map(|msgs| {
+                msgs.iter()
+                    .map(|msg| msg.preamble.signature.clone())
+                    .collect::<HashSet<_>>()
+            })
+            .fold(HashSet::new(), |mut acc, next| {
+                acc.extend(next);
+                acc
+            })
+    }
+
+    /// Merge self into `newer`, and return `newer`.
+    /// deduplicate messages when possible.
+    pub fn update(mut self, mut newer: NetworkResult) -> Self {
+        // merge unhandled messaegs, but deduplicate
+        let newer_msgs = newer.all_msg_sigs();
+        for (nk, mut msgs) in self.unhandled_messages.drain() {
+            msgs.retain(|msg| {
+                let retain = !newer_msgs.contains(&msg.preamble.signature);
+                if !retain {
+                    debug!(
+                        "Drop duplicate p2p message {} seq {}",
+                        &msg.get_message_name(),
+                        &msg.preamble.seq
+                    );
+                }
+                retain
+            });
+            if let Some(newer_msgs) = newer.unhandled_messages.get_mut(&nk) {
+                newer_msgs.append(&mut msgs);
+            } else {
+                newer.unhandled_messages.insert(nk, msgs);
+            }
+        }
+
+        let newer_blocks = newer.all_block_ids();
+        let newer_microblocks = newer.all_microblock_hashes();
+        let newer_naka_blocks = newer.all_nakamoto_block_ids();
+        let newer_txids = newer.all_txids();
+
+        // only retain blocks not found in `newer`
+        self.blocks.retain(|(ch, blk, _)| {
+            let block_id = StacksBlockId::new(ch, &blk.block_hash());
+            let retain = !newer_blocks.contains(&block_id);
+            if !retain {
+                debug!("Drop duplicate downloaded block {}", &block_id);
+            }
+            retain
+        });
+        newer.blocks.append(&mut self.blocks);
+
+        // merge microblocks, but deduplicate
+        self.confirmed_microblocks
+            .retain_mut(|(_, ref mut mblocks, _)| {
+                mblocks.retain(|mblk| {
+                    let retain = !newer_microblocks.contains(&mblk.block_hash());
+                    if !retain {
+                        debug!(
+                            "Drop duplicate downloaded microblock {}",
+                            &mblk.block_hash()
+                        );
+                    }
+                    retain
+                });
+                !mblocks.is_empty()
+            });
+        newer
+            .confirmed_microblocks
+            .append(&mut self.confirmed_microblocks);
+
+        // merge nakamoto blocks, but deduplicate
+        self.nakamoto_blocks.retain(|_, nblk| {
+            let retain = !newer_naka_blocks.contains(&nblk.block_id());
+            if !retain {
+                debug!(
+                    "Drop duplicate downloaded nakamoto block {}",
+                    &nblk.block_id()
+                );
+            }
+            retain
+        });
+        newer.nakamoto_blocks.extend(self.nakamoto_blocks.drain());
+
+        // merge pushed transactions, but deduplicate
+        for (nk, mut tx_data) in self.pushed_transactions.drain() {
+            tx_data.retain(|(_, tx)| {
+                let retain = !newer_txids.contains(&tx.txid());
+                if !retain {
+                    debug!("Drop duplicate pushed transaction {}", &tx.txid());
+                }
+                retain
+            });
+            if tx_data.is_empty() {
+                continue;
+            }
+
+            if let Some(newer_tx_data) = newer.pushed_transactions.get_mut(&nk) {
+                newer_tx_data.append(&mut tx_data);
+            } else {
+                newer.pushed_transactions.insert(nk, tx_data);
+            }
+        }
+
+        // merge pushed blocks, but deduplicate
+        for (nk, mut block_list) in self.pushed_blocks.drain() {
+            block_list.retain_mut(|ref mut block_data| {
+                block_data.blocks.retain(|blk_datum| {
+                    let block_id = StacksBlockId::new(&blk_datum.0, &blk_datum.1.block_hash());
+                    let retain = !newer_blocks.contains(&block_id);
+                    if !retain {
+                        debug!("Drop duplicate pushed block {}", &block_id);
+                    }
+                    retain
+                });
+                !block_data.blocks.is_empty()
+            });
+            if block_list.is_empty() {
+                continue;
+            }
+
+            if let Some(newer_block_data) = newer.pushed_blocks.get_mut(&nk) {
+                newer_block_data.append(&mut block_list);
+            } else {
+                newer.pushed_blocks.insert(nk, block_list);
+            }
+        }
+
+        // merge pushed microblocks, but deduplicate
+        for (nk, mut microblock_data) in self.pushed_microblocks.drain() {
+            microblock_data.retain_mut(|(_, ref mut mblock_data)| {
+                mblock_data.microblocks.retain(|mblk| {
+                    let retain = !newer_microblocks.contains(&mblk.block_hash());
+                    if !retain {
+                        debug!("Drop duplicate pushed microblock {}", &mblk.block_hash());
+                    }
+                    retain
+                });
+                !mblock_data.microblocks.is_empty()
+            });
+            if microblock_data.is_empty() {
+                continue;
+            }
+
+            if let Some(newer_microblock_data) = newer.pushed_microblocks.get_mut(&nk) {
+                newer_microblock_data.append(&mut microblock_data);
+            } else {
+                newer.pushed_microblocks.insert(nk, microblock_data);
+            }
+        }
+
+        // merge pushed nakamoto blocks, but deduplicate
+        for (nk, mut nakamoto_block_data) in self.pushed_nakamoto_blocks.drain() {
+            nakamoto_block_data.retain_mut(|(_, ref mut naka_blocks)| {
+                naka_blocks.blocks.retain(|nblk| {
+                    let retain = !newer_naka_blocks.contains(&nblk.block_id());
+                    if !retain {
+                        debug!("Drop duplicate pushed nakamoto block {}", &nblk.block_id());
+                    }
+                    retain
+                });
+                !naka_blocks.blocks.is_empty()
+            });
+            if nakamoto_block_data.is_empty() {
+                continue;
+            }
+
+            if let Some(newer_nakamoto_data) = newer.pushed_nakamoto_blocks.get_mut(&nk) {
+                newer_nakamoto_data.append(&mut nakamoto_block_data);
+            } else {
+                newer.pushed_nakamoto_blocks.insert(nk, nakamoto_block_data);
+            }
+        }
+
+        // merge uploaded data, but deduplicate
+        self.uploaded_transactions.retain(|tx| {
+            let retain = !newer_txids.contains(&tx.txid());
+            if !retain {
+                debug!("Drop duplicate uploaded transaction {}", &tx.txid());
+            }
+            retain
+        });
+        self.uploaded_blocks.retain_mut(|ref mut blk_data| {
+            blk_data.blocks.retain(|blk| {
+                let block_id = StacksBlockId::new(&blk.0, &blk.1.block_hash());
+                let retain = !newer_blocks.contains(&block_id);
+                if !retain {
+                    debug!("Drop duplicate uploaded block {}", &block_id);
+                }
+                retain
+            });
+
+            !blk_data.blocks.is_empty()
+        });
+        self.uploaded_microblocks.retain_mut(|ref mut mblock_data| {
+            mblock_data.microblocks.retain(|mblk| {
+                let retain = !newer_microblocks.contains(&mblk.block_hash());
+                if !retain {
+                    debug!("Drop duplicate uploaded microblock {}", &mblk.block_hash());
+                }
+                retain
+            });
+
+            !mblock_data.microblocks.is_empty()
+        });
+        self.uploaded_nakamoto_blocks.retain(|nblk| {
+            let retain = !newer_naka_blocks.contains(&nblk.block_id());
+            if !retain {
+                debug!(
+                    "Drop duplicate uploaded nakamoto block {}",
+                    &nblk.block_id()
+                );
+            }
+            retain
+        });
+
+        newer
+            .uploaded_transactions
+            .append(&mut self.uploaded_transactions);
+        newer.uploaded_blocks.append(&mut self.uploaded_blocks);
+        newer
+            .uploaded_microblocks
+            .append(&mut self.uploaded_microblocks);
+        newer
+            .uploaded_nakamoto_blocks
+            .append(&mut self.uploaded_nakamoto_blocks);
+
+        // merge uploaded/pushed stackerdb, but drop stale versions
+        let newer_stackerdb_chunk_versions: HashMap<_, _> = newer
+            .uploaded_stackerdb_chunks
+            .iter()
+            .chain(newer.pushed_stackerdb_chunks.iter())
+            .map(|chunk| {
+                (
+                    (
+                        chunk.contract_id.clone(),
+                        chunk.rc_consensus_hash.clone(),
+                        chunk.chunk_data.slot_id,
+                    ),
+                    chunk.chunk_data.slot_version,
+                )
+            })
+            .collect();
+
+        self.uploaded_stackerdb_chunks.retain(|push_chunk| {
+            if push_chunk.rc_consensus_hash != newer.rc_consensus_hash {
+                debug!(
+                    "Drop pushed StackerDB chunk for {} due to stale view ({} != {}): {:?}",
+                    &push_chunk.contract_id,
+                    &push_chunk.rc_consensus_hash,
+                    &newer.rc_consensus_hash,
+                    &push_chunk.chunk_data
+                );
+                return false;
+            }
+            if let Some(version) = newer_stackerdb_chunk_versions.get(&(
+                push_chunk.contract_id.clone(),
+                push_chunk.rc_consensus_hash.clone(),
+                push_chunk.chunk_data.slot_id,
+            )) {
+                let retain = push_chunk.chunk_data.slot_version > *version;
+                if !retain {
+                    debug!(
+                        "Drop pushed StackerDB chunk for {} due to stale version: {:?}",
+                        &push_chunk.contract_id, &push_chunk.chunk_data
+                    );
+                }
+                retain
+            } else {
+                true
+            }
+        });
+
+        self.pushed_stackerdb_chunks.retain(|push_chunk| {
+            if push_chunk.rc_consensus_hash != newer.rc_consensus_hash {
+                debug!(
+                    "Drop uploaded StackerDB chunk for {} due to stale view ({} != {}): {:?}",
+                    &push_chunk.contract_id,
+                    &push_chunk.rc_consensus_hash,
+                    &newer.rc_consensus_hash,
+                    &push_chunk.chunk_data
+                );
+                return false;
+            }
+            if let Some(version) = newer_stackerdb_chunk_versions.get(&(
+                push_chunk.contract_id.clone(),
+                push_chunk.rc_consensus_hash.clone(),
+                push_chunk.chunk_data.slot_id,
+            )) {
+                let retain = push_chunk.chunk_data.slot_version > *version;
+                if !retain {
+                    debug!(
+                        "Drop uploaded StackerDB chunk for {} due to stale version: {:?}",
+                        &push_chunk.contract_id, &push_chunk.chunk_data
+                    );
+                }
+                retain
+            } else {
+                true
+            }
+        });
+
+        newer
+            .uploaded_stackerdb_chunks
+            .append(&mut self.uploaded_stackerdb_chunks);
+        newer
+            .pushed_stackerdb_chunks
+            .append(&mut self.pushed_stackerdb_chunks);
+
+        // dedup sync'ed transactions
+        self.synced_transactions.retain(|tx| {
+            let retain = !newer_txids.contains(&tx.txid());
+            if !retain {
+                debug!("Drop duplicate sync'ed transaction {}", &tx.txid());
+            }
+            retain
+        });
+
+        newer
+            .synced_transactions
+            .append(&mut self.synced_transactions);
+
+        // no dedup here, but do merge
+        newer
+            .stacker_db_sync_results
+            .append(&mut self.stacker_db_sync_results);
+        newer.attachments.append(&mut self.attachments);
+
+        newer
+    }
+
     pub fn has_blocks(&self) -> bool {
-        self.blocks.len() > 0 || self.pushed_blocks.len() > 0
+        !self.blocks.is_empty() || !self.pushed_blocks.is_empty()
     }
 
     pub fn has_microblocks(&self) -> bool {
-        self.confirmed_microblocks.len() > 0
-            || self.pushed_microblocks.len() > 0
-            || self.uploaded_microblocks.len() > 0
+        !self.confirmed_microblocks.is_empty()
+            || !self.pushed_microblocks.is_empty()
+            || !self.uploaded_microblocks.is_empty()
     }
 
     pub fn has_nakamoto_blocks(&self) -> bool {
-        self.nakamoto_blocks.len() > 0
-            || self.pushed_nakamoto_blocks.len() > 0
-            || self.uploaded_nakamoto_blocks.len() > 0
+        !self.nakamoto_blocks.is_empty()
+            || !self.pushed_nakamoto_blocks.is_empty()
+            || !self.uploaded_nakamoto_blocks.is_empty()
     }
 
     pub fn has_transactions(&self) -> bool {
-        self.pushed_transactions.len() > 0
-            || self.uploaded_transactions.len() > 0
-            || self.synced_transactions.len() > 0
+        !self.pushed_transactions.is_empty()
+            || !self.uploaded_transactions.is_empty()
+            || !self.synced_transactions.is_empty()
     }
 
     pub fn has_attachments(&self) -> bool {
-        self.attachments.len() > 0
+        !self.attachments.is_empty()
     }
 
     pub fn has_stackerdb_chunks(&self) -> bool {
         self.stacker_db_sync_results
             .iter()
-            .fold(0, |acc, x| acc + x.chunks_to_store.len())
-            > 0
-            || self.uploaded_stackerdb_chunks.len() > 0
-            || self.pushed_stackerdb_chunks.len() > 0
+            .any(|x| !x.chunks_to_store.is_empty())
+            || !self.uploaded_stackerdb_chunks.is_empty()
+            || !self.pushed_stackerdb_chunks.is_empty()
     }
 
     pub fn transactions(&self) -> Vec<StacksTransaction> {
         self.pushed_transactions
             .values()
             .flat_map(|pushed_txs| pushed_txs.iter().map(|(_, tx)| tx.clone()))
-            .chain(self.uploaded_transactions.iter().map(|x| x.clone()))
-            .chain(self.synced_transactions.iter().map(|x| x.clone()))
+            .chain(self.uploaded_transactions.iter().cloned())
+            .chain(self.synced_transactions.iter().cloned())
             .collect()
     }
 
@@ -1614,6 +2103,10 @@ impl NetworkResult {
             || self.has_transactions()
             || self.has_attachments()
             || self.has_stackerdb_chunks()
+    }
+
+    pub fn has_block_data_to_store(&self) -> bool {
+        self.has_blocks() || self.has_microblocks() || self.has_nakamoto_blocks()
     }
 
     pub fn consume_unsolicited(&mut self, unhandled_messages: PendingMessages) {
@@ -1673,7 +2166,7 @@ impl NetworkResult {
         }
     }
 
-    pub fn consume_http_uploads(&mut self, msgs: Vec<StacksMessageType>) -> () {
+    pub fn consume_http_uploads(&mut self, msgs: Vec<StacksMessageType>) {
         for msg in msgs.into_iter() {
             match msg {
                 StacksMessageType::Transaction(tx_data) => {
@@ -1734,6 +2227,7 @@ pub mod test {
 
     use clarity::boot_util::boot_code_id;
     use clarity::types::sqlite::NO_PARAMS;
+    use clarity::vm::ast::parser::v1::CONTRACT_MAX_NAME_LENGTH;
     use clarity::vm::ast::ASTRules;
     use clarity::vm::costs::ExecutionCost;
     use clarity::vm::database::STXBalance;
@@ -1782,7 +2276,7 @@ pub mod test {
     use crate::chainstate::stacks::{StacksMicroblockHeader, *};
     use crate::chainstate::*;
     use crate::clarity::vm::clarity::TransactionConnection;
-    use crate::core::{StacksEpoch, StacksEpochExtension, NETWORK_P2P_PORT};
+    use crate::core::{EpochList, StacksEpoch, StacksEpochExtension, NETWORK_P2P_PORT};
     use crate::net::asn::*;
     use crate::net::atlas::*;
     use crate::net::chat::*;
@@ -1837,23 +2331,23 @@ pub mod test {
             }
         }
 
-        pub fn close(&mut self) -> () {
+        pub fn close(&mut self) {
             self.closed = true;
         }
 
-        pub fn block(&mut self) -> () {
+        pub fn block(&mut self) {
             self.block = true;
         }
 
-        pub fn unblock(&mut self) -> () {
+        pub fn unblock(&mut self) {
             self.block = false;
         }
 
-        pub fn set_read_error(&mut self, e: Option<io::ErrorKind>) -> () {
+        pub fn set_read_error(&mut self, e: Option<io::ErrorKind>) {
             self.read_error = e;
         }
 
-        pub fn set_write_error(&mut self, e: Option<io::ErrorKind>) -> () {
+        pub fn set_write_error(&mut self, e: Option<io::ErrorKind>) {
             self.write_error = e;
         }
     }
@@ -1882,11 +2376,8 @@ pub mod test {
             if self.closed {
                 return Ok(0);
             }
-            match self.read_error {
-                Some(ref e) => {
-                    return Err(io::Error::from((*e).clone()));
-                }
-                None => {}
+            if let Some(ref e) = self.read_error {
+                return Err(io::Error::from((*e).clone()));
             }
 
             let sz = self.c.read(buf)?;
@@ -1909,11 +2400,8 @@ pub mod test {
             if self.closed {
                 return Err(io::Error::from(ErrorKind::Other)); // EBADF
             }
-            match self.write_error {
-                Some(ref e) => {
-                    return Err(io::Error::from((*e).clone()));
-                }
-                None => {}
+            if let Some(ref e) = self.write_error {
+                return Err(io::Error::from((*e).clone()));
             }
             self.c.write(buf)
         }
@@ -2046,7 +2534,7 @@ pub mod test {
                 parent: parent.clone(),
                 winner_txid,
                 matured_rewards: matured_rewards.to_owned(),
-                matured_rewards_info: matured_rewards_info.map(|info| info.clone()),
+                matured_rewards_info: matured_rewards_info.cloned(),
                 reward_set_data: reward_set_data.clone(),
             })
         }
@@ -2058,6 +2546,7 @@ pub mod test {
             _rewards: Vec<(PoxAddress, u64)>,
             _burns: u64,
             _reward_recipients: Vec<PoxAddress>,
+            _consensus_hash: &ConsensusHash,
         ) {
             // pass
         }
@@ -2087,7 +2576,7 @@ pub mod test {
         pub initial_lockups: Vec<ChainstateAccountLockup>,
         pub spending_account: TestMiner,
         pub setup_code: String,
-        pub epochs: Option<Vec<StacksEpoch>>,
+        pub epochs: Option<EpochList>,
         /// If some(), TestPeer should check the PoX-2 invariants
         /// on cycle numbers bounded (inclusive) by the supplied u64s
         pub check_pox_invariants: Option<(u64, u64)>,
@@ -2127,11 +2616,11 @@ pub mod test {
                 network_id: 0x80000000,
                 peer_version: 0x01020304,
                 current_block: start_block + (burnchain.consensus_hash_lifetime + 1) as u64,
-                private_key: Secp256k1PrivateKey::new(),
+                private_key: Secp256k1PrivateKey::random(),
                 private_key_expire: start_block + conn_opts.private_key_lifetime,
                 initial_neighbors: vec![],
                 asn4_entries: vec![],
-                burnchain: burnchain,
+                burnchain,
                 connection_opts: conn_opts,
                 server_port: 32000,
                 http_port: 32001,
@@ -2143,7 +2632,7 @@ pub mod test {
                 test_name: "".into(),
                 initial_balances: vec![],
                 initial_lockups: vec![],
-                spending_account: spending_account,
+                spending_account,
                 setup_code: "".into(),
                 epochs: None,
                 check_pox_invariants: None,
@@ -2183,7 +2672,7 @@ pub mod test {
             config
         }
 
-        pub fn add_neighbor(&mut self, n: &Neighbor) -> () {
+        pub fn add_neighbor(&mut self, n: &Neighbor) {
             self.initial_neighbors.push(n.clone());
         }
 
@@ -2303,12 +2792,9 @@ pub mod test {
         }
 
         pub fn make_test_path(config: &TestPeerConfig) -> String {
-            let test_path = TestPeer::test_path(&config);
-            match fs::metadata(&test_path) {
-                Ok(_) => {
-                    fs::remove_dir_all(&test_path).unwrap();
-                }
-                Err(_) => {}
+            let test_path = TestPeer::test_path(config);
+            if fs::metadata(&test_path).is_ok() {
+                fs::remove_dir_all(&test_path).unwrap();
             };
 
             fs::create_dir_all(&test_path).unwrap();
@@ -2328,7 +2814,7 @@ pub mod test {
                 let initial_peers = PeerDB::find_stacker_db_replicas(
                     peerdb.conn(),
                     local_peer.network_id,
-                    &contract_id,
+                    contract_id,
                     0,
                     10000000,
                 )
@@ -2341,7 +2827,7 @@ pub mod test {
                 let stacker_dbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
                 let stacker_db_sync = StackerDBSync::new(
                     contract_id.clone(),
-                    &db_config,
+                    db_config,
                     PeerNetworkComms::new(),
                     stacker_dbs,
                 );
@@ -2434,10 +2920,10 @@ pub mod test {
             .unwrap();
             {
                 // bootstrap nodes *always* allowed
-                let mut tx = peerdb.tx_begin().unwrap();
+                let tx = peerdb.tx_begin().unwrap();
                 for initial_neighbor in config.initial_neighbors.iter() {
                     PeerDB::set_allow_peer(
-                        &mut tx,
+                        &tx,
                         initial_neighbor.addr.network_id,
                         &initial_neighbor.addr.addrbytes,
                         initial_neighbor.addr.port,
@@ -2445,7 +2931,7 @@ pub mod test {
                     )
                     .unwrap();
                 }
-                PeerDB::set_local_services(&mut tx, config.services).unwrap();
+                PeerDB::set_local_services(&tx, config.services).unwrap();
                 tx.commit().unwrap();
             }
 
@@ -2465,7 +2951,7 @@ pub mod test {
                     debug!("Not setting aggregate public key");
                 }
                 // add test-specific boot code
-                if conf.setup_code.len() > 0 {
+                if !conf.setup_code.is_empty() {
                     let receipt = clarity_tx.connection().as_transaction(|clarity| {
                         let boot_code_addr = boot_code_test_addr();
                         let boot_code_account = StacksAccount {
@@ -2486,7 +2972,17 @@ pub mod test {
                         let smart_contract = TransactionPayload::SmartContract(
                             TransactionSmartContract {
                                 name: ContractName::try_from(
-                                    conf.test_name.replace("::", "-").to_string(),
+                                    conf.test_name
+                                        .replace("::", "-")
+                                        .chars()
+                                        .skip(
+                                            conf.test_name
+                                                .len()
+                                                .saturating_sub(CONTRACT_MAX_NAME_LENGTH),
+                                        )
+                                        .collect::<String>()
+                                        .trim_start_matches(|c: char| !c.is_alphabetic())
+                                        .to_string(),
                                 )
                                 .expect("FATAL: invalid boot-code contract name"),
                                 code_body: StacksString::from_str(&conf.setup_code)
@@ -2497,7 +2993,7 @@ pub mod test {
 
                         let boot_code_smart_contract = StacksTransaction::new(
                             TransactionVersion::Testnet,
-                            boot_code_auth.clone(),
+                            boot_code_auth,
                             smart_contract,
                         );
                         StacksChainState::process_transaction_payload(
@@ -2522,7 +3018,7 @@ pub mod test {
             if !config.initial_lockups.is_empty() {
                 let lockups = config.initial_lockups.clone();
                 boot_data.get_bulk_initial_lockups =
-                    Some(Box::new(move || Box::new(lockups.into_iter().map(|e| e))));
+                    Some(Box::new(move || Box::new(lockups.into_iter())));
             }
 
             let (chainstate, _) = StacksChainState::open_and_exec(
@@ -2576,9 +3072,9 @@ pub mod test {
                 SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), config.http_port);
 
             {
-                let mut tx = peerdb.tx_begin().unwrap();
+                let tx = peerdb.tx_begin().unwrap();
                 PeerDB::set_local_ipaddr(
-                    &mut tx,
+                    &tx,
                     &PeerAddress::from_socketaddr(&SocketAddr::new(
                         IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
                         config.server_port,
@@ -2586,19 +3082,15 @@ pub mod test {
                     config.server_port,
                 )
                 .unwrap();
-                PeerDB::set_local_private_key(
-                    &mut tx,
-                    &config.private_key,
-                    config.private_key_expire,
-                )
-                .unwrap();
+                PeerDB::set_local_private_key(&tx, &config.private_key, config.private_key_expire)
+                    .unwrap();
 
                 tx.commit().unwrap();
             }
 
             let local_peer = PeerDB::get_local_peer(peerdb.conn()).unwrap();
             let burnchain_view = {
-                let chaintip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+                let chaintip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
                 SortitionDB::get_burnchain_view(&sortdb.index_conn(), &config.burnchain, &chaintip)
                     .unwrap()
             };
@@ -2623,27 +3115,29 @@ pub mod test {
                     &mut stacks_node.chainstate,
                     &sortdb,
                     old_stackerdb_configs,
-                    config.connection_opts.num_neighbors,
+                    &config.connection_opts,
                 )
                 .expect("Failed to refresh stackerdb configs");
 
             let stacker_db_syncs =
                 Self::init_stackerdb_syncs(&test_path, &peerdb, &mut stackerdb_configs);
 
-            let stackerdb_contracts: Vec<_> =
-                stacker_db_syncs.keys().map(|cid| cid.clone()).collect();
+            let stackerdb_contracts: Vec<_> = stacker_db_syncs.keys().cloned().collect();
+
+            let burnchain_db = config.burnchain.open_burnchain_db(false).unwrap();
 
             let mut peer_network = PeerNetwork::new(
                 peerdb,
                 atlasdb,
                 p2p_stacker_dbs,
+                burnchain_db,
                 local_peer,
                 config.peer_version,
                 config.burnchain.clone(),
                 burnchain_view,
                 config.connection_opts.clone(),
                 stacker_db_syncs,
-                epochs.clone(),
+                epochs,
             );
             peer_network.set_stacker_db_configs(config.get_stacker_db_configs());
 
@@ -2683,15 +3177,15 @@ pub mod test {
             peer_network.local_peer = local_peer;
 
             TestPeer {
-                config: config,
+                config,
                 network: peer_network,
                 sortdb: Some(sortdb),
                 miner,
                 stacks_node: Some(stacks_node),
-                relayer: relayer,
+                relayer,
                 mempool: Some(mempool),
-                chainstate_path: chainstate_path,
-                coord: coord,
+                chainstate_path,
+                coord,
                 indexer: Some(indexer),
                 malleablized_blocks: vec![],
                 mine_malleablized_blocks: true,
@@ -2719,7 +3213,7 @@ pub mod test {
             self.network.chain_view = chain_view;
 
             for n in self.config.initial_neighbors.iter() {
-                self.network.connect_peer(&n.addr).and_then(|e| Ok(()))?;
+                self.network.connect_peer(&n.addr).map(|_| ())?;
             }
             Ok(())
         }
@@ -2734,8 +3228,8 @@ pub mod test {
             stacker_dbs: Option<&[QualifiedContractIdentifier]>,
             bootstrap: bool,
         ) {
-            let mut tx = self.network.peerdb.tx_begin().unwrap();
-            n.save(&mut tx, stacker_dbs).unwrap();
+            let tx = self.network.peerdb.tx_begin().unwrap();
+            n.save(&tx, stacker_dbs).unwrap();
             if bootstrap {
                 PeerDB::set_initial_peer(
                     &tx,
@@ -2803,7 +3297,7 @@ pub mod test {
             ibd: bool,
             dns_client: Option<&mut DNSClient>,
         ) -> Result<NetworkResult, net_error> {
-            let mut sortdb = self.sortdb.take().unwrap();
+            let sortdb = self.sortdb.take().unwrap();
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
             let indexer = self.indexer.take().unwrap();
@@ -2812,7 +3306,7 @@ pub mod test {
 
             let ret = self.network.run(
                 &indexer,
-                &mut sortdb,
+                &sortdb,
                 &mut stacks_node.chainstate,
                 &mut mempool,
                 dns_client,
@@ -2862,11 +3356,11 @@ pub mod test {
             self.coord.handle_new_stacks_block().unwrap();
             self.coord.handle_new_nakamoto_stacks_block().unwrap();
 
-            receipts_res.and_then(|receipts| Ok((net_result, receipts)))
+            receipts_res.map(|receipts| (net_result, receipts))
         }
 
         pub fn step_dns(&mut self, dns_client: &mut DNSClient) -> Result<NetworkResult, net_error> {
-            let mut sortdb = self.sortdb.take().unwrap();
+            let sortdb = self.sortdb.take().unwrap();
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
             let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
@@ -2892,7 +3386,7 @@ pub mod test {
 
             let ret = self.network.run(
                 &indexer,
-                &mut sortdb,
+                &sortdb,
                 &mut stacks_node.chainstate,
                 &mut mempool,
                 Some(dns_client),
@@ -2914,10 +3408,30 @@ pub mod test {
             let mut stacks_node = self.stacks_node.take().unwrap();
             let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
 
-            let old_tip = self.network.stacks_tip.clone();
-
             self.network
                 .refresh_burnchain_view(&indexer, &sortdb, &mut stacks_node.chainstate, false)
+                .unwrap();
+
+            self.sortdb = Some(sortdb);
+            self.stacks_node = Some(stacks_node);
+        }
+
+        pub fn refresh_reward_cycles(&mut self) {
+            let sortdb = self.sortdb.take().unwrap();
+            let mut stacks_node = self.stacks_node.take().unwrap();
+
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+            let tip_block_id = self.network.stacks_tip.block_id();
+            let tip_height = self.network.stacks_tip.height;
+
+            self.network
+                .refresh_reward_cycles(
+                    &sortdb,
+                    &mut stacks_node.chainstate,
+                    &tip,
+                    &tip_block_id,
+                    tip_height,
+                )
                 .unwrap();
 
             self.sortdb = Some(sortdb);
@@ -3035,11 +3549,8 @@ pub mod test {
             ch: &ConsensusHash,
         ) {
             for op in blockstack_ops.iter_mut() {
-                match op {
-                    BlockstackOperationType::LeaderKeyRegister(ref mut data) => {
-                        data.consensus_hash = (*ch).clone();
-                    }
-                    _ => {}
+                if let BlockstackOperationType::LeaderKeyRegister(ref mut data) = op {
+                    data.consensus_hash = (*ch).clone();
                 }
             }
         }
@@ -3124,7 +3635,7 @@ pub mod test {
             indexer.raw_store_header(block_header.clone()).unwrap();
             burnchain_db
                 .raw_store_burnchain_block(
-                    &burnchain,
+                    burnchain,
                     &indexer,
                     block_header.clone(),
                     blockstack_ops,
@@ -3132,7 +3643,7 @@ pub mod test {
                 .unwrap();
 
             Burnchain::process_affirmation_maps(
-                &burnchain,
+                burnchain,
                 &mut burnchain_db,
                 &indexer,
                 block_header.block_height,
@@ -3167,8 +3678,8 @@ pub mod test {
         ) {
             let sortdb = self.sortdb.take().unwrap();
             let (block_height, block_hash, epoch_id) = {
-                let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-                let epoch_id = SortitionDB::get_stacks_epoch(&sortdb.conn(), tip.block_height + 1)
+                let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+                let epoch_id = SortitionDB::get_stacks_epoch(sortdb.conn(), tip.block_height + 1)
                     .unwrap()
                     .unwrap()
                     .epoch_id;
@@ -3207,12 +3718,10 @@ pub mod test {
                     .handle_new_burnchain_block()
                     .unwrap()
                     .into_missing_block_hash()
+            } else if self.coord.handle_new_nakamoto_burnchain_block().unwrap() {
+                None
             } else {
-                if self.coord.handle_new_nakamoto_burnchain_block().unwrap() {
-                    None
-                } else {
-                    Some(BlockHeaderHash([0x00; 32]))
-                }
+                Some(BlockHeaderHash([0x00; 32]))
             };
 
             let pox_id = {
@@ -3229,7 +3738,7 @@ pub mod test {
                 &pox_id
             );
 
-            let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
             self.sortdb = Some(sortdb);
             (
                 block_height,
@@ -3309,9 +3818,9 @@ pub mod test {
         /// Validate them and store them to staging.
         pub fn preprocess_stacks_microblocks(
             &mut self,
-            microblocks: &Vec<StacksMicroblock>,
+            microblocks: &[StacksMicroblock],
         ) -> Result<bool, String> {
-            assert!(microblocks.len() > 0);
+            assert!(!microblocks.is_empty());
             let sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
             let res = {
@@ -3362,8 +3871,8 @@ pub mod test {
         pub fn process_stacks_epoch_at_tip(
             &mut self,
             block: &StacksBlock,
-            microblocks: &Vec<StacksMicroblock>,
-        ) -> () {
+            microblocks: &[StacksMicroblock],
+        ) {
             let sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
             {
@@ -3399,7 +3908,7 @@ pub mod test {
             sortdb: &SortitionDB,
             node: &mut TestStacksNode,
             block: &StacksBlock,
-            microblocks: &Vec<StacksMicroblock>,
+            microblocks: &[StacksMicroblock],
         ) -> Result<(), coordinator_error> {
             {
                 let ic = sortdb.index_conn();
@@ -3429,7 +3938,7 @@ pub mod test {
         pub fn process_stacks_epoch_at_tip_checked(
             &mut self,
             block: &StacksBlock,
-            microblocks: &Vec<StacksMicroblock>,
+            microblocks: &[StacksMicroblock],
         ) -> Result<(), coordinator_error> {
             let sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
@@ -3446,8 +3955,8 @@ pub mod test {
             &mut self,
             block: &StacksBlock,
             consensus_hash: &ConsensusHash,
-            microblocks: &Vec<StacksMicroblock>,
-        ) -> () {
+            microblocks: &[StacksMicroblock],
+        ) {
             let sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
             {
@@ -3518,6 +4027,22 @@ pub mod test {
 
         pub fn sortdb_ref(&mut self) -> &SortitionDB {
             self.sortdb.as_ref().unwrap()
+        }
+
+        pub fn with_dbs<F, R>(&mut self, f: F) -> R
+        where
+            F: FnOnce(&mut TestPeer, &mut SortitionDB, &mut TestStacksNode, &mut MemPoolDB) -> R,
+        {
+            let mut sortdb = self.sortdb.take().unwrap();
+            let mut stacks_node = self.stacks_node.take().unwrap();
+            let mut mempool = self.mempool.take().unwrap();
+
+            let res = f(self, &mut sortdb, &mut stacks_node, &mut mempool);
+
+            self.stacks_node = Some(stacks_node);
+            self.sortdb = Some(sortdb);
+            self.mempool = Some(mempool);
+            res
         }
 
         pub fn with_db_state<F, R>(&mut self, f: F) -> Result<R, net_error>
@@ -3628,7 +4153,7 @@ pub mod test {
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&self.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(self.sortdb.as_ref().unwrap().conn())
                     .unwrap();
             let burnchain = self.config.burnchain.clone();
 
@@ -3762,11 +4287,11 @@ pub mod test {
             );
 
             let mut block_commit_op = stacks_node.make_tenure_commitment(
-                &mut sortdb,
+                &sortdb,
                 &mut burn_block,
                 &mut self.miner,
                 &stacks_block,
-                &microblocks,
+                microblocks.clone(),
                 1000,
                 &last_key,
                 parent_sortition_opt.as_ref(),
@@ -3849,7 +4374,7 @@ pub mod test {
             StacksBlock,
             Vec<StacksMicroblock>,
         ) {
-            let mut sortdb = self.sortdb.take().unwrap();
+            let sortdb = self.sortdb.take().unwrap();
             let mut burn_block = {
                 let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
                 TestBurnchainBlock::new(&sn, 0)
@@ -3867,13 +4392,13 @@ pub mod test {
             let burn_block_height = burn_block.block_height;
 
             let (stacks_block, microblocks, block_commit_op) = stacks_node.mine_stacks_block(
-                &mut sortdb,
+                &sortdb,
                 &mut self.miner,
                 &mut burn_block,
                 &last_key,
                 parent_block_opt.as_ref(),
                 1000,
-                |mut builder, ref mut miner, ref sortdb| {
+                |mut builder, ref mut miner, sortdb| {
                     let (mut miner_chainstate, _) =
                         StacksChainState::open(false, network_id, &chainstate_path, None).unwrap();
                     let sort_iconn = sortdb.index_handle_at_tip();
@@ -3923,7 +4448,7 @@ pub mod test {
         }
 
         pub fn get_public_key(&self) -> Secp256k1PublicKey {
-            let local_peer = PeerDB::get_local_peer(&self.network.peerdb.conn()).unwrap();
+            let local_peer = PeerDB::get_local_peer(self.network.peerdb.conn()).unwrap();
             Secp256k1PublicKey::from_private(&local_peer.private_key)
         }
 
@@ -3946,7 +4471,7 @@ pub mod test {
             view_res
         }
 
-        pub fn dump_frontier(&self) -> () {
+        pub fn dump_frontier(&self) {
             let conn = self.network.peerdb.conn();
             let peers = PeerDB::get_all_peers(conn).unwrap();
             debug!("--- BEGIN ALL PEERS ({}) ---", peers.len());
@@ -3999,7 +4524,7 @@ pub mod test {
 
         pub fn get_burn_block_height(&self) -> u64 {
             SortitionDB::get_canonical_burn_chain_tip(
-                &self.sortdb.as_ref().expect("Failed to get sortdb").conn(),
+                self.sortdb.as_ref().expect("Failed to get sortdb").conn(),
             )
             .expect("Failed to get canonical burn chain tip")
             .block_height
@@ -4101,7 +4626,7 @@ pub mod test {
                     .unwrap()
                     .into_iter()
                     .filter(|(sort_id, rc_info)| {
-                        let sn = SortitionDB::get_block_snapshot(sortdb.conn(), &sort_id)
+                        let sn = SortitionDB::get_block_snapshot(sortdb.conn(), sort_id)
                             .unwrap()
                             .unwrap();
                         let rc_sn = sortdb
@@ -4139,7 +4664,7 @@ pub mod test {
                     .unwrap()
                     .into_iter()
                     .filter(|(sort_id, rc_info)| {
-                        let sn = SortitionDB::get_block_snapshot(sortdb.conn(), &sort_id)
+                        let sn = SortitionDB::get_block_snapshot(sortdb.conn(), sort_id)
                             .unwrap()
                             .unwrap();
                         sn.block_height < epoch_3.start_height
@@ -4185,6 +4710,9 @@ pub mod test {
             all_blocks: Vec<NakamotoBlock>,
             expected_siblings: usize,
         ) {
+            if !self.mine_malleablized_blocks {
+                return;
+            }
             for block in all_blocks.iter() {
                 let sighash = block.header.signer_signature_hash();
                 let siblings = self

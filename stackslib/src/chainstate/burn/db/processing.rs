@@ -35,7 +35,7 @@ use crate::chainstate::stacks::index::{Error as MARFError, MARFValue, MarfTrieId
 use crate::core::INITIAL_MINING_BONUS_WINDOW;
 use crate::util_lib::db::Error as DBError;
 
-impl<'a> SortitionHandleTx<'a> {
+impl SortitionHandleTx<'_> {
     /// Run a blockstack operation's "check()" method and return the result.
     fn check_transaction(
         &mut self,
@@ -112,11 +112,12 @@ impl<'a> SortitionHandleTx<'a> {
     /// * return the snapshot (and sortition results)
     fn process_checked_block_ops(
         &mut self,
+        mainnet: bool,
         burnchain: &Burnchain,
         parent_snapshot: &BlockSnapshot,
         block_header: &BurnchainBlockHeader,
-        this_block_ops: &Vec<BlockstackOperationType>,
-        missed_commits: &Vec<MissedBlockCommit>,
+        this_block_ops: &[BlockstackOperationType],
+        missed_commits: &[MissedBlockCommit],
         next_pox_info: Option<RewardCycleInfo>,
         parent_pox: PoxId,
         reward_info: Option<&RewardSetInfo>,
@@ -134,13 +135,14 @@ impl<'a> SortitionHandleTx<'a> {
 
         let next_pox = SortitionDB::make_next_pox_id(parent_pox.clone(), next_pox_info.as_ref());
         let next_sortition_id = SortitionDB::make_next_sortition_id(
-            parent_pox.clone(),
+            parent_pox,
             &this_block_hash,
             next_pox_info.as_ref(),
         );
 
         // do the cryptographic sortition and pick the next winning block.
         let mut snapshot = BlockSnapshot::make_snapshot(
+            mainnet,
             self,
             burnchain,
             &next_sortition_id,
@@ -158,6 +160,11 @@ impl<'a> SortitionHandleTx<'a> {
             BurnchainError::DBError(e)
         })?;
 
+        let snapshot_epoch = SortitionDB::get_stacks_epoch(self, snapshot.block_height)?
+            .unwrap_or_else(|| {
+                panic!("FATAL: no epoch defined for snapshot");
+            });
+
         // was this snapshot the first with mining?
         //  compute the initial block rewards.
         let initialize_bonus = if snapshot.sortition && parent_snapshot.total_burn == 0 {
@@ -166,6 +173,8 @@ impl<'a> SortitionHandleTx<'a> {
             let mut total_reward = 0;
             for burn_block_height in burnchain.initial_reward_start_block..snapshot.block_height {
                 total_reward += StacksChainState::get_coinbase_reward(
+                    snapshot_epoch.epoch_id,
+                    mainnet,
                     burn_block_height,
                     self.context.first_block_height,
                 );
@@ -227,6 +236,7 @@ impl<'a> SortitionHandleTx<'a> {
     /// Returns the BlockSnapshot created from this block.
     pub fn process_block_ops(
         &mut self,
+        mainnet: bool,
         burnchain: &Burnchain,
         parent_snapshot: &BlockSnapshot,
         block_header: &BurnchainBlockHeader,
@@ -250,7 +260,7 @@ impl<'a> SortitionHandleTx<'a> {
             &block_header.block_hash
         );
 
-        blockstack_txs.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
+        blockstack_txs.sort_by(|a, b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
 
         // check each transaction, and filter out only the ones that are valid
         debug!(
@@ -279,6 +289,7 @@ impl<'a> SortitionHandleTx<'a> {
         // process them
         let res = self
             .process_checked_block_ops(
+                mainnet,
                 burnchain,
                 parent_snapshot,
                 block_header,
@@ -305,6 +316,7 @@ impl<'a> SortitionHandleTx<'a> {
     /// list of blockstack transactions.
     pub fn process_block_txs(
         &mut self,
+        mainnet: bool,
         parent_snapshot: &BlockSnapshot,
         this_block_header: &BurnchainBlockHeader,
         burnchain: &Burnchain,
@@ -324,9 +336,10 @@ impl<'a> SortitionHandleTx<'a> {
         );
 
         let new_snapshot = self.process_block_ops(
+            mainnet,
             burnchain,
-            &parent_snapshot,
-            &this_block_header,
+            parent_snapshot,
+            this_block_header,
             blockstack_txs,
             next_pox_info,
             parent_pox,
@@ -353,7 +366,6 @@ mod tests {
     use crate::chainstate::burn::operations::{LeaderBlockCommitOp, LeaderKeyRegisterOp};
     use crate::chainstate::burn::*;
     use crate::chainstate::stacks::address::StacksAddressExtensions;
-    use crate::chainstate::stacks::index::TrieHashExtension;
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::MICROSTACKS_PER_STACKS;
 
@@ -367,7 +379,7 @@ mod tests {
                 "a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a",
             )
             .unwrap(),
-            memo: vec![01, 02, 03, 04, 05],
+            memo: vec![1, 2, 3, 4, 5],
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -416,7 +428,7 @@ mod tests {
         let snapshot = test_append_snapshot(
             &mut db,
             BurnchainHeaderHash([0x01; 32]),
-            &vec![BlockstackOperationType::LeaderKeyRegister(leader_key)],
+            &[BlockstackOperationType::LeaderKeyRegister(leader_key)],
         );
 
         let next_block_header = BurnchainBlockHeader {
@@ -432,6 +444,7 @@ mod tests {
 
             let processed = ic
                 .process_block_ops(
+                    false,
                     &burnchain,
                     &snapshot,
                     &next_block_header,

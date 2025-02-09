@@ -45,20 +45,20 @@ use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, Error as burnchain_error, MagicBytes, BLOCKSTACK_MAGIC_MAINNET,
 };
 use crate::core::{
-    StacksEpoch, StacksEpochExtension, STACKS_EPOCHS_MAINNET, STACKS_EPOCHS_REGTEST,
+    EpochList, StacksEpoch, StacksEpochExtension, STACKS_EPOCHS_MAINNET, STACKS_EPOCHS_REGTEST,
     STACKS_EPOCHS_TESTNET,
 };
 use crate::util_lib::db::Error as DBError;
 
-pub const USER_AGENT: &'static str = "Stacks/2.1";
+pub const USER_AGENT: &str = "Stacks/2.1";
 
 pub const BITCOIN_MAINNET: u32 = 0xD9B4BEF9;
 pub const BITCOIN_TESTNET: u32 = 0x0709110B;
 pub const BITCOIN_REGTEST: u32 = 0xDAB5BFFA;
 
-pub const BITCOIN_MAINNET_NAME: &'static str = "mainnet";
-pub const BITCOIN_TESTNET_NAME: &'static str = "testnet";
-pub const BITCOIN_REGTEST_NAME: &'static str = "regtest";
+pub const BITCOIN_MAINNET_NAME: &str = "mainnet";
+pub const BITCOIN_TESTNET_NAME: &str = "testnet";
+pub const BITCOIN_REGTEST_NAME: &str = "regtest";
 
 // batch size for searching for a reorg
 // kept small since sometimes bitcoin will just send us one header at a time
@@ -91,11 +91,11 @@ impl TryFrom<u32> for BitcoinNetworkType {
 /// Get the default epochs definitions for the given BitcoinNetworkType.
 /// Should *not* be used except by the BitcoinIndexer when no epochs vector
 /// was specified.
-pub fn get_bitcoin_stacks_epochs(network_id: BitcoinNetworkType) -> Vec<StacksEpoch> {
+pub fn get_bitcoin_stacks_epochs(network_id: BitcoinNetworkType) -> EpochList {
     match network_id {
-        BitcoinNetworkType::Mainnet => STACKS_EPOCHS_MAINNET.to_vec(),
-        BitcoinNetworkType::Testnet => STACKS_EPOCHS_TESTNET.to_vec(),
-        BitcoinNetworkType::Regtest => STACKS_EPOCHS_REGTEST.to_vec(),
+        BitcoinNetworkType::Mainnet => (*STACKS_EPOCHS_MAINNET).clone(),
+        BitcoinNetworkType::Testnet => (*STACKS_EPOCHS_TESTNET).clone(),
+        BitcoinNetworkType::Regtest => (*STACKS_EPOCHS_REGTEST).clone(),
     }
 }
 
@@ -112,7 +112,7 @@ pub struct BitcoinIndexerConfig {
     pub spv_headers_path: String,
     pub first_block: u64,
     pub magic_bytes: MagicBytes,
-    pub epochs: Option<Vec<StacksEpoch>>,
+    pub epochs: Option<EpochList>,
 }
 
 #[derive(Debug)]
@@ -160,7 +160,7 @@ impl BitcoinIndexerConfig {
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
             timeout: 30,
-            spv_headers_path: spv_headers_path,
+            spv_headers_path,
             first_block: 0,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
             epochs: None,
@@ -193,7 +193,7 @@ impl BitcoinIndexerRuntime {
             services: 0,
             user_agent: USER_AGENT.to_owned(),
             version_nonce: rng.gen(),
-            network_id: network_id,
+            network_id,
             block_height: 0,
             last_getdata_send_time: 0,
             last_getheaders_send_time: 0,
@@ -227,7 +227,7 @@ impl BitcoinIndexer {
 
         // instantiate headers DB
         let _ = SpvClient::new(
-            &working_dir_path.to_str().unwrap().to_string(),
+            working_dir_path.to_str().unwrap(),
             0,
             None,
             BitcoinNetworkType::Regtest,
@@ -236,7 +236,7 @@ impl BitcoinIndexer {
         )
         .expect(&format!(
             "Failed to open {:?}",
-            &working_dir_path.to_str().unwrap().to_string()
+            working_dir_path.to_str().unwrap()
         ));
 
         BitcoinIndexer {
@@ -265,40 +265,31 @@ impl BitcoinIndexer {
             Ok(s) => {
                 // Disable Nagle algorithm
                 s.set_nodelay(true).map_err(|_e| {
-                    test_debug!("Failed to set TCP_NODELAY: {:?}", &_e);
+                    test_debug!("Failed to set TCP_NODELAY: {_e:?}");
                     btc_error::ConnectionError
                 })?;
 
                 // set timeout
                 s.set_read_timeout(Some(Duration::from_secs(self.runtime.timeout)))
                     .map_err(|_e| {
-                        test_debug!("Failed to set TCP read timeout: {:?}", &_e);
+                        test_debug!("Failed to set TCP read timeout: {_e:?}");
                         btc_error::ConnectionError
                     })?;
 
                 s.set_write_timeout(Some(Duration::from_secs(self.runtime.timeout)))
                     .map_err(|_e| {
-                        test_debug!("Failed to set TCP write timeout: {:?}", &_e);
+                        test_debug!("Failed to set TCP write timeout: {_e:?}");
                         btc_error::ConnectionError
                     })?;
 
-                match self.runtime.sock.take() {
-                    Some(s) => {
-                        let _ = s.shutdown(Shutdown::Both);
-                    }
-                    None => {}
+                if let Some(s_old) = self.runtime.sock.replace(s) {
+                    let _ = s_old.shutdown(Shutdown::Both);
                 }
-
-                self.runtime.sock = Some(s);
                 Ok(())
             }
             Err(_e) => {
-                let s = self.runtime.sock.take();
-                match s {
-                    Some(s) => {
-                        let _ = s.shutdown(Shutdown::Both);
-                    }
-                    None => {}
+                if let Some(s) = self.runtime.sock.take() {
+                    let _ = s.shutdown(Shutdown::Both);
                 }
                 Err(btc_error::ConnectionError)
             }
@@ -458,7 +449,7 @@ impl BitcoinIndexer {
         }
         spv_client
             .run(self)
-            .and_then(|_r| Ok(spv_client.end_block_height.unwrap()))
+            .map(|_r| spv_client.end_block_height.unwrap())
     }
 
     #[cfg(test)]
@@ -469,7 +460,7 @@ impl BitcoinIndexer {
         network_id: BitcoinNetworkType,
     ) -> Result<SpvClient, btc_error> {
         SpvClient::new_without_migration(
-            &reorg_headers_path,
+            reorg_headers_path,
             start_block,
             end_block,
             network_id,
@@ -486,7 +477,7 @@ impl BitcoinIndexer {
         network_id: BitcoinNetworkType,
     ) -> Result<SpvClient, btc_error> {
         SpvClient::new(
-            &reorg_headers_path,
+            reorg_headers_path,
             start_block,
             end_block,
             network_id,
@@ -503,13 +494,11 @@ impl BitcoinIndexer {
         start_block: u64,
         remove_old: bool,
     ) -> Result<SpvClient, btc_error> {
-        if remove_old {
-            if PathBuf::from(&reorg_headers_path).exists() {
-                fs::remove_file(&reorg_headers_path).map_err(|e| {
-                    error!("Failed to remove {}", reorg_headers_path);
-                    btc_error::Io(e)
-                })?;
-            }
+        if remove_old && PathBuf::from(&reorg_headers_path).exists() {
+            fs::remove_file(&reorg_headers_path).map_err(|e| {
+                error!("Failed to remove {}", reorg_headers_path);
+                btc_error::Io(e)
+            })?;
         }
 
         // bootstrap reorg client
@@ -629,12 +618,8 @@ impl BitcoinIndexer {
         )?;
 
         // what's the last header we have from the canonical history?
-        let canonical_end_block = orig_spv_client.get_headers_height().map_err(|e| {
-            error!(
-                "Failed to get the last block from {}",
-                canonical_headers_path
-            );
-            e
+        let canonical_end_block = orig_spv_client.get_headers_height().inspect_err(|_e| {
+            error!("Failed to get the last block from {canonical_headers_path}");
         })?;
 
         // bootstrap reorg client
@@ -696,16 +681,15 @@ impl BitcoinIndexer {
 
             let reorg_headers = reorg_spv_client
                 .read_block_headers(start_block, start_block + REORG_BATCH_SIZE)
-                .map_err(|e| {
+                .inspect_err(|_e| {
                     error!(
                         "Failed to read reorg Bitcoin headers from {} to {}",
                         start_block,
                         start_block + REORG_BATCH_SIZE
                     );
-                    e
                 })?;
 
-            if reorg_headers.len() == 0 {
+            if reorg_headers.is_empty() {
                 // chain shrank considerably
                 info!(
                     "Missing Bitcoin headers in block range {}-{} -- did the Bitcoin chain shrink?",
@@ -726,17 +710,16 @@ impl BitcoinIndexer {
             // got reorg headers.  Find the equivalent headers in our canonical history
             let canonical_headers = orig_spv_client
                 .read_block_headers(start_block, start_block + REORG_BATCH_SIZE)
-                .map_err(|e| {
+                .inspect_err(|_e| {
                     error!(
                         "Failed to read canonical headers from {} to {}",
                         start_block,
                         start_block + REORG_BATCH_SIZE
                     );
-                    e
                 })?;
 
             assert!(
-                canonical_headers.len() > 0,
+                !canonical_headers.is_empty(),
                 "BUG: uninitialized canonical SPV headers DB"
             );
 
@@ -924,7 +907,7 @@ impl BitcoinIndexer {
             return Ok(());
         }
         warn!(
-            "Header at height {} is not wihtin 2 hours of now (is at {})",
+            "Header at height {} is not within 2 hours of now (is at {})",
             highest_header_height, highest_header.block_header.header.time
         );
         self.drop_headers(highest_header_height.saturating_sub(1))?;
@@ -934,11 +917,8 @@ impl BitcoinIndexer {
 
 impl Drop for BitcoinIndexer {
     fn drop(&mut self) {
-        match self.runtime.sock {
-            Some(ref mut s) => {
-                let _ = s.shutdown(Shutdown::Both);
-            }
-            None => {}
+        if let Some(ref mut s) = self.runtime.sock {
+            let _ = s.shutdown(Shutdown::Both);
         }
     }
 }
@@ -1041,7 +1021,7 @@ impl BurnchainIndexer for BitcoinIndexer {
     /// 2) Use hard-coded static values, otherwise.
     ///
     /// It is an error (panic) to set custom epochs if running on `Mainnet`.
-    fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {
+    fn get_stacks_epochs(&self) -> EpochList {
         StacksEpoch::get_epochs(self.runtime.network_id, self.config.epochs.as_ref())
     }
 
@@ -1100,8 +1080,10 @@ impl BurnchainIndexer for BitcoinIndexer {
         start_height: u64,
         end_height: Option<u64>,
     ) -> Result<u64, burnchain_error> {
-        if end_height.is_some() && end_height <= Some(start_height) {
-            return Ok(end_height.unwrap());
+        if let Some(end_height) = end_height {
+            if end_height <= start_height {
+                return Ok(end_height);
+            }
         }
 
         let new_height = self
@@ -1343,11 +1325,9 @@ mod test {
         let mut spv_client_reorg =
             SpvClient::new(path_2, 0, None, BitcoinNetworkType::Regtest, true, false).unwrap();
 
-        spv_client
-            .insert_block_headers_after(0, headers_1.clone())
-            .unwrap();
+        spv_client.insert_block_headers_after(0, headers_1).unwrap();
         spv_client_reorg
-            .insert_block_headers_after(0, headers_2.clone())
+            .insert_block_headers_after(0, headers_2)
             .unwrap();
 
         spv_client.update_chain_work().unwrap();
@@ -1379,7 +1359,7 @@ mod test {
                         spv_client
                             .insert_block_headers_before(start_block - 1, hdrs)
                             .unwrap();
-                    } else if hdrs.len() > 0 {
+                    } else if !hdrs.is_empty() {
                         test_debug!("insert at {}: {:?}", 0, &hdrs);
                         spv_client.test_write_block_headers(0, hdrs).unwrap();
                     }
@@ -1521,11 +1501,9 @@ mod test {
         let mut spv_client_reorg =
             SpvClient::new(path_2, 0, None, BitcoinNetworkType::Regtest, true, false).unwrap();
 
-        spv_client
-            .insert_block_headers_after(0, headers_1.clone())
-            .unwrap();
+        spv_client.insert_block_headers_after(0, headers_1).unwrap();
         spv_client_reorg
-            .insert_block_headers_after(0, headers_2.clone())
+            .insert_block_headers_after(0, headers_2)
             .unwrap();
 
         assert_eq!(spv_client.read_block_headers(0, 10).unwrap().len(), 4);
@@ -1552,7 +1530,7 @@ mod test {
                         spv_client
                             .insert_block_headers_before(start_block - 1, hdrs)
                             .unwrap();
-                    } else if hdrs.len() > 0 {
+                    } else if !hdrs.is_empty() {
                         test_debug!("insert at {}: {:?}", 0, &hdrs);
                         spv_client.test_write_block_headers(0, hdrs).unwrap();
                     }
@@ -3151,7 +3129,7 @@ mod test {
         assert_eq!(total_work_before, total_work_before_idempotent);
 
         // fake block headers for mainnet 40319-40320, which is on a difficulty adjustment boundary
-        let bad_headers = vec![
+        let bad_headers = [
             LoneBlockHeader {
                 header: BlockHeader {
                     version: 1,
@@ -3338,7 +3316,7 @@ mod test {
 
         // put these bad headers into the "main" chain
         spv_client
-            .insert_block_headers_after(40318, bad_headers.clone())
+            .insert_block_headers_after(40318, bad_headers)
             .unwrap();
 
         // *now* calculate main chain work
@@ -3476,7 +3454,7 @@ mod test {
 
         // set up SPV client so we don't have chain work at first
         let mut spv_client = SpvClient::new_without_migration(
-            &db_path,
+            db_path,
             0,
             None,
             BitcoinNetworkType::Regtest,
@@ -3485,9 +3463,7 @@ mod test {
         )
         .unwrap();
 
-        spv_client
-            .test_write_block_headers(0, headers.clone())
-            .unwrap();
+        spv_client.test_write_block_headers(0, headers).unwrap();
         assert_eq!(spv_client.get_highest_header_height().unwrap(), 2);
 
         let mut indexer = BitcoinIndexer::new(
@@ -3518,7 +3494,7 @@ mod test {
 
         let should_keep_running = Arc::new(AtomicBool::new(true));
         let mut indexer = BitcoinIndexer::new(
-            BitcoinIndexerConfig::test_default(db_path.to_string()),
+            BitcoinIndexerConfig::test_default(db_path),
             BitcoinIndexerRuntime::new(BitcoinNetworkType::Mainnet),
             Some(should_keep_running.clone()),
         );

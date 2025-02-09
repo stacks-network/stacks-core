@@ -96,11 +96,10 @@ impl HttpRequest for RPCGetAttachmentsInvRequestHandler {
             if key == "index_block_hash" {
                 index_block_hash = StacksBlockId::from_hex(&value).ok();
             } else if key == "pages_indexes" {
-                if let Ok(pages_indexes_value) = value.parse::<String>() {
-                    for entry in pages_indexes_value.split(',') {
-                        if let Ok(page_index) = entry.parse::<u32>() {
-                            page_indexes.insert(page_index);
-                        }
+                let pages_indexes_value = value.to_string();
+                for entry in pages_indexes_value.split(',') {
+                    if let Ok(page_index) = entry.parse::<u32>() {
+                        page_indexes.insert(page_index);
                     }
                 }
             }
@@ -166,14 +165,14 @@ impl RPCRequestHandler for RPCGetAttachmentsInvRequestHandler {
                 "Number of attachment inv pages is limited by {} per request",
                 MAX_ATTACHMENT_INV_PAGES_PER_REQUEST
             );
-            warn!("{}", msg);
+            warn!("{msg}");
             return StacksHttpResponse::new_error(&preamble, &HttpBadRequest::new(msg))
                 .try_into_contents()
                 .map_err(NetError::from);
         }
         if page_indexes.is_empty() {
-            let msg = format!("Page indexes missing");
-            warn!("{}", msg);
+            let msg = "Page indexes missing".to_string();
+            warn!("{msg}");
             return StacksHttpResponse::new_error(&preamble, &HttpBadRequest::new(msg))
                 .try_into_contents()
                 .map_err(NetError::from);

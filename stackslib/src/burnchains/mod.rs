@@ -150,10 +150,10 @@ impl BurnchainParameters {
     }
 
     pub fn is_testnet(network_id: u32) -> bool {
-        match network_id {
-            BITCOIN_NETWORK_ID_TESTNET | BITCOIN_NETWORK_ID_REGTEST => true,
-            _ => false,
-        }
+        matches!(
+            network_id,
+            BITCOIN_NETWORK_ID_TESTNET | BITCOIN_NETWORK_ID_REGTEST
+        )
     }
 }
 
@@ -231,7 +231,7 @@ impl BurnchainTransaction {
             BurnchainTransaction::Bitcoin(ref btc) => btc
                 .outputs
                 .iter()
-                .map(|ref o| BurnchainRecipient::try_from_bitcoin_output(o))
+                .map(BurnchainRecipient::try_from_bitcoin_output)
                 .collect(),
         }
     }
@@ -450,6 +450,7 @@ impl PoxConstants {
         )
     }
 
+    // NOTE: this is the *old* pre-Nakamoto testnet
     pub fn testnet_default() -> PoxConstants {
         PoxConstants::new(
             POX_REWARD_CYCLE_LENGTH / 2,   // 1050
@@ -466,6 +467,10 @@ impl PoxConstants {
                 .try_into()
                 .expect("Epoch transition height must be <= u32::MAX"),
         ) // total liquid supply is 40000000000000000 µSTX
+    }
+
+    pub fn nakamoto_testnet_default() -> PoxConstants {
+        PoxConstants::new(900, 100, 51, 100, 0, u64::MAX, u64::MAX, 242, 243, 246, 244)
     }
 
     // TODO: add tests from mutation testing results #4838
@@ -624,7 +629,7 @@ impl PoxConstants {
             // TODO: I *think* the logic of `== 0` here requires some further digging.
             //  `mod 0` may not have any rewards, but it does not behave like "prepare phase" blocks:
             //  is it already a member of reward cycle "N" where N = block_height / reward_cycle_len
-            reward_index == 0 || reward_index > u64::from(reward_cycle_length - prepare_length)
+            reward_index == 0 || reward_index > reward_cycle_length - prepare_length
         }
     }
 
@@ -653,7 +658,7 @@ impl PoxConstants {
         } else {
             let effective_height = block_height - first_block_height;
             let reward_index = effective_height % reward_cycle_length;
-            reward_index > u64::from(reward_cycle_length - prepare_length)
+            reward_index > reward_cycle_length - prepare_length
         }
     }
 

@@ -19,10 +19,8 @@
 //!
 
 use crate::deps_common::bitcoin::network::address::Address;
-use crate::deps_common::bitcoin::network::constants;
-use crate::util;
 
-/// Some simple messages
+// Some simple messages
 
 /// The `version` message
 #[derive(PartialEq, Eq, Clone, Debug)]

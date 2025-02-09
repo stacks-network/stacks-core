@@ -37,7 +37,7 @@ struct Samples {
 }
 
 const SAMPLE_SIZE: usize = 10;
-const CREATE_TABLE: &'static str = "
+const CREATE_TABLE: &str = "
 CREATE TABLE pessimistic_estimator (
     estimate_key TEXT PRIMARY KEY,
     current_value NUMBER NOT NULL,
@@ -143,7 +143,7 @@ impl Samples {
     fn flush_sqlite(&self, tx: &SqliteTransaction, identifier: &str) {
         let sql = "INSERT OR REPLACE INTO pessimistic_estimator
                      (estimate_key, current_value, samples) VALUES (?, ?, ?)";
-        let current_value = u64_to_sql(self.mean()).unwrap_or_else(|_| i64::MAX);
+        let current_value = u64_to_sql(self.mean()).unwrap_or(i64::MAX);
         tx.execute(sql, params![identifier, current_value, self.to_json()])
             .expect("SQLite failure");
     }
@@ -230,6 +230,8 @@ impl PessimisticEstimator {
                     StacksEpochId::Epoch25 => ":2.1",
                     // reuse cost estimates in Epoch30
                     StacksEpochId::Epoch30 => ":2.1",
+                    // reuse cost estimates in Epoch31
+                    StacksEpochId::Epoch31 => ":2.1",
                 };
                 format!(
                     "cc{}:{}:{}.{}",
@@ -264,9 +266,9 @@ impl CostEstimator for PessimisticEstimator {
             // only log the estimate error if an estimate could be constructed
             if let Ok(estimated_cost) = self.estimate_cost(tx, evaluated_epoch) {
                 let estimated_scalar =
-                    estimated_cost.proportion_dot_product(&block_limit, PROPORTION_RESOLUTION);
+                    estimated_cost.proportion_dot_product(block_limit, PROPORTION_RESOLUTION);
                 let actual_scalar =
-                    actual_cost.proportion_dot_product(&block_limit, PROPORTION_RESOLUTION);
+                    actual_cost.proportion_dot_product(block_limit, PROPORTION_RESOLUTION);
                 info!("PessimisticEstimator received event";
                       "key" => %PessimisticEstimator::get_estimate_key(tx, &CostField::RuntimeCost, evaluated_epoch),
                       "estimate" => estimated_scalar,

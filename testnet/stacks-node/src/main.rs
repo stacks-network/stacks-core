@@ -16,8 +16,6 @@ use stacks_common::util::hash::hex_bytes;
 pub mod monitoring;
 
 pub mod burnchains;
-pub mod chain_data;
-pub mod config;
 pub mod event_dispatcher;
 pub mod genesis_data;
 pub mod globals;
@@ -41,19 +39,19 @@ use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvi
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::config::chain_data::MinerStats;
+pub use stacks::config::{Config, ConfigFile};
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
 pub use self::burnchains::{
     BitcoinRegtestController, BurnchainController, BurnchainTip, MocknetController,
 };
-pub use self::config::{Config, ConfigFile};
 pub use self::event_dispatcher::EventDispatcher;
 pub use self::keychain::Keychain;
 pub use self::node::{ChainTip, Node};
 pub use self::run_loop::{helium, neon};
 pub use self::tenure::Tenure;
-use crate::chain_data::MinerStats;
 use crate::neon_node::{BlockMinerThread, TipCandidate};
 use crate::run_loop::boot_nakamoto;
 
@@ -63,11 +61,11 @@ static GLOBAL: Jemalloc = Jemalloc;
 
 /// Implmentation of `pick_best_tip` CLI option
 fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCandidate {
-    info!("Loading config at path {}", config_path);
+    info!("Loading config at path {config_path}");
     let config = match ConfigFile::from_path(config_path) {
         Ok(config_file) => Config::from_config_file(config_file, true).unwrap(),
         Err(e) => {
-            warn!("Invalid config file: {}", e);
+            warn!("Invalid config file: {e}");
             process::exit(1);
         }
     };
@@ -93,21 +91,21 @@ fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCan
         at_stacks_height,
     );
 
-    let best_tip = BlockMinerThread::inner_pick_best_tip(stacks_tips, HashMap::new()).unwrap();
-    best_tip
+    BlockMinerThread::inner_pick_best_tip(stacks_tips, HashMap::new()).unwrap()
 }
 
 /// Implementation of `get_miner_spend` CLI option
+#[allow(clippy::incompatible_msrv)]
 fn cli_get_miner_spend(
     config_path: &str,
     mine_start: Option<u64>,
     at_burnchain_height: Option<u64>,
 ) -> u64 {
-    info!("Loading config at path {}", config_path);
-    let config = match ConfigFile::from_path(&config_path) {
+    info!("Loading config at path {config_path}");
+    let config = match ConfigFile::from_path(config_path) {
         Ok(config_file) => Config::from_config_file(config_file, true).unwrap(),
         Err(e) => {
-            warn!("Invalid config file: {}", e);
+            warn!("Invalid config file: {e}");
             process::exit(1);
         }
     };
@@ -155,7 +153,7 @@ fn cli_get_miner_spend(
         &config,
         &keychain,
         &burnchain,
-        &mut sortdb,
+        &sortdb,
         &commit_outs,
         mine_start.unwrap_or(tip.block_height),
         at_burnchain_height,
@@ -171,7 +169,7 @@ fn cli_get_miner_spend(
             else {
                 return 0.0;
             };
-            if active_miners_and_commits.len() == 0 {
+            if active_miners_and_commits.is_empty() {
                 warn!("No active miners detected; using config file burn_fee_cap");
                 return 0.0;
             }
@@ -181,7 +179,7 @@ fn cli_get_miner_spend(
                 .map(|(miner, _cmt)| miner.as_str())
                 .collect();
 
-            info!("Active miners: {:?}", &active_miners);
+            info!("Active miners: {active_miners:?}");
 
             let Ok(unconfirmed_block_commits) = miner_stats
                 .get_unconfirmed_commits(burn_block_height + 1, &active_miners)
@@ -195,10 +193,7 @@ fn cli_get_miner_spend(
                 .map(|cmt| (format!("{}", &cmt.apparent_sender), cmt.burn_fee))
                 .collect();
 
-            info!(
-                "Found unconfirmed block-commits: {:?}",
-                &unconfirmed_miners_and_amounts
-            );
+            info!("Found unconfirmed block-commits: {unconfirmed_miners_and_amounts:?}");
 
             let (spend_dist, _total_spend) = MinerStats::get_spend_distribution(
                 &active_miners_and_commits,
@@ -207,12 +202,11 @@ fn cli_get_miner_spend(
             );
             let win_probs = if config.miner.fast_rampup {
                 // look at spends 6+ blocks in the future
-                let win_probs = MinerStats::get_future_win_distribution(
+                MinerStats::get_future_win_distribution(
                     &active_miners_and_commits,
                     &unconfirmed_block_commits,
                     &commit_outs,
-                );
-                win_probs
+                )
             } else {
                 // look at the current spends
                 let Ok(unconfirmed_burn_dist) = miner_stats
@@ -229,14 +223,13 @@ fn cli_get_miner_spend(
                     return 0.0;
                 };
 
-                let win_probs = MinerStats::burn_dist_to_prob_dist(&unconfirmed_burn_dist);
-                win_probs
+                MinerStats::burn_dist_to_prob_dist(&unconfirmed_burn_dist)
             };
 
-            info!("Unconfirmed spend distribution: {:?}", &spend_dist);
+            info!("Unconfirmed spend distribution: {spend_dist:?}");
             info!(
-                "Unconfirmed win probabilities (fast_rampup={}): {:?}",
-                config.miner.fast_rampup, &win_probs
+                "Unconfirmed win probabilities (fast_rampup={}): {win_probs:?}",
+                config.miner.fast_rampup
             );
 
             let miner_addrs = BlockMinerThread::get_miner_addrs(&config, &keychain);
@@ -247,8 +240,8 @@ fn cli_get_miner_spend(
                 .unwrap_or(0.0);
 
             info!(
-                "This miner's win probability at {} is {}",
-                tip.block_height, &win_prob
+                "This miner's win probability at {} is {win_prob}",
+                tip.block_height
             );
             win_prob
         },
@@ -259,9 +252,9 @@ fn cli_get_miner_spend(
 
 fn main() {
     panic::set_hook(Box::new(|panic_info| {
-        error!("Process abort due to thread panic: {}", panic_info);
+        error!("Process abort due to thread panic: {panic_info}");
         let bt = Backtrace::new();
-        error!("Panic backtrace: {:?}", &bt);
+        error!("Panic backtrace: {bt:?}");
 
         // force a core dump
         #[cfg(unix)]
@@ -289,10 +282,7 @@ fn main() {
         .expect("Failed to parse --mine-at-height argument");
 
     if let Some(mine_start) = mine_start {
-        info!(
-            "Will begin mining once Stacks chain has synced to height >= {}",
-            mine_start
-        );
+        info!("Will begin mining once Stacks chain has synced to height >= {mine_start}");
     }
 
     let config_file = match subcommand.as_str() {
@@ -315,14 +305,14 @@ fn main() {
         "check-config" => {
             let config_path: String = args.value_from_str("--config").unwrap();
             args.finish();
-            info!("Loading config at path {}", config_path);
+            info!("Loading config at path {config_path}");
             let config_file = match ConfigFile::from_path(&config_path) {
                 Ok(config_file) => {
-                    debug!("Loaded config file: {:?}", config_file);
+                    debug!("Loaded config file: {config_file:?}");
                     config_file
                 }
                 Err(e) => {
-                    warn!("Invalid config file: {}", e);
+                    warn!("Invalid config file: {e}");
                     process::exit(1);
                 }
             };
@@ -332,7 +322,7 @@ fn main() {
                     process::exit(0);
                 }
                 Err(e) => {
-                    warn!("Invalid config: {}", e);
+                    warn!("Invalid config: {e}");
                     process::exit(1);
                 }
             };
@@ -340,11 +330,11 @@ fn main() {
         "start" => {
             let config_path: String = args.value_from_str("--config").unwrap();
             args.finish();
-            info!("Loading config at path {}", config_path);
+            info!("Loading config at path {config_path}");
             match ConfigFile::from_path(&config_path) {
                 Ok(config_file) => config_file,
                 Err(e) => {
-                    warn!("Invalid config file: {}", e);
+                    warn!("Invalid config file: {e}");
                     process::exit(1);
                 }
             }
@@ -391,7 +381,7 @@ fn main() {
             args.finish();
 
             let best_tip = cli_pick_best_tip(&config_path, at_stacks_height);
-            println!("Best tip is {:?}", &best_tip);
+            println!("Best tip is {best_tip:?}");
             process::exit(0);
         }
         "get-spend-amount" => {
@@ -401,7 +391,7 @@ fn main() {
             args.finish();
 
             let spend_amount = cli_get_miner_spend(&config_path, mine_start, at_burnchain_height);
-            println!("Will spend {}", spend_amount);
+            println!("Will spend {spend_amount}");
             process::exit(0);
         }
         _ => {
@@ -413,7 +403,7 @@ fn main() {
     let conf = match Config::from_config_file(config_file, true) {
         Ok(conf) => conf,
         Err(e) => {
-            warn!("Invalid config: {}", e);
+            warn!("Invalid config: {e}");
             process::exit(1);
         }
     };
@@ -427,8 +417,7 @@ fn main() {
     if conf.burnchain.mode == "helium" || conf.burnchain.mode == "mocknet" {
         let mut run_loop = helium::RunLoop::new(conf);
         if let Err(e) = run_loop.start(num_round) {
-            warn!("Helium runloop exited: {}", e);
-            return;
+            warn!("Helium runloop exited: {e}");
         }
     } else if conf.burnchain.mode == "neon"
         || conf.burnchain.mode == "nakamoto-neon"
@@ -482,7 +471,7 @@ testnet\t\tStart a node that will join and stream blocks from the public testnet
 
 start\t\tStart a node with a config of your own. Can be used for joining a network, starting new chain, etc.
 \t\tArguments:
-\t\t  --config: path of the config (such as https://github.com/blockstack/stacks-blockchain/blob/master/testnet/stacks-node/conf/testnet-follower-conf.toml).
+\t\t  --config: path of the config (such as https://github.com/blockstack/stacks-blockchain/blob/master/sample/conf/testnet-follower-conf.toml).
 \t\tExample:
 \t\t  stacks-node start --config /path/to/config.toml
 

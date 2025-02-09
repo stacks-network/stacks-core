@@ -204,7 +204,7 @@ where
     let mut tip = first_block.clone();
 
     if epoch >= StacksEpochId::Epoch2_05 {
-        let next_block = StacksBlockId([1 as u8; 32]);
+        let next_block = StacksBlockId([1; 32]);
         let mut clarity_conn =
             clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &TEST_BURN_STATE_DB);
         clarity_conn.initialize_epoch_2_05().unwrap();
@@ -213,7 +213,7 @@ where
     }
 
     if epoch >= StacksEpochId::Epoch21 {
-        let next_block = StacksBlockId([2 as u8; 32]);
+        let next_block = StacksBlockId([2; 32]);
         let mut clarity_conn =
             clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &TEST_BURN_STATE_DB);
         clarity_conn.initialize_epoch_2_1().unwrap();
@@ -223,7 +223,7 @@ where
 
     let mut marf_kv = clarity_instance.destroy();
 
-    let mut store = marf_kv.begin(&tip, &StacksBlockId([3 as u8; 32]));
+    let mut store = marf_kv.begin(&tip, &StacksBlockId([3; 32]));
 
     to_do(OwnedEnvironment::new_max_limit(
         store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
@@ -853,12 +853,11 @@ fn setup_cost_tracked_test(
 
     let other_contract_id =
         QualifiedContractIdentifier::new(p1_principal.clone(), "contract-other".into());
-    let trait_contract_id =
-        QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
+    let trait_contract_id = QualifiedContractIdentifier::new(p1_principal, "contract-trait".into());
 
     owned_env
         .initialize_versioned_contract(
-            trait_contract_id.clone(),
+            trait_contract_id,
             version,
             contract_trait,
             None,
@@ -867,7 +866,7 @@ fn setup_cost_tracked_test(
         .unwrap();
     owned_env
         .initialize_versioned_contract(
-            other_contract_id.clone(),
+            other_contract_id,
             version,
             contract_other,
             None,
@@ -912,8 +911,7 @@ fn test_program_cost(
         p1_principal.clone(),
         ContractName::try_from(format!("self-{}", prog_id)).unwrap(),
     );
-    let other_contract_id =
-        QualifiedContractIdentifier::new(p1_principal.clone(), "contract-other".into());
+    let other_contract_id = QualifiedContractIdentifier::new(p1_principal, "contract-other".into());
 
     owned_env
         .initialize_versioned_contract(
@@ -927,11 +925,11 @@ fn test_program_cost(
 
     let start = owned_env.get_cost_total();
 
-    let target_contract = Value::from(PrincipalData::Contract(other_contract_id.clone()));
+    let target_contract = Value::from(PrincipalData::Contract(other_contract_id));
     eprintln!("{}", &contract_self);
     execute_transaction(
         owned_env,
-        p2_principal.clone(),
+        p2_principal,
         &self_contract_id,
         "execute",
         &symbols_from_values(vec![target_contract]),
@@ -1046,13 +1044,13 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
     let cost_definer =
         QualifiedContractIdentifier::new(p1_principal.clone(), "cost-definer".into());
     let intercepted = QualifiedContractIdentifier::new(p1_principal.clone(), "intercepted".into());
-    let caller = QualifiedContractIdentifier::new(p1_principal.clone(), "caller".into());
+    let caller = QualifiedContractIdentifier::new(p1_principal, "caller".into());
 
     let mut marf_kv = {
         let mut clarity_inst = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
         let mut block_conn = clarity_inst.begin_block(
             &StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
-            &StacksBlockId([1 as u8; 32]),
+            &StacksBlockId([1; 32]),
             &TEST_HEADER_DB,
             burn_db,
         );
@@ -1111,7 +1109,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
     };
 
     let without_interposing_5 = {
-        let mut store = marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([2 as u8; 32]));
+        let mut store = marf_kv.begin(&StacksBlockId([1; 32]), &StacksBlockId([2; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
             store.as_clarity_db(&TEST_HEADER_DB, burn_db),
             StacksEpochId::Epoch20,
@@ -1134,7 +1132,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
     };
 
     let without_interposing_10 = {
-        let mut store = marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([3 as u8; 32]));
+        let mut store = marf_kv.begin(&StacksBlockId([2; 32]), &StacksBlockId([3; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
             store.as_clarity_db(&TEST_HEADER_DB, burn_db),
             StacksEpochId::Epoch20,
@@ -1163,7 +1161,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
     };
 
     {
-        let mut store = marf_kv.begin(&StacksBlockId([3 as u8; 32]), &StacksBlockId([4 as u8; 32]));
+        let mut store = marf_kv.begin(&StacksBlockId([3; 32]), &StacksBlockId([4; 32]));
         let mut db = store.as_clarity_db(&TEST_HEADER_DB, burn_db);
         db.begin();
         db.set_variable_unknown_descriptor(
@@ -1194,7 +1192,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
     }
 
     let with_interposing_5 = {
-        let mut store = marf_kv.begin(&StacksBlockId([4 as u8; 32]), &StacksBlockId([5 as u8; 32]));
+        let mut store = marf_kv.begin(&StacksBlockId([4; 32]), &StacksBlockId([5; 32]));
 
         let mut owned_env = OwnedEnvironment::new_max_limit(
             store.as_clarity_db(&TEST_HEADER_DB, burn_db),
@@ -1218,7 +1216,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
     };
 
     let with_interposing_10 = {
-        let mut store = marf_kv.begin(&StacksBlockId([5 as u8; 32]), &StacksBlockId([6 as u8; 32]));
+        let mut store = marf_kv.begin(&StacksBlockId([5; 32]), &StacksBlockId([6; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
             store.as_clarity_db(&TEST_HEADER_DB, burn_db),
             StacksEpochId::Epoch20,
@@ -1227,7 +1225,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
 
         execute_transaction(
             &mut owned_env,
-            p2_principal.clone(),
+            p2_principal,
             &caller,
             "execute",
             &symbols_from_values(vec![Value::UInt(10)]),
@@ -1304,7 +1302,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
         let mut clarity_inst = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
         let mut block_conn = clarity_inst.begin_block(
             &StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
-            &StacksBlockId([1 as u8; 32]),
+            &StacksBlockId([1; 32]),
             &TEST_HEADER_DB,
             burn_db,
         );
@@ -1414,7 +1412,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
         (
             intercepted.clone().into(),
             "intercepted-function",
-            p1_principal.clone().into(),
+            p1_principal.into(),
             "cost-definition",
         ),
         // replacement function doesn't exist
@@ -1458,14 +1456,14 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
         (
             intercepted.clone().into(),
             "intercepted-function",
-            bad_cost_definer.clone().into(),
+            bad_cost_definer.into(),
             "cost-definition",
         ),
         // cost defining contract has incorrect number of arguments
         (
             intercepted.clone().into(),
             "intercepted-function",
-            bad_cost_args_definer.clone().into(),
+            bad_cost_args_definer.into(),
             "cost-definition",
         ),
     ];
@@ -1479,7 +1477,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
     };
 
     {
-        let mut store = marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([2 as u8; 32]));
+        let mut store = marf_kv.begin(&StacksBlockId([1; 32]), &StacksBlockId([2; 32]));
 
         let mut db = store.as_clarity_db(&TEST_HEADER_DB, burn_db);
         db.begin();
@@ -1517,7 +1515,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
     }
 
     let le_cost_without_interception = {
-        let mut store = marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([3 as u8; 32]));
+        let mut store = marf_kv.begin(&StacksBlockId([2; 32]), &StacksBlockId([3; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
             store.as_clarity_db(&TEST_HEADER_DB, burn_db),
             StacksEpochId::Epoch20,
@@ -1578,7 +1576,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
     ];
 
     {
-        let mut store = marf_kv.begin(&StacksBlockId([3 as u8; 32]), &StacksBlockId([4 as u8; 32]));
+        let mut store = marf_kv.begin(&StacksBlockId([3; 32]), &StacksBlockId([4; 32]));
 
         let mut db = store.as_clarity_db(&TEST_HEADER_DB, burn_db);
         db.begin();
@@ -1618,7 +1616,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
     }
 
     {
-        let mut store = marf_kv.begin(&StacksBlockId([4 as u8; 32]), &StacksBlockId([5 as u8; 32]));
+        let mut store = marf_kv.begin(&StacksBlockId([4; 32]), &StacksBlockId([5; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
             store.as_clarity_db(&TEST_HEADER_DB, burn_db),
             StacksEpochId::Epoch20,
@@ -1627,7 +1625,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
 
         execute_transaction(
             &mut owned_env,
-            p2_principal.clone(),
+            p2_principal,
             &caller,
             "execute-2",
             &symbols_from_values(vec![Value::UInt(5)]),
@@ -1643,7 +1641,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
         assert_eq!(circuits.len(), 2);
 
         let circuit1 = circuits.get(&(intercepted.clone(), "intercepted-function".into()));
-        let circuit2 = circuits.get(&(intercepted.clone(), "intercepted-function2".into()));
+        let circuit2 = circuits.get(&(intercepted, "intercepted-function2".into()));
 
         assert!(circuit1.is_some());
         assert!(circuit2.is_some());

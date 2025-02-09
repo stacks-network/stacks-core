@@ -31,9 +31,7 @@ use crate::chainstate::stacks::index::node::*;
 use crate::chainstate::stacks::index::proofs::*;
 use crate::chainstate::stacks::index::storage::*;
 use crate::chainstate::stacks::index::trie::*;
-use crate::chainstate::stacks::index::{
-    MARFValue, MarfTrieId, TrieHashExtension, TrieLeaf, TrieMerkleProof,
-};
+use crate::chainstate::stacks::index::{MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof};
 use crate::chainstate::stacks::{BlockHeaderHash, TrieHash};
 
 pub mod cache;
@@ -64,7 +62,7 @@ where
     let (root, root_hash) = Trie::read_root(s).unwrap();
     frontier.push((root, root_hash, 0));
 
-    while frontier.len() > 0 {
+    while !frontier.is_empty() {
         let (next, next_hash, depth) = frontier.pop().unwrap();
         let (ptrs, path_len) = match next {
             TrieNodeType::Leaf(ref leaf_data) => {
@@ -102,13 +100,9 @@ where
     test_debug!("----- END TRIE ------\n");
 }
 
-pub fn merkle_test(
-    s: &mut TrieStorageConnection<BlockHeaderHash>,
-    path: &Vec<u8>,
-    value: &Vec<u8>,
-) -> () {
+pub fn merkle_test(s: &mut TrieStorageConnection<BlockHeaderHash>, path: &[u8], value: &[u8]) {
     let (_, root_hash) = Trie::read_root(s).unwrap();
-    let triepath = TriePath::from_bytes(&path[..]).unwrap();
+    let triepath = TrieHash::from_bytes(&path[..]).unwrap();
 
     let block_header = BlockHeaderHash([0u8; 32]);
     s.open_block(&block_header).unwrap();
@@ -132,8 +126,8 @@ pub fn merkle_test(
 pub fn merkle_test_marf(
     s: &mut TrieStorageConnection<BlockHeaderHash>,
     header: &BlockHeaderHash,
-    path: &Vec<u8>,
-    value: &Vec<u8>,
+    path: &[u8],
+    value: &[u8],
     root_to_block: Option<HashMap<TrieHash, BlockHeaderHash>>,
 ) -> HashMap<TrieHash, BlockHeaderHash> {
     test_debug!("---------");
@@ -147,7 +141,7 @@ pub fn merkle_test_marf(
 
     s.open_block(header).unwrap();
     let (_, root_hash) = Trie::read_root(s).unwrap();
-    let triepath = TriePath::from_bytes(&path[..]).unwrap();
+    let triepath = TrieHash::from_bytes(&path[..]).unwrap();
 
     let mut marf_value = [0u8; 40];
     marf_value.copy_from_slice(&value[0..40]);
@@ -190,7 +184,7 @@ pub fn merkle_test_marf_key_value(
 
     s.open_block(header).unwrap();
     let (_, root_hash) = Trie::read_root(s).unwrap();
-    let proof = TrieMerkleProof::from_entry(s, key, value, &header).unwrap();
+    let proof = TrieMerkleProof::from_entry(s, key, value, header).unwrap();
 
     test_debug!("---------");
     test_debug!("MARF merkle verify: {:?}", &proof);
@@ -199,7 +193,7 @@ pub fn merkle_test_marf_key_value(
     test_debug!("---------");
 
     let root_to_block = root_to_block.unwrap_or_else(|| s.read_root_to_block_table().unwrap());
-    let triepath = TriePath::from_key(key);
+    let triepath = TrieHash::from_key(key);
     let marf_value = MARFValue::from_value(value);
 
     assert!(proof.verify(&triepath, &marf_value, &root_hash, &root_to_block));
@@ -210,7 +204,7 @@ pub fn merkle_test_marf_key_value(
 pub fn make_node_path(
     s: &mut TrieStorageConnection<BlockHeaderHash>,
     node_id: u8,
-    path_segments: &Vec<(Vec<u8>, u8)>,
+    path_segments: &[(Vec<u8>, u8)],
     leaf_data: Vec<u8>,
 ) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
     // make a fully-fleshed-out path of node's to a leaf
@@ -250,16 +244,16 @@ pub fn make_node_path(
         // update parent
         match parent {
             TrieNodeType::Node256(ref mut data) => {
-                assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr as u32)))
+                assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr)))
             }
             TrieNodeType::Node48(ref mut data) => {
-                assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr as u32)))
+                assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr)))
             }
             TrieNodeType::Node16(ref mut data) => {
-                assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr as u32)))
+                assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr)))
             }
             TrieNodeType::Node4(ref mut data) => {
-                assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr as u32)))
+                assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr)))
             }
             TrieNodeType::Leaf(_) => panic!("can't insert into leaf"),
         };
@@ -272,7 +266,7 @@ pub fn make_node_path(
         .unwrap();
 
         nodes.push(parent.clone());
-        node_ptrs.push(TriePtr::new(node_id, chr, node_ptr as u32));
+        node_ptrs.push(TriePtr::new(node_id, chr, node_ptr));
         hashes.push(TrieHash::from_data(&[(seg_id + 1) as u8; 32]));
 
         parent = node;
@@ -294,26 +288,18 @@ pub fn make_node_path(
 
     // update parent
     match parent {
-        TrieNodeType::Node256(ref mut data) => assert!(data.insert(&TriePtr::new(
-            TrieNodeID::Leaf as u8,
-            child_chr,
-            child_ptr as u32
-        ))),
-        TrieNodeType::Node48(ref mut data) => assert!(data.insert(&TriePtr::new(
-            TrieNodeID::Leaf as u8,
-            child_chr,
-            child_ptr as u32
-        ))),
-        TrieNodeType::Node16(ref mut data) => assert!(data.insert(&TriePtr::new(
-            TrieNodeID::Leaf as u8,
-            child_chr,
-            child_ptr as u32
-        ))),
-        TrieNodeType::Node4(ref mut data) => assert!(data.insert(&TriePtr::new(
-            TrieNodeID::Leaf as u8,
-            child_chr,
-            child_ptr as u32
-        ))),
+        TrieNodeType::Node256(ref mut data) => {
+            assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf as u8, child_chr, child_ptr)))
+        }
+        TrieNodeType::Node48(ref mut data) => {
+            assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf as u8, child_chr, child_ptr)))
+        }
+        TrieNodeType::Node16(ref mut data) => {
+            assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf as u8, child_chr, child_ptr)))
+        }
+        TrieNodeType::Node4(ref mut data) => {
+            assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf as u8, child_chr, child_ptr)))
+        }
         TrieNodeType::Leaf(_) => panic!("can't insert into leaf"),
     };
 
@@ -325,11 +311,7 @@ pub fn make_node_path(
     .unwrap();
 
     nodes.push(parent.clone());
-    node_ptrs.push(TriePtr::new(
-        TrieNodeID::Leaf as u8,
-        child_chr,
-        child_ptr as u32,
-    ));
+    node_ptrs.push(TriePtr::new(TrieNodeID::Leaf as u8, child_chr, child_ptr));
     hashes.push(TrieHash::from_data(&[(seg_id + 1) as u8; 32]));
 
     (nodes, node_ptrs, hashes)
@@ -337,7 +319,7 @@ pub fn make_node_path(
 
 pub fn make_node4_path(
     s: &mut TrieStorageConnection<BlockHeaderHash>,
-    path_segments: &Vec<(Vec<u8>, u8)>,
+    path_segments: &[(Vec<u8>, u8)],
     leaf_data: Vec<u8>,
 ) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
     make_node_path(s, TrieNodeID::Node4 as u8, path_segments, leaf_data)

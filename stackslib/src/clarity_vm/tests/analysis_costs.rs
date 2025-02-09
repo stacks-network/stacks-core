@@ -71,8 +71,7 @@ fn setup_tracked_cost_test(
 
     let other_contract_id =
         QualifiedContractIdentifier::new(p1_principal.clone(), "contract-other".into());
-    let trait_contract_id =
-        QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
+    let trait_contract_id = QualifiedContractIdentifier::new(p1_principal, "contract-trait".into());
 
     let burn_state_db = UnitTestBurnStateDB {
         epoch_id: epoch,
@@ -81,7 +80,7 @@ fn setup_tracked_cost_test(
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
-            &StacksBlockId([0 as u8; 32]),
+            &StacksBlockId([0; 32]),
             &TEST_HEADER_DB,
             &burn_state_db,
         )
@@ -89,8 +88,8 @@ fn setup_tracked_cost_test(
 
     {
         let mut conn = clarity_instance.begin_block(
-            &StacksBlockId([0 as u8; 32]),
-            &StacksBlockId([1 as u8; 32]),
+            &StacksBlockId([0; 32]),
+            &StacksBlockId([1; 32]),
             &TEST_HEADER_DB,
             &burn_state_db,
         );
@@ -107,8 +106,8 @@ fn setup_tracked_cost_test(
 
     {
         let mut conn = clarity_instance.begin_block(
-            &StacksBlockId([1 as u8; 32]),
-            &StacksBlockId([2 as u8; 32]),
+            &StacksBlockId([1; 32]),
+            &StacksBlockId([2; 32]),
             &TEST_HEADER_DB,
             &burn_state_db,
         );
@@ -145,8 +144,8 @@ fn setup_tracked_cost_test(
 
     {
         let mut conn = clarity_instance.begin_block(
-            &StacksBlockId([2 as u8; 32]),
-            &StacksBlockId([3 as u8; 32]),
+            &StacksBlockId([2; 32]),
+            &StacksBlockId([3; 32]),
             &TEST_HEADER_DB,
             &burn_state_db,
         );
@@ -210,7 +209,7 @@ fn test_tracked_costs(
     };
 
     let self_contract_id = QualifiedContractIdentifier::new(
-        p1_principal.clone(),
+        p1_principal,
         ContractName::try_from(format!("self-{}", prog_id)).unwrap(),
     );
 
@@ -221,7 +220,7 @@ fn test_tracked_costs(
 
     {
         let mut conn = clarity_instance.begin_block(
-            &StacksBlockId([3 as u8; 32]),
+            &StacksBlockId([3; 32]),
             &StacksBlockId([4 + prog_id as u8; 32]),
             &TEST_HEADER_DB,
             &burn_state_db,

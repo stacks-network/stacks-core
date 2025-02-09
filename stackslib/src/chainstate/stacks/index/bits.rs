@@ -29,14 +29,14 @@ use stacks_common::util::macros::is_trace;
 
 use crate::chainstate::stacks::index::node::{
     clear_backptr, ConsensusSerializable, TrieNode, TrieNode16, TrieNode256, TrieNode4, TrieNode48,
-    TrieNodeID, TrieNodeType, TriePtr, TRIEPATH_MAX_LEN, TRIEPTR_SIZE,
+    TrieNodeID, TrieNodeType, TriePtr, TRIEPTR_SIZE,
 };
 use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
 use crate::chainstate::stacks::index::{BlockMap, Error, MarfTrieId, TrieLeaf};
 
 /// Get the size of a Trie path (note that a Trie path is 32 bytes long, and can definitely _not_
 /// be over 255 bytes).
-pub fn get_path_byte_len(p: &Vec<u8>) -> usize {
+pub fn get_path_byte_len(p: &[u8]) -> usize {
     assert!(p.len() < 255);
     let path_len_byte_len = 1;
     path_len_byte_len + p.len()
@@ -55,15 +55,15 @@ pub fn path_from_bytes<R: Read>(r: &mut R) -> Result<Vec<u8>, Error> {
         }
     })?;
 
-    if lenbuf[0] as usize > TRIEPATH_MAX_LEN {
+    if lenbuf[0] as usize > TRIEHASH_ENCODED_SIZE {
         trace!(
             "Path length is {} (expected <= {})",
             lenbuf[0],
-            TRIEPATH_MAX_LEN
+            TRIEHASH_ENCODED_SIZE
         );
         return Err(Error::CorruptionError(format!(
             "Node path is longer than {} bytes (got {})",
-            TRIEPATH_MAX_LEN, lenbuf[0]
+            TRIEHASH_ENCODED_SIZE, lenbuf[0]
         )));
     }
 
@@ -157,7 +157,7 @@ pub fn ptrs_from_bytes<R: Read>(
 /// Calculate the hash of a TrieNode, given its childrens' hashes.
 pub fn get_node_hash<M, T: ConsensusSerializable<M> + std::fmt::Debug>(
     node: &T,
-    child_hashes: &Vec<TrieHash>,
+    child_hashes: &[TrieHash],
     map: &mut M,
 ) -> TrieHash {
     let mut hasher = TrieHasher::new();
@@ -200,7 +200,7 @@ pub fn get_leaf_hash(node: &TrieLeaf) -> TrieHash {
 
 pub fn get_nodetype_hash_bytes<T: MarfTrieId, M: BlockMap>(
     node: &TrieNodeType,
-    child_hash_bytes: &Vec<TrieHash>,
+    child_hash_bytes: &[TrieHash],
     map: &mut M,
 ) -> TrieHash {
     match node {
@@ -326,7 +326,7 @@ pub fn read_nodetype_at_head_nohash<F: Read + Seek>(
 ///   node hash      id  ptrs & ptr data      path
 ///
 /// X is fixed and determined by the TrieNodeType variant.
-/// Y is variable, but no more than TriePath::len().
+/// Y is variable, but no more than TrieHash::len().
 ///
 /// If `read_hash` is false, then the contents of the node hash are undefined.
 fn inner_read_nodetype_at_head<F: Read + Seek>(

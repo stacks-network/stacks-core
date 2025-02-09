@@ -63,25 +63,24 @@ pub mod clarity_cli;
 /// A high level library for interacting with the Clarity vm
 pub mod clarity_vm;
 pub mod cli;
+pub mod config;
 pub mod core;
 pub mod cost_estimates;
 pub mod deps;
 pub mod monitoring;
 
 // set via _compile-time_ envars
-const GIT_BRANCH: Option<&'static str> = option_env!("GIT_BRANCH");
-const GIT_COMMIT: Option<&'static str> = option_env!("GIT_COMMIT");
-const GIT_TREE_CLEAN: Option<&'static str> = option_env!("GIT_TREE_CLEAN");
+const GIT_BRANCH: Option<&str> = option_env!("GIT_BRANCH");
+const GIT_COMMIT: Option<&str> = option_env!("GIT_COMMIT");
+const GIT_TREE_CLEAN: Option<&str> = option_env!("GIT_TREE_CLEAN");
 
 #[cfg(debug_assertions)]
-const BUILD_TYPE: &'static str = "debug";
+const BUILD_TYPE: &str = "debug";
 #[cfg(not(debug_assertions))]
-const BUILD_TYPE: &'static str = "release";
+const BUILD_TYPE: &str = "release";
 
 pub fn version_string(pkg_name: &str, pkg_version: &str) -> String {
-    let git_branch = GIT_BRANCH
-        .map(|x| format!("{}", x))
-        .unwrap_or("".to_string());
+    let git_branch = GIT_BRANCH.map(String::from).unwrap_or("".to_string());
     let git_commit = GIT_COMMIT.unwrap_or("");
     let git_tree_clean = GIT_TREE_CLEAN.unwrap_or("");
 

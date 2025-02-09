@@ -78,7 +78,7 @@ impl AttachmentsDownloader {
     /// Because AttachmentBatches are ordered first by their retry deadlines, it follows that if
     /// there are any ready AttachmentBatches, they'll be at the head of the queue.
     pub fn pop_next_ready_batch(&mut self) -> Option<AttachmentsBatch> {
-        let next_is_ready = if let Some(ref next) = self.priority_queue.peek() {
+        let next_is_ready = if let Some(next) = self.priority_queue.peek() {
             next.retry_deadline < get_epoch_time_secs()
         } else {
             false
@@ -102,7 +102,7 @@ impl AttachmentsDownloader {
         let mut events_to_deregister = vec![];
 
         // Handle initial batch
-        if self.initial_batch.len() > 0 {
+        if !self.initial_batch.is_empty() {
             let mut resolved = self.enqueue_initial_attachments(&mut network.atlasdb)?;
             resolved_attachments.append(&mut resolved);
         }
@@ -158,11 +158,11 @@ impl AttachmentsDownloader {
                     let attachments_instances = network
                         .atlasdb
                         .find_all_attachment_instances(&attachment.hash())
-                        .map_err(|e| net_error::DBError(e))?;
+                        .map_err(net_error::DBError)?;
                     network
                         .atlasdb
                         .insert_instantiated_attachment(&attachment)
-                        .map_err(|e| net_error::DBError(e))?;
+                        .map_err(net_error::DBError)?;
                     for attachment_instance in attachments_instances.into_iter() {
                         resolved_attachments.push((attachment_instance, attachment.clone()));
                     }
@@ -305,10 +305,10 @@ impl AttachmentsDownloader {
             atlas_db,
             new_attachments,
             |atlas_db, attachment_instance| {
-                atlas_db.mark_attachment_instance_checked(&attachment_instance, true)
+                atlas_db.mark_attachment_instance_checked(attachment_instance, true)
             },
             |atlas_db, attachment_instance| {
-                atlas_db.mark_attachment_instance_checked(&attachment_instance, false)
+                atlas_db.mark_attachment_instance_checked(attachment_instance, false)
             },
         )
     }
@@ -331,7 +331,7 @@ impl AttachmentsDownloader {
             atlas_db,
             initial_batch,
             |atlas_db, attachment_instance| {
-                atlas_db.insert_initial_attachment_instance(&attachment_instance)
+                atlas_db.insert_initial_attachment_instance(attachment_instance)
             },
             |_atlas_db, _attachment_instance| {
                 // If attachment not found, don't insert attachment instance
@@ -373,7 +373,7 @@ impl AttachmentsBatchStateContext {
     }
 
     pub fn get_peers_urls(&self) -> Vec<UrlString> {
-        self.peers.keys().map(|e| e.clone()).collect()
+        self.peers.keys().cloned().collect()
     }
 
     pub fn get_prioritized_attachments_inventory_requests(
@@ -411,7 +411,7 @@ impl AttachmentsBatchStateContext {
             let missing_attachments = match self
                 .attachments_batch
                 .attachments_instances
-                .get(&contract_id)
+                .get(contract_id)
             {
                 None => continue,
                 Some(missing_attachments) => missing_attachments,
@@ -442,16 +442,10 @@ impl AttachmentsBatchStateContext {
                         .iter()
                         .position(|page| page.index == page_index);
 
-                    let has_attachment = match index {
-                        Some(index) => match response.pages[index]
-                            .inventory
-                            .get(position_in_page as usize)
-                        {
-                            Some(result) if *result == 1 => true,
-                            _ => false,
-                        },
-                        None => false,
-                    };
+                    let has_attachment = index
+                        .and_then(|i| response.pages[i].inventory.get(position_in_page as usize))
+                        .map(|result| *result == 1)
+                        .unwrap_or(false);
 
                     if !has_attachment {
                         debug!(
@@ -531,11 +525,7 @@ impl AttachmentsBatchStateContext {
                 report.bump_failed_requests();
             }
         }
-        let mut events_ids = results
-            .faulty_peers
-            .iter()
-            .map(|(k, _)| *k)
-            .collect::<Vec<usize>>();
+        let mut events_ids = results.faulty_peers.keys().copied().collect::<Vec<usize>>();
         self.events_to_deregister.append(&mut events_ids);
 
         self
@@ -565,11 +555,7 @@ impl AttachmentsBatchStateContext {
                 report.bump_failed_requests();
             }
         }
-        let mut events_ids = results
-            .faulty_peers
-            .iter()
-            .map(|(k, _)| *k)
-            .collect::<Vec<usize>>();
+        let mut events_ids = results.faulty_peers.keys().copied().collect::<Vec<usize>>();
         self.events_to_deregister.append(&mut events_ids);
 
         self
@@ -703,7 +689,7 @@ impl BatchedDNSLookupsState {
                 let mut state = BatchedDNSLookupsResults::default();
 
                 for url_str in urls.drain(..) {
-                    if url_str.len() == 0 {
+                    if url_str.is_empty() {
                         continue;
                     }
                     let url = match url_str.parse_to_block_url() {
@@ -932,7 +918,7 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                     }
                 });
 
-                if pending_requests.len() > 0 {
+                if !pending_requests.is_empty() {
                     // We need to keep polling
                     for (event_id, request) in pending_requests.drain() {
                         state.remaining.insert(event_id, request);
@@ -1108,7 +1094,7 @@ impl Ord for AttachmentRequest {
         other.sources.len().cmp(&self.sources.len()).then_with(|| {
             let (_, report) = self.get_most_reliable_source();
             let (_, other_report) = other.get_most_reliable_source();
-            report.cmp(&other_report)
+            report.cmp(other_report)
         })
     }
 }
@@ -1170,13 +1156,14 @@ impl AttachmentsBatch {
             self.stacks_block_height = attachment.stacks_block_height.clone();
             self.index_block_hash = attachment.index_block_hash.clone();
             self.canonical_stacks_tip_height = attachment.canonical_stacks_tip_height;
-        } else {
-            if self.stacks_block_height != attachment.stacks_block_height
-                || self.index_block_hash != attachment.index_block_hash
-            {
-                warn!("Atlas: attempt to add unrelated AttachmentInstance ({}, {}) to AttachmentsBatch", attachment.attachment_index, attachment.index_block_hash);
-                return;
-            }
+        } else if self.stacks_block_height != attachment.stacks_block_height
+            || self.index_block_hash != attachment.index_block_hash
+        {
+            warn!(
+                "Atlas: attempt to add unrelated AttachmentInstance ({}, {}) to AttachmentsBatch",
+                attachment.attachment_index, attachment.index_block_hash
+            );
+            return;
         }
 
         let inner_key = attachment.attachment_index;
@@ -1219,7 +1206,7 @@ impl AttachmentsBatch {
         contract_id: &QualifiedContractIdentifier,
     ) -> Vec<u32> {
         let mut pages_indexes = HashSet::new();
-        if let Some(missing_attachments) = self.attachments_instances.get(&contract_id) {
+        if let Some(missing_attachments) = self.attachments_instances.get(contract_id) {
             for (attachment_index, _) in missing_attachments.iter() {
                 let page_index = attachment_index / AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
                 pages_indexes.insert(page_index);
@@ -1314,10 +1301,11 @@ impl ReliabilityReport {
     }
 
     pub fn score(&self) -> u32 {
-        match self.total_requests_sent {
-            0 => 0 as u32,
-            n => self.total_requests_success * 1000 / (n * 1000) + n,
+        let n = self.total_requests_sent;
+        if n == 0 {
+            return n;
         }
+        self.total_requests_success * 1000 / (n * 1000) + n
     }
 }
 

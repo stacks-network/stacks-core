@@ -53,7 +53,7 @@ fn parse_request() {
         )
         .unwrap();
 
-    assert_eq!(handler.block, Some(block.clone()));
+    assert_eq!(handler.block, Some(block));
 
     // parsed request consumes headers that would not be in a constructed reqeuest
     parsed_request.clear_headers();
@@ -178,19 +178,12 @@ fn handle_req_accepted() {
         |_| true,
     );
     let next_block_id = next_block.block_id();
-    let mut requests = vec![];
-
-    // post the block
-    requests.push(StacksHttpRequest::new_post_block_v3(
-        addr.into(),
-        &next_block,
-    ));
-
-    // idempotent
-    requests.push(StacksHttpRequest::new_post_block_v3(
-        addr.into(),
-        &next_block,
-    ));
+    let requests = vec![
+        // post the block
+        StacksHttpRequest::new_post_block_v3(addr.into(), &next_block),
+        // idempotent
+        StacksHttpRequest::new_post_block_v3(addr.into(), &next_block),
+    ];
 
     let mut responses = rpc_test.run(requests);
 
@@ -207,6 +200,61 @@ fn handle_req_accepted() {
     let response = responses.remove(0);
     info!(
         "Response: {}",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+    let resp = response.decode_stacks_block_accepted().unwrap();
+    assert_eq!(resp.accepted, false);
+    assert_eq!(resp.stacks_block_id, next_block_id);
+}
+
+#[test]
+fn handle_req_without_trailing_accepted() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+    let path_without_slash: &str = "/v3/blocks/upload";
+    let observer = TestEventObserver::new();
+    let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &observer);
+    let (next_block, ..) = rpc_test.peer_1.single_block_tenure(
+        &rpc_test.privk1,
+        |_| {},
+        |burn_ops| {
+            rpc_test.peer_2.next_burnchain_block(burn_ops.clone());
+        },
+        |_| true,
+    );
+    let next_block_id = next_block.block_id();
+    let requests = vec![
+        // post the block
+        StacksHttpRequest::new_for_peer(
+            addr.into(),
+            "POST".into(),
+            path_without_slash.into(),
+            HttpRequestContents::new().payload_stacks(&next_block),
+        )
+        .unwrap(),
+        // idempotent
+        StacksHttpRequest::new_for_peer(
+            addr.into(),
+            "POST".into(),
+            path_without_slash.into(),
+            HttpRequestContents::new().payload_stacks(&next_block),
+        )
+        .unwrap(),
+    ];
+    let mut responses = rpc_test.run(requests);
+
+    let response = responses.remove(0);
+    info!(
+        "Response for the request that has the path without the last '/': {}",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+
+    let resp = response.decode_stacks_block_accepted().unwrap();
+    assert_eq!(resp.accepted, true);
+    assert_eq!(resp.stacks_block_id, next_block_id);
+
+    let response = responses.remove(0);
+    info!(
+        "Response for the request that has the path without the last '/': {}",
         std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
     );
     let resp = response.decode_stacks_block_accepted().unwrap();

@@ -58,6 +58,9 @@ use crate::monitoring::increment_stx_blocks_processed_counter;
 use crate::net::Error as NetError;
 use crate::util_lib::db::Error as DBError;
 
+#[cfg(any(test, feature = "testing"))]
+pub static TEST_COORDINATOR_STALL: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+
 #[cfg(test)]
 pub mod tests;
 
@@ -81,7 +84,7 @@ macro_rules! inf_or_debug {
     })
 }
 
-impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
+impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
     /// Read a reward_set written while updating .signers
     /// `debug_log` should be set to true if the reward set loading should
     ///  log messages as `debug!` instead of `error!` or `info!`. This allows
@@ -484,7 +487,14 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
     let Some(anchor_block_header) = prepare_phase_sortitions
         .into_iter()
         .find_map(|sn| {
-            if !sn.sortition {
+            let shadow_tenure = match chain_state.nakamoto_blocks_db().is_shadow_tenure(&sn.consensus_hash) {
+                Ok(x) => x,
+                Err(e) => {
+                    return Some(Err(e));
+                }
+            };
+
+            if !sn.sortition && !shadow_tenure {
                 return None
             }
 
@@ -605,14 +615,13 @@ pub fn get_nakamoto_next_recipients(
 }
 
 impl<
-        'a,
         T: BlockEventDispatcher,
         N: CoordinatorNotices,
         U: RewardSetProvider,
         CE: CostEstimator + ?Sized,
         FE: FeeEstimator + ?Sized,
         B: BurnchainHeaderReader,
-    > ChainsCoordinator<'a, T, N, U, CE, FE, B>
+    > ChainsCoordinator<'_, T, N, U, CE, FE, B>
 {
     /// Get the first nakamoto reward cycle
     fn get_first_nakamoto_reward_cycle(&self) -> u64 {
@@ -685,7 +694,7 @@ impl<
             if !self.in_nakamoto_epoch {
                 debug!("Check to see if the system has entered the Nakamoto epoch");
                 if let Ok(Some(canonical_header)) = NakamotoChainState::get_canonical_block_header(
-                    &self.chain_state_db.db(),
+                    self.chain_state_db.db(),
                     &self.sortition_db,
                 ) {
                     if canonical_header.is_nakamoto_block() {
@@ -749,13 +758,28 @@ impl<
             signal_mining_ready(miner_status.clone());
         }
         if (bits & (CoordinatorEvents::STOP as u8)) != 0 {
-            signal_mining_blocked(miner_status.clone());
+            signal_mining_blocked(miner_status);
             debug!("Received stop notice");
             return false;
         }
 
         true
     }
+
+    #[cfg(any(test, feature = "testing"))]
+    fn fault_injection_pause_nakamoto_block_processing() {
+        if *TEST_COORDINATOR_STALL.lock().unwrap() == Some(true) {
+            // Do an extra check just so we don't log EVERY time.
+            warn!("Coordinator is stalled due to testing directive");
+            while *TEST_COORDINATOR_STALL.lock().unwrap() == Some(true) {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            warn!("Coordinator is no longer stalled due to testing directive. Continuing...");
+        }
+    }
+
+    #[cfg(not(any(test, feature = "testing")))]
+    fn fault_injection_pause_nakamoto_block_processing() {}
 
     /// Handle one or more new Nakamoto Stacks blocks.
     /// If we process a PoX anchor block, then return its block hash.  This unblocks processing the
@@ -769,6 +793,8 @@ impl<
         );
 
         loop {
+            Self::fault_injection_pause_nakamoto_block_processing();
+
             // process at most one block per loop pass
             let mut processed_block_receipt = match NakamotoChainState::process_next_nakamoto_block(
                 &mut self.chain_state_db,
@@ -876,7 +902,7 @@ impl<
             }
 
             let stacks_sn = SortitionDB::get_block_snapshot_consensus(
-                &self.sortition_db.conn(),
+                self.sortition_db.conn(),
                 &canonical_stacks_consensus_hash,
             )?
             .unwrap_or_else(|| {
@@ -906,7 +932,7 @@ impl<
 
             let last_processed_reward_cycle = {
                 let canonical_sn = SortitionDB::get_block_snapshot(
-                    &self.sortition_db.conn(),
+                    self.sortition_db.conn(),
                     &canonical_sortition_tip,
                 )?
                 .ok_or(DBError::NotFoundError)?;
@@ -987,7 +1013,7 @@ impl<
             }
 
             let current_block =
-                BurnchainDB::get_burnchain_block(&self.burnchain_blocks_db.conn(), &cursor)
+                BurnchainDB::get_burnchain_block(self.burnchain_blocks_db.conn(), &cursor)
                     .map_err(|e| {
                         warn!(
                             "ChainsCoordinator: could not retrieve block burnhash={}",
@@ -1089,7 +1115,7 @@ impl<
                 // canonical tip, it's guaranteed to be the canonical one.
                 let canonical_sortition_tip = self.canonical_sortition_tip.clone().unwrap_or(
                     // should be unreachable
-                    SortitionDB::get_canonical_burn_chain_tip(&self.sortition_db.conn())?
+                    SortitionDB::get_canonical_burn_chain_tip(self.sortition_db.conn())?
                         .sortition_id,
                 );
 
@@ -1137,18 +1163,20 @@ impl<
             let (next_snapshot, _) = self
                 .sortition_db
                 .evaluate_sortition(
+                    self.chain_state_db.mainnet,
                     &header,
                     ops,
                     &self.burnchain,
                     &last_processed_ancestor,
                     reward_cycle_info,
-                    |reward_set_info| {
+                    |reward_set_info, consensus_hash| {
                         if let Some(dispatcher) = dispatcher_ref {
                             dispatcher_announce_burn_ops(
                                 *dispatcher,
                                 &header,
                                 paid_rewards,
                                 reward_set_info,
+                                &consensus_hash,
                             );
                         }
                     },

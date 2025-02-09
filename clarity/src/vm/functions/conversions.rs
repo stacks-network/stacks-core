@@ -14,22 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types::StacksEpochId;
-
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
     check_argument_count, CheckErrors, InterpreterError, InterpreterResult as Result,
 };
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::types::SequenceSubtype::{BufferType, StringType};
-use crate::vm::types::StringSubtype::ASCII;
+use crate::vm::types::serialization::SerializationError;
+use crate::vm::types::SequenceSubtype::BufferType;
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
-    ASCIIData, BuffData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Value,
+    ASCIIData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Value,
 };
-use crate::vm::{apply, eval, lookup_function, Environment, LocalContext};
+use crate::vm::{eval, Environment, LocalContext};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EndianDirection {
@@ -57,13 +54,13 @@ pub fn buff_to_int_generic(
                 > BufferLength::try_from(16_u32)
                     .map_err(|_| InterpreterError::Expect("Failed to construct".into()))?
             {
-                return Err(CheckErrors::TypeValueError(
+                Err(CheckErrors::TypeValueError(
                     SequenceType(BufferType(BufferLength::try_from(16_u32).map_err(
                         |_| InterpreterError::Expect("Failed to construct".into()),
                     )?)),
                     value,
                 )
-                .into());
+                .into())
             } else {
                 let mut transfer_buffer = [0u8; 16];
                 let original_slice = sequence_data.as_slice();
@@ -82,15 +79,13 @@ pub fn buff_to_int_generic(
                 Ok(value)
             }
         }
-        _ => {
-            return Err(CheckErrors::TypeValueError(
-                SequenceType(BufferType(BufferLength::try_from(16_u32).map_err(
-                    |_| InterpreterError::Expect("Failed to construct".into()),
-                )?)),
-                value,
-            )
-            .into())
-        }
+        _ => Err(CheckErrors::TypeValueError(
+            SequenceType(BufferType(BufferLength::try_from(16_u32).map_err(
+                |_| InterpreterError::Expect("Failed to construct".into()),
+            )?)),
+            value,
+        )
+        .into()),
     }
 }
 
@@ -282,6 +277,9 @@ pub fn from_consensus_buff(
         env.epoch().value_sanitizing(),
     ) {
         Ok(value) => value,
+        Err(SerializationError::UnexpectedSerialization) => {
+            return Err(CheckErrors::Expects("UnexpectedSerialization".into()).into())
+        }
         Err(_) => return Ok(Value::none()),
     };
     if !type_arg.admits(env.epoch(), &result)? {

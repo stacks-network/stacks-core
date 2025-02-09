@@ -158,11 +158,7 @@ fn handle_generate_stacking_signature(
 
 fn handle_check_config(args: RunSignerArgs) {
     let config = GlobalConfig::try_from(&args.config).unwrap();
-    println!(
-        "Signer version: {}\nConfig: \n{}",
-        VERSION_STRING.to_string(),
-        config
-    );
+    println!("Signer version: {}\nConfig: \n{}", *VERSION_STRING, config);
 }
 
 fn handle_generate_vote(args: GenerateVoteArgs, do_print: bool) -> MessageSignature {
@@ -415,10 +411,10 @@ pub mod tests {
     #[test]
     fn test_verify_vote() {
         let mut rand = rand::thread_rng();
-        let private_key = Secp256k1PrivateKey::new();
+        let private_key = Secp256k1PrivateKey::random();
         let public_key = StacksPublicKey::from_private(&private_key);
 
-        let invalid_private_key = Secp256k1PrivateKey::new();
+        let invalid_private_key = Secp256k1PrivateKey::random();
         let invalid_public_key = StacksPublicKey::from_private(&invalid_private_key);
 
         let sip = rand.next_u32();
