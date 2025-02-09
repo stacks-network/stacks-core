@@ -1,6 +1,5 @@
 use serde::Serialize;
 use serde::Deserialize;
-use std::fs::File;
 
 #[derive(Serialize, Deserialize)]
 struct Versions {
