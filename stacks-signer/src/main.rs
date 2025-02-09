@@ -37,7 +37,6 @@ use libstackerdb::StackerDBChunkData;
 use slog::{slog_debug, slog_error};
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::util::versions::get_build_version;
 use stacks_common::{debug, error};
 use stacks_signer::cli::{
     Cli, Command, GenerateStackingSignatureArgs, GenerateVoteArgs, GetChunkArgs,
