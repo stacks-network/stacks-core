@@ -35,6 +35,7 @@ use clarity::vm::{ClarityName, ContractName, Value};
 use libstackerdb::{
     Error as libstackerdb_error, SlotMetadata, StackerDBChunkAckData, StackerDBChunkData,
 };
+use p2p::{DropPeer, DropReason, DropSource};
 use rand::{thread_rng, RngCore};
 use regex::Regex;
 use rusqlite::types::{ToSql, ToSqlOutput};
@@ -1309,6 +1310,30 @@ pub const BLOCKS_PUSHED_MAX: u32 = 32;
 // This bound is needed since it bounds the amount of I/O a peer can be asked to do to validate the
 // message.
 pub const NAKAMOTO_BLOCKS_PUSHED_MAX: u32 = 32;
+
+/// Neighbor to drop
+#[derive(Clone, Eq, PartialOrd, Ord, Debug)]
+pub struct DropNeighbor {
+    /// the neighbor identifier
+    pub key: NeighborKey,
+    /// the reason for dropping the neighbor
+    pub reason: DropReason,
+    /// the reason the neighbor should be dropped
+    pub source: DropSource,
+}
+
+impl Hash for DropNeighbor {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // ignores reason and source, we only care about the neighbor key
+        self.key.hash(state);
+    }
+}
+
+impl PartialEq for DropNeighbor {
+    fn eq(&self, other: &DropNeighbor) -> bool {
+        self.key == other.key
+    }
+}
 
 /// neighbor identifier
 #[derive(Clone, Eq, PartialOrd, Ord)]

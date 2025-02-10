@@ -7,13 +7,16 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
-### Added
+## Added
 
 - Add `vrf_seed` to the `/v3/sortitions` rpc endpoint
 
 ### Changed
 
 - Miner will stop waiting for signatures on a block if the Stacks tip advances (causing the block it had proposed to be invalid).
+- Logging improvements:
+  - P2P logs now includes a reason for dropping a peer or neighbor
+  - Improvements to how a PeerAddress is logged (human readable format vs hex)
 
 ### Fixed
 

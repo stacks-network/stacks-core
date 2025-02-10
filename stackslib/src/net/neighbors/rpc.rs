@@ -35,9 +35,9 @@ use crate::net::neighbors::{
 use crate::net::p2p::PeerNetwork;
 use crate::net::server::HttpPeer;
 use crate::net::{
-    Error as NetError, HandshakeData, Neighbor, NeighborAddress, NeighborKey, PeerAddress,
-    PeerHostExtensions, StacksHttpRequest, StacksHttpResponse, StacksMessage, StacksMessageType,
-    NUM_NEIGHBORS,
+    DropNeighbor, DropReason, DropSource, Error as NetError, HandshakeData, Neighbor,
+    NeighborAddress, NeighborKey, PeerAddress, PeerHostExtensions, StacksHttpRequest,
+    StacksHttpResponse, StacksMessage, StacksMessageType, NUM_NEIGHBORS,
 };
 
 /// This struct represents a batch of in-flight RPCs to a set of peers, identified by a
@@ -45,8 +45,8 @@ use crate::net::{
 #[derive(Debug)]
 pub struct NeighborRPC {
     state: HashMap<NeighborAddress, (usize, Option<StacksHttpRequest>)>,
-    dead: HashSet<NeighborKey>,
-    broken: HashSet<NeighborKey>,
+    dead: HashSet<DropNeighbor>,
+    broken: HashSet<DropNeighbor>,
 }
 
 impl NeighborRPC {
@@ -59,38 +59,73 @@ impl NeighborRPC {
     }
 
     /// Add a dead neighbor -- a neighbor which failed to communicate with us.
-    pub fn add_dead(&mut self, network: &PeerNetwork, naddr: &NeighborAddress) {
-        self.dead.insert(naddr.to_neighbor_key(network));
+    pub fn add_dead(
+        &mut self,
+        network: &PeerNetwork,
+        naddr: &NeighborAddress,
+        reason: DropReason,
+        source: DropSource,
+    ) {
+        self.dead.insert(DropNeighbor {
+            key: naddr.to_neighbor_key(network),
+            reason,
+            source,
+        });
     }
 
     /// Add a broken neighbor -- a neighbor which violated protocol.
-    pub fn add_broken(&mut self, network: &PeerNetwork, naddr: &NeighborAddress) {
-        self.broken.insert(naddr.to_neighbor_key(network));
+    pub fn add_broken(
+        &mut self,
+        network: &PeerNetwork,
+        naddr: &NeighborAddress,
+        reason: DropReason,
+        source: DropSource,
+    ) {
+        self.broken.insert(DropNeighbor {
+            key: naddr.to_neighbor_key(network),
+            reason,
+            source,
+        });
     }
 
     /// Is a neighbor dead?
     pub fn is_dead(&self, network: &PeerNetwork, naddr: &NeighborAddress) -> bool {
-        self.dead.contains(&naddr.to_neighbor_key(network))
+        // reason and source does't matter. They are ignored by the hasher/partial eq
+        self.dead.contains(&DropNeighbor {
+            key: naddr.to_neighbor_key(network),
+            reason: DropReason::Unknown,
+            source: DropSource::Unknown,
+        })
     }
 
     /// Is a neighbor broken
     pub fn is_broken(&self, network: &PeerNetwork, naddr: &NeighborAddress) -> bool {
-        self.broken.contains(&naddr.to_neighbor_key(network))
+        // reason and source does't matter. They are ignored by the hasher/partial eq
+        self.broken.contains(&DropNeighbor {
+            key: naddr.to_neighbor_key(network),
+            reason: DropReason::Unknown,
+            source: DropSource::Unknown,
+        })
     }
 
     /// Is a neighbor dead or broken?
     pub fn is_dead_or_broken(&self, network: &PeerNetwork, naddr: &NeighborAddress) -> bool {
-        let nk = naddr.to_neighbor_key(network);
-        self.dead.contains(&nk) || self.broken.contains(&nk)
+        // reason and source does't matter. They are ignored by the hasher/partial eq
+        let dn = DropNeighbor {
+            key: naddr.to_neighbor_key(network),
+            reason: DropReason::Unknown,
+            source: DropSource::Unknown,
+        };
+        self.dead.contains(&dn) || self.broken.contains(&dn)
     }
 
     /// Extract the list of dead neighbors
-    pub fn take_dead(&mut self) -> HashSet<NeighborKey> {
+    pub fn take_dead(&mut self) -> HashSet<DropNeighbor> {
         std::mem::replace(&mut self.dead, HashSet::new())
     }
 
     /// Extract the list of broken neighbors
-    pub fn take_broken(&mut self) -> HashSet<NeighborKey> {
+    pub fn take_broken(&mut self) -> HashSet<DropNeighbor> {
         std::mem::replace(&mut self.broken, HashSet::new())
     }
 
@@ -122,18 +157,21 @@ impl NeighborRPC {
                     inflight.insert(naddr, (event_id, request_opt));
                     continue;
                 }
-                Err(_e) => {
+                Err(e) => {
                     // declare this neighbor as dead by default
-                    debug!("Failed to poll next reply from {}: {:?}", &naddr, &_e);
-                    dead.push(naddr);
+                    debug!("Failed to poll next reply from {}: {:?}", &naddr, &e);
+                    dead.push((
+                        naddr,
+                        DropReason::DeadConnection(format!("Failed to poll next reply: {e}")),
+                    ));
                     continue;
                 }
             };
 
             ret.push((naddr, response));
         }
-        for naddr in dead.into_iter() {
-            self.add_dead(network, &naddr);
+        for (naddr, reason) in dead.into_iter() {
+            self.add_dead(network, &naddr, reason, DropSource::NeighborRPC);
         }
         self.state.extend(inflight);
         ret
