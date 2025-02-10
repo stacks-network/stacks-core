@@ -1231,7 +1231,7 @@ mod tests {
     use clarity::types::chainstate::{StacksBlockId, StacksPrivateKey, StacksPublicKey};
     use clarity::util::hash::Hash160;
     use clarity::util::secp256k1::MessageSignature;
-    use libsigner::BlockProposal;
+    use libsigner::{BlockProposal, BlockProposalData};
 
     use super::*;
     use crate::signerdb::NakamotoBlockVote;
@@ -1254,6 +1254,7 @@ mod tests {
             block,
             burn_height: 7,
             reward_cycle: 42,
+            block_proposal_data: BlockProposalData::empty(),
         };
         overrides(&mut block_proposal);
         (BlockInfo::from(block_proposal.clone()), block_proposal)

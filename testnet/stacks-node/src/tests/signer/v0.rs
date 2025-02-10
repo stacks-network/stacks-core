@@ -26,7 +26,9 @@ use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MinerSlotID, RejectCode,
     SignerMessage,
 };
-use libsigner::{BlockProposal, SignerSession, StackerDBSession, VERSION_STRING};
+use libsigner::{
+    BlockProposal, BlockProposalData, SignerSession, StackerDBSession, VERSION_STRING,
+};
 use serde::Deserialize;
 use stacks::address::AddressHashMode;
 use stacks::burnchains::Txid;
@@ -407,6 +409,7 @@ impl SignerTest<SpawnedSigner> {
             block,
             burn_height,
             reward_cycle,
+            block_proposal_data: BlockProposalData::empty(),
         });
         let miner_sk = self
             .running_nodes

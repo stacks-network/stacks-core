@@ -29,7 +29,7 @@ use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
 use blockstack_lib::net::api::getsortition::SortitionInfo;
 use clarity::types::chainstate::{BurnchainHeaderHash, SortitionId};
 use clarity::util::vrf::VRFProof;
-use libsigner::BlockProposal;
+use libsigner::{BlockProposal, BlockProposalData};
 use slog::slog_info;
 use stacks_common::bitvec::BitVec;
 use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -245,6 +245,7 @@ fn reorg_timing_testing(
         },
         burn_height: 2,
         reward_cycle: 1,
+        block_proposal_data: BlockProposalData::empty(),
     };
     let mut header_clone = block_proposal_1.block.header.clone();
     let mut block_info_1 = BlockInfo::from(block_proposal_1);
@@ -512,6 +513,7 @@ fn check_sortition_timeout() {
         },
         burn_height: 2,
         reward_cycle: 1,
+        block_proposal_data: BlockProposalData::empty(),
     };
 
     let mut block_info = BlockInfo::from(block_proposal);
