@@ -440,6 +440,7 @@ impl SortitionsView {
             }
 
             if tenure.first_block_mined.is_some() {
+                // TODO: roberto -> get the amount of signed blocks
                 let Some(local_block_info) =
                     signer_db.get_first_signed_block_in_tenure(&tenure.consensus_hash)?
                 else {
