@@ -1959,6 +1959,57 @@ mod tests {
     }
 
     #[test]
+    fn check_signed_block_count() {
+        let db_path = tmp_db_path();
+        let consensus_hash_1 = ConsensusHash([0x01; 20]);
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let (mut block_info, _) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_1;
+        });
+
+        assert_eq!(
+            db.get_signed_block_count_in_tenure(&consensus_hash_1)
+                .unwrap(),
+            0
+        );
+
+        block_info.signed_over = true;
+        block_info.block.header.chain_length = 1;
+        db.insert_block(&block_info).unwrap();
+
+        assert_eq!(
+            db.get_signed_block_count_in_tenure(&consensus_hash_1)
+                .unwrap(),
+            1
+        );
+
+        block_info.signed_over = true;
+        block_info.block.header.chain_length = 2;
+        db.insert_block(&block_info).unwrap();
+
+        block_info.signed_over = true;
+        block_info.block.header.chain_length = 3;
+        db.insert_block(&block_info).unwrap();
+
+        assert_eq!(
+            db.get_signed_block_count_in_tenure(&consensus_hash_1)
+                .unwrap(),
+            3
+        );
+
+        // add an unsigned block
+        block_info.signed_over = false;
+        block_info.block.header.chain_length = 4;
+        db.insert_block(&block_info).unwrap();
+
+        assert_eq!(
+            db.get_signed_block_count_in_tenure(&consensus_hash_1)
+                .unwrap(),
+            3
+        );
+    }
+
+    #[test]
     fn has_signed_block() {
         let db_path = tmp_db_path();
         let consensus_hash_1 = ConsensusHash([0x01; 20]);
