@@ -7,14 +7,18 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
-### Added
+## Added
 
+- The `BlockProposal` StackerDB message serialization struct now includes a `server_version` string, which represents the version of the node that the miner is using. ([#5803](https://github.com/stacks-network/stacks-core/pull/5803))
 - Add `vrf_seed` to the `/v3/sortitions` rpc endpoint
 - Add miner configuration option `tenure_extend_buffer_secs` to specify the number of seconds of buffer the miner should wait, after reaching the 70% threshold for tenure extension time, before issuing a tenure extension, to allow for clock skew between the miner and signers
 
 ### Changed
 
 - Miner will stop waiting for signatures on a block if the Stacks tip advances (causing the block it had proposed to be invalid).
+- Logging improvements:
+  - P2P logs now includes a reason for dropping a peer or neighbor
+  - Improvements to how a PeerAddress is logged (human readable format vs hex)
 
 ### Fixed
 
