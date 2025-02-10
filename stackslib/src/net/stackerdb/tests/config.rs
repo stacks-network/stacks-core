@@ -525,25 +525,24 @@ fn test_valid_and_invalid_stackerdb_configs() {
             )
             .unwrap()
             .into(),
-            ContractName::try_from(format!("test-{}", i)).unwrap(),
+            ContractName::try_from(format!("test-{i}")).unwrap(),
         );
         peer.with_db_state(|sortdb, chainstate, _, _| {
             match StackerDBConfig::from_smart_contract(chainstate, sortdb, &contract_id, 32, None) {
                 Ok(config) => {
                     let expected = result
                         .clone()
-                        .expect(&format!("FATAL: parsed a bad contract\n{}", code));
+                        .unwrap_or_else(|| panic!("FATAL: parsed a bad contract\n{code}"));
                     assert_eq!(config, expected);
                 }
                 Err(net_error::InvalidStackerDBContract(..)) => {
                     assert!(
                         result.is_none(),
-                        "FATAL: valid contract treated as invalid\n{}",
-                        code
+                        "FATAL: valid contract treated as invalid\n{code}"
                     );
                 }
                 Err(e) => {
-                    panic!("Unexpected error: {:?}", &e);
+                    panic!("Unexpected error: {e:?}");
                 }
             }
             Ok(())
