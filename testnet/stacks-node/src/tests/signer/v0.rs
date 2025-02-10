@@ -14955,7 +14955,7 @@ fn prev_miner_will_not_attempt_to_extend_if_incoming_miner_produces_a_block() {
     signer_test.shutdown();
 }
 
-/// Test a scenario where a non-blocking minority of miners are configured to favour the incoming miner.
+/// Test a scenario where a non-blocking minority of signers are configured to favour the incoming miner.
 /// The previous miner should extend its tenure and succeed as a majority are configured to favour it
 /// and its subsequent blocks should be be approved.
 /// Two miners boot to Nakamoto.
@@ -14965,7 +14965,7 @@ fn prev_miner_will_not_attempt_to_extend_if_incoming_miner_produces_a_block() {
 /// Miner 2 wins the second tenure B.
 /// A majority of signers mark miner 2 as invalid.
 /// Miner 2 proposes block N+1' with a TenureChangeCause::BlockFound
-/// A majority fo signers rekect block N+1'.
+/// A majority fo signers reject block N+1'.
 /// Miner 1 proposes block N+1 with a TenureChangeCause::Extended
 /// A majority of signers accept and the stacks tip advances to N+1
 /// Miner 1 proposes block N+2 with a transfer tx
@@ -15579,7 +15579,7 @@ fn non_blocking_minority_configured_to_favour_incoming_miner() {
     signer_test.shutdown();
 }
 
-/// Test a scenario where a non-blocking majority of miners are configured to favour the previous miner
+/// Test a scenario where a non-blocking majority of signers are configured to favour the previous miner
 /// extending their tenure when the incoming miner is slow to propose a block. The incoming miner should succeed
 /// and its subsequent blocks should be be approved.
 /// Two miners boot to Nakamoto.
