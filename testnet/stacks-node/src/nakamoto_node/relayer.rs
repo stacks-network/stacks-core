@@ -677,7 +677,7 @@ impl RelayerThread {
                 &last_winning_snapshot.consensus_hash
             );
 
-            if self.need_block_found(&canonical_stacks_snapshot, &last_winning_snapshot) {
+            if Self::need_block_found(&canonical_stacks_snapshot, &last_winning_snapshot) {
                 info!(
                     "Relayer: will submit late BlockFound for {}",
                     &last_winning_snapshot.consensus_hash
@@ -738,7 +738,6 @@ impl RelayerThread {
     /// Returns true if the stacks tip's snapshot is an ancestor of the last-won sortition
     /// Returns false otherwise.
     fn need_block_found(
-        &mut self,
         canonical_stacks_snapshot: &BlockSnapshot,
         last_winning_snapshot: &BlockSnapshot,
     ) -> bool {
@@ -1838,7 +1837,7 @@ impl RelayerThread {
                 let won_last_winning_snapshot =
                     last_winning_snapshot.miner_pk_hash == Some(mining_pkh);
                 if won_last_winning_snapshot
-                    && self.need_block_found(&canonical_stacks_snapshot, &last_winning_snapshot)
+                    && Self::need_block_found(&canonical_stacks_snapshot, &last_winning_snapshot)
                 {
                     info!("Will not tenure extend yet -- need to issue a BlockFound first");
                     // We may manage to extend later, so don't set the timer to None.
@@ -2059,6 +2058,10 @@ pub mod test {
     use std::io::Write;
     use std::path::Path;
 
+    use rand::{thread_rng, Rng};
+    use stacks::burnchains::Txid;
+    use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
+    use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId, TrieHash};
     use stacks::util::hash::Hash160;
     use stacks::util::secp256k1::Secp256k1PublicKey;
     use stacks::util::vrf::VRFPublicKey;
@@ -2168,5 +2171,81 @@ pub mod test {
         assert!(res.is_none());
 
         std::fs::remove_file(path).expect("Failed to delete test file");
+    }
+
+    #[test]
+    fn check_need_block_found() {
+        let consensus_hash_byte = thread_rng().gen();
+        let canonical_stacks_snapshot = BlockSnapshot {
+            block_height: thread_rng().gen::<u64>().wrapping_add(1), // Add one to ensure we can always decrease by 1 without underflowing.
+            burn_header_timestamp: thread_rng().gen(),
+            burn_header_hash: BurnchainHeaderHash([thread_rng().gen(); 32]),
+            consensus_hash: ConsensusHash([consensus_hash_byte; 20]),
+            parent_burn_header_hash: BurnchainHeaderHash([thread_rng().gen(); 32]),
+            ops_hash: OpsHash([thread_rng().gen(); 32]),
+            total_burn: thread_rng().gen(),
+            sortition: true,
+            sortition_hash: SortitionHash([thread_rng().gen(); 32]),
+            winning_block_txid: Txid([thread_rng().gen(); 32]),
+            winning_stacks_block_hash: BlockHeaderHash([thread_rng().gen(); 32]),
+            index_root: TrieHash([thread_rng().gen(); 32]),
+            num_sortitions: thread_rng().gen(),
+            stacks_block_accepted: true,
+            stacks_block_height: thread_rng().gen(),
+            arrival_index: thread_rng().gen(),
+            canonical_stacks_tip_consensus_hash: ConsensusHash([thread_rng().gen(); 20]),
+            canonical_stacks_tip_hash: BlockHeaderHash([thread_rng().gen(); 32]),
+            canonical_stacks_tip_height: thread_rng().gen(),
+            sortition_id: SortitionId([thread_rng().gen(); 32]),
+            parent_sortition_id: SortitionId([thread_rng().gen(); 32]),
+            pox_valid: true,
+            accumulated_coinbase_ustx: thread_rng().gen::<u64>() as u128,
+            miner_pk_hash: Some(Hash160([thread_rng().gen(); 20])),
+        };
+
+        // The consensus_hashes are the same, and the block heights are the same. Therefore, don't need a block found.
+        let last_winning_block_snapshot = canonical_stacks_snapshot.clone();
+        assert!(!RelayerThread::need_block_found(
+            &canonical_stacks_snapshot,
+            &last_winning_block_snapshot
+        ));
+
+        // The block height of the canonical tip is higher than the last winning snapshot. We already issued a block found.
+        let mut canonical_stacks_snapshot_is_higher_than_last_winning_snapshot =
+            last_winning_block_snapshot.clone();
+        canonical_stacks_snapshot_is_higher_than_last_winning_snapshot.block_height =
+            canonical_stacks_snapshot.block_height.saturating_sub(1);
+        assert!(!RelayerThread::need_block_found(
+            &canonical_stacks_snapshot,
+            &canonical_stacks_snapshot_is_higher_than_last_winning_snapshot
+        ));
+
+        // The block height is the same, but we have different consensus hashes. We need to issue a block found.
+        let mut tip_consensus_hash_mismatch = last_winning_block_snapshot.clone();
+        tip_consensus_hash_mismatch.consensus_hash =
+            ConsensusHash([consensus_hash_byte.wrapping_add(1); 20]);
+        assert!(RelayerThread::need_block_found(
+            &canonical_stacks_snapshot,
+            &tip_consensus_hash_mismatch
+        ));
+
+        // The block height is the same, but we have different consensus hashes. We need to issue a block found.
+        let mut tip_consensus_hash_mismatch = last_winning_block_snapshot.clone();
+        tip_consensus_hash_mismatch.consensus_hash =
+            ConsensusHash([consensus_hash_byte.wrapping_add(1); 20]);
+        assert!(RelayerThread::need_block_found(
+            &canonical_stacks_snapshot,
+            &tip_consensus_hash_mismatch
+        ));
+
+        // The block height of the canonical tip is lower than the last winning snapshot blockheight. We need to issue a block found.
+        let mut canonical_stacks_snapshot_is_lower_than_last_winning_snapshot =
+            last_winning_block_snapshot.clone();
+        canonical_stacks_snapshot_is_lower_than_last_winning_snapshot.block_height =
+            canonical_stacks_snapshot.block_height.saturating_add(1);
+        assert!(RelayerThread::need_block_found(
+            &canonical_stacks_snapshot,
+            &canonical_stacks_snapshot_is_lower_than_last_winning_snapshot
+        ));
     }
 }
