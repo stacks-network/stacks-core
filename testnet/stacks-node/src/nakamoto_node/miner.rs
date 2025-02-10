@@ -1352,9 +1352,7 @@ impl BlockMinerThread {
                 });
             }
 
-            let tenure_extend_timestamp = coordinator
-                .get_tenure_extend_timestamp()
-                .saturating_add(self.config.miner.tenure_extend_buffer_secs);
+            let tenure_extend_timestamp = coordinator.get_tenure_extend_timestamp();
             if get_epoch_time_secs() <= tenure_extend_timestamp
                 && self.tenure_change_time.elapsed() <= self.config.miner.tenure_timeout
             {

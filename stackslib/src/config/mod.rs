@@ -121,10 +121,6 @@ const DEFAULT_TENURE_TIMEOUT_SECS: u64 = 180;
 /// Default percentage of block budget that must be used before attempting a
 /// time-based tenure extend
 const DEFAULT_TENURE_EXTEND_COST_THRESHOLD: u64 = 50;
-/// Default number of seconds to wait after reaching a time when 70% of signers
-/// would allow a time-based tenure extend before actually attempting to
-/// extend, to allow for clock skew.
-const DEFAULT_TENURE_EXTEND_BUFFER_SECS: u64 = 2;
 
 static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
     LazyLock::new(|| ConnectionOptions {
@@ -2173,8 +2169,6 @@ pub struct MinerConfig {
     pub tenure_timeout: Duration,
     /// Percentage of block budget that must be used before attempting a time-based tenure extend
     pub tenure_extend_cost_threshold: u64,
-    /// Duration defining a buffer period to wait before submitting a time-based tenure extend after reaching the 70% approval time
-    pub tenure_extend_buffer_secs: u64,
     /// Define the timeout to apply while waiting for signers responses, based on the amount of rejections
     pub block_rejection_timeout_steps: HashMap<u32, Duration>,
 }
@@ -2216,7 +2210,6 @@ impl Default for MinerConfig {
             tenure_extend_poll_secs: Duration::from_secs(DEFAULT_TENURE_EXTEND_POLL_SECS),
             tenure_timeout: Duration::from_secs(DEFAULT_TENURE_TIMEOUT_SECS),
             tenure_extend_cost_threshold: DEFAULT_TENURE_EXTEND_COST_THRESHOLD,
-            tenure_extend_buffer_secs: DEFAULT_TENURE_EXTEND_BUFFER_SECS,
 
             block_rejection_timeout_steps: {
                 let mut rejections_timeouts_default_map = HashMap::<u32, Duration>::new();
@@ -2623,7 +2616,6 @@ pub struct MinerConfigFile {
     pub tenure_extend_poll_secs: Option<u64>,
     pub tenure_timeout_secs: Option<u64>,
     pub tenure_extend_cost_threshold: Option<u64>,
-    pub tenure_extend_buffer_secs: Option<u64>,
     pub block_rejection_timeout_steps: Option<HashMap<String, u64>>,
 }
 
@@ -2768,7 +2760,6 @@ impl MinerConfigFile {
             tenure_extend_poll_secs: self.tenure_extend_poll_secs.map(Duration::from_secs).unwrap_or(miner_default_config.tenure_extend_poll_secs),
             tenure_timeout: self.tenure_timeout_secs.map(Duration::from_secs).unwrap_or(miner_default_config.tenure_timeout),
             tenure_extend_cost_threshold: self.tenure_extend_cost_threshold.unwrap_or(miner_default_config.tenure_extend_cost_threshold),
-            tenure_extend_buffer_secs: self.tenure_extend_buffer_secs.unwrap_or(miner_default_config.tenure_extend_buffer_secs),
 
             block_rejection_timeout_steps: {
                 if let Some(block_rejection_timeout_items) = self.block_rejection_timeout_steps {
