@@ -8355,16 +8355,10 @@ fn new_tenure_while_validating_previous_scenario() {
 
 #[test]
 #[ignore]
-#[should_panic]
 /// Test that a miner will extend its tenure after the succeding miner fails to mine a block.
 /// - Miner 1 wins a tenure and mines normally
 /// - Miner 2 wins a tenure but fails to mine a block
 /// - Miner 1 extends its tenure
-///
-/// As of today, this test will panic because Miner 1 will not issue a TenureExtend due to Miner
-/// 2's preceding block-commit being seemingly-valid.  This test verifies that this panic does
-/// indeed occur, and will be subsequently modified once the mienr code is updated so that miner 1
-/// can deduce that miner 2 is likely offline.
 fn tenure_extend_after_failed_miner() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -8395,6 +8389,8 @@ fn tenure_extend_after_failed_miner() {
     let mut node_2_listeners = Vec::new();
 
     let max_nakamoto_tenures = 30;
+    let block_proposal_timeout = Duration::from_secs(30);
+    let tenure_extend_wait_timeout = block_proposal_timeout;
 
     info!("------------------------- Test Setup -------------------------");
     // partition the signer set so that ~half are listening and using node 1 for RPC and events,
@@ -8410,7 +8406,7 @@ fn tenure_extend_after_failed_miner() {
                 &node_2_rpc_bind
             };
             signer_config.node_host = node_host.to_string();
-            signer_config.block_proposal_timeout = Duration::from_secs(30);
+            signer_config.block_proposal_timeout = block_proposal_timeout;
         },
         |config| {
             config.node.rpc_bind = format!("{localhost}:{node_1_rpc}");
@@ -8425,6 +8421,7 @@ fn tenure_extend_after_failed_miner() {
             config.node.local_peer_seed = btc_miner_1_seed.clone();
             config.burnchain.local_mining_public_key = Some(btc_miner_1_pk.to_hex());
             config.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[1]));
+            config.miner.tenure_extend_wait_timeout = tenure_extend_wait_timeout;
 
             config.events_observers.retain(|listener| {
                 let Ok(addr) = std::net::SocketAddr::from_str(&listener.endpoint) else {
