@@ -10778,9 +10778,14 @@ fn test_tenure_extend_from_flashblocks() {
     let counters = signer_test.running_nodes.counters.clone();
     let nakamoto_test_skip_commit_op = signer_test
         .running_nodes
-        .nakamoto_test_skip_commit_op
+        .counters
+        .naka_skip_commit_op
         .clone();
-    let nakamoto_miner_directives = signer_test.running_nodes.nakamoto_miner_directives.clone();
+    let nakamoto_miner_directives = signer_test
+        .running_nodes
+        .counters
+        .naka_miner_directives
+        .clone();
 
     let tx_fee = 1_000;
 

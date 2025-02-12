@@ -104,13 +104,13 @@ impl SignerTest<SpawnedSigner> {
     fn boot_to_epoch_25_reward_cycle(&mut self) {
         boot_to_epoch_25(
             &self.running_nodes.conf,
-            &self.running_nodes.blocks_processed,
+            &self.running_nodes.counters.blocks_processed,
             &mut self.running_nodes.btc_regtest_controller,
         );
 
         next_block_and_wait(
             &mut self.running_nodes.btc_regtest_controller,
-            &self.running_nodes.blocks_processed,
+            &self.running_nodes.counters.blocks_processed,
         );
 
         let http_origin = format!("http://{}", &self.running_nodes.conf.node.rpc_bind);
@@ -175,11 +175,11 @@ impl SignerTest<SpawnedSigner> {
         }
         next_block_and_wait(
             &mut self.running_nodes.btc_regtest_controller,
-            &self.running_nodes.blocks_processed,
+            &self.running_nodes.counters.blocks_processed,
         );
         next_block_and_wait(
             &mut self.running_nodes.btc_regtest_controller,
-            &self.running_nodes.blocks_processed,
+            &self.running_nodes.counters.blocks_processed,
         );
 
         let reward_cycle_len = self
@@ -197,7 +197,7 @@ impl SignerTest<SpawnedSigner> {
         info!("Advancing to burn block height {target_height}...",);
         run_until_burnchain_height(
             &mut self.running_nodes.btc_regtest_controller,
-            &self.running_nodes.blocks_processed,
+            &self.running_nodes.counters.blocks_processed,
             target_height,
             &self.running_nodes.conf,
         );
@@ -229,7 +229,7 @@ impl SignerTest<SpawnedSigner> {
         info!("Advancing to the first full Epoch 2.5 reward cycle boundary...");
         next_block_and_wait(
             &mut self.running_nodes.btc_regtest_controller,
-            &self.running_nodes.blocks_processed,
+            &self.running_nodes.counters.blocks_processed,
         );
         self.wait_for_registered(30);
         debug!("Signers initialized");
@@ -245,7 +245,7 @@ impl SignerTest<SpawnedSigner> {
     pub fn boot_to_epoch_3(&mut self) {
         boot_to_epoch_3_reward_set(
             &self.running_nodes.conf,
-            &self.running_nodes.blocks_processed,
+            &self.running_nodes.counters.blocks_processed,
             &self.signer_stacks_private_keys,
             &self.signer_stacks_private_keys,
             &mut self.running_nodes.btc_regtest_controller,
@@ -272,7 +272,7 @@ impl SignerTest<SpawnedSigner> {
         info!("Waiting for signers to initialize.");
         next_block_and_wait(
             &mut self.running_nodes.btc_regtest_controller,
-            &self.running_nodes.blocks_processed,
+            &self.running_nodes.counters.blocks_processed,
         );
         self.wait_for_registered(30);
         info!("Signers initialized");
@@ -747,7 +747,8 @@ impl MultipleMinerTest {
         assert!(
             self.signer_test
                 .running_nodes
-                .nakamoto_test_skip_commit_op
+                .counters
+                .naka_skip_commit_op
                 .get(),
             "Miner 1 is not paused, cannot prep miner 2 to win sortition"
         );
@@ -796,7 +797,8 @@ impl MultipleMinerTest {
         assert!(
             self.signer_test
                 .running_nodes
-                .nakamoto_test_skip_commit_op
+                .counters
+                .naka_skip_commit_op
                 .get(),
             "Miner 1 is not paused, cannot prep miner 1 to win sortition"
         );
@@ -807,13 +809,15 @@ impl MultipleMinerTest {
         let rl1_commits_before = self
             .signer_test
             .running_nodes
-            .commits_submitted
+            .counters
+            .naka_submitted_commits
             .load(Ordering::SeqCst);
 
         info!("Unpausing commits from RL1");
         self.signer_test
             .running_nodes
-            .nakamoto_test_skip_commit_op
+            .counters
+            .naka_skip_commit_op
             .set(false);
 
         info!("Waiting for commits from RL1");
@@ -821,13 +825,15 @@ impl MultipleMinerTest {
             Ok(self
                 .signer_test
                 .running_nodes
-                .commits_submitted
+                .counters
+                .naka_submitted_commits
                 .load(Ordering::SeqCst)
                 > rl1_commits_before
                 && self
                     .signer_test
                     .running_nodes
-                    .last_commit_burn_height
+                    .counters
+                    .naka_submitted_commit_last_burn_height
                     .load(Ordering::SeqCst)
                     >= burn_height
                 && self
@@ -843,7 +849,8 @@ impl MultipleMinerTest {
         info!("Pausing commits from RL1");
         self.signer_test
             .running_nodes
-            .nakamoto_test_skip_commit_op
+            .counters
+            .naka_skip_commit_op
             .set(true);
     }
 
@@ -1431,7 +1438,7 @@ fn reloads_signer_set_in() {
 
     setup_epoch_3_reward_set(
         &signer_test.running_nodes.conf,
-        &signer_test.running_nodes.blocks_processed,
+        &signer_test.running_nodes.counters.blocks_processed,
         &signer_test.signer_stacks_private_keys,
         &signer_test.signer_stacks_private_keys,
         &mut signer_test.running_nodes.btc_regtest_controller,
@@ -1455,7 +1462,7 @@ fn reloads_signer_set_in() {
         epoch_3_reward_cycle_boundary.saturating_sub(prepare_phase_len);
     run_until_burnchain_height(
         &mut signer_test.running_nodes.btc_regtest_controller,
-        &signer_test.running_nodes.blocks_processed,
+        &signer_test.running_nodes.counters.blocks_processed,
         before_epoch_3_reward_set_calculation,
         naka_conf,
     );
@@ -1492,14 +1499,18 @@ fn reloads_signer_set_in() {
     info!("Waiting for signers to initialize.");
     next_block_and_wait(
         &mut signer_test.running_nodes.btc_regtest_controller,
-        &signer_test.running_nodes.blocks_processed,
+        &signer_test.running_nodes.counters.blocks_processed,
     );
     signer_test.wait_for_registered(30);
     info!("Signers initialized");
 
     signer_test.run_until_epoch_3_boundary();
 
-    let commits_submitted = signer_test.running_nodes.commits_submitted.clone();
+    let commits_submitted = signer_test
+        .running_nodes
+        .counters
+        .naka_submitted_commits
+        .clone();
 
     info!("Waiting 1 burnchain block for miner VRF key confirmation");
     // Wait one block to confirm the VRF register, wait until a block commit is submitted
@@ -1578,10 +1589,22 @@ fn forked_tenure_testing(
     )
     .unwrap();
 
-    let commits_submitted = signer_test.running_nodes.commits_submitted.clone();
-    let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
-    let proposed_blocks = signer_test.running_nodes.nakamoto_blocks_proposed.clone();
-    let rejected_blocks = signer_test.running_nodes.nakamoto_blocks_rejected.clone();
+    let commits_submitted = signer_test
+        .running_nodes
+        .counters
+        .naka_submitted_commits
+        .clone();
+    let mined_blocks = signer_test.running_nodes.counters.naka_mined_blocks.clone();
+    let proposed_blocks = signer_test
+        .running_nodes
+        .counters
+        .naka_proposed_blocks
+        .clone();
+    let rejected_blocks = signer_test
+        .running_nodes
+        .counters
+        .naka_rejected_blocks
+        .clone();
     let coord_channel = signer_test.running_nodes.coord_channel.clone();
     let blocks_processed_before = coord_channel
         .lock()
@@ -1640,7 +1663,8 @@ fn forked_tenure_testing(
     // However, do not allow B to be processed just yet
     signer_test
         .running_nodes
-        .nakamoto_test_skip_commit_op
+        .counters
+        .naka_skip_commit_op
         .set(true);
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
 
@@ -1712,7 +1736,8 @@ fn forked_tenure_testing(
     let rejected_before = rejected_blocks.load(Ordering::SeqCst);
     signer_test
         .running_nodes
-        .nakamoto_test_skip_commit_op
+        .counters
+        .naka_skip_commit_op
         .set(false);
 
     next_block_and(
@@ -1970,7 +1995,8 @@ fn bitcoind_forking_test() {
         );
         let commits_count = signer_test
             .running_nodes
-            .commits_submitted
+            .counters
+            .naka_submitted_commits
             .load(Ordering::SeqCst);
         next_block_and_controller(
             &mut signer_test.running_nodes.btc_regtest_controller,
@@ -1978,7 +2004,8 @@ fn bitcoind_forking_test() {
             |btc_controller| {
                 let commits_submitted = signer_test
                     .running_nodes
-                    .commits_submitted
+                    .counters
+                    .naka_submitted_commits
                     .load(Ordering::SeqCst);
                 if commits_submitted <= commits_count {
                     // wait until a commit was submitted
@@ -2049,7 +2076,8 @@ fn bitcoind_forking_test() {
         );
         let commits_count = signer_test
             .running_nodes
-            .commits_submitted
+            .counters
+            .naka_submitted_commits
             .load(Ordering::SeqCst);
         next_block_and_controller(
             &mut signer_test.running_nodes.btc_regtest_controller,
@@ -2057,7 +2085,8 @@ fn bitcoind_forking_test() {
             |btc_controller| {
                 let commits_submitted = signer_test
                     .running_nodes
-                    .commits_submitted
+                    .counters
+                    .naka_submitted_commits
                     .load(Ordering::SeqCst);
                 if commits_submitted <= commits_count {
                     // wait until a commit was submitted
@@ -2289,7 +2318,8 @@ fn miner_forking() {
     let skip_commit_op_rl1 = miners
         .signer_test
         .running_nodes
-        .nakamoto_test_skip_commit_op
+        .counters
+        .naka_skip_commit_op
         .clone();
     let skip_commit_op_rl2 = miners.rl2_counters.naka_skip_commit_op.clone();
 
@@ -2498,7 +2528,8 @@ fn end_of_tenure() {
     let short_timeout = Duration::from_secs(20);
     let blocks_before = signer_test
         .running_nodes
-        .nakamoto_blocks_mined
+        .counters
+        .naka_mined_blocks
         .load(Ordering::SeqCst);
     signer_test.boot_to_epoch_3();
     let curr_reward_cycle = signer_test.get_current_reward_cycle();
@@ -2516,7 +2547,8 @@ fn end_of_tenure() {
     wait_for(short_timeout.as_secs(), || {
         let mined_blocks = signer_test
             .running_nodes
-            .nakamoto_blocks_mined
+            .counters
+            .naka_mined_blocks
             .load(Ordering::SeqCst);
         Ok(mined_blocks > blocks_before)
     })
@@ -2539,7 +2571,8 @@ fn end_of_tenure() {
 
     let proposals_before = signer_test
         .running_nodes
-        .nakamoto_blocks_proposed
+        .counters
+        .naka_proposed_blocks
         .load(Ordering::SeqCst);
     let blocks_before = get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height;
 
@@ -2561,7 +2594,8 @@ fn end_of_tenure() {
     let start_time = Instant::now();
     while signer_test
         .running_nodes
-        .nakamoto_blocks_proposed
+        .counters
+        .naka_proposed_blocks
         .load(Ordering::SeqCst)
         <= proposals_before
     {
@@ -2657,7 +2691,7 @@ fn retry_on_rejection() {
     .expect("Timed out waiting for sortition");
 
     // mine a nakamoto block
-    let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
+    let mined_blocks = signer_test.running_nodes.counters.naka_mined_blocks.clone();
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let start_time = Instant::now();
     // submit a tx so that the miner will mine a stacks block
@@ -2694,11 +2728,13 @@ fn retry_on_rejection() {
 
     let proposals_before = signer_test
         .running_nodes
-        .nakamoto_blocks_proposed
+        .counters
+        .naka_proposed_blocks
         .load(Ordering::SeqCst);
     let blocks_before = signer_test
         .running_nodes
-        .nakamoto_blocks_mined
+        .counters
+        .naka_mined_blocks
         .load(Ordering::SeqCst);
 
     // submit a tx so that the miner will mine a block
@@ -2716,7 +2752,8 @@ fn retry_on_rejection() {
     loop {
         let blocks_proposed = signer_test
             .running_nodes
-            .nakamoto_blocks_proposed
+            .counters
+            .naka_proposed_blocks
             .load(Ordering::SeqCst);
         if blocks_proposed > proposals_before {
             break;
@@ -2730,7 +2767,8 @@ fn retry_on_rejection() {
     assert_eq!(
         signer_test
             .running_nodes
-            .nakamoto_blocks_mined
+            .counters
+            .naka_mined_blocks
             .load(Ordering::SeqCst),
         blocks_before
     );
@@ -2741,7 +2779,8 @@ fn retry_on_rejection() {
     loop {
         let blocks_mined = signer_test
             .running_nodes
-            .nakamoto_blocks_mined
+            .counters
+            .naka_mined_blocks
             .load(Ordering::SeqCst);
         if blocks_mined > blocks_before {
             break;
@@ -2779,14 +2818,16 @@ fn signers_broadcast_signed_blocks() {
     let info_before = get_chain_info(&signer_test.running_nodes.conf);
     let blocks_before = signer_test
         .running_nodes
-        .nakamoto_blocks_mined
+        .counters
+        .naka_mined_blocks
         .load(Ordering::SeqCst);
     signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
     wait_for(30, || {
         let blocks_mined = signer_test
             .running_nodes
-            .nakamoto_blocks_mined
+            .counters
+            .naka_mined_blocks
             .load(Ordering::SeqCst);
         let info = get_chain_info(&signer_test.running_nodes.conf);
         debug!(
@@ -2800,11 +2841,13 @@ fn signers_broadcast_signed_blocks() {
     TEST_IGNORE_SIGNERS.set(true);
     let blocks_before = signer_test
         .running_nodes
-        .nakamoto_blocks_mined
+        .counters
+        .naka_mined_blocks
         .load(Ordering::SeqCst);
     let signer_pushed_before = signer_test
         .running_nodes
-        .nakamoto_blocks_signer_pushed
+        .counters
+        .naka_signer_pushed_blocks
         .load(Ordering::SeqCst);
     let info_before = get_chain_info(&signer_test.running_nodes.conf);
 
@@ -2825,11 +2868,13 @@ fn signers_broadcast_signed_blocks() {
     wait_for(30, || {
         let signer_pushed = signer_test
             .running_nodes
-            .nakamoto_blocks_signer_pushed
+            .counters
+            .naka_signer_pushed_blocks
             .load(Ordering::SeqCst);
         let blocks_mined = signer_test
             .running_nodes
-            .nakamoto_blocks_mined
+            .counters
+            .naka_mined_blocks
             .load(Ordering::SeqCst);
         let info = get_chain_info(&signer_test.running_nodes.conf);
         debug!(
@@ -3210,7 +3255,7 @@ fn stx_transfers_dont_effect_idle_timeout() {
     TEST_VALIDATE_DELAY_DURATION_SECS.set(5);
 
     let info_before = signer_test.get_peer_info();
-    let blocks_before = signer_test.running_nodes.nakamoto_blocks_mined.get();
+    let blocks_before = signer_test.running_nodes.counters.naka_mined_blocks.get();
     info!("---- Nakamoto booted, starting test ----";
         "info_height" => info_before.stacks_tip_height,
         "blocks_before" => blocks_before,
@@ -3597,7 +3642,8 @@ fn empty_sortition() {
     info!("------------------------- Test Mine Regular Tenure A  -------------------------");
     let commits_before = signer_test
         .running_nodes
-        .commits_submitted
+        .counters
+        .naka_submitted_commits
         .load(Ordering::SeqCst);
     // Mine a regular tenure
     next_block_and(
@@ -3606,7 +3652,8 @@ fn empty_sortition() {
         || {
             let commits_count = signer_test
                 .running_nodes
-                .commits_submitted
+                .counters
+                .naka_submitted_commits
                 .load(Ordering::SeqCst);
             Ok(commits_count > commits_before)
         },
@@ -3617,11 +3664,13 @@ fn empty_sortition() {
     info!("Pausing stacks block mining to trigger an empty sortition.");
     let blocks_before = signer_test
         .running_nodes
-        .nakamoto_blocks_mined
+        .counters
+        .naka_mined_blocks
         .load(Ordering::SeqCst);
     let commits_before = signer_test
         .running_nodes
-        .commits_submitted
+        .counters
+        .naka_submitted_commits
         .load(Ordering::SeqCst);
     // Start new Tenure B
     // In the next block, the miner should win the tenure
@@ -3631,7 +3680,8 @@ fn empty_sortition() {
         || {
             let commits_count = signer_test
                 .running_nodes
-                .commits_submitted
+                .counters
+                .naka_submitted_commits
                 .load(Ordering::SeqCst);
             Ok(commits_count > commits_before)
         },
@@ -3644,18 +3694,21 @@ fn empty_sortition() {
     info!("Pausing commit op to prevent tenure C from starting...");
     signer_test
         .running_nodes
-        .nakamoto_test_skip_commit_op
+        .counters
+        .naka_skip_commit_op
         .set(true);
 
     let blocks_after = signer_test
         .running_nodes
-        .nakamoto_blocks_mined
+        .counters
+        .naka_mined_blocks
         .load(Ordering::SeqCst);
     assert_eq!(blocks_after, blocks_before);
 
     let rejected_before = signer_test
         .running_nodes
-        .nakamoto_blocks_rejected
+        .counters
+        .naka_rejected_blocks
         .load(Ordering::SeqCst);
 
     // submit a tx so that the miner will mine an extra block
@@ -3724,7 +3777,8 @@ fn empty_sortition() {
         }
         let rejections = signer_test
             .running_nodes
-            .nakamoto_blocks_rejected
+            .counters
+            .naka_rejected_blocks
             .load(Ordering::SeqCst);
 
         // wait until we've found rejections for all the signers, and the miner has confirmed that
@@ -3792,7 +3846,8 @@ fn empty_sortition_before_approval() {
     info!("Pausing block commits to trigger an empty sortition.");
     signer_test
         .running_nodes
-        .nakamoto_test_skip_commit_op
+        .counters
+        .naka_skip_commit_op
         .0
         .lock()
         .unwrap()
@@ -3801,7 +3856,8 @@ fn empty_sortition_before_approval() {
     info!("------------------------- Test Mine Tenure A  -------------------------");
     let proposed_before = signer_test
         .running_nodes
-        .nakamoto_blocks_proposed
+        .counters
+        .naka_proposed_blocks
         .load(Ordering::SeqCst);
     // Mine a regular tenure and wait for a block proposal
     next_block_and(
@@ -3810,7 +3866,8 @@ fn empty_sortition_before_approval() {
         || {
             let proposed_count = signer_test
                 .running_nodes
-                .nakamoto_blocks_proposed
+                .counters
+                .naka_proposed_blocks
                 .load(Ordering::SeqCst);
             Ok(proposed_count > proposed_before)
         },
@@ -3833,11 +3890,9 @@ fn empty_sortition_before_approval() {
     info!("Unpause block commits");
     signer_test
         .running_nodes
-        .nakamoto_test_skip_commit_op
-        .0
-        .lock()
-        .unwrap()
-        .replace(false);
+        .counters
+        .naka_skip_commit_op
+        .set(false);
 
     info!("Stop ignoring signers and wait for the tip to advance");
     TEST_IGNORE_SIGNERS.set(false);
@@ -3943,11 +3998,9 @@ fn empty_sortition_before_proposal() {
     info!("Pause block commits to ensure we get an empty sortition");
     signer_test
         .running_nodes
-        .nakamoto_test_skip_commit_op
-        .0
-        .lock()
-        .unwrap()
-        .replace(true);
+        .counters
+        .naka_skip_commit_op
+        .set(true);
 
     info!("Pause miner so it doesn't propose a block before the next tenure arrives");
     TEST_MINE_STALL.set(true);
@@ -3975,11 +4028,9 @@ fn empty_sortition_before_proposal() {
     info!("Unpause block commits");
     signer_test
         .running_nodes
-        .nakamoto_test_skip_commit_op
-        .0
-        .lock()
-        .unwrap()
-        .replace(false);
+        .counters
+        .naka_skip_commit_op
+        .set(false);
 
     wait_for(60, || {
         let info = get_chain_info(&signer_test.running_nodes.conf);
@@ -3988,7 +4039,7 @@ fn empty_sortition_before_proposal() {
     .expect("Failed to advance chain tip");
 
     let info = get_chain_info(&signer_test.running_nodes.conf);
-    info!("Current state: {:?}", info);
+    info!("Current state: {info:?}");
 
     info!("------------------------- Ensure Miner Extends Tenure  -------------------------");
 
@@ -4633,7 +4684,8 @@ fn min_gap_between_blocks() {
     for interim_block_ix in 0..interim_blocks {
         let blocks_processed_before = signer_test
             .running_nodes
-            .nakamoto_blocks_mined
+            .counters
+            .naka_mined_blocks
             .load(Ordering::SeqCst);
         // submit a tx so that the miner will mine an extra block
         let transfer_tx = make_stacks_transfer(
@@ -4650,7 +4702,8 @@ fn min_gap_between_blocks() {
         wait_for(60, || {
             let blocks_processed = signer_test
                 .running_nodes
-                .nakamoto_blocks_mined
+                .counters
+                .naka_mined_blocks
                 .load(Ordering::SeqCst);
             Ok(blocks_processed > blocks_processed_before)
         })
@@ -4827,7 +4880,8 @@ fn multiple_miners_with_nakamoto_blocks() {
     let blocks_mined1 = miners
         .signer_test
         .running_nodes
-        .nakamoto_blocks_mined
+        .counters
+        .naka_mined_blocks
         .clone();
     let blocks_mined2 = miners.rl2_counters.naka_mined_blocks.clone();
 
@@ -5007,7 +5061,7 @@ fn partial_tenure_fork() {
         Some(vec![btc_miner_1_pk, btc_miner_2_pk]),
         None,
     );
-    let blocks_mined1 = signer_test.running_nodes.nakamoto_blocks_mined.clone();
+    let blocks_mined1 = signer_test.running_nodes.counters.naka_mined_blocks.clone();
 
     let conf = signer_test.running_nodes.conf.clone();
     let mut conf_node_2 = conf.clone();
@@ -5094,10 +5148,15 @@ fn partial_tenure_fork() {
     let mut last_sortition_winner: Option<u64> = None;
     let mut miner_2_won_2_in_a_row = false;
 
-    let commits_1 = signer_test.running_nodes.commits_submitted.clone();
+    let commits_1 = signer_test
+        .running_nodes
+        .counters
+        .naka_submitted_commits
+        .clone();
     let rl1_skip_commit_op = signer_test
         .running_nodes
-        .nakamoto_test_skip_commit_op
+        .counters
+        .naka_skip_commit_op
         .clone();
 
     let sortdb = SortitionDB::open(
@@ -5170,7 +5229,8 @@ fn partial_tenure_fork() {
         let proposed_before_2 = blocks_proposed2.load(Ordering::SeqCst);
         let proposed_before_1 = signer_test
             .running_nodes
-            .nakamoto_blocks_proposed
+            .counters
+            .naka_proposed_blocks
             .load(Ordering::SeqCst);
 
         info!(
@@ -5451,7 +5511,7 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
 
     info!("------------------------- Test Mine Nakamoto Block N -------------------------");
     let info_before = signer_test.stacks_client.get_peer_info().unwrap();
-    let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
+    let mined_blocks = signer_test.running_nodes.counters.naka_mined_blocks.clone();
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     // submit a tx so that the miner will mine a stacks block
     let mut sender_nonce = 0;
@@ -5632,7 +5692,7 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
     signer_test.boot_to_epoch_3();
 
     info!("------------------------- Test Mine Nakamoto Block N -------------------------");
-    let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
+    let mined_blocks = signer_test.running_nodes.counters.naka_mined_blocks.clone();
     let info_before = signer_test
         .stacks_client
         .get_peer_info()
@@ -5856,7 +5916,7 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
     signer_test.boot_to_epoch_3();
     info!("------------------------- Starting Tenure A -------------------------");
     info!("------------------------- Test Mine Nakamoto Block N -------------------------");
-    let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
+    let mined_blocks = signer_test.running_nodes.counters.naka_mined_blocks.clone();
     let info_before = signer_test
         .stacks_client
         .get_peer_info()
@@ -5965,7 +6025,11 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
 
     info!("------------------------- Starting Tenure B -------------------------");
     // Start a new tenure and ensure the miner can propose a new block N+1' that is accepted by all signers
-    let commits_submitted = signer_test.running_nodes.commits_submitted.clone();
+    let commits_submitted = signer_test
+        .running_nodes
+        .counters
+        .naka_submitted_commits
+        .clone();
     let commits_before = commits_submitted.load(Ordering::SeqCst);
     next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
@@ -6074,7 +6138,7 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
     signer_test.boot_to_epoch_3();
     info!("------------------------- Starting Tenure A -------------------------");
     info!("------------------------- Test Mine Nakamoto Block N -------------------------");
-    let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
+    let mined_blocks = signer_test.running_nodes.counters.naka_mined_blocks.clone();
     let info_before = signer_test
         .stacks_client
         .get_peer_info()
@@ -6297,7 +6361,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     })
     .expect("Timed out waiting for sortition");
 
-    let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
+    let mined_blocks = signer_test.running_nodes.counters.naka_mined_blocks.clone();
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let info_before = signer_test
         .stacks_client
@@ -6426,7 +6490,11 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     assert_ne!(info_after.stacks_tip.to_string(), block_n_same.block_hash);
 
     info!("------------------------- Starting Tenure B -------------------------");
-    let commits_submitted = signer_test.running_nodes.commits_submitted.clone();
+    let commits_submitted = signer_test
+        .running_nodes
+        .counters
+        .naka_submitted_commits
+        .clone();
     let commits_before = commits_submitted.load(Ordering::SeqCst);
     next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
@@ -6594,18 +6662,26 @@ fn continue_after_fast_block_no_sortition() {
     let rl1_rejections = miners
         .signer_test
         .running_nodes
-        .nakamoto_blocks_rejected
+        .counters
+        .naka_rejected_blocks
         .clone();
     let rl1_skip_commit_op = miners
         .signer_test
         .running_nodes
-        .nakamoto_test_skip_commit_op
+        .counters
+        .naka_skip_commit_op
         .clone();
-    let rl1_commits = miners.signer_test.running_nodes.commits_submitted.clone();
+    let rl1_commits = miners
+        .signer_test
+        .running_nodes
+        .counters
+        .naka_submitted_commits
+        .clone();
     let blocks_mined1 = miners
         .signer_test
         .running_nodes
-        .nakamoto_blocks_mined
+        .counters
+        .naka_mined_blocks
         .clone();
 
     let rl2_skip_commit_op = miners.rl2_counters.naka_skip_commit_op.clone();
@@ -6883,7 +6959,8 @@ fn continue_after_tenure_extend() {
     info!("------------------------- Extend Tenure -------------------------");
     signer_test
         .running_nodes
-        .nakamoto_test_skip_commit_op
+        .counters
+        .naka_skip_commit_op
         .set(true);
 
     // It's possible that we have a pending block commit already.
@@ -7050,7 +7127,8 @@ fn signing_in_0th_tenure_of_reward_cycle() {
     }
     let blocks_before = signer_test
         .running_nodes
-        .nakamoto_blocks_mined
+        .counters
+        .naka_mined_blocks
         .load(Ordering::SeqCst);
     signer_test
         .running_nodes
@@ -7060,7 +7138,8 @@ fn signing_in_0th_tenure_of_reward_cycle() {
     wait_for(30, || {
         Ok(signer_test
             .running_nodes
-            .nakamoto_blocks_mined
+            .counters
+            .naka_mined_blocks
             .load(Ordering::SeqCst)
             > blocks_before)
     })
@@ -7120,7 +7199,8 @@ fn multiple_miners_with_custom_chain_id() {
     let blocks_mined1 = miners
         .signer_test
         .running_nodes
-        .nakamoto_blocks_mined
+        .counters
+        .naka_mined_blocks
         .clone();
 
     let rl2_counters = miners.rl2_counters.clone();
@@ -7255,7 +7335,8 @@ fn block_commit_delay() {
 
     let commits_before = signer_test
         .running_nodes
-        .commits_submitted
+        .counters
+        .naka_submitted_commits
         .load(Ordering::SeqCst);
 
     next_block_and_process_new_stacks_block(
@@ -7269,7 +7350,8 @@ fn block_commit_delay() {
     wait_for(60, || {
         let commits = signer_test
             .running_nodes
-            .commits_submitted
+            .counters
+            .naka_submitted_commits
             .load(Ordering::SeqCst);
         Ok(commits > commits_before)
     })
@@ -7287,7 +7369,8 @@ fn block_commit_delay() {
     let burn_height_before = get_chain_info(&signer_test.running_nodes.conf).burn_block_height;
     let commits_before = signer_test
         .running_nodes
-        .commits_submitted
+        .counters
+        .naka_submitted_commits
         .load(Ordering::SeqCst);
 
     // Mine a burn block and wait for it to be processed.
@@ -7306,13 +7389,15 @@ fn block_commit_delay() {
 
     let commits = signer_test
         .running_nodes
-        .commits_submitted
+        .counters
+        .naka_submitted_commits
         .load(Ordering::SeqCst);
     assert_eq!(commits, commits_before);
 
     let blocks_before = signer_test
         .running_nodes
-        .nakamoto_blocks_mined
+        .counters
+        .naka_mined_blocks
         .load(Ordering::SeqCst);
 
     info!("------------------------- Resume Signing -------------------------");
@@ -7322,7 +7407,8 @@ fn block_commit_delay() {
     wait_for(60, || {
         let blocks = signer_test
             .running_nodes
-            .nakamoto_blocks_mined
+            .counters
+            .naka_mined_blocks
             .load(Ordering::SeqCst);
         Ok(blocks > blocks_before)
     })
@@ -7332,7 +7418,8 @@ fn block_commit_delay() {
     wait_for(60, || {
         let commits = signer_test
             .running_nodes
-            .commits_submitted
+            .counters
+            .naka_submitted_commits
             .load(Ordering::SeqCst);
         Ok(commits > commits_before)
     })
@@ -7387,7 +7474,8 @@ fn block_validation_response_timeout() {
 
     let proposals_before = signer_test
         .running_nodes
-        .nakamoto_blocks_proposed
+        .counters
+        .naka_proposed_blocks
         .load(Ordering::SeqCst);
 
     // submit a tx so that the miner will attempt to mine an extra block
@@ -7406,7 +7494,8 @@ fn block_validation_response_timeout() {
     wait_for(30, || {
         Ok(signer_test
             .running_nodes
-            .nakamoto_blocks_proposed
+            .counters
+            .naka_proposed_blocks
             .load(Ordering::SeqCst)
             > proposals_before)
     })
@@ -7991,7 +8080,8 @@ fn tenure_extend_after_failed_miner() {
     let rl1_skip_commit_op = miners
         .signer_test
         .running_nodes
-        .nakamoto_test_skip_commit_op
+        .counters
+        .naka_skip_commit_op
         .clone();
 
     let rl2_commits = miners.rl2_counters.naka_submitted_commits.clone();
@@ -8098,11 +8188,17 @@ fn tenure_extend_after_bad_commit() {
         |_| {},
         |_| {},
     );
-    let rl1_commits = miners.signer_test.running_nodes.commits_submitted.clone();
+    let rl1_commits = miners
+        .signer_test
+        .running_nodes
+        .counters
+        .naka_submitted_commits
+        .clone();
     let rl1_skip_commit_op = miners
         .signer_test
         .running_nodes
-        .nakamoto_test_skip_commit_op
+        .counters
+        .naka_skip_commit_op
         .clone();
 
     let rl2_commits = miners.rl2_counters.naka_submitted_commits.clone();
@@ -8255,11 +8351,17 @@ fn tenure_extend_after_2_bad_commits() {
         |_| {},
     );
 
-    let rl1_commits = miners.signer_test.running_nodes.commits_submitted.clone();
+    let rl1_commits = miners
+        .signer_test
+        .running_nodes
+        .counters
+        .naka_submitted_commits
+        .clone();
     let rl1_skip_commit_op = miners
         .signer_test
         .running_nodes
-        .nakamoto_test_skip_commit_op
+        .counters
+        .naka_skip_commit_op
         .clone();
 
     let rl2_commits = miners.rl2_counters.naka_submitted_commits.clone();
@@ -8849,12 +8951,14 @@ fn no_reorg_due_to_successive_block_validation_ok() {
     let rl1_skip_commit_op = miners
         .signer_test
         .running_nodes
-        .nakamoto_test_skip_commit_op
+        .counters
+        .naka_skip_commit_op
         .clone();
     let blocks_mined1 = miners
         .signer_test
         .running_nodes
-        .nakamoto_blocks_mined
+        .counters
+        .naka_mined_blocks
         .clone();
 
     let Counters {
@@ -9110,7 +9214,7 @@ fn incoming_signers_ignore_block_proposals() {
     assert_eq!(current_burnchain_height, middle_of_prepare_phase);
     assert_eq!(curr_reward_cycle, signer_test.get_current_reward_cycle());
 
-    let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
+    let mined_blocks = signer_test.running_nodes.counters.naka_mined_blocks.clone();
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
 
     info!("------------------------- Test Mine A Valid Block -------------------------");
@@ -9280,7 +9384,7 @@ fn outgoing_signers_ignore_block_proposals() {
 
     let old_reward_cycle = curr_reward_cycle;
 
-    let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
+    let mined_blocks = signer_test.running_nodes.counters.naka_mined_blocks.clone();
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
 
     test_observer::clear();
@@ -9622,7 +9726,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
     info!("---- Manually mine a single burn block to force the signers to update ----");
     next_block_and_wait(
         &mut signer_test.running_nodes.btc_regtest_controller,
-        &signer_test.running_nodes.blocks_processed,
+        &signer_test.running_nodes.counters.blocks_processed,
     );
 
     signer_test.wait_for_registered_both_reward_cycles(60);
@@ -9639,7 +9743,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
     let current_signers = signer_test.get_reward_set_signers(new_reward_cycle);
     assert_eq!(current_signers.len(), new_num_signers);
 
-    let mined_blocks = signer_test.running_nodes.nakamoto_blocks_mined.clone();
+    let mined_blocks = signer_test.running_nodes.counters.naka_mined_blocks.clone();
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     // Clear the stackerdb chunks
     test_observer::clear();
@@ -9891,7 +9995,8 @@ fn reorg_attempts_count_towards_miner_validity() {
     info!("------------------------- Start Tenure B  -------------------------");
     let commits_before = signer_test
         .running_nodes
-        .commits_submitted
+        .counters
+        .naka_submitted_commits
         .load(Ordering::SeqCst);
 
     next_block_and(
@@ -9900,7 +10005,8 @@ fn reorg_attempts_count_towards_miner_validity() {
         || {
             let commits_count = signer_test
                 .running_nodes
-                .commits_submitted
+                .counters
+                .naka_submitted_commits
                 .load(Ordering::SeqCst);
             Ok(commits_count > commits_before)
         },
@@ -10117,7 +10223,8 @@ fn reorg_attempts_activity_timeout_exceeded() {
     info!("------------------------- Start Tenure B  -------------------------");
     let commits_before = signer_test
         .running_nodes
-        .commits_submitted
+        .counters
+        .naka_submitted_commits
         .load(Ordering::SeqCst);
     let chain_before = get_chain_info(&signer_test.running_nodes.conf);
     next_block_and(
@@ -10126,7 +10233,8 @@ fn reorg_attempts_activity_timeout_exceeded() {
         || {
             let commits_count = signer_test
                 .running_nodes
-                .commits_submitted
+                .counters
+                .naka_submitted_commits
                 .load(Ordering::SeqCst);
             let chain_info = get_chain_info(&signer_test.running_nodes.conf);
             Ok(commits_count > commits_before
@@ -10301,7 +10409,12 @@ fn multiple_miners_empty_sortition() {
 
     let (conf_1, conf_2) = miners.get_node_configs();
 
-    let rl1_commits = miners.signer_test.running_nodes.commits_submitted.clone();
+    let rl1_commits = miners
+        .signer_test
+        .running_nodes
+        .counters
+        .naka_submitted_commits
+        .clone();
     let rl1_counters = miners.signer_test.running_nodes.counters.clone();
 
     let rl2_commits = miners.rl2_counters.naka_submitted_commits.clone();
@@ -10498,7 +10611,11 @@ fn single_miner_empty_sortition() {
     );
     submit_tx(&conf.node.data_url, &contract_tx);
 
-    let rl1_commits = signer_test.running_nodes.commits_submitted.clone();
+    let rl1_commits = signer_test
+        .running_nodes
+        .counters
+        .naka_submitted_commits
+        .clone();
     let rl1_counters = signer_test.running_nodes.counters.clone();
     let rl1_conf = signer_test.running_nodes.conf.clone();
 
@@ -10654,7 +10771,8 @@ fn block_proposal_timeout() {
     info!("------------------------- Start Tenure A -------------------------");
     let commits_before = signer_test
         .running_nodes
-        .commits_submitted
+        .counters
+        .naka_submitted_commits
         .load(Ordering::SeqCst);
 
     next_block_and(
@@ -10663,7 +10781,8 @@ fn block_proposal_timeout() {
         || {
             let commits_count = signer_test
                 .running_nodes
-                .commits_submitted
+                .counters
+                .naka_submitted_commits
                 .load(Ordering::SeqCst);
             Ok(commits_count > commits_before)
         },
@@ -10750,7 +10869,8 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     let rl1_skip_commit_op = miners
         .signer_test
         .running_nodes
-        .nakamoto_test_skip_commit_op
+        .counters
+        .naka_skip_commit_op
         .clone();
     let rl2_skip_commit_op = miners.rl2_counters.naka_skip_commit_op.clone();
 
@@ -11017,11 +11137,17 @@ fn interrupt_miner_on_new_stacks_tip() {
         |_| {},
     );
 
-    let commits_submitted_rl1 = miners.signer_test.running_nodes.commits_submitted.clone();
+    let commits_submitted_rl1 = miners
+        .signer_test
+        .running_nodes
+        .counters
+        .naka_submitted_commits
+        .clone();
     let skip_commit_op_rl1 = miners
         .signer_test
         .running_nodes
-        .nakamoto_test_skip_commit_op
+        .counters
+        .naka_skip_commit_op
         .clone();
 
     let Counters {
@@ -11223,7 +11349,8 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_success() {
     let rl1_skip_commit_op = miners
         .signer_test
         .running_nodes
-        .nakamoto_test_skip_commit_op
+        .counters
+        .naka_skip_commit_op
         .clone();
     let rl2_skip_commit_op = miners.rl2_counters.naka_skip_commit_op.clone();
 
@@ -11399,7 +11526,8 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_failure() {
     let rl1_skip_commit_op = miners
         .signer_test
         .running_nodes
-        .nakamoto_test_skip_commit_op
+        .counters
+        .naka_skip_commit_op
         .clone();
 
     info!("------------------------- Pause Miner 2's Block Commits -------------------------");
@@ -11628,7 +11756,8 @@ fn prev_miner_will_not_attempt_to_extend_if_incoming_miner_produces_a_block() {
     let rl1_skip_commit_op = miners
         .signer_test
         .running_nodes
-        .nakamoto_test_skip_commit_op
+        .counters
+        .naka_skip_commit_op
         .clone();
 
     info!("------------------------- Pause Miner 2's Block Commits -------------------------");
@@ -11810,7 +11939,8 @@ fn non_blocking_minority_configured_to_favour_incoming_miner() {
     let rl1_skip_commit_op = miners
         .signer_test
         .running_nodes
-        .nakamoto_test_skip_commit_op
+        .counters
+        .naka_skip_commit_op
         .clone();
 
     info!("------------------------- Pause Miner 2's Block Commits -------------------------");
@@ -11873,6 +12003,7 @@ fn non_blocking_minority_configured_to_favour_incoming_miner() {
     miners
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 30)
         .expect("Failed to start Tenure B");
+    btc_blocks_mined += 1;
 
     // assure we have a successful sortition that miner 2 won
     verify_sortition_winner(&sortdb, &miner_pkh_2);
@@ -12214,12 +12345,18 @@ fn non_blocking_minority_configured_to_favour_prev_miner() {
     let (miner_pk_1, miner_pk_2) = miners.get_miner_public_keys();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
 
-    let rl1_commits = miners.signer_test.running_nodes.commits_submitted.clone();
+    let rl1_commits = miners
+        .signer_test
+        .running_nodes
+        .counters
+        .naka_submitted_commits
+        .clone();
     let rl1_counters = miners.signer_test.running_nodes.counters.clone();
     let rl1_skip_commit_op = miners
         .signer_test
         .running_nodes
-        .nakamoto_test_skip_commit_op
+        .counters
+        .naka_skip_commit_op
         .clone();
 
     let Counters {
