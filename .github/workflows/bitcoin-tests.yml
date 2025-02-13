@@ -74,8 +74,6 @@ jobs:
           - test-name: tests::neon_integrations::test_competing_miners_build_anchor_blocks_on_same_chain_without_rbf
           - test-name: tests::neon_integrations::test_one_miner_build_anchor_blocks_on_same_chain_without_rbf
           - test-name: tests::signer::v0::tenure_extend_after_2_bad_commits
-          - test-name: tests::signer::v0::allow_reorg_within_first_proposal_burn_block_timing_secs
-          - test-name: tests::signer::v0::disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one_block
           - test-name: tests::stackerdb::test_stackerdb_event_observer
           - test-name: tests::stackerdb::test_stackerdb_load_store
           # Microblock tests that are no longer needed on every CI run
