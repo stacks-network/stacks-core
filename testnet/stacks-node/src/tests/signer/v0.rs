@@ -4238,6 +4238,7 @@ fn signer_set_rollover() {
                         EventKeyType::BurnchainBlocks,
                     ],
                     timeout_ms: 1000,
+                    lossy: false,
                 });
             }
             naka_conf.node.rpc_bind = rpc_bind.clone();
@@ -11114,6 +11115,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
                     EventKeyType::BurnchainBlocks,
                 ],
                 timeout_ms: 1000,
+                lossy: false,
             });
             naka_conf.node.rpc_bind = rpc_bind.clone();
         },

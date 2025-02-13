@@ -90,6 +90,8 @@ struct EventObserver {
     endpoint: String,
     /// Timeout for sending events to this observer
     timeout: Duration,
+    /// Lossy observers do not retry on error
+    lossy: bool,
 }
 
 struct ReceiptPayloadInfo<'a> {
@@ -439,7 +441,7 @@ impl EventObserver {
 
         for (id, url, payload, timeout_ms) in pending_payloads {
             let timeout = Duration::from_millis(timeout_ms);
-            Self::send_payload_directly(&payload, &url, timeout);
+            Self::send_payload_directly(&payload, &url, timeout, false);
 
             #[cfg(test)]
             if TEST_EVENT_OBSERVER_SKIP_RETRY.get() {
@@ -456,7 +458,12 @@ impl EventObserver {
         }
     }
 
-    fn send_payload_directly(payload: &serde_json::Value, full_url: &str, timeout: Duration) {
+    fn send_payload_directly(
+        payload: &serde_json::Value,
+        full_url: &str,
+        timeout: Duration,
+        lossy: bool,
+    ) {
         debug!(
             "Event dispatcher: Sending payload"; "url" => %full_url, "payload" => ?payload
         );
@@ -506,6 +513,11 @@ impl EventObserver {
                 }
             }
 
+            if lossy {
+                warn!("Observer is configured in lossy mode: skipping retry of payload");
+                return;
+            }
+
             #[cfg(test)]
             if TEST_EVENT_OBSERVER_SKIP_RETRY.get() {
                 warn!("Fault injection: skipping retry of payload");
@@ -522,7 +534,7 @@ impl EventObserver {
         }
     }
 
-    fn new(working_dir: Option<PathBuf>, endpoint: String, timeout: Duration) -> Self {
+    fn new(working_dir: Option<PathBuf>, endpoint: String, timeout: Duration, lossy: bool) -> Self {
         let db_path = if let Some(mut db_path) = working_dir {
             db_path.push("event_observers.sqlite");
 
@@ -541,6 +553,7 @@ impl EventObserver {
             db_path,
             endpoint,
             timeout,
+            lossy,
         }
     }
 
@@ -555,18 +568,23 @@ impl EventObserver {
         };
         let full_url = format!("http://{url_str}");
 
-        if let Some(db_path) = &self.db_path {
-            let conn =
-                Connection::open(db_path).expect("Failed to open database for event observer");
-
-            // Insert the new payload into the database
-            Self::insert_payload_with_retry(&conn, &full_url, payload, self.timeout);
-
-            // Process all pending payloads
-            Self::process_pending_payloads(&conn);
+        // if the observer is in lossy mode quickly send the payload without checking for the db
+        if self.lossy {
+            Self::send_payload_directly(payload, &full_url, self.timeout, true);
         } else {
-            // No database, just send the payload
-            Self::send_payload_directly(payload, &full_url, self.timeout);
+            if let Some(db_path) = &self.db_path {
+                let conn =
+                    Connection::open(db_path).expect("Failed to open database for event observer");
+
+                // Insert the new payload into the database
+                Self::insert_payload_with_retry(&conn, &full_url, payload, self.timeout);
+
+                // Process all pending payloads
+                Self::process_pending_payloads(&conn);
+            } else {
+                // No database, just send the payload
+                Self::send_payload_directly(payload, &full_url, self.timeout, false);
+            }
         }
     }
 
@@ -1666,6 +1684,7 @@ impl EventDispatcher {
             Some(working_dir),
             conf.endpoint.clone(),
             Duration::from_millis(conf.timeout_ms),
+            conf.lossy,
         );
 
         let observer_index = self.registered_observers.len() as u16;
@@ -1770,7 +1789,8 @@ mod test {
 
     #[test]
     fn build_block_processed_event() {
-        let observer = EventObserver::new(None, "nowhere".to_string(), Duration::from_secs(3));
+        let observer =
+            EventObserver::new(None, "nowhere".to_string(), Duration::from_secs(3), false);
 
         let filtered_events = vec![];
         let block = StacksBlock::genesis_block();
@@ -1830,7 +1850,8 @@ mod test {
 
     #[test]
     fn test_block_processed_event_nakamoto() {
-        let observer = EventObserver::new(None, "nowhere".to_string(), Duration::from_secs(3));
+        let observer =
+            EventObserver::new(None, "nowhere".to_string(), Duration::from_secs(3), false);
 
         let filtered_events = vec![];
         let mut block_header = NakamotoBlockHeader::empty();
@@ -2087,7 +2108,8 @@ mod test {
         let endpoint = "http://example.com".to_string();
         let timeout = Duration::from_secs(5);
 
-        let observer = EventObserver::new(Some(working_dir.clone()), endpoint.clone(), timeout);
+        let observer =
+            EventObserver::new(Some(working_dir.clone()), endpoint.clone(), timeout, false);
 
         // Verify fields
         assert_eq!(observer.endpoint, endpoint);
@@ -2104,7 +2126,7 @@ mod test {
         let endpoint = "http://example.com".to_string();
         let timeout = Duration::from_secs(5);
 
-        let observer = EventObserver::new(None, endpoint.clone(), timeout);
+        let observer = EventObserver::new(None, endpoint.clone(), timeout, false);
 
         // Verify fields
         assert_eq!(observer.endpoint, endpoint);
@@ -2133,7 +2155,7 @@ mod test {
         let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
         let timeout = Duration::from_secs(5);
 
-        let observer = EventObserver::new(Some(working_dir), endpoint, timeout);
+        let observer = EventObserver::new(Some(working_dir), endpoint, timeout, false);
 
         TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
@@ -2170,7 +2192,7 @@ mod test {
 
         let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
 
-        let observer = EventObserver::new(None, endpoint, timeout);
+        let observer = EventObserver::new(None, endpoint, timeout, false);
 
         // Call send_payload
         observer.send_payload(&payload, "/test");
@@ -2201,8 +2223,12 @@ mod test {
             tx.send(()).unwrap();
         });
 
-        let observer =
-            EventObserver::new(None, format!("127.0.0.1:{port}"), Duration::from_secs(3));
+        let observer = EventObserver::new(
+            None,
+            format!("127.0.0.1:{port}"),
+            Duration::from_secs(3),
+            false,
+        );
 
         let payload = json!({"key": "value"});
 
@@ -2250,8 +2276,12 @@ mod test {
             }
         });
 
-        let observer =
-            EventObserver::new(None, format!("127.0.0.1:{port}"), Duration::from_secs(3));
+        let observer = EventObserver::new(
+            None,
+            format!("127.0.0.1:{port}"),
+            Duration::from_secs(3),
+            false,
+        );
 
         let payload = json!({"key": "value"});
 
@@ -2298,7 +2328,7 @@ mod test {
             }
         });
 
-        let observer = EventObserver::new(None, format!("127.0.0.1:{port}"), timeout);
+        let observer = EventObserver::new(None, format!("127.0.0.1:{port}"), timeout, false);
 
         let payload = json!({"key": "value"});
 
@@ -2391,7 +2421,12 @@ mod test {
             }
         });
 
-        let observer = EventObserver::new(Some(working_dir), format!("127.0.0.1:{port}"), timeout);
+        let observer = EventObserver::new(
+            Some(working_dir),
+            format!("127.0.0.1:{port}"),
+            timeout,
+            false,
+        );
 
         let payload = json!({"key": "value"});
         let payload2 = json!({"key": "value2"});
