@@ -2488,7 +2488,7 @@ mod test {
 
     #[test]
     #[ignore]
-    /// This test generates a new block and check .
+    /// This test generates a new block and ensures the lossy events_observer will not block.
     fn block_event_with_lossy_observer() {
         let dir = tempdir().unwrap();
         let working_dir = dir.path().to_path_buf();
