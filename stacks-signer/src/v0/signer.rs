@@ -433,7 +433,7 @@ impl Signer {
                         "reject_reason" => %reject_code,
                         "reject_code" => ?reject_code,
                     );
-                    Some(self.create_block_rejection(RejectCode::SortitionViewMismatch, block))
+                    Some(self.create_block_rejection(reject_code, block))
                 }
                 // Block proposal passed check, still don't know if valid
                 Ok(_) => None,
