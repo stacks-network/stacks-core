@@ -348,6 +348,20 @@ static CREATE_INDEXES_6: &str = r#"
 CREATE INDEX IF NOT EXISTS block_validations_pending_on_added_time ON block_validations_pending(added_time ASC);
 "#;
 
+static CREATE_INDEXES_8: &str = r#"
+-- Add new index for get_last_globally_accepted_block query
+CREATE INDEX IF NOT EXISTS blocks_consensus_hash_state_height ON blocks (consensus_hash, state, stacks_height DESC);
+
+-- Add new index for get_canonical_tip query
+CREATE INDEX IF NOT EXISTS blocks_state_height_signed_group ON blocks (state, stacks_height DESC, signed_group DESC);
+
+-- Index for get_first_signed_block_in_tenure
+CREATE INDEX IF NOT EXISTS blocks_consensus_hash_status_height ON blocks (consensus_hash, signed_over, stacks_height ASC);
+
+-- Index for has_unprocessed_blocks
+CREATE INDEX IF NOT EXISTS blocks_reward_cycle_state on blocks (reward_cycle, state);
+"#;
+
 static CREATE_SIGNER_STATE_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS signer_states (
     reward_cycle INTEGER PRIMARY KEY,
@@ -545,9 +559,14 @@ static SCHEMA_7: &[&str] = &[
     "INSERT OR REPLACE INTO db_config (version) VALUES (7);",
 ];
 
+static SCHEMA_8: &[&str] = &[
+    CREATE_INDEXES_8,
+    "INSERT INTO db_config (version) VALUES (8);",
+];
+
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = 7;
+    pub const SCHEMA_VERSION: u32 = 8;
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -675,6 +694,20 @@ impl SignerDb {
         Ok(())
     }
 
+    /// Migrate from schema 7 to schema 8
+    fn schema_8_migration(tx: &Transaction) -> Result<(), DBError> {
+        if Self::get_schema_version(tx)? >= 8 {
+            // no migration necessary
+            return Ok(());
+        }
+
+        for statement in SCHEMA_8.iter() {
+            tx.execute_batch(statement)?;
+        }
+
+        Ok(())
+    }
+
     /// Register custom scalar functions used by the database
     fn register_scalar_functions(&self) -> Result<(), DBError> {
         // Register helper function for determining if a block is a tenure change transaction
@@ -715,7 +748,8 @@ impl SignerDb {
                 4 => Self::schema_5_migration(&sql_tx)?,
                 5 => Self::schema_6_migration(&sql_tx)?,
                 6 => Self::schema_7_migration(&sql_tx)?,
-                7 => break,
+                7 => Self::schema_8_migration(&sql_tx)?,
+                8 => break,
                 x => return Err(DBError::Other(format!(
                     "Database schema is newer than supported by this binary. Expected version = {}, Database version = {x}",
                     Self::SCHEMA_VERSION,
@@ -1237,7 +1271,7 @@ mod tests {
     use clarity::types::chainstate::{StacksBlockId, StacksPrivateKey, StacksPublicKey};
     use clarity::util::hash::Hash160;
     use clarity::util::secp256k1::MessageSignature;
-    use libsigner::BlockProposal;
+    use libsigner::{BlockProposal, BlockProposalData};
 
     use super::*;
     use crate::signerdb::NakamotoBlockVote;
@@ -1260,6 +1294,7 @@ mod tests {
             block,
             burn_height: 7,
             reward_cycle: 42,
+            block_proposal_data: BlockProposalData::empty(),
         };
         overrides(&mut block_proposal);
         (BlockInfo::from(block_proposal.clone()), block_proposal)
