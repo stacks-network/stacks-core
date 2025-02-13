@@ -2489,7 +2489,7 @@ mod test {
     #[test]
     #[ignore]
     /// This test generates a new block and check .
-    fn tx_submit_with_lossy_observer() {
+    fn block_event_with_lossy_observer() {
         let dir = tempdir().unwrap();
         let working_dir = dir.path().to_path_buf();
 
