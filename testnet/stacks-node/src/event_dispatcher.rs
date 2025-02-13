@@ -2485,4 +2485,37 @@ mod test {
         // in non lossy mode this will run forever
         observer.send_payload(&payload, "/test");
     }
+
+    #[test]
+    #[ignore]
+    /// This test generates a new block and check .
+    fn tx_submit_with_lossy_observer() {
+        let dir = tempdir().unwrap();
+        let working_dir = dir.path().to_path_buf();
+
+        let mut event_dispatcher = EventDispatcher::new();
+        let config = EventObserverConfig {
+            endpoint: String::from("255.255.255.255"),
+            events_keys: vec![EventKeyType::MinedBlocks],
+            timeout_ms: 1000,
+            lossy: true,
+        };
+        event_dispatcher.register_observer(&config, working_dir);
+
+        let nakamoto_block = NakamotoBlock {
+            header: NakamotoBlockHeader::empty(),
+            txs: vec![],
+        };
+
+        // this will block forever in non lossy mode
+        event_dispatcher.process_mined_nakamoto_block_event(
+            0,
+            &nakamoto_block,
+            0,
+            &ExecutionCost::max_value(),
+            vec![],
+        );
+
+        assert_eq!(event_dispatcher.registered_observers.len(), 1);
+    }
 }
