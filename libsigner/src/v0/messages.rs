@@ -553,14 +553,12 @@ RejectCodeTypePrefix {
     NotLatestSortitionWinner = 10,
     /// The block does not confirm the expected parent block
     InvalidParentBlock = 11,
-    /// The block does not confirm the expected parent tenure
-    InvalidParentTenure = 12,
     /// The block contains a block found tenure change, but we've already seen
     /// a block found
-    DuplicateBlockFound = 13,
+    DuplicateBlockFound = 12,
     /// The block attempted a tenure extend but the burn view has not changed
     /// and not enough time has passed for a time-based tenure extend
-    InvalidTenureExtend = 14
+    InvalidTenureExtend = 13
 });
 
 impl TryFrom<u8> for RejectCodeTypePrefix {
@@ -587,7 +585,6 @@ impl From<&RejectCode> for RejectCodeTypePrefix {
             RejectCode::InvalidMiner => RejectCodeTypePrefix::InvalidMiner,
             RejectCode::NotLatestSortitionWinner => RejectCodeTypePrefix::NotLatestSortitionWinner,
             RejectCode::InvalidParentBlock => RejectCodeTypePrefix::InvalidParentBlock,
-            RejectCode::InvalidParentTenure => RejectCodeTypePrefix::InvalidParentTenure,
             RejectCode::DuplicateBlockFound => RejectCodeTypePrefix::DuplicateBlockFound,
             RejectCode::InvalidTenureExtend => RejectCodeTypePrefix::InvalidTenureExtend,
         }
@@ -622,8 +619,6 @@ pub enum RejectCode {
     NotLatestSortitionWinner,
     /// The block does not confirm the expected parent block
     InvalidParentBlock,
-    /// The block does not confirm the expected parent tenure
-    InvalidParentTenure,
     /// The block contains a block found tenure change, but we've already seen
     /// a block found
     DuplicateBlockFound,
@@ -1132,7 +1127,6 @@ impl StacksMessageCodec for RejectCode {
             | RejectCode::InvalidMiner
             | RejectCode::NotLatestSortitionWinner
             | RejectCode::InvalidParentBlock
-            | RejectCode::InvalidParentTenure
             | RejectCode::DuplicateBlockFound
             | RejectCode::InvalidTenureExtend => {
                 // No additional data to serialize / deserialize
@@ -1166,7 +1160,6 @@ impl StacksMessageCodec for RejectCode {
             RejectCodeTypePrefix::InvalidMiner => RejectCode::InvalidMiner,
             RejectCodeTypePrefix::NotLatestSortitionWinner => RejectCode::NotLatestSortitionWinner,
             RejectCodeTypePrefix::InvalidParentBlock => RejectCode::InvalidParentBlock,
-            RejectCodeTypePrefix::InvalidParentTenure => RejectCode::InvalidParentTenure,
             RejectCodeTypePrefix::DuplicateBlockFound => RejectCode::DuplicateBlockFound,
             RejectCodeTypePrefix::InvalidTenureExtend => RejectCode::InvalidTenureExtend,
         };
@@ -1202,7 +1195,7 @@ impl std::fmt::Display for RejectCode {
             RejectCode::ReorgNotAllowed => {
                 write!(
                     f,
-                    "The block attempted to reorg the previous tenure but was not allowed."
+                    "The block attempted to reorg the previous tenure(s) but was not allowed."
                 )
             }
             RejectCode::InvalidBitvec => {
@@ -1225,9 +1218,6 @@ impl std::fmt::Display for RejectCode {
             }
             RejectCode::InvalidParentBlock => {
                 write!(f, "The block does not confirm the expected parent block.")
-            }
-            RejectCode::InvalidParentTenure => {
-                write!(f, "The block does not confirm the expected parent tenure.")
             }
             RejectCode::DuplicateBlockFound => {
                 write!(

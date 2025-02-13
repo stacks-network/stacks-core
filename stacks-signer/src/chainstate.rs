@@ -679,7 +679,7 @@ impl SortitionsView {
             &self.config.first_proposal_burn_block_timing,
         )?;
         if !is_valid_parent_tenure {
-            return Err(RejectCode::InvalidParentTenure);
+            return Err(RejectCode::ReorgNotAllowed);
         }
         let last_in_current_tenure = signer_db
             .get_last_globally_accepted_block(&block.header.consensus_hash)
