@@ -2452,4 +2452,37 @@ mod test {
         rx.recv_timeout(Duration::from_secs(5))
             .expect("Server did not receive request in time");
     }
+
+    #[test]
+    fn test_event_dispatcher_lossy() {
+        let timeout = Duration::from_secs(5);
+        let payload = json!({"key": "value"});
+
+        // Create a mock server returning error 500
+        let mut server = mockito::Server::new();
+        let _m = server.mock("POST", "/test").with_status(500).create();
+
+        let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
+
+        let observer = EventObserver::new(None, endpoint, timeout, true);
+
+        // in non lossy mode this will run forever
+        observer.send_payload(&payload, "/test");
+
+        // Verify that the payload was sent
+        _m.assert();
+    }
+
+    #[test]
+    fn test_event_dispatcher_lossy_invalid_url() {
+        let timeout = Duration::from_secs(5);
+        let payload = json!({"key": "value"});
+
+        let endpoint = String::from("255.255.255.255");
+
+        let observer = EventObserver::new(None, endpoint, timeout, true);
+
+        // in non lossy mode this will run forever
+        observer.send_payload(&payload, "/test");
+    }
 }
