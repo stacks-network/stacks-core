@@ -1085,6 +1085,7 @@ fn block_proposal_rejection() {
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
         tenure_idle_timeout: Duration::from_secs(300),
+        tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
     };
     let mut block = NakamotoBlock {
@@ -7248,6 +7249,7 @@ fn block_validation_response_timeout() {
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
         block_proposal_timeout: Duration::from_secs(100),
         tenure_idle_timeout: Duration::from_secs(300),
+        tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
     };
     let mut block = NakamotoBlock {
@@ -7526,6 +7528,7 @@ fn block_validation_pending_table() {
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
         tenure_idle_timeout: Duration::from_secs(300),
+        tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
     };
     let mut block = NakamotoBlock {
@@ -8901,6 +8904,7 @@ fn incoming_signers_ignore_block_proposals() {
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
         tenure_idle_timeout: Duration::from_secs(300),
+        tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
     };
     let mut block = NakamotoBlock {
@@ -9077,6 +9081,7 @@ fn outgoing_signers_ignore_block_proposals() {
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
         tenure_idle_timeout: Duration::from_secs(300),
+        tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
     };
     let mut block = NakamotoBlock {
@@ -10911,6 +10916,87 @@ fn interrupt_miner_on_new_stacks_tip() {
 
     miners.wait_for_chains(120);
     miners.shutdown();
+}
+
+#[test]
+#[ignore]
+/// This test verifies that a miner will produce a TenureExtend transaction
+/// after the signers' idle timeout, plus buffer, is reached.
+fn tenure_extend_after_idle_signers_with_buffer() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let idle_timeout = Duration::from_secs(1);
+    let buffer = Duration::from_secs(20);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![],
+        |config| {
+            config.tenure_idle_timeout = idle_timeout;
+            config.tenure_idle_timeout_buffer = buffer;
+        },
+        |config| {
+            config.miner.tenure_extend_cost_threshold = 0;
+        },
+        None,
+        None,
+    );
+
+    signer_test.boot_to_epoch_3();
+
+    info!("---- Nakamoto booted, starting test ----");
+    // Get the unix timestamp before the block is mined
+    let before_timestamp = get_epoch_time_secs();
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+
+    // Check the tenure extend timestamps to verify that they have factored in the buffer
+    let blocks = test_observer::get_mined_nakamoto_blocks();
+    let last_block = blocks.last().expect("No blocks mined");
+    let signatures: HashSet<_> = test_observer::get_stackerdb_chunks()
+        .into_iter()
+        .flat_map(|chunk| chunk.modified_slots)
+        .filter_map(|chunk| {
+            let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                .expect("Failed to deserialize SignerMessage");
+
+            match message {
+                SignerMessage::BlockResponse(BlockResponse::Accepted(accepted))
+                    if accepted.signer_signature_hash == last_block.signer_signature_hash =>
+                {
+                    Some(accepted.response_data.tenure_extend_timestamp)
+                }
+                _ => None,
+            }
+        })
+        .collect();
+    for timestamp in signatures {
+        assert!(
+            timestamp >= before_timestamp + buffer.as_secs(),
+            "Timestamp {} is not greater than or equal to {}",
+            timestamp,
+            before_timestamp + buffer.as_secs()
+        );
+    }
+
+    info!("---- Waiting for a tenure extend ----");
+
+    // Now, wait for a block with a tenure extend, to make sure it eventually does extend
+    wait_for((idle_timeout + buffer * 2).as_secs(), || {
+        Ok(last_block_contains_tenure_change_tx(
+            TenureChangeCause::Extended,
+        ))
+    })
+    .expect("Timed out waiting for a block with a tenure extend");
+
+    signer_test.shutdown();
 }
 
 /// Test a scenario where a previous miner can extend a tenure when it is favoured by signers over the incoming miner.
