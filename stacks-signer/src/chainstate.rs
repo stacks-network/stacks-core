@@ -90,10 +90,8 @@ impl SortitionState {
             return Ok(false);
         }
         // if we've already signed a block in this tenure, the miner can't have timed out.
-        let has_blocks = signer_db
-            .get_last_signed_block_in_tenure(&self.consensus_hash)?
-            .is_some();
-        if has_blocks {
+        let has_block = signer_db.has_signed_block_in_tenure(&self.consensus_hash)?;
+        if has_block {
             return Ok(false);
         }
         let Some(received_ts) = signer_db.get_burn_block_receive_time(&self.burn_block_hash)?
@@ -101,13 +99,15 @@ impl SortitionState {
             return Ok(false);
         };
         let received_time = UNIX_EPOCH + Duration::from_secs(received_ts);
-        let Ok(elapsed) = std::time::SystemTime::now().duration_since(received_time) else {
+        let last_activity = signer_db
+            .get_last_activity_time(&self.consensus_hash)?
+            .map(|time| UNIX_EPOCH + Duration::from_secs(time))
+            .unwrap_or(received_time);
+
+        let Ok(elapsed) = std::time::SystemTime::now().duration_since(last_activity) else {
             return Ok(false);
         };
-        if elapsed > timeout {
-            return Ok(true);
-        }
-        Ok(false)
+        Ok(elapsed > timeout)
     }
 }
 
@@ -124,6 +124,11 @@ pub struct ProposalEvalConfig {
     pub tenure_last_block_proposal_timeout: Duration,
     /// How much idle time must pass before allowing a tenure extend
     pub tenure_idle_timeout: Duration,
+    /// How much buffer to add to the tenure idle timeout sent to miners to account for clock skew
+    pub tenure_idle_timeout_buffer: Duration,
+    /// Time following the last block of the previous tenure's global acceptance that a signer will consider an attempt by
+    /// the new miner to reorg it as valid towards miner activity
+    pub reorg_attempts_activity_timeout: Duration,
 }
 
 impl From<&SignerConfig> for ProposalEvalConfig {
@@ -133,6 +138,8 @@ impl From<&SignerConfig> for ProposalEvalConfig {
             block_proposal_timeout: value.block_proposal_timeout,
             tenure_last_block_proposal_timeout: value.tenure_last_block_proposal_timeout,
             tenure_idle_timeout: value.tenure_idle_timeout,
+            reorg_attempts_activity_timeout: value.reorg_attempts_activity_timeout,
+            tenure_idle_timeout_buffer: value.tenure_idle_timeout_buffer,
         }
     }
 }
@@ -202,6 +209,7 @@ impl SortitionsView {
             info!(
                 "Current miner timed out, marking as invalid.";
                 "block_height" => block.header.chain_length,
+                "block_proposal_timeout" => ?self.config.block_proposal_timeout,
                 "current_sortition_consensus_hash" => ?self.cur_sortition.consensus_hash,
             );
             self.cur_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
@@ -322,7 +330,7 @@ impl SortitionsView {
                     return Ok(false);
                 }
             }
-            ProposedBy::LastSortition(_last_sortition) => {
+            ProposedBy::LastSortition(last_sortition) => {
                 // should only consider blocks from the last sortition if the new sortition was invalidated
                 //  before we signed their first block.
                 if self.cur_sortition.miner_status
@@ -333,6 +341,7 @@ impl SortitionsView {
                         "proposed_block_consensus_hash" => %block.header.consensus_hash,
                         "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
                         "current_sortition_miner_status" => ?self.cur_sortition.miner_status,
+                        "last_sortition" => %last_sortition.consensus_hash
                     );
                     return Ok(false);
                 }
@@ -545,8 +554,10 @@ impl SortitionsView {
         signer_db: &mut SignerDb,
         client: &StacksClient,
         tenure_last_block_proposal_timeout: Duration,
+        reorg_attempts_activity_timeout: Duration,
     ) -> Result<bool, ClientError> {
         // If the tenure change block confirms the expected parent block, it should confirm at least one more block than the last accepted block in the parent tenure.
+        // NOTE: returns the locally accepted block if it is not timed out, otherwise it will return the last globally accepted block.
         let last_block_info = Self::get_tenure_last_block_info(
             &tenure_change.prev_tenure_consensus_hash,
             signer_db,
@@ -566,6 +577,21 @@ impl SortitionsView {
                     "proposed_chain_length" => block.header.chain_length,
                     "expected_at_least" => info.block.header.chain_length + 1,
                 );
+                if info.signed_group.map_or(true, |signed_time| {
+                    signed_time + reorg_attempts_activity_timeout.as_secs() > get_epoch_time_secs()
+                }) {
+                    // Note if there is no signed_group time, this is a locally accepted block (i.e. tenure_last_block_proposal_timeout has not been exceeded).
+                    // Treat any attempt to reorg a locally accepted block as valid miner activity.
+                    // If the call returns a globally accepted block, check its globally accepted time against a quarter of the block_proposal_timeout
+                    // to give the miner some extra buffer time to wait for its chain tip to advance
+                    // The miner may just be slow, so count this invalid block proposal towards valid miner activity.
+                    if let Err(e) = signer_db.update_last_activity_time(
+                        &tenure_change.tenure_consensus_hash,
+                        get_epoch_time_secs(),
+                    ) {
+                        warn!("Failed to update last activity time: {e}");
+                    }
+                }
                 return Ok(false);
             }
         }
@@ -631,6 +657,7 @@ impl SortitionsView {
             signer_db,
             client,
             self.config.tenure_last_block_proposal_timeout,
+            self.config.reorg_attempts_activity_timeout,
         )?;
         if !confirms_expected_parent {
             return Ok(false);

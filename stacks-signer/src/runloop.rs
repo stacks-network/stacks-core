@@ -25,7 +25,7 @@ use stacks_common::{debug, error, info, warn};
 
 use crate::chainstate::SortitionsView;
 use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
-use crate::config::{GlobalConfig, SignerConfig};
+use crate::config::{GlobalConfig, SignerConfig, SignerConfigMode};
 #[cfg(any(test, feature = "testing"))]
 use crate::v0::tests::TEST_SKIP_SIGNER_CLEANUP;
 use crate::Signer as SignerTrait;
@@ -39,6 +39,9 @@ pub enum ConfigurationError {
     /// The stackerdb signer config is not yet updated
     #[error("The stackerdb config is not yet updated")]
     StackerDBNotUpdated,
+    /// The signer binary is configured as dry-run, but is also registered for this cycle
+    #[error("The signer binary is configured as dry-run, but is also registered for this cycle")]
+    DryRunStackerIsRegistered,
 }
 
 /// The internal signer state info
@@ -258,27 +261,48 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
                 warn!("Error while fetching stackerdb slots {reward_cycle}: {e:?}");
                 e
             })?;
+
+        let dry_run = self.config.dry_run;
         let current_addr = self.stacks_client.get_signer_address();
 
-        let Some(signer_slot_id) = signer_slot_ids.get(current_addr) else {
-            warn!(
+        let signer_config_mode = if !dry_run {
+            let Some(signer_slot_id) = signer_slot_ids.get(current_addr) else {
+                warn!(
                     "Signer {current_addr} was not found in stacker db. Must not be registered for this reward cycle {reward_cycle}."
                 );
-            return Ok(None);
-        };
-        let Some(signer_id) = signer_entries.signer_addr_to_id.get(current_addr) else {
-            warn!(
-                "Signer {current_addr} was found in stacker db but not the reward set for reward cycle {reward_cycle}."
+                return Ok(None);
+            };
+            let Some(signer_id) = signer_entries.signer_addr_to_id.get(current_addr) else {
+                warn!(
+                    "Signer {current_addr} was found in stacker db but not the reward set for reward cycle {reward_cycle}."
+                );
+                return Ok(None);
+            };
+            info!(
+                "Signer #{signer_id} ({current_addr}) is registered for reward cycle {reward_cycle}."
             );
-            return Ok(None);
+            SignerConfigMode::Normal {
+                signer_slot_id: *signer_slot_id,
+                signer_id: *signer_id,
+            }
+        } else {
+            if signer_slot_ids.contains_key(current_addr) {
+                error!(
+                    "Signer is configured for dry-run, but the signer address {current_addr} was found in stacker db."
+                );
+                return Err(ConfigurationError::DryRunStackerIsRegistered);
+            };
+            if signer_entries.signer_addr_to_id.contains_key(current_addr) {
+                warn!(
+                    "Signer {current_addr} was found in stacker db but not the reward set for reward cycle {reward_cycle}."
+                );
+                return Ok(None);
+            };
+            SignerConfigMode::DryRun
         };
-        info!(
-            "Signer #{signer_id} ({current_addr}) is registered for reward cycle {reward_cycle}."
-        );
         Ok(Some(SignerConfig {
             reward_cycle,
-            signer_id: *signer_id,
-            signer_slot_id: *signer_slot_id,
+            signer_mode: signer_config_mode,
             signer_entries,
             signer_slot_ids: signer_slot_ids.into_values().collect(),
             first_proposal_burn_block_timing: self.config.first_proposal_burn_block_timing,
@@ -290,7 +314,9 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             tenure_last_block_proposal_timeout: self.config.tenure_last_block_proposal_timeout,
             block_proposal_validation_timeout: self.config.block_proposal_validation_timeout,
             tenure_idle_timeout: self.config.tenure_idle_timeout,
+            tenure_idle_timeout_buffer: self.config.tenure_idle_timeout_buffer,
             block_proposal_max_age_secs: self.config.block_proposal_max_age_secs,
+            reorg_attempts_activity_timeout: self.config.reorg_attempts_activity_timeout,
         }))
     }
 
@@ -299,9 +325,9 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         let reward_index = reward_cycle % 2;
         let new_signer_config = match self.get_signer_config(reward_cycle) {
             Ok(Some(new_signer_config)) => {
-                let signer_id = new_signer_config.signer_id;
+                let signer_mode = new_signer_config.signer_mode.clone();
                 let new_signer = Signer::new(new_signer_config);
-                info!("{new_signer} Signer is registered for reward cycle {reward_cycle} as signer #{signer_id}. Initialized signer state.");
+                info!("{new_signer} Signer is registered for reward cycle {reward_cycle} as {signer_mode}. Initialized signer state.");
                 ConfiguredSigner::RegisteredSigner(new_signer)
             }
             Ok(None) => {
@@ -544,7 +570,8 @@ mod tests {
         let weight = 10;
         let mut signer_entries = Vec::with_capacity(nmb_signers);
         for _ in 0..nmb_signers {
-            let key = StacksPublicKey::from_private(&StacksPrivateKey::new()).to_bytes_compressed();
+            let key =
+                StacksPublicKey::from_private(&StacksPrivateKey::random()).to_bytes_compressed();
             let mut signing_key = [0u8; 33];
             signing_key.copy_from_slice(&key);
             signer_entries.push(NakamotoSignerEntry {

@@ -517,13 +517,13 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
     let name_hash_expensive_0 = execute("(hash160 1)");
     let name_hash_expensive_1 = execute("(hash160 2)");
     let name_hash_cheap_0 = execute("(hash160 100001)");
-    let mut placeholder_context = ContractContext::new(
+    let placeholder_context = ContractContext::new(
         QualifiedContractIdentifier::transient(),
         ClarityVersion::Clarity1,
     );
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
+        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
 
         let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
         env.initialize_contract(contract_identifier, tokens_contract, ASTRules::PrecheckSize)
@@ -538,7 +538,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
         let mut env = owned_env.get_exec_environment(
             Some(p2.clone().expect_principal().unwrap()),
             None,
-            &mut placeholder_context,
+            &placeholder_context,
         );
 
         assert!(is_err_code_i128(
@@ -557,7 +557,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
         let mut env = owned_env.get_exec_environment(
             Some(p1.clone().expect_principal().unwrap()),
             None,
-            &mut placeholder_context,
+            &placeholder_context,
         );
         assert!(is_committed(
             &env.execute_contract(
@@ -572,7 +572,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
                 "preorder",
-                &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
+                &symbols_from_values(vec![name_hash_expensive_0, Value::UInt(1000)]),
                 false
             )
             .unwrap(),
@@ -585,7 +585,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
         let mut env = owned_env.get_exec_environment(
             Some(p2.clone().expect_principal().unwrap()),
             None,
-            &mut placeholder_context,
+            &placeholder_context,
         );
         assert!(is_err_code_i128(
             &env.execute_contract(
@@ -602,9 +602,9 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
     {
         // should work!
         let mut env = owned_env.get_exec_environment(
-            Some(p1.clone().expect_principal().unwrap()),
+            Some(p1.expect_principal().unwrap()),
             None,
-            &mut placeholder_context,
+            &placeholder_context,
         );
         assert!(is_committed(
             &env.execute_contract(
@@ -622,13 +622,13 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
         let mut env = owned_env.get_exec_environment(
             Some(p2.clone().expect_principal().unwrap()),
             None,
-            &mut placeholder_context,
+            &placeholder_context,
         );
         assert!(is_committed(
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
                 "preorder",
-                &symbols_from_values(vec![name_hash_expensive_1.clone(), Value::UInt(100)]),
+                &symbols_from_values(vec![name_hash_expensive_1, Value::UInt(100)]),
                 false
             )
             .unwrap()
@@ -649,7 +649,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
                 "preorder",
-                &symbols_from_values(vec![name_hash_cheap_0.clone(), Value::UInt(100)]),
+                &symbols_from_values(vec![name_hash_cheap_0, Value::UInt(100)]),
                 false
             )
             .unwrap()
@@ -669,7 +669,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
                 "register",
-                &symbols_from_values(vec![p2.clone(), Value::Int(100001), Value::Int(0)]),
+                &symbols_from_values(vec![p2, Value::Int(100001), Value::Int(0)]),
                 false
             )
             .unwrap(),

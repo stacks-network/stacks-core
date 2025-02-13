@@ -136,7 +136,7 @@ pub fn get_account(
         &tip
     );
 
-    let snapshot = SortitionDB::get_block_snapshot_consensus(&sortdb.conn(), &tip.consensus_hash)
+    let snapshot = SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &tip.consensus_hash)
         .unwrap()
         .unwrap();
     chainstate
@@ -210,7 +210,7 @@ fn codec_nakamoto_header() {
 
 #[test]
 pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
-    let private_key = StacksPrivateKey::new();
+    let private_key = StacksPrivateKey::random();
     let header = NakamotoBlockHeader {
         version: 1,
         chain_length: 2,
@@ -259,7 +259,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     };
 
     let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-    let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+    let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
     let coinbase_payload =
         TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, Some(proof.clone()));
@@ -287,7 +287,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     let mut invalid_tenure_change_tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::from_p2pkh(&private_key).unwrap(),
-        TransactionPayload::TenureChange(invalid_tenure_change_payload.clone()),
+        TransactionPayload::TenureChange(invalid_tenure_change_payload),
     );
     invalid_tenure_change_tx.chain_id = 0x80000000;
     invalid_tenure_change_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -295,7 +295,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     let mut coinbase_tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::from_p2pkh(&private_key).unwrap(),
-        coinbase_payload.clone(),
+        coinbase_payload,
     );
     coinbase_tx.chain_id = 0x80000000;
     coinbase_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -303,7 +303,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     let mut invalid_coinbase_tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::from_p2pkh(&private_key).unwrap(),
-        invalid_coinbase_payload.clone(),
+        invalid_coinbase_payload,
     );
     invalid_coinbase_tx.chain_id = 0x80000000;
     invalid_coinbase_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -371,7 +371,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     // missing a proof
     let block = NakamotoBlock {
         header: header.clone(),
-        txs: vec![tenure_change_tx.clone(), invalid_coinbase_tx.clone()],
+        txs: vec![tenure_change_tx.clone(), invalid_coinbase_tx],
     };
     assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
     assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
@@ -445,7 +445,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![
             tenure_change_tx.clone(),
-            invalid_tenure_change_tx.clone(),
+            invalid_tenure_change_tx,
             coinbase_tx.clone(),
         ],
     };
@@ -539,7 +539,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     // syntactically invalid if there's a tx before the one tenure change
     let block = NakamotoBlock {
         header: header.clone(),
-        txs: vec![stx_transfer.clone(), tenure_extend_tx.clone()],
+        txs: vec![stx_transfer, tenure_extend_tx],
     };
     assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
     assert_eq!(block.is_wellformed_tenure_extend_block(), Err(()));
@@ -554,12 +554,8 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
 
     // invalid if there are multiple tenure changes
     let block = NakamotoBlock {
-        header: header.clone(),
-        txs: vec![
-            tenure_change_tx.clone(),
-            tenure_change_tx.clone(),
-            coinbase_tx.clone(),
-        ],
+        header,
+        txs: vec![tenure_change_tx.clone(), tenure_change_tx, coinbase_tx],
     };
     assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
     assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
@@ -577,7 +573,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
 #[test]
 pub fn test_load_store_update_nakamoto_blocks() {
     let test_name = function_name!();
-    let path = test_path(&test_name);
+    let path = test_path(test_name);
     let pox_constants = PoxConstants::new(5, 3, 3, 25, 5, 0, 0, 0, 0, 0, 0);
     let epochs = StacksEpoch::unit_test_3_0_only(1);
     let _ = std::fs::remove_dir_all(&path);
@@ -587,18 +583,18 @@ pub fn test_load_store_update_nakamoto_blocks() {
         &[&path],
         &[],
         &[],
-        Some(pox_constants.clone()),
+        Some(pox_constants),
         None,
         StacksEpochId::Epoch30,
         Some(epochs),
     );
 
-    let private_key = StacksPrivateKey::new();
+    let private_key = StacksPrivateKey::random();
     let epoch2_proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-    let epoch2_proof = VRFProof::from_bytes(&epoch2_proof_bytes[..].to_vec()).unwrap();
+    let epoch2_proof = VRFProof::from_bytes(&epoch2_proof_bytes[..]).unwrap();
 
     let nakamoto_proof_bytes = hex_bytes("973c815ac3e81a4aff3243f3d8310d24ab9783acd6caa4dcfab20a3744584b2f966acf08140e1a7e1e685695d51b1b511f4f19260a21887244a6c47f7637b8bdeaf5eafe85c1975bab75bc0668fe8a0b").unwrap();
-    let nakamoto_proof = VRFProof::from_bytes(&nakamoto_proof_bytes[..].to_vec()).unwrap();
+    let nakamoto_proof = VRFProof::from_bytes(&nakamoto_proof_bytes[..]).unwrap();
 
     let coinbase_payload = TransactionPayload::Coinbase(
         CoinbasePayload([0x12; 32]),
@@ -609,7 +605,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
     let mut coinbase_tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::from_p2pkh(&private_key).unwrap(),
-        coinbase_payload.clone(),
+        coinbase_payload,
     );
     coinbase_tx.chain_id = 0x80000000;
     coinbase_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -630,7 +626,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
             burn: 123,
             work: 456,
         },
-        proof: epoch2_proof.clone(),
+        proof: epoch2_proof,
         parent_block: BlockHeaderHash([0x11; 32]),
         parent_microblock: BlockHeaderHash([0x00; 32]),
         parent_microblock_sequence: 0,
@@ -677,7 +673,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
     let mut tenure_change_tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::from_p2pkh(&private_key).unwrap(),
-        tenure_change_tx_payload.clone(),
+        tenure_change_tx_payload,
     );
     tenure_change_tx.chain_id = 0x80000000;
     tenure_change_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -708,7 +704,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
     stx_transfer_tx_4.chain_id = 0x80000000;
     stx_transfer_tx_4.anchor_mode = TransactionAnchorMode::OnChainOnly;
 
-    let nakamoto_txs = vec![tenure_change_tx.clone(), coinbase_tx.clone()];
+    let nakamoto_txs = vec![tenure_change_tx, coinbase_tx];
     let nakamoto_tx_merkle_root = {
         let txid_vecs: Vec<_> = nakamoto_txs
             .iter()
@@ -718,7 +714,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
     };
 
-    let nakamoto_txs_2 = vec![stx_transfer_tx.clone()];
+    let nakamoto_txs_2 = vec![stx_transfer_tx];
     let nakamoto_tx_merkle_root_2 = {
         let txid_vecs: Vec<_> = nakamoto_txs_2
             .iter()
@@ -728,7 +724,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
     };
 
-    let nakamoto_txs_3 = vec![stx_transfer_tx_3.clone()];
+    let nakamoto_txs_3 = vec![stx_transfer_tx_3];
     let nakamoto_tx_merkle_root_3 = {
         let txid_vecs: Vec<_> = nakamoto_txs_3
             .iter()
@@ -738,7 +734,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
     };
 
-    let nakamoto_txs_4 = vec![stx_transfer_tx_4.clone()];
+    let nakamoto_txs_4 = vec![stx_transfer_tx_4];
     let nakamoto_tx_merkle_root_4 = {
         let txid_vecs: Vec<_> = nakamoto_txs_4
             .iter()
@@ -902,7 +898,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
 
     let nakamoto_block_3_weight_2 = NakamotoBlock {
         header: nakamoto_header_3_weight_2.clone(),
-        txs: nakamoto_txs_3.clone(),
+        txs: nakamoto_txs_3,
     };
 
     // fourth nakamoto block -- confirms nakamoto_block_3_weight_2
@@ -935,7 +931,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
 
     let nakamoto_block_4 = NakamotoBlock {
         header: nakamoto_header_4.clone(),
-        txs: nakamoto_txs_4.clone(),
+        txs: nakamoto_txs_4,
     };
 
     // nakamoto block 3 only differs in signers
@@ -1668,8 +1664,8 @@ pub fn test_load_store_update_nakamoto_blocks() {
 /// * NakamotoBlockHeader::check_shadow_coinbase_tx
 #[test]
 fn test_nakamoto_block_static_verification() {
-    let private_key = StacksPrivateKey::new();
-    let private_key_2 = StacksPrivateKey::new();
+    let private_key = StacksPrivateKey::random();
+    let private_key_2 = StacksPrivateKey::random();
 
     let vrf_privkey = VRFPrivateKey::new();
     let vrf_pubkey = VRFPublicKey::from_private(&vrf_privkey);
@@ -1692,13 +1688,13 @@ fn test_nakamoto_block_static_verification() {
     let coinbase_shadow_recipient_payload = TransactionPayload::Coinbase(
         CoinbasePayload([0x12; 32]),
         Some(burn_recipient),
-        Some(vrf_proof.clone()),
+        Some(vrf_proof),
     );
 
     let mut coinbase_tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::from_p2pkh(&private_key).unwrap(),
-        coinbase_payload.clone(),
+        coinbase_payload,
     );
     coinbase_tx.chain_id = 0x80000000;
     coinbase_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -1706,7 +1702,7 @@ fn test_nakamoto_block_static_verification() {
     let mut coinbase_recipient_tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::from_p2pkh(&private_key).unwrap(),
-        coinbase_recipient_payload.clone(),
+        coinbase_recipient_payload,
     );
     coinbase_recipient_tx.chain_id = 0x80000000;
     coinbase_recipient_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -1714,7 +1710,7 @@ fn test_nakamoto_block_static_verification() {
     let mut coinbase_shadow_recipient_tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::from_p2pkh(&private_key).unwrap(),
-        coinbase_shadow_recipient_payload.clone(),
+        coinbase_shadow_recipient_payload,
     );
     coinbase_shadow_recipient_tx.chain_id = 0x80000000;
     coinbase_shadow_recipient_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -1753,27 +1749,27 @@ fn test_nakamoto_block_static_verification() {
     let mut tenure_change_tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::from_p2pkh(&private_key).unwrap(),
-        tenure_change_tx_payload.clone(),
+        tenure_change_tx_payload,
     );
     tenure_change_tx.chain_id = 0x80000000;
     tenure_change_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
 
     let tenure_change_tx_payload_bad_ch =
-        TransactionPayload::TenureChange(tenure_change_payload_bad_ch.clone());
+        TransactionPayload::TenureChange(tenure_change_payload_bad_ch);
     let mut tenure_change_tx_bad_ch = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::from_p2pkh(&private_key).unwrap(),
-        tenure_change_tx_payload_bad_ch.clone(),
+        tenure_change_tx_payload_bad_ch,
     );
     tenure_change_tx_bad_ch.chain_id = 0x80000000;
     tenure_change_tx_bad_ch.anchor_mode = TransactionAnchorMode::OnChainOnly;
 
     let tenure_change_tx_payload_bad_miner_sig =
-        TransactionPayload::TenureChange(tenure_change_payload_bad_miner_sig.clone());
+        TransactionPayload::TenureChange(tenure_change_payload_bad_miner_sig);
     let mut tenure_change_tx_bad_miner_sig = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::from_p2pkh(&private_key).unwrap(),
-        tenure_change_tx_payload_bad_miner_sig.clone(),
+        tenure_change_tx_payload_bad_miner_sig,
     );
     tenure_change_tx_bad_miner_sig.chain_id = 0x80000000;
     tenure_change_tx_bad_miner_sig.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -1788,7 +1784,7 @@ fn test_nakamoto_block_static_verification() {
         MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
     };
 
-    let nakamoto_recipient_txs = vec![tenure_change_tx.clone(), coinbase_recipient_tx.clone()];
+    let nakamoto_recipient_txs = vec![tenure_change_tx.clone(), coinbase_recipient_tx];
     let nakamoto_recipient_tx_merkle_root = {
         let txid_vecs: Vec<_> = nakamoto_recipient_txs
             .iter()
@@ -1798,10 +1794,7 @@ fn test_nakamoto_block_static_verification() {
         MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
     };
 
-    let nakamoto_shadow_recipient_txs = vec![
-        tenure_change_tx.clone(),
-        coinbase_shadow_recipient_tx.clone(),
-    ];
+    let nakamoto_shadow_recipient_txs = vec![tenure_change_tx, coinbase_shadow_recipient_tx];
     let nakamoto_shadow_recipient_tx_merkle_root = {
         let txid_vecs: Vec<_> = nakamoto_shadow_recipient_txs
             .iter()
@@ -1811,7 +1804,7 @@ fn test_nakamoto_block_static_verification() {
         MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
     };
 
-    let nakamoto_txs_bad_ch = vec![tenure_change_tx_bad_ch.clone(), coinbase_tx.clone()];
+    let nakamoto_txs_bad_ch = vec![tenure_change_tx_bad_ch, coinbase_tx.clone()];
     let nakamoto_tx_merkle_root_bad_ch = {
         let txid_vecs: Vec<_> = nakamoto_txs_bad_ch
             .iter()
@@ -1821,8 +1814,7 @@ fn test_nakamoto_block_static_verification() {
         MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
     };
 
-    let nakamoto_txs_bad_miner_sig =
-        vec![tenure_change_tx_bad_miner_sig.clone(), coinbase_tx.clone()];
+    let nakamoto_txs_bad_miner_sig = vec![tenure_change_tx_bad_miner_sig, coinbase_tx];
     let nakamoto_tx_merkle_root_bad_miner_sig = {
         let txid_vecs: Vec<_> = nakamoto_txs_bad_miner_sig
             .iter()
@@ -2005,9 +1997,9 @@ fn test_nakamoto_block_static_verification() {
         .is_err());
 
     // tenure tx requirements still hold for shadow blocks
-    let mut shadow_nakamoto_block = nakamoto_block.clone();
-    let mut shadow_nakamoto_block_bad_ch = nakamoto_block_bad_ch.clone();
-    let mut shadow_nakamoto_block_bad_miner_sig = nakamoto_block_bad_miner_sig.clone();
+    let mut shadow_nakamoto_block = nakamoto_block;
+    let mut shadow_nakamoto_block_bad_ch = nakamoto_block_bad_ch;
+    let mut shadow_nakamoto_block_bad_miner_sig = nakamoto_block_bad_miner_sig;
 
     shadow_nakamoto_block.header.version |= 0x80;
     shadow_nakamoto_block_bad_ch.header.version |= 0x80;
@@ -2052,7 +2044,7 @@ fn test_make_miners_stackerdb_config() {
     );
 
     let naka_miner_hash160 = peer.miner.nakamoto_miner_hash160();
-    let miner_keys: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let miner_keys: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let miner_hash160s: Vec<_> = miner_keys
         .iter()
         .map(|miner_privkey| {
@@ -2063,10 +2055,7 @@ fn test_make_miners_stackerdb_config() {
         .collect();
     let miner_addrs: Vec<_> = miner_hash160s
         .iter()
-        .map(|miner_hash160| StacksAddress {
-            version: 1,
-            bytes: miner_hash160.clone(),
-        })
+        .map(|miner_hash160| StacksAddress::new(1, miner_hash160.clone()).unwrap())
         .collect();
 
     debug!("miners = {:#?}", &miner_hash160s);
@@ -2172,7 +2161,7 @@ fn test_make_miners_stackerdb_config() {
             miners
                 .clone()
                 .into_iter()
-                .map(|miner| BlockstackOperationType::LeaderKeyRegister(miner))
+                .map(BlockstackOperationType::LeaderKeyRegister)
                 .collect()
         } else {
             // subsequent ones include block-commits
@@ -2243,7 +2232,7 @@ fn test_make_miners_stackerdb_config() {
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
         let miner_privkey = &miner_keys[i];
         let miner_pubkey = StacksPublicKey::from_private(miner_privkey);
-        let slot_id = NakamotoChainState::get_miner_slot(&sort_db, &tip, &tip.consensus_hash)
+        let slot_id = NakamotoChainState::get_miner_slot(sort_db, &tip, &tip.consensus_hash)
             .expect("Failed to get miner slot");
         if sortition {
             let slot_id = slot_id.expect("No miner slot exists for this miner").start;
@@ -2268,8 +2257,8 @@ fn test_make_miners_stackerdb_config() {
         .iter()
         .map(|config| {
             (
-                config.signers[0].0.bytes.clone(),
-                config.signers[1].0.bytes.clone(),
+                config.signers[0].0.bytes().clone(),
+                config.signers[1].0.bytes().clone(),
             )
         })
         .collect();
@@ -2323,12 +2312,12 @@ fn test_make_miners_stackerdb_config() {
 
 #[test]
 fn parse_vote_for_aggregate_public_key_valid() {
-    let signer_private_key = StacksPrivateKey::new();
+    let signer_private_key = StacksPrivateKey::random();
     let mainnet = false;
     let chainid = CHAIN_ID_TESTNET;
     let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, mainnet);
     let contract_addr = vote_contract_id.issuer.into();
-    let contract_name = vote_contract_id.name.clone();
+    let contract_name = vote_contract_id.name;
 
     let signer_index = thread_rng().next_u64();
     let signer_index_arg = Value::UInt(signer_index as u128);
@@ -2342,10 +2331,10 @@ fn parse_vote_for_aggregate_public_key_valid() {
     let reward_cycle_arg = Value::UInt(reward_cycle as u128);
 
     let valid_function_args = vec![
-        signer_index_arg.clone(),
-        aggregate_key_arg.clone(),
-        round_arg.clone(),
-        reward_cycle_arg.clone(),
+        signer_index_arg,
+        aggregate_key_arg,
+        round_arg,
+        reward_cycle_arg,
     ];
     let valid_tx = StacksTransaction {
         version: TransactionVersion::Testnet,
@@ -2370,12 +2359,12 @@ fn parse_vote_for_aggregate_public_key_valid() {
 
 #[test]
 fn parse_vote_for_aggregate_public_key_invalid() {
-    let signer_private_key = StacksPrivateKey::new();
+    let signer_private_key = StacksPrivateKey::random();
     let mainnet = false;
     let chainid = CHAIN_ID_TESTNET;
     let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, mainnet);
     let contract_addr: StacksAddress = vote_contract_id.issuer.into();
-    let contract_name = vote_contract_id.name.clone();
+    let contract_name = vote_contract_id.name;
 
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
@@ -2440,7 +2429,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
             function_name: "some-other-function".into(),
-            function_args: valid_function_args.clone(),
+            function_args: valid_function_args,
         }),
     };
     invalid_signers_vote_function.set_origin_nonce(1);
@@ -2502,7 +2491,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
                 signer_index_arg.clone(),
                 aggregate_key_arg.clone(),
                 aggregate_key_arg.clone(),
-                reward_cycle_arg.clone(),
+                reward_cycle_arg,
             ],
         }),
     };
@@ -2517,20 +2506,18 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
-            contract_name: contract_name.clone(),
+            contract_name,
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: vec![
-                signer_index_arg.clone(),
+                signer_index_arg,
                 aggregate_key_arg.clone(),
-                round_arg.clone(),
-                aggregate_key_arg.clone(),
+                round_arg,
+                aggregate_key_arg,
             ],
         }),
     };
     invalid_function_arg_reward_cycle.set_origin_nonce(1);
 
-    let mut account_nonces = std::collections::HashMap::new();
-    account_nonces.insert(invalid_contract_name.origin_address(), 1);
     for (i, tx) in vec![
         invalid_contract_address,
         invalid_contract_name,
@@ -2544,7 +2531,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
     .enumerate()
     {
         assert!(
-            NakamotoSigners::parse_vote_for_aggregate_public_key(&tx).is_none(),
+            NakamotoSigners::parse_vote_for_aggregate_public_key(tx).is_none(),
             "{}",
             format!("parsed the {i}th transaction: {tx:?}")
         );
@@ -2553,12 +2540,12 @@ fn parse_vote_for_aggregate_public_key_invalid() {
 
 #[test]
 fn valid_vote_transaction() {
-    let signer_private_key = StacksPrivateKey::new();
+    let signer_private_key = StacksPrivateKey::random();
     let mainnet = false;
     let chainid = CHAIN_ID_TESTNET;
     let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, mainnet);
     let contract_addr = vote_contract_id.issuer.into();
-    let contract_name = vote_contract_id.name.clone();
+    let contract_name = vote_contract_id.name;
 
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
@@ -2572,10 +2559,10 @@ fn valid_vote_transaction() {
     let reward_cycle_arg = Value::UInt(reward_cycle as u128);
 
     let valid_function_args = vec![
-        signer_index_arg.clone(),
-        aggregate_key_arg.clone(),
-        round_arg.clone(),
-        reward_cycle_arg.clone(),
+        signer_index_arg,
+        aggregate_key_arg,
+        round_arg,
+        reward_cycle_arg,
     ];
     let mut valid_tx = StacksTransaction {
         version: TransactionVersion::Testnet,
@@ -2603,12 +2590,12 @@ fn valid_vote_transaction() {
 
 #[test]
 fn valid_vote_transaction_malformed_transactions() {
-    let signer_private_key = StacksPrivateKey::new();
+    let signer_private_key = StacksPrivateKey::random();
     let mainnet = false;
     let chainid = CHAIN_ID_TESTNET;
     let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, mainnet);
     let contract_addr: StacksAddress = vote_contract_id.issuer.into();
-    let contract_name = vote_contract_id.name.clone();
+    let contract_name = vote_contract_id.name;
 
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
@@ -2769,7 +2756,7 @@ fn valid_vote_transaction_malformed_transactions() {
                 signer_index_arg.clone(),
                 aggregate_key_arg.clone(),
                 aggregate_key_arg.clone(),
-                reward_cycle_arg.clone(),
+                reward_cycle_arg,
             ],
         }),
     };
@@ -2787,10 +2774,10 @@ fn valid_vote_transaction_malformed_transactions() {
             contract_name: contract_name.clone(),
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
             function_args: vec![
-                signer_index_arg.clone(),
+                signer_index_arg,
                 aggregate_key_arg.clone(),
-                round_arg.clone(),
-                aggregate_key_arg.clone(),
+                round_arg,
+                aggregate_key_arg,
             ],
         }),
     };
@@ -2805,9 +2792,9 @@ fn valid_vote_transaction_malformed_transactions() {
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
-            contract_name: contract_name.clone(),
+            contract_name: contract_name,
             function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
-            function_args: valid_function_args.clone(),
+            function_args: valid_function_args,
         }),
     };
     invalid_nonce.set_origin_nonce(0); // old nonce
@@ -2836,13 +2823,13 @@ fn valid_vote_transaction_malformed_transactions() {
 
 #[test]
 fn filter_one_transaction_per_signer_multiple_addresses() {
-    let signer_private_key_1 = StacksPrivateKey::new();
-    let signer_private_key_2 = StacksPrivateKey::new();
+    let signer_private_key_1 = StacksPrivateKey::random();
+    let signer_private_key_2 = StacksPrivateKey::random();
     let mainnet = false;
     let chainid = CHAIN_ID_TESTNET;
     let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, mainnet);
     let contract_addr: StacksAddress = vote_contract_id.issuer.into();
-    let contract_name = vote_contract_id.name.clone();
+    let contract_name = vote_contract_id.name;
 
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
@@ -2856,10 +2843,10 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
     let reward_cycle_arg = Value::UInt(reward_cycle as u128);
 
     let function_args = vec![
-        signer_index_arg.clone(),
-        aggregate_key_arg.clone(),
-        round_arg.clone(),
-        reward_cycle_arg.clone(),
+        signer_index_arg,
+        aggregate_key_arg,
+        round_arg,
+        reward_cycle_arg,
     ];
 
     let mut valid_tx_1_address_1 = StacksTransaction {
@@ -2965,12 +2952,12 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
 
 #[test]
 fn filter_one_transaction_per_signer_duplicate_nonces() {
-    let signer_private_key = StacksPrivateKey::new();
+    let signer_private_key = StacksPrivateKey::random();
     let mainnet = false;
     let chainid = CHAIN_ID_TESTNET;
     let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, mainnet);
     let contract_addr: StacksAddress = vote_contract_id.issuer.into();
-    let contract_name = vote_contract_id.name.clone();
+    let contract_name = vote_contract_id.name;
 
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
@@ -2984,10 +2971,10 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
     let reward_cycle_arg = Value::UInt(reward_cycle as u128);
 
     let function_args = vec![
-        signer_index_arg.clone(),
-        aggregate_key_arg.clone(),
-        round_arg.clone(),
-        reward_cycle_arg.clone(),
+        signer_index_arg,
+        aggregate_key_arg,
+        round_arg,
+        reward_cycle_arg,
     ];
 
     let mut valid_tx_1 = StacksTransaction {
@@ -3049,9 +3036,9 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
         txs.clone(),
     );
     let filtered_txs: Vec<_> = filtered_transactions.into_values().collect();
-    txs.sort_by(|a, b| a.txid().cmp(&b.txid()));
+    txs.sort_by_key(|tx| tx.txid());
     assert_eq!(filtered_txs.len(), 1);
-    assert!(filtered_txs.contains(&txs.first().expect("failed to get first tx")));
+    assert!(filtered_txs.contains(txs.first().expect("failed to get first tx")));
 }
 
 pub mod nakamoto_block_signatures {
@@ -3066,7 +3053,7 @@ pub mod nakamoto_block_signatures {
                 .map(|(s, w)| {
                     let mut signing_key = [0u8; 33];
                     signing_key.copy_from_slice(
-                        &Secp256k1PublicKey::from_private(s)
+                        Secp256k1PublicKey::from_private(s)
                             .to_bytes_compressed()
                             .as_slice(),
                     );
@@ -3085,9 +3072,9 @@ pub mod nakamoto_block_signatures {
     // Test that signatures succeed with exactly 70% of the votes
     pub fn test_exactly_enough_votes() {
         let signers = [
-            (Secp256k1PrivateKey::default(), 35),
-            (Secp256k1PrivateKey::default(), 35),
-            (Secp256k1PrivateKey::default(), 30),
+            (Secp256k1PrivateKey::random(), 35),
+            (Secp256k1PrivateKey::random(), 35),
+            (Secp256k1PrivateKey::random(), 30),
         ];
         let reward_set = make_reward_set(&signers);
 
@@ -3112,9 +3099,9 @@ pub mod nakamoto_block_signatures {
     /// Test that signatures fail with just under 70% of the votes
     pub fn test_just_not_enough_votes() {
         let signers = [
-            (Secp256k1PrivateKey::default(), 3500),
-            (Secp256k1PrivateKey::default(), 3499),
-            (Secp256k1PrivateKey::default(), 3001),
+            (Secp256k1PrivateKey::random(), 3500),
+            (Secp256k1PrivateKey::random(), 3499),
+            (Secp256k1PrivateKey::random(), 3001),
         ];
         let reward_set = make_reward_set(&signers);
 
@@ -3143,9 +3130,9 @@ pub mod nakamoto_block_signatures {
     /// Base success case - 3 signers of equal weight, all signing the block
     pub fn test_nakamoto_block_verify_signatures() {
         let signers = [
-            Secp256k1PrivateKey::default(),
-            Secp256k1PrivateKey::default(),
-            Secp256k1PrivateKey::default(),
+            Secp256k1PrivateKey::random(),
+            Secp256k1PrivateKey::random(),
+            Secp256k1PrivateKey::random(),
         ];
 
         let reward_set =
@@ -3173,9 +3160,9 @@ pub mod nakamoto_block_signatures {
     /// Fully signed block, but not in order
     fn test_out_of_order_signer_signatures() {
         let signers = [
-            (Secp256k1PrivateKey::default(), 100),
-            (Secp256k1PrivateKey::default(), 100),
-            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
         ];
         let reward_set = make_reward_set(&signers);
 
@@ -3204,9 +3191,9 @@ pub mod nakamoto_block_signatures {
     // Test with 3 equal signers, and only two sign
     fn test_insufficient_signatures() {
         let signers = [
-            (Secp256k1PrivateKey::default(), 100),
-            (Secp256k1PrivateKey::default(), 100),
-            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
         ];
         let reward_set = make_reward_set(&signers);
 
@@ -3236,10 +3223,10 @@ pub mod nakamoto_block_signatures {
     // and the block is valid
     fn test_single_signature_threshold() {
         let signers = [
-            (Secp256k1PrivateKey::default(), 75),
-            (Secp256k1PrivateKey::default(), 10),
-            (Secp256k1PrivateKey::default(), 5),
-            (Secp256k1PrivateKey::default(), 10),
+            (Secp256k1PrivateKey::random(), 75),
+            (Secp256k1PrivateKey::random(), 10),
+            (Secp256k1PrivateKey::random(), 5),
+            (Secp256k1PrivateKey::random(), 10),
         ];
         let reward_set = make_reward_set(&signers);
 
@@ -3263,7 +3250,7 @@ pub mod nakamoto_block_signatures {
     #[test]
     // Test with a signature that didn't come from the signer set
     fn test_invalid_signer() {
-        let signers = [(Secp256k1PrivateKey::default(), 100)];
+        let signers = [(Secp256k1PrivateKey::random(), 100)];
 
         let reward_set = make_reward_set(&signers);
 
@@ -3277,7 +3264,7 @@ pub mod nakamoto_block_signatures {
             .map(|(s, _)| s.sign(&message).expect("Failed to sign block sighash"))
             .collect::<Vec<_>>();
 
-        let invalid_signature = Secp256k1PrivateKey::default()
+        let invalid_signature = Secp256k1PrivateKey::random()
             .sign(&message)
             .expect("Failed to sign block sighash");
 
@@ -3297,9 +3284,9 @@ pub mod nakamoto_block_signatures {
     #[test]
     fn test_duplicate_signatures() {
         let signers = [
-            (Secp256k1PrivateKey::default(), 100),
-            (Secp256k1PrivateKey::default(), 100),
-            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
         ];
         let reward_set = make_reward_set(&signers);
 
@@ -3337,10 +3324,10 @@ pub mod nakamoto_block_signatures {
     // Test where a signature used a different message
     fn test_signature_invalid_message() {
         let signers = [
-            (Secp256k1PrivateKey::default(), 100),
-            (Secp256k1PrivateKey::default(), 100),
-            (Secp256k1PrivateKey::default(), 100),
-            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
         ];
 
         let reward_set = make_reward_set(&signers);
@@ -3378,10 +3365,10 @@ pub mod nakamoto_block_signatures {
     // Test where a signature is not recoverable
     fn test_unrecoverable_signature() {
         let signers = [
-            (Secp256k1PrivateKey::default(), 100),
-            (Secp256k1PrivateKey::default(), 100),
-            (Secp256k1PrivateKey::default(), 100),
-            (Secp256k1PrivateKey::default(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
         ];
 
         let reward_set = make_reward_set(&signers);

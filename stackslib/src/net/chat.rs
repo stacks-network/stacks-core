@@ -52,19 +52,10 @@ use crate::net::{
 use crate::util_lib::db::{DBConn, Error as db_error};
 
 // did we or did we not successfully send a message?
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct NeighborHealthPoint {
     pub success: bool,
     pub time: u64,
-}
-
-impl Default for NeighborHealthPoint {
-    fn default() -> NeighborHealthPoint {
-        NeighborHealthPoint {
-            success: false,
-            time: 0,
-        }
-    }
 }
 
 pub const NUM_HEALTH_POINTS: usize = 32;
@@ -515,17 +506,14 @@ impl Neighbor {
             // setting BLOCKSTACK_NEIGHBOR_TEST_${PORTNUMBER} will let us select an organization
             // for this peer
             use std::env;
-            match env::var(format!("BLOCKSTACK_NEIGHBOR_TEST_{}", addr.port).to_string()) {
-                Ok(asn_str) => {
-                    neighbor.asn = asn_str.parse().unwrap();
-                    neighbor.org = neighbor.asn;
-                    test_debug!("Override {:?} to ASN/org {}", &neighbor.addr, neighbor.asn);
-                }
-                Err(_) => {}
+            if let Ok(asn_str) = env::var(format!("BLOCKSTACK_NEIGHBOR_TEST_{}", addr.port)) {
+                neighbor.asn = asn_str.parse().unwrap();
+                neighbor.org = neighbor.asn;
+                test_debug!("Override {:?} to ASN/org {}", &neighbor.addr, neighbor.asn);
             };
         }
 
-        neighbor.handshake_update(conn, &handshake_data)?;
+        neighbor.handshake_update(conn, handshake_data)?;
         Ok((neighbor, present))
     }
 
@@ -544,13 +532,10 @@ impl Neighbor {
                     let asn_opt =
                         PeerDB::asn_lookup(conn, &addr.addrbytes).map_err(net_error::DBError)?;
 
-                    match asn_opt {
-                        Some(a) => {
-                            if a != 0 {
-                                peer.asn = a;
-                            }
+                    if let Some(a) = asn_opt {
+                        if a != 0 {
+                            peer.asn = a;
                         }
-                        None => {}
                     };
                 }
                 Ok(Some(peer))
@@ -636,7 +621,7 @@ impl ConversationP2P {
     }
 
     pub fn to_neighbor_address(&self) -> NeighborAddress {
-        let pubkh = if let Some(ref pubk) = self.ref_public_key() {
+        let pubkh = if let Some(pubk) = self.ref_public_key() {
             Hash160::from_node_public_key(pubk)
         } else {
             Hash160([0u8; 20])
@@ -650,7 +635,7 @@ impl ConversationP2P {
     }
 
     pub fn to_handshake_neighbor_address(&self) -> NeighborAddress {
-        let pubkh = if let Some(ref pubk) = self.ref_public_key() {
+        let pubkh = if let Some(pubk) = self.ref_public_key() {
             Hash160::from_node_public_key(pubk)
         } else {
             Hash160([0u8; 20])
@@ -676,8 +661,7 @@ impl ConversationP2P {
     }
 
     pub fn get_public_key_hash(&self) -> Option<Hash160> {
-        self.ref_public_key()
-            .map(|pubk| Hash160::from_node_public_key(pubk))
+        self.ref_public_key().map(Hash160::from_node_public_key)
     }
 
     pub fn ref_public_key(&self) -> Option<&StacksPublicKey> {
@@ -963,10 +947,9 @@ impl ConversationP2P {
             reply_message,
             request_preamble.seq,
         )?;
-        let reply_handle = self.relay_signed_message(reply).map_err(|e| {
-            debug!("Unable to reply a {}: {:?}", _msgtype, &e);
-            e
-        })?;
+        let reply_handle = self
+            .relay_signed_message(reply)
+            .inspect_err(|e| debug!("Unable to reply a {_msgtype}: {e:?}"))?;
 
         Ok(reply_handle)
     }
@@ -982,10 +965,9 @@ impl ConversationP2P {
         let _msgtype = forward_message.get_message_name().to_owned();
         let fwd =
             self.sign_relay_message(local_peer, burnchain_view, relay_hints, forward_message)?;
-        let fwd_handle = self.relay_signed_message(fwd).map_err(|e| {
-            debug!("Unable to forward a {}: {:?}", _msgtype, &e);
-            e
-        })?;
+        let fwd_handle = self
+            .relay_signed_message(fwd)
+            .inspect_err(|e| debug!("Unable to forward a {_msgtype}: {e:?}"))?;
 
         Ok(fwd_handle)
     }
@@ -1412,7 +1394,7 @@ impl ConversationP2P {
             StacksMessageType::Ping(ref data) => data,
             _ => panic!("Message is not a ping"),
         };
-        let pong_data = PongData::from_ping(&ping_data);
+        let pong_data = PongData::from_ping(ping_data);
         Ok(Some(StacksMessage::from_chain_view(
             self.version,
             self.network_id,
@@ -1462,7 +1444,7 @@ impl ConversationP2P {
 
         let neighbor_addrs: Vec<NeighborAddress> = neighbors
             .iter()
-            .map(|n| NeighborAddress::from_neighbor(n))
+            .map(NeighborAddress::from_neighbor)
             .collect();
 
         debug!(
@@ -1476,13 +1458,9 @@ impl ConversationP2P {
             neighbors: neighbor_addrs,
         });
         let reply = self.sign_reply(chain_view, &local_peer.private_key, payload, preamble.seq)?;
-        let reply_handle = self.relay_signed_message(reply).map_err(|e| {
-            debug!(
-                "Outbox to {:?} is full; cannot reply to GetNeighbors",
-                &self
-            );
-            e
-        })?;
+        let reply_handle = self
+            .relay_signed_message(reply)
+            .inspect_err(|_e| debug!("Outbox to {self:?} is full; cannot reply to GetNeighbors"))?;
 
         Ok(reply_handle)
     }
@@ -1563,7 +1541,7 @@ impl ConversationP2P {
         }
 
         let base_snapshot_or_nack = Self::validate_consensus_hash_reward_cycle_start(
-            &_local_peer,
+            _local_peer,
             sortdb,
             &get_blocks_inv.consensus_hash,
         )?;
@@ -1618,7 +1596,7 @@ impl ConversationP2P {
                 Err(db_error::NotFoundError) | Err(db_error::InvalidPoxSortition) => {
                     debug!(
                         "{:?}: Failed to load ancestor hashes from {}",
-                        &_local_peer, &tip_snapshot.consensus_hash
+                        _local_peer, &tip_snapshot.consensus_hash
                     );
 
                     // make this into a NACK
@@ -1643,7 +1621,7 @@ impl ConversationP2P {
                 reward_cycle,
                 &block_hashes,
             )
-            .map_err(|e| net_error::from(e))?;
+            .map_err(net_error::from)?;
 
         if cfg!(test) {
             // make *sure* the behavior stays the same in epoch 2
@@ -1723,7 +1701,7 @@ impl ConversationP2P {
         let _local_peer = network.get_local_peer();
 
         let base_snapshot_or_nack = Self::validate_consensus_hash_reward_cycle_start(
-            &_local_peer,
+            _local_peer,
             sortdb,
             &get_nakamoto_inv.consensus_hash,
         )?;
@@ -1748,12 +1726,8 @@ impl ConversationP2P {
             &network.stacks_tip.block_hash,
             reward_cycle,
         )?;
-        let nakamoto_inv = NakamotoInvData::try_from(&bitvec_bools).map_err(|e| {
-            warn!(
-                "Failed to create a NakamotoInv response to {:?}: {:?}",
-                get_nakamoto_inv, &e
-            );
-            e
+        let nakamoto_inv = NakamotoInvData::try_from(&bitvec_bools).inspect_err(|e| {
+            warn!("Failed to create a NakamotoInv response to {get_nakamoto_inv:?}: {e:?}")
         })?;
 
         debug!(
@@ -2139,7 +2113,7 @@ impl ConversationP2P {
             );
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
-                .map(|handle| Some(handle));
+                .map(Some);
         }
         Ok(None)
     }
@@ -2177,7 +2151,7 @@ impl ConversationP2P {
             debug!("{:?}: Neighbor {:?} exceeded max microblocks-push bandwidth of {} bytes/sec (currently at {})", self, &self.to_neighbor_key(), self.connection.options.max_microblocks_push_bandwidth, self.stats.get_microblocks_push_bandwidth());
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
-                .map(|handle| Some(handle));
+                .map(Some);
         }
         Ok(None)
     }
@@ -2214,7 +2188,7 @@ impl ConversationP2P {
             debug!("{:?}: Neighbor {:?} exceeded max transaction-push bandwidth of {} bytes/sec (currently at {})", self, &self.to_neighbor_key(), self.connection.options.max_transaction_push_bandwidth, self.stats.get_transaction_push_bandwidth());
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
-                .map(|handle| Some(handle));
+                .map(Some);
         }
         Ok(None)
     }
@@ -2252,7 +2226,7 @@ impl ConversationP2P {
             debug!("{:?}: Neighbor {:?} exceeded max stackerdb-push bandwidth of {} bytes/sec (currently at {})", self, &self.to_neighbor_key(), self.connection.options.max_stackerdb_push_bandwidth, self.stats.get_stackerdb_push_bandwidth());
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
-                .map(|handle| Some(handle));
+                .map(Some);
         }
 
         Ok(None)
@@ -2291,7 +2265,7 @@ impl ConversationP2P {
             debug!("{:?}: Neighbor {:?} exceeded max Nakamoto block push bandwidth of {} bytes/sec (currently at {})", self, &self.to_neighbor_key(), self.connection.options.max_nakamoto_block_push_bandwidth, self.stats.get_nakamoto_block_push_bandwidth());
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
-                .map(|handle| Some(handle));
+                .map(Some);
         }
 
         Ok(None)
@@ -2519,7 +2493,7 @@ impl ConversationP2P {
         burnchain_view: &BurnchainView,
     ) -> Result<bool, net_error> {
         // validate message preamble
-        if let Err(e) = self.is_preamble_valid(&msg, burnchain_view) {
+        if let Err(e) = self.is_preamble_valid(msg, burnchain_view) {
             match e {
                 net_error::InvalidMessage => {
                     // Disconnect from this peer.  If it thinks nothing's wrong, it'll
@@ -2635,7 +2609,7 @@ impl ConversationP2P {
         //
         // Anything else will be nack'ed -- the peer will first need to handshake.
         let mut consume = false;
-        let solicited = self.connection.is_solicited(&msg);
+        let solicited = self.connection.is_solicited(msg);
         let reply_opt = match msg.payload {
             StacksMessageType::Handshake(_) => {
                 monitoring::increment_msg_counter("p2p_unauthenticated_handshake".to_string());
@@ -3111,11 +3085,8 @@ mod test {
         services: u16,
     ) -> (PeerDB, SortitionDB, StackerDBs, PoxId, StacksChainState) {
         let test_path = format!("/tmp/stacks-test-databases-{}", testname);
-        match fs::metadata(&test_path) {
-            Ok(_) => {
-                fs::remove_dir_all(&test_path).unwrap();
-            }
-            Err(_) => {}
+        if fs::metadata(&test_path).is_ok() {
+            fs::remove_dir_all(&test_path).unwrap();
         };
 
         fs::create_dir_all(&test_path).unwrap();
@@ -3136,9 +3107,9 @@ mod test {
             key_expires,
             PeerAddress::from_ipv4(127, 0, 0, 1),
             NETWORK_P2P_PORT,
-            data_url.clone(),
-            &asn4_entries,
-            Some(&initial_neighbors),
+            data_url,
+            asn4_entries,
+            Some(initial_neighbors),
             &[QualifiedContractIdentifier::parse("SP000000000000000000002Q6VF78.sbtc").unwrap()],
         )
         .unwrap();
@@ -3154,8 +3125,8 @@ mod test {
         )
         .unwrap();
 
-        let mut tx = peerdb.tx_begin().unwrap();
-        PeerDB::set_local_services(&mut tx, services).unwrap();
+        let tx = peerdb.tx_begin().unwrap();
+        PeerDB::set_local_services(&tx, services).unwrap();
         tx.commit().unwrap();
 
         let stackerdb = StackerDBs::connect(&stackerdb_path, true).unwrap();
@@ -3163,7 +3134,7 @@ mod test {
         let first_burnchain_block_height = burnchain.first_block_height;
         let first_burnchain_block_hash = burnchain.first_block_hash;
 
-        let mut boot_data = ChainStateBootData::new(&burnchain, vec![], None);
+        let mut boot_data = ChainStateBootData::new(burnchain, vec![], None);
 
         let (chainstate, _) = StacksChainState::open_and_exec(
             false,
@@ -3237,9 +3208,9 @@ mod test {
     ) -> PeerNetwork {
         let test_path = format!("/tmp/stacks-test-databases-{}", test_name);
         {
-            let mut tx = peerdb.tx_begin().unwrap();
+            let tx = peerdb.tx_begin().unwrap();
             PeerDB::set_local_ipaddr(
-                &mut tx,
+                &tx,
                 &PeerAddress::from_socketaddr(socketaddr),
                 socketaddr.port(),
             )
@@ -3443,8 +3414,8 @@ mod test {
                 &chain_view_2,
             );
 
-            let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
-            let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+            let local_peer_1 = PeerDB::get_local_peer(peerdb_1.conn()).unwrap();
+            let local_peer_2 = PeerDB::get_local_peer(peerdb_2.conn()).unwrap();
 
             peerdb_1
                 .update_local_peer(
@@ -3472,8 +3443,8 @@ mod test {
                 )
                 .unwrap();
 
-            let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
-            let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+            let local_peer_1 = PeerDB::get_local_peer(peerdb_1.conn()).unwrap();
+            let local_peer_2 = PeerDB::get_local_peer(peerdb_2.conn()).unwrap();
 
             assert_eq!(
                 local_peer_1.stacker_dbs,
@@ -3752,7 +3723,7 @@ mod test {
                 );
 
             let mut net_1 = db_setup(
-                &test_name_1,
+                test_name_1,
                 &burnchain_1,
                 0x9abcdef0,
                 &mut peerdb_1,
@@ -3761,7 +3732,7 @@ mod test {
                 &chain_view,
             );
             let mut net_2 = db_setup(
-                &test_name_2,
+                test_name_2,
                 &burnchain_2,
                 0x9abcdef0,
                 &mut peerdb_2,
@@ -3770,8 +3741,8 @@ mod test {
                 &chain_view,
             );
 
-            let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
-            let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+            let local_peer_1 = PeerDB::get_local_peer(peerdb_1.conn()).unwrap();
+            let local_peer_2 = PeerDB::get_local_peer(peerdb_2.conn()).unwrap();
 
             let mut convo_1 = ConversationP2P::new(
                 123,
@@ -3932,7 +3903,7 @@ mod test {
             );
 
         let mut net_1 = db_setup(
-            &test_name_1,
+            test_name_1,
             &burnchain_1,
             0x9abcdef0,
             &mut peerdb_1,
@@ -3941,7 +3912,7 @@ mod test {
             &chain_view,
         );
         let mut net_2 = db_setup(
-            &test_name_2,
+            test_name_2,
             &burnchain_2,
             0x9abcdef0,
             &mut peerdb_2,
@@ -3950,8 +3921,8 @@ mod test {
             &chain_view,
         );
 
-        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
-        let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+        let local_peer_1 = PeerDB::get_local_peer(peerdb_1.conn()).unwrap();
+        let local_peer_2 = PeerDB::get_local_peer(peerdb_2.conn()).unwrap();
 
         let mut convo_1 = ConversationP2P::new(
             123,
@@ -3985,7 +3956,7 @@ mod test {
             .sign_message(
                 &chain_view,
                 &local_peer_1.private_key,
-                StacksMessageType::Handshake(handshake_data_1.clone()),
+                StacksMessageType::Handshake(handshake_data_1),
             )
             .unwrap();
 
@@ -4077,7 +4048,7 @@ mod test {
             );
 
         let mut net_1 = db_setup(
-            &test_name_1,
+            test_name_1,
             &burnchain_1,
             0x9abcdef0,
             &mut peerdb_1,
@@ -4086,7 +4057,7 @@ mod test {
             &chain_view,
         );
         let mut net_2 = db_setup(
-            &test_name_2,
+            test_name_2,
             &burnchain_2,
             0x9abcdef0,
             &mut peerdb_2,
@@ -4095,8 +4066,8 @@ mod test {
             &chain_view,
         );
 
-        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
-        let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+        let local_peer_1 = PeerDB::get_local_peer(peerdb_1.conn()).unwrap();
+        let local_peer_2 = PeerDB::get_local_peer(peerdb_2.conn()).unwrap();
 
         let mut convo_1 = ConversationP2P::new(
             123,
@@ -4129,7 +4100,7 @@ mod test {
             .sign_message(
                 &chain_view,
                 &local_peer_1.private_key,
-                StacksMessageType::Handshake(handshake_data_1.clone()),
+                StacksMessageType::Handshake(handshake_data_1),
             )
             .unwrap();
         match handshake_1.payload {
@@ -4221,7 +4192,7 @@ mod test {
             );
 
         let mut net_1 = db_setup(
-            &test_name_1,
+            test_name_1,
             &burnchain_1,
             0x9abcdef0,
             &mut peerdb_1,
@@ -4230,7 +4201,7 @@ mod test {
             &chain_view,
         );
         let mut net_2 = db_setup(
-            &test_name_2,
+            test_name_2,
             &burnchain_2,
             0x9abcdef0,
             &mut peerdb_2,
@@ -4239,8 +4210,8 @@ mod test {
             &chain_view,
         );
 
-        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
-        let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+        let local_peer_1 = PeerDB::get_local_peer(peerdb_1.conn()).unwrap();
+        let local_peer_2 = PeerDB::get_local_peer(peerdb_2.conn()).unwrap();
 
         let mut convo_1 = ConversationP2P::new(
             123,
@@ -4294,7 +4265,7 @@ mod test {
             .sign_message(
                 &chain_view,
                 &local_peer_1.private_key,
-                StacksMessageType::Handshake(handshake_data_1.clone()),
+                StacksMessageType::Handshake(handshake_data_1),
             )
             .unwrap();
 
@@ -4378,7 +4349,7 @@ mod test {
             );
 
         let mut net_1 = db_setup(
-            &test_name_1,
+            test_name_1,
             &burnchain_1,
             0x9abcdef0,
             &mut peerdb_1,
@@ -4387,7 +4358,7 @@ mod test {
             &chain_view,
         );
         let mut net_2 = db_setup(
-            &test_name_2,
+            test_name_2,
             &burnchain_2,
             0x9abcdef0,
             &mut peerdb_2,
@@ -4396,8 +4367,8 @@ mod test {
             &chain_view,
         );
 
-        let mut local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
-        let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+        let mut local_peer_1 = PeerDB::get_local_peer(peerdb_1.conn()).unwrap();
+        let local_peer_2 = PeerDB::get_local_peer(peerdb_2.conn()).unwrap();
 
         let mut convo_1 = ConversationP2P::new(
             123,
@@ -4430,7 +4401,7 @@ mod test {
             .sign_message(
                 &chain_view,
                 &local_peer_1.private_key,
-                StacksMessageType::Handshake(handshake_data_1.clone()),
+                StacksMessageType::Handshake(handshake_data_1),
             )
             .unwrap();
 
@@ -4475,7 +4446,7 @@ mod test {
         let old_peer_1_pubkey = Secp256k1PublicKey::from_private(&old_peer_1_privkey);
 
         // peer 1 updates their private key
-        local_peer_1.private_key = Secp256k1PrivateKey::new();
+        local_peer_1.private_key = Secp256k1PrivateKey::random();
 
         // peer 1 re-handshakes
         // convo_1 sends a handshake to convo_2
@@ -4484,7 +4455,7 @@ mod test {
             .sign_message(
                 &chain_view,
                 &old_peer_1_privkey,
-                StacksMessageType::Handshake(handshake_data_1.clone()),
+                StacksMessageType::Handshake(handshake_data_1),
             )
             .unwrap();
 
@@ -4577,7 +4548,7 @@ mod test {
             );
 
         let mut net_1 = db_setup(
-            &test_name_1,
+            test_name_1,
             &burnchain_1,
             0x9abcdef0,
             &mut peerdb_1,
@@ -4586,7 +4557,7 @@ mod test {
             &chain_view,
         );
         let mut net_2 = db_setup(
-            &test_name_2,
+            test_name_2,
             &burnchain_2,
             0x9abcdef0,
             &mut peerdb_2,
@@ -4595,8 +4566,8 @@ mod test {
             &chain_view,
         );
 
-        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
-        let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+        let local_peer_1 = PeerDB::get_local_peer(peerdb_1.conn()).unwrap();
+        let local_peer_2 = PeerDB::get_local_peer(peerdb_2.conn()).unwrap();
 
         let mut convo_1 = ConversationP2P::new(
             123,
@@ -4629,7 +4600,7 @@ mod test {
             .sign_message(
                 &chain_view,
                 &local_peer_1.private_key,
-                StacksMessageType::Handshake(handshake_data_1.clone()),
+                StacksMessageType::Handshake(handshake_data_1),
             )
             .unwrap();
         let mut rh_1 = convo_1.send_signed_request(handshake_1, 1000000).unwrap();
@@ -4721,7 +4692,7 @@ mod test {
             );
 
         let mut net_1 = db_setup(
-            &test_name_1,
+            test_name_1,
             &burnchain_1,
             0x9abcdef0,
             &mut peerdb_1,
@@ -4730,7 +4701,7 @@ mod test {
             &chain_view,
         );
         let mut net_2 = db_setup(
-            &test_name_2,
+            test_name_2,
             &burnchain_2,
             0x9abcdef0,
             &mut peerdb_2,
@@ -4739,8 +4710,8 @@ mod test {
             &chain_view,
         );
 
-        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
-        let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+        let local_peer_1 = PeerDB::get_local_peer(peerdb_1.conn()).unwrap();
+        let local_peer_2 = PeerDB::get_local_peer(peerdb_2.conn()).unwrap();
 
         let mut convo_1 = ConversationP2P::new(
             123,
@@ -4897,7 +4868,7 @@ mod test {
             );
 
         let mut net_1 = db_setup(
-            &test_name_1,
+            test_name_1,
             &burnchain_1,
             0x9abcdef0,
             &mut peerdb_1,
@@ -4906,7 +4877,7 @@ mod test {
             &chain_view,
         );
         let mut net_2 = db_setup(
-            &test_name_2,
+            test_name_2,
             &burnchain_2,
             0x9abcdef0,
             &mut peerdb_2,
@@ -4915,8 +4886,8 @@ mod test {
             &chain_view,
         );
 
-        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
-        let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+        let local_peer_1 = PeerDB::get_local_peer(peerdb_1.conn()).unwrap();
+        let local_peer_2 = PeerDB::get_local_peer(peerdb_2.conn()).unwrap();
 
         let mut convo_1 = ConversationP2P::new(
             123,
@@ -5059,10 +5030,10 @@ mod test {
             );
 
             // regenerate keys and expiries in peer 1
-            let new_privkey = Secp256k1PrivateKey::new();
+            let new_privkey = Secp256k1PrivateKey::random();
             {
-                let mut tx = peerdb_1.tx_begin().unwrap();
-                PeerDB::set_local_private_key(&mut tx, &new_privkey, (12350 + i) as u64).unwrap();
+                let tx = peerdb_1.tx_begin().unwrap();
+                PeerDB::set_local_private_key(&tx, &new_privkey, (12350 + i) as u64).unwrap();
                 tx.commit().unwrap();
             }
         }
@@ -5124,7 +5095,7 @@ mod test {
             );
 
         let mut net_1 = db_setup(
-            &test_name_1,
+            test_name_1,
             &burnchain_1,
             0x9abcdef0,
             &mut peerdb_1,
@@ -5133,7 +5104,7 @@ mod test {
             &chain_view,
         );
         let mut net_2 = db_setup(
-            &test_name_2,
+            test_name_2,
             &burnchain_2,
             0x9abcdef0,
             &mut peerdb_2,
@@ -5142,8 +5113,8 @@ mod test {
             &chain_view,
         );
 
-        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
-        let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+        let local_peer_1 = PeerDB::get_local_peer(peerdb_1.conn()).unwrap();
+        let local_peer_2 = PeerDB::get_local_peer(peerdb_2.conn()).unwrap();
 
         let mut convo_1 = ConversationP2P::new(
             123,
@@ -5176,7 +5147,7 @@ mod test {
             .sign_message(
                 &chain_view,
                 &local_peer_1.private_key,
-                StacksMessageType::Ping(ping_data_1.clone()),
+                StacksMessageType::Ping(ping_data_1),
             )
             .unwrap();
         let mut rh_ping_1 = convo_1.send_signed_request(ping_1, 1000000).unwrap();
@@ -5274,7 +5245,7 @@ mod test {
             );
 
         let mut net_1 = db_setup(
-            &test_name_1,
+            test_name_1,
             &burnchain_1,
             0x9abcdef0,
             &mut peerdb_1,
@@ -5283,7 +5254,7 @@ mod test {
             &chain_view,
         );
         let mut net_2 = db_setup(
-            &test_name_2,
+            test_name_2,
             &burnchain_2,
             0x9abcdef0,
             &mut peerdb_2,
@@ -5292,8 +5263,8 @@ mod test {
             &chain_view,
         );
 
-        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
-        let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+        let local_peer_1 = PeerDB::get_local_peer(peerdb_1.conn()).unwrap();
+        let local_peer_2 = PeerDB::get_local_peer(peerdb_2.conn()).unwrap();
 
         let mut convo_1 = ConversationP2P::new(
             123,
@@ -5332,7 +5303,7 @@ mod test {
                 .unwrap();
 
             let stackerdb_accept_data_1 = StacksMessageType::StackerDBHandshakeAccept(
-                accept_data_1.clone(),
+                accept_data_1,
                 StackerDBHandshakeData {
                     rc_consensus_hash: chain_view.rc_consensus_hash.clone(),
                     // placeholder sbtc address for now
@@ -5445,7 +5416,7 @@ mod test {
                 );
 
             let mut net_1 = db_setup(
-                &test_name_1,
+                test_name_1,
                 &burnchain_1,
                 0x9abcdef0,
                 &mut peerdb_1,
@@ -5454,7 +5425,7 @@ mod test {
                 &chain_view,
             );
             let mut net_2 = db_setup(
-                &test_name_2,
+                test_name_2,
                 &burnchain_2,
                 0x9abcdef0,
                 &mut peerdb_2,
@@ -5463,8 +5434,8 @@ mod test {
                 &chain_view,
             );
 
-            let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
-            let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+            let local_peer_1 = PeerDB::get_local_peer(peerdb_1.conn()).unwrap();
+            let local_peer_2 = PeerDB::get_local_peer(peerdb_2.conn()).unwrap();
 
             let mut convo_1 = ConversationP2P::new(
                 123,
@@ -5579,7 +5550,7 @@ mod test {
                 .sign_message(
                     &chain_view,
                     &local_peer_1.private_key,
-                    StacksMessageType::GetBlocksInv(getblocksdata_1.clone()),
+                    StacksMessageType::GetBlocksInv(getblocksdata_1),
                 )
                 .unwrap();
             let mut rh_1 = convo_1
@@ -5632,7 +5603,7 @@ mod test {
                 .sign_message(
                     &chain_view,
                     &local_peer_1.private_key,
-                    StacksMessageType::GetBlocksInv(getblocksdata_diverged_1.clone()),
+                    StacksMessageType::GetBlocksInv(getblocksdata_diverged_1),
                 )
                 .unwrap();
             let mut rh_1 = convo_1
@@ -5724,7 +5695,7 @@ mod test {
                 );
 
             let mut net_1 = db_setup(
-                &test_name_1,
+                test_name_1,
                 &burnchain_1,
                 0x9abcdef0,
                 &mut peerdb_1,
@@ -5733,7 +5704,7 @@ mod test {
                 &chain_view,
             );
             let mut net_2 = db_setup(
-                &test_name_2,
+                test_name_2,
                 &burnchain_2,
                 0x9abcdef0,
                 &mut peerdb_2,
@@ -5742,8 +5713,8 @@ mod test {
                 &chain_view,
             );
 
-            let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
-            let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+            let local_peer_1 = PeerDB::get_local_peer(peerdb_1.conn()).unwrap();
+            let local_peer_2 = PeerDB::get_local_peer(peerdb_2.conn()).unwrap();
 
             let mut convo_1 = ConversationP2P::new(
                 123,
@@ -5857,7 +5828,7 @@ mod test {
                 .sign_message(
                     &chain_view,
                     &local_peer_1.private_key,
-                    StacksMessageType::GetNakamotoInv(getnakamotodata_1.clone()),
+                    StacksMessageType::GetNakamotoInv(getnakamotodata_1),
                 )
                 .unwrap();
             let mut rh_1 = convo_1
@@ -5909,7 +5880,7 @@ mod test {
                 .sign_message(
                     &chain_view,
                     &local_peer_1.private_key,
-                    StacksMessageType::GetNakamotoInv(getnakamotodata_diverged_1.clone()),
+                    StacksMessageType::GetNakamotoInv(getnakamotodata_diverged_1),
                 )
                 .unwrap();
             let mut rh_1 = convo_1
@@ -6004,7 +5975,7 @@ mod test {
             );
 
         let mut net_1 = db_setup(
-            &test_name_1,
+            test_name_1,
             &burnchain_1,
             0x9abcdef0,
             &mut peerdb_1,
@@ -6013,7 +5984,7 @@ mod test {
             &chain_view,
         );
         let mut net_2 = db_setup(
-            &test_name_2,
+            test_name_2,
             &burnchain_2,
             0x9abcdef0,
             &mut peerdb_2,
@@ -6022,8 +5993,8 @@ mod test {
             &chain_view,
         );
 
-        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
-        let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+        let local_peer_1 = PeerDB::get_local_peer(peerdb_1.conn()).unwrap();
+        let local_peer_2 = PeerDB::get_local_peer(peerdb_2.conn()).unwrap();
 
         let mut convo_1 = ConversationP2P::new(
             123,
@@ -6128,7 +6099,7 @@ mod test {
             );
 
         let net_1 = db_setup(
-            &test_name_1,
+            test_name_1,
             &burnchain,
             0x9abcdef0,
             &mut peerdb_1,
@@ -6137,7 +6108,7 @@ mod test {
             &chain_view,
         );
 
-        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+        let local_peer_1 = PeerDB::get_local_peer(peerdb_1.conn()).unwrap();
 
         // network ID check
         {
@@ -6158,7 +6129,7 @@ mod test {
                 .sign_message(
                     &chain_view,
                     &local_peer_1.private_key,
-                    StacksMessageType::Ping(ping_data.clone()),
+                    StacksMessageType::Ping(ping_data),
                 )
                 .unwrap();
             convo_bad.network_id -= 1;
@@ -6191,7 +6162,7 @@ mod test {
                 .sign_message(
                     &chain_view_bad,
                     &local_peer_1.private_key,
-                    StacksMessageType::Ping(ping_data.clone()),
+                    StacksMessageType::Ping(ping_data),
                 )
                 .unwrap();
 
@@ -6228,7 +6199,7 @@ mod test {
                 .sign_message(
                     &chain_view_bad,
                     &local_peer_1.private_key,
-                    StacksMessageType::Ping(ping_data.clone()),
+                    StacksMessageType::Ping(ping_data),
                 )
                 .unwrap();
 
@@ -6266,7 +6237,7 @@ mod test {
                 .sign_message(
                     &chain_view_bad,
                     &local_peer_1.private_key,
-                    StacksMessageType::Ping(ping_data.clone()),
+                    StacksMessageType::Ping(ping_data),
                 )
                 .unwrap();
 
@@ -6354,7 +6325,7 @@ mod test {
                 .sign_message(
                     &chain_view,
                     &local_peer_1.private_key,
-                    StacksMessageType::Ping(ping_data.clone()),
+                    StacksMessageType::Ping(ping_data),
                 )
                 .unwrap();
             convo_bad.version = 0x18000005;
@@ -6456,7 +6427,7 @@ mod test {
         }];
 
         // allowed
-        let mut relayers = vec![
+        let relayers = vec![
             RelayData {
                 peer: NeighborAddress {
                     addrbytes: PeerAddress([0u8; 16]),
@@ -6485,7 +6456,7 @@ mod test {
         let relayer_map = convo.stats.take_relayers();
         assert_eq!(convo.stats.relayed_messages.len(), 0);
 
-        for r in relayers.drain(..) {
+        for r in relayers.into_iter() {
             assert!(relayer_map.contains_key(&r.peer));
 
             let stats = relayer_map.get(&r.peer).unwrap();
@@ -6796,7 +6767,7 @@ mod test {
         );
 
         let net_1 = db_setup(
-            &test_name_1,
+            test_name_1,
             &burnchain,
             0x9abcdef0,
             &mut peerdb_1,
@@ -6805,7 +6776,7 @@ mod test {
             &chain_view,
         );
 
-        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+        let local_peer_1 = PeerDB::get_local_peer(peerdb_1.conn()).unwrap();
 
         let mut convo_1 = ConversationP2P::new(
             123,
@@ -6836,7 +6807,7 @@ mod test {
             )
             .unwrap();
 
-        let mut expected_relayers = relayers.clone();
+        let mut expected_relayers = relayers;
         expected_relayers.push(RelayData {
             peer: local_peer_1.to_neighbor_addr(),
             seq: 0,
@@ -6914,7 +6885,7 @@ mod test {
         );
 
         let net_1 = db_setup(
-            &test_name_1,
+            test_name_1,
             &burnchain,
             0x9abcdef0,
             &mut peerdb_1,
@@ -6923,7 +6894,7 @@ mod test {
             &chain_view,
         );
 
-        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+        let local_peer_1 = PeerDB::get_local_peer(peerdb_1.conn()).unwrap();
 
         let mut convo_1 = ConversationP2P::new(
             123,
@@ -6940,7 +6911,7 @@ mod test {
 
         // should succeed
         convo_1
-            .sign_and_forward(&local_peer_1, &chain_view, vec![], payload.clone())
+            .sign_and_forward(&local_peer_1, &chain_view, vec![], payload)
             .unwrap();
     }
 
@@ -6981,7 +6952,7 @@ mod test {
         );
 
         let net_1 = db_setup(
-            &test_name_1,
+            test_name_1,
             &burnchain,
             0x9abcdef0,
             &mut peerdb_1,
@@ -6990,7 +6961,7 @@ mod test {
             &chain_view,
         );
 
-        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+        let local_peer_1 = PeerDB::get_local_peer(peerdb_1.conn()).unwrap();
 
         let mut convo_1 = ConversationP2P::new(
             123,
@@ -7027,12 +6998,7 @@ mod test {
         ];
 
         let mut bad_msg = convo_1
-            .sign_relay_message(
-                &local_peer_1,
-                &chain_view,
-                bad_relayers.clone(),
-                payload.clone(),
-            )
+            .sign_relay_message(&local_peer_1, &chain_view, bad_relayers, payload)
             .unwrap();
 
         bad_msg.preamble.payload_len = 10;
@@ -7051,12 +7017,12 @@ mod test {
 
         // mock a second local peer with a different private key
         let mut local_peer_2 = local_peer_1.clone();
-        local_peer_2.private_key = Secp256k1PrivateKey::new();
+        local_peer_2.private_key = Secp256k1PrivateKey::random();
 
         // NOTE: payload can be anything since we only look at premable length here
         let payload = StacksMessageType::Nack(NackData { error_code: 123 });
         let mut msg = convo_1
-            .sign_relay_message(&local_peer_2, &chain_view, vec![], payload.clone())
+            .sign_relay_message(&local_peer_2, &chain_view, vec![], payload)
             .unwrap();
 
         let err_before = convo_1.stats.msgs_err;
@@ -7115,7 +7081,7 @@ mod test {
         );
 
         let net_1 = db_setup(
-            &test_name_1,
+            test_name_1,
             &burnchain,
             0x9abcdef0,
             &mut peerdb_1,
@@ -7124,7 +7090,7 @@ mod test {
             &chain_view,
         );
 
-        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+        let local_peer_1 = PeerDB::get_local_peer(peerdb_1.conn()).unwrap();
 
         let mut convo_1 = ConversationP2P::new(
             123,
@@ -7161,12 +7127,7 @@ mod test {
         ];
 
         let mut bad_msg = convo_1
-            .sign_relay_message(
-                &local_peer_1,
-                &chain_view,
-                bad_relayers.clone(),
-                payload.clone(),
-            )
+            .sign_relay_message(&local_peer_1, &chain_view, bad_relayers, payload)
             .unwrap();
 
         bad_msg.preamble.payload_len = 10;
@@ -7185,12 +7146,12 @@ mod test {
 
         // mock a second local peer with a different private key
         let mut local_peer_2 = local_peer_1.clone();
-        local_peer_2.private_key = Secp256k1PrivateKey::new();
+        local_peer_2.private_key = Secp256k1PrivateKey::random();
 
         // NOTE: payload can be anything since we only look at premable length here
         let payload = StacksMessageType::Nack(NackData { error_code: 123 });
         let mut msg = convo_1
-            .sign_relay_message(&local_peer_2, &chain_view, vec![], payload.clone())
+            .sign_relay_message(&local_peer_2, &chain_view, vec![], payload)
             .unwrap();
 
         let err_before = convo_1.stats.msgs_err;
@@ -7249,7 +7210,7 @@ mod test {
         );
 
         let net_1 = db_setup(
-            &test_name_1,
+            test_name_1,
             &burnchain,
             0x9abcdef0,
             &mut peerdb_1,
@@ -7258,7 +7219,7 @@ mod test {
             &chain_view,
         );
 
-        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+        let local_peer_1 = PeerDB::get_local_peer(peerdb_1.conn()).unwrap();
 
         let mut convo_1 = ConversationP2P::new(
             123,
@@ -7295,12 +7256,7 @@ mod test {
         ];
 
         let mut bad_msg = convo_1
-            .sign_relay_message(
-                &local_peer_1,
-                &chain_view,
-                bad_relayers.clone(),
-                payload.clone(),
-            )
+            .sign_relay_message(&local_peer_1, &chain_view, bad_relayers, payload)
             .unwrap();
 
         bad_msg.preamble.payload_len = 10;
@@ -7319,12 +7275,12 @@ mod test {
 
         // mock a second local peer with a different private key
         let mut local_peer_2 = local_peer_1.clone();
-        local_peer_2.private_key = Secp256k1PrivateKey::new();
+        local_peer_2.private_key = Secp256k1PrivateKey::random();
 
         // NOTE: payload can be anything since we only look at premable length here
         let payload = StacksMessageType::Nack(NackData { error_code: 123 });
         let mut msg = convo_1
-            .sign_relay_message(&local_peer_2, &chain_view, vec![], payload.clone())
+            .sign_relay_message(&local_peer_2, &chain_view, vec![], payload)
             .unwrap();
 
         let err_before = convo_1.stats.msgs_err;
@@ -7383,7 +7339,7 @@ mod test {
         );
 
         let net_1 = db_setup(
-            &test_name_1,
+            test_name_1,
             &burnchain,
             0x9abcdef0,
             &mut peerdb_1,
@@ -7392,7 +7348,7 @@ mod test {
             &chain_view,
         );
 
-        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+        let local_peer_1 = PeerDB::get_local_peer(peerdb_1.conn()).unwrap();
 
         let mut convo_1 = ConversationP2P::new(
             123,
@@ -7429,12 +7385,7 @@ mod test {
         ];
 
         let mut bad_msg = convo_1
-            .sign_relay_message(
-                &local_peer_1,
-                &chain_view,
-                bad_relayers.clone(),
-                payload.clone(),
-            )
+            .sign_relay_message(&local_peer_1, &chain_view, bad_relayers, payload)
             .unwrap();
 
         bad_msg.preamble.payload_len = 10;
@@ -7453,12 +7404,12 @@ mod test {
 
         // mock a second local peer with a different private key
         let mut local_peer_2 = local_peer_1.clone();
-        local_peer_2.private_key = Secp256k1PrivateKey::new();
+        local_peer_2.private_key = Secp256k1PrivateKey::random();
 
         // NOTE: payload can be anything since we only look at premable length here
         let payload = StacksMessageType::Nack(NackData { error_code: 123 });
         let mut msg = convo_1
-            .sign_relay_message(&local_peer_2, &chain_view, vec![], payload.clone())
+            .sign_relay_message(&local_peer_2, &chain_view, vec![], payload)
             .unwrap();
 
         let err_before = convo_1.stats.msgs_err;

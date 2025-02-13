@@ -222,17 +222,13 @@ impl MultisigSpendingCondition {
     }
 
     pub fn address_mainnet(&self) -> StacksAddress {
-        StacksAddress {
-            version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-            bytes: self.signer.clone(),
-        }
+        StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_MULTISIG, self.signer.clone())
+            .expect("FATAL: infallible: constant is not a valid address byte")
     }
 
     pub fn address_testnet(&self) -> StacksAddress {
-        StacksAddress {
-            version: C32_ADDRESS_VERSION_TESTNET_MULTISIG,
-            bytes: self.signer.clone(),
-        }
+        StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_MULTISIG, self.signer.clone())
+            .expect("FATAL: infallible: constant is not a valid address byte")
     }
 
     /// Authenticate a spending condition against an initial sighash.
@@ -290,24 +286,21 @@ impl MultisigSpendingCondition {
             ));
         }
 
-        let addr_bytes = match StacksAddress::from_public_keys(
+        let addr = StacksAddress::from_public_keys(
             0,
             &self.hash_mode.to_address_hash_mode(),
             self.signatures_required as usize,
             &pubkeys,
-        ) {
-            Some(a) => a.bytes,
-            None => {
-                return Err(net_error::VerifyingError(
-                    "Failed to generate address from public keys".to_string(),
-                ));
-            }
-        };
+        )
+        .ok_or_else(|| {
+            net_error::VerifyingError("Failed to generate address from public keys".to_string())
+        })?;
 
-        if addr_bytes != self.signer {
+        if *addr.bytes() != self.signer {
             return Err(net_error::VerifyingError(format!(
                 "Signer hash does not equal hash of public key(s): {} != {}",
-                addr_bytes, self.signer
+                addr.bytes(),
+                self.signer
             )));
         }
 
@@ -383,9 +376,7 @@ impl StacksMessageCodec for OrderIndependentMultisigSpendingCondition {
 
         // must all be compressed if we're using P2WSH
         if have_uncompressed && hash_mode == OrderIndependentMultisigHashMode::P2WSH {
-            let msg = format!(
-                "Failed to deserialize order independent multisig spending condition: expected compressed keys only"
-            );
+            let msg = "Failed to deserialize order independent multisig spending condition: expected compressed keys only".to_string();
             test_debug!("{msg}");
             return Err(codec_error::DeserializeError(msg));
         }
@@ -421,17 +412,13 @@ impl OrderIndependentMultisigSpendingCondition {
     }
 
     pub fn address_mainnet(&self) -> StacksAddress {
-        StacksAddress {
-            version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-            bytes: self.signer.clone(),
-        }
+        StacksAddress::new(C32_ADDRESS_VERSION_MAINNET_MULTISIG, self.signer.clone())
+            .expect("FATAL: infallible: constant address byte is not supported")
     }
 
     pub fn address_testnet(&self) -> StacksAddress {
-        StacksAddress {
-            version: C32_ADDRESS_VERSION_TESTNET_MULTISIG,
-            bytes: self.signer.clone(),
-        }
+        StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_MULTISIG, self.signer.clone())
+            .expect("FATAL: infallible: constant address byte is not supported")
     }
 
     /// Authenticate a spending condition against an initial sighash.
@@ -459,7 +446,7 @@ impl OrderIndependentMultisigSpendingCondition {
                     }
 
                     let (pubkey, _next_sighash) = TransactionSpendingCondition::next_verification(
-                        &initial_sighash,
+                        initial_sighash,
                         cond_code,
                         self.tx_fee,
                         self.nonce,
@@ -488,24 +475,21 @@ impl OrderIndependentMultisigSpendingCondition {
             ));
         }
 
-        let addr_bytes = match StacksAddress::from_public_keys(
+        let addr = StacksAddress::from_public_keys(
             0,
             &self.hash_mode.to_address_hash_mode(),
             self.signatures_required as usize,
             &pubkeys,
-        ) {
-            Some(a) => a.bytes,
-            None => {
-                return Err(net_error::VerifyingError(
-                    "Failed to generate address from public keys".to_string(),
-                ));
-            }
-        };
+        )
+        .ok_or_else(|| {
+            net_error::VerifyingError("Failed to generate address from public keys".to_string())
+        })?;
 
-        if addr_bytes != self.signer {
+        if *addr.bytes() != self.signer {
             return Err(net_error::VerifyingError(format!(
                 "Signer hash does not equal hash of public key(s): {} != {}",
-                addr_bytes, self.signer
+                addr.bytes(),
+                self.signer
             )));
         }
 
@@ -592,10 +576,8 @@ impl SinglesigSpendingCondition {
             SinglesigHashMode::P2PKH => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
             SinglesigHashMode::P2WPKH => C32_ADDRESS_VERSION_MAINNET_MULTISIG,
         };
-        StacksAddress {
-            version,
-            bytes: self.signer.clone(),
-        }
+        StacksAddress::new(version, self.signer.clone())
+            .expect("FATAL: infallible: supported address constant is not valid")
     }
 
     pub fn address_testnet(&self) -> StacksAddress {
@@ -603,10 +585,8 @@ impl SinglesigSpendingCondition {
             SinglesigHashMode::P2PKH => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             SinglesigHashMode::P2WPKH => C32_ADDRESS_VERSION_TESTNET_MULTISIG,
         };
-        StacksAddress {
-            version,
-            bytes: self.signer.clone(),
-        }
+        StacksAddress::new(version, self.signer.clone())
+            .expect("FATAL: infallible: supported address constant is not valid")
     }
 
     /// Authenticate a spending condition against an initial sighash.
@@ -626,24 +606,22 @@ impl SinglesigSpendingCondition {
             &self.key_encoding,
             &self.signature,
         )?;
-        let addr_bytes = match StacksAddress::from_public_keys(
+
+        let addr = StacksAddress::from_public_keys(
             0,
             &self.hash_mode.to_address_hash_mode(),
             1,
             &vec![pubkey],
-        ) {
-            Some(a) => a.bytes,
-            None => {
-                return Err(net_error::VerifyingError(
-                    "Failed to generate address from public key".to_string(),
-                ));
-            }
-        };
+        )
+        .ok_or_else(|| {
+            net_error::VerifyingError("Failed to generate address from public key".to_string())
+        })?;
 
-        if addr_bytes != self.signer {
+        if *addr.bytes() != self.signer {
             return Err(net_error::VerifyingError(format!(
                 "Signer hash does not equal hash of public key(s): {} != {}",
-                &addr_bytes, &self.signer
+                addr.bytes(),
+                &self.signer
             )));
         }
 
@@ -710,7 +688,7 @@ impl TransactionSpendingCondition {
 
         Some(TransactionSpendingCondition::Singlesig(
             SinglesigSpendingCondition {
-                signer: signer_addr.bytes,
+                signer: signer_addr.destruct().1,
                 nonce: 0,
                 tx_fee: 0,
                 hash_mode: SinglesigHashMode::P2PKH,
@@ -730,7 +708,7 @@ impl TransactionSpendingCondition {
 
         Some(TransactionSpendingCondition::Singlesig(
             SinglesigSpendingCondition {
-                signer: signer_addr.bytes,
+                signer: signer_addr.destruct().1,
                 nonce: 0,
                 tx_fee: 0,
                 hash_mode: SinglesigHashMode::P2WPKH,
@@ -753,7 +731,7 @@ impl TransactionSpendingCondition {
 
         Some(TransactionSpendingCondition::Multisig(
             MultisigSpendingCondition {
-                signer: signer_addr.bytes,
+                signer: signer_addr.destruct().1,
                 nonce: 0,
                 tx_fee: 0,
                 hash_mode: MultisigHashMode::P2SH,
@@ -776,7 +754,7 @@ impl TransactionSpendingCondition {
 
         Some(TransactionSpendingCondition::OrderIndependentMultisig(
             OrderIndependentMultisigSpendingCondition {
-                signer: signer_addr.bytes,
+                signer: signer_addr.destruct().1,
                 nonce: 0,
                 tx_fee: 0,
                 hash_mode: OrderIndependentMultisigHashMode::P2SH,
@@ -799,7 +777,7 @@ impl TransactionSpendingCondition {
 
         Some(TransactionSpendingCondition::OrderIndependentMultisig(
             OrderIndependentMultisigSpendingCondition {
-                signer: signer_addr.bytes,
+                signer: signer_addr.destruct().1,
                 nonce: 0,
                 tx_fee: 0,
                 hash_mode: OrderIndependentMultisigHashMode::P2WSH,
@@ -822,7 +800,7 @@ impl TransactionSpendingCondition {
 
         Some(TransactionSpendingCondition::Multisig(
             MultisigSpendingCondition {
-                signer: signer_addr.bytes,
+                signer: signer_addr.destruct().1,
                 nonce: 0,
                 tx_fee: 0,
                 hash_mode: MultisigHashMode::P2WSH,
@@ -1135,6 +1113,18 @@ impl TransactionSpendingCondition {
             }
         }
     }
+
+    /// Checks if this TransactionSpendingCondition is supported in the passed epoch
+    /// OrderIndependent multisig is not supported before epoch 3.0
+    pub fn is_supported_in_epoch(&self, epoch_id: StacksEpochId) -> bool {
+        match self {
+            TransactionSpendingCondition::Singlesig(..)
+            | TransactionSpendingCondition::Multisig(..) => true,
+            TransactionSpendingCondition::OrderIndependentMultisig(..) => {
+                epoch_id >= StacksEpochId::Epoch30
+            }
+        }
+    }
 }
 
 impl StacksMessageCodec for TransactionAuth {
@@ -1266,17 +1256,11 @@ impl TransactionAuth {
     }
 
     pub fn is_standard(&self) -> bool {
-        match *self {
-            TransactionAuth::Standard(_) => true,
-            _ => false,
-        }
+        matches!(self, TransactionAuth::Standard(_))
     }
 
     pub fn is_sponsored(&self) -> bool {
-        match *self {
-            TransactionAuth::Sponsored(_, _) => true,
-            _ => false,
-        }
+        matches!(self, TransactionAuth::Sponsored(..))
     }
 
     /// When beginning to sign a sponsored transaction, the origin account will not commit to any
@@ -1391,28 +1375,11 @@ impl TransactionAuth {
     /// Checks if this TransactionAuth is supported in the passed epoch
     /// OrderIndependent multisig is not supported before epoch 3.0
     pub fn is_supported_in_epoch(&self, epoch_id: StacksEpochId) -> bool {
-        match &self {
-            TransactionAuth::Sponsored(ref origin, ref sponsor) => {
-                let origin_supported = match origin {
-                    TransactionSpendingCondition::OrderIndependentMultisig(..) => {
-                        epoch_id >= StacksEpochId::Epoch30
-                    }
-                    _ => true,
-                };
-                let sponsor_supported = match sponsor {
-                    TransactionSpendingCondition::OrderIndependentMultisig(..) => {
-                        epoch_id >= StacksEpochId::Epoch30
-                    }
-                    _ => true,
-                };
-                origin_supported && sponsor_supported
+        match self {
+            TransactionAuth::Standard(origin) => origin.is_supported_in_epoch(epoch_id),
+            TransactionAuth::Sponsored(origin, sponsor) => {
+                origin.is_supported_in_epoch(epoch_id) && sponsor.is_supported_in_epoch(epoch_id)
             }
-            TransactionAuth::Standard(ref origin) => match origin {
-                TransactionSpendingCondition::OrderIndependentMultisig(..) => {
-                    epoch_id >= StacksEpochId::Epoch30
-                }
-                _ => true,
-            },
         }
     }
 }

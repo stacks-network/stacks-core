@@ -445,9 +445,10 @@ impl<W: Write> Write for HttpChunkedTransferWriter<'_, '_, W> {
     }
 }
 
+#[cfg(test)]
 mod test {
     use std::io;
-    use std::io::{Read, Write};
+    use std::io::Read;
 
     use rand::RngCore;
 
@@ -504,14 +505,14 @@ mod test {
 
     #[test]
     fn test_segment_reader() {
-        let mut tests = vec![
+        let tests = vec![
             (vec_u8(vec!["a", "b"]), "ab"),
             (vec_u8(vec!["aa", "bbb", "cccc"]), "aabbbcccc"),
             (vec_u8(vec!["aaaa", "bbb", "cc", "d", ""]), "aaaabbbccd"),
             (vec_u8(vec!["", "a", "", "b", ""]), "ab"),
             (vec_u8(vec![""]), ""),
         ];
-        for (input_vec, expected) in tests.drain(..) {
+        for (input_vec, expected) in tests.into_iter() {
             let num_segments = input_vec.len();
             let mut segment_io = SegmentReader::new(input_vec);
             let mut output = vec![0u8; expected.len()];

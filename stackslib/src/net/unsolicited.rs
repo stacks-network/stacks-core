@@ -138,7 +138,7 @@ impl PeerNetwork {
                 // punish this peer
                 info!(
                     "Peer {:?} sent an invalid update for {}",
-                    &outbound_neighbor_key,
+                    outbound_neighbor_key,
                     if microblocks {
                         "streamed microblocks"
                     } else {
@@ -147,7 +147,7 @@ impl PeerNetwork {
                 );
                 self.bans.insert(event_id);
 
-                if let Some(outbound_event_id) = self.events.get(&outbound_neighbor_key) {
+                if let Some(outbound_event_id) = self.events.get(outbound_neighbor_key) {
                     self.bans.insert(*outbound_event_id);
                 }
                 return Ok(None);
@@ -155,7 +155,7 @@ impl PeerNetwork {
             Err(e) => {
                 warn!(
                     "Failed to update inv state for {:?}: {:?}",
-                    &outbound_neighbor_key, &e
+                    outbound_neighbor_key, &e
                 );
                 return Ok(None);
             }
@@ -368,7 +368,7 @@ impl PeerNetwork {
         consensus_hash: &ConsensusHash,
         is_microblock: bool,
     ) -> Result<bool, NetError> {
-        let sn = SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash)?
+        let sn = SortitionDB::get_block_snapshot_consensus(sortdb.conn(), consensus_hash)?
             .ok_or(ChainstateError::NoSuchBlockError)?;
         let block_hash_opt = if sn.sortition {
             Some(sn.winning_stacks_block_hash)
@@ -421,7 +421,7 @@ impl PeerNetwork {
         debug!(
             "{:?}: Process BlocksAvailable from {:?} with {} entries",
             &self.get_local_peer(),
-            &outbound_neighbor_key,
+            outbound_neighbor_key,
             new_blocks.available.len()
         );
 
@@ -449,9 +449,9 @@ impl PeerNetwork {
                     info!(
                         "{:?}: Failed to handle BlocksAvailable({}/{}) from {}: {:?}",
                         &self.get_local_peer(),
-                        &consensus_hash,
+                        consensus_hash,
                         &block_hash,
-                        &outbound_neighbor_key,
+                        outbound_neighbor_key,
                         &e
                     );
                     continue;
@@ -461,14 +461,14 @@ impl PeerNetwork {
             let need_block = match PeerNetwork::need_block_or_microblock_stream(
                 sortdb,
                 chainstate,
-                &consensus_hash,
+                consensus_hash,
                 false,
             ) {
                 Ok(x) => x,
                 Err(e) => {
                     warn!(
                         "Failed to determine if we need block for consensus hash {}: {:?}",
-                        &consensus_hash, &e
+                        consensus_hash, &e
                     );
                     false
                 }
@@ -476,26 +476,23 @@ impl PeerNetwork {
 
             debug!(
                 "Need block {}/{}? {}",
-                &consensus_hash, &block_hash, need_block
+                consensus_hash, &block_hash, need_block
             );
 
             if need_block {
                 // have the downloader request this block if it's new and we don't have it
-                match self.block_downloader {
-                    Some(ref mut downloader) => {
-                        downloader.hint_block_sortition_height_available(
-                            block_sortition_height,
-                            ibd,
-                            need_block,
-                        );
+                if let Some(ref mut downloader) = self.block_downloader {
+                    downloader.hint_block_sortition_height_available(
+                        block_sortition_height,
+                        ibd,
+                        need_block,
+                    );
 
-                        // advance straight to download state if we're in inv state
-                        if self.work_state == PeerNetworkWorkState::BlockInvSync {
-                            debug!("{:?}: advance directly to block download with knowledge of block sortition {}", &self.get_local_peer(), block_sortition_height);
-                        }
-                        self.have_data_to_download = true;
+                    // advance straight to download state if we're in inv state
+                    if self.work_state == PeerNetworkWorkState::BlockInvSync {
+                        debug!("{:?}: advance directly to block download with knowledge of block sortition {}", &self.get_local_peer(), block_sortition_height);
                     }
-                    None => {}
+                    self.have_data_to_download = true;
                 }
             }
         }
@@ -565,9 +562,9 @@ impl PeerNetwork {
                     info!(
                         "{:?}: Failed to handle MicroblocksAvailable({}/{}) from {:?}: {:?}",
                         &self.get_local_peer(),
-                        &consensus_hash,
+                        consensus_hash,
                         &block_hash,
-                        &outbound_neighbor_key,
+                        outbound_neighbor_key,
                         &e
                     );
                     continue;
@@ -577,7 +574,7 @@ impl PeerNetwork {
             let need_microblock_stream = match PeerNetwork::need_block_or_microblock_stream(
                 sortdb,
                 chainstate,
-                &consensus_hash,
+                consensus_hash,
                 true,
             ) {
                 Ok(x) => x,
@@ -589,7 +586,7 @@ impl PeerNetwork {
 
             debug!(
                 "Need microblock stream {}/{}? {}",
-                &consensus_hash, &block_hash, need_microblock_stream
+                consensus_hash, &block_hash, need_microblock_stream
             );
 
             if need_microblock_stream {
@@ -648,20 +645,18 @@ impl PeerNetwork {
         let mut to_buffer = false;
 
         for BlocksDatum(consensus_hash, block) in new_blocks.blocks.iter() {
-            let sn = match SortitionDB::get_block_snapshot_consensus(
-                &sortdb.conn(),
-                &consensus_hash,
-            ) {
+            let sn = match SortitionDB::get_block_snapshot_consensus(sortdb.conn(), consensus_hash)
+            {
                 Ok(Some(sn)) => sn,
                 Ok(None) => {
                     if buffer {
                         debug!(
                             "{:?}: Will buffer unsolicited BlocksData({}/{}) ({}) -- consensus hash not (yet) recognized",
                             &self.get_local_peer(),
-                            &consensus_hash,
+                            consensus_hash,
                             &block.block_hash(),
                             StacksBlockHeader::make_index_block_hash(
-                                &consensus_hash,
+                                consensus_hash,
                                 &block.block_hash()
                             )
                         );
@@ -670,10 +665,10 @@ impl PeerNetwork {
                         debug!(
                             "{:?}: Will drop unsolicited BlocksData({}/{}) ({}) -- consensus hash not (yet) recognized",
                             &self.get_local_peer(),
-                            &consensus_hash,
+                            consensus_hash,
                             &block.block_hash(),
                             StacksBlockHeader::make_index_block_hash(
-                                &consensus_hash,
+                                consensus_hash,
                                 &block.block_hash()
                             )
                         );
@@ -717,7 +712,7 @@ impl PeerNetwork {
                 let _ = self.handle_unsolicited_inv_update_epoch2x(
                     sortdb,
                     event_id,
-                    &outbound_neighbor_key,
+                    outbound_neighbor_key,
                     &sn.consensus_hash,
                     false,
                 );
@@ -846,7 +841,7 @@ impl PeerNetwork {
         nakamoto_block: &NakamotoBlock,
     ) -> (Option<u64>, bool) {
         let (reward_set_sn, can_process) = match SortitionDB::get_block_snapshot_consensus(
-            &sortdb.conn(),
+            sortdb.conn(),
             &nakamoto_block.header.consensus_hash,
         ) {
             Ok(Some(sn)) => (sn, true),
@@ -1217,7 +1212,7 @@ impl PeerNetwork {
                     && !self.can_buffer_data_message(
                         *event_id,
                         self.pending_messages.get(&(*event_id, neighbor_key.clone())).unwrap_or(&vec![]),
-                        &message,
+                        message,
                     )
                 {
                     // unable to store this due to quota being exceeded

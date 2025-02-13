@@ -28,10 +28,10 @@ use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::net::db::PeerDB;
 use crate::net::neighbors::comms::PeerNetworkComms;
-use crate::net::p2p::PeerNetwork;
+use crate::net::p2p::{DropSource, PeerNetwork};
 use crate::net::{
-    Error as NetError, GetNakamotoInvData, NackErrorCodes, NakamotoInvData, NeighborAddress,
-    NeighborComms, NeighborKey, StacksMessage, StacksMessageType,
+    DropNeighbor, DropReason, Error as NetError, GetNakamotoInvData, NackErrorCodes,
+    NakamotoInvData, NeighborAddress, NeighborComms, NeighborKey, StacksMessage, StacksMessageType,
 };
 use crate::util_lib::db::Error as DBError;
 
@@ -294,7 +294,7 @@ impl InvGenerator {
             // we have not loaded the tenure info for this tip, or it was cleared via cache
             // maintenance.  Either way, got get it from disk.
             let loaded_info_opt =
-                InvTenureInfo::load(chainstate, &tip_block_id, &tenure_id_consensus_hash)?;
+                InvTenureInfo::load(chainstate, &tip_block_id, tenure_id_consensus_hash)?;
 
             tenure_infos.insert(tenure_id_consensus_hash.clone(), loaded_info_opt.clone());
             self.cache_misses = self.cache_misses.saturating_add(1);
@@ -750,8 +750,8 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
     /// Highest reward cycle learned
     pub fn highest_reward_cycle(&self) -> u64 {
         self.inventories
-            .iter()
-            .map(|(_, inv)| inv.highest_reward_cycle())
+            .values()
+            .map(|inv| inv.highest_reward_cycle())
             .max()
             .unwrap_or(0)
     }
@@ -856,7 +856,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
 
         // we're updating inventories, so preserve the state we have
         let mut new_inventories = HashMap::new();
-        let event_ids: Vec<usize> = network.iter_peer_event_ids().map(|e_id| *e_id).collect();
+        let event_ids: Vec<usize> = network.iter_peer_event_ids().copied().collect();
 
         debug!(
             "Send GetNakamotoInv to up to {} peers (ibd={})",
@@ -873,7 +873,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
             if ibd {
                 // in IBD, only connect to initial peers
                 let is_initial = PeerDB::is_initial_peer(
-                    &network.peerdb_conn(),
+                    network.peerdb_conn(),
                     convo.peer_network_id,
                     &convo.peer_addrbytes,
                     convo.peer_port,
@@ -982,24 +982,29 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
             );
             let Some(inv) = self.inventories.get_mut(&naddr) else {
                 debug!(
-                    "{:?}: Got a reply for an untracked inventory peer {}: {:?}",
+                    "{:?}: Got a reply for an untracked inventory peer {naddr}: {reply:?}",
                     network.get_local_peer(),
-                    &naddr,
-                    &reply
                 );
                 continue;
             };
 
-            let Ok(inv_learned) = inv.getnakamotoinv_try_finish(network, reply).map_err(|e| {
-                warn!(
-                    "{:?}: Failed to finish inventory sync to {}: {:?}",
-                    network.get_local_peer(),
-                    &naddr,
-                    &e
-                );
-                self.comms.add_broken(network, &naddr);
-                e
-            }) else {
+            let Ok(inv_learned) = inv
+                .getnakamotoinv_try_finish(network, reply)
+                .inspect_err(|e| {
+                    warn!(
+                        "{:?}: Failed to finish inventory sync to {naddr}: {e:?}",
+                        network.get_local_peer()
+                    );
+                    self.comms.add_broken(
+                        network,
+                        &naddr,
+                        DropReason::BrokenConnection(format!(
+                            "Failed to finish inventory sync: {e}"
+                        )),
+                        DropSource::NakamotoInvStateMachine,
+                    );
+                })
+            else {
                 continue;
             };
 
@@ -1051,14 +1056,15 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
                 &e
             );
         }
-        let Ok((_, learned)) = self.process_getnakamotoinv_finishes(network).map_err(|e| {
-            warn!(
-                "{:?}: Failed to finish Nakamoto tenure inventory sync: {:?}",
-                network.get_local_peer(),
-                &e
-            );
-            e
-        }) else {
+        let Ok((_, learned)) = self
+            .process_getnakamotoinv_finishes(network)
+            .inspect_err(|e| {
+                warn!(
+                    "{:?}: Failed to finish Nakamoto tenure inventory sync: {e:?}",
+                    network.get_local_peer(),
+                )
+            })
+        else {
             self.last_sort_tip = Some(network.burnchain_tip.clone());
             return false;
         };
@@ -1084,7 +1090,7 @@ impl PeerNetwork {
         &mut self,
         sortdb: &SortitionDB,
         ibd: bool,
-    ) -> (bool, Vec<NeighborKey>, Vec<NeighborKey>) {
+    ) -> (bool, Vec<DropNeighbor>, Vec<DropNeighbor>) {
         if self.inv_state_nakamoto.is_none() {
             self.init_inv_sync_nakamoto();
         }
@@ -1128,12 +1134,12 @@ impl PeerNetwork {
 
         // disconnect and ban broken peers
         for broken in broken_neighbors.into_iter() {
-            self.deregister_and_ban_neighbor(&broken);
+            self.deregister_and_ban_neighbor(&broken.key, broken.reason, broken.source);
         }
 
         // disconnect from dead connections
         for dead in dead_neighbors.into_iter() {
-            self.deregister_neighbor(&dead);
+            self.deregister_neighbor(&dead.key, dead.reason, dead.source);
         }
 
         learned

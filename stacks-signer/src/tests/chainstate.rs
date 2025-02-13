@@ -29,7 +29,7 @@ use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
 use blockstack_lib::net::api::getsortition::SortitionInfo;
 use clarity::types::chainstate::{BurnchainHeaderHash, SortitionId};
 use clarity::util::vrf::VRFProof;
-use libsigner::BlockProposal;
+use libsigner::{BlockProposal, BlockProposalData};
 use slog::slog_info;
 use stacks_common::bitvec::BitVec;
 use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -91,11 +91,13 @@ fn setup_test_environment(
             block_proposal_timeout: Duration::from_secs(5),
             tenure_last_block_proposal_timeout: Duration::from_secs(30),
             tenure_idle_timeout: Duration::from_secs(300),
+            tenure_idle_timeout_buffer: Duration::from_secs(2),
+            reorg_attempts_activity_timeout: Duration::from_secs(3),
         },
     };
 
     let stacks_client = StacksClient::new(
-        StacksPrivateKey::new(),
+        StacksPrivateKey::random(),
         SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 10000).to_string(),
         "FOO".into(),
         false,
@@ -244,6 +246,7 @@ fn reorg_timing_testing(
         },
         burn_height: 2,
         reward_cycle: 1,
+        block_proposal_data: BlockProposalData::empty(),
     };
     let mut header_clone = block_proposal_1.block.header.clone();
     let mut block_info_1 = BlockInfo::from(block_proposal_1);
@@ -511,6 +514,7 @@ fn check_sortition_timeout() {
         },
         burn_height: 2,
         reward_cycle: 1,
+        block_proposal_data: BlockProposalData::empty(),
     };
 
     let mut block_info = BlockInfo::from(block_proposal);
@@ -556,6 +560,7 @@ fn check_proposal_refresh() {
             stacks_parent_ch: Some(view.cur_sortition.parent_tenure_id),
             last_sortition_ch: Some(view.cur_sortition.parent_tenure_id),
             committed_block_hash: None,
+            vrf_seed: None,
         },
         SortitionInfo {
             burn_block_hash: BurnchainHeaderHash([128; 32]),
@@ -569,6 +574,7 @@ fn check_proposal_refresh() {
             stacks_parent_ch: Some(view.cur_sortition.parent_tenure_id),
             last_sortition_ch: Some(view.cur_sortition.parent_tenure_id),
             committed_block_hash: None,
+            vrf_seed: None,
         },
     ];
 

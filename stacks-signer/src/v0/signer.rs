@@ -39,10 +39,24 @@ use stacks_common::{debug, error, info, warn};
 
 use crate::chainstate::{ProposalEvalConfig, SortitionsView};
 use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
-use crate::config::SignerConfig;
+use crate::config::{SignerConfig, SignerConfigMode};
 use crate::runloop::SignerResult;
 use crate::signerdb::{BlockInfo, BlockState, SignerDb};
 use crate::Signer as SignerTrait;
+
+/// Signer running mode (whether dry-run or real)
+#[derive(Debug)]
+pub enum SignerMode {
+    /// Dry run operation: signer is not actually registered, the signer
+    ///  will not submit stackerdb messages, etc.
+    DryRun,
+    /// Normal signer operation: if registered, the signer will submit
+    /// stackerdb messages, etc.
+    Normal {
+        /// The signer ID assigned to this signer (may be different from signer_slot_id)
+        signer_id: u32,
+    },
+}
 
 /// The stacks signer registered for the reward cycle
 #[derive(Debug)]
@@ -57,8 +71,8 @@ pub struct Signer {
     pub stackerdb: StackerDB<MessageSlotID>,
     /// Whether the signer is a mainnet signer or not
     pub mainnet: bool,
-    /// The signer id
-    pub signer_id: u32,
+    /// The running mode of the signer (whether dry-run or normal)
+    pub mode: SignerMode,
     /// The signer slot ids for the signers in the reward cycle
     pub signer_slot_ids: Vec<SignerSlotID>,
     /// The addresses of other signers
@@ -80,9 +94,18 @@ pub struct Signer {
     pub block_proposal_max_age_secs: u64,
 }
 
+impl std::fmt::Display for SignerMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SignerMode::DryRun => write!(f, "Dry-Run signer"),
+            SignerMode::Normal { signer_id } => write!(f, "Signer #{signer_id}"),
+        }
+    }
+}
+
 impl std::fmt::Display for Signer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Cycle #{} Signer #{}", self.reward_cycle, self.signer_id,)
+        write!(f, "Cycle #{} {}", self.reward_cycle, self.mode)
     }
 }
 
@@ -184,6 +207,10 @@ impl SignerTrait<SignerMessage> for Signer {
                                 "block_height" => b.header.chain_length,
                                 "signer_sighash" => %b.header.signer_signature_hash(),
                             );
+                            #[cfg(any(test, feature = "testing"))]
+                            if self.test_skip_block_broadcast(b) {
+                                return;
+                            }
                             stacks_client.post_block_until_ok(self, b);
                         }
                         SignerMessage::MockProposal(mock_proposal) => {
@@ -275,10 +302,13 @@ impl SignerTrait<SignerMessage> for Signer {
 impl From<SignerConfig> for Signer {
     fn from(signer_config: SignerConfig) -> Self {
         let stackerdb = StackerDB::from(&signer_config);
-        debug!(
-            "Reward cycle #{} Signer #{}",
-            signer_config.reward_cycle, signer_config.signer_id,
-        );
+        let mode = match signer_config.signer_mode {
+            SignerConfigMode::DryRun => SignerMode::DryRun,
+            SignerConfigMode::Normal { signer_id, .. } => SignerMode::Normal { signer_id },
+        };
+
+        debug!("Reward cycle #{} {mode}", signer_config.reward_cycle);
+
         let signer_db =
             SignerDb::new(&signer_config.db_path).expect("Failed to connect to signer Db");
         let proposal_config = ProposalEvalConfig::from(&signer_config);
@@ -287,7 +317,7 @@ impl From<SignerConfig> for Signer {
             private_key: signer_config.stacks_private_key,
             stackerdb,
             mainnet: signer_config.mainnet,
-            signer_id: signer_config.signer_id,
+            mode,
             signer_addresses: signer_config.signer_entries.signer_addresses.clone(),
             signer_weights: signer_config.signer_entries.signer_addr_to_weight.clone(),
             signer_slot_ids: signer_config.signer_slot_ids.clone(),
@@ -327,7 +357,9 @@ impl Signer {
             block.header.signer_signature_hash(),
             signature,
             self.signer_db.calculate_tenure_extend_timestamp(
-                self.proposal_config.tenure_idle_timeout,
+                self.proposal_config
+                    .tenure_idle_timeout
+                    .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
                 block,
                 true,
             ),
@@ -345,7 +377,9 @@ impl Signer {
             &self.private_key,
             self.mainnet,
             self.signer_db.calculate_tenure_extend_timestamp(
-                self.proposal_config.tenure_idle_timeout,
+                self.proposal_config
+                    .tenure_idle_timeout
+                    .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
                 block,
                 false,
             ),
@@ -472,7 +506,10 @@ impl Signer {
                 .send_message_with_retry::<SignerMessage>(block_response.into())
             {
                 Ok(_) => {
-                    crate::monitoring::increment_block_responses_sent(accepted);
+                    crate::monitoring::actions::increment_block_responses_sent(accepted);
+                    crate::monitoring::actions::record_block_response_latency(
+                        &block_proposal.block,
+                    );
                 }
                 Err(e) => {
                     warn!("{self}: Failed to send block response to stacker-db: {e:?}",);
@@ -489,7 +526,7 @@ impl Signer {
             "burn_height" => block_proposal.burn_height,
             "consensus_hash" => %block_proposal.block.header.consensus_hash,
         );
-        crate::monitoring::increment_block_proposals_received();
+        crate::monitoring::actions::increment_block_proposals_received();
         #[cfg(any(test, feature = "testing"))]
         let mut block_info = BlockInfo::from(block_proposal.clone());
         #[cfg(not(any(test, feature = "testing")))]
@@ -610,6 +647,7 @@ impl Signer {
                 &mut self.signer_db,
                 stacks_client,
                 self.proposal_config.tenure_last_block_proposal_timeout,
+                self.proposal_config.reorg_attempts_activity_timeout,
             ) {
                 Ok(true) => {}
                 Ok(false) => {
@@ -672,7 +710,7 @@ impl Signer {
         stacks_client: &StacksClient,
         block_validate_ok: &BlockValidateOk,
     ) -> Option<BlockResponse> {
-        crate::monitoring::increment_block_validation_responses(true);
+        crate::monitoring::actions::increment_block_validation_responses(true);
         let signer_signature_hash = block_validate_ok.signer_signature_hash;
         if self
             .submitted_block_proposal
@@ -705,6 +743,8 @@ impl Signer {
             let res = self
                 .stackerdb
                 .send_message_with_retry::<SignerMessage>(block_response.into());
+
+            crate::monitoring::actions::record_block_response_latency(&block_info.block);
 
             match res {
                 Err(e) => warn!("{self}: Failed to send block rejection to stacker-db: {e:?}"),
@@ -748,7 +788,7 @@ impl Signer {
         &mut self,
         block_validate_reject: &BlockValidateReject,
     ) -> Option<BlockResponse> {
-        crate::monitoring::increment_block_validation_responses(false);
+        crate::monitoring::actions::increment_block_validation_responses(false);
         let signer_signature_hash = block_validate_reject.signer_signature_hash;
         if self
             .submitted_block_proposal
@@ -777,7 +817,9 @@ impl Signer {
             &self.private_key,
             self.mainnet,
             self.signer_db.calculate_tenure_extend_timestamp(
-                self.proposal_config.tenure_idle_timeout,
+                self.proposal_config
+                    .tenure_idle_timeout
+                    .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
                 &block_info.block,
                 false,
             ),
@@ -798,6 +840,9 @@ impl Signer {
         info!("{self}: Received a block validate response: {block_validate_response:?}");
         let block_response = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
+                crate::monitoring::actions::record_block_validation_latency(
+                    block_validate_ok.validation_time_ms,
+                );
                 self.handle_block_validate_ok(stacks_client, block_validate_ok)
             }
             BlockValidateResponse::Reject(block_validate_reject) => {
@@ -810,25 +855,32 @@ impl Signer {
             .remove_pending_block_validation(&signer_sig_hash)
             .unwrap_or_else(|e| warn!("{self}: Failed to remove pending block validation: {e:?}"));
 
-        let Some(response) = block_response else {
-            return;
+        if let Some(response) = block_response {
+            // Submit a proposal response to the .signers contract for miners
+            info!(
+                "{self}: Broadcasting a block response to stacks node: {response:?}";
+            );
+            let accepted = matches!(response, BlockResponse::Accepted(..));
+            match self
+                .stackerdb
+                .send_message_with_retry::<SignerMessage>(response.into())
+            {
+                Ok(_) => {
+                    crate::monitoring::actions::increment_block_responses_sent(accepted);
+                    if let Ok(Some(block_info)) = self
+                        .signer_db
+                        .block_lookup(&block_validate_response.signer_signature_hash())
+                    {
+                        crate::monitoring::actions::record_block_response_latency(
+                            &block_info.block,
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
+                }
+            }
         };
-        // Submit a proposal response to the .signers contract for miners
-        info!(
-            "{self}: Broadcasting a block response to stacks node: {response:?}";
-        );
-        let accepted = matches!(response, BlockResponse::Accepted(..));
-        match self
-            .stackerdb
-            .send_message_with_retry::<SignerMessage>(response.into())
-        {
-            Ok(_) => {
-                crate::monitoring::increment_block_responses_sent(accepted);
-            }
-            Err(e) => {
-                warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
-            }
-        }
 
         // Check if there is a pending block validation that we need to submit to the node
         match self.signer_db.get_and_remove_pending_block_validation() {
@@ -906,6 +958,8 @@ impl Signer {
             .stackerdb
             .send_message_with_retry::<SignerMessage>(rejection.into());
 
+        crate::monitoring::actions::record_block_response_latency(&block_info.block);
+
         match res {
             Err(e) => warn!("{self}: Failed to send block rejection to stacker-db: {e:?}"),
             Ok(ack) if !ack.accepted => warn!(
@@ -969,7 +1023,7 @@ impl Signer {
         // authenticate the signature -- it must be signed by one of the stacking set
         let is_valid_sig = self.signer_addresses.iter().any(|addr| {
             // it only matters that the address hash bytes match
-            signer_address.bytes == addr.bytes
+            signer_address.bytes() == addr.bytes()
         });
 
         if !is_valid_sig {
@@ -1065,7 +1119,7 @@ impl Signer {
             let stacker_address = StacksAddress::p2pkh(self.mainnet, &public_key);
 
             // it only matters that the address hash bytes match
-            stacker_address.bytes == addr.bytes
+            stacker_address.bytes() == addr.bytes()
         });
 
         if !is_valid_sig {
