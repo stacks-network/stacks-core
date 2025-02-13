@@ -402,7 +402,7 @@ impl SortitionsView {
     ) -> Result<bool, SignerChainstateError> {
         // if the parent tenure is the last sortition, it is a valid choice.
         // if the parent tenure is a reorg, then all of the reorged sortitions
-        //  must either have produced zero blocks _or_ produced their first block
+        //  must either have produced zero blocks _or_ produced their first (and only) block
         //  very close to the burn block transition.
         if sortition_state.prior_sortition == sortition_state.parent_tenure_id {
             return Ok(true);
