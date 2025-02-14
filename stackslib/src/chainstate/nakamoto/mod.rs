@@ -4693,7 +4693,7 @@ impl NakamotoChainState {
         .expect("FATAL: failed to advance chain tip");
 
         let new_block_id = new_tip.index_block_hash();
-        chainstate_tx.log_transactions_processed(&new_block_id, &tx_receipts);
+        chainstate_tx.log_transactions_processed(&tx_receipts);
 
         let reward_cycle = pox_constants
             .block_height_to_reward_cycle(first_block_height, chain_tip_burn_header_height.into());

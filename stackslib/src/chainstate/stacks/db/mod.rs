@@ -631,11 +631,7 @@ impl<'a> ChainstateTx<'a> {
         &self.config
     }
 
-    pub fn log_transactions_processed(
-        &self,
-        block_id: &StacksBlockId,
-        events: &[StacksTransactionReceipt],
-    ) {
+    pub fn log_transactions_processed(&self, events: &[StacksTransactionReceipt]) {
         for tx_event in events.iter() {
             let txid = tx_event.transaction.txid();
             if let Err(e) = monitoring::log_transaction_processed(&txid, &self.root_path) {
