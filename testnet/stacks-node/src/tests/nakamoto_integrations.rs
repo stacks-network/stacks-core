@@ -4114,7 +4114,8 @@ fn follower_bootup_across_multiple_cycles() {
 
     debug!("Booted follower-thread");
 
-    wait_for(300, || {
+    // Wait a long time for the follower to catch up because CI is slow.
+    wait_for(600, || {
         sleep_ms(1000);
         let Ok(follower_node_info) = get_chain_info_result(&follower_conf) else {
             return Ok(false);

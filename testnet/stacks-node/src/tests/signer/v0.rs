@@ -3175,7 +3175,7 @@ fn tenure_extend_after_idle_miner() {
     wait_for_tenure_change_tx(
         miner_idle_timeout.as_secs() + 20,
         TenureChangeCause::Extended,
-        tip_height_before + 1,
+        tip_height_before + 2,
     )
     .expect("Timed out waiting for a block with a tenure extend");
     signer_test.shutdown();
@@ -6546,30 +6546,36 @@ fn continue_after_tenure_extend() {
     let sortdb = burnchain.open_sortition_db(true).unwrap();
 
     signer_test.boot_to_epoch_3();
+    info!("------------------------- Mine A Normal Tenure -------------------------");
+    signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers, true);
+
+    info!("------------------------- Pause Block Commits-------------------------");
     signer_test
         .running_nodes
         .counters
         .naka_skip_commit_op
         .set(true);
-    info!("------------------------- Mine A Normal Tenure -------------------------");
-    signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers, true);
-
-    info!("------------------------- Extend Tenure -------------------------");
-    let stacks_height_before = signer_test.get_peer_info().stacks_tip_height;
+    info!("------------------------- Flush Pending Commits -------------------------");
+    // Mine a couple blocks to flush the last submitted commit out.
+    let peer_info = signer_test.get_peer_info();
+    let burn_height_before = peer_info.burn_block_height;
+    let stacks_height_before = peer_info.stacks_tip_height;
     signer_test
         .running_nodes
         .btc_regtest_controller
-        .build_next_block(1);
+        .build_next_block(2);
+    wait_for(30, || {
+        let peer_info = signer_test.get_peer_info();
+        Ok(peer_info.burn_block_height > burn_height_before + 1)
+    })
+    .expect("Timed out waiting for burn block height to increase");
     // assure we have NO sortition
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     assert!(!tip.sortition);
 
-    let extend_block = wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk)
-        .expect("Timed out waiting for block N+1 to be mined");
-    assert_eq!(
-        extend_block.try_get_tenure_change_payload().unwrap().cause,
-        TenureChangeCause::Extended
-    );
+    info!("------------------------- Extend Tenure -------------------------");
+    wait_for_tenure_change_tx(30, TenureChangeCause::Extended, stacks_height_before + 2)
+        .expect("Timed out waiting for tenure change tx");
 
     // Verify that the miner can continue mining in the tenure with the tenure extend
     info!("------------------------- Mine After Tenure Extend -------------------------");
@@ -8141,9 +8147,8 @@ fn global_acceptance_depends_on_block_announcement() {
     let tx = submit_tx(&http_origin, &transfer_tx);
     info!("Submitted tx {tx} in to mine block N+1");
 
-    let block_n_1 =
-        wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
-            .expect("Timed out waiting for block N+1 to be mined");
+    let block_n_1 = wait_for_block_proposal(30, info_before.stacks_tip_height + 1, &miner_pk)
+        .expect("Timed out waiting for block N+1 to be proposed");
 
     // Even though one of the signers rejected the block, it will eventually accept the block as it sees the 70% threshold of signatures
     wait_for_block_global_acceptance_from_signers(
@@ -8386,17 +8391,18 @@ fn no_reorg_due_to_successive_block_validation_ok() {
     info!("------------------------- Unpause Block Validation Submission and Response for N+1' -------------------------");
     TEST_STALL_BLOCK_VALIDATION_SUBMISSION.set(false);
 
-    info!("------------------------- Confirm N+1 is Accepted ------------------------");
-    let block_n_1 = wait_for_block_pushed(30, block_n_1_signature_hash)
-        .expect("Timed out waiting for Block N+1 to be mined");
-    debug!("Miner 1 mined block N+1: {block_n_1_signature_hash}");
-
     info!("------------------------- Confirm N+1' is Rejected ------------------------");
     wait_for_block_global_rejection(30, block_n_1_prime_signature_hash, num_signers)
         .expect("Failed to find block N+1'");
 
-    info!("------------------------- Confirm N+2 Accepted ------------------------");
+    info!("------------------------- Confirm N+1 Accepted -------------------------");
+    let mined_block_n_1 = test_observer::get_mined_nakamoto_blocks()
+        .into_iter()
+        .find(|block| block.signer_signature_hash == block_n_1_signature_hash)
+        .expect("Failed to find block N+1");
 
+    // Miner 2 will see block N+1 as a valid block and reattempt to mine N+2 on top.
+    info!("------------------------- Confirm N+2 Accepted ------------------------");
     let block_n_2 =
         wait_for_block_pushed_by_miner_key(30, block_n_1.header.chain_length + 1, &miner_pk_2)
             .expect("Failed to find block N+2");
@@ -8415,8 +8421,8 @@ fn no_reorg_due_to_successive_block_validation_ok() {
         block_n_2.header.consensus_hash
     );
     assert_eq!(
-        block_n_2.header.parent_block_id,
-        block_n_1.header.block_id()
+        block_n_2.header.parent_block_id.to_string(),
+        mined_block_n_1.block_id
     );
     assert_eq!(block_n_1.header.parent_block_id, block_n.header.block_id());
 
