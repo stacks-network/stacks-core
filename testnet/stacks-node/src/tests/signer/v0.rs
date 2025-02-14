@@ -554,7 +554,7 @@ fn block_proposal_rejection() {
                 if signer_signature_hash == block_signer_signature_hash_1 {
                     found_signer_signature_hash_1 = true;
                     assert!(
-                        matches!(reason_code, RejectCode::SortitionViewMismatch),
+                        matches!(reason_code, RejectCode::InvalidBitvec),
                         "Expected sortition view mismatch rejection. Got: {reason_code}"
                     );
                 } else if signer_signature_hash == block_signer_signature_hash_2 {
@@ -3478,7 +3478,7 @@ fn empty_sortition() {
                 ..
             })) = latest_msg
             {
-                assert!(matches!(reason_code, RejectCode::SortitionViewMismatch));
+                assert!(matches!(reason_code, RejectCode::InvalidMiner));
                 assert_eq!(metadata.server_version, VERSION_STRING.to_string());
                 found_rejections.push(*slot_id);
             } else {
@@ -11679,10 +11679,7 @@ fn reorg_attempts_activity_timeout_exceeded() {
                     match message {
                         SignerMessage::BlockResponse(BlockResponse::Rejected(rejection)) => {
                             if rejection.signer_signature_hash == hash {
-                                assert_eq!(
-                                    rejection.reason_code,
-                                    RejectCode::SortitionViewMismatch
-                                );
+                                assert_eq!(rejection.reason_code, RejectCode::InvalidMiner);
                                 Some(rejection)
                             } else {
                                 None
@@ -12411,7 +12408,7 @@ fn block_proposal_timeout() {
                         if rejection.signer_signature_hash
                             == block_proposal_n.block.header.signer_signature_hash()
                         {
-                            assert_eq!(rejection.reason_code, RejectCode::SortitionViewMismatch);
+                            assert_eq!(rejection.reason_code, RejectCode::InvalidMiner);
                             Some(rejection)
                         } else {
                             None
