@@ -116,6 +116,10 @@ pub struct Counters {
     pub naka_mined_tenures: RunLoopCounter,
     pub naka_signer_pushed_blocks: RunLoopCounter,
     pub naka_miner_directives: RunLoopCounter,
+    pub naka_submitted_commit_last_stacks_tip: RunLoopCounter,
+
+    pub naka_miner_current_rejections: RunLoopCounter,
+    pub naka_miner_current_rejections_timeout_secs: RunLoopCounter,
 
     #[cfg(test)]
     pub naka_skip_commit_op: TestFlag<bool>,
@@ -170,11 +174,19 @@ impl Counters {
         Counters::inc(&self.naka_submitted_vrfs);
     }
 
-    pub fn bump_naka_submitted_commits(&self, committed_height: u64) {
+    pub fn bump_naka_submitted_commits(
+        &self,
+        committed_burn_height: u64,
+        committed_stacks_height: u64,
+    ) {
         Counters::inc(&self.naka_submitted_commits);
         Counters::set(
             &self.naka_submitted_commit_last_burn_height,
-            committed_height,
+            committed_burn_height,
+        );
+        Counters::set(
+            &self.naka_submitted_commit_last_stacks_tip,
+            committed_stacks_height,
         );
     }
 
@@ -204,6 +216,14 @@ impl Counters {
 
     pub fn set_microblocks_processed(&self, value: u64) {
         Counters::set(&self.microblocks_processed, value)
+    }
+
+    pub fn set_miner_current_rejections_timeout_secs(&self, value: u64) {
+        Counters::set(&self.naka_miner_current_rejections_timeout_secs, value)
+    }
+
+    pub fn set_miner_current_rejections(&self, value: u32) {
+        Counters::set(&self.naka_miner_current_rejections, u64::from(value))
     }
 }
 

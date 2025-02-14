@@ -286,7 +286,7 @@ impl RelayerStats {
                     let mut to_remove = vec![];
                     for (ts, old_addr) in self.relay_updates.iter() {
                         self.relay_stats.remove(old_addr);
-                        if self.relay_stats.len() <= MAX_RELAYER_STATS - 1 {
+                        if self.relay_stats.len() < MAX_RELAYER_STATS {
                             break;
                         }
                         to_remove.push(*ts);
@@ -342,7 +342,7 @@ impl RelayerStats {
                 let mut to_remove = vec![];
                 for (ts, old_nk) in self.recent_updates.iter() {
                     self.recent_messages.remove(old_nk);
-                    if self.recent_messages.len() <= MAX_RELAYER_STATS - 1 {
+                    if self.recent_messages.len() < MAX_RELAYER_STATS {
                         break;
                     }
                     to_remove.push(*ts);
@@ -1821,52 +1821,49 @@ impl Relayer {
             &tx.txid(),
             &ast_rules
         );
-        match tx.payload {
-            TransactionPayload::SmartContract(ref smart_contract, ref clarity_version_opt) => {
-                let clarity_version =
-                    clarity_version_opt.unwrap_or(ClarityVersion::default_for_epoch(epoch_id));
+        if let TransactionPayload::SmartContract(ref smart_contract, ref clarity_version_opt) =
+            tx.payload
+        {
+            let clarity_version =
+                clarity_version_opt.unwrap_or(ClarityVersion::default_for_epoch(epoch_id));
 
-                if ast_rules == ASTRules::PrecheckSize {
-                    let origin = tx.get_origin();
-                    let issuer_principal = {
-                        let addr = if mainnet {
-                            origin.address_mainnet()
-                        } else {
-                            origin.address_testnet()
-                        };
-                        addr.to_account_principal()
-                    };
-                    let issuer_principal = if let PrincipalData::Standard(data) = issuer_principal {
-                        data
+            if ast_rules == ASTRules::PrecheckSize {
+                let origin = tx.get_origin();
+                let issuer_principal = {
+                    let addr = if mainnet {
+                        origin.address_mainnet()
                     } else {
-                        // not possible
-                        panic!("Transaction had a contract principal origin");
+                        origin.address_testnet()
                     };
+                    addr.to_account_principal()
+                };
+                let issuer_principal = if let PrincipalData::Standard(data) = issuer_principal {
+                    data
+                } else {
+                    // not possible
+                    panic!("Transaction had a contract principal origin");
+                };
 
-                    let contract_id = QualifiedContractIdentifier::new(
-                        issuer_principal,
-                        smart_contract.name.clone(),
-                    );
-                    let contract_code_str = smart_contract.code_body.to_string();
+                let contract_id =
+                    QualifiedContractIdentifier::new(issuer_principal, smart_contract.name.clone());
+                let contract_code_str = smart_contract.code_body.to_string();
 
-                    // make sure that the AST isn't unreasonably big
-                    let ast_res =
-                        ast_check_size(&contract_id, &contract_code_str, clarity_version, epoch_id);
-                    match ast_res {
-                        Ok(_) => {}
-                        Err(parse_error) => match parse_error.err {
-                            ParseErrors::ExpressionStackDepthTooDeep
-                            | ParseErrors::VaryExpressionStackDepthTooDeep => {
-                                // don't include this block
-                                info!("Transaction {} is problematic and will not be included, relayed, or built upon", &tx.txid());
-                                return Err(Error::ClarityError(parse_error.into()));
-                            }
-                            _ => {}
-                        },
-                    }
+                // make sure that the AST isn't unreasonably big
+                let ast_res =
+                    ast_check_size(&contract_id, &contract_code_str, clarity_version, epoch_id);
+                match ast_res {
+                    Ok(_) => {}
+                    Err(parse_error) => match parse_error.err {
+                        ParseErrors::ExpressionStackDepthTooDeep
+                        | ParseErrors::VaryExpressionStackDepthTooDeep => {
+                            // don't include this block
+                            info!("Transaction {} is problematic and will not be included, relayed, or built upon", &tx.txid());
+                            return Err(Error::ClarityError(parse_error.into()));
+                        }
+                        _ => {}
+                    },
                 }
             }
-            _ => {}
         }
         Ok(())
     }

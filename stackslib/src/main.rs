@@ -316,7 +316,7 @@ fn main() {
             "{}",
             &blockstack_lib::version_string(
                 option_env!("CARGO_PKG_NAME").unwrap_or(&argv[0]),
-                option_env!("CARGO_PKG_VERSION").unwrap_or("0.0.0.0")
+                option_env!("STACKS_NODE_VERSION")
             )
         );
         process::exit(0);
@@ -1522,7 +1522,7 @@ check if the associated microblocks can be downloaded
                     while next_arrival < stacks_blocks_arrival_order.len()
                         && known_stacks_blocks.contains(&stacks_block_id)
                     {
-                        if let Some(_) = stacks_blocks_available.get(&stacks_block_id) {
+                        if stacks_blocks_available.get(&stacks_block_id).is_some() {
                             // load up the block
                             let stacks_block_opt = StacksChainState::load_block(
                                 &old_chainstate.blocks_path,

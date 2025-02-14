@@ -828,7 +828,6 @@ impl BlockResponseData {
     /// Serialize the "inner" block response data. Used to determine the bytes length of the serialized block response data
     fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.tenure_extend_timestamp)?;
-        // write_next(fd, &self.unknown_bytes)?;
         fd.write_all(&self.unknown_bytes)
             .map_err(CodecError::WriteError)?;
         Ok(())
@@ -1160,6 +1159,7 @@ mod test {
     use stacks_common::types::chainstate::StacksPrivateKey;
 
     use super::{StacksMessageCodecExtensions, *};
+    use crate::events::BlockProposalData;
 
     #[test]
     fn signer_slots_count_is_sane() {
@@ -1276,6 +1276,7 @@ mod test {
             block,
             burn_height: thread_rng().next_u64(),
             reward_cycle: thread_rng().next_u64(),
+            block_proposal_data: BlockProposalData::empty(),
         };
         let signer_message = SignerMessage::BlockProposal(block_proposal);
         let serialized_signer_message = signer_message.serialize_to_vec();

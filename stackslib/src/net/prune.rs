@@ -29,9 +29,9 @@ use crate::net::db::{LocalPeer, PeerDB};
 use crate::net::neighbors::*;
 use crate::net::p2p::*;
 use crate::net::poll::{NetworkPollState, NetworkState};
-use crate::net::Error as net_error;
 /// This module contains the logic for pruning client and neighbor connections
 use crate::net::*;
+use crate::net::{DropReason, Error as net_error};
 use crate::util_lib::db::{DBConn, Error as db_error};
 
 impl PeerNetwork {
@@ -174,7 +174,7 @@ impl PeerNetwork {
     fn prune_frontier_outbound_orgs(
         &mut self,
         preserve: &HashSet<usize>,
-    ) -> Result<Vec<NeighborKey>, net_error> {
+    ) -> Result<Vec<(NeighborKey, DropReason)>, net_error> {
         let num_outbound = PeerNetwork::count_outbound_conversations(&self.peers);
         if num_outbound <= self.connection_opts.soft_num_neighbors {
             return Ok(vec![]);
@@ -230,7 +230,7 @@ impl PeerNetwork {
                                 &self.local_peer, &neighbor_key, org
                             );
 
-                            ret.push(neighbor_key);
+                            ret.push((neighbor_key, DropReason::OrgDominatesPeerTable));
 
                             // don't prune too many
                             if num_outbound - (ret.len() as u64)
@@ -291,16 +291,15 @@ impl PeerNetwork {
                     );
 
                     neighbor_info.remove(0);
-                    ret.push(neighbor_key);
+                    ret.push((neighbor_key, DropReason::OrgTooManyMembers));
                 }
             }
         }
 
         debug!(
-            "{:?}: removed {} outbound peers out of {}",
+            "{:?}: removed {} outbound peers out of {num_outbound}",
             &self.local_peer,
-            ret.len(),
-            num_outbound
+            ret.len()
         );
         Ok(ret)
     }
@@ -322,18 +321,15 @@ impl PeerNetwork {
             if preserve.contains(event_id) {
                 continue;
             }
-            match self.peers.get(event_id) {
-                Some(convo) => {
-                    if !convo.stats.outbound {
-                        let stats = convo.stats.clone();
-                        if let Some(entry) = ip_neighbor.get_mut(&nk.addrbytes) {
-                            entry.push((*event_id, nk.clone(), stats));
-                        } else {
-                            ip_neighbor.insert(nk.addrbytes, vec![(*event_id, nk.clone(), stats)]);
-                        }
+            if let Some(convo) = self.peers.get(event_id) {
+                if !convo.stats.outbound {
+                    let stats = convo.stats.clone();
+                    if let Some(entry) = ip_neighbor.get_mut(&nk.addrbytes) {
+                        entry.push((*event_id, nk.clone(), stats));
+                    } else {
+                        ip_neighbor.insert(nk.addrbytes, vec![(*event_id, nk.clone(), stats)]);
                     }
                 }
-                None => {}
             }
         }
 
@@ -378,15 +374,12 @@ impl PeerNetwork {
         let mut outbound: Vec<String> = vec![];
 
         for (nk, event_id) in self.events.iter() {
-            match self.peers.get(event_id) {
-                Some(convo) => {
-                    if convo.stats.outbound {
-                        outbound.push(format!("{:?}", &nk));
-                    } else {
-                        inbound.push(format!("{:?}", &nk));
-                    }
+            if let Some(convo) = self.peers.get(event_id) {
+                if convo.stats.outbound {
+                    outbound.push(format!("{:?}", &nk));
+                } else {
+                    inbound.push(format!("{:?}", &nk));
                 }
-                None => {}
             }
         }
         (inbound, outbound)
@@ -409,15 +402,19 @@ impl PeerNetwork {
             pruned_by_ip.len()
         );
 
-        for prune in pruned_by_ip.iter() {
-            debug!("{:?}: prune by IP: {:?}", &self.local_peer, prune);
-            self.deregister_neighbor(prune);
+        for key in pruned_by_ip.iter() {
+            debug!(
+                "{:?}: prune by IP: {:?}",
+                &self.local_peer,
+                key.addrbytes.pretty_print()
+            );
+            self.deregister_neighbor(key, DropReason::TooManyConnections, DropSource::PeerNetwork);
 
-            if !self.prune_inbound_counts.contains_key(prune) {
-                self.prune_inbound_counts.insert(prune.clone(), 1);
+            if !self.prune_inbound_counts.contains_key(key) {
+                self.prune_inbound_counts.insert(key.clone(), 1);
             } else {
-                let c = self.prune_inbound_counts.get(prune).unwrap().to_owned();
-                self.prune_inbound_counts.insert(prune.clone(), c + 1);
+                let c = self.prune_inbound_counts.get(key).unwrap().to_owned();
+                self.prune_inbound_counts.insert(key.clone(), c + 1);
             }
         }
 
@@ -431,15 +428,19 @@ impl PeerNetwork {
             pruned_by_org.len()
         );
 
-        for prune in pruned_by_org.iter() {
-            debug!("{:?}: prune by Org: {:?}", &self.local_peer, prune);
-            self.deregister_neighbor(prune);
+        for (key, reason) in pruned_by_org.iter() {
+            debug!(
+                "{:?}: prune by Org: {:?}",
+                &self.local_peer,
+                key.addrbytes.pretty_print()
+            );
+            self.deregister_neighbor(key, reason.clone(), DropSource::PeerNetwork);
 
-            if !self.prune_outbound_counts.contains_key(prune) {
-                self.prune_outbound_counts.insert(prune.clone(), 1);
+            if !self.prune_outbound_counts.contains_key(key) {
+                self.prune_outbound_counts.insert(key.clone(), 1);
             } else {
-                let c = self.prune_outbound_counts.get(prune).unwrap().to_owned();
-                self.prune_outbound_counts.insert(prune.clone(), c + 1);
+                let c = self.prune_outbound_counts.get(key).unwrap().to_owned();
+                self.prune_outbound_counts.insert(key.clone(), c + 1);
             }
         }
 
@@ -464,11 +465,8 @@ impl PeerNetwork {
                     inbound.join(", ")
                 );
 
-                match PeerDB::get_frontier_size(self.peerdb.conn()) {
-                    Ok(count) => {
-                        debug!("{:?}: Frontier size: {}", &self.local_peer, count);
-                    }
-                    Err(_) => {}
+                if let Ok(count) = PeerDB::get_frontier_size(self.peerdb.conn()) {
+                    debug!("{:?}: Frontier size: {}", &self.local_peer, count);
                 };
             }
         }

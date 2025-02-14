@@ -1,14 +1,15 @@
 name: PR Differences Mutants
 
 on:
-  pull_request:
-    types:
-      - opened
-      - reopened
-      - synchronize
-      - ready_for_review
-    paths:
-      - '**.rs'
+  # Disabling PR mutants (issue #5806)
+  # pull_request:
+  #  types:
+  #    - opened
+  #    - reopened
+  #    - synchronize
+  #    - ready_for_review
+  #  paths:
+  #    - '**.rs'
   workflow_dispatch:
 
 concurrency:

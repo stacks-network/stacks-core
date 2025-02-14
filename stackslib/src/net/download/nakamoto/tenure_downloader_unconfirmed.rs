@@ -62,7 +62,7 @@ use crate::net::inv::epoch2x::InvState;
 use crate::net::inv::nakamoto::{NakamotoInvStateMachine, NakamotoTenureInv};
 use crate::net::neighbors::rpc::NeighborRPC;
 use crate::net::neighbors::NeighborComms;
-use crate::net::p2p::{CurrentRewardSet, PeerNetwork};
+use crate::net::p2p::{CurrentRewardSet, DropReason, DropSource, PeerNetwork};
 use crate::net::server::HttpPeer;
 use crate::net::{Error as NetError, Neighbor, NeighborAddress, NeighborKey};
 use crate::util_lib::db::{DBConn, Error as DBError};
@@ -838,7 +838,12 @@ impl NakamotoUnconfirmedTenureDownloader {
 
         let Some(peerhost) = NeighborRPC::get_peer_host(network, &self.naddr) else {
             // no conversation open to this neighbor
-            neighbor_rpc.add_dead(network, &self.naddr);
+            neighbor_rpc.add_dead(
+                network,
+                &self.naddr,
+                DropReason::DeadConnection("No authenticated connection open".into()),
+                DropSource::NakamotoUnconfirmedTenureDownloader,
+            );
             return Err(NetError::PeerNotConnected);
         };
 
