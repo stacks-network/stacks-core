@@ -4112,7 +4112,8 @@ fn follower_bootup_across_multiple_cycles() {
 
     debug!("Booted follower-thread");
 
-    wait_for(300, || {
+    // Wait a long time for the follower to catch up because CI is slow.
+    wait_for(600, || {
         sleep_ms(1000);
         let Ok(follower_node_info) = get_chain_info_result(&follower_conf) else {
             return Ok(false);
@@ -10774,11 +10775,6 @@ fn test_tenure_extend_from_flashblocks() {
     let btc_regtest_controller = &mut signer_test.running_nodes.btc_regtest_controller;
     let coord_channel = signer_test.running_nodes.coord_channel.clone();
     let counters = signer_test.running_nodes.counters.clone();
-    let nakamoto_test_skip_commit_op = signer_test
-        .running_nodes
-        .nakamoto_test_skip_commit_op
-        .clone();
-    let nakamoto_miner_directives = signer_test.running_nodes.nakamoto_miner_directives.clone();
 
     let tx_fee = 1_000;
 
@@ -10832,7 +10828,7 @@ fn test_tenure_extend_from_flashblocks() {
     next_block_and_mine_commit(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     // prevent the miner from sending another block-commit
-    nakamoto_test_skip_commit_op.set(true);
+    counters.naka_skip_commit_op.set(true);
 
     let info_before = get_chain_info(&naka_conf);
 
@@ -10865,7 +10861,7 @@ fn test_tenure_extend_from_flashblocks() {
     // mine another Bitcoin block right away, and force it to be a flash block
     btc_regtest_controller.bootstrap_chain(1);
 
-    let miner_directives_before = nakamoto_miner_directives.load(Ordering::SeqCst);
+    let miner_directives_before = counters.naka_miner_directives.load(Ordering::SeqCst);
 
     // unblock the relayer so it can process the flash block sortition.
     // Given the above, this will be an `Extend` tenure.
@@ -10924,13 +10920,12 @@ fn test_tenure_extend_from_flashblocks() {
     }
 
     // unstall miner thread and allow block-commits again
-    nakamoto_test_skip_commit_op.set(false);
+    counters.naka_skip_commit_op.set(false);
     TEST_MINE_STALL.set(false);
 
     // wait for the miner directive to be processed
     wait_for(60, || {
-        let directives_cnt = nakamoto_miner_directives.load(Ordering::SeqCst);
-        Ok(directives_cnt > miner_directives_before)
+        Ok(counters.naka_miner_directives.load(Ordering::SeqCst) > miner_directives_before)
     })
     .unwrap();
 
