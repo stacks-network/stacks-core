@@ -500,7 +500,7 @@ mod test {
         client.try_recv().unwrap();
         let resolved_err = client.poll_lookup("www.google.com", 80).unwrap().unwrap();
         assert!(
-            format!("{resolved_err:?}").find("timed out").is_some(),
+            format!("{resolved_err:?}").contains("timed out"),
             "{resolved_err:?}"
         );
         dns_thread_shutdown(client, thread_handle);
