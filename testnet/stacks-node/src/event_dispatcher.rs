@@ -571,20 +571,18 @@ impl EventObserver {
         // if the observer is in lossy mode quickly send the payload without checking for the db
         if self.lossy {
             Self::send_payload_directly(payload, &full_url, self.timeout, true);
+        } else if let Some(db_path) = &self.db_path {
+            let conn =
+                Connection::open(db_path).expect("Failed to open database for event observer");
+
+            // Insert the new payload into the database
+            Self::insert_payload_with_retry(&conn, &full_url, payload, self.timeout);
+
+            // Process all pending payloads
+            Self::process_pending_payloads(&conn);
         } else {
-            if let Some(db_path) = &self.db_path {
-                let conn =
-                    Connection::open(db_path).expect("Failed to open database for event observer");
-
-                // Insert the new payload into the database
-                Self::insert_payload_with_retry(&conn, &full_url, payload, self.timeout);
-
-                // Process all pending payloads
-                Self::process_pending_payloads(&conn);
-            } else {
-                // No database, just send the payload
-                Self::send_payload_directly(payload, &full_url, self.timeout, false);
-            }
+            // No database, just send the payload
+            Self::send_payload_directly(payload, &full_url, self.timeout, false);
         }
     }
 
