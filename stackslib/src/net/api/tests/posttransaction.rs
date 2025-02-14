@@ -144,7 +144,7 @@ fn test_try_parse_request() {
         )
         .unwrap();
 
-    assert_eq!(handler.tx, Some(tx_cc_signed.clone()));
+    assert_eq!(handler.tx, Some(tx_cc_signed));
     assert_eq!(
         handler.attachment,
         Some(Attachment::new(vec![0, 1, 2, 3, 4]))
@@ -198,7 +198,7 @@ fn test_try_make_response() {
     let mut bad_tx = sendable_txs[2].clone();
     bad_tx.version = TransactionVersion::Mainnet;
     let request =
-        StacksHttpRequest::new_post_transaction_with_attachment(addr.into(), bad_tx.clone(), None);
+        StacksHttpRequest::new_post_transaction_with_attachment(addr.into(), bad_tx, None);
     requests.push(request);
 
     let mut responses = rpc_test.run(requests);

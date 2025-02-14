@@ -32,8 +32,8 @@ use crate::net::neighbors::{
 };
 use crate::net::p2p::PeerNetwork;
 use crate::net::{
-    Error as net_error, HandshakeData, Neighbor, NeighborAddress, NeighborKey, PeerAddress,
-    StacksMessage, StacksMessageType, NUM_NEIGHBORS,
+    DropNeighbor, DropReason, DropSource, Error as net_error, HandshakeData, Neighbor,
+    NeighborAddress, NeighborKey, PeerAddress, StacksMessage, StacksMessageType, NUM_NEIGHBORS,
 };
 
 /// A trait for representing session state for a set of connected neighbors, for the purposes of executing some P2P
@@ -53,9 +53,21 @@ pub trait NeighborComms {
     /// Remove a neighbor from connecting state due to an error
     fn remove_connecting_error<NK: ToNeighborKey>(&mut self, network: &PeerNetwork, nk: &NK);
     /// Mark a neighbor as dead (inactive, unreachable, etc.)
-    fn add_dead<NK: ToNeighborKey>(&mut self, network: &PeerNetwork, nk: &NK);
+    fn add_dead<NK: ToNeighborKey>(
+        &mut self,
+        network: &PeerNetwork,
+        nk: &NK,
+        reason: DropReason,
+        source: DropSource,
+    );
     /// Mark a neighbor as broken (in protocol violation)
-    fn add_broken<NK: ToNeighborKey>(&mut self, network: &PeerNetwork, nk: &NK);
+    fn add_broken<NK: ToNeighborKey>(
+        &mut self,
+        network: &PeerNetwork,
+        nk: &NK,
+        reason: DropReason,
+        source: DropSource,
+    );
     /// Pin a connection -- prevent it from getting pruned
     fn pin_connection(&mut self, event_id: usize);
     /// Unpin a connection -- allow it to get pruned
@@ -79,9 +91,9 @@ pub trait NeighborComms {
         network: &mut PeerNetwork,
     ) -> Vec<(NeighborAddress, StacksMessage)>;
     /// Take all dead neighbors
-    fn take_dead_neighbors(&mut self) -> HashSet<NeighborKey>;
+    fn take_dead_neighbors(&mut self) -> HashSet<DropNeighbor>;
     /// Take all broken neighbors
-    fn take_broken_neighbors(&mut self) -> HashSet<NeighborKey>;
+    fn take_broken_neighbors(&mut self) -> HashSet<DropNeighbor>;
     /// Cancel any ongoing requests.  Any messages that had been enqueued from
     /// `add_batch_request()` will not be delivered after this call completes.
     fn cancel_inflight(&mut self);
@@ -106,14 +118,17 @@ pub trait NeighborComms {
 
         let msg = network
             .sign_for_neighbor(&nk, StacksMessageType::Handshake(handshake_data))
-            .map_err(|e| {
+            .inspect_err(|e| {
                 info!(
-                    "{:?}: Failed to sign for peer {:?}",
+                    "{:?}: Failed to sign for peer {nk:?}",
                     network.get_local_peer(),
-                    &nk
                 );
-                self.add_dead(network, &nk);
-                e
+                self.add_dead(
+                    network,
+                    &nk,
+                    DropReason::DeadConnection(format!("Failed to sign message: {e}")),
+                    DropSource::NeighborCommsHandshake,
+                );
             })?;
 
         network
@@ -125,7 +140,12 @@ pub trait NeighborComms {
                     &nk,
                     &e
                 );
-                self.add_dead(network, &nk);
+                self.add_dead(
+                    network,
+                    &nk,
+                    DropReason::DeadConnection(format!("Not connected: {e}")),
+                    DropSource::NeighborCommsHandshake,
+                );
                 net_error::PeerNotConnected
             })
     }
@@ -143,9 +163,7 @@ pub trait NeighborComms {
         if network.is_registered(&nk) {
             // already connected
             self.remove_connecting(network, &nk);
-            return self
-                .neighbor_handshake(network, &nk)
-                .and_then(|handle| Ok(Some(handle)));
+            return self.neighbor_handshake(network, &nk).map(Some);
         }
 
         if let Some(event_id) = self.get_connecting(network, &nk) {
@@ -199,9 +217,7 @@ pub trait NeighborComms {
                     &alt_nk
                 );
                 self.remove_connecting(network, &alt_nk);
-                return self
-                    .neighbor_handshake(network, &alt_nk)
-                    .and_then(|handle| Ok(Some(handle)));
+                return self.neighbor_handshake(network, &alt_nk).map(Some);
             }
             Err(e) => {
                 info!(
@@ -232,7 +248,7 @@ pub trait NeighborComms {
         neighbor_pubkh: &Hash160,
     ) -> Result<Option<ReplyHandleP2P>, net_error> {
         let nk = neighbor_addr.to_neighbor_key(network);
-        match network.can_register_peer_with_pubkey(&nk, true, &neighbor_pubkh) {
+        match network.can_register_peer_with_pubkey(&nk, true, neighbor_pubkh) {
             Ok(_) => self.neighbor_connect_and_handshake(network, &nk),
             Err(net_error::AlreadyConnected(event_id, handshake_nk)) => {
                 // already connected, but on a possibly-different address.
@@ -242,12 +258,10 @@ pub trait NeighborComms {
                 if let Some(convo) = network.get_p2p_convo(event_id) {
                     if !convo.is_outbound() {
                         test_debug!("{:?}: Already connected to {:?} on inbound event {} (address {:?}). Try to establish outbound connection to {:?} {:?}.",
-                               network.get_local_peer(), &nk, &event_id, &handshake_nk, &neighbor_pubkh, &nk);
+                               network.get_local_peer(), &nk, &event_id, &handshake_nk, neighbor_pubkh, &nk);
 
                         self.remove_connecting(network, &nk);
-                        return self
-                            .neighbor_handshake(network, &nk)
-                            .and_then(|handle| Ok(Some(handle)));
+                        return self.neighbor_handshake(network, &nk).map(Some);
                     }
                     test_debug!(
                         "{:?}: Already connected to {:?} on event {} (address: {:?})",
@@ -389,7 +403,12 @@ pub trait NeighborComms {
                     Ok(None)
                 }
                 Err(Err(e)) => {
-                    self.add_dead(network, req_nk);
+                    self.add_dead(
+                        network,
+                        req_nk,
+                        DropReason::DeadConnection(format!("Failed to receive message: {e}")),
+                        DropSource::NeighborCommsPoll,
+                    );
                     Err(e)
                 }
             },
@@ -433,9 +452,9 @@ pub struct PeerNetworkComms {
     /// Map of neighbors we're currently trying to connect to (binds their addresses to their event IDs)
     connecting: HashMap<NeighborKey, usize>,
     /// Set of neighbors that died during our comms session
-    dead_connections: HashSet<NeighborKey>,
+    dead_connections: HashSet<DropNeighbor>,
     /// Set of neighbors who misbehaved during our comms session
-    broken_connections: HashSet<NeighborKey>,
+    broken_connections: HashSet<DropNeighbor>,
     /// Ongoing batch of p2p requests.  Will be `None` if there are no inflight requests.
     ongoing_batch_request: Option<NeighborCommsRequest>,
 }
@@ -515,9 +534,7 @@ impl NeighborComms for PeerNetworkComms {
     }
 
     fn get_connecting<NK: ToNeighborKey>(&self, network: &PeerNetwork, nk: &NK) -> Option<usize> {
-        self.connecting
-            .get(&nk.to_neighbor_key(network))
-            .map(|event_ref| *event_ref)
+        self.connecting.get(&nk.to_neighbor_key(network)).copied()
     }
 
     /// Remove a connecting neighbor because it connected
@@ -533,12 +550,32 @@ impl NeighborComms for PeerNetworkComms {
         }
     }
 
-    fn add_dead<NK: ToNeighborKey>(&mut self, network: &PeerNetwork, nk: &NK) {
-        self.dead_connections.insert(nk.to_neighbor_key(network));
+    fn add_dead<NK: ToNeighborKey>(
+        &mut self,
+        network: &PeerNetwork,
+        nk: &NK,
+        reason: DropReason,
+        source: DropSource,
+    ) {
+        self.dead_connections.insert(DropNeighbor {
+            key: nk.to_neighbor_key(network),
+            reason,
+            source,
+        });
     }
 
-    fn add_broken<NK: ToNeighborKey>(&mut self, network: &PeerNetwork, nk: &NK) {
-        self.broken_connections.insert(nk.to_neighbor_key(network));
+    fn add_broken<NK: ToNeighborKey>(
+        &mut self,
+        network: &PeerNetwork,
+        nk: &NK,
+        reason: DropReason,
+        source: DropSource,
+    ) {
+        self.broken_connections.insert(DropNeighbor {
+            key: nk.to_neighbor_key(network),
+            reason,
+            source,
+        });
     }
 
     fn pin_connection(&mut self, event_id: usize) {
@@ -612,14 +649,12 @@ impl NeighborComms for PeerNetworkComms {
         self.ongoing_batch_request = None;
     }
 
-    fn take_dead_neighbors(&mut self) -> HashSet<NeighborKey> {
-        let dead = mem::replace(&mut self.dead_connections, HashSet::new());
-        dead
+    fn take_dead_neighbors(&mut self) -> HashSet<DropNeighbor> {
+        mem::replace(&mut self.dead_connections, HashSet::new())
     }
 
-    fn take_broken_neighbors(&mut self) -> HashSet<NeighborKey> {
-        let broken = mem::replace(&mut self.broken_connections, HashSet::new());
-        broken
+    fn take_broken_neighbors(&mut self) -> HashSet<DropNeighbor> {
+        mem::replace(&mut self.broken_connections, HashSet::new())
     }
 }
 

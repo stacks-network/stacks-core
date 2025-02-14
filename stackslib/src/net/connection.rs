@@ -48,6 +48,9 @@ use crate::net::{
     StacksHttp, StacksP2P,
 };
 
+/// The default maximum age in seconds of a block that can be validated by the block proposal endpoint
+pub const DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS: u64 = 600;
+
 /// Receiver notification handle.
 /// When a message with the expected `seq` value arrives, send it to an expected receiver (possibly
 /// in another thread) via the given `receiver_input` channel.
@@ -376,6 +379,7 @@ pub struct ConnectionOptions {
     /// Units are milliseconds.  A value of 0 means "never".
     pub log_neighbors_freq: u64,
     pub inv_sync_interval: u64,
+    // how many reward cycles of blocks to sync in a non-full inventory sync
     pub inv_reward_cycles: u64,
     pub download_interval: u64,
     pub pingback_timeout: u64,
@@ -434,6 +438,8 @@ pub struct ConnectionOptions {
     pub nakamoto_unconfirmed_downloader_interval_ms: u128,
     /// The authorization token to enable privileged RPC endpoints
     pub auth_token: Option<String>,
+    /// The maximum age in seconds of a block that can be validated by the block proposal endpoint
+    pub block_proposal_max_age_secs: u64,
     /// StackerDB replicas to talk to for a particular smart contract
     pub stackerdb_hint_replicas: HashMap<QualifiedContractIdentifier, Vec<NeighborAddress>>,
 
@@ -568,6 +574,7 @@ impl std::default::Default for ConnectionOptions {
             nakamoto_inv_sync_burst_interval_ms: 1_000, // wait 1 second after a sortition before running inventory sync
             nakamoto_unconfirmed_downloader_interval_ms: 5_000, // run unconfirmed downloader once every 5 seconds
             auth_token: None,
+            block_proposal_max_age_secs: DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS,
             stackerdb_hint_replicas: HashMap::new(),
 
             // no faults on by default
@@ -920,19 +927,16 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                 let bytes_consumed = if let Some(ref mut preamble) = preamble_opt {
                     let (message_opt, bytes_consumed) =
                         self.consume_payload(protocol, preamble, &buf[offset..])?;
-                    match message_opt {
-                        Some(message) => {
-                            // queue up
-                            test_debug!(
-                                "Consumed message '{}' (request {}) in {} bytes",
-                                message.get_message_name(),
-                                message.request_id(),
-                                bytes_consumed
-                            );
-                            self.inbox.push_back(message);
-                            consumed_message = true;
-                        }
-                        None => {}
+                    if let Some(message) = message_opt {
+                        // queue up
+                        test_debug!(
+                            "Consumed message '{}' (request {}) in {} bytes",
+                            message.get_message_name(),
+                            message.request_id(),
+                            bytes_consumed
+                        );
+                        self.inbox.push_back(message);
+                        consumed_message = true;
                     };
 
                     bytes_consumed
@@ -976,14 +980,11 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                     if let Some(ref mut preamble) = preamble_opt {
                         let (message_opt, _bytes_consumed) =
                             self.consume_payload(protocol, preamble, &[])?;
-                        match message_opt {
-                            Some(message) => {
-                                // queue up
-                                test_debug!("Consumed buffered message '{}' (request {}) from {} input buffer bytes", message.get_message_name(), message.request_id(), _bytes_consumed);
-                                self.inbox.push_back(message);
-                                consumed_message = true;
-                            }
-                            None => {}
+                        if let Some(message) = message_opt {
+                            // queue up
+                            test_debug!("Consumed buffered message '{}' (request {}) from {} input buffer bytes", message.get_message_name(), message.request_id(), _bytes_consumed);
+                            self.inbox.push_back(message);
+                            consumed_message = true;
                         }
                     }
                     self.preamble = preamble_opt;
@@ -1278,10 +1279,8 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
             message_eof,
         );
 
-        if total_sent == 0 {
-            if disconnected && !blocked {
-                return Err(net_error::PeerNotConnected);
-            }
+        if total_sent == 0 && disconnected && !blocked {
+            return Err(net_error::PeerNotConnected);
         }
         update_outbound_bandwidth(total_sent as i64);
         Ok(total_sent)
@@ -1811,7 +1810,7 @@ mod test {
 
         test_debug!("Received {} bytes in total", total_bytes);
 
-        let mut flushed_handles = rx.recv().unwrap();
+        let flushed_handles = rx.recv().unwrap();
 
         match shared_state.lock() {
             Ok(ref mut conn) => {
@@ -1838,15 +1837,15 @@ mod test {
                 assert_eq!(recved.len(), 0);
             }
             Err(e) => {
-                assert!(false, "{:?}", &e);
+                assert!(false, "{e:?}");
                 unreachable!();
             }
         }
 
         // got all messages
         let mut recved = vec![];
-        for (i, rh) in flushed_handles.drain(..).enumerate() {
-            test_debug!("recv {}", i);
+        for (i, rh) in flushed_handles.into_iter().enumerate() {
+            test_debug!("recv {i}");
             let res = rh.recv(0).unwrap();
             recved.push(res);
         }
@@ -1869,7 +1868,7 @@ mod test {
             &BurnchainHeaderHash([0x22; 32]),
             StacksMessageType::Ping(PingData { nonce }),
         );
-        let privkey = Secp256k1PrivateKey::new();
+        let privkey = Secp256k1PrivateKey::random();
         ping.sign(request_id, &privkey).unwrap();
         ping
     }
@@ -1915,7 +1914,7 @@ mod test {
             StacksMessageType::Ping(PingData { nonce: 0x01020304 }),
         );
 
-        let privkey = Secp256k1PrivateKey::new();
+        let privkey = Secp256k1PrivateKey::random();
         ping.sign(1, &privkey).unwrap();
 
         let mut pipes = vec![]; // keep pipes in-scope
@@ -2016,7 +2015,7 @@ mod test {
         // the combined ping buffers should be the serialized ping
         let mut combined_ping_buf = vec![];
         combined_ping_buf.append(&mut half_ping);
-        combined_ping_buf.extend_from_slice(&write_buf_05.get_mut());
+        combined_ping_buf.extend_from_slice(write_buf_05.get_mut());
 
         assert_eq!(combined_ping_buf, serialized_ping);
 
@@ -2037,7 +2036,7 @@ mod test {
 
     #[test]
     fn connection_relay_send_recv() {
-        let privkey = Secp256k1PrivateKey::new();
+        let privkey = Secp256k1PrivateKey::random();
         let pubkey = Secp256k1PublicKey::from_private(&privkey);
 
         let neighbor = Neighbor {
@@ -2135,7 +2134,7 @@ mod test {
     #[test]
     fn connection_send_recv() {
         with_timeout(100, || {
-            let privkey = Secp256k1PrivateKey::new();
+            let privkey = Secp256k1PrivateKey::random();
             let pubkey = Secp256k1PublicKey::from_private(&privkey);
 
             let neighbor = Neighbor {
@@ -2250,7 +2249,7 @@ mod test {
 
     #[test]
     fn connection_send_recv_timeout() {
-        let privkey = Secp256k1PrivateKey::new();
+        let privkey = Secp256k1PrivateKey::random();
         let pubkey = Secp256k1PublicKey::from_private(&privkey);
 
         let neighbor = Neighbor {

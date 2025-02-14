@@ -331,7 +331,7 @@ pub fn make_reward_cycle_with_vote(
             let mut commits = vec![];
             for i in 0..parent_commits.len() {
                 let mut block_commit = make_simple_block_commit(
-                    &burnchain,
+                    burnchain,
                     parent_commits[i].as_ref(),
                     &block_header,
                     next_block_hash(),
@@ -351,29 +351,27 @@ pub fn make_reward_cycle_with_vote(
                 let append = if !burnchain.is_in_prepare_phase(block_commit.block_height) {
                     // non-prepare-phase commits always confirm their parent
                     true
+                } else if confirm_anchor_block {
+                    // all block-commits confirm anchor block
+                    true
                 } else {
-                    if confirm_anchor_block {
-                        // all block-commits confirm anchor block
+                    // fewer than anchor_threshold commits confirm anchor block
+                    let next_rc_start = burnchain.reward_cycle_to_block_height(
+                        burnchain
+                            .block_height_to_reward_cycle(block_commit.block_height)
+                            .unwrap()
+                            + 1,
+                    );
+                    if block_commit.block_height
+                        + (burnchain.pox_constants.anchor_threshold as u64)
+                        + 1
+                        < next_rc_start
+                    {
+                        // in first half of prepare phase, so confirm
                         true
                     } else {
-                        // fewer than anchor_threshold commits confirm anchor block
-                        let next_rc_start = burnchain.reward_cycle_to_block_height(
-                            burnchain
-                                .block_height_to_reward_cycle(block_commit.block_height)
-                                .unwrap()
-                                + 1,
-                        );
-                        if block_commit.block_height
-                            + (burnchain.pox_constants.anchor_threshold as u64)
-                            + 1
-                            < next_rc_start
-                        {
-                            // in first half of prepare phase, so confirm
-                            true
-                        } else {
-                            // in second half of prepare phase, so don't confirm
-                            false
-                        }
+                        // in second half of prepare phase, so don't confirm
+                        false
                     }
                 };
 
@@ -388,7 +386,7 @@ pub fn make_reward_cycle_with_vote(
                         block_commit.parent_vtxindex
                     );
 
-                    if let Some(ref parent_commit) = parent_commits[i].as_ref() {
+                    if let Some(parent_commit) = parent_commits[i].as_ref() {
                         assert!(parent_commit.block_height != block_commit.block_height);
                         assert!(
                             parent_commit.block_height == u64::from(block_commit.parent_block_ptr)
@@ -413,8 +411,8 @@ pub fn make_reward_cycle_with_vote(
             new_commits.push(commits.clone());
             commits
                 .into_iter()
-                .filter_map(|cmt| cmt)
-                .map(|cmt| BlockstackOperationType::LeaderBlockCommit(cmt))
+                .flatten()
+                .map(BlockstackOperationType::LeaderBlockCommit)
                 .collect()
         };
 
@@ -623,7 +621,7 @@ fn test_parent_block_commits() {
     // orphan
     assert_eq!(parent_commits.len(), all_ops_with_orphan.len() - 1);
 
-    let mut all_ops_with_same_parent = all_ops.clone();
+    let mut all_ops_with_same_parent = all_ops;
     for ops in all_ops_with_same_parent.iter_mut() {
         for opdata in ops.iter_mut() {
             opdata.parent_block_ptr = 3;
@@ -950,7 +948,7 @@ fn test_find_heaviest_block_commit() {
     //             X------- 4,0
     //
     //             X------------ 5,0
-    let mut all_ops_no_majority = filtered_ops.clone();
+    let mut all_ops_no_majority = filtered_ops;
     all_ops_no_majority[0][0].parent_block_ptr = 2;
     all_ops_no_majority[0][0].parent_vtxindex = 10;
     all_ops_no_majority[0][0].burn_fee = 0;
@@ -1155,7 +1153,7 @@ fn test_find_heaviest_parent_commit_many_commits() {
     // 1,0 <-- 2,0 <--- 3,0 <--- 4,0 <--- 5,0
     //  \
     //   `---- 2,1 <--- 3,1 <--- 4,1 <--- 5,1 (winner)
-    let mut all_ops_no_majority = filtered_ops.clone();
+    let mut all_ops_no_majority = filtered_ops;
 
     // 3,0
     all_ops_no_majority[0][0].parent_block_ptr = 2;
@@ -1612,7 +1610,7 @@ fn test_update_pox_affirmation_maps_unique_anchor_block() {
         let cmt_ops: Vec<BlockstackOperationType> = cmts
             .iter()
             .filter_map(|op| op.clone())
-            .map(|op| BlockstackOperationType::LeaderBlockCommit(op))
+            .map(BlockstackOperationType::LeaderBlockCommit)
             .collect();
 
         burnchain_db

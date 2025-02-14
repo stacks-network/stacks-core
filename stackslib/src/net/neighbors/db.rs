@@ -25,10 +25,10 @@ use stacks_common::util::{get_epoch_time_secs, log};
 use crate::burnchains::{Address, Burnchain, BurnchainView};
 use crate::net::db::PeerDB;
 use crate::net::neighbors::{NeighborWalkResult, NEIGHBOR_MINIMUM_CONTACT_INTERVAL, NUM_NEIGHBORS};
-use crate::net::p2p::PeerNetwork;
+use crate::net::p2p::{DropReason, DropSource, PeerNetwork};
 use crate::net::{
-    Error as net_error, HandshakeAcceptData, HandshakeData, Neighbor, NeighborAddress, NeighborKey,
-    Preamble, StackerDBHandshakeData, StacksMessage,
+    DropNeighbor, Error as net_error, HandshakeAcceptData, HandshakeData, Neighbor,
+    NeighborAddress, NeighborKey, Preamble, StackerDBHandshakeData, StacksMessage,
 };
 use crate::util_lib::db::{DBConn, DBTx};
 
@@ -55,7 +55,7 @@ impl NeighborReplacements {
     }
 
     pub fn get_slot(&self, naddr: &NeighborAddress) -> Option<u32> {
-        self.replaced_neighbors.get(naddr).map(|slot| *slot)
+        self.replaced_neighbors.get(naddr).copied()
     }
 
     pub fn get_neighbor(&self, naddr: &NeighborAddress) -> Option<&Neighbor> {
@@ -110,7 +110,7 @@ pub trait NeighborWalkDB {
     fn lookup_stale_neighbors(
         &self,
         network: &PeerNetwork,
-        addrs: &Vec<NeighborAddress>,
+        addrs: &[NeighborAddress],
     ) -> Result<(HashMap<NeighborAddress, Neighbor>, Vec<NeighborAddress>), net_error>;
 
     /// Add a neighbor to the DB, or if there's no slot available for it, schedule it to be
@@ -186,7 +186,7 @@ pub trait NeighborWalkDB {
         let block_height = network.get_chain_view().burn_block_height;
         let cur_epoch = network.get_current_epoch();
         let neighbors = PeerDB::get_random_walk_neighbors(
-            &network.peerdb_conn(),
+            network.peerdb_conn(),
             network.get_local_peer().network_id,
             cur_epoch.network_epoch,
             min_age,
@@ -202,7 +202,7 @@ pub trait NeighborWalkDB {
                 min_age
             );
             let seed_nodes = PeerDB::get_bootstrap_peers(
-                &network.peerdb_conn(),
+                network.peerdb_conn(),
                 network.get_local_peer().network_id,
             )?;
             if seed_nodes.is_empty() {
@@ -223,26 +223,22 @@ pub trait NeighborWalkDB {
         // favor neighbors with older last-contact times
         let next_neighbors_res = self
             .get_fresh_random_neighbors(network, (NUM_NEIGHBORS as u64) * 2)
-            .map_err(|e| {
+            .inspect_err(|e| {
                 debug!(
-                    "{:?}: Failed to load fresh initial walk neighbors: {:?}",
+                    "{:?}: Failed to load fresh initial walk neighbors: {e:?}",
                     network.get_local_peer(),
-                    &e
                 );
-                e
             });
 
         let db_neighbors = if let Ok(neighbors) = next_neighbors_res {
             neighbors
         } else {
             let any_neighbors = Self::pick_walk_neighbors(network, (NUM_NEIGHBORS as u64) * 2, 0)
-                .map_err(|e| {
+                .inspect_err(|e| {
                 info!(
-                    "{:?}: Failed to load any initial walk neighbors: {:?}",
+                    "{:?}: Failed to load any initial walk neighbors: {e:?}",
                     network.get_local_peer(),
-                    &e
                 );
-                e
             })?;
 
             any_neighbors
@@ -320,7 +316,7 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
     fn lookup_stale_neighbors(
         &self,
         network: &PeerNetwork,
-        addrs: &Vec<NeighborAddress>,
+        addrs: &[NeighborAddress],
     ) -> Result<(HashMap<NeighborAddress, Neighbor>, Vec<NeighborAddress>), net_error> {
         let network_id = network.bound_neighbor_key().network_id;
         let block_height = network.get_chain_view().burn_block_height;
@@ -436,10 +432,7 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
     ) -> Result<Vec<Neighbor>, net_error> {
         let allowed_peers = if ibd {
             // only get bootstrap peers (will be randomized)
-            PeerDB::get_bootstrap_peers(
-                &network.peerdb_conn(),
-                network.get_local_peer().network_id,
-            )?
+            PeerDB::get_bootstrap_peers(network.peerdb_conn(), network.get_local_peer().network_id)?
         } else {
             // can be any peer marked 'always-allowed' (will be randomized)
             PeerDB::get_always_allowed_peers(
@@ -456,12 +449,7 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
         nk: &NeighborKey,
     ) -> Result<(), net_error> {
         // don't proceed if denied
-        if PeerDB::is_peer_denied(
-            &network.peerdb_conn(),
-            nk.network_id,
-            &nk.addrbytes,
-            nk.port,
-        )? {
+        if PeerDB::is_peer_denied(network.peerdb_conn(), nk.network_id, &nk.addrbytes, nk.port)? {
             debug!(
                 "{:?}: neighbor {:?} is denied",
                 network.get_local_peer(),
@@ -504,8 +492,12 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
                     local_peer_str, &replaced.addr, &replacement.addr
                 );
 
-                PeerDB::insert_or_replace_peer(&tx, &replacement, *slot)?;
-                result.add_replaced(replaced.addr.clone());
+                PeerDB::insert_or_replace_peer(&tx, replacement, *slot)?;
+                result.add_replaced(DropNeighbor {
+                    key: replaced.addr.clone(),
+                    reason: DropReason::ReplacedConnection,
+                    source: DropSource::NeighborWalkPeerDB,
+                });
             }
         }
         tx.commit()?;
@@ -519,7 +511,7 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
         data: &HandshakeAcceptData,
     ) -> Result<Neighbor, net_error> {
         Neighbor::load_and_update(
-            &network.peerdb_conn(),
+            network.peerdb_conn(),
             preamble.peer_version,
             preamble.network_id,
             &data.handshake,

@@ -116,8 +116,8 @@ impl SortitionHandleTx<'_> {
         burnchain: &Burnchain,
         parent_snapshot: &BlockSnapshot,
         block_header: &BurnchainBlockHeader,
-        this_block_ops: &Vec<BlockstackOperationType>,
-        missed_commits: &Vec<MissedBlockCommit>,
+        this_block_ops: &[BlockstackOperationType],
+        missed_commits: &[MissedBlockCommit],
         next_pox_info: Option<RewardCycleInfo>,
         parent_pox: PoxId,
         reward_info: Option<&RewardSetInfo>,
@@ -135,7 +135,7 @@ impl SortitionHandleTx<'_> {
 
         let next_pox = SortitionDB::make_next_pox_id(parent_pox.clone(), next_pox_info.as_ref());
         let next_sortition_id = SortitionDB::make_next_sortition_id(
-            parent_pox.clone(),
+            parent_pox,
             &this_block_hash,
             next_pox_info.as_ref(),
         );
@@ -260,7 +260,7 @@ impl SortitionHandleTx<'_> {
             &block_header.block_hash
         );
 
-        blockstack_txs.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
+        blockstack_txs.sort_by(|a, b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
 
         // check each transaction, and filter out only the ones that are valid
         debug!(
@@ -338,8 +338,8 @@ impl SortitionHandleTx<'_> {
         let new_snapshot = self.process_block_ops(
             mainnet,
             burnchain,
-            &parent_snapshot,
-            &this_block_header,
+            parent_snapshot,
+            this_block_header,
             blockstack_txs,
             next_pox_info,
             parent_pox,
@@ -428,7 +428,7 @@ mod tests {
         let snapshot = test_append_snapshot(
             &mut db,
             BurnchainHeaderHash([0x01; 32]),
-            &vec![BlockstackOperationType::LeaderKeyRegister(leader_key)],
+            &[BlockstackOperationType::LeaderKeyRegister(leader_key)],
         );
 
         let next_block_header = BurnchainBlockHeader {

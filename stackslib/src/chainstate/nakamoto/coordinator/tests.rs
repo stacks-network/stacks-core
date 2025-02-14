@@ -110,9 +110,8 @@ fn advance_to_nakamoto(
     )
     .unwrap();
     let default_pox_addr =
-        PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes.clone());
+        PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes().clone());
 
-    let mut tip = None;
     for sortition_height in 0..11 {
         // stack to pox-3 in cycle 7
         let txs = if sortition_height == 6 {
@@ -156,7 +155,7 @@ fn advance_to_nakamoto(
             vec![]
         };
 
-        tip = Some(peer.tenure_with_txs(&txs, &mut peer_nonce));
+        peer.tenure_with_txs(&txs, &mut peer_nonce);
     }
     // peer is at the start of cycle 8
 }
@@ -237,7 +236,7 @@ pub fn make_replay_peer<'a>(peer: &mut TestPeer<'a>) -> TestPeer<'a> {
     replay_config.http_port = 0;
     replay_config.test_stackers = peer.config.test_stackers.clone();
 
-    let test_stackers = replay_config.test_stackers.clone().unwrap_or(vec![]);
+    let test_stackers = replay_config.test_stackers.clone().unwrap_or_default();
     let mut test_signers = replay_config.test_signers.clone().unwrap();
     let mut replay_peer = TestPeer::new(replay_config);
     let observer = TestEventObserver::new();
@@ -296,7 +295,7 @@ pub fn make_token_transfer(
     stx_transfer.auth.set_origin_nonce(nonce);
 
     let mut tx_signer = StacksTransactionSigner::new(&stx_transfer);
-    tx_signer.sign_origin(&private_key).unwrap();
+    tx_signer.sign_origin(private_key).unwrap();
     let stx_transfer_signed = tx_signer.get_tx().unwrap();
 
     stx_transfer_signed
@@ -329,7 +328,7 @@ pub fn make_contract(
     stx_tx.auth.set_origin_nonce(nonce);
 
     let mut tx_signer = StacksTransactionSigner::new(&stx_tx);
-    tx_signer.sign_origin(&private_key).unwrap();
+    tx_signer.sign_origin(private_key).unwrap();
     tx_signer.get_tx().unwrap()
 }
 
@@ -346,9 +345,6 @@ fn replay_reward_cycle(
     let reward_cycle_indices: Vec<usize> = (0..stacks_blocks.len())
         .step_by(reward_cycle_length)
         .collect();
-
-    let mut indexes: Vec<_> = (0..stacks_blocks.len()).collect();
-    indexes.shuffle(&mut thread_rng());
 
     for burn_ops in burn_ops.iter() {
         let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
@@ -415,9 +411,7 @@ fn test_simple_nakamoto_coordinator_bootup() {
 
     tenure_change.tenure_consensus_hash = consensus_hash.clone();
     tenure_change.burn_view_consensus_hash = consensus_hash.clone();
-    let tenure_change_tx = peer
-        .miner
-        .make_nakamoto_tenure_change(tenure_change.clone());
+    let tenure_change_tx = peer.miner.make_nakamoto_tenure_change(tenure_change);
     let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
 
     let blocks_and_sizes = peer.make_nakamoto_tenure(
@@ -480,9 +474,7 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
     tenure_change.tenure_consensus_hash = consensus_hash.clone();
     tenure_change.burn_view_consensus_hash = consensus_hash.clone();
 
-    let tenure_change_tx = peer
-        .miner
-        .make_nakamoto_tenure_change(tenure_change.clone());
+    let tenure_change_tx = peer.miner.make_nakamoto_tenure_change(tenure_change);
     let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
 
     // do a stx transfer in each block to a given recipient
@@ -611,7 +603,7 @@ impl TestPeer<'_> {
         F: FnMut(&mut NakamotoBlockBuilder),
         G: FnMut(&mut NakamotoBlock) -> bool,
     {
-        let sender_addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&sender_key));
+        let sender_addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(sender_key));
         let mut test_signers = self.config.test_signers.clone().unwrap();
         let recipient_addr =
             StacksAddress::from_string("ST2YM3J4KQK09V670TD6ZZ1XYNYCNGCWCVTASN5VM").unwrap();
@@ -629,7 +621,7 @@ impl TestPeer<'_> {
                     let stx_transfer = make_token_transfer(
                         chainstate,
                         sortdb,
-                        &sender_key,
+                        sender_key,
                         sender_acct.nonce,
                         200,
                         1,
@@ -659,7 +651,7 @@ impl TestPeer<'_> {
     {
         let (burn_ops, mut tenure_change, miner_key) =
             self.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
-        let (burn_height, _, consensus_hash) = self.next_burnchain_block(burn_ops.clone());
+        let (burn_height, _, consensus_hash) = self.next_burnchain_block(burn_ops);
         let pox_constants = self.sortdb().pox_constants.clone();
         let first_burn_height = self.sortdb().first_block_height;
         let mut test_signers = self.config.test_signers.clone().unwrap();
@@ -693,7 +685,7 @@ impl TestPeer<'_> {
 
         let tenure_change_tx = self
             .miner
-            .make_nakamoto_tenure_change_with_nonce(tenure_change.clone(), miner_acct.nonce);
+            .make_nakamoto_tenure_change_with_nonce(tenure_change, miner_acct.nonce);
 
         let coinbase_tx =
             self.miner
@@ -783,7 +775,7 @@ impl TestPeer<'_> {
 
         let tenure_change_tx = self
             .miner
-            .make_nakamoto_tenure_change_with_nonce(tenure_change.clone(), miner_acct.nonce);
+            .make_nakamoto_tenure_change_with_nonce(tenure_change, miner_acct.nonce);
 
         let coinbase_tx =
             self.miner
@@ -825,7 +817,8 @@ fn block_descendant() {
                 StacksAddress::new(
                     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
                     Hash160::from_data(&index.to_be_bytes()),
-                ),
+                )
+                .unwrap(),
                 Some(AddressHashMode::SerializeP2PKH),
             )),
         })
@@ -839,13 +832,12 @@ fn block_descendant() {
     pox_constants.pox_4_activation_height = 28;
 
     let mut boot_plan = NakamotoBootPlan::new(function_name!())
-        .with_test_stackers(test_stackers.clone())
-        .with_test_signers(test_signers.clone())
+        .with_test_stackers(test_stackers)
+        .with_test_signers(test_signers)
         .with_private_key(private_key);
     boot_plan.pox_constants = pox_constants;
 
     let mut peer = boot_plan.boot_into_nakamoto_peer(vec![], None);
-    let mut blocks = vec![];
     let pox_constants = peer.sortdb().pox_constants.clone();
     let first_burn_height = peer.sortdb().first_block_height;
 
@@ -854,7 +846,6 @@ fn block_descendant() {
     loop {
         let (block, burn_height, ..) =
             peer.single_block_tenure(&private_key, |_| {}, |_| {}, |_| true);
-        blocks.push(block);
 
         if pox_constants.is_in_prepare_phase(first_burn_height, burn_height + 1) {
             info!("At prepare phase start"; "burn_height" => burn_height);
@@ -914,7 +905,8 @@ fn block_info_tests(use_primary_testnet: bool) {
                 StacksAddress::new(
                     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
                     Hash160::from_data(&index.to_be_bytes()),
-                ),
+                )
+                .unwrap(),
                 Some(AddressHashMode::SerializeP2PKH),
             )),
             max_amount: None,
@@ -935,8 +927,8 @@ fn block_info_tests(use_primary_testnet: bool) {
     };
     let mut boot_plan =
         NakamotoBootPlan::new(&format!("{}.{use_primary_testnet}", function_name!()))
-            .with_test_stackers(test_stackers.clone())
-            .with_test_signers(test_signers.clone())
+            .with_test_stackers(test_stackers)
+            .with_test_signers(test_signers)
             .with_private_key(private_key)
             .with_network_id(chain_id);
     boot_plan.pox_constants = pox_constants;
@@ -987,7 +979,7 @@ fn block_info_tests(use_primary_testnet: bool) {
             let output = chainstate
                 .clarity_eval_read_only(
                     &sortdb_handle,
-                    &tip_block_id,
+                    tip_block_id,
                     contract_id,
                     &format!("(get-info u{query_ht})"),
                 )
@@ -1342,7 +1334,8 @@ fn pox_treatment() {
                 StacksAddress::new(
                     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
                     Hash160::from_data(&index.to_be_bytes()),
-                ),
+                )
+                .unwrap(),
                 Some(AddressHashMode::SerializeP2PKH),
             )),
             max_amount: None,
@@ -1358,7 +1351,7 @@ fn pox_treatment() {
 
     let mut boot_plan = NakamotoBootPlan::new(function_name!())
         .with_test_stackers(test_stackers.clone())
-        .with_test_signers(test_signers.clone())
+        .with_test_signers(test_signers)
         .with_private_key(private_key);
     boot_plan.pox_constants = pox_constants;
 
@@ -1721,15 +1714,13 @@ fn test_nakamoto_chainstate_getters() {
 
     let (burn_ops, mut tenure_change, miner_key) =
         peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
-    let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+    let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops);
     let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
     tenure_change.tenure_consensus_hash = consensus_hash.clone();
     tenure_change.burn_view_consensus_hash = consensus_hash.clone();
-    let tenure_change_tx = peer
-        .miner
-        .make_nakamoto_tenure_change(tenure_change.clone());
-    let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof.clone());
+    let tenure_change_tx = peer.miner.make_nakamoto_tenure_change(tenure_change);
+    let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
 
     // do a stx transfer in each block to a given recipient
     let recipient_addr =
@@ -1968,23 +1959,19 @@ fn test_nakamoto_chainstate_getters() {
     }
     let txid = txid.unwrap();
 
-    let (_, _, next_consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+    let (_, _, next_consensus_hash) = peer.next_burnchain_block(burn_ops);
     let next_vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
     next_tenure_change.tenure_consensus_hash = next_consensus_hash.clone();
     next_tenure_change.burn_view_consensus_hash = next_consensus_hash.clone();
 
-    let next_tenure_change_tx = peer
-        .miner
-        .make_nakamoto_tenure_change(next_tenure_change.clone());
-    let next_coinbase_tx = peer
-        .miner
-        .make_nakamoto_coinbase(None, next_vrf_proof.clone());
+    let next_tenure_change_tx = peer.miner.make_nakamoto_tenure_change(next_tenure_change);
+    let next_coinbase_tx = peer.miner.make_nakamoto_coinbase(None, next_vrf_proof);
 
     // make the second tenure's blocks
     let blocks_and_sizes = peer.make_nakamoto_tenure(
-        next_tenure_change_tx.clone(),
-        next_coinbase_tx.clone(),
+        next_tenure_change_tx,
+        next_coinbase_tx,
         &mut test_signers,
         |miner, chainstate, sortdb, blocks_so_far| {
             if blocks_so_far.len() < 10 {
@@ -2647,9 +2634,7 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
         blocks.last().cloned().unwrap().header.block_id(),
         blocks.len() as u32,
     );
-    let tenure_change_tx = peer
-        .miner
-        .make_nakamoto_tenure_change(tenure_change_extend.clone());
+    let tenure_change_tx = peer.miner.make_nakamoto_tenure_change(tenure_change_extend);
 
     let blocks_and_sizes = peer.make_nakamoto_tenure_extension(
         tenure_change_tx,
@@ -2740,9 +2725,7 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
     tenure_change.tenure_consensus_hash = consensus_hash.clone();
     tenure_change.burn_view_consensus_hash = consensus_hash.clone();
 
-    let tenure_change_tx = peer
-        .miner
-        .make_nakamoto_tenure_change(tenure_change.clone());
+    let tenure_change_tx = peer.miner.make_nakamoto_tenure_change(tenure_change);
     let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
 
     rc_burn_ops.push(burn_ops);
@@ -2954,7 +2937,7 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
                             blocks_so_far.len() as u32,
                         );
                         let tenure_extension_tx =
-                            miner.make_nakamoto_tenure_change(tenure_extension.clone());
+                            miner.make_nakamoto_tenure_change(tenure_extension);
                         final_txs.push(tenure_extension_tx);
                     }
                     final_txs.append(&mut txs);
@@ -3183,7 +3166,8 @@ fn process_next_nakamoto_block_deadlock() {
                 StacksAddress::new(
                     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
                     Hash160::from_data(&index.to_be_bytes()),
-                ),
+                )
+                .unwrap(),
                 Some(AddressHashMode::SerializeP2PKH),
             )),
             max_amount: None,
@@ -3198,8 +3182,8 @@ fn process_next_nakamoto_block_deadlock() {
     pox_constants.pox_4_activation_height = 28;
 
     let mut boot_plan = NakamotoBootPlan::new(function_name!())
-        .with_test_stackers(test_stackers.clone())
-        .with_test_signers(test_signers.clone())
+        .with_test_stackers(test_stackers)
+        .with_test_signers(test_signers)
         .with_private_key(private_key);
     boot_plan.pox_constants = pox_constants;
 
@@ -3296,9 +3280,6 @@ fn test_stacks_on_burnchain_ops() {
     );
 
     let mut all_blocks: Vec<NakamotoBlock> = vec![];
-    let mut all_burn_ops = vec![];
-    let mut consensus_hashes = vec![];
-    let mut fee_counts = vec![];
     let stx_miner_key = peer.miner.nakamoto_miner_key();
 
     let mut extra_burn_ops = vec![];
@@ -3324,54 +3305,53 @@ fn test_stacks_on_burnchain_ops() {
         let (mut burn_ops, mut tenure_change, miner_key) =
             peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
 
-        let mut new_burn_ops = vec![];
-        new_burn_ops.push(BlockstackOperationType::DelegateStx(DelegateStxOp {
-            sender: addr.clone(),
-            delegate_to: recipient_addr.clone(),
-            reward_addr: None,
-            delegated_ustx: 1,
-            until_burn_height: None,
+        let mut new_burn_ops = vec![
+            BlockstackOperationType::DelegateStx(DelegateStxOp {
+                sender: addr.clone(),
+                delegate_to: recipient_addr.clone(),
+                reward_addr: None,
+                delegated_ustx: 1,
+                until_burn_height: None,
 
-            // mocked
-            txid: Txid([i; 32]),
-            vtxindex: 11,
-            block_height: block_height + 1,
-            burn_header_hash: BurnchainHeaderHash([0x00; 32]),
-        }));
-        new_burn_ops.push(BlockstackOperationType::StackStx(StackStxOp {
-            sender: addr.clone(),
-            reward_addr: PoxAddress::Standard(
-                recipient_addr.clone(),
-                Some(AddressHashMode::SerializeP2PKH),
-            ),
-            stacked_ustx: 1,
-            num_cycles: 1,
-            signer_key: Some(StacksPublicKeyBuffer::from_public_key(
-                &StacksPublicKey::from_private(&recipient_private_key),
-            )),
-            max_amount: Some(1),
-            auth_id: Some(i as u32),
+                // mocked
+                txid: Txid([i; 32]),
+                vtxindex: 11,
+                block_height: block_height + 1,
+                burn_header_hash: BurnchainHeaderHash([0x00; 32]),
+            }),
+            BlockstackOperationType::StackStx(StackStxOp {
+                sender: addr.clone(),
+                reward_addr: PoxAddress::Standard(
+                    recipient_addr.clone(),
+                    Some(AddressHashMode::SerializeP2PKH),
+                ),
+                stacked_ustx: 1,
+                num_cycles: 1,
+                signer_key: Some(StacksPublicKeyBuffer::from_public_key(
+                    &StacksPublicKey::from_private(&recipient_private_key),
+                )),
+                max_amount: Some(1),
+                auth_id: Some(i as u32),
 
-            // mocked
-            txid: Txid([i | 0x80; 32]),
-            vtxindex: 12,
-            block_height: block_height + 1,
-            burn_header_hash: BurnchainHeaderHash([0x00; 32]),
-        }));
-        new_burn_ops.push(BlockstackOperationType::TransferStx(TransferStxOp {
-            sender: addr.clone(),
-            recipient: recipient_addr.clone(),
-            transfered_ustx: 1,
-            memo: vec![0x2],
+                // mocked
+                txid: Txid([i | 0x80; 32]),
+                vtxindex: 12,
+                block_height: block_height + 1,
+                burn_header_hash: BurnchainHeaderHash([0x00; 32]),
+            }),
+            BlockstackOperationType::TransferStx(TransferStxOp {
+                sender: addr.clone(),
+                recipient: recipient_addr.clone(),
+                transfered_ustx: 1,
+                memo: vec![0x2],
 
-            // mocked
-            txid: Txid([i | 0x40; 32]),
-            vtxindex: 13,
-            block_height: block_height + 1,
-            burn_header_hash: BurnchainHeaderHash([0x00; 32]),
-        }));
-        new_burn_ops.push(BlockstackOperationType::VoteForAggregateKey(
-            VoteForAggregateKeyOp {
+                // mocked
+                txid: Txid([i | 0x40; 32]),
+                vtxindex: 13,
+                block_height: block_height + 1,
+                burn_header_hash: BurnchainHeaderHash([0x00; 32]),
+            }),
+            BlockstackOperationType::VoteForAggregateKey(VoteForAggregateKeyOp {
                 sender: addr.clone(),
                 aggregate_key: StacksPublicKeyBuffer::from_public_key(
                     &StacksPublicKey::from_private(&agg_private_key),
@@ -3388,8 +3368,8 @@ fn test_stacks_on_burnchain_ops() {
                 vtxindex: 14,
                 block_height: block_height + 1,
                 burn_header_hash: BurnchainHeaderHash([0x00; 32]),
-            },
-        ));
+            }),
+        ];
 
         extra_burn_ops.push(new_burn_ops.clone());
         burn_ops.append(&mut new_burn_ops);
@@ -3474,7 +3454,7 @@ fn test_stacks_on_burnchain_ops() {
                             blocks_so_far.len() as u32,
                         );
                         let tenure_extension_tx =
-                            miner.make_nakamoto_tenure_change(tenure_extension.clone());
+                            miner.make_nakamoto_tenure_change(tenure_extension);
                         final_txs.push(tenure_extension_tx);
                     }
                     final_txs.append(&mut txs);
@@ -3496,8 +3476,6 @@ fn test_stacks_on_burnchain_ops() {
             })
             .sum::<u128>();
 
-        consensus_hashes.push(consensus_hash);
-        fee_counts.push(fees);
         let mut blocks: Vec<NakamotoBlock> = blocks_and_sizes
             .into_iter()
             .map(|(block, _, _)| block)
@@ -3539,7 +3517,6 @@ fn test_stacks_on_burnchain_ops() {
         );
 
         all_blocks.append(&mut blocks);
-        all_burn_ops.push(burn_ops);
     }
 
     // check receipts for burn ops

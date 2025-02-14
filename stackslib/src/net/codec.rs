@@ -276,7 +276,7 @@ impl BlocksInvData {
         }
     }
 
-    pub fn compress_bools(bits: &Vec<bool>) -> Vec<u8> {
+    pub fn compress_bools(bits: &[bool]) -> Vec<u8> {
         let bvl: u16 = bits
             .len()
             .try_into()
@@ -774,7 +774,7 @@ fn contract_id_consensus_serialize<W: Write>(
 ) -> Result<(), codec_error> {
     let addr = &cid.issuer;
     let name = &cid.name;
-    write_next(fd, &addr.0)?;
+    write_next(fd, &addr.version())?;
     write_next(fd, &addr.1)?;
     write_next(fd, name)?;
     Ok(())
@@ -787,11 +787,13 @@ fn contract_id_consensus_deserialize<R: Read>(
     let bytes: [u8; 20] = read_next(fd)?;
     let name: ContractName = read_next(fd)?;
     let qn = QualifiedContractIdentifier::new(
-        StacksAddress {
-            version,
-            bytes: Hash160(bytes),
-        }
-        .into(),
+        StacksAddress::new(version, Hash160(bytes))
+            .map_err(|_| {
+                codec_error::DeserializeError(
+                    "Failed to make StacksAddress with given version".into(),
+                )
+            })?
+            .into(),
         name,
     );
     Ok(qn)
@@ -855,7 +857,7 @@ impl StacksMessageCodec for StackerDBChunkInvData {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StackerDBChunkInvData, codec_error> {
-        let slot_versions: Vec<u32> = read_next_at_most(fd, stackerdb::STACKERDB_INV_MAX.into())?;
+        let slot_versions: Vec<u32> = read_next_at_most(fd, stackerdb::STACKERDB_INV_MAX)?;
         let num_outbound_replicas: u32 = read_next(fd)?;
         Ok(StackerDBChunkInvData {
             slot_versions,
@@ -1493,8 +1495,7 @@ impl StacksMessage {
         self.payload.consensus_serialize(&mut message_bits)?;
 
         let mut p = self.preamble.clone();
-        p.verify(&message_bits, &secp256k1_pubkey)
-            .and_then(|_m| Ok(()))
+        p.verify(&message_bits, &secp256k1_pubkey).map(|_m| ())
     }
 }
 
@@ -1583,7 +1584,7 @@ impl ProtocolFamily for StacksP2P {
         preamble
             .clone()
             .verify(&bytes[0..(preamble.payload_len as usize)], key)
-            .and_then(|_m| Ok(()))
+            .map(|_m| ())
     }
 
     fn write_message<W: Write>(
@@ -1640,13 +1641,10 @@ pub mod test {
     fn check_deserialize<T: std::fmt::Debug>(r: Result<T, codec_error>) -> bool {
         match r {
             Ok(m) => {
-                test_debug!("deserialized {:?}", &m);
+                test_debug!("deserialized {m:?}");
                 false
             }
-            Err(e) => match e {
-                codec_error::DeserializeError(_) => true,
-                _ => false,
-            },
+            Err(e) => matches!(e, codec_error::DeserializeError(_)),
         }
     }
 
@@ -1660,7 +1658,7 @@ pub mod test {
 
     pub fn check_codec_and_corruption<T: StacksMessageCodec + fmt::Debug + Clone + PartialEq>(
         obj: &T,
-        bytes: &Vec<u8>,
+        bytes: &[u8],
     ) {
         // obj should serialize to bytes
         let mut write_buf: Vec<u8> = Vec::with_capacity(bytes.len());
@@ -1713,43 +1711,43 @@ pub mod test {
 
     #[test]
     fn codec_primitive_types() {
-        check_codec_and_corruption::<u8>(&0x01, &vec![0x01]);
-        check_codec_and_corruption::<u16>(&0x0203, &vec![0x02, 0x03]);
-        check_codec_and_corruption::<u32>(&0x04050607, &vec![0x04, 0x05, 0x06, 0x07]);
+        check_codec_and_corruption::<u8>(&0x01, &[0x01]);
+        check_codec_and_corruption::<u16>(&0x0203, &[0x02, 0x03]);
+        check_codec_and_corruption::<u32>(&0x04050607, &[0x04, 0x05, 0x06, 0x07]);
         check_codec_and_corruption::<u64>(
             &0x08090a0b0c0d0e0f,
-            &vec![0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f],
+            &[0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f],
         );
     }
 
     #[test]
     fn codec_primitive_vector() {
-        check_codec_and_corruption::<Vec<u8>>(&vec![], &vec![0x00, 0x00, 0x00, 0x00]);
+        check_codec_and_corruption::<Vec<u8>>(&vec![], &[0x00, 0x00, 0x00, 0x00]);
         check_codec_and_corruption::<Vec<u8>>(
             &vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09],
-            &vec![
+            &[
                 0x00, 0x00, 0x00, 0x0a, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
             ],
         );
 
-        check_codec_and_corruption::<Vec<u16>>(&vec![], &vec![0x00, 0x00, 0x00, 0x00]);
+        check_codec_and_corruption::<Vec<u16>>(&vec![], &[0x00, 0x00, 0x00, 0x00]);
         check_codec_and_corruption::<Vec<u16>>(
             &vec![
                 0xf000, 0xf101, 0xf202, 0xf303, 0xf404, 0xf505, 0xf606, 0xf707, 0xf808, 0xf909,
             ],
-            &vec![
+            &[
                 0x00, 0x00, 0x00, 0x0a, 0xf0, 0x00, 0xf1, 0x01, 0xf2, 0x02, 0xf3, 0x03, 0xf4, 0x04,
                 0xf5, 0x05, 0xf6, 0x06, 0xf7, 0x07, 0xf8, 0x08, 0xf9, 0x09,
             ],
         );
 
-        check_codec_and_corruption::<Vec<u32>>(&vec![], &vec![0x00, 0x00, 0x00, 0x00]);
+        check_codec_and_corruption::<Vec<u32>>(&vec![], &[0x00, 0x00, 0x00, 0x00]);
         check_codec_and_corruption::<Vec<u32>>(
             &vec![
                 0xa0b0f000, 0xa1b1f101, 0xa2b2f202, 0xa3b3f303, 0xa4b4f404, 0xa5b5f505, 0xa6b6f606,
                 0xa7b7f707, 0xa8b8f808, 0xa9b9f909,
             ],
-            &vec![
+            &[
                 0x00, 0x00, 0x00, 0x0a, 0xa0, 0xb0, 0xf0, 0x00, 0xa1, 0xb1, 0xf1, 0x01, 0xa2, 0xb2,
                 0xf2, 0x02, 0xa3, 0xb3, 0xf3, 0x03, 0xa4, 0xb4, 0xf4, 0x04, 0xa5, 0xb5, 0xf5, 0x05,
                 0xa6, 0xb6, 0xf6, 0x06, 0xa7, 0xb7, 0xf7, 0x07, 0xa8, 0xb8, 0xf8, 0x08, 0xa9, 0xb9,
@@ -1757,7 +1755,7 @@ pub mod test {
             ],
         );
 
-        check_codec_and_corruption::<Vec<u64>>(&vec![], &vec![0x00, 0x00, 0x00, 0x00]);
+        check_codec_and_corruption::<Vec<u64>>(&vec![], &[0x00, 0x00, 0x00, 0x00]);
         check_codec_and_corruption::<Vec<u64>>(
             &vec![
                 0x1020304050607080,
@@ -1770,7 +1768,7 @@ pub mod test {
                 0x1727374757677787,
                 0x1828384858687888,
             ],
-            &vec![
+            &[
                 0x00, 0x00, 0x00, 0x09, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80, 0x11, 0x21,
                 0x31, 0x41, 0x51, 0x61, 0x71, 0x81, 0x12, 0x22, 0x32, 0x42, 0x52, 0x62, 0x72, 0x82,
                 0x13, 0x23, 0x33, 0x43, 0x53, 0x63, 0x73, 0x83, 0x14, 0x24, 0x34, 0x44, 0x54, 0x64,
@@ -1792,7 +1790,7 @@ pub mod test {
             burn_stable_block_height: 0x00001111,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
             additional_data: 0x33333333,
-            signature: MessageSignature::from_raw(&vec![0x44; 65]),
+            signature: MessageSignature::from_raw(&[0x44; 65]),
             payload_len: 0x000007ff,
         };
         let preamble_bytes: Vec<u8> = vec![
@@ -1888,7 +1886,7 @@ pub mod test {
         // pox bitvec
         maximal_poxinvdata_bytes
             .append(&mut ((GETPOXINV_MAX_BITLEN / 8) as u32).to_be_bytes().to_vec());
-        maximal_poxinvdata_bytes.append(&mut maximal_bitvec.clone());
+        maximal_poxinvdata_bytes.extend_from_slice(&maximal_bitvec);
 
         assert!((maximal_poxinvdata_bytes.len() as u32) < MAX_MESSAGE_LEN);
 
@@ -1919,7 +1917,7 @@ pub mod test {
             bitlen: 0,
             pox_bitvec: vec![],
         };
-        let empty_inv_bytes = vec![
+        let empty_inv_bytes = [
             // bitlen
             0x00, 0x00, 0x00, 0x00, // bitvec
             0x00, 0x00, 0x00, 0x00,
@@ -1961,10 +1959,10 @@ pub mod test {
         maximal_blocksinvdata_bytes.append(&mut (blocks_bitlen as u16).to_be_bytes().to_vec());
         // block bitvec
         maximal_blocksinvdata_bytes.append(&mut (blocks_bitlen / 8).to_be_bytes().to_vec());
-        maximal_blocksinvdata_bytes.append(&mut maximal_bitvec.clone());
+        maximal_blocksinvdata_bytes.extend_from_slice(&maximal_bitvec);
         // microblock bitvec
         maximal_blocksinvdata_bytes.append(&mut (blocks_bitlen / 8).to_be_bytes().to_vec());
-        maximal_blocksinvdata_bytes.append(&mut maximal_bitvec.clone());
+        maximal_blocksinvdata_bytes.extend_from_slice(&maximal_bitvec);
 
         assert!((maximal_blocksinvdata_bytes.len() as u32) < MAX_MESSAGE_LEN);
 
@@ -1994,7 +1992,7 @@ pub mod test {
             block_bitvec: vec![],
             microblocks_bitvec: vec![],
         };
-        let empty_inv_bytes = vec![
+        let empty_inv_bytes = [
             // bitlen
             0x00, 0x00, 0x00, 0x00, // bitvec
             0x00, 0x00, 0x00, 0x00, // microblock bitvec
@@ -2344,7 +2342,7 @@ pub mod test {
         let data = StackerDBChunkData {
             slot_id: 2,
             slot_version: 3,
-            sig: MessageSignature::from_raw(&vec![0x44; 65]),
+            sig: MessageSignature::from_raw(&[0x44; 65]),
             data: vec![
                 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
             ],
@@ -2371,7 +2369,7 @@ pub mod test {
         let data = StackerDBChunkData {
             slot_id: 2,
             slot_version: 3,
-            sig: MessageSignature::from_raw(&vec![0x44; 65]),
+            sig: MessageSignature::from_raw(&[0x44; 65]),
             data: vec![
                 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
             ],
@@ -2446,7 +2444,7 @@ pub mod test {
             .unwrap(),
         };
 
-        let nakamoto_inv_bytes = vec![
+        let nakamoto_inv_bytes = [
             // bitlen
             0x00, 0x40, // vec len
             0x00, 0x00, 0x00, 0x08, // bits
@@ -2456,7 +2454,7 @@ pub mod test {
         check_codec_and_corruption::<NakamotoInvData>(&nakamoto_inv, &nakamoto_inv_bytes);
 
         // should fail
-        let nakamoto_inv_bytes = vec![
+        let nakamoto_inv_bytes = [
             // bitlen
             0x00, 0x20, // vec len
             0x00, 0x00, 0x00, 0x05, // bits
@@ -2466,7 +2464,7 @@ pub mod test {
         let _ = NakamotoInvData::consensus_deserialize(&mut &nakamoto_inv_bytes[..]).unwrap_err();
 
         // should fail
-        let nakamoto_inv_bytes = vec![
+        let nakamoto_inv_bytes = [
             // bitlen
             0x00, 0x21, // vec len
             0x00, 0x00, 0x00, 0x04, // bits
@@ -2636,7 +2634,7 @@ pub mod test {
             StacksMessageType::StackerDBChunk(StackerDBChunkData {
                 slot_id: 2,
                 slot_version: 3,
-                sig: MessageSignature::from_raw(&vec![0x44; 65]),
+                sig: MessageSignature::from_raw(&[0x44; 65]),
                 data: vec![0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]
             }),
             StacksMessageType::StackerDBPushChunk(StackerDBPushChunkData {
@@ -2645,7 +2643,7 @@ pub mod test {
                 chunk_data: StackerDBChunkData {
                     slot_id: 2,
                     slot_version: 3,
-                    sig: MessageSignature::from_raw(&vec![0x44; 65]),
+                    sig: MessageSignature::from_raw(&[0x44; 65]),
                     data: vec![0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]
                 }
             }),
@@ -2734,7 +2732,7 @@ pub mod test {
                 burn_stable_block_height: 0x00001111,
                 burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
                 additional_data: 0x33333333,
-                signature: MessageSignature::from_raw(&vec![0x44; 65]),
+                signature: MessageSignature::from_raw(&[0x44; 65]),
                 payload_len: (relayers_bytes.len() + payload_bytes.len()) as u32,
             };
 
@@ -2775,7 +2773,7 @@ pub mod test {
 
     #[test]
     fn codec_sign_and_verify() {
-        let privkey = Secp256k1PrivateKey::new();
+        let privkey = Secp256k1PrivateKey::random();
         let pubkey_buf =
             StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(&privkey));
 
@@ -2796,7 +2794,7 @@ pub mod test {
     #[test]
     fn codec_stacks_public_key_roundtrip() {
         for i in 0..100 {
-            let privkey = Secp256k1PrivateKey::new();
+            let privkey = Secp256k1PrivateKey::random();
             let pubkey = Secp256k1PublicKey::from_private(&privkey);
 
             let pubkey_buf = StacksPublicKeyBuffer::from_public_key(&pubkey);

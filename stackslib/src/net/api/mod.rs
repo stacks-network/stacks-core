@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity::types::chainstate::VRFSeed;
 use clarity::vm::costs::ExecutionCost;
 use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::{
@@ -192,7 +193,7 @@ pub mod prefix_opt_hex {
                 &"at least length 2 string",
             ));
         };
-        let val = T::try_from(&hex_str).map_err(serde::de::Error::custom)?;
+        let val = T::try_from(hex_str).map_err(serde::de::Error::custom)?;
         Ok(Some(val))
     }
 }
@@ -218,7 +219,7 @@ pub mod prefix_hex {
                 &"at least length 2 string",
             ));
         };
-        T::try_from(&hex_str).map_err(serde::de::Error::custom)
+        T::try_from(hex_str).map_err(serde::de::Error::custom)
     }
 }
 
@@ -239,6 +240,7 @@ macro_rules! impl_hex_deser {
 impl_hex_deser!(BurnchainHeaderHash);
 impl_hex_deser!(StacksBlockId);
 impl_hex_deser!(SortitionId);
+impl_hex_deser!(VRFSeed);
 impl_hex_deser!(ConsensusHash);
 impl_hex_deser!(BlockHeaderHash);
 impl_hex_deser!(Hash160);
