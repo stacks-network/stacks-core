@@ -826,10 +826,14 @@ impl SignerDb {
         try_deserialize(result)
     }
 
-    /// Return the count of signed blocks in a tenure (identified by its consensus hash)
-    pub fn get_signed_block_count_in_tenure(&self, tenure: &ConsensusHash) -> Result<i64, DBError> {
-        let query = "SELECT COUNT(*) FROM blocks WHERE consensus_hash = ? AND signed_over = 1";
-        query_count(&self.db, query, [tenure])
+    /// Return the count of globally signed blocks in a tenure (identified by its consensus hash)
+    pub fn get_globally_signed_block_count_in_tenure(
+        &self,
+        tenure: &ConsensusHash,
+    ) -> Result<i64, DBError> {
+        let query = "SELECT COUNT(*) FROM blocks WHERE consensus_hash = ?1 AND state = ?2 AND signed_over = 1";
+        let args = params![tenure, &BlockState::GloballyAccepted.to_string()];
+        query_count(&self.db, query, args)
     }
 
     /// Return the last accepted block in a tenure (identified by its consensus hash).
@@ -1994,7 +1998,7 @@ mod tests {
     }
 
     #[test]
-    fn check_signed_block_count() {
+    fn check_globally_signed_block_count() {
         let db_path = tmp_db_path();
         let consensus_hash_1 = ConsensusHash([0x01; 20]);
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
@@ -2003,42 +2007,58 @@ mod tests {
         });
 
         assert_eq!(
-            db.get_signed_block_count_in_tenure(&consensus_hash_1)
+            db.get_globally_signed_block_count_in_tenure(&consensus_hash_1)
                 .unwrap(),
             0
         );
 
         block_info.signed_over = true;
+        block_info.state = BlockState::GloballyAccepted;
         block_info.block.header.chain_length = 1;
         db.insert_block(&block_info).unwrap();
 
         assert_eq!(
-            db.get_signed_block_count_in_tenure(&consensus_hash_1)
+            db.get_globally_signed_block_count_in_tenure(&consensus_hash_1)
                 .unwrap(),
             1
         );
 
         block_info.signed_over = true;
+        block_info.state = BlockState::GloballyAccepted;
         block_info.block.header.chain_length = 2;
         db.insert_block(&block_info).unwrap();
 
         block_info.signed_over = true;
+        block_info.state = BlockState::GloballyAccepted;
         block_info.block.header.chain_length = 3;
         db.insert_block(&block_info).unwrap();
 
         assert_eq!(
-            db.get_signed_block_count_in_tenure(&consensus_hash_1)
+            db.get_globally_signed_block_count_in_tenure(&consensus_hash_1)
                 .unwrap(),
             3
         );
 
         // add an unsigned block
         block_info.signed_over = false;
+        block_info.state = BlockState::GloballyAccepted;
         block_info.block.header.chain_length = 4;
         db.insert_block(&block_info).unwrap();
 
         assert_eq!(
-            db.get_signed_block_count_in_tenure(&consensus_hash_1)
+            db.get_globally_signed_block_count_in_tenure(&consensus_hash_1)
+                .unwrap(),
+            3
+        );
+
+        // add a locally signed block
+        block_info.signed_over = true;
+        block_info.state = BlockState::LocallyAccepted;
+        block_info.block.header.chain_length = 5;
+        db.insert_block(&block_info).unwrap();
+
+        assert_eq!(
+            db.get_globally_signed_block_count_in_tenure(&consensus_hash_1)
                 .unwrap(),
             3
         );

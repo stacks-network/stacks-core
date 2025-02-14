@@ -444,7 +444,7 @@ impl SortitionsView {
 
             // disallow reorg if more than one block has already been signed
             let signed_blocks =
-                signer_db.get_signed_block_count_in_tenure(&tenure.consensus_hash)?;
+                signer_db.get_globally_signed_block_count_in_tenure(&tenure.consensus_hash)?;
             if signed_blocks > 1 {
                 warn!(
                     "Miner is not building off of most recent tenure, but a tenure they attempted to reorg has already more than one signed block.";
