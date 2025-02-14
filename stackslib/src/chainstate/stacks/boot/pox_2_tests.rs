@@ -331,10 +331,7 @@ pub fn check_stacking_state_invariants(
     .burn_header_height;
 
     let stacking_state_entry = get_stacking_state_pox(peer, tip, stacker, active_pox_contract)
-        .expect(&format!(
-            "Invariant violated: reward-cycle entry has stacker field set, but not present in stacker-state (pox_contract = {})",
-            active_pox_contract,
-        ))
+        .unwrap_or_else(|| panic!("Invariant violated: reward-cycle entry has stacker field set, but not present in stacker-state (pox_contract = {active_pox_contract})"))
         .expect_tuple().unwrap();
     let first_cycle = stacking_state_entry
         .get("first-reward-cycle")
@@ -1368,23 +1365,20 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
                 coinbase_txs.push(r);
                 continue;
             }
-            match r.transaction {
-                TransactionOrigin::Stacks(ref t) => {
-                    let addr = t.auth.origin().address_testnet();
-                    eprintln!("TX addr: {}", addr);
-                    if addr == alice_address {
-                        alice_txs.insert(t.auth.get_origin_nonce(), r);
-                    } else if addr == bob_address {
-                        bob_txs.insert(t.auth.get_origin_nonce(), r);
-                    } else if addr == charlie_address {
-                        assert!(
-                            r.execution_cost != ExecutionCost::ZERO,
-                            "Execution cost is not zero!"
-                        );
-                        charlie_txs.insert(t.auth.get_origin_nonce(), r);
-                    }
+            if let TransactionOrigin::Stacks(ref t) = r.transaction {
+                let addr = t.auth.origin().address_testnet();
+                eprintln!("TX addr: {}", addr);
+                if addr == alice_address {
+                    alice_txs.insert(t.auth.get_origin_nonce(), r);
+                } else if addr == bob_address {
+                    bob_txs.insert(t.auth.get_origin_nonce(), r);
+                } else if addr == charlie_address {
+                    assert!(
+                        r.execution_cost != ExecutionCost::ZERO,
+                        "Execution cost is not zero!"
+                    );
+                    charlie_txs.insert(t.auth.get_origin_nonce(), r);
                 }
-                _ => {}
             }
         }
     }

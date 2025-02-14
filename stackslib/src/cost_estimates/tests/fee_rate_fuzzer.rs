@@ -15,7 +15,7 @@ use crate::cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
 use crate::cost_estimates::tests::common::make_block_receipt;
 use crate::cost_estimates::{EstimatorError, FeeEstimator, FeeRateEstimate};
 
-struct ConstantFeeEstimator {}
+pub struct ConstantFeeEstimator {}
 
 /// Returns a constant fee rate estimate.
 impl FeeEstimator for ConstantFeeEstimator {

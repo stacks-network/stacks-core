@@ -7,9 +7,40 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+## Added
+
+- The `BlockProposal` StackerDB message serialization struct now includes a `server_version` string, which represents the version of the node that the miner is using. ([#5803](https://github.com/stacks-network/stacks-core/pull/5803))
+- Add `vrf_seed` to the `/v3/sortitions` rpc endpoint
+
+### Changed
+
+- Miner will stop waiting for signatures on a block if the Stacks tip advances (causing the block it had proposed to be invalid).
+- Logging improvements:
+  - P2P logs now includes a reason for dropping a peer or neighbor
+  - Improvements to how a PeerAddress is logged (human readable format vs hex)
+
+### Fixed
+
+- Error responses to /v2/transactions/fees are once again expressed as JSON ([#4145](https://github.com/stacks-network/stacks-core/issues/4145)).
+
+## [3.1.0.0.5]
+
+### Added
+
+- Add miner configuration option `tenure_extend_cost_threshold` to specify the percentage of the tenure budget that must be spent before a time-based tenure extend is attempted
+- Add miner configuration option `tenure_extend_wait_timeout_ms` to specify the time to wait before trying to continue a tenure because the next miner did not produce blocks
+
 ### Changed
 
 - Miner will include other transactions in blocks with tenure extend transactions (#5760)
+- Add `block_rejection_timeout_steps` to miner configuration for defining rejections-based timeouts while waiting for signers response (#5705)
+- Miner will not issue a tenure extend until at least half of the block budget has been spent (#5757)
+- Miner will issue a tenure extend if the incoming miner has failed to produce a block (#5729)
+
+### Fixed
+
+- Miners who restart their nodes immediately before a winning tenure now correctly detect that
+  they won the tenure after their nodes restart ([#5750](https://github.com/stacks-network/stacks-core/issues/5750)).
 
 ## [3.1.0.0.4]
 

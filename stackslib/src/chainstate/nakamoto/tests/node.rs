@@ -1340,7 +1340,7 @@ impl TestPeer<'_> {
                 );
             }
             Err(e) => {
-                panic!("Failure fetching recipient set: {:?}", e);
+                panic!("Failure fetching recipient set: {e:?}");
             }
         };
 
@@ -1364,16 +1364,11 @@ impl TestPeer<'_> {
         let proof = self
             .miner
             .make_proof(&miner_key.public_key, &tip.sortition_hash)
-            .expect(&format!(
-                "FATAL: no private key for {}",
-                miner_key.public_key.to_hex()
-            ));
+            .unwrap_or_else(|| panic!("FATAL: no private key for {:?}", miner_key.public_key));
         self.sortdb = Some(sortdb);
         debug!(
-            "VRF proof made from {} over {}: {}",
-            &miner_key.public_key.to_hex(),
-            &tip.sortition_hash,
-            &proof.to_hex()
+            "VRF proof made from {:?} over {}: {proof:?}",
+            miner_key.public_key, &tip.sortition_hash
         );
         proof
     }

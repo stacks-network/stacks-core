@@ -35,6 +35,7 @@ use clarity::vm::{ClarityName, ContractName, Value};
 use libstackerdb::{
     Error as libstackerdb_error, SlotMetadata, StackerDBChunkAckData, StackerDBChunkData,
 };
+use p2p::{DropPeer, DropReason, DropSource};
 use rand::{thread_rng, RngCore};
 use regex::Regex;
 use rusqlite::types::{ToSql, ToSqlOutput};
@@ -619,7 +620,7 @@ impl PeerHostExtensions for PeerHost {
 }
 
 /// Runtime arguments to an RPC handler
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct RPCHandlerArgs<'a> {
     /// What height at which this node will terminate (testnet only)
     pub exit_at_block_height: Option<u64>,
@@ -1309,6 +1310,30 @@ pub const BLOCKS_PUSHED_MAX: u32 = 32;
 // This bound is needed since it bounds the amount of I/O a peer can be asked to do to validate the
 // message.
 pub const NAKAMOTO_BLOCKS_PUSHED_MAX: u32 = 32;
+
+/// Neighbor to drop
+#[derive(Clone, Eq, PartialOrd, Ord, Debug)]
+pub struct DropNeighbor {
+    /// the neighbor identifier
+    pub key: NeighborKey,
+    /// the reason for dropping the neighbor
+    pub reason: DropReason,
+    /// the reason the neighbor should be dropped
+    pub source: DropSource,
+}
+
+impl Hash for DropNeighbor {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // ignores reason and source, we only care about the neighbor key
+        self.key.hash(state);
+    }
+}
+
+impl PartialEq for DropNeighbor {
+    fn eq(&self, other: &DropNeighbor) -> bool {
+        self.key == other.key
+    }
+}
 
 /// neighbor identifier
 #[derive(Clone, Eq, PartialOrd, Ord)]
@@ -2222,7 +2247,7 @@ pub mod test {
     use std::net::*;
     use std::ops::{Deref, DerefMut};
     use std::sync::mpsc::sync_channel;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
     use std::{fs, io, thread};
 
     use clarity::boot_util::boot_code_id;
@@ -2277,6 +2302,9 @@ pub mod test {
     use crate::chainstate::*;
     use crate::clarity::vm::clarity::TransactionConnection;
     use crate::core::{EpochList, StacksEpoch, StacksEpochExtension, NETWORK_P2P_PORT};
+    use crate::cost_estimates::metrics::UnitMetric;
+    use crate::cost_estimates::tests::fee_rate_fuzzer::ConstantFeeEstimator;
+    use crate::cost_estimates::UnitEstimator;
     use crate::net::asn::*;
     use crate::net::atlas::*;
     use crate::net::chat::*;
@@ -2287,7 +2315,7 @@ pub mod test {
     use crate::net::p2p::*;
     use crate::net::poll::*;
     use crate::net::relay::*;
-    use crate::net::Error as net_error;
+    use crate::net::{Error as net_error, ProtocolFamily, TipRequest};
     use crate::util_lib::boot::boot_code_test_addr;
     use crate::util_lib::strings::*;
 
@@ -2376,11 +2404,8 @@ pub mod test {
             if self.closed {
                 return Ok(0);
             }
-            match self.read_error {
-                Some(ref e) => {
-                    return Err(io::Error::from((*e).clone()));
-                }
-                None => {}
+            if let Some(ref e) = self.read_error {
+                return Err(io::Error::from((*e).clone()));
             }
 
             let sz = self.c.read(buf)?;
@@ -2403,11 +2428,8 @@ pub mod test {
             if self.closed {
                 return Err(io::Error::from(ErrorKind::Other)); // EBADF
             }
-            match self.write_error {
-                Some(ref e) => {
-                    return Err(io::Error::from((*e).clone()));
-                }
-                None => {}
+            if let Some(ref e) = self.write_error {
+                return Err(io::Error::from((*e).clone()));
             }
             self.c.write(buf)
         }
@@ -2552,6 +2574,75 @@ pub mod test {
             _consensus_hash: &ConsensusHash,
         ) {
             // pass
+        }
+    }
+
+    const DEFAULT_RPC_HANDLER_ARGS: RPCHandlerArgs<'static> = RPCHandlerArgs {
+        exit_at_block_height: None,
+        genesis_chainstate_hash: Sha256Sum([0x00; 32]),
+        event_observer: None,
+        cost_estimator: None,
+        fee_estimator: None,
+        cost_metric: None,
+        coord_comms: None,
+    };
+
+    const NULL_COST_ESTIMATOR: () = ();
+    const NULL_FEE_ESTIMATOR: () = ();
+    const NULL_COST_METRIC: UnitMetric = UnitMetric {};
+    const NULL_RPC_HANDLER_ARGS: RPCHandlerArgs<'static> = RPCHandlerArgs {
+        exit_at_block_height: None,
+        genesis_chainstate_hash: Sha256Sum([0x00; 32]),
+        event_observer: None,
+        cost_estimator: Some(&NULL_COST_ESTIMATOR),
+        fee_estimator: Some(&NULL_FEE_ESTIMATOR),
+        cost_metric: Some(&NULL_COST_METRIC),
+        coord_comms: None,
+    };
+
+    const UNIT_COST_ESTIMATOR: UnitEstimator = UnitEstimator {};
+    const CONSTANT_FEE_ESTIMATOR: ConstantFeeEstimator = ConstantFeeEstimator {};
+    const UNIT_COST_METRIC: UnitMetric = UnitMetric {};
+    const UNIT_RPC_HANDLER_ARGS: RPCHandlerArgs<'static> = RPCHandlerArgs {
+        exit_at_block_height: None,
+        genesis_chainstate_hash: Sha256Sum([0x00; 32]),
+        event_observer: None,
+        cost_estimator: Some(&UNIT_COST_ESTIMATOR),
+        fee_estimator: Some(&CONSTANT_FEE_ESTIMATOR),
+        cost_metric: Some(&UNIT_COST_METRIC),
+        coord_comms: None,
+    };
+
+    /// Templates for RPC Handler Args (which must be owned by the TestPeer, and cannot be a bare
+    /// RPCHandlerArgs since references to the inner members cannot be made thread-safe).
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum RPCHandlerArgsType {
+        Default,
+        Null,
+        Unit,
+    }
+
+    impl RPCHandlerArgsType {
+        pub fn instantiate(&self) -> RPCHandlerArgs<'static> {
+            match self {
+                Self::Default => {
+                    debug!("Default RPC Handler Args");
+                    DEFAULT_RPC_HANDLER_ARGS.clone()
+                }
+                Self::Null => {
+                    debug!("Null RPC Handler Args");
+                    NULL_RPC_HANDLER_ARGS.clone()
+                }
+                Self::Unit => {
+                    debug!("Unit RPC Handler Args");
+                    UNIT_RPC_HANDLER_ARGS.clone()
+                }
+            }
+        }
+
+        pub fn make_default() -> RPCHandlerArgs<'static> {
+            debug!("Default RPC Handler Args");
+            DEFAULT_RPC_HANDLER_ARGS.clone()
         }
     }
 
@@ -2774,6 +2865,8 @@ pub mod test {
         /// tenure-start block of tenure to mine on.
         /// gets consumed on the call to begin_nakamoto_tenure
         pub nakamoto_parent_tenure_opt: Option<Vec<NakamotoBlock>>,
+        /// RPC handler args to use
+        pub rpc_handler_args: Option<RPCHandlerArgsType>,
     }
 
     impl<'a> TestPeer<'a> {
@@ -2796,11 +2889,8 @@ pub mod test {
 
         pub fn make_test_path(config: &TestPeerConfig) -> String {
             let test_path = TestPeer::test_path(config);
-            match fs::metadata(&test_path) {
-                Ok(_) => {
-                    fs::remove_dir_all(&test_path).unwrap();
-                }
-                Err(_) => {}
+            if fs::metadata(&test_path).is_ok() {
+                fs::remove_dir_all(&test_path).unwrap();
             };
 
             fs::create_dir_all(&test_path).unwrap();
@@ -3196,6 +3286,7 @@ pub mod test {
                 malleablized_blocks: vec![],
                 mine_malleablized_blocks: true,
                 nakamoto_parent_tenure_opt: None,
+                rpc_handler_args: None,
             }
         }
 
@@ -3307,8 +3398,17 @@ pub mod test {
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
             let indexer = self.indexer.take().unwrap();
+            let rpc_handler_args = self
+                .rpc_handler_args
+                .as_ref()
+                .map(|args_type| args_type.instantiate())
+                .unwrap_or(RPCHandlerArgsType::make_default());
 
             let old_tip = self.network.stacks_tip.clone();
+
+            // make sure the right state machines run
+            let epoch2_passes = self.network.epoch2_state_machine_passes;
+            let nakamoto_passes = self.network.nakamoto_state_machine_passes;
 
             let ret = self.network.run(
                 &indexer,
@@ -3319,14 +3419,37 @@ pub mod test {
                 false,
                 ibd,
                 100,
-                &RPCHandlerArgs::default(),
+                &rpc_handler_args,
             );
+
+            if self.network.get_current_epoch().epoch_id >= StacksEpochId::Epoch30 {
+                assert_eq!(
+                    self.network.nakamoto_state_machine_passes,
+                    nakamoto_passes + 1
+                );
+                let epoch2_expected_passes = if self.network.stacks_tip.is_nakamoto
+                    && !self.network.connection_opts.force_nakamoto_epoch_transition
+                {
+                    epoch2_passes
+                } else {
+                    epoch2_passes + 1
+                };
+                assert_eq!(
+                    self.network.epoch2_state_machine_passes,
+                    epoch2_expected_passes
+                );
+            }
+            if self
+                .network
+                .need_epoch2_state_machines(self.network.get_current_epoch().epoch_id)
+            {
+                assert_eq!(self.network.epoch2_state_machine_passes, epoch2_passes + 1);
+            }
 
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(stacks_node);
             self.mempool = Some(mempool);
             self.indexer = Some(indexer);
-
             ret
         }
 
@@ -3387,8 +3510,16 @@ pub mod test {
                 burn_tip_height,
             );
             let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
-
+            let rpc_handler_args = self
+                .rpc_handler_args
+                .as_ref()
+                .map(|args_type| args_type.instantiate())
+                .unwrap_or(RPCHandlerArgsType::make_default());
             let old_tip = self.network.stacks_tip.clone();
+
+            // make sure the right state machines run
+            let epoch2_passes = self.network.epoch2_state_machine_passes;
+            let nakamoto_passes = self.network.nakamoto_state_machine_passes;
 
             let ret = self.network.run(
                 &indexer,
@@ -3399,8 +3530,32 @@ pub mod test {
                 false,
                 ibd,
                 100,
-                &RPCHandlerArgs::default(),
+                &rpc_handler_args,
             );
+
+            if self.network.get_current_epoch().epoch_id >= StacksEpochId::Epoch30 {
+                assert_eq!(
+                    self.network.nakamoto_state_machine_passes,
+                    nakamoto_passes + 1
+                );
+                let epoch2_expected_passes = if self.network.stacks_tip.is_nakamoto
+                    && !self.network.connection_opts.force_nakamoto_epoch_transition
+                {
+                    epoch2_passes
+                } else {
+                    epoch2_passes + 1
+                };
+                assert_eq!(
+                    self.network.epoch2_state_machine_passes,
+                    epoch2_expected_passes
+                );
+            }
+            if self
+                .network
+                .need_epoch2_state_machines(self.network.get_current_epoch().epoch_id)
+            {
+                assert_eq!(self.network.epoch2_state_machine_passes, epoch2_passes + 1);
+            }
 
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(stacks_node);
@@ -3555,11 +3710,8 @@ pub mod test {
             ch: &ConsensusHash,
         ) {
             for op in blockstack_ops.iter_mut() {
-                match op {
-                    BlockstackOperationType::LeaderKeyRegister(ref mut data) => {
-                        data.consensus_hash = (*ch).clone();
-                    }
-                    _ => {}
+                if let BlockstackOperationType::LeaderKeyRegister(ref mut data) = op {
+                    data.consensus_hash = (*ch).clone();
                 }
             }
         }
@@ -4254,18 +4406,15 @@ pub mod test {
             let mut stacks_node = self.stacks_node.take().unwrap();
 
             let parent_block_opt = stacks_node.get_last_anchored_block(&self.miner);
-            let parent_sortition_opt = match parent_block_opt.as_ref() {
-                Some(parent_block) => {
-                    let ic = sortdb.index_conn();
-                    SortitionDB::get_block_snapshot_for_winning_stacks_block(
-                        &ic,
-                        &tip.sortition_id,
-                        &parent_block.block_hash(),
-                    )
-                    .unwrap()
-                }
-                None => None,
-            };
+            let parent_sortition_opt = parent_block_opt.as_ref().and_then(|parent_block| {
+                let ic = sortdb.index_conn();
+                SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                    &ic,
+                    &tip.sortition_id,
+                    &parent_block.block_hash(),
+                )
+                .unwrap()
+            });
 
             let parent_microblock_header_opt =
                 get_last_microblock_header(&stacks_node, &self.miner, parent_block_opt.as_ref());
@@ -4281,10 +4430,7 @@ pub mod test {
                     &last_key.public_key,
                     &burn_block.parent_snapshot.sortition_hash,
                 )
-                .expect(&format!(
-                    "FATAL: no private key for {}",
-                    last_key.public_key.to_hex()
-                ));
+                .unwrap_or_else(|| panic!("FATAL: no private key for {:?}", last_key.public_key));
 
             let (stacks_block, microblocks) = tenure_builder(
                 &mut self.miner,
@@ -4544,10 +4690,9 @@ pub mod test {
             self.config
                 .burnchain
                 .block_height_to_reward_cycle(block_height)
-                .expect(&format!(
-                    "Failed to get reward cycle for block height {}",
-                    block_height
-                ))
+                .unwrap_or_else(|| {
+                    panic!("Failed to get reward cycle for block height {block_height}")
+                })
         }
 
         /// Verify that the sortition DB migration into Nakamoto worked correctly.

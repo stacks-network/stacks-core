@@ -68,20 +68,14 @@ fn test_step_walk_1_neighbor_plain() {
                 walk_2_count
             );
 
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert!(w.result.broken_connections.is_empty());
-                    assert!(w.result.replaced_neighbors.is_empty());
-                }
-                None => {}
+            if let Some(ref w) = peer_1.network.walk {
+                assert!(w.result.broken_connections.is_empty());
+                assert!(w.result.replaced_neighbors.is_empty());
             };
 
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert!(w.result.broken_connections.is_empty());
-                    assert!(w.result.replaced_neighbors.is_empty());
-                }
-                None => {}
+            if let Some(ref w) = peer_2.network.walk {
+                assert!(w.result.broken_connections.is_empty());
+                assert!(w.result.replaced_neighbors.is_empty());
             };
 
             i += 1;
@@ -180,22 +174,16 @@ fn test_step_walk_1_neighbor_plain_no_natpunch() {
                 walk_2_count
             );
 
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert!(w.result.broken_connections.is_empty());
-                    assert!(w.result.dead_connections.is_empty());
-                    assert!(w.result.replaced_neighbors.is_empty());
-                }
-                None => {}
+            if let Some(ref w) = peer_1.network.walk {
+                assert!(w.result.broken_connections.is_empty());
+                assert!(w.result.dead_connections.is_empty());
+                assert!(w.result.replaced_neighbors.is_empty());
             };
 
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert!(w.result.broken_connections.is_empty());
-                    assert!(w.result.dead_connections.is_empty());
-                    assert!(w.result.replaced_neighbors.is_empty());
-                }
-                None => {}
+            if let Some(ref w) = peer_2.network.walk {
+                assert!(w.result.broken_connections.is_empty());
+                assert!(w.result.dead_connections.is_empty());
+                assert!(w.result.replaced_neighbors.is_empty());
             };
 
             if let Some(s) = peer_1
@@ -298,20 +286,14 @@ fn test_step_walk_1_neighbor_denied() {
             walk_1_retries = peer_1.network.walk_retries;
             walk_2_retries = peer_2.network.walk_retries;
 
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert!(w.result.broken_connections.is_empty());
-                    assert!(w.result.replaced_neighbors.is_empty());
-                }
-                None => {}
+            if let Some(ref w) = peer_1.network.walk {
+                assert!(w.result.broken_connections.is_empty());
+                assert!(w.result.replaced_neighbors.is_empty());
             };
 
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert!(w.result.broken_connections.is_empty());
-                    assert!(w.result.replaced_neighbors.is_empty());
-                }
-                None => {}
+            if let Some(ref w) = peer_2.network.walk {
+                assert!(w.result.broken_connections.is_empty());
+                assert!(w.result.replaced_neighbors.is_empty());
             };
 
             i += 1;
@@ -392,20 +374,14 @@ fn test_step_walk_1_neighbor_bad_epoch() {
             walk_1_retries = peer_1.network.walk_attempts;
             walk_2_retries = peer_2.network.walk_attempts;
 
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert!(w.result.broken_connections.is_empty());
-                    assert!(w.result.replaced_neighbors.is_empty());
-                }
-                None => {}
+            if let Some(ref w) = peer_1.network.walk {
+                assert!(w.result.broken_connections.is_empty());
+                assert!(w.result.replaced_neighbors.is_empty());
             };
 
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert!(w.result.broken_connections.is_empty());
-                    assert!(w.result.replaced_neighbors.is_empty());
-                }
-                None => {}
+            if let Some(ref w) = peer_2.network.walk {
+                assert!(w.result.broken_connections.is_empty());
+                assert!(w.result.replaced_neighbors.is_empty());
             };
 
             i += 1;
@@ -455,20 +431,14 @@ fn test_step_walk_1_neighbor_heartbeat_ping() {
                 walk_2_count
             );
 
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert!(w.result.broken_connections.is_empty());
-                    assert!(w.result.replaced_neighbors.is_empty());
-                }
-                None => {}
+            if let Some(ref w) = peer_1.network.walk {
+                assert!(w.result.broken_connections.is_empty());
+                assert!(w.result.replaced_neighbors.is_empty());
             };
 
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert!(w.result.broken_connections.is_empty());
-                    assert!(w.result.replaced_neighbors.is_empty());
-                }
-                None => {}
+            if let Some(ref w) = peer_2.network.walk {
+                assert!(w.result.broken_connections.is_empty());
+                assert!(w.result.replaced_neighbors.is_empty());
             };
 
             i += 1;
@@ -561,23 +531,17 @@ fn test_step_walk_1_neighbor_bootstrapping() {
                 walk_2_count
             );
 
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert!(w.result.broken_connections.is_empty());
-                    assert!(w.result.replaced_neighbors.is_empty());
+            if let Some(ref w) = peer_1.network.walk {
+                assert!(w.result.broken_connections.is_empty());
+                assert!(w.result.replaced_neighbors.is_empty());
 
-                    // peer 2 never gets added to peer 1's frontier
-                    assert!(!w.frontier.contains_key(&neighbor_2.addr));
-                }
-                None => {}
+                // peer 2 never gets added to peer 1's frontier
+                assert!(!w.frontier.contains_key(&neighbor_2.addr));
             };
 
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert!(w.result.broken_connections.is_empty());
-                    assert!(w.result.replaced_neighbors.is_empty());
-                }
-                None => {}
+            if let Some(ref w) = peer_2.network.walk {
+                assert!(w.result.broken_connections.is_empty());
+                assert!(w.result.replaced_neighbors.is_empty());
             };
 
             i += 1;
@@ -645,23 +609,17 @@ fn test_step_walk_1_neighbor_behind() {
                 walk_2_count
             );
 
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert!(w.result.broken_connections.is_empty());
-                    assert!(w.result.replaced_neighbors.is_empty());
-                }
-                None => {}
+            if let Some(ref w) = peer_1.network.walk {
+                assert!(w.result.broken_connections.is_empty());
+                assert!(w.result.replaced_neighbors.is_empty());
             };
 
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert!(w.result.broken_connections.is_empty());
-                    assert!(w.result.replaced_neighbors.is_empty());
+            if let Some(ref w) = peer_2.network.walk {
+                assert!(w.result.broken_connections.is_empty());
+                assert!(w.result.replaced_neighbors.is_empty());
 
-                    // peer 1 never gets added to peer 2's frontier
-                    assert!(!w.frontier.contains_key(&neighbor_1.addr));
-                }
-                None => {}
+                // peer 1 never gets added to peer 2's frontier
+                assert!(!w.frontier.contains_key(&neighbor_1.addr));
             };
 
             i += 1;
@@ -773,20 +731,14 @@ fn test_step_walk_10_neighbors_of_neighbor_plain() {
                     walk_2_count
                 );
 
-                match peer_1.network.walk {
-                    Some(ref w) => {
-                        assert!(w.result.broken_connections.is_empty());
-                        assert!(w.result.replaced_neighbors.is_empty());
-                    }
-                    None => {}
+                if let Some(ref w) = peer_1.network.walk {
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 };
 
-                match peer_2.network.walk {
-                    Some(ref w) => {
-                        assert!(w.result.broken_connections.is_empty());
-                        assert!(w.result.replaced_neighbors.is_empty());
-                    }
-                    None => {}
+                if let Some(ref w) = peer_2.network.walk {
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 };
 
                 i += 1;
@@ -926,20 +878,14 @@ fn test_step_walk_10_neighbors_of_neighbor_bootstrapping() {
                     walk_2_count
                 );
 
-                match peer_1.network.walk {
-                    Some(ref w) => {
-                        assert!(w.result.broken_connections.is_empty());
-                        assert!(w.result.replaced_neighbors.is_empty());
-                    }
-                    None => {}
+                if let Some(ref w) = peer_1.network.walk {
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 };
 
-                match peer_2.network.walk {
-                    Some(ref w) => {
-                        assert!(w.result.broken_connections.is_empty());
-                        assert!(w.result.replaced_neighbors.is_empty());
-                    }
-                    None => {}
+                if let Some(ref w) = peer_2.network.walk {
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 };
 
                 steps += 1;
@@ -1068,20 +1014,14 @@ fn test_step_walk_2_neighbors_plain() {
                 walk_2_count
             );
 
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert!(w.result.broken_connections.is_empty());
-                    assert!(w.result.replaced_neighbors.is_empty());
-                }
-                None => {}
+            if let Some(ref w) = peer_1.network.walk {
+                assert!(w.result.broken_connections.is_empty());
+                assert!(w.result.replaced_neighbors.is_empty());
             };
 
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert!(w.result.broken_connections.is_empty());
-                    assert!(w.result.replaced_neighbors.is_empty());
-                }
-                None => {}
+            if let Some(ref w) = peer_2.network.walk {
+                assert!(w.result.broken_connections.is_empty());
+                assert!(w.result.replaced_neighbors.is_empty());
             };
 
             i += 1;
@@ -1340,28 +1280,19 @@ fn test_step_walk_3_neighbors_inbound() {
             );
             test_debug!("========");
 
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert!(w.result.broken_connections.is_empty());
-                    assert!(w.result.replaced_neighbors.is_empty());
-                }
-                None => {}
+            if let Some(ref w) = peer_1.network.walk {
+                assert!(w.result.broken_connections.is_empty());
+                assert!(w.result.replaced_neighbors.is_empty());
             };
 
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert!(w.result.broken_connections.is_empty());
-                    assert!(w.result.replaced_neighbors.is_empty());
-                }
-                None => {}
+            if let Some(ref w) = peer_2.network.walk {
+                assert!(w.result.broken_connections.is_empty());
+                assert!(w.result.replaced_neighbors.is_empty());
             };
 
-            match peer_3.network.walk {
-                Some(ref w) => {
-                    assert!(w.result.broken_connections.is_empty());
-                    assert!(w.result.replaced_neighbors.is_empty());
-                }
-                None => {}
+            if let Some(ref w) = peer_3.network.walk {
+                assert!(w.result.broken_connections.is_empty());
+                assert!(w.result.replaced_neighbors.is_empty());
             };
 
             for (i, peer) in [&peer_1, &peer_2, &peer_3].iter().enumerate() {
@@ -1495,20 +1426,14 @@ fn test_step_walk_2_neighbors_rekey() {
                 let _ = peer_1.step();
                 let _ = peer_2.step();
 
-                match peer_1.network.walk {
-                    Some(ref w) => {
-                        assert!(w.result.broken_connections.is_empty());
-                        assert!(w.result.replaced_neighbors.is_empty());
-                    }
-                    None => {}
+                if let Some(ref w) = peer_1.network.walk {
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 };
 
-                match peer_2.network.walk {
-                    Some(ref w) => {
-                        assert!(w.result.broken_connections.is_empty());
-                        assert!(w.result.replaced_neighbors.is_empty());
-                    }
-                    None => {}
+                if let Some(ref w) = peer_2.network.walk {
+                    assert!(w.result.broken_connections.is_empty());
+                    assert!(w.result.replaced_neighbors.is_empty());
                 };
             }
 
@@ -1602,20 +1527,14 @@ fn test_step_walk_2_neighbors_different_networks() {
                 walk_2_count
             );
 
-            match peer_1.network.walk {
-                Some(ref w) => {
-                    assert!(w.result.broken_connections.is_empty());
-                    assert!(w.result.replaced_neighbors.is_empty());
-                }
-                None => {}
+            if let Some(ref w) = peer_1.network.walk {
+                assert!(w.result.broken_connections.is_empty());
+                assert!(w.result.replaced_neighbors.is_empty());
             };
 
-            match peer_2.network.walk {
-                Some(ref w) => {
-                    assert!(w.result.broken_connections.is_empty());
-                    assert!(w.result.replaced_neighbors.is_empty());
-                }
-                None => {}
+            if let Some(ref w) = peer_2.network.walk {
+                assert!(w.result.broken_connections.is_empty());
+                assert!(w.result.replaced_neighbors.is_empty());
             };
 
             i += 1;

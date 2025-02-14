@@ -28,10 +28,10 @@ use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::net::db::PeerDB;
 use crate::net::neighbors::comms::PeerNetworkComms;
-use crate::net::p2p::PeerNetwork;
+use crate::net::p2p::{DropSource, PeerNetwork};
 use crate::net::{
-    Error as NetError, GetNakamotoInvData, NackErrorCodes, NakamotoInvData, NeighborAddress,
-    NeighborComms, NeighborKey, StacksMessage, StacksMessageType,
+    DropNeighbor, DropReason, Error as NetError, GetNakamotoInvData, NackErrorCodes,
+    NakamotoInvData, NeighborAddress, NeighborComms, NeighborKey, StacksMessage, StacksMessageType,
 };
 use crate::util_lib::db::Error as DBError;
 
@@ -995,7 +995,14 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
                         "{:?}: Failed to finish inventory sync to {naddr}: {e:?}",
                         network.get_local_peer()
                     );
-                    self.comms.add_broken(network, &naddr);
+                    self.comms.add_broken(
+                        network,
+                        &naddr,
+                        DropReason::BrokenConnection(format!(
+                            "Failed to finish inventory sync: {e}"
+                        )),
+                        DropSource::NakamotoInvStateMachine,
+                    );
                 })
             else {
                 continue;
@@ -1083,7 +1090,7 @@ impl PeerNetwork {
         &mut self,
         sortdb: &SortitionDB,
         ibd: bool,
-    ) -> (bool, Vec<NeighborKey>, Vec<NeighborKey>) {
+    ) -> (bool, Vec<DropNeighbor>, Vec<DropNeighbor>) {
         if self.inv_state_nakamoto.is_none() {
             self.init_inv_sync_nakamoto();
         }
@@ -1127,12 +1134,12 @@ impl PeerNetwork {
 
         // disconnect and ban broken peers
         for broken in broken_neighbors.into_iter() {
-            self.deregister_and_ban_neighbor(&broken);
+            self.deregister_and_ban_neighbor(&broken.key, broken.reason, broken.source);
         }
 
         // disconnect from dead connections
         for dead in dead_neighbors.into_iter() {
-            self.deregister_neighbor(&dead);
+            self.deregister_neighbor(&dead.key, dead.reason, dead.source);
         }
 
         learned

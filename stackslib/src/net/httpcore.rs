@@ -1014,10 +1014,9 @@ impl StacksHttp {
     pub fn set_response_handler(&mut self, request_verb: &str, request_path: &str) {
         let handler_index = self
             .find_response_handler(request_verb, request_path)
-            .expect(&format!(
-                "FATAL: could not find handler for '{}' '{}'",
-                request_verb, request_path
-            ));
+            .unwrap_or_else(|| {
+                panic!("FATAL: could not find handler for '{request_verb}' '{request_path}'")
+            });
         self.request_handler_index = Some(handler_index);
     }
 
@@ -1232,25 +1231,22 @@ impl StacksHttp {
     /// This method will set up this state machine to consume the message associated with this
     /// premable, if the response is chunked.
     fn set_preamble(&mut self, preamble: &StacksHttpPreamble) -> Result<(), NetError> {
-        match preamble {
-            StacksHttpPreamble::Response(ref http_response_preamble) => {
-                // we can only receive a response if we're expecting it
-                if self.request_handler_index.is_none() && !self.allow_arbitrary_response {
-                    return Err(NetError::DeserializeError(
-                        "Unexpected HTTP response: no active request handler".to_string(),
-                    ));
-                }
-                if http_response_preamble.is_chunked() {
-                    // we can only receive one response at a time
-                    if self.reply.is_some() {
-                        test_debug!("Have pending reply already");
-                        return Err(NetError::InProgress);
-                    }
-
-                    self.set_pending(http_response_preamble);
-                }
+        if let StacksHttpPreamble::Response(ref http_response_preamble) = preamble {
+            // we can only receive a response if we're expecting it
+            if self.request_handler_index.is_none() && !self.allow_arbitrary_response {
+                return Err(NetError::DeserializeError(
+                    "Unexpected HTTP response: no active request handler".to_string(),
+                ));
             }
-            _ => {}
+            if http_response_preamble.is_chunked() {
+                // we can only receive one response at a time
+                if self.reply.is_some() {
+                    test_debug!("Have pending reply already");
+                    return Err(NetError::InProgress);
+                }
+
+                self.set_pending(http_response_preamble);
+            }
         }
         Ok(())
     }

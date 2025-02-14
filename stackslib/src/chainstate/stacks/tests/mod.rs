@@ -338,11 +338,8 @@ impl TestStacksNode {
             panic!("Tried to fork an unforkable chainstate instance");
         }
 
-        match fs::metadata(&chainstate_path(new_test_name)) {
-            Ok(_) => {
-                fs::remove_dir_all(&chainstate_path(new_test_name)).unwrap();
-            }
-            Err(_) => {}
+        if fs::metadata(&chainstate_path(new_test_name)).is_ok() {
+            fs::remove_dir_all(&chainstate_path(new_test_name)).unwrap();
         }
 
         copy_dir(
@@ -524,21 +521,14 @@ impl TestStacksNode {
         fork_tip: &BlockSnapshot,
         miner: &TestMiner,
     ) -> Option<BlockSnapshot> {
-        for commit_op in miner.block_commits.iter().rev() {
-            match SortitionDB::get_block_snapshot_for_winning_stacks_block(
+        miner.block_commits.iter().rev().find_map(|commit_op| {
+            SortitionDB::get_block_snapshot_for_winning_stacks_block(
                 ic,
                 &fork_tip.sortition_id,
                 &commit_op.block_header_hash,
             )
             .unwrap()
-            {
-                Some(sn) => {
-                    return Some(sn);
-                }
-                None => {}
-            }
-        }
-        return None;
+        })
     }
 
     pub fn get_miner_balance(clarity_tx: &mut ClarityTx, addr: &StacksAddress) -> u128 {
@@ -619,10 +609,7 @@ impl TestStacksNode {
                 &miner_key.public_key,
                 &burn_block.parent_snapshot.sortition_hash,
             )
-            .expect(&format!(
-                "FATAL: no private key for {}",
-                miner_key.public_key.to_hex()
-            ));
+            .unwrap_or_else(|| panic!("FATAL: no private key for {:?}", miner_key.public_key));
 
         let (builder, parent_block_snapshot_opt) = match parent_stacks_block {
             None => {
@@ -1404,11 +1391,8 @@ pub fn instantiate_and_exec(
     post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx)>>,
 ) -> StacksChainState {
     let path = chainstate_path(test_name);
-    match fs::metadata(&path) {
-        Ok(_) => {
-            fs::remove_dir_all(&path).unwrap();
-        }
-        Err(_) => {}
+    if fs::metadata(&path).is_ok() {
+        fs::remove_dir_all(&path).unwrap();
     };
 
     let initial_balances = balances

@@ -142,7 +142,7 @@ pub fn peer_get_nakamoto_invs<'a>(
 
     loop {
         peer.step_with_ibd(false).unwrap();
-        if let Ok(..) = shutdown_recv.try_recv() {
+        if shutdown_recv.try_recv().is_ok() {
             break;
         }
     }
@@ -1082,22 +1082,16 @@ fn test_nakamoto_inv_sync_across_epoch_change() {
             .unwrap_or(0);
 
         // nothing should break
-        match peer.network.inv_state {
-            Some(ref inv) => {
-                assert!(inv.get_broken_peers().is_empty());
-                assert!(inv.get_dead_peers().is_empty());
-                assert!(inv.get_diverged_peers().is_empty());
-            }
-            None => {}
+        if let Some(ref inv) = peer.network.inv_state {
+            assert!(inv.get_broken_peers().is_empty());
+            assert!(inv.get_dead_peers().is_empty());
+            assert!(inv.get_diverged_peers().is_empty());
         }
 
-        match other_peer.network.inv_state {
-            Some(ref inv) => {
-                assert!(inv.get_broken_peers().is_empty());
-                assert!(inv.get_dead_peers().is_empty());
-                assert!(inv.get_diverged_peers().is_empty());
-            }
-            None => {}
+        if let Some(ref inv) = other_peer.network.inv_state {
+            assert!(inv.get_broken_peers().is_empty());
+            assert!(inv.get_dead_peers().is_empty());
+            assert!(inv.get_diverged_peers().is_empty());
         }
 
         round += 1;

@@ -1130,17 +1130,14 @@ impl StacksTransactionSigner {
     }
 
     pub fn sign_sponsor(&mut self, privk: &StacksPrivateKey) -> Result<(), net_error> {
-        match self.tx.auth {
-            TransactionAuth::Sponsored(_, ref sponsor_condition) => {
-                if self.check_oversign
-                    && sponsor_condition.num_signatures() >= sponsor_condition.signatures_required()
-                {
-                    return Err(net_error::SigningError(
-                        "Sponsor would have too many signatures".to_string(),
-                    ));
-                }
+        if let TransactionAuth::Sponsored(_, ref sponsor_condition) = self.tx.auth {
+            if self.check_oversign
+                && sponsor_condition.num_signatures() >= sponsor_condition.signatures_required()
+            {
+                return Err(net_error::SigningError(
+                    "Sponsor would have too many signatures".to_string(),
+                ));
             }
-            _ => {}
         }
 
         let next_sighash = self.tx.sign_next_sponsor(&self.sighash, privk)?;

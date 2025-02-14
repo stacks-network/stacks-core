@@ -5133,7 +5133,7 @@ impl StacksChainState {
         ) {
             Ok(miner_rewards_opt) => miner_rewards_opt,
             Err(e) => {
-                if let Some(_) = miner_id_opt {
+                if miner_id_opt.is_some() {
                     return Err(e);
                 } else {
                     let msg = format!("Failed to load miner rewards: {:?}", &e);
@@ -11159,15 +11159,12 @@ pub mod test {
 
             let (_, burn_header_hash, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
 
-            match (stacks_block_opt, microblocks_opt) {
-                (Some(stacks_block), Some(microblocks)) => {
-                    peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-                    last_block_id = StacksBlockHeader::make_index_block_hash(
-                        &consensus_hash,
-                        &stacks_block.block_hash(),
-                    );
-                }
-                _ => {}
+            if let (Some(stacks_block), Some(microblocks)) = (stacks_block_opt, microblocks_opt) {
+                peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+                last_block_id = StacksBlockHeader::make_index_block_hash(
+                    &consensus_hash,
+                    &stacks_block.block_hash(),
+                );
             }
 
             let tip =
@@ -11842,15 +11839,12 @@ pub mod test {
 
             let (_, burn_header_hash, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
 
-            match (stacks_block_opt, microblocks_opt) {
-                (Some(stacks_block), Some(microblocks)) => {
-                    peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-                    last_block_id = StacksBlockHeader::make_index_block_hash(
-                        &consensus_hash,
-                        &stacks_block.block_hash(),
-                    );
-                }
-                _ => {}
+            if let (Some(stacks_block), Some(microblocks)) = (stacks_block_opt, microblocks_opt) {
+                peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+                last_block_id = StacksBlockHeader::make_index_block_hash(
+                    &consensus_hash,
+                    &stacks_block.block_hash(),
+                );
             }
 
             let tip =
