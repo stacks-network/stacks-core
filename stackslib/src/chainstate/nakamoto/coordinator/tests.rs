@@ -1587,7 +1587,8 @@ fn transactions_indexing() {
                 StacksAddress::new(
                     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
                     Hash160::from_data(&index.to_be_bytes()),
-                ),
+                )
+                .unwrap(),
                 Some(AddressHashMode::SerializeP2PKH),
             )),
             max_amount: None,
