@@ -3534,7 +3534,7 @@ impl NakamotoChainState {
         Ok(())
     }
 
-    // Index a transaction in the transactions table (used by the lagacy STACKS_TRANSACTION_LOG and txindex)
+    // Index a transaction in the transactions table (used by txindex)
     pub fn record_transaction(
         stacks_db_tx: &StacksDBTx,
         block_id: &StacksBlockId,

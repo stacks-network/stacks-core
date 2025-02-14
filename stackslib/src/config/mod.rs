@@ -41,7 +41,6 @@ use crate::burnchains::bitcoin::BitcoinNetworkType;
 use crate::burnchains::{Burnchain, MagicBytes, PoxConstants, BLOCKSTACK_MAGIC_MAINNET};
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::stacks::boot::MINERS_NAME;
-use crate::chainstate::stacks::db::TRANSACTION_LOG;
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
 use crate::chainstate::stacks::miner::{BlockBuilderSettings, MinerStatus};
@@ -2576,14 +2575,8 @@ impl NodeConfigFile {
             } else {
                 default_node_config.fault_injection_block_push_fail_probability
             },
-            txindex: if self.txindex && *TRANSACTION_LOG {
-                return Err(
-                    "STACKS_TRANSACTION_LOG is deprecated and cannot be used with txindex."
-                        .to_string(),
-                );
-            } else {
-                self.txindex
-            },
+
+            txindex: self.txindex,
         };
         Ok(node_config)
     }
