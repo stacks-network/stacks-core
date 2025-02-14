@@ -450,6 +450,8 @@ pub struct DropPeer {
     pub reason: DropReason,
     /// The address of the peer to drop
     pub address: PeerAddress,
+    /// The port of the peer to drop
+    pub port: u16,
     /// The subsystem source that is dropping the peer
     pub source: DropSource,
 }
@@ -459,6 +461,7 @@ impl From<&DropNeighbor> for DropPeer {
         DropPeer {
             reason: drop_neighbor.reason.clone(),
             address: drop_neighbor.key.addrbytes,
+            port: drop_neighbor.key.port,
             source: drop_neighbor.source.clone(),
         }
     }
@@ -1739,6 +1742,7 @@ impl PeerNetwork {
 
             disconnect.push(DropPeer {
                 address: neighbor_key.addrbytes,
+                port: neighbor_key.port,
                 reason: DropReason::BannedConnection,
                 source: DropSource::PeerNetwork,
             });
@@ -2087,14 +2091,15 @@ impl PeerNetwork {
     pub fn deregister_peer(&mut self, peer: DropPeer) {
         let reason = peer.reason;
         debug!(
-            "{:?}: Disconnect peer {}",
+            "{:?}: Disconnect peer {}:{}",
             &self.local_peer,
-            peer.address.pretty_print()
+            peer.address.pretty_print(),
+            peer.port,
         );
 
         let mut nk_remove = vec![];
         for (neighbor_key, event_id) in self.events.iter() {
-            if neighbor_key.addrbytes == peer.address {
+            if neighbor_key.addrbytes == peer.address && neighbor_key.port == peer.port {
                 let pubkh = self
                     .get_p2p_convo(*event_id)
                     .and_then(|convo| convo.get_public_key_hash())
@@ -2166,6 +2171,7 @@ impl PeerNetwork {
             reason,
             address: neighbor.addrbytes,
             source,
+            port: neighbor.port,
         });
     }
 
@@ -2187,6 +2193,7 @@ impl PeerNetwork {
                 reason,
                 address: neighbor.addrbytes,
                 source,
+                port: neighbor.port,
             });
         }
     }
@@ -2466,6 +2473,7 @@ impl PeerNetwork {
                     if let Some(convo) = convo {
                         to_remove.push(DropPeer {
                             address: convo.peer_addrbytes,
+                            port: convo.peer_port,
                             reason: DropReason::BrokenConnection(format!("Connection failed: {e}")),
                             source: if ibd {
                                 DropSource::PeerNetworkInboundReadySocket
@@ -2487,6 +2495,7 @@ impl PeerNetwork {
                 if let Some(convo) = convo {
                     to_remove.push(DropPeer {
                         address: convo.peer_addrbytes,
+                        port: convo.peer_port,
                         reason: DropReason::DeadConnection("Connection is no longer alive".into()),
                         source: if ibd {
                             DropSource::PeerNetworkInboundReadySocket
@@ -2598,6 +2607,7 @@ impl PeerNetwork {
                 );
                 to_remove.push(DropPeer {
                     address: peer.nk.addrbytes,
+                    port: peer.nk.port,
                     reason: DropReason::Unresponsive {
                         timeout: self.connection_opts.timeout,
                         last_seen: peer.timestamp,
@@ -2629,6 +2639,7 @@ impl PeerNetwork {
 
                     to_remove.push(DropPeer {
                         address: convo.peer_addrbytes,
+                        port: convo.peer_port,
                         reason: DropReason::Unresponsive {
                             timeout: self.connection_opts.timeout,
                             last_seen: convo.peer_heartbeat.into(),
@@ -2651,6 +2662,7 @@ impl PeerNetwork {
 
                     to_remove.push(DropPeer {
                         address: convo.peer_addrbytes,
+                        port: convo.peer_port,
                         reason: DropReason::Unresponsive {
                             timeout: self.connection_opts.timeout,
                             last_seen: convo.instantiated,
@@ -2846,6 +2858,7 @@ impl PeerNetwork {
                         if let Some(peer) = self.peers.get(event_id) {
                             broken.push(DropPeer {
                                 address: peer.peer_addrbytes,
+                                port: peer.peer_port,
                                 reason: DropReason::BrokenConnection(format!(
                                     "Relay handle broken: {e}"
                                 )),
@@ -2984,14 +2997,15 @@ impl PeerNetwork {
 
     /// Disconnect from all peers
     fn disconnect_all(&mut self, reason: DropReason, source: DropSource) {
-        let addresses: Vec<_> = self
+        let address_port_pairs: Vec<_> = self
             .peers
             .values()
-            .map(|convo| convo.peer_addrbytes)
+            .map(|convo| (convo.peer_addrbytes, convo.peer_port))
             .collect();
-        for address in addresses {
+        for (address, port) in address_port_pairs {
             self.deregister_peer(DropPeer {
                 address,
+                port,
                 reason: reason.clone(),
                 source: source.clone(),
             });
