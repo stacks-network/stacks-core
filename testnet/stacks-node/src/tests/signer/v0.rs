@@ -457,9 +457,21 @@ pub struct MultipleMinerTest {
 }
 
 impl MultipleMinerTest {
-    pub fn new(num_signers: usize, num_transfer_txs: u64) -> MultipleMinerTest {
-        Self::new_with_config_modifications(num_signers, num_transfer_txs, |_| {}, |_| {}, |_| {})
+    /// Create a new test harness for running multiple miners with num_signers underlying signers and enough funds to send
+    /// num_txs transfer transactions.
+    ///
+    /// Will partition the signer set so that ~half are listening and using node 1 for RPC and events,
+    /// and the rest are using node 2
+    pub fn new(num_signers: usize, num_txs: u64) -> MultipleMinerTest {
+        Self::new_with_config_modifications(num_signers, num_txs, |_| {}, |_| {}, |_| {})
     }
+
+    /// Create a new test harness for running multiple miners with num_signers underlying signers and enough funds to send
+    /// num_txs transfer transactions.
+    ///
+    /// Will also modify the signer config and the node 1 and node 2 configs with the provided
+    /// modifiers. Will partition the signer set so that ~half are listening and using node 1 for RPC and events,
+    /// and the rest are using node 2 unless otherwise specified via the signer config modifier.
     pub fn new_with_config_modifications<
         F: FnMut(&mut SignerConfig),
         G: FnMut(&mut NeonConfig),
@@ -589,6 +601,7 @@ impl MultipleMinerTest {
         }
     }
 
+    /// Boot node 1 to epoch 3.0 and wait for node 2 to catch up.
     pub fn boot_to_epoch_3(&mut self) {
         info!(
             "------------------------- Booting Both Miners to Epoch 3.0 -------------------------"
@@ -601,6 +614,7 @@ impl MultipleMinerTest {
         info!("------------------------- Reached Epoch 3.0 -------------------------");
     }
 
+    /// Returns a tuple of the node 1 and node 2 miner private keys respectively
     pub fn get_miner_private_keys(&self) -> (StacksPrivateKey, StacksPrivateKey) {
         (
             self.signer_test
@@ -613,6 +627,7 @@ impl MultipleMinerTest {
         )
     }
 
+    /// Returns a tuple of the node 1 and node 2 miner public keys respectively
     pub fn get_miner_public_keys(&self) -> (StacksPublicKey, StacksPublicKey) {
         let (sk1, sk2) = self.get_miner_private_keys();
         (
@@ -621,6 +636,7 @@ impl MultipleMinerTest {
         )
     }
 
+    /// Returns a tuple of the node 1 and node 2 miner private key hashes respectively
     pub fn get_miner_public_key_hashes(&self) -> (Hash160, Hash160) {
         let (pk1, pk2) = self.get_miner_public_keys();
         (
@@ -629,6 +645,7 @@ impl MultipleMinerTest {
         )
     }
 
+    /// Returns a tuple of the node 1 and node 2 miner node configs respectively
     pub fn get_node_configs(&self) -> (NeonConfig, NeonConfig) {
         (
             self.signer_test.running_nodes.conf.clone(),
@@ -640,6 +657,8 @@ impl MultipleMinerTest {
         &mut self.signer_test.running_nodes.btc_regtest_controller
     }
 
+    /// Mine `nmb_blocks` blocks on the bitcoin regtest chain and wait for the sortition
+    /// database to confirm the block.
     pub fn mine_bitcoin_blocks_and_confirm(
         &mut self,
         sortdb: &SortitionDB,
@@ -660,6 +679,8 @@ impl MultipleMinerTest {
         })
     }
 
+    /// Mine `nmb_blocks` blocks on the bitcoin regtest chain and wait for the sortition
+    /// database to confirm the block and the test_observer to see the block.
     pub fn mine_bitcoin_blocks_and_confirm_with_test_observer(
         &mut self,
         sortdb: &SortitionDB,
@@ -683,6 +704,8 @@ impl MultipleMinerTest {
         })
     }
 
+    /// Mine a bitcoin block and wait for the sortition database to confirm the block and wait
+    /// for a tenure change transaction to be subseqently mined in a stacks block at the appropriate height.
     pub fn mine_bitcoin_block_and_tenure_change_tx(
         &mut self,
         sortdb: &SortitionDB,
@@ -699,6 +722,7 @@ impl MultipleMinerTest {
         )
     }
 
+    /// Sends a transfer tx to the stacks node and returns the txid
     pub fn send_transfer_tx(&mut self) -> String {
         let http_origin = format!(
             "http://{}",
@@ -718,6 +742,8 @@ impl MultipleMinerTest {
         submit_tx(&http_origin, &transfer_tx)
     }
 
+    /// Sends a transfer tx to the stacks node and waits for the stacks node to mine it
+    /// Returns the txid of the transfer tx.
     pub fn send_and_mine_transfer_tx(&mut self, timeout_secs: u64) -> Result<String, String> {
         let stacks_height_before = self.get_peer_stacks_tip_height();
         let txid = self.send_transfer_tx();
@@ -727,18 +753,22 @@ impl MultipleMinerTest {
         Ok(txid)
     }
 
+    /// Return the Peer Info from node 1
     pub fn get_peer_info(&self) -> PeerInfo {
         self.signer_test.get_peer_info()
     }
 
+    /// Returns the peer info's reported stacks tip height from node 1
     pub fn get_peer_stacks_tip_height(&self) -> u64 {
         self.get_peer_info().stacks_tip_height
     }
 
+    /// Returns the peer stacks tip hash from node 1
     pub fn get_peer_stacks_tip(&self) -> BlockHeaderHash {
         self.get_peer_info().stacks_tip
     }
 
+    /// Ensures that miner 2 submits a commit pointing to the current view reported by the stacks node as expected
     pub fn submit_commit_miner_2(&mut self, sortdb: &SortitionDB) {
         if !self.rl2_counters.naka_skip_commit_op.get() {
             warn!("Miner 2's commit ops were not paused. This may result in no commit being submitted.");
@@ -780,6 +810,7 @@ impl MultipleMinerTest {
         self.rl2_counters.naka_skip_commit_op.set(true);
     }
 
+    /// Ensures that miner 1 submits a commit pointing to the current view reported by the stacks node as expected
     pub fn submit_commit_miner_1(&mut self, sortdb: &SortitionDB) {
         if !self
             .signer_test
@@ -842,6 +873,7 @@ impl MultipleMinerTest {
             .set(true);
     }
 
+    /// Shutdown the test harness
     pub fn shutdown(self) {
         info!("------------------------- Shutting Down Multiple Miners Test -------------------------");
         self.rl2_coord_channels
@@ -871,6 +903,8 @@ impl MultipleMinerTest {
     }
 }
 
+/// Returns whether the last block in the test observer contains a tenure change
+/// transaction with the given cause.
 fn last_block_contains_tenure_change_tx(cause: TenureChangeCause) -> bool {
     let blocks = test_observer::get_blocks();
     let last_block = &blocks.last().unwrap();
@@ -888,16 +922,19 @@ fn last_block_contains_tenure_change_tx(cause: TenureChangeCause) -> bool {
     }
 }
 
+/// Asserts that the last block in the test observer contains a tenure change with the given cause.
 fn verify_last_block_contains_tenure_change_tx(cause: TenureChangeCause) {
     assert!(last_block_contains_tenure_change_tx(cause));
 }
 
+/// Verifies that the tip of the sortition database was won by the provided miner public key hash
 fn verify_sortition_winner(sortdb: &SortitionDB, miner_pkh: &Hash160) {
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     assert!(tip.sortition);
     assert_eq!(&tip.miner_pk_hash.unwrap(), miner_pkh);
 }
 
+/// Waits for a tenure change transaction to be observed in the test_observer at the expected height
 fn wait_for_tenure_change_tx(
     timeout_secs: u64,
     cause: TenureChangeCause,
@@ -927,6 +964,8 @@ fn wait_for_tenure_change_tx(
     })
 }
 
+/// Waits for a block proposal to be observed in the test_observer stackerdb chunks at the expected height
+/// and signed by the expected miner
 fn wait_for_block_proposal(
     timeout_secs: u64,
     expected_height: u64,
@@ -958,6 +997,8 @@ fn wait_for_block_proposal(
     proposed_block.ok_or_else(|| "Failed to find block proposal".to_string())
 }
 
+/// Waits for a BlockPushed to be observed in the test_observer stackerdb chunks for a block
+/// with the provided signer signature hash
 fn wait_for_block_pushed(
     timeout_secs: u64,
     block_signer_signature_hash: Sha512Trunc256Sum,
@@ -982,6 +1023,7 @@ fn wait_for_block_pushed(
     block.ok_or_else(|| "Failed to find block pushed".to_string())
 }
 
+/// Waits for a block with the provided expected height to be proposed and pushed by the miner with the provided public key.
 fn wait_for_block_pushed_by_miner_key(
     timeout_secs: u64,
     expected_height: u64,
@@ -991,6 +1033,8 @@ fn wait_for_block_pushed_by_miner_key(
     wait_for_block_pushed(timeout_secs, block_proposed.header.signer_signature_hash())
 }
 
+/// Waits for >30% of num_signers block rejection to be observed in the test_observer stackerdb chunks for a block
+/// with the provided signer signature hash
 fn wait_for_block_global_rejection(
     timeout_secs: u64,
     block_signer_signature_hash: Sha512Trunc256Sum,
@@ -1019,6 +1063,8 @@ fn wait_for_block_global_rejection(
     })
 }
 
+/// Waits for the provided number of block rejections to be observed in the test_observer stackerdb chunks for a block
+/// with the provided signer signature hash
 fn wait_for_block_rejections(
     timeout_secs: u64,
     block_signer_signature_hash: Sha512Trunc256Sum,
@@ -1047,6 +1093,8 @@ fn wait_for_block_rejections(
     })
 }
 
+/// Waits for >70% of the provided signers to send an acceptance for a block
+/// with the provided signer signature hash
 pub fn wait_for_block_global_acceptance_from_signers(
     timeout_secs: u64,
     signer_signature_hash: &Sha512Trunc256Sum,
@@ -1077,6 +1125,8 @@ pub fn wait_for_block_global_acceptance_from_signers(
     })
 }
 
+/// Waits for all of the provided signers to send an acceptance for a block
+/// with the provided signer signature hash
 pub fn wait_for_block_acceptance_from_signers(
     timeout_secs: u64,
     signer_signature_hash: &Sha512Trunc256Sum,
@@ -1106,6 +1156,8 @@ pub fn wait_for_block_acceptance_from_signers(
     })
 }
 
+/// Waits for all of the provided signers to send a rejection for a block
+/// with the provided signer signature hash
 pub fn wait_for_block_rejections_from_signers(
     timeout_secs: u64,
     expected_signers: &[StacksPublicKey],
@@ -3113,22 +3165,18 @@ fn tenure_extend_after_idle_miner() {
     .expect("Failed to mine the tenure change block");
 
     // Now, wait for a block with a tenure change due to the new block
-    wait_for(30, || {
-        Ok(last_block_contains_tenure_change_tx(
-            TenureChangeCause::BlockFound,
-        ))
-    })
-    .expect("Timed out waiting for a block with a tenure change");
+    wait_for_tenure_change_tx(30, TenureChangeCause::BlockFound, tip_height_before + 1)
+        .expect("Timed out waiting for a block with a tenure change");
 
     info!("---- Waiting for a tenure extend ----");
 
     TEST_IGNORE_SIGNERS.set(false);
     // Now, wait for a block with a tenure extend
-    wait_for(miner_idle_timeout.as_secs() + 20, || {
-        Ok(last_block_contains_tenure_change_tx(
-            TenureChangeCause::Extended,
-        ))
-    })
+    wait_for_tenure_change_tx(
+        miner_idle_timeout.as_secs() + 20,
+        TenureChangeCause::Extended,
+        tip_height_before + 1,
+    )
     .expect("Timed out waiting for a block with a tenure extend");
     signer_test.shutdown();
 }
@@ -7836,8 +7884,6 @@ fn tenure_extend_after_2_bad_commits() {
     // (miner 2's proposals will be rejected)
     wait_for_tenure_change_tx(30, TenureChangeCause::Extended, stacks_height_before + 1)
         .expect("Failed to mine tenure extend tx");
-
-    verify_last_block_contains_tenure_change_tx(TenureChangeCause::Extended);
 
     info!("------------------------- Miner 1 Mines Another Block -------------------------");
     miners
