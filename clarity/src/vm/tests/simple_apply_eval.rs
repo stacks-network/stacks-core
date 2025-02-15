@@ -1763,3 +1763,14 @@ fn test_chain_id() {
             )
         });
 }
+
+#[test]
+fn test_execution_time_expiration() {
+    let mut program = String::from("(define-private (dummy (a uint) (b uint)) (+ a b)) (define-private (adder (a uint) (b uint)) (+ a (+ b (dummy a a)))) (* (adder u100000000000000000 (adder u20000000000000000000 u20000000000000000000)) u100) ");
+
+    for i in 1..200000 {
+        program.push_str("(adder u100000000000000000 u9900000000000000000) ");
+    }
+
+    assert_eq!(vm_execute(&program).err().unwrap(), CheckErrors::ExecutionTimeExpired.into());
+}

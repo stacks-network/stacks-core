@@ -312,6 +312,21 @@ pub fn eval(
         Atom, AtomValue, Field, List, LiteralValue, TraitReference,
     };
 
+    if env
+        .global_context
+        .execution_time_tracker
+        .elapsed()
+        .as_secs()
+        > 1
+    {
+        warn!(
+            "ExecutionTime expired while running {:?} ({:?})",
+            exp,
+            env.global_context.execution_time_tracker.elapsed()
+        );
+        return Err(CheckErrors::ExecutionTimeExpired.into());
+    }
+
     if let Some(mut eval_hooks) = env.global_context.eval_hooks.take() {
         for hook in eval_hooks.iter_mut() {
             hook.will_begin_eval(env, context, exp);
