@@ -432,7 +432,7 @@ fn pox_extend_transition() {
         get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
     })
     .unwrap();
-    assert_eq!(reward_addrs.len(), 0);
+    assert!(reward_addrs.is_empty());
 
     // check the first reward cycle when Alice's tokens get stacked
     let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
@@ -1587,7 +1587,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
     assert_eq!(tipId, latest_block.unwrap());
 
     let in_prepare_phase = burnchain.is_in_prepare_phase(tip.block_height);
-    assert_eq!(in_prepare_phase, false);
+    assert!(!in_prepare_phase);
 
     let blocks = observer.get_blocks();
     let mut steph_txs = HashMap::new();
@@ -1982,7 +1982,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     assert_eq!(tipId, latest_block.unwrap());
 
     let in_prepare_phase = burnchain.is_in_prepare_phase(tip.block_height);
-    assert_eq!(in_prepare_phase, true);
+    assert!(in_prepare_phase);
 
     let blocks = observer.get_blocks();
     let mut steph_txs = HashMap::new();
@@ -2322,7 +2322,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase_skip_cycle()
     assert_eq!(tipId, latest_block.unwrap());
 
     let in_prepare_phase = burnchain.is_in_prepare_phase(tip.block_height);
-    assert_eq!(in_prepare_phase, true);
+    assert!(in_prepare_phase);
 
     let blocks = observer.get_blocks();
     let mut alice_txs = HashMap::new();
@@ -5782,7 +5782,7 @@ fn test_set_signer_key_auth(use_nakamoto: bool) {
         1,
     );
 
-    assert_eq!(signer_key_enabled.unwrap(), false);
+    assert!(!signer_key_enabled.unwrap());
 
     // Next block, enable the key
     signer_nonce += 1;
@@ -5819,7 +5819,7 @@ fn test_set_signer_key_auth(use_nakamoto: bool) {
         1,
     );
 
-    assert_eq!(signer_key_enabled.unwrap(), true);
+    assert!(signer_key_enabled.unwrap());
 
     // Next block, re-disable the key authorization
     signer_nonce += 1;
@@ -5856,7 +5856,7 @@ fn test_set_signer_key_auth(use_nakamoto: bool) {
         1,
     );
 
-    assert_eq!(signer_key_enabled.unwrap(), false);
+    assert!(!signer_key_enabled.unwrap());
 }
 
 #[apply(nakamoto_cases)]

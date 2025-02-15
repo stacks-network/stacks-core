@@ -2010,17 +2010,10 @@ pub mod test {
                     false,
                     ASTRules::PrecheckSize,
                 );
-                assert!(res.is_err());
-
-                match res {
-                    Err(Error::InvalidStacksTransaction(msg, false)) => {
-                        assert!(msg.contains(&err_frag), "{}", err_frag);
-                    }
-                    _ => {
-                        eprintln!("bad error: {:?}", &res);
-                        eprintln!("Expected '{}'", &err_frag);
-                        assert!(false);
-                    }
+                if let Err(Error::InvalidStacksTransaction(msg, false)) = res {
+                    assert!(msg.contains(&err_frag), "{err_frag}");
+                } else {
+                    panic!("Expected '{err_frag}' error, got {res:?}");
                 }
 
                 let account_after =
@@ -4973,7 +4966,7 @@ pub mod test {
             )
             .unwrap();
 
-            assert_eq!(receipt.post_condition_aborted, true);
+            assert!(receipt.post_condition_aborted);
             assert_eq!(receipt.result.to_string(), "(ok (err u1))");
 
             conn.commit_block();
@@ -6825,13 +6818,10 @@ pub mod test {
                 Txid([0; 32]),
             )
             .unwrap();
-            if result != expected_result {
-                eprintln!(
-                    "test failed:\nasset map: {:?}\nscenario: {:?}\n",
-                    &ft_transfer_2, &test
-                );
-                assert!(false);
-            }
+            assert_eq!(
+                result, expected_result,
+                "test failed:\nasset map: {ft_transfer_2:?}\nscenario: {test:?}"
+            );
         }
     }
 
@@ -7173,13 +7163,10 @@ pub mod test {
                 Txid([0; 32]),
             )
             .unwrap();
-            if result != expected_result {
-                eprintln!(
-                    "test failed:\nasset map: {:?}\nscenario: {:?}\n",
-                    &nft_transfer_2, &test
-                );
-                assert!(false);
-            }
+            assert_eq!(
+                result, expected_result,
+                "test failed:\nasset map: {nft_transfer_2:?}\nscenario: {test:?}"
+            );
         }
     }
 
@@ -7988,13 +7975,10 @@ pub mod test {
                     Txid([0; 32]),
                 )
                 .unwrap();
-                if result != expected_result {
-                    eprintln!(
-                        "test failed:\nasset map: {:?}\nscenario: {:?}\n",
-                        asset_map, &test
-                    );
-                    assert!(false);
-                }
+                assert_eq!(
+                    result, expected_result,
+                    "test failed:\nasset map: {asset_map:?}\nscenario: {test:?}"
+                );
             }
         }
     }
@@ -8087,12 +8071,8 @@ pub mod test {
 
             conn.commit_block();
 
-            eprintln!("{:?}", &err);
             assert_eq!(fee, 0);
-            if let Error::InvalidFee = err {
-            } else {
-                assert!(false)
-            };
+            assert!(matches!(err, Error::InvalidFee), "{err:?}");
         }
 
         // in epoch 2.1, this passes, since we debit the fee _before_ we run the tx, and then the
@@ -8386,11 +8366,10 @@ pub mod test {
                 ASTRules::PrecheckSize,
             )
             .unwrap_err();
-            if let Error::ClarityError(clarity_error::BadTransaction(msg)) = err {
-                assert!(msg.find("never seen in this fork").is_some());
-            } else {
-                assert!(false);
-            }
+            let Error::ClarityError(clarity_error::BadTransaction(msg)) = &err else {
+                panic!("Unexpected error type");
+            };
+            assert!(msg.find("never seen in this fork").is_some());
             conn.commit_block();
         }
     }
@@ -9143,11 +9122,7 @@ pub mod test {
         .unwrap_err();
         conn.commit_block();
 
-        eprintln!("{:?}", &err);
-        if let Error::InvalidFee = err {
-        } else {
-            assert!(false)
-        };
+        assert!(matches!(err, Error::InvalidFee), "{err:?}");
     }
 
     #[test]
@@ -9314,11 +9289,7 @@ pub mod test {
         .unwrap_err();
         conn.commit_block();
 
-        eprintln!("{:?}", &err);
-        if let Error::InvalidFee = err {
-        } else {
-            assert!(false)
-        };
+        assert!(matches!(err, Error::InvalidFee), "{err:?}");
     }
 
     /// Call `process_transaction()` with  prechecks

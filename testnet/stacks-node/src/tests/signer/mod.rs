@@ -307,10 +307,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                 output.push(None);
                 continue;
             };
-            if results.len() > 1 {
-                warn!("Received multiple states from the signer receiver: this test function assumes it should only ever receive 1");
-                panic!();
-            }
+            assert!(results.len() <= 1, "Received multiple states from the signer receiver: this test function assumes it should only ever receive 1");
             let Some(SignerResult::StatusCheck(state_info)) = results.pop() else {
                 debug!("Could not receive latest state from signer #{ix}");
                 output.push(None);

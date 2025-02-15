@@ -155,24 +155,20 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
     let p3 = execute("'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY");
 
-    let p1_std_principal_data = match p1 {
-        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(PrincipalData::Standard(p1_std_principal_data)) = p1.clone() else {
+        panic!("Expected standard principal data");
     };
 
-    let p1_principal = match p1 {
-        Value::Principal(ref data) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(p1_principal) = p1.clone() else {
+        panic!("Expected principal data");
     };
 
-    let p2_principal = match p2 {
-        Value::Principal(ref data) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(p2_principal) = p2.clone() else {
+        panic!("Expected principal data");
     };
 
-    let p3_principal = match p3 {
-        Value::Principal(ref data) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(p3_principal) = p3.clone() else {
+        panic!("Expected principal data");
     };
 
     let token_contract_id =
@@ -212,7 +208,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     .unwrap();
 
     assert!(is_err_code(&result, 3));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -224,7 +220,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     .unwrap();
 
     assert!(is_err_code(&result, 3));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     // test 2: from = to
 
@@ -238,7 +234,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     .unwrap();
 
     assert!(is_err_code(&result, 2));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     // test 3: sender is not tx-sender
 
@@ -252,7 +248,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     .unwrap();
 
     assert!(is_err_code(&result, 4));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -264,7 +260,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     .unwrap();
 
     assert!(is_err_code(&result, 4));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     // test 4: amount > balance
 
@@ -278,7 +274,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     .unwrap();
 
     assert!(is_err_code(&result, 1));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -290,7 +286,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     .unwrap();
 
     assert!(is_err_code(&result, 1));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     // test 5: overflow
     //  NOTE: this tested behavior is no longer reachable: the total liquid ustx supply
@@ -525,19 +521,16 @@ fn test_simple_token_system(
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
 
-    let p1_std_principal_data = match p1 {
-        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(PrincipalData::Standard(p1_std_principal_data)) = p1.clone() else {
+        panic!("Expected standard pincipal data");
     };
 
-    let p1_principal = match p1 {
-        Value::Principal(ref data) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(p1_principal) = p1.clone() else {
+        panic!("Expected principal data");
     };
 
-    let p2_principal = match p2 {
-        Value::Principal(ref data) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(p2_principal) = p2.clone() else {
+        panic!("Expected principal data");
     };
 
     let token_contract_id =
@@ -569,7 +562,7 @@ fn test_simple_token_system(
     .unwrap();
     assert!(!is_committed(&result));
 
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -597,7 +590,7 @@ fn test_simple_token_system(
     .unwrap();
 
     assert!(is_err_code(&result, 1));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -609,7 +602,7 @@ fn test_simple_token_system(
     .unwrap();
 
     assert!(is_err_code(&result, 2));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let err = execute_transaction(
         &mut owned_env,
@@ -635,7 +628,7 @@ fn test_simple_token_system(
     .unwrap();
 
     assert_eq!(result, Value::UInt(1000));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -647,7 +640,7 @@ fn test_simple_token_system(
     .unwrap();
 
     assert_eq!(result, Value::UInt(9200));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -814,7 +807,7 @@ fn test_simple_token_system(
     .unwrap();
 
     assert!(!is_committed(&result));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 }
 
 #[apply(test_epochs)]
@@ -836,14 +829,12 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
-    let p1_std_principal_data = match p1 {
-        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(PrincipalData::Standard(p1_std_principal_data)) = p1.clone() else {
+        panic!("Expected standard principal data");
     };
 
-    let p1_principal = match p1 {
-        Value::Principal(ref data) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(p1_principal) = p1.clone() else {
+        panic!("Expected principal data");
     };
 
     let token_contract_id =
@@ -939,9 +930,8 @@ fn test_overlapping_nfts(
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
-    let p1_std_principal_data = match p1 {
-        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(PrincipalData::Standard(p1_std_principal_data)) = p1 else {
+        panic!("Expected standard principal data");
     };
 
     let tokens_contract_id =
@@ -991,19 +981,16 @@ fn test_simple_naming_system(
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
 
-    let p1_std_principal_data = match p1 {
-        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(PrincipalData::Standard(p1_std_principal_data)) = p1.clone() else {
+        panic!("Expected standard principal data");
     };
 
-    let p1_principal = match p1 {
-        Value::Principal(ref data) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(p1_principal) = p1.clone() else {
+        panic!("Expected principal data");
     };
 
-    let p2_principal = match p2 {
-        Value::Principal(ref data) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(p2_principal) = p2.clone() else {
+        panic!("Expected principal data");
     };
 
     let placeholder_context =
@@ -1126,7 +1113,7 @@ fn test_simple_naming_system(
     )
     .unwrap();
     assert!(is_err_code(&result, 0));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -1157,7 +1144,7 @@ fn test_simple_naming_system(
     .unwrap();
 
     assert!(is_err_code(&result, 1));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -1169,7 +1156,7 @@ fn test_simple_naming_system(
     .unwrap();
 
     assert!(is_committed(&result));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     // let's transfer name
 
@@ -1183,7 +1170,7 @@ fn test_simple_naming_system(
     .unwrap();
 
     assert!(is_err_code(&result, 3));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -1195,7 +1182,7 @@ fn test_simple_naming_system(
     .unwrap();
 
     assert!(is_err_code(&result, 1));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -1207,7 +1194,7 @@ fn test_simple_naming_system(
     .unwrap();
 
     assert!(is_err_code(&result, 2));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     let (result, asset_map, _events) = execute_transaction(
         &mut owned_env,
@@ -1314,7 +1301,7 @@ fn test_simple_naming_system(
     .unwrap();
 
     assert!(is_committed(&result));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     // p2 burning 8 (which belongs to p1) should succeed even though sender != tx_sender.
     let (result, asset_map, _events) = execute_transaction(
@@ -1375,7 +1362,7 @@ fn test_simple_naming_system(
     .unwrap();
 
     assert!(is_committed(&result));
-    assert_eq!(asset_map.to_table().len(), 0);
+    assert!(asset_map.to_table().is_empty());
 
     {
         let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);

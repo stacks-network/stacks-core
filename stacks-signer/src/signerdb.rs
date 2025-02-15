@@ -1984,7 +1984,7 @@ mod tests {
         assert_eq!(pending_hash, Some(Sha512Trunc256Sum([0x03; 32])));
 
         let pendings = db.get_all_pending_block_validations().unwrap();
-        assert_eq!(pendings.len(), 0);
+        assert!(pendings.is_empty());
     }
 
     #[test]

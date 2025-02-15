@@ -731,22 +731,12 @@ fn test_http_response_type_codec() {
             .unwrap();
 
         http.set_response_handler(request_verb, request_path);
-        let (mut preamble, offset) = match http.read_preamble(&bytes) {
-            Ok((p, o)) => (p, o),
-            Err(e) => {
-                test_debug!("first 4096 bytes:\n{:?}\n", &bytes[0..].to_vec());
-                test_debug!("error: {:?}", &e);
-                assert!(false);
-                unreachable!();
-            }
-        };
+        let (mut preamble, offset) = http
+            .read_preamble(&bytes)
+            .unwrap_or_else(|e| panic!("first 4096 bytes:\n{bytes:?}\nerror: {e:?}"));
 
         test_debug!(
-            "{} {}: read preamble of {} bytes\n{:?}\n",
-            request_verb,
-            request_path,
-            offset,
-            preamble
+            "{request_verb} {request_path}: read preamble of {offset} bytes\n{preamble:?}\n",
         );
 
         let (mut message, _total_len) = if expected_http_preamble.is_chunked() {
@@ -761,19 +751,16 @@ fn test_http_response_type_codec() {
         test_debug!("got message\n{:?}\n", &message);
 
         // check everything in the parsed preamble except for the extra headers
-        match preamble {
-            StacksHttpPreamble::Response(ref mut req) => {
-                assert_eq!(req.headers.len(), 5);
-                assert!(req.headers.contains_key("access-control-allow-headers"));
-                assert!(req.headers.contains_key("access-control-allow-methods"));
-                assert!(req.headers.contains_key("access-control-allow-origin"));
-                assert!(req.headers.contains_key("server"));
-                assert!(req.headers.contains_key("date"));
-                req.headers.clear();
-            }
-            StacksHttpPreamble::Request(_) => {
-                panic!("parsed a request");
-            }
+        if let StacksHttpPreamble::Response(req) = &mut preamble {
+            assert_eq!(req.headers.len(), 5);
+            assert!(req.headers.contains_key("access-control-allow-headers"));
+            assert!(req.headers.contains_key("access-control-allow-methods"));
+            assert!(req.headers.contains_key("access-control-allow-origin"));
+            assert!(req.headers.contains_key("server"));
+            assert!(req.headers.contains_key("date"));
+            req.headers.clear();
+        } else {
+            panic!("Unexpected preamble");
         }
 
         assert_eq!(
@@ -783,11 +770,10 @@ fn test_http_response_type_codec() {
 
         // note that message's headers contain cors headers and the like, which we don't synthesize
         // here
-        match message {
-            StacksHttpMessage::Response(ref mut response) => response.clear_headers(),
-            _ => {
-                panic!("Not an HTTP response");
-            }
+        if let StacksHttpMessage::Response(response) = &mut message {
+            response.clear_headers();
+        } else {
+            panic!("Not an HTTP response");
         }
         assert_eq!(message, StacksHttpMessage::Response((*test).clone()));
         assert_eq!(http.num_pending(), 0);
@@ -880,8 +866,8 @@ fn test_http_duplicate_concurrent_streamed_response_fails() {
             &mut &valid_neighbors_response.as_bytes()[offset..],
         )
         .unwrap();
-    match msg {
-        (Some((StacksHttpMessage::Response(response), _)), _) => assert_eq!(
+    if let (Some((StacksHttpMessage::Response(response), _)), _) = msg {
+        assert_eq!(
             response.decode_rpc_neighbors().unwrap(),
             RPCNeighborsInfo {
                 bootstrap: vec![],
@@ -889,11 +875,9 @@ fn test_http_duplicate_concurrent_streamed_response_fails() {
                 inbound: vec![],
                 outbound: vec![]
             }
-        ),
-        _ => {
-            error!("Got {:?}", &msg);
-            assert!(false);
-        }
+        )
+    } else {
+        panic!("Got {msg:?}");
     }
     assert_eq!(http.num_pending(), 0);
 
@@ -948,48 +932,30 @@ fn test_http_parse_proof_tip_query() {
     let tip_req = HttpRequestContents::new()
         .query_string(Some(query_txt))
         .tip_request();
-    match tip_req {
-        TipRequest::SpecificTip(tip) => assert_eq!(
-            tip,
-            StacksBlockId::from_hex(
-                "7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392"
-            )
-            .unwrap()
-        ),
-        _ => panic!(),
-    }
+    let block_id =
+        StacksBlockId::from_hex("7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392")
+            .unwrap();
+    assert!(matches!(tip_req, TipRequest::SpecificTip(block_id)));
 
     // last parseable tip is taken
     let query_txt_dup = "tip=7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392&tip=03e26bd68a8722f8b3861e2058edcafde094ad059e152754986c3573306698f1";
     let tip_req = HttpRequestContents::new()
         .query_string(Some(query_txt_dup))
         .tip_request();
-    match tip_req {
-        TipRequest::SpecificTip(tip) => assert_eq!(
-            tip,
-            StacksBlockId::from_hex(
-                "03e26bd68a8722f8b3861e2058edcafde094ad059e152754986c3573306698f1"
-            )
-            .unwrap()
-        ),
-        _ => panic!(),
-    }
+    let block_id =
+        StacksBlockId::from_hex("03e26bd68a8722f8b3861e2058edcafde094ad059e152754986c3573306698f1")
+            .unwrap();
+    assert!(matches!(tip_req, TipRequest::SpecificTip(block_id)));
 
     // last parseable tip is taken
     let query_txt_dup = "tip=bad&tip=7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392&tip=03e26bd68a8722f8b3861e2058edcafde094ad059e152754986c3573306698f1";
+    let block_id =
+        StacksBlockId::from_hex("03e26bd68a8722f8b3861e2058edcafde094ad059e152754986c3573306698f1")
+            .unwrap();
     let tip_req = HttpRequestContents::new()
         .query_string(Some(query_txt_dup))
         .tip_request();
-    match tip_req {
-        TipRequest::SpecificTip(tip) => assert_eq!(
-            tip,
-            StacksBlockId::from_hex(
-                "03e26bd68a8722f8b3861e2058edcafde094ad059e152754986c3573306698f1"
-            )
-            .unwrap()
-        ),
-        _ => panic!(),
-    }
+    assert!(matches!(tip_req, TipRequest::SpecificTip(block_id)));
 
     // tip can be skipped
     let query_txt_bad = "tip=bad";
@@ -1160,18 +1126,13 @@ fn test_send_request_timeout() {
     );
 
     // Assert that the result is an error, specifically a timeout
-    assert!(
-        result.is_err(),
-        "Expected a timeout error, got: {:?}",
-        result
-    );
+    assert!(result.is_err(), "Expected a timeout error, got: {result:?}");
 
     if let Err(err) = result {
         assert_eq!(
             err.kind(),
             std::io::ErrorKind::WouldBlock,
-            "Expected TimedOut error, got: {:?}",
-            err
+            "Expected TimedOut error, got: {err:?}"
         );
     }
 }
@@ -1252,12 +1213,12 @@ fn test_send_request_success() {
         json_body(host, port, "/", b"{}"),
         timeout_duration,
     );
-    debug!("Got result: {:?}", result);
+    debug!("Got result: {result:?}");
 
     // Ensure the server only closes after the client has finished processing
     if let Ok(response) = &result {
         let body = parse_http_response(response.clone());
-        assert_eq!(body, "Hello, world!", "Unexpected response body: {}", body);
+        assert_eq!(body, "Hello, world!", "Unexpected response body: {body}");
     }
 
     tx_client_done
@@ -1267,7 +1228,6 @@ fn test_send_request_success() {
     // Assert that the connection was successful
     assert!(
         result.is_ok(),
-        "Expected a successful request, but got {:?}",
-        result
+        "Expected a successful request, but got {result:?}"
     );
 }

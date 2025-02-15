@@ -1673,9 +1673,7 @@ pub mod test {
                 assert_eq!(out, *obj);
             }
             Err(e) => {
-                test_debug!("\nFailed to parse to {:?}: {:?}", obj, bytes);
-                test_debug!("error: {:?}", &e);
-                assert!(false);
+                panic!("Failed to parse to {obj:?}: {bytes:?}\nerror: {e:?}");
             }
         }
 
@@ -1689,21 +1687,18 @@ pub mod test {
             match underflow_res {
                 Ok(oops) => {
                     test_debug!(
-                        "\nMissing Underflow: Parsed {:?}\nFrom {:?}\n",
-                        &oops,
+                        "\nMissing Underflow: Parsed {oops:?}\nFrom {:?}\n",
                         &write_buf[0..short_len].to_vec()
                     );
                 }
                 Err(codec_error::ReadError(io_error)) => match io_error.kind() {
                     io::ErrorKind::UnexpectedEof => {}
                     _ => {
-                        test_debug!("Got unexpected I/O error: {:?}", &io_error);
-                        assert!(false);
+                        panic!("Got unexpected I/O error: {io_error:?}");
                     }
                 },
                 Err(e) => {
-                    test_debug!("Got unexpected Net error: {:?}", &e);
-                    assert!(false);
+                    panic!("Got unexpected Net error: {e:?}");
                 }
             };
         }

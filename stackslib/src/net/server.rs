@@ -1039,21 +1039,11 @@ mod test {
                 match http_response_bytes_res {
                     Ok(http_response_bytes) => {
                         // should be a PeerInfo
-                        let response = match StacksHttp::parse_response(
+                        let response = StacksHttp::parse_response(
                             "GET",
                             "/v2/info",
                             &http_response_bytes,
-                        ) {
-                            Ok(res) => res,
-                            Err(e) => {
-                                eprintln!(
-                                    "Failed to parse /v2/info response from:\n{:?}\n{:?}",
-                                    &http_response_bytes, &e
-                                );
-                                assert!(false);
-                                unreachable!();
-                            }
-                        };
+                        ).unwrap_or_else(|e| panic!("Failed to parse /v2/info response from:\n{http_response_bytes:?}\n{e:?}"));
                         *have_success.borrow_mut() = true;
                         true
                     }

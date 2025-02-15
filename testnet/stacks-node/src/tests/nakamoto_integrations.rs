@@ -1432,8 +1432,7 @@ fn wait_for_first_naka_block_commit(timeout_secs: u64, naka_commits_submitted: &
     let start = Instant::now();
     while naka_commits_submitted.load(Ordering::SeqCst) < 1 {
         if start.elapsed() > Duration::from_secs(timeout_secs) {
-            error!("Timed out waiting for block commit");
-            panic!();
+            panic!("Timed out waiting for block commit");
         }
         thread::sleep(Duration::from_millis(100));
     }
@@ -2826,10 +2825,9 @@ fn correct_burn_outs() {
         if let Err(e) =
             next_block_and_mine_commit(&mut btc_regtest_controller, 30, &naka_conf, &counters)
         {
-            warn!(
+            panic!(
                 "Error while minting a bitcoin block and waiting for stacks-node activity: {e:?}"
             );
-            panic!();
         }
 
         let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
@@ -3195,10 +3193,10 @@ fn block_proposal_api_endpoint() {
         };
         let start_time = Instant::now();
         while ix != 1 && response.status().as_u16() == HTTP_TOO_MANY {
-            if start_time.elapsed() > Duration::from_secs(30) {
-                error!("Took over 30 seconds to process pending proposal, panicking test");
-                panic!();
-            }
+            assert!(
+                start_time.elapsed() <= Duration::from_secs(30),
+                "Took over 30 seconds to process pending proposal, panicking test"
+            );
             info!("Waiting for prior request to finish processing, and then resubmitting");
             thread::sleep(Duration::from_secs(5));
             let request_builder = client
@@ -3245,10 +3243,10 @@ fn block_proposal_api_endpoint() {
     let mut proposal_responses = test_observer::get_proposal_responses();
     let start_time = Instant::now();
     while proposal_responses.len() < expected_proposal_responses.len() {
-        if start_time.elapsed() > Duration::from_secs(30) {
-            error!("Took over 30 seconds to process pending proposal, panicking test");
-            panic!();
-        }
+        assert!(
+            start_time.elapsed() <= Duration::from_secs(30),
+            "Took over 30 seconds to process pending proposal, panicking test"
+        );
         info!("Waiting for prior request to finish processing");
         thread::sleep(Duration::from_secs(5));
         proposal_responses = test_observer::get_proposal_responses();
@@ -10755,10 +10753,7 @@ fn test_tenure_extend_from_flashblocks() {
         .collect();
     let initial_balances: Vec<_> = account_keys
         .iter()
-        .map(|privk| {
-            let address = to_addr(privk).into();
-            (address, 1_000_000)
-        })
+        .map(|privk| (to_addr(privk), 1_000_000))
         .collect();
 
     let deployer_sk = account_keys.pop().unwrap();
