@@ -29,7 +29,7 @@ use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
 use blockstack_lib::net::api::getsortition::SortitionInfo;
 use clarity::types::chainstate::{BurnchainHeaderHash, SortitionId};
 use clarity::util::vrf::VRFProof;
-use libsigner::v0::messages::RejectCode;
+use libsigner::v0::messages::RejectReason;
 use libsigner::{BlockProposal, BlockProposalData};
 use slog::slog_info;
 use stacks_common::bitvec::BitVec;
@@ -171,7 +171,7 @@ fn reorg_timing_testing(
     test_name: &str,
     first_proposal_burn_block_timing_secs: u64,
     sortition_timing_secs: u64,
-) -> Result<(), RejectCode> {
+) -> Result<(), RejectReason> {
     let (_stacks_client, mut signer_db, block_pk, mut view, mut block) =
         setup_test_environment(test_name);
     view.config.first_proposal_burn_block_timing =

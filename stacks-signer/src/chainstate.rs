@@ -19,7 +19,7 @@ use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::TenureChangePayload;
 use blockstack_lib::net::api::getsortition::SortitionInfo;
 use blockstack_lib::util_lib::db::Error as DBError;
-use libsigner::v0::messages::RejectCode;
+use libsigner::v0::messages::RejectReason;
 use slog::{slog_info, slog_warn};
 use stacks_common::types::chainstate::{BurnchainHeaderHash, ConsensusHash, StacksPublicKey};
 use stacks_common::util::get_epoch_time_secs;
@@ -41,9 +41,9 @@ pub enum SignerChainstateError {
     ClientError(#[from] ClientError),
 }
 
-impl From<SignerChainstateError> for RejectCode {
+impl From<SignerChainstateError> for RejectReason {
     fn from(error: SignerChainstateError) -> Self {
-        RejectCode::ConnectivityIssues(error.to_string())
+        RejectReason::ConnectivityIssues(error.to_string())
     }
 }
 
@@ -205,7 +205,7 @@ impl SortitionsView {
         block: &NakamotoBlock,
         block_pk: &StacksPublicKey,
         reset_view_if_wrong_consensus_hash: bool,
-    ) -> Result<(), RejectCode> {
+    ) -> Result<(), RejectReason> {
         if self
             .cur_sortition
             .is_timed_out(self.config.block_proposal_timeout, signer_db)?
@@ -273,7 +273,7 @@ impl SortitionsView {
                 "current_sortition_consensus_hash" => ?self.cur_sortition.consensus_hash,
                 "last_sortition_consensus_hash" => ?self.last_sortition.as_ref().map(|x| x.consensus_hash),
             );
-            return Err(RejectCode::InvalidBitvec);
+            return Err(RejectReason::InvalidBitvec);
         }
 
         let block_pkh = Hash160::from_data(&block_pk.to_bytes_compressed());
@@ -311,7 +311,7 @@ impl SortitionsView {
                 "current_sortition_consensus_hash" => ?self.cur_sortition.consensus_hash,
                 "last_sortition_consensus_hash" => ?self.last_sortition.as_ref().map(|x| x.consensus_hash),
             );
-            return Err(RejectCode::SortitionViewMismatch);
+            return Err(RejectReason::SortitionViewMismatch);
         };
 
         if proposed_by.state().miner_pkh != block_pkh {
@@ -323,7 +323,7 @@ impl SortitionsView {
                 "proposed_block_pubkey_hash" => %block_pkh,
                 "sortition_winner_pubkey_hash" => %proposed_by.state().miner_pkh,
             );
-            return Err(RejectCode::PubkeyHashMismatch);
+            return Err(RejectReason::PubkeyHashMismatch);
         }
 
         // check that this miner is the most recent sortition
@@ -335,7 +335,7 @@ impl SortitionsView {
                         "proposed_block_consensus_hash" => %block.header.consensus_hash,
                         "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
                     );
-                    return Err(RejectCode::InvalidMiner);
+                    return Err(RejectReason::InvalidMiner);
                 }
             }
             ProposedBy::LastSortition(last_sortition) => {
@@ -351,7 +351,7 @@ impl SortitionsView {
                         "current_sortition_miner_status" => ?self.cur_sortition.miner_status,
                         "last_sortition" => %last_sortition.consensus_hash
                     );
-                    return Err(RejectCode::NotLatestSortitionWinner);
+                    return Err(RejectReason::NotLatestSortitionWinner);
                 }
             }
         };
@@ -370,7 +370,7 @@ impl SortitionsView {
                 Self::confirms_latest_block_in_same_tenure(block, signer_db)
                     .map_err(SignerChainstateError::from)?;
             if !confirms_latest_in_tenure {
-                return Err(RejectCode::InvalidParentBlock);
+                return Err(RejectReason::InvalidParentBlock);
             }
         }
 
@@ -396,7 +396,7 @@ impl SortitionsView {
                     "extend_timestamp" => extend_timestamp,
                     "epoch_time" => epoch_time,
                 );
-                return Err(RejectCode::InvalidTenureExtend);
+                return Err(RejectReason::InvalidTenureExtend);
             }
         }
 
@@ -656,7 +656,7 @@ impl SortitionsView {
         block: &NakamotoBlock,
         signer_db: &mut SignerDb,
         client: &StacksClient,
-    ) -> Result<(), RejectCode> {
+    ) -> Result<(), RejectReason> {
         // Ensure that the tenure change block confirms the expected parent block
         let confirms_expected_parent = Self::check_tenure_change_confirms_parent(
             tenure_change,
@@ -668,7 +668,7 @@ impl SortitionsView {
         )
         .map_err(SignerChainstateError::from)?;
         if !confirms_expected_parent {
-            return Err(RejectCode::InvalidParentBlock);
+            return Err(RejectReason::InvalidParentBlock);
         }
         // now, we have to check if the parent tenure was a valid choice.
         let is_valid_parent_tenure = Self::check_parent_tenure_choice(
@@ -679,7 +679,7 @@ impl SortitionsView {
             &self.config.first_proposal_burn_block_timing,
         )?;
         if !is_valid_parent_tenure {
-            return Err(RejectCode::ReorgNotAllowed);
+            return Err(RejectReason::ReorgNotAllowed);
         }
         let last_in_current_tenure = signer_db
             .get_last_globally_accepted_block(&block.header.consensus_hash)
@@ -693,7 +693,7 @@ impl SortitionsView {
                 "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
                 "last_in_tenure_signer_sighash" => %last_in_current_tenure.block.header.signer_signature_hash(),
             );
-            return Err(RejectCode::DuplicateBlockFound);
+            return Err(RejectReason::DuplicateBlockFound);
         }
         Ok(())
     }

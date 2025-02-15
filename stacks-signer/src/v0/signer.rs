@@ -28,7 +28,7 @@ use clarity::util::hash::{MerkleHashFunc, Sha512Trunc256Sum};
 use clarity::util::secp256k1::Secp256k1PublicKey;
 use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MockProposal, MockSignature,
-    RejectCode, SignerMessage,
+    RejectReason, SignerMessage,
 };
 use libsigner::{BlockProposal, SignerEvent};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
@@ -342,7 +342,7 @@ impl Signer {
             self.create_block_acceptance(&block_info.block)
         } else {
             debug!("{self}: Rejecting block {}", block_info.block.block_id());
-            self.create_block_rejection(RejectCode::RejectedInPriorRound, &block_info.block)
+            self.create_block_rejection(RejectReason::RejectedInPriorRound, &block_info.block)
         };
         Some(response)
     }
@@ -366,12 +366,12 @@ impl Signer {
     /// Create a block rejection response for a block with the given reject code
     pub fn create_block_rejection(
         &self,
-        reject_code: RejectCode,
+        reject_reason: RejectReason,
         block: &NakamotoBlock,
     ) -> BlockResponse {
         BlockResponse::rejected(
             block.header.signer_signature_hash(),
-            reject_code,
+            reject_reason,
             &self.private_key,
             self.mainnet,
             self.signer_db.calculate_tenure_extend_timestamp(
@@ -416,13 +416,13 @@ impl Signer {
                 true,
             ) {
                 // Error validating block
-                Err(RejectCode::ConnectivityIssues(e)) => {
+                Err(RejectReason::ConnectivityIssues(e)) => {
                     warn!(
                         "{self}: Error checking block proposal: {e}";
                         "signer_sighash" => %signer_signature_hash,
                         "block_id" => %block_id,
                     );
-                    Some(self.create_block_rejection(RejectCode::ConnectivityIssues(e), block))
+                    Some(self.create_block_rejection(RejectReason::ConnectivityIssues(e), block))
                 }
                 // Block proposal is bad
                 Err(reject_code) => {
@@ -444,7 +444,7 @@ impl Signer {
                 "signer_sighash" => %signer_signature_hash,
                 "block_id" => %block_id,
             );
-            Some(self.create_block_rejection(RejectCode::NoSortitionView, block))
+            Some(self.create_block_rejection(RejectReason::NoSortitionView, block))
         }
     }
 
@@ -649,12 +649,10 @@ impl Signer {
             ) {
                 Ok(true) => {}
                 Ok(false) => {
-                    return Some(
-                        self.create_block_rejection(
-                            RejectCode::SortitionViewMismatch,
-                            proposed_block,
-                        ),
-                    )
+                    return Some(self.create_block_rejection(
+                        RejectReason::SortitionViewMismatch,
+                        proposed_block,
+                    ))
                 }
                 Err(e) => {
                     warn!("{self}: Error checking block proposal: {e}";
@@ -662,7 +660,9 @@ impl Signer {
                         "block_id" => %proposed_block.block_id()
                     );
                     return Some(self.create_block_rejection(
-                        RejectCode::ConnectivityIssues("error checking block proposal".to_string()),
+                        RejectReason::ConnectivityIssues(
+                            "error checking block proposal".to_string(),
+                        ),
                         proposed_block,
                     ));
                 }
@@ -684,7 +684,7 @@ impl Signer {
                         "expected_at_least" => last_block_info.block.header.chain_length + 1,
                     );
                     return Some(self.create_block_rejection(
-                        RejectCode::SortitionViewMismatch,
+                        RejectReason::SortitionViewMismatch,
                         proposed_block,
                     ));
                 }
@@ -696,7 +696,7 @@ impl Signer {
                     "block_id" => %proposed_block.block_id()
                 );
                 return Some(self.create_block_rejection(
-                    RejectCode::ConnectivityIssues(
+                    RejectReason::ConnectivityIssues(
                         "failed to check block against signer db".to_string(),
                     ),
                     proposed_block,
@@ -947,7 +947,7 @@ impl Signer {
             "signer_sighash" => %proposal_signer_sighash,
         );
         let rejection = self.create_block_rejection(
-            RejectCode::ConnectivityIssues(
+            RejectReason::ConnectivityIssues(
                 "failed to receive block validation response in time".to_string(),
             ),
             &block_info.block,
