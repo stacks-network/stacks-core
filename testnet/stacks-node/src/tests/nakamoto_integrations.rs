@@ -28,7 +28,7 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ClarityVersion, Value};
 use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
-use libsigner::v0::messages::{RejectCode, SignerMessage as SignerMessageV0};
+use libsigner::v0::messages::{RejectReason, SignerMessage as SignerMessageV0};
 use libsigner::{SignerSession, StackerDBSession};
 use rusqlite::OptionalExtension;
 use stacks::burnchains::{MagicBytes, Txid};
@@ -6599,7 +6599,7 @@ fn signer_chainstate() {
                 .expect_err("Sortitions view should reject proposals from prior tenure");
             assert_eq!(
                 reject_code,
-                RejectCode::NotLatestSortitionWinner,
+                RejectReason::NotLatestSortitionWinner,
                 "Sortitions view should reject proposals from prior tenure"
             );
             for block in prior_tenure_interims.iter() {
@@ -6608,7 +6608,7 @@ fn signer_chainstate() {
                     .expect_err("Sortitions view should reject proposals from prior tenure");
                 assert_eq!(
                     reject_code,
-                    RejectCode::NotLatestSortitionWinner,
+                    RejectReason::NotLatestSortitionWinner,
                     "Sortitions view should reject proposals from prior tenure"
                 );
             }
