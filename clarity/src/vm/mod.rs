@@ -54,6 +54,7 @@ pub mod test_util;
 pub mod clarity;
 
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use serde_json;
 use stacks_common::types::StacksEpochId;
@@ -86,6 +87,7 @@ use crate::vm::types::{PrincipalData, TypeSignature};
 pub use crate::vm::version::ClarityVersion;
 
 pub const MAX_CALL_STACK_DEPTH: usize = 64;
+pub const MAX_EXECUTION_TIME_SECS: u64 = 10;
 
 #[derive(Debug, Clone)]
 pub struct ParsedContract {
@@ -312,15 +314,11 @@ pub fn eval(
         Atom, AtomValue, Field, List, LiteralValue, TraitReference,
     };
 
-    if env
-        .global_context
-        .execution_time_tracker
-        .elapsed()
-        .as_secs()
-        > 1
+    if env.global_context.execution_time_tracker.elapsed()
+        > Duration::from_secs(MAX_EXECUTION_TIME_SECS)
     {
         warn!(
-            "ExecutionTime expired while running {:?} ({:?})",
+            "ExecutionTime expired while running {:?} ({:?} elapsed)",
             exp,
             env.global_context.execution_time_tracker.elapsed()
         );
