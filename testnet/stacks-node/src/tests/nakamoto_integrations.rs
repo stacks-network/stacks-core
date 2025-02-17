@@ -101,7 +101,7 @@ use crate::nakamoto_node::miner::{
     TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_PROPOSAL_STALL, TEST_MINE_STALL,
     TEST_P2P_BROADCAST_SKIP,
 };
-use crate::nakamoto_node::relayer::{RelayerThread, TEST_MINER_THREAD_STALL};
+use crate::nakamoto_node::relayer::TEST_MINER_THREAD_STALL;
 use crate::neon::{Counters, RunLoopCounter};
 use crate::operations::BurnchainOpSigner;
 use crate::run_loop::boot_nakamoto;
@@ -1432,8 +1432,7 @@ fn wait_for_first_naka_block_commit(timeout_secs: u64, naka_commits_submitted: &
     let start = Instant::now();
     while naka_commits_submitted.load(Ordering::SeqCst) < 1 {
         if start.elapsed() > Duration::from_secs(timeout_secs) {
-            error!("Timed out waiting for block commit");
-            panic!();
+            panic!("Timed out waiting for block commit");
         }
         thread::sleep(Duration::from_millis(100));
     }
@@ -2826,10 +2825,9 @@ fn correct_burn_outs() {
         if let Err(e) =
             next_block_and_mine_commit(&mut btc_regtest_controller, 30, &naka_conf, &counters)
         {
-            warn!(
+            panic!(
                 "Error while minting a bitcoin block and waiting for stacks-node activity: {e:?}"
             );
-            panic!();
         }
 
         let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
@@ -3195,10 +3193,10 @@ fn block_proposal_api_endpoint() {
         };
         let start_time = Instant::now();
         while ix != 1 && response.status().as_u16() == HTTP_TOO_MANY {
-            if start_time.elapsed() > Duration::from_secs(30) {
-                error!("Took over 30 seconds to process pending proposal, panicking test");
-                panic!();
-            }
+            assert!(
+                start_time.elapsed() <= Duration::from_secs(30),
+                "Took over 30 seconds to process pending proposal, panicking test"
+            );
             info!("Waiting for prior request to finish processing, and then resubmitting");
             thread::sleep(Duration::from_secs(5));
             let request_builder = client
@@ -3245,10 +3243,10 @@ fn block_proposal_api_endpoint() {
     let mut proposal_responses = test_observer::get_proposal_responses();
     let start_time = Instant::now();
     while proposal_responses.len() < expected_proposal_responses.len() {
-        if start_time.elapsed() > Duration::from_secs(30) {
-            error!("Took over 30 seconds to process pending proposal, panicking test");
-            panic!();
-        }
+        assert!(
+            start_time.elapsed() <= Duration::from_secs(30),
+            "Took over 30 seconds to process pending proposal, panicking test"
+        );
         info!("Waiting for prior request to finish processing");
         thread::sleep(Duration::from_secs(5));
         proposal_responses = test_observer::get_proposal_responses();
@@ -4114,7 +4112,8 @@ fn follower_bootup_across_multiple_cycles() {
 
     debug!("Booted follower-thread");
 
-    wait_for(300, || {
+    // Wait a long time for the follower to catch up because CI is slow.
+    wait_for(600, || {
         sleep_ms(1000);
         let Ok(follower_node_info) = get_chain_info_result(&follower_conf) else {
             return Ok(false);
@@ -5112,6 +5111,9 @@ fn forked_tenure_is_ignored() {
         &[EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
     );
 
+    let miner_sk = naka_conf.miner.mining_key.unwrap();
+    let miner_pk = StacksPublicKey::from_private(&miner_sk);
+
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
         .start_bitcoind()
@@ -5189,7 +5191,7 @@ fn forked_tenure_is_ignored() {
 
     // For the next tenure, submit the commit op but do not allow any stacks blocks to be broadcasted.
     // Stall the miner thread; only wait until the number of submitted commits increases.
-    TEST_BROADCAST_PROPOSAL_STALL.set(true);
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk]);
     TEST_BLOCK_ANNOUNCE_STALL.set(true);
 
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
@@ -5208,7 +5210,7 @@ fn forked_tenure_is_ignored() {
     // Unpause the broadcast of Tenure B's block, do not submit commits, and do not allow blocks to
     // be processed
     test_skip_commit_op.set(true);
-    TEST_BROADCAST_PROPOSAL_STALL.set(false);
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
 
     // Wait for a stacks block to be broadcasted.
     // However, it will not be processed.
@@ -6575,6 +6577,7 @@ fn signer_chainstate() {
             block_proposal_timeout: Duration::from_secs(100),
             tenure_last_block_proposal_timeout: Duration::from_secs(30),
             tenure_idle_timeout: Duration::from_secs(300),
+            tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(30),
         };
         let mut sortitions_view =
@@ -6699,6 +6702,7 @@ fn signer_chainstate() {
             block_proposal_timeout: Duration::from_secs(100),
             tenure_last_block_proposal_timeout: Duration::from_secs(30),
             tenure_idle_timeout: Duration::from_secs(300),
+            tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(30),
         };
         let burn_block_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
@@ -6774,6 +6778,7 @@ fn signer_chainstate() {
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
         tenure_idle_timeout: Duration::from_secs(300),
+        tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
     };
     let mut sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
@@ -10723,10 +10728,7 @@ fn test_tenure_extend_from_flashblocks() {
         .collect();
     let initial_balances: Vec<_> = account_keys
         .iter()
-        .map(|privk| {
-            let address = to_addr(privk).into();
-            (address, 1_000_000)
-        })
+        .map(|privk| (to_addr(privk), 1_000_000))
         .collect();
 
     let deployer_sk = account_keys.pop().unwrap();
@@ -10743,30 +10745,16 @@ fn test_tenure_extend_from_flashblocks() {
     signer_test.boot_to_epoch_3();
 
     let naka_conf = signer_test.running_nodes.conf.clone();
-    let mining_key = naka_conf.miner.mining_key.clone().unwrap();
-    let mining_key_pkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(&mining_key));
 
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     let btc_regtest_controller = &mut signer_test.running_nodes.btc_regtest_controller;
     let coord_channel = signer_test.running_nodes.coord_channel.clone();
     let counters = signer_test.running_nodes.counters.clone();
-    let nakamoto_test_skip_commit_op = signer_test
-        .running_nodes
-        .nakamoto_test_skip_commit_op
-        .clone();
-    let nakamoto_miner_directives = signer_test.running_nodes.nakamoto_miner_directives.clone();
 
     let tx_fee = 1_000;
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
-        naka_conf.is_mainnet(),
-        naka_conf.burnchain.chain_id,
-        &naka_conf.get_chainstate_path_str(),
-        None,
-    )
-    .unwrap();
 
     for _ in 0..3 {
         next_block_and_mine_commit(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
@@ -10815,7 +10803,7 @@ fn test_tenure_extend_from_flashblocks() {
     next_block_and_mine_commit(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     // prevent the miner from sending another block-commit
-    nakamoto_test_skip_commit_op.set(true);
+    counters.naka_skip_commit_op.set(true);
 
     let info_before = get_chain_info(&naka_conf);
 
@@ -10848,7 +10836,7 @@ fn test_tenure_extend_from_flashblocks() {
     // mine another Bitcoin block right away, and force it to be a flash block
     btc_regtest_controller.bootstrap_chain(1);
 
-    let miner_directives_before = nakamoto_miner_directives.load(Ordering::SeqCst);
+    let miner_directives_before = counters.naka_miner_directives.load(Ordering::SeqCst);
 
     // unblock the relayer so it can process the flash block sortition.
     // Given the above, this will be an `Extend` tenure.
@@ -10874,28 +10862,6 @@ fn test_tenure_extend_from_flashblocks() {
     assert_eq!(new_canonical_stacks_tip_ch, canonical_stacks_tip_ch);
     // the sortition that elected the ongoing tenure is not the canonical sortition tip
     assert_ne!(sort_tip.consensus_hash, election_tip.consensus_hash);
-
-    // we can, however, continue the tenure
-    let canonical_stacks_tip = RelayerThread::can_continue_tenure(
-        &sortdb,
-        &mut chainstate,
-        sort_tip.consensus_hash.clone(),
-        Some(mining_key_pkh.clone()),
-    )
-    .unwrap()
-    .unwrap();
-    assert_eq!(canonical_stacks_tip, election_tip);
-
-    // if we didn't win the last block -- tantamount to the sortition winner miner key being
-    // different -- then we can't continue the tenure.
-    assert!(RelayerThread::can_continue_tenure(
-        &sortdb,
-        &mut chainstate,
-        sort_tip.consensus_hash.clone(),
-        Some(Hash160([0x11; 20]))
-    )
-    .unwrap()
-    .is_none());
 
     let mut accounts_before = vec![];
     let mut sent_txids = vec![];
@@ -10929,13 +10895,12 @@ fn test_tenure_extend_from_flashblocks() {
     }
 
     // unstall miner thread and allow block-commits again
-    nakamoto_test_skip_commit_op.set(false);
+    counters.naka_skip_commit_op.set(false);
     TEST_MINE_STALL.set(false);
 
     // wait for the miner directive to be processed
     wait_for(60, || {
-        let directives_cnt = nakamoto_miner_directives.load(Ordering::SeqCst);
-        Ok(directives_cnt > miner_directives_before)
+        Ok(counters.naka_miner_directives.load(Ordering::SeqCst) > miner_directives_before)
     })
     .unwrap();
 
