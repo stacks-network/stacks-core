@@ -10868,14 +10868,15 @@ fn mark_miner_as_invalid_if_reorg_is_rejected() {
                 }
                 SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                     signer_signature_hash,
-                    reason_code,
+                    response_data,
                     ..
                 })) => {
                     if signer_signature_hash == block_n1_prime.signer_signature_hash {
                         assert_eq!(
-                            reason_code,
-                            RejectCode::ReorgNotAllowed,
-                            "Block N+1' was rejected for the wrong reason: {reason_code}"
+                            response_data.reject_reason,
+                            RejectReason::ReorgNotAllowed,
+                            "Block N+1' was rejected for the wrong reason: {}",
+                            response_data.reject_reason
                         );
                         rejections += 1;
                     }
@@ -10934,12 +10935,12 @@ fn mark_miner_as_invalid_if_reorg_is_rejected() {
             match message {
                 SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                     signer_signature_hash,
-                    reason_code,
+                    response_data,
                     ..
                 })) => {
                     if signer_signature_hash == block_n1_prime.signer_signature_hash
-                        && (reason_code == RejectCode::InvalidMiner
-                            || reason_code == RejectCode::ReorgNotAllowed)
+                        && (response_data.reject_reason == RejectReason::InvalidMiner
+                            || response_data.reject_reason == RejectReason::ReorgNotAllowed)
                     {
                         rejections += 1;
                     }
