@@ -2732,7 +2732,7 @@ impl ConversationP2P {
 
             let msg_id = msg.payload.get_message_id();
             if let Some(count) = self.stats.msg_rx_counts.get_mut(&msg_id) {
-                *count = *count + 1;
+                *count += 1;
             } else {
                 self.stats.msg_rx_counts.insert(msg_id, 1);
             }
@@ -3354,19 +3354,11 @@ mod test {
             chain_view_2.rc_consensus_hash = peer_2_rc_consensus_hash.clone();
 
             let test_name_1 = format!(
-                "convo_handshake_accept_1-{}-{}-{}-{}",
-                peer_1_services,
-                peer_2_services,
-                &peer_1_rc_consensus_hash,
-                &peer_2_rc_consensus_hash
+                "convo_handshake_accept_1-{peer_1_services}-{peer_2_services}-{peer_1_rc_consensus_hash}-{peer_2_rc_consensus_hash}"
             );
 
             let test_name_2 = format!(
-                "convo_handshake_accept_1-{}-{}-{}-{}",
-                peer_1_services,
-                peer_2_services,
-                &peer_1_rc_consensus_hash,
-                &peer_2_rc_consensus_hash
+                "convo_handshake_accept_1-{peer_1_services}-{peer_2_services}-{peer_1_rc_consensus_hash}-{peer_2_rc_consensus_hash}"
             );
 
             let burnchain_1 = testing_burnchain_config(&test_name_1);
@@ -3515,110 +3507,97 @@ mod test {
 
             let reply_1 = rh_1.recv(0).unwrap();
 
-            assert_eq!(unhandled_1.len(), 0);
+            assert!(unhandled_1.is_empty());
             assert_eq!(unhandled_2.len(), 1);
 
             // convo 2 returns the handshake from convo 1
-            match unhandled_2[0].payload {
-                StacksMessageType::Handshake(ref data) => {
-                    assert_eq!(handshake_data_1, *data);
-                }
-                _ => {
-                    assert!(false);
-                }
-            };
+            if let StacksMessageType::Handshake(data) = &unhandled_2[0].payload {
+                assert_eq!(handshake_data_1, *data);
+            } else {
+                panic!("Unexpected payload message type");
+            }
 
             if (peer_1_services & (ServiceFlags::STACKERDB as u16) != 0)
                 && (peer_2_services & (ServiceFlags::STACKERDB as u16) != 0)
             {
                 // received a valid StackerDBHandshakeAccept from peer 2?
-                match reply_1.payload {
-                    StacksMessageType::StackerDBHandshakeAccept(ref data, ref db_data) => {
-                        assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
-                        assert_eq!(data.handshake.port, local_peer_2.port);
-                        assert_eq!(data.handshake.services, local_peer_2.services);
-                        assert_eq!(
-                            data.handshake.node_public_key,
-                            StacksPublicKeyBuffer::from_public_key(
-                                &Secp256k1PublicKey::from_private(&local_peer_2.private_key)
-                            )
-                        );
-                        assert_eq!(
-                            data.handshake.expire_block_height,
-                            local_peer_2.private_key_expire
-                        );
-                        assert_eq!(data.handshake.data_url, "http://peer2.com".into());
-                        assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
-
-                        if peer_1_rc_consensus_hash == peer_2_rc_consensus_hash {
-                            assert_eq!(db_data.rc_consensus_hash, chain_view_1.rc_consensus_hash);
-
-                            // remote peer always replies with its supported smart contracts
-                            assert_eq!(
-                                db_data.smart_contracts,
-                                vec![QualifiedContractIdentifier::parse(
-                                    "SP000000000000000000002Q6VF78.sbtc"
-                                )
-                                .unwrap()]
-                            );
-
-                            // peers learn each others' smart contract DBs
-                            eprintln!(
-                                "{:?}, {:?}",
-                                &convo_1.db_smart_contracts, &convo_2.db_smart_contracts
-                            );
-                            assert_eq!(convo_1.db_smart_contracts.len(), 1);
-                            assert!(convo_1.replicates_stackerdb(
-                                &QualifiedContractIdentifier::parse(
-                                    "SP000000000000000000002Q6VF78.sbtc"
-                                )
-                                .unwrap()
-                            ));
-                        } else {
-                            assert_eq!(db_data.rc_consensus_hash, chain_view_2.rc_consensus_hash);
-
-                            // peers ignore each others' smart contract DBs
-                            eprintln!(
-                                "{:?}, {:?}",
-                                &convo_1.db_smart_contracts, &convo_2.db_smart_contracts
-                            );
-                            assert_eq!(convo_1.db_smart_contracts.len(), 0);
-                            assert!(!convo_1.replicates_stackerdb(
-                                &QualifiedContractIdentifier::parse(
-                                    "SP000000000000000000002Q6VF78.sbtc"
-                                )
-                                .unwrap()
-                            ));
-                        }
-                    }
-                    _ => {
-                        assert!(false);
-                    }
+                let StacksMessageType::StackerDBHandshakeAccept(ref data, ref db_data) =
+                    reply_1.payload
+                else {
+                    panic!("Unexpected payload message type");
                 };
-            } else {
-                // received a valid HandshakeAccept from peer 2?
-                match reply_1.payload {
-                    StacksMessageType::HandshakeAccept(ref data) => {
-                        assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
-                        assert_eq!(data.handshake.port, local_peer_2.port);
-                        assert_eq!(data.handshake.services, local_peer_2.services);
-                        assert_eq!(
-                            data.handshake.node_public_key,
-                            StacksPublicKeyBuffer::from_public_key(
-                                &Secp256k1PublicKey::from_private(&local_peer_2.private_key)
-                            )
-                        );
-                        assert_eq!(
-                            data.handshake.expire_block_height,
-                            local_peer_2.private_key_expire
-                        );
-                        assert_eq!(data.handshake.data_url, "http://peer2.com".into());
-                        assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
-                    }
-                    _ => {
-                        assert!(false);
-                    }
+                assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
+                assert_eq!(data.handshake.port, local_peer_2.port);
+                assert_eq!(data.handshake.services, local_peer_2.services);
+                assert_eq!(
+                    data.handshake.node_public_key,
+                    StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(
+                        &local_peer_2.private_key
+                    ))
+                );
+                assert_eq!(
+                    data.handshake.expire_block_height,
+                    local_peer_2.private_key_expire
+                );
+                assert_eq!(data.handshake.data_url, "http://peer2.com".into());
+                assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
+
+                if peer_1_rc_consensus_hash == peer_2_rc_consensus_hash {
+                    assert_eq!(db_data.rc_consensus_hash, chain_view_1.rc_consensus_hash);
+
+                    // remote peer always replies with its supported smart contracts
+                    assert_eq!(
+                        db_data.smart_contracts,
+                        vec![QualifiedContractIdentifier::parse(
+                            "SP000000000000000000002Q6VF78.sbtc"
+                        )
+                        .unwrap()]
+                    );
+
+                    // peers learn each others' smart contract DBs
+                    eprintln!(
+                        "{:?}, {:?}",
+                        &convo_1.db_smart_contracts, &convo_2.db_smart_contracts
+                    );
+                    assert_eq!(convo_1.db_smart_contracts.len(), 1);
+                    assert!(convo_1.replicates_stackerdb(
+                        &QualifiedContractIdentifier::parse("SP000000000000000000002Q6VF78.sbtc")
+                            .unwrap()
+                    ));
+                } else {
+                    assert_eq!(db_data.rc_consensus_hash, chain_view_2.rc_consensus_hash);
+
+                    // peers ignore each others' smart contract DBs
+                    eprintln!(
+                        "{:?}, {:?}",
+                        &convo_1.db_smart_contracts, &convo_2.db_smart_contracts
+                    );
+                    assert!(convo_1.db_smart_contracts.is_empty());
+                    assert!(!convo_1.replicates_stackerdb(
+                        &QualifiedContractIdentifier::parse("SP000000000000000000002Q6VF78.sbtc")
+                            .unwrap()
+                    ));
                 }
+            } else {
+                let StacksMessageType::HandshakeAccept(data) = &reply_1.payload else {
+                    panic!("Unexpected payload message type");
+                };
+                // received a valid HandshakeAccept from peer 2
+                assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
+                assert_eq!(data.handshake.port, local_peer_2.port);
+                assert_eq!(data.handshake.services, local_peer_2.services);
+                assert_eq!(
+                    data.handshake.node_public_key,
+                    StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(
+                        &local_peer_2.private_key
+                    ))
+                );
+                assert_eq!(
+                    data.handshake.expire_block_height,
+                    local_peer_2.private_key_expire
+                );
+                assert_eq!(data.handshake.data_url, "http://peer2.com".into());
+                assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
             }
 
             // convo_2 got updated with convo_1's peer info, but no heartbeat info
@@ -3797,42 +3776,36 @@ mod test {
 
             let reply_1 = rh_1.recv(0).unwrap();
 
-            assert_eq!(unhandled_1.len(), 0);
+            assert!(unhandled_1.is_empty());
             assert_eq!(unhandled_2.len(), 1);
 
             // convo 2 returns the handshake from convo 1
-            match unhandled_2[0].payload {
-                StacksMessageType::Handshake(ref data) => {
-                    assert_eq!(handshake_data_1, *data);
-                }
-                _ => {
-                    assert!(false);
-                }
-            };
+            if let StacksMessageType::Handshake(data) = &unhandled_2[0].payload {
+                assert_eq!(handshake_data_1, *data);
+            } else {
+                panic!("Unexpected payload message type");
+            }
 
             // received a valid HandshakeAccept from peer 2
-            match reply_1.payload {
-                StacksMessageType::HandshakeAccept(ref data) => {
-                    assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
-                    assert_eq!(data.handshake.port, local_peer_2.port);
-                    assert_eq!(data.handshake.services, local_peer_2.services);
-                    assert_eq!(
-                        data.handshake.node_public_key,
-                        StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(
-                            &local_peer_2.private_key
-                        ))
-                    );
-                    assert_eq!(
-                        data.handshake.expire_block_height,
-                        local_peer_2.private_key_expire
-                    );
-                    assert_eq!(data.handshake.data_url, "http://peer2.com".into());
-                    assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
-                }
-                _ => {
-                    assert!(false);
-                }
-            };
+            if let StacksMessageType::HandshakeAccept(ref data) = reply_1.payload {
+                assert_eq!(data.handshake.addrbytes, local_peer_2.addrbytes);
+                assert_eq!(data.handshake.port, local_peer_2.port);
+                assert_eq!(data.handshake.services, local_peer_2.services);
+                assert_eq!(
+                    data.handshake.node_public_key,
+                    StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(
+                        &local_peer_2.private_key
+                    ))
+                );
+                assert_eq!(
+                    data.handshake.expire_block_height,
+                    local_peer_2.private_key_expire
+                );
+                assert_eq!(data.handshake.data_url, "http://peer2.com".into());
+                assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
+            } else {
+                panic!("Unexpected payload message type");
+            }
 
             // convo_2 got updated with convo_1's peer info, but no heartbeat info
             assert_eq!(convo_2.peer_heartbeat, 3600);
@@ -3976,16 +3949,14 @@ mod test {
 
         let reply_1 = rh_1.recv(0).unwrap();
 
-        assert_eq!(unhandled_1.len(), 0);
-        assert_eq!(unhandled_2.len(), 0);
+        assert!(unhandled_1.is_empty());
+        assert!(unhandled_2.is_empty());
 
         // received a valid HandshakeReject from peer 2
-        match reply_1.payload {
-            StacksMessageType::HandshakeReject => {}
-            _ => {
-                assert!(false);
-            }
-        };
+        assert!(matches!(
+            reply_1.payload,
+            StacksMessageType::HandshakeReject
+        ));
 
         // neither peer updated their info on one another
         assert!(convo_1.connection.get_public_key().is_none());
@@ -4103,12 +4074,11 @@ mod test {
                 StacksMessageType::Handshake(handshake_data_1),
             )
             .unwrap();
-        match handshake_1.payload {
-            StacksMessageType::Handshake(ref mut data) => {
-                data.expire_block_height += 1;
-            }
-            _ => panic!(),
-        };
+        if let StacksMessageType::Handshake(ref mut data) = handshake_1.payload {
+            data.expire_block_height += 1;
+        } else {
+            panic!("Unexpected payload message type");
+        }
 
         let mut rh_1 = convo_1.send_signed_request(handshake_1, 1000000).unwrap();
 
@@ -4129,7 +4099,7 @@ mod test {
         assert_eq!(unhandled_2_err.unwrap_err(), net_error::InvalidMessage);
         assert_eq!(reply_1_err, Err(net_error::ConnectionBroken));
 
-        assert_eq!(unhandled_1.len(), 0);
+        assert!(unhandled_1.is_empty());
 
         // neither peer updated their info on one another
         assert!(convo_1.connection.get_public_key().is_none());
@@ -4287,15 +4257,13 @@ mod test {
         let reply_1 = rh_1.recv(0).unwrap();
 
         // received a valid HandshakeReject from peer 2
-        match reply_1.payload {
-            StacksMessageType::HandshakeReject => {}
-            _ => {
-                assert!(false);
-            }
-        };
+        assert!(matches!(
+            reply_1.payload,
+            StacksMessageType::HandshakeReject
+        ));
 
-        assert_eq!(unhandled_1.len(), 0);
-        assert_eq!(unhandled_2.len(), 0);
+        assert!(unhandled_1.is_empty());
+        assert!(unhandled_2.is_empty());
     }
 
     #[test]
@@ -4421,16 +4389,14 @@ mod test {
 
         let reply_1 = rh_1.recv(0).unwrap();
 
-        assert_eq!(unhandled_1.len(), 0);
+        assert!(unhandled_1.is_empty());
         assert_eq!(unhandled_2.len(), 1);
 
         // received a valid HandshakeAccept from peer 2
-        match reply_1.payload {
-            StacksMessageType::HandshakeAccept(..) => {}
-            _ => {
-                assert!(false);
-            }
-        };
+        assert!(matches!(
+            reply_1.payload,
+            StacksMessageType::HandshakeAccept(..)
+        ));
 
         // peers learned each other's keys
         assert_eq!(
@@ -4475,7 +4441,7 @@ mod test {
 
         let reply_1 = rh_1.recv(0).unwrap();
 
-        assert_eq!(unhandled_1.len(), 0);
+        assert!(unhandled_1.is_empty());
         assert_eq!(unhandled_2.len(), 1);
 
         // new keys were learned
@@ -4621,15 +4587,13 @@ mod test {
         let reply_1 = rh_1.recv(0).unwrap();
 
         // received a valid HandshakeReject from peer 2
-        match reply_1.payload {
-            StacksMessageType::HandshakeReject => {}
-            _ => {
-                assert!(false);
-            }
-        };
+        assert!(matches!(
+            reply_1.payload,
+            StacksMessageType::HandshakeReject
+        ));
 
-        assert_eq!(unhandled_1.len(), 0);
-        assert_eq!(unhandled_2.len(), 0);
+        assert!(unhandled_1.is_empty());
+        assert!(unhandled_2.is_empty());
 
         // neither peer updated their info on one another
         assert!(convo_1.connection.get_public_key().is_none());
@@ -4762,8 +4726,8 @@ mod test {
 
         // convo_2 receives the handshake and ping and processes both, and since no one is waiting for the handshake, will forward
         // it along to the chat caller (us)
-        test_debug!("send handshake {:?}", &handshake_1);
-        test_debug!("send ping {:?}", &ping_1);
+        test_debug!("send handshake {handshake_1:?}");
+        test_debug!("send ping {ping_1:?}");
         convo_send_recv(
             &mut convo_1,
             vec![&mut rh_handshake_1, &mut rh_ping_1],
@@ -4788,27 +4752,21 @@ mod test {
         let reply_handshake_1 = rh_handshake_1.recv(0).unwrap();
         let reply_ping_1 = rh_ping_1.recv(0).unwrap();
 
-        assert_eq!(unhandled_1.len(), 0);
+        assert!(unhandled_1.is_empty());
         assert_eq!(unhandled_2.len(), 1); // only the handshake is given back.  the ping is consumed
 
         // convo 2 returns the handshake from convo 1
-        match unhandled_2[0].payload {
-            StacksMessageType::Handshake(ref data) => {
-                assert_eq!(handshake_data_1, *data);
-            }
-            _ => {
-                assert!(false);
-            }
-        };
+        if let StacksMessageType::Handshake(ref data) = unhandled_2[0].payload {
+            assert_eq!(handshake_data_1, *data);
+        } else {
+            panic!("Unexpected payload message type");
+        }
 
         // convo 2 replied to convo 1 with a matching pong
-        match reply_ping_1.payload {
-            StacksMessageType::Pong(ref data) => {
-                assert_eq!(data.nonce, ping_data_1.nonce);
-            }
-            _ => {
-                assert!(false);
-            }
+        if let StacksMessageType::Pong(ref data) = reply_ping_1.payload {
+            assert_eq!(data.nonce, ping_data_1.nonce);
+        } else {
+            panic!("Unexpected payload message type");
         }
     }
 
@@ -4960,27 +4918,21 @@ mod test {
             let reply_handshake_1 = rh_handshake_1.recv(0).unwrap();
             let reply_ping_1 = rh_ping_1.recv(0).unwrap();
 
-            assert_eq!(unhandled_1.len(), 0);
+            assert!(unhandled_1.is_empty());
             assert_eq!(unhandled_2.len(), 1); // only the handshake is given back.  the ping is consumed
 
             // convo 2 returns the handshake from convo 1
-            match unhandled_2[0].payload {
-                StacksMessageType::Handshake(ref data) => {
-                    assert_eq!(handshake_data_1, *data);
-                }
-                _ => {
-                    assert!(false);
-                }
-            };
+            if let StacksMessageType::Handshake(ref data) = unhandled_2[0].payload {
+                assert_eq!(handshake_data_1, *data);
+            } else {
+                panic!("Unexpected payload message type");
+            }
 
             // convo 2 replied to convo 1 with a matching pong
-            match reply_ping_1.payload {
-                StacksMessageType::Pong(ref data) => {
-                    assert_eq!(data.nonce, ping_data_1.nonce);
-                }
-                _ => {
-                    assert!(false);
-                }
+            if let StacksMessageType::Pong(ref data) = reply_ping_1.payload {
+                assert_eq!(data.nonce, ping_data_1.nonce);
+            } else {
+                panic!("Unexpected payload message type");
             }
 
             // received a valid HandshakeAccept from peer 2
@@ -5003,7 +4955,7 @@ mod test {
                     assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
                 }
                 _ => {
-                    assert!(false);
+                    panic!("Unexpected payload message type");
                 }
             };
 
@@ -5167,18 +5119,15 @@ mod test {
         let reply_1 = rh_ping_1.recv(0).unwrap();
 
         // convo_2 gives back nothing
-        assert_eq!(unhandled_1.len(), 0);
-        assert_eq!(unhandled_2.len(), 0);
+        assert!(unhandled_1.is_empty());
+        assert!(unhandled_2.is_empty());
 
         // convo_1 got a NACK
-        match reply_1.payload {
-            StacksMessageType::Nack(ref data) => {
-                assert_eq!(data.error_code, NackErrorCodes::HandshakeRequired);
-            }
-            _ => {
-                assert!(false);
-            }
-        };
+        if let StacksMessageType::Nack(ref data) = reply_1.payload {
+            assert_eq!(data.error_code, NackErrorCodes::HandshakeRequired);
+        } else {
+            panic!("Unexpected payload message type");
+        }
 
         // convo_2 did NOT get updated with convo_1's peer info
         assert_eq!(convo_2.peer_heartbeat, 0);
@@ -5350,8 +5299,8 @@ mod test {
             }
 
             // convo_2 gives back nothing
-            assert_eq!(unhandled_1.len(), 0);
-            assert_eq!(unhandled_2.len(), 0);
+            assert!(unhandled_1.is_empty());
+            assert!(unhandled_2.is_empty());
 
             // convo_2 did NOT get updated with convo_1's peer info
             assert_eq!(convo_2.peer_heartbeat, 0);
@@ -5490,18 +5439,15 @@ mod test {
 
             let reply_1 = rh_1.recv(0).unwrap();
 
-            assert_eq!(unhandled_1.len(), 0);
+            assert!(unhandled_1.is_empty());
             assert_eq!(unhandled_2.len(), 1);
 
             // convo 2 returns the handshake from convo 1
-            match unhandled_2[0].payload {
-                StacksMessageType::Handshake(ref data) => {
-                    assert_eq!(handshake_data_1, *data);
-                }
-                _ => {
-                    assert!(false);
-                }
-            };
+            if let StacksMessageType::Handshake(ref data) = unhandled_2[0].payload {
+                assert_eq!(handshake_data_1, *data);
+            } else {
+                panic!("Unexpected payload message type");
+            }
 
             // received a valid HandshakeAccept from peer 2
             match reply_1.payload {
@@ -5524,7 +5470,7 @@ mod test {
                     assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
                 }
                 _ => {
-                    assert!(false);
+                    panic!("Unexpected payload message type");
                 }
             };
 
@@ -5574,8 +5520,8 @@ mod test {
             let reply_1 = rh_1.recv(0).unwrap();
 
             // no unhandled messages forwarded
-            assert_eq!(unhandled_1, vec![]);
-            assert_eq!(unhandled_2, vec![]);
+            assert!(unhandled_1.is_empty());
+            assert!(unhandled_2.is_empty());
 
             // convo 2 returned a block-inv for all blocks
             match reply_1.payload {
@@ -5589,8 +5535,7 @@ mod test {
                     }
                 }
                 x => {
-                    error!("received invalid payload: {:?}", &x);
-                    assert!(false);
+                    panic!("received invalid payload: {x:?}");
                 }
             }
 
@@ -5627,17 +5572,14 @@ mod test {
             let reply_1 = rh_1.recv(0).unwrap();
 
             // no unhandled messages forwarded
-            assert_eq!(unhandled_1, vec![]);
-            assert_eq!(unhandled_2, vec![]);
+            assert!(unhandled_1.is_empty());
+            assert!(unhandled_2.is_empty());
 
             // convo 2 returned a nack with the appropriate error message
-            match reply_1.payload {
-                StacksMessageType::Nack(ref data) => {
-                    assert_eq!(data.error_code, NackErrorCodes::NoSuchBurnchainBlock);
-                }
-                _ => {
-                    assert!(false);
-                }
+            if let StacksMessageType::Nack(ref data) = reply_1.payload {
+                assert_eq!(data.error_code, NackErrorCodes::NoSuchBurnchainBlock);
+            } else {
+                panic!("Unexpected payload message type");
             }
         })
     }
@@ -5769,18 +5711,15 @@ mod test {
 
             let reply_1 = rh_1.recv(0).unwrap();
 
-            assert_eq!(unhandled_1.len(), 0);
+            assert!(unhandled_1.is_empty());
             assert_eq!(unhandled_2.len(), 1);
 
             // convo 2 returns the handshake from convo 1
-            match unhandled_2[0].payload {
-                StacksMessageType::Handshake(ref data) => {
-                    assert_eq!(handshake_data_1, *data);
-                }
-                _ => {
-                    assert!(false);
-                }
-            };
+            if let StacksMessageType::Handshake(ref data) = unhandled_2[0].payload {
+                assert_eq!(handshake_data_1, *data);
+            } else {
+                panic!("Unexpected payload message type");
+            }
 
             // received a valid HandshakeAccept from peer 2
             match reply_1.payload {
@@ -5803,7 +5742,7 @@ mod test {
                     assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
                 }
                 _ => {
-                    assert!(false);
+                    panic!("Unexpected payload message type");
                 }
             };
 
@@ -5852,24 +5791,20 @@ mod test {
             let reply_1 = rh_1.recv(0).unwrap();
 
             // no unhandled messages forwarded
-            assert_eq!(unhandled_1, vec![]);
-            assert_eq!(unhandled_2, vec![]);
+            assert!(unhandled_1.is_empty());
+            assert!(unhandled_2.is_empty());
 
             // convo 2 returned a tenure-inv for all tenures
-            match reply_1.payload {
-                StacksMessageType::NakamotoInv(ref data) => {
-                    assert_eq!(data.tenures.len(), 10);
-                    test_debug!("data: {:?}", data);
+            if let StacksMessageType::NakamotoInv(ref data) = reply_1.payload {
+                assert_eq!(data.tenures.len(), 10);
+                test_debug!("data: {data:?}");
 
-                    // all burn blocks had sortitions, but we have no tenures :(
-                    for i in 0..10 {
-                        assert_eq!(data.tenures.get(i).unwrap(), false);
-                    }
+                // all burn blocks had sortitions, but we have no tenures :(
+                for i in 0..10 {
+                    assert!(!data.tenures.get(i).unwrap());
                 }
-                x => {
-                    error!("received invalid payload: {:?}", &x);
-                    assert!(false);
-                }
+            } else {
+                panic!("Unexpected payload message type");
             }
 
             // request for a non-existent consensus hash
@@ -5904,17 +5839,14 @@ mod test {
             let reply_1 = rh_1.recv(0).unwrap();
 
             // no unhandled messages forwarded
-            assert_eq!(unhandled_1, vec![]);
-            assert_eq!(unhandled_2, vec![]);
+            assert!(unhandled_1.is_empty());
+            assert!(unhandled_2.is_empty());
 
             // convo 2 returned a nack with the appropriate error message
-            match reply_1.payload {
-                StacksMessageType::Nack(ref data) => {
-                    assert_eq!(data.error_code, NackErrorCodes::NoSuchBurnchainBlock);
-                }
-                _ => {
-                    assert!(false);
-                }
+            if let StacksMessageType::Nack(ref data) = reply_1.payload {
+                assert_eq!(data.error_code, NackErrorCodes::NoSuchBurnchainBlock);
+            } else {
+                panic!("Unexpected payload message type");
             }
         })
     }
@@ -6046,19 +5978,16 @@ mod test {
         let natpunch_reply_1 = rh_natpunch_1.recv(0).unwrap();
 
         // handled and consumed
-        assert_eq!(unhandled_1.len(), 0);
-        assert_eq!(unhandled_2.len(), 0);
+        assert!(unhandled_1.is_empty());
+        assert!(unhandled_2.is_empty());
 
         // convo_2 replies the natpunch data for convo_1 -- i.e. what convo_2 thinks convo_1's IP
         // address is
-        match natpunch_reply_1.payload {
-            StacksMessageType::NatPunchReply(ref data) => {
-                assert_eq!(data.addrbytes, PeerAddress::from_socketaddr(&socketaddr_1));
-                assert_eq!(data.nonce, 0x12345678);
-            }
-            _ => {
-                assert!(false);
-            }
+        if let StacksMessageType::NatPunchReply(ref data) = natpunch_reply_1.payload {
+            assert_eq!(data.addrbytes, PeerAddress::from_socketaddr(&socketaddr_1));
+            assert_eq!(data.nonce, 0x12345678);
+        } else {
+            panic!("Unexpected payload message type");
         }
     }
 
@@ -6454,7 +6383,7 @@ mod test {
         // stats updated
         assert_eq!(convo.stats.relayed_messages.len(), 2);
         let relayer_map = convo.stats.take_relayers();
-        assert_eq!(convo.stats.relayed_messages.len(), 0);
+        assert!(convo.stats.relayed_messages.is_empty());
 
         for r in relayers.into_iter() {
             assert!(relayer_map.contains_key(&r.peer));
@@ -6825,12 +6754,10 @@ mod test {
             )
             .unwrap_err();
 
-        match fail {
-            net_error::InvalidMessage => {}
-            e => {
-                panic!("FATAL: unexpected error {:?}", &e);
-            }
-        }
+        assert!(
+            matches!(fail, net_error::InvalidMessage),
+            "FATAL: unexpected error {fail:?}"
+        );
 
         // can't forward with a loop either
         let fail = convo_1
@@ -6842,12 +6769,10 @@ mod test {
             )
             .unwrap_err();
 
-        match fail {
-            net_error::InvalidMessage => {}
-            e => {
-                panic!("FATAL: unexpected error {:?}", &e);
-            }
-        }
+        assert!(
+            matches!(fail, net_error::InvalidMessage),
+            "FATAL: unexpected error {fail:?}"
+        );
     }
 
     #[test]
@@ -7004,15 +6929,13 @@ mod test {
         bad_msg.preamble.payload_len = 10;
 
         let err_before = convo_1.stats.msgs_err;
-        match convo_1
+        let fail = convo_1
             .validate_blocks_push(&net_1, &bad_msg.preamble, bad_msg.relayers.clone())
-            .unwrap_err()
-        {
-            net_error::InvalidMessage => {}
-            e => {
-                panic!("Wrong error: {:?}", &e);
-            }
-        }
+            .unwrap_err();
+        assert!(
+            matches!(fail, net_error::InvalidMessage),
+            "FATAL: unexpected error {fail:?}"
+        );
         assert_eq!(convo_1.stats.msgs_err, err_before + 1);
 
         // mock a second local peer with a different private key
@@ -7133,15 +7056,13 @@ mod test {
         bad_msg.preamble.payload_len = 10;
 
         let err_before = convo_1.stats.msgs_err;
-        match convo_1
+        let fail = convo_1
             .validate_transaction_push(&net_1, &bad_msg.preamble, bad_msg.relayers.clone())
-            .unwrap_err()
-        {
-            net_error::InvalidMessage => {}
-            e => {
-                panic!("Wrong error: {:?}", &e);
-            }
-        }
+            .unwrap_err();
+        assert!(
+            matches!(fail, net_error::InvalidMessage),
+            "Wrong error {fail:?}"
+        );
         assert_eq!(convo_1.stats.msgs_err, err_before + 1);
 
         // mock a second local peer with a different private key
@@ -7262,15 +7183,13 @@ mod test {
         bad_msg.preamble.payload_len = 10;
 
         let err_before = convo_1.stats.msgs_err;
-        match convo_1
+        let fail = convo_1
             .validate_microblocks_push(&net_1, &bad_msg.preamble, bad_msg.relayers.clone())
-            .unwrap_err()
-        {
-            net_error::InvalidMessage => {}
-            e => {
-                panic!("Wrong error: {:?}", &e);
-            }
-        }
+            .unwrap_err();
+        assert!(
+            matches!(fail, net_error::InvalidMessage),
+            "Wrong error {fail:?}"
+        );
         assert_eq!(convo_1.stats.msgs_err, err_before + 1);
 
         // mock a second local peer with a different private key
@@ -7391,15 +7310,13 @@ mod test {
         bad_msg.preamble.payload_len = 10;
 
         let err_before = convo_1.stats.msgs_err;
-        match convo_1
+        let fail = convo_1
             .validate_stackerdb_push(&net_1, &bad_msg.preamble, bad_msg.relayers.clone())
-            .unwrap_err()
-        {
-            net_error::InvalidMessage => {}
-            e => {
-                panic!("Wrong error: {:?}", &e);
-            }
-        }
+            .unwrap_err();
+        assert!(
+            matches!(fail, net_error::InvalidMessage),
+            "Wrong error {fail:?}"
+        );
         assert_eq!(convo_1.stats.msgs_err, err_before + 1);
 
         // mock a second local peer with a different private key

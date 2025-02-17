@@ -336,7 +336,7 @@ fn test_stream_mempool_txs() {
         test_debug!("Decode {}", to_hex(ptr));
         let (next_txs, next_page) = decode_tx_stream(&mut ptr).unwrap();
 
-        assert_eq!(next_txs.len(), 0);
+        assert!(next_txs.is_empty());
 
         if let Some(next_page) = next_page {
             page_id = next_page;
@@ -373,7 +373,7 @@ fn test_decode_tx_stream() {
     // valid empty tx stream
     let empty_stream = [0x11u8; 32];
     let (next_txs, next_page) = decode_tx_stream(&mut empty_stream.as_ref()).unwrap();
-    assert_eq!(next_txs.len(), 0);
+    assert!(next_txs.is_empty());
     assert_eq!(next_page, Some(Txid([0x11; 32])));
 
     // valid tx stream with a page id at the end
@@ -398,24 +398,18 @@ fn test_decode_tx_stream() {
     // garbage tx stream
     let garbage_stream = [0xff; 256];
     let err = decode_tx_stream(&mut garbage_stream.as_ref());
-    match err {
-        Err(NetError::ExpectedEndOfStream) => {}
-        x => {
-            error!("did not fail: {:?}", &x);
-            panic!();
-        }
-    }
+    assert!(
+        matches!(err, Err(NetError::ExpectedEndOfStream)),
+        "did not fail with correct error"
+    );
 
     // tx stream that is too short
     let short_stream = [0x33u8; 33];
     let err = decode_tx_stream(&mut short_stream.as_ref());
-    match err {
-        Err(NetError::ExpectedEndOfStream) => {}
-        x => {
-            error!("did not fail: {:?}", &x);
-            panic!();
-        }
-    }
+    assert!(
+        matches!(err, Err(NetError::ExpectedEndOfStream)),
+        "did not fail with correct error"
+    );
 
     // tx stream has a tx, a page ID, and then another tx
     let mut interrupted_stream = vec![];
@@ -424,11 +418,8 @@ fn test_decode_tx_stream() {
     txs[1].consensus_serialize(&mut interrupted_stream).unwrap();
 
     let err = decode_tx_stream(&mut &interrupted_stream[..]);
-    match err {
-        Err(NetError::ExpectedEndOfStream) => {}
-        x => {
-            error!("did not fail: {:?}", &x);
-            panic!();
-        }
-    }
+    assert!(
+        matches!(err, Err(NetError::ExpectedEndOfStream)),
+        "did not fail with correct error"
+    );
 }
