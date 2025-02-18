@@ -234,9 +234,8 @@ where
 
 fn exec_cost(contract: &str, use_mainnet: bool, epoch: StacksEpochId) -> ExecutionCost {
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
-    let p1_principal = match p1 {
-        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(PrincipalData::Standard(p1_principal)) = p1.clone() else {
+        panic!("Expected a standard principal data");
     };
     let contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "self".into());
 
@@ -842,13 +841,12 @@ fn setup_cost_tracked_test(
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
 
-    let p1_principal = match p1 {
-        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(PrincipalData::Standard(p1_principal)) = p1.clone() else {
+        panic!("Expected a standard principal data");
     };
-    let p2_principal = match p2 {
-        Value::Principal(ref data) => data.clone(),
-        _ => panic!(),
+
+    let Value::Principal(p2_principal) = p2.clone() else {
+        panic!("Expected a principal data");
     };
 
     let other_contract_id =
@@ -898,13 +896,12 @@ fn test_program_cost(
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
 
-    let p1_principal = match p1 {
-        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(PrincipalData::Standard(p1_principal)) = p1.clone() else {
+        panic!("Expected a standard principal data");
     };
-    let p2_principal = match p2 {
-        Value::Principal(ref data) => data.clone(),
-        _ => panic!(),
+
+    let Value::Principal(p2_principal) = p2.clone() else {
+        panic!("Expected a principal data");
     };
 
     let self_contract_id = QualifiedContractIdentifier::new(
@@ -1032,13 +1029,12 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
     let p1 = execute_on_network("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR", use_mainnet);
     let p2 = execute_on_network("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G", use_mainnet);
 
-    let p1_principal = match p1 {
-        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(PrincipalData::Standard(p1_principal)) = p1.clone() else {
+        panic!("Expected a standard principal data");
     };
-    let p2_principal = match p2 {
-        Value::Principal(ref data) => data.clone(),
-        _ => panic!(),
+
+    let Value::Principal(p2_principal) = p2.clone() else {
+        panic!("Expected a principal data");
     };
 
     let cost_definer =
@@ -1280,13 +1276,12 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
 
-    let p1_principal = match p1 {
-        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(PrincipalData::Standard(p1_principal)) = p1.clone() else {
+        panic!("Expected a standard principal data");
     };
-    let p2_principal = match p2 {
-        Value::Principal(ref data) => data.clone(),
-        _ => panic!(),
+
+    let Value::Principal(p2_principal) = p2.clone() else {
+        panic!("Expected a principal data");
     };
 
     let cost_definer =

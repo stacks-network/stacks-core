@@ -1155,7 +1155,7 @@ mod test {
         anchored_header.parent_block = parent_header_info.anchored_header.block_hash();
         anchored_header.microblock_pubkey_hash =
             Hash160::from_data(&anchored_header.microblock_pubkey_hash.0);
-        anchored_header.total_work.work = anchored_header.total_work.work + 1;
+        anchored_header.total_work.work += 1;
         new_tip.anchored_header = anchored_header.into();
         new_tip.microblock_tail = None;
         new_tip.stacks_block_height = parent_header_info.stacks_block_height + 1;

@@ -204,10 +204,7 @@ fn test_nakamoto_inv_10_tenures_10_sortitions() {
 
         assert_eq!(bitvec, bitvec_no_cache);
 
-        debug!(
-            "At reward cycle {}: {:?}, mesasge = {:?}",
-            rc, &bitvec, &inv
-        );
+        debug!("At reward cycle {rc}: {bitvec:?}, mesasge = {inv:?}");
 
         if rc <= 6 {
             // prior to start of nakamoto
@@ -223,11 +220,11 @@ fn test_nakamoto_inv_10_tenures_10_sortitions() {
             assert_eq!(bitvec, vec![true, true]);
         } else if rc >= 10 {
             // haven't processed this high yet
-            assert_eq!(bitvec.len(), 0);
+            assert!(bitvec.is_empty());
         }
 
         let StacksMessageType::NakamotoInv(inv) = inv else {
-            panic!("Did not receive an inv for reward cycle {}", rc);
+            panic!("Did not receive an inv for reward cycle {rc}");
         };
         assert_eq!(
             NakamotoInvData::try_from(&bitvec).unwrap().tenures,
@@ -299,10 +296,10 @@ fn test_nakamoto_inv_2_tenures_3_sortitions() {
             // nakamoto starts at height 37, but we skipeed the sortition at 38
             assert_eq!(bitvec, vec![false, false, true, false, true]);
         } else {
-            assert_eq!(bitvec.len(), 0);
+            assert!(bitvec.is_empty());
         }
         let StacksMessageType::NakamotoInv(inv) = inv else {
-            panic!("Did not receive an inv for reward cycle {}", rc);
+            panic!("Did not receive an inv for reward cycle {rc}");
         };
         assert_eq!(
             NakamotoInvData::try_from(&bitvec).unwrap().tenures,
@@ -377,10 +374,10 @@ fn test_nakamoto_inv_10_extended_tenures_10_sortitions() {
             assert_eq!(bitvec, vec![true, true]);
         } else if rc >= 10 {
             // haven't processed this high yet
-            assert_eq!(bitvec.len(), 0);
+            assert!(bitvec.is_empty());
         }
         let StacksMessageType::NakamotoInv(inv) = inv else {
-            panic!("Did not receive an inv for reward cycle {}", rc);
+            panic!("Did not receive an inv for reward cycle {rc}");
         };
         assert_eq!(
             NakamotoInvData::try_from(&bitvec).unwrap().tenures,
@@ -1086,26 +1083,24 @@ fn test_nakamoto_inv_sync_across_epoch_change() {
 
         // nothing should break
         if let Some(ref inv) = peer.network.inv_state {
-            assert_eq!(inv.get_broken_peers().len(), 0);
-            assert_eq!(inv.get_dead_peers().len(), 0);
-            assert_eq!(inv.get_diverged_peers().len(), 0);
+            assert!(inv.get_broken_peers().is_empty());
+            assert!(inv.get_dead_peers().is_empty());
+            assert!(inv.get_diverged_peers().is_empty());
         }
 
         if let Some(ref inv) = other_peer.network.inv_state {
-            assert_eq!(inv.get_broken_peers().len(), 0);
-            assert_eq!(inv.get_dead_peers().len(), 0);
-            assert_eq!(inv.get_diverged_peers().len(), 0);
+            assert!(inv.get_broken_peers().is_empty());
+            assert!(inv.get_dead_peers().is_empty());
+            assert!(inv.get_diverged_peers().is_empty());
         }
 
         round += 1;
 
         info!(
-            "Epoch 2.x state machine: Peer 1: {}, Peer 2: {} (total {})",
-            inv_1_count, inv_2_count, num_epoch2_blocks
+            "Epoch 2.x state machine: Peer 1: {inv_1_count}, Peer 2: {inv_2_count} (total {num_epoch2_blocks})"
         );
         info!(
-            "Nakamoto state machine: Peer 1: {}, Peer 2: {} (total {})",
-            highest_rc_1, highest_rc_2, total_rcs
+            "Nakamoto state machine: Peer 1: {highest_rc_1}, Peer 2: {highest_rc_2} (total {total_rcs})"
         );
     }
 }

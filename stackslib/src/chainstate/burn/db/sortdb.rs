@@ -8982,26 +8982,18 @@ pub mod tests {
             let err = ic
                 .get_stacks_header_hashes(256, &ConsensusHash([0x03; 20]), &BlockHeaderCache::new())
                 .unwrap_err();
-            match err {
-                db_error::NotFoundError => {}
-                _ => {
-                    eprintln!("Got wrong error: {:?}", &err);
-                    assert!(false);
-                    unreachable!();
-                }
-            }
+            assert!(
+                matches!(err, db_error::NotFoundError),
+                "Got wrong error: {err:?}"
+            );
 
             let err = ic
                 .get_stacks_header_hashes(256, &ConsensusHash([0x03; 20]), &cache)
                 .unwrap_err();
-            match err {
-                db_error::NotFoundError => {}
-                _ => {
-                    eprintln!("Got wrong error: {:?}", &err);
-                    assert!(false);
-                    unreachable!();
-                }
-            }
+            assert!(
+                matches!(err, db_error::NotFoundError),
+                "Got wrong error: {err:?}"
+            );
         }
     }
 
