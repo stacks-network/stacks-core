@@ -14,8 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::time::Duration;
+
 use rstest::rstest;
 use rstest_reuse::{self, *};
+use serial_test::serial;
 use stacks_common::address::{
     AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
@@ -41,9 +44,6 @@ use crate::vm::{
     ClarityVersion, ContractContext, Environment, GlobalContext, LocalContext, Value,
     MAX_EXECUTION_TIME_SECS, TEST_MAX_EXECUTION_TIME,
 };
-
-use serial_test::serial;
-use std::time::Duration;
 
 #[test]
 fn test_doubly_defined_persisted_vars() {
