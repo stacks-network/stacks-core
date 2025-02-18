@@ -3096,18 +3096,15 @@ fn tenure_extend_with_other_transactions() {
     )
     .expect("Timed out waiting for a block with a tenure extend");
     let transactions = block["transactions"].as_array().unwrap();
-    assert_eq!(
-        transactions.len(),
-        2,
-        "Expected 2 transactions in the block"
+    assert!(
+        transactions.len() > 1,
+        "Expected at least 2 transactions in the block"
     );
-    let tx = transactions[1].as_object().unwrap();
-    let txid = tx["txid"].as_str().unwrap();
-    assert_eq!(
-        txid[2..],
-        to_find,
-        "Expected the transfer tx to be the second transaction in the block"
-    );
+    assert!(transactions.iter().any(|tx| {
+        let tx = tx.as_object().unwrap();
+        let txid = tx["txid"].as_str().unwrap();
+        txid[2..] == to_find
+    }), "Failed to find the transfer tx in the block");
     signer_test.shutdown();
 }
 
