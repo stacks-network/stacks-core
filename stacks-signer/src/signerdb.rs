@@ -831,7 +831,7 @@ impl SignerDb {
         &self,
         tenure: &ConsensusHash,
     ) -> Result<i64, DBError> {
-        let query = "SELECT COUNT(*) FROM blocks WHERE consensus_hash = ?1 AND state = ?2 AND signed_over = 1";
+        let query = "SELECT COUNT(*) FROM blocks WHERE consensus_hash = ?1 AND state = ?2";
         let args = params![tenure, &BlockState::GloballyAccepted.to_string()];
         query_count(&self.db, query, args)
     }
@@ -2048,7 +2048,7 @@ mod tests {
         assert_eq!(
             db.get_globally_signed_block_count_in_tenure(&consensus_hash_1)
                 .unwrap(),
-            3
+            4
         );
 
         // add a locally signed block
@@ -2060,7 +2060,7 @@ mod tests {
         assert_eq!(
             db.get_globally_signed_block_count_in_tenure(&consensus_hash_1)
                 .unwrap(),
-            3
+            4
         );
     }
 
