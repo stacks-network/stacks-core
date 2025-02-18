@@ -3100,11 +3100,14 @@ fn tenure_extend_with_other_transactions() {
         transactions.len() > 1,
         "Expected at least 2 transactions in the block"
     );
-    assert!(transactions.iter().any(|tx| {
-        let tx = tx.as_object().unwrap();
-        let txid = tx["txid"].as_str().unwrap();
-        txid[2..] == to_find
-    }), "Failed to find the transfer tx in the block");
+    assert!(
+        transactions.iter().any(|tx| {
+            let tx = tx.as_object().unwrap();
+            let txid = tx["txid"].as_str().unwrap();
+            txid[2..] == to_find
+        }),
+        "Failed to find the transfer tx in the block"
+    );
     signer_test.shutdown();
 }
 
