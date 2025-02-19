@@ -213,6 +213,10 @@ impl SortitionsView {
             .cur_sortition
             .is_timed_out(self.config.block_proposal_timeout, signer_db)?
         {
+            // Note that this is only checking the current sortition, and it is
+            // not necessarily related to the proposal being checked. For this
+            // reason, we do not return an error here, just set the state and
+            // log what happened.
             info!(
                 "Current miner timed out, marking as invalid.";
                 "block_height" => block.header.chain_length,
@@ -246,6 +250,10 @@ impl SortitionsView {
                     &self.config.first_proposal_burn_block_timing,
                 )?;
                 if !is_valid_parent_tenure {
+                    // Note that this is only checking the current sortition,
+                    // and it is not necessarily related to the proposal being
+                    // checked. For this reason, we do not return an error
+                    // here, just set the state and log what happened.
                     warn!(
                         "Current sortition does not build off of canonical tip tenure, marking as invalid";
                         "current_sortition_parent" => ?self.cur_sortition.parent_tenure_id,
@@ -253,7 +261,6 @@ impl SortitionsView {
                     );
                     self.cur_sortition.miner_status =
                         SortitionMinerStatus::InvalidatedBeforeFirstBlock;
-                    return Err(RejectReason::ReorgNotAllowed);
                 }
             }
         }
