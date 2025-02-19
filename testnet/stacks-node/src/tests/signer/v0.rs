@@ -1166,6 +1166,7 @@ pub fn wait_for_block_acceptance_from_signers(
 /// with the provided signer signature hash
 pub fn wait_for_block_rejections_from_signers(
     timeout_secs: u64,
+    signer_signature_hash: &Sha512Trunc256Sum,
     expected_signers: &[StacksPublicKey],
 ) -> Result<Vec<BlockRejection>, String> {
     let mut result = Vec::new();
@@ -1182,7 +1183,9 @@ pub fn wait_for_block_rejections_from_signers(
                         let rejected_pubkey = rejection
                             .recover_public_key()
                             .expect("Failed to recover public key from rejection");
-                        if expected_signers.contains(&rejected_pubkey) {
+                        if rejection.signer_signature_hash == *signer_signature_hash
+                            && expected_signers.contains(&rejected_pubkey)
+                        {
                             Some((rejected_pubkey, rejection))
                         } else {
                             None
@@ -5566,8 +5569,12 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
     let proposed_block_n_1 =
         wait_for_block_proposal(30, info_before.stacks_tip_height + 1, &miner_pk)
             .expect("Timed out waiting for block N+1' to be proposed");
-    wait_for_block_rejections_from_signers(short_timeout_secs, &rejecting_signers)
-        .expect("Timed out waiting for block rejection of N+1");
+    wait_for_block_rejections_from_signers(
+        short_timeout_secs,
+        &proposed_block_n_1.header.signer_signature_hash(),
+        &rejecting_signers,
+    )
+    .expect("Timed out waiting for block rejection of N+1");
     let info_after = signer_test.get_peer_info();
     assert_eq!(info_before, info_after);
 
@@ -5707,11 +5714,16 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
     sender_nonce += 1;
     info!("Submitted tx {tx} in to mine block N+1");
     // The rejecting signers will reject the block, but it will still be accepted globally
-    wait_for_block_rejections_from_signers(short_timeout, &rejecting_signers)
-        .expect("Timed out waiting for block rejection of N+1");
     let block_n_1 =
         wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
             .expect("Timed out waiting for block N+1 to be mined");
+
+    wait_for_block_rejections_from_signers(
+        short_timeout,
+        &block_n_1.header.signer_signature_hash(),
+        &rejecting_signers,
+    )
+    .expect("Timed out waiting for block rejection of N+1");
 
     // Assert the block was mined and the tip advanced to N+1
     let info_after = signer_test.get_peer_info();
@@ -6062,8 +6074,14 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
         .running_nodes
         .btc_regtest_controller
         .build_next_block(1);
-    wait_for_block_rejections_from_signers(30, &non_ignoring_signers)
-        .expect("Timed out waiting for block rejections of N+1");
+    let proposal = wait_for_block_proposal(30, info_before.stacks_tip_height + 1, &miner_pk)
+        .expect("Timed out waiting for block N+1 to be proposed");
+    wait_for_block_rejections_from_signers(
+        30,
+        &proposal.header.signer_signature_hash(),
+        &non_ignoring_signers,
+    )
+    .expect("Timed out waiting for block rejections of N+1");
 
     let info_after = signer_test.get_peer_info();
     // Ensure that the block was NOT accepted globally so the stacks tip has NOT advanced to N+1'
@@ -7167,7 +7185,8 @@ fn block_validation_check_rejection_timeout_heuristic() {
         None,
         None,
     );
-
+    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
+    let miner_pk = StacksPublicKey::from_private(&miner_sk);
     let all_signers: Vec<_> = signer_test
         .signer_stacks_private_keys
         .iter()
@@ -7179,6 +7198,7 @@ fn block_validation_check_rejection_timeout_heuristic() {
     // note we just use mined nakamoto_blocks as the second block is not going to be confirmed
 
     let mut test_rejections = |signer_split_index: usize, expected_timeout: u64| {
+        test_observer::clear();
         let blocks_before = test_observer::get_mined_nakamoto_blocks().len();
         let (ignore_signers, reject_signers) = all_signers.split_at(signer_split_index);
 
@@ -7187,6 +7207,7 @@ fn block_validation_check_rejection_timeout_heuristic() {
         TEST_REJECT_ALL_BLOCK_PROPOSAL.set(reject_signers.to_vec());
         TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(ignore_signers.to_vec());
 
+        let height_before = signer_test.get_peer_info().stacks_tip_height;
         next_block_and(
             &mut signer_test.running_nodes.btc_regtest_controller,
             30,
@@ -7194,7 +7215,15 @@ fn block_validation_check_rejection_timeout_heuristic() {
         )
         .unwrap();
 
-        wait_for_block_rejections_from_signers(timeout.as_secs(), &reject_signers).unwrap();
+        let proposal = wait_for_block_proposal(30, height_before + 1, &miner_pk)
+            .expect("Timed out waiting for block proposal");
+
+        wait_for_block_rejections_from_signers(
+            timeout.as_secs(),
+            &proposal.header.signer_signature_hash(),
+            &reject_signers,
+        )
+        .unwrap();
 
         wait_for(60, || {
             Ok(signer_test
@@ -7381,7 +7410,7 @@ fn block_validation_pending_table() {
         .iter()
         .map(|c| StacksPublicKey::from_private(&c.stacks_private_key))
         .collect::<Vec<_>>();
-    wait_for_block_rejections_from_signers(30, &signer_keys)
+    wait_for_block_rejections_from_signers(30, &block.header.signer_signature_hash(), &signer_keys)
         .expect("Timed out waiting for block rejections");
 
     info!("------------------------- Shutdown -------------------------");
@@ -8607,7 +8636,7 @@ fn incoming_signers_ignore_block_proposals() {
     signer_test.propose_block(block, short_timeout);
     // Verify the signers rejected the second block via the endpoint
     signer_test.wait_for_validate_reject_response(short_timeout, signer_signature_hash_2);
-    wait_for_block_rejections_from_signers(30, &all_signers)
+    wait_for_block_rejections_from_signers(30, &signer_signature_hash_2, &all_signers)
         .expect("Timed out waiting for block rejections");
     no_next_signer_messages();
 
@@ -8625,7 +8654,7 @@ fn incoming_signers_ignore_block_proposals() {
 ///
 /// Test Execution:
 /// The node mines to the next reward cycle.
-/// Sends a status request to the signers to ensure both the current and previous reward cycle signers are active.
+/// Sends a status request to the signers to ensure both the current and previoustimeout_heur reward cycle signers are active.
 /// A valid Nakamoto block is proposed.
 /// Two invalid Nakamoto blocks are proposed.
 ///
@@ -11617,10 +11646,10 @@ fn mark_miner_as_invalid_if_reorg_is_rejected() {
     let signer_signature_hash = block_n_1_prime.header.signer_signature_hash();
     wait_for_block_acceptance_from_signers(30, &signer_signature_hash, &approving_signers)
         .expect("Timed out waiting for block acceptance from approving signers");
-    let rejections = wait_for_block_rejections_from_signers(30, &rejecting_signers)
-        .expect("Timed out waiting for block rejection from rejecting signers");
+    let rejections =
+        wait_for_block_rejections_from_signers(30, &signer_signature_hash, &rejecting_signers)
+            .expect("Timed out waiting for block rejection from rejecting signers");
     for rejection in rejections {
-        assert_eq!(rejection.signer_signature_hash, signer_signature_hash);
         assert_eq!(
             rejection.response_data.reject_reason,
             RejectReason::ReorgNotAllowed,
@@ -11638,10 +11667,10 @@ fn mark_miner_as_invalid_if_reorg_is_rejected() {
     info!("------------------------- Wait for 5 rejections -------------------------");
 
     let signer_signature_hash = block_n_1_prime.header.signer_signature_hash();
-    let rejections = wait_for_block_rejections_from_signers(30, &all_signers)
-        .expect("Timed out waiting for block rejection from all signers");
+    let rejections =
+        wait_for_block_rejections_from_signers(30, &signer_signature_hash, &all_signers)
+            .expect("Timed out waiting for block rejection from all signers");
     for rejection in rejections {
-        assert_eq!(rejection.signer_signature_hash, signer_signature_hash);
         assert!(
             rejection.response_data.reject_reason == RejectReason::ReorgNotAllowed
                 || rejection.response_data.reject_reason == RejectReason::InvalidMiner
