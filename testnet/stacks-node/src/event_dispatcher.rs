@@ -90,8 +90,8 @@ struct EventObserver {
     endpoint: String,
     /// Timeout for sending events to this observer
     timeout: Duration,
-    /// Lossy observers do not retry on error
-    lossy: bool,
+    /// force observers to not retry on error
+    disable_retries: bool,
 }
 
 struct ReceiptPayloadInfo<'a> {
@@ -462,7 +462,7 @@ impl EventObserver {
         payload: &serde_json::Value,
         full_url: &str,
         timeout: Duration,
-        lossy: bool,
+        disable_retries: bool,
     ) {
         debug!(
             "Event dispatcher: Sending payload"; "url" => %full_url, "payload" => ?payload
@@ -513,8 +513,8 @@ impl EventObserver {
                 }
             }
 
-            if lossy {
-                warn!("Observer is configured in lossy mode: skipping retry of payload");
+            if disable_retries {
+                warn!("Observer is configured in disable_retries mode: skipping retry of payload");
                 return;
             }
 
@@ -534,7 +534,12 @@ impl EventObserver {
         }
     }
 
-    fn new(working_dir: Option<PathBuf>, endpoint: String, timeout: Duration, lossy: bool) -> Self {
+    fn new(
+        working_dir: Option<PathBuf>,
+        endpoint: String,
+        timeout: Duration,
+        disable_retries: bool,
+    ) -> Self {
         let db_path = if let Some(mut db_path) = working_dir {
             db_path.push("event_observers.sqlite");
 
@@ -553,7 +558,7 @@ impl EventObserver {
             db_path,
             endpoint,
             timeout,
-            lossy,
+            disable_retries,
         }
     }
 
@@ -568,8 +573,8 @@ impl EventObserver {
         };
         let full_url = format!("http://{url_str}");
 
-        // if the observer is in lossy mode quickly send the payload without checking for the db
-        if self.lossy {
+        // if the observer is in "disable_retries" mode quickly send the payload without checking for the db
+        if self.disable_retries {
             Self::send_payload_directly(payload, &full_url, self.timeout, true);
         } else if let Some(db_path) = &self.db_path {
             let conn =
@@ -1682,7 +1687,7 @@ impl EventDispatcher {
             Some(working_dir),
             conf.endpoint.clone(),
             Duration::from_millis(conf.timeout_ms),
-            conf.lossy,
+            conf.disable_retries,
         );
 
         let observer_index = self.registered_observers.len() as u16;
@@ -2452,7 +2457,7 @@ mod test {
     }
 
     #[test]
-    fn test_event_dispatcher_lossy() {
+    fn test_event_dispatcher_disable_retries() {
         let timeout = Duration::from_secs(5);
         let payload = json!({"key": "value"});
 
@@ -2464,7 +2469,7 @@ mod test {
 
         let observer = EventObserver::new(None, endpoint, timeout, true);
 
-        // in non lossy mode this will run forever
+        // in non "disable_retries" mode this will run forever
         observer.send_payload(&payload, "/test");
 
         // Verify that the payload was sent
@@ -2472,7 +2477,7 @@ mod test {
     }
 
     #[test]
-    fn test_event_dispatcher_lossy_invalid_url() {
+    fn test_event_dispatcher_disable_retries_invalid_url() {
         let timeout = Duration::from_secs(5);
         let payload = json!({"key": "value"});
 
@@ -2480,14 +2485,14 @@ mod test {
 
         let observer = EventObserver::new(None, endpoint, timeout, true);
 
-        // in non lossy mode this will run forever
+        // in non "disable_retries" mode this will run forever
         observer.send_payload(&payload, "/test");
     }
 
     #[test]
     #[ignore]
-    /// This test generates a new block and ensures the lossy events_observer will not block.
-    fn block_event_with_lossy_observer() {
+    /// This test generates a new block and ensures the "disable_retries" events_observer will not block.
+    fn block_event_with_disable_retries_observer() {
         let dir = tempdir().unwrap();
         let working_dir = dir.path().to_path_buf();
 
@@ -2496,7 +2501,7 @@ mod test {
             endpoint: String::from("255.255.255.255"),
             events_keys: vec![EventKeyType::MinedBlocks],
             timeout_ms: 1000,
-            lossy: true,
+            disable_retries: true,
         };
         event_dispatcher.register_observer(&config, working_dir);
 
@@ -2505,7 +2510,7 @@ mod test {
             txs: vec![],
         };
 
-        // this will block forever in non lossy mode
+        // this will block forever in non "disable_retries" mode
         event_dispatcher.process_mined_nakamoto_block_event(
             0,
             &nakamoto_block,
