@@ -11632,6 +11632,9 @@ fn mark_miner_as_invalid_if_reorg_is_rejected() {
     assert_eq!(info_after.stacks_tip_height, block_n_height + 1);
     assert_eq!(info_after.stacks_tip, block_n_1.header.block_hash());
 
+    // Wait for both chains to be in sync
+    miners.wait_for_chains(30);
+
     info!("------------------------- Miner 1 Wins the Next Tenure, Mines N+1' -------------------------");
     test_observer::clear();
     miners
