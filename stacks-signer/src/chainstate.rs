@@ -213,10 +213,6 @@ impl SortitionsView {
             .cur_sortition
             .is_timed_out(self.config.block_proposal_timeout, signer_db)?
         {
-            // Note that this is only checking the current sortition, and it is
-            // not necessarily related to the proposal being checked. For this
-            // reason, we do not return an error here, just set the state and
-            // log what happened.
             info!(
                 "Current miner timed out, marking as invalid.";
                 "block_height" => block.header.chain_length,
@@ -224,6 +220,12 @@ impl SortitionsView {
                 "current_sortition_consensus_hash" => ?self.cur_sortition.consensus_hash,
             );
             self.cur_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
+
+            // If the current proposal is also for this current
+            // sortition, then we can return early here.
+            if self.cur_sortition.consensus_hash == block.header.consensus_hash {
+                return Err(RejectReason::InvalidMiner);
+            }
         } else if let Some(tip) = signer_db
             .get_canonical_tip()
             .map_err(SignerChainstateError::from)?
@@ -250,10 +252,6 @@ impl SortitionsView {
                     &self.config.first_proposal_burn_block_timing,
                 )?;
                 if !is_valid_parent_tenure {
-                    // Note that this is only checking the current sortition,
-                    // and it is not necessarily related to the proposal being
-                    // checked. For this reason, we do not return an error
-                    // here, just set the state and log what happened.
                     warn!(
                         "Current sortition does not build off of canonical tip tenure, marking as invalid";
                         "current_sortition_parent" => ?self.cur_sortition.parent_tenure_id,
@@ -261,6 +259,12 @@ impl SortitionsView {
                     );
                     self.cur_sortition.miner_status =
                         SortitionMinerStatus::InvalidatedBeforeFirstBlock;
+
+                    // If the current proposal is also for this current
+                    // sortition, then we can return early here.
+                    if self.cur_sortition.consensus_hash == block.header.consensus_hash {
+                        return Err(RejectReason::ReorgNotAllowed);
+                    }
                 }
             }
         }
