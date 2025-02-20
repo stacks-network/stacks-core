@@ -493,7 +493,7 @@ impl SortitionsView {
                         0
                     };
                     if Duration::from_secs(proposal_to_sortition)
-                        <= *first_proposal_burn_block_timing
+                        < *first_proposal_burn_block_timing
                     {
                         info!(
                             "Miner is not building off of most recent tenure. A tenure they reorg has already mined blocks, but the block was poorly timed, allowing the reorg.";
