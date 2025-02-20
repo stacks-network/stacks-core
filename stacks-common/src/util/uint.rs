@@ -733,7 +733,7 @@ mod tests {
     #[test]
     pub fn hex_codec() {
         let init =
-            Uint256::from_u64(0xDEADBEEFDEADBEEF) << 64 | Uint256::from_u64(0x0102030405060708);
+            (Uint256::from_u64(0xDEADBEEFDEADBEEF) << 64) | Uint256::from_u64(0x0102030405060708);
 
         // little-endian representation
         let hex_init = "0807060504030201efbeaddeefbeadde00000000000000000000000000000000";
