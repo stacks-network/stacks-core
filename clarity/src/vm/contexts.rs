@@ -28,7 +28,7 @@ use wasmtime::Engine;
 
 use super::analysis::{self, ContractAnalysis};
 #[cfg(feature = "clarity-wasm")]
-use super::clarity_wasm::{call_function, ClarityWasmContext};
+use super::clarity_wasm::call_function;
 use super::EvalHook;
 use crate::vm::ast::{ASTRules, ContractAST};
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
@@ -588,7 +588,7 @@ impl<'a> OwnedEnvironment<'a> {
         &'b mut self,
         sender: Option<PrincipalData>,
         sponsor: Option<PrincipalData>,
-        context: &'b mut ContractContext,
+        context: &'b ContractContext,
     ) -> Environment<'b, 'a> {
         Environment::new(
             &mut self.context,

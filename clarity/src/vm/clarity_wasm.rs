@@ -1,39 +1,28 @@
-use std::borrow::BorrowMut;
-use std::collections::{BTreeMap, HashMap};
-use std::f32::EPSILON;
-use std::fs::File;
-use std::io::Write;
-
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{Keccak256Hash, Sha512Sum, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
-use wasmtime::{AsContextMut, Caller, Engine, Linker, Memory, Module, Store, Trap, Val, ValType};
+use wasmtime::{AsContextMut, Caller, Linker, Memory, Module, Store, Val, ValType};
 
-use super::analysis::{CheckError, CheckErrors};
+use super::analysis::CheckErrors;
 use super::ast::{build_ast_with_rules, ASTRules};
 use super::callables::{DefineType, DefinedFunction};
-use super::contracts::Contract;
-use super::costs::{constants as cost_constants, CostTracker, LimitedCostTracker};
-use super::database::clarity_db::ValueResult;
-use super::database::{ClarityDatabase, DataVariableMetadata, STXBalance};
+use super::costs::{constants as cost_constants, CostTracker};
+use super::database::STXBalance;
 use super::errors::RuntimeErrorType;
 use super::events::*;
 use super::functions::crypto::{pubkey_to_address_v1, pubkey_to_address_v2};
 use super::types::signatures::CallableSubtype;
 use super::types::{
-    ASCIIData, AssetIdentifier, BlockInfoProperty, BuffData, BurnBlockInfoProperty, CallableData,
-    CharType, FixedFunction, FunctionType, ListData, ListTypeData, OptionalData, PrincipalData,
-    QualifiedContractIdentifier, ResponseData, SequenceData, StacksAddressExtensions,
-    StandardPrincipalData, TraitIdentifier, TupleData, TupleTypeSignature, UTF8Data, BUFF_1,
-    BUFF_32, BUFF_33,
+    ASCIIData, AssetIdentifier, BuffData, CallableData, CharType, FunctionType, ListData,
+    ListTypeData, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData,
+    SequenceData, StacksAddressExtensions, StandardPrincipalData, TraitIdentifier, TupleData,
+    TupleTypeSignature, BUFF_1, BUFF_32, BUFF_33,
 };
 use super::{CallStack, ClarityVersion, ContractName, Environment, SymbolicExpression};
 use crate::vm::analysis::ContractAnalysis;
-use crate::vm::ast::ContractAST;
 use crate::vm::contexts::GlobalContext;
 use crate::vm::errors::{Error, WasmError};
-use crate::vm::functions::principals;
 use crate::vm::types::{
     BufferLength, SequenceSubtype, SequencedValue, StringSubtype, TypeSignature,
 };
@@ -890,7 +879,7 @@ fn read_from_wasm(
                 .read(store.as_context_mut(), current_offset, &mut hash)
                 .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
             current_offset += PRINCIPAL_HASH_BYTES;
-            let principal = StandardPrincipalData(version[0], hash);
+            let principal = StandardPrincipalData::new(version[0], hash)?;
             let mut contract_length_buf: [u8; CONTRACT_NAME_LENGTH_BYTES] =
                 [0; CONTRACT_NAME_LENGTH_BYTES];
             memory
@@ -1393,7 +1382,7 @@ fn write_to_wasm(
                 .write(
                     &mut store,
                     (in_mem_offset + in_mem_written) as usize,
-                    &[standard.0],
+                    &[standard.version()],
                 )
                 .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
             in_mem_written += 1;
@@ -1645,9 +1634,11 @@ fn pass_argument_to_wasm(
             buffer.push(Val::I32(written));
             Ok((buffer, offset + written, in_mem_offset + in_mem_written))
         }
-        Value::Principal(PrincipalData::Standard(StandardPrincipalData(v, h))) => {
+        Value::Principal(PrincipalData::Standard(data)) => {
             let mut bytes: Vec<u8> = Vec::with_capacity(22);
-            bytes.push(*v);
+            let v = data.version();
+            let h = &data.1;
+            bytes.push(v);
             bytes.extend(h);
             bytes.push(0);
             let buffer = vec![Val::I32(in_mem_offset), Val::I32(bytes.len() as i32)];
@@ -1665,15 +1656,17 @@ fn pass_argument_to_wasm(
             // Callable types can just ignore the optional trait identifier, and
             // is handled like a qualified contract
             let QualifiedContractIdentifier {
-                issuer: StandardPrincipalData(v, h),
+                issuer,
                 name,
             } = p;
+            let v = issuer.version();
+            let h = &issuer.1;
             let bytes: Vec<u8> = std::iter::once(v)
-                .chain(h.iter())
-                .chain(std::iter::once(&name.len()))
-                .chain(name.as_bytes())
-                .copied()
+                .chain(h.iter().copied())
+                .chain(std::iter::once(name.len() as u8))
+                .chain(name.as_bytes().iter().copied())
                 .collect();
+
             let buffer = vec![Val::I32(in_mem_offset), Val::I32(bytes.len() as i32)];
             memory
                 .write(&mut store, in_mem_offset as usize, &bytes)
@@ -1970,14 +1963,14 @@ fn wasm_to_clarity_value(
             memory
                 .read(store.as_context_mut(), offset as usize + 21, &mut buffer)
                 .map_err(|e| Error::Wasm(WasmError::UnableToReadMemory(e.into())))?;
-            let standard = StandardPrincipalData(
+            let standard = StandardPrincipalData::new(
                 principal_bytes[0],
                 principal_bytes[1..].try_into().map_err(|_| {
                     Error::Wasm(WasmError::WasmGeneratorError(
                         "Could not decode principal".into(),
                     ))
                 })?,
-            );
+            )?;
             let contract_name_length = buffer[0] as usize;
             if contract_name_length == 0 {
                 Ok((Some(Value::Principal(PrincipalData::Standard(standard))), 2))
