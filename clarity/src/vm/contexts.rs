@@ -1639,7 +1639,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             );
             f(&mut exec_env)
         };
-        self.roll_back().map_err(crate::vm::errors::Error::from)?;
+        self.roll_back()?;
 
         match result {
             Ok(return_value) => Ok(return_value),
