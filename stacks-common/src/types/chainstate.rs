@@ -27,7 +27,6 @@ use crate::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
 use crate::util::hash::{Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
 use crate::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
-use crate::util::vrf::{VRFProof, VRF_PROOF_ENCODED_SIZE};
 
 pub type StacksPublicKey = Secp256k1PublicKey;
 pub type StacksPrivateKey = Secp256k1PrivateKey;

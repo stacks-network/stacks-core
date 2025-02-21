@@ -24,7 +24,7 @@ use ::secp256k1::{
     constants as LibSecp256k1Constants, Error as LibSecp256k1Error, Message as LibSecp256k1Message,
     PublicKey as LibSecp256k1PublicKey, Secp256k1, SecretKey as LibSecp256k1PrivateKey,
 };
-use rand::{thread_rng, RngCore};
+use rand::RngCore;
 use serde::de::{Deserialize, Error as de_Error};
 use serde::Serialize;
 

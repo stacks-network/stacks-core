@@ -17,9 +17,7 @@
 use stacks_common::types::StacksEpochId;
 
 use super::analysis::ContractAnalysis;
-use super::CallStack;
 use crate::vm::ast::ContractAST;
-
 #[cfg(feature = "clarity-wasm")]
 use crate::vm::clarity_wasm::initialize_contract;
 use crate::vm::contexts::{ContractContext, GlobalContext};

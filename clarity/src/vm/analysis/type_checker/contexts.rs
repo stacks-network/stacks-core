@@ -21,9 +21,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use crate::vm::types::signatures::CallableSubtype;
-use crate::vm::types::{
-    ListTypeData, SequenceSubtype, TraitIdentifier, TupleTypeSignature, TypeSignature,
-};
+use crate::vm::types::{TraitIdentifier, TypeSignature};
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, MAX_CONTEXT_DEPTH};
 
 #[derive(Debug, Clone, PartialEq)]

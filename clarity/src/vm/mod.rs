@@ -58,7 +58,6 @@ pub mod clarity;
 
 use std::collections::BTreeMap;
 
-use serde_json;
 use stacks_common::types::StacksEpochId;
 
 use self::analysis::ContractAnalysis;
