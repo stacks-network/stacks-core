@@ -67,7 +67,7 @@ fn test_try_parse_request() {
     assert!(handler.block.is_none());
 
     // try to deal with an invalid block
-    let mut bad_block = block.clone();
+    let mut bad_block = block;
     bad_block.txs.clear();
 
     let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
@@ -112,11 +112,8 @@ fn test_try_make_response() {
     requests.push(request);
 
     // fails if the consensus hash is not recognized
-    let request = StacksHttpRequest::new_post_block(
-        addr.into(),
-        ConsensusHash([0x11; 20]),
-        next_block.1.clone(),
-    );
+    let request =
+        StacksHttpRequest::new_post_block(addr.into(), ConsensusHash([0x11; 20]), next_block.1);
     requests.push(request);
 
     let mut responses = rpc_test.run(requests);
@@ -128,7 +125,7 @@ fn test_try_make_response() {
     );
 
     let resp = response.decode_stacks_block_accepted().unwrap();
-    assert_eq!(resp.accepted, true);
+    assert!(resp.accepted);
     assert_eq!(resp.stacks_block_id, stacks_block_id);
 
     let response = responses.remove(0);
@@ -138,7 +135,7 @@ fn test_try_make_response() {
     );
 
     let resp = response.decode_stacks_block_accepted().unwrap();
-    assert_eq!(resp.accepted, false);
+    assert!(!resp.accepted);
     assert_eq!(resp.stacks_block_id, stacks_block_id);
 
     let response = responses.remove(0);

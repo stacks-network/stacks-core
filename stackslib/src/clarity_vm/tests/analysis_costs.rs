@@ -57,9 +57,8 @@ fn setup_tracked_cost_test(
         .unwrap()
         .unwrap();
 
-    let p1_principal = match p1 {
-        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(PrincipalData::Standard(p1_principal)) = p1.clone() else {
+        panic!("Exepected standard principal data");
     };
 
     let contract_trait = "(define-trait trait-1 (
@@ -71,8 +70,7 @@ fn setup_tracked_cost_test(
 
     let other_contract_id =
         QualifiedContractIdentifier::new(p1_principal.clone(), "contract-other".into());
-    let trait_contract_id =
-        QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
+    let trait_contract_id = QualifiedContractIdentifier::new(p1_principal, "contract-trait".into());
 
     let burn_state_db = UnitTestBurnStateDB {
         epoch_id: epoch,
@@ -206,14 +204,13 @@ fn test_tracked_costs(
         .unwrap()
         .unwrap();
 
-    let p1_principal = match p1 {
-        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
-        _ => panic!(),
+    let Value::Principal(PrincipalData::Standard(p1_principal)) = p1.clone() else {
+        panic!("Exepected standard principal data");
     };
 
     let self_contract_id = QualifiedContractIdentifier::new(
-        p1_principal.clone(),
-        ContractName::try_from(format!("self-{}", prog_id)).unwrap(),
+        p1_principal,
+        ContractName::try_from(format!("self-{prog_id}")).unwrap(),
     );
 
     let burn_state_db = UnitTestBurnStateDB {

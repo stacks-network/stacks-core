@@ -373,9 +373,7 @@ pub fn prepare_signers_test<'a>(
 
     tenure_change.tenure_consensus_hash = consensus_hash.clone();
     tenure_change.burn_view_consensus_hash = consensus_hash.clone();
-    let tenure_change_tx = peer
-        .miner
-        .make_nakamoto_tenure_change(tenure_change.clone());
+    let tenure_change_tx = peer.miner.make_nakamoto_tenure_change(tenure_change);
     let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
 
     let blocks_and_sizes = peer.make_nakamoto_tenure(
@@ -434,23 +432,21 @@ fn advance_blocks(
 
     tenure_change.tenure_consensus_hash = consensus_hash.clone();
     tenure_change.burn_view_consensus_hash = consensus_hash.clone();
-    let tenure_change_tx = peer
-        .miner
-        .make_nakamoto_tenure_change(tenure_change.clone());
+    let tenure_change_tx = peer.miner.make_nakamoto_tenure_change(tenure_change);
     let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
     let recipient_addr = boot_code_addr(false);
     let blocks_and_sizes = peer.make_nakamoto_tenure(
         tenure_change_tx,
-        coinbase_tx.clone(),
+        coinbase_tx,
         test_signers,
         |miner, chainstate, sortdb, blocks| {
             if blocks.len() < num_blocks as usize {
-                let addr = key_to_stacks_addr(&stacker_private_key);
+                let addr = key_to_stacks_addr(stacker_private_key);
                 let account = get_account(chainstate, sortdb, &addr);
                 let stx_transfer = make_token_transfer(
                     chainstate,
                     sortdb,
-                    &stacker_private_key,
+                    stacker_private_key,
                     account.nonce,
                     1,
                     1,

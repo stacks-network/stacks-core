@@ -26,7 +26,6 @@ use ::secp256k1::{
 };
 use rand::{thread_rng, RngCore};
 use serde::de::{Deserialize, Error as de_Error};
-use serde::ser::Error as ser_Error;
 use serde::Serialize;
 
 use super::MessageSignature;
@@ -117,7 +116,7 @@ impl Default for Secp256k1PublicKey {
 impl Secp256k1PublicKey {
     #[cfg(any(test, feature = "testing"))]
     pub fn new() -> Secp256k1PublicKey {
-        Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new())
+        Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random())
     }
 
     pub fn from_hex(hex_string: &str) -> Result<Secp256k1PublicKey, &'static str> {
@@ -243,14 +242,8 @@ impl PublicKey for Secp256k1PublicKey {
     }
 }
 
-impl Default for Secp256k1PrivateKey {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Secp256k1PrivateKey {
-    pub fn new() -> Secp256k1PrivateKey {
+    pub fn random() -> Secp256k1PrivateKey {
         let mut rng = rand::thread_rng();
         loop {
             // keep trying to generate valid bytes
@@ -436,8 +429,8 @@ mod tests {
     use secp256k1::{PublicKey as LibSecp256k1PublicKey, Secp256k1};
 
     use super::*;
+    use crate::util::get_epoch_time_ms;
     use crate::util::hash::hex_bytes;
-    use crate::util::{get_epoch_time_ms, log};
 
     struct KeyFixture<I, R> {
         input: I,
@@ -454,7 +447,7 @@ mod tests {
 
     #[test]
     fn test_parse_serialize_compressed() {
-        let mut t1 = Secp256k1PrivateKey::new();
+        let mut t1 = Secp256k1PrivateKey::random();
         t1.set_compress_public(true);
         let h_comp = t1.to_hex();
         t1.set_compress_public(false);
@@ -552,7 +545,7 @@ mod tests {
                 (_, _) => {
                     // either got a key when we didn't expect one, or didn't get a key when we did
                     // expect one.
-                    assert!(false, "Unexpected result: we either got a key when we didn't expect one, or didn't get a key when we did expect one.");
+                    panic!("Unexpected result: we either got a key when we didn't expect one, or didn't get a key when we did expect one.");
                 }
             }
         }
@@ -648,7 +641,7 @@ mod tests {
         let mut rng = rand::thread_rng();
 
         for i in 0..100 {
-            let privk = Secp256k1PrivateKey::new();
+            let privk = Secp256k1PrivateKey::random();
             let pubk = Secp256k1PublicKey::from_private(&privk);
 
             let mut msg = [0u8; 32];

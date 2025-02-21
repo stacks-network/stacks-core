@@ -92,7 +92,7 @@ fn test_get_block_availability() {
         let num_blocks = 10;
         let first_stacks_block_height = {
             let sn =
-                SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
                     .unwrap();
             sn.block_height
         };
@@ -111,7 +111,7 @@ fn test_get_block_availability() {
             peer_1.next_burnchain_block_raw(burn_ops);
 
             let sn =
-                SortitionDB::get_canonical_burn_chain_tip(&peer_2.sortdb.as_ref().unwrap().conn())
+                SortitionDB::get_canonical_burn_chain_tip(peer_2.sortdb.as_ref().unwrap().conn())
                     .unwrap();
             block_data.push((sn.consensus_hash.clone(), stacks_block, microblocks));
         }
@@ -171,26 +171,20 @@ fn test_get_block_availability() {
             };
 
             // nothing should break
-            match peer_1.network.inv_state {
-                Some(ref inv) => {
-                    assert_eq!(inv.get_broken_peers().len(), 0);
-                    assert_eq!(inv.get_diverged_peers().len(), 0);
-                }
-                None => {}
+            if let Some(ref inv) = peer_1.network.inv_state {
+                assert!(inv.get_broken_peers().is_empty());
+                assert!(inv.get_diverged_peers().is_empty());
             }
 
-            match peer_2.network.inv_state {
-                Some(ref inv) => {
-                    assert_eq!(inv.get_broken_peers().len(), 0);
-                    assert_eq!(inv.get_diverged_peers().len(), 0);
-                }
-                None => {}
+            if let Some(ref inv) = peer_2.network.inv_state {
+                assert!(inv.get_broken_peers().is_empty());
+                assert!(inv.get_diverged_peers().is_empty());
             }
 
             round += 1;
         }
 
-        info!("Completed walk round {} step(s)", round);
+        info!("Completed walk round {round} step(s)");
 
         let availability = get_peer_availability(
             &mut peer_1,
@@ -216,10 +210,10 @@ fn test_get_block_availability() {
     })
 }
 
-fn get_blocks_inventory(peer: &mut TestPeer, start_height: u64, end_height: u64) -> BlocksInvData {
+fn get_blocks_inventory(peer: &TestPeer, start_height: u64, end_height: u64) -> BlocksInvData {
     let block_hashes = {
         let num_headers = end_height - start_height;
-        let ic = peer.sortdb.as_mut().unwrap().index_conn();
+        let ic = peer.sortdb.as_ref().unwrap().index_conn();
         let tip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
         let ancestor = SortitionDB::get_ancestor_snapshot(&ic, end_height, &tip.sortition_id)
             .unwrap()
@@ -227,13 +221,13 @@ fn get_blocks_inventory(peer: &mut TestPeer, start_height: u64, end_height: u64)
         ic.get_stacks_header_hashes(
             num_headers + 1,
             &ancestor.consensus_hash,
-            &mut BlockHeaderCache::new(),
+            &BlockHeaderCache::new(),
         )
         .unwrap()
     };
 
     let inv = peer
-        .chainstate()
+        .chainstate_ref()
         .get_blocks_inventory(&block_hashes)
         .unwrap();
     inv
@@ -280,16 +274,12 @@ where
 
     make_topology(&mut peer_configs);
 
-    let mut peers = vec![];
-    for conf in peer_configs.drain(..) {
-        let peer = TestPeer::new(conf);
-        peers.push(peer);
-    }
+    let mut peers: Vec<_> = peer_configs.into_iter().map(TestPeer::new).collect();
 
     let mut num_blocks = 10;
     let first_stacks_block_height = {
         let sn =
-            SortitionDB::get_canonical_burn_chain_tip(&peers[0].sortdb.as_ref().unwrap().conn())
+            SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb.as_ref().unwrap().conn())
                 .unwrap();
         sn.block_height
     };
@@ -421,36 +411,34 @@ where
                 for b in 0..num_blocks {
                     if !peer_invs[i].has_ith_block(
                         ((b as u64) + first_stacks_block_height - first_sortition_height) as u16,
-                    ) {
-                        if block_data[b].1.is_some() {
-                            test_debug!(
-                                "Peer {} is missing block {} at sortition height {} (between {} and {})",
-                                i,
-                                b,
-                                (b as u64) + first_stacks_block_height - first_sortition_height,
-                                first_stacks_block_height - first_sortition_height,
-                                first_stacks_block_height - first_sortition_height
-                                    + (num_blocks as u64),
-                            );
-                            done = false;
-                        }
+                    ) && block_data[b].1.is_some()
+                    {
+                        test_debug!(
+                            "Peer {} is missing block {} at sortition height {} (between {} and {})",
+                            i,
+                            b,
+                            (b as u64) + first_stacks_block_height - first_sortition_height,
+                            first_stacks_block_height - first_sortition_height,
+                            first_stacks_block_height - first_sortition_height
+                                + (num_blocks as u64),
+                        );
+                        done = false;
                     }
                 }
                 for b in 1..(num_blocks - 1) {
                     if !peer_invs[i].has_ith_microblock_stream(
                         ((b as u64) + first_stacks_block_height - first_sortition_height) as u16,
-                    ) {
-                        if block_data[b].2.is_some() {
-                            test_debug!(
-                                "Peer {} is missing microblock stream {} (between {} and {})",
-                                i,
-                                (b as u64) + first_stacks_block_height - first_sortition_height,
-                                first_stacks_block_height - first_sortition_height,
-                                first_stacks_block_height - first_sortition_height
-                                    + ((num_blocks - 1) as u64),
-                            );
-                            done = false;
-                        }
+                    ) && block_data[b].2.is_some()
+                    {
+                        test_debug!(
+                            "Peer {} is missing microblock stream {} (between {} and {})",
+                            i,
+                            (b as u64) + first_stacks_block_height - first_sortition_height,
+                            first_stacks_block_height - first_sortition_height,
+                            first_stacks_block_height - first_sortition_height
+                                + ((num_blocks - 1) as u64),
+                        );
+                        done = false;
                     }
                 }
             }
@@ -477,11 +465,7 @@ where
 
     info!("Completed walk round {} step(s)", round);
 
-    let mut peer_invs = vec![];
     for peer in peers.iter_mut() {
-        let peer_inv = get_blocks_inventory(peer, 0, num_burn_blocks);
-        peer_invs.push(peer_inv);
-
         let availability = get_peer_availability(
             peer,
             first_stacks_block_height - first_sortition_height,
@@ -511,7 +495,7 @@ where
     }
 
     drop(dns_clients);
-    for handle in dns_threads.drain(..) {
+    for handle in dns_threads.into_iter() {
         handle.join().unwrap();
     }
 
@@ -553,7 +537,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain() {
                     peers[0].next_burnchain_block_raw(burn_ops);
 
                     let sn = SortitionDB::get_canonical_burn_chain_tip(
-                        &peers[1].sortdb.as_ref().unwrap().conn(),
+                        peers[1].sortdb.as_ref().unwrap().conn(),
                     )
                     .unwrap();
                     block_data.push((
@@ -568,12 +552,9 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain() {
             |peer| {
                 // check peer health
                 // nothing should break
-                match peer.network.block_downloader {
-                    Some(ref dl) => {
-                        assert_eq!(dl.broken_peers.len(), 0);
-                        assert_eq!(dl.dead_peers.len(), 0);
-                    }
-                    None => {}
+                if let Some(ref dl) = peer.network.block_downloader {
+                    assert!(dl.broken_peers.is_empty());
+                    assert!(dl.dead_peers.is_empty());
                 }
 
                 // no block advertisements (should be disabled)
@@ -585,8 +566,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain() {
                         .unwrap_or(&0));
                     assert_eq!(
                         cnt, 0,
-                        "neighbor event={} got {} BlocksAvailable messages",
-                        event_id, cnt
+                        "neighbor event={event_id} got {cnt} BlocksAvailable messages"
                     );
                     Ok(())
                 });
@@ -614,7 +594,7 @@ fn make_contract_call_transaction(
     let tx_cc = {
         let mut tx_cc = StacksTransaction::new(
             TransactionVersion::Testnet,
-            spending_account.as_transaction_auth().unwrap().into(),
+            spending_account.as_transaction_auth().unwrap(),
             TransactionPayload::new_contract_call(
                 contract_address,
                 contract_name,
@@ -788,7 +768,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain_100_blocks() {
                         4,
                     );
 
-                    let mblock_privkey = StacksPrivateKey::new();
+                    let mblock_privkey = StacksPrivateKey::random();
 
                     let mblock_pubkey_hash_bytes = Hash160::from_data(
                         &StacksPublicKey::from_private(&mblock_privkey).to_bytes(),
@@ -834,7 +814,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain_100_blocks() {
                     peers[0].next_burnchain_block_raw(burn_ops);
 
                     let sn = SortitionDB::get_canonical_burn_chain_tip(
-                        &peers[1].sortdb.as_ref().unwrap().conn(),
+                        peers[1].sortdb.as_ref().unwrap().conn(),
                     )
                     .unwrap();
                     block_data.push((
@@ -849,12 +829,9 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain_100_blocks() {
             |peer| {
                 // check peer health
                 // nothing should break
-                match peer.network.block_downloader {
-                    Some(ref dl) => {
-                        assert_eq!(dl.broken_peers.len(), 0);
-                        assert_eq!(dl.dead_peers.len(), 0);
-                    }
-                    None => {}
+                if let Some(ref dl) = peer.network.block_downloader {
+                    assert!(dl.broken_peers.is_empty());
+                    assert!(dl.dead_peers.is_empty());
                 }
 
                 // no block advertisements (should be disabled)
@@ -904,7 +881,7 @@ pub fn test_get_blocks_and_microblocks_5_peers_star() {
                     peer_configs[i].add_neighbor(&peer_0);
                 }
 
-                for n in neighbors.drain(..) {
+                for n in neighbors.into_iter() {
                     peer_configs[0].add_neighbor(&n);
                 }
             },
@@ -925,7 +902,7 @@ pub fn test_get_blocks_and_microblocks_5_peers_star() {
                     }
 
                     let sn = SortitionDB::get_canonical_burn_chain_tip(
-                        &peers[0].sortdb.as_ref().unwrap().conn(),
+                        peers[0].sortdb.as_ref().unwrap().conn(),
                     )
                     .unwrap();
                     block_data.push((
@@ -940,12 +917,9 @@ pub fn test_get_blocks_and_microblocks_5_peers_star() {
             |peer| {
                 // check peer health
                 // nothing should break
-                match peer.network.block_downloader {
-                    Some(ref dl) => {
-                        assert_eq!(dl.broken_peers.len(), 0);
-                        assert_eq!(dl.dead_peers.len(), 0);
-                    }
-                    None => {}
+                if let Some(ref dl) = peer.network.block_downloader {
+                    assert!(dl.broken_peers.is_empty());
+                    assert!(dl.dead_peers.is_empty());
                 }
                 true
             },
@@ -999,7 +973,7 @@ pub fn test_get_blocks_and_microblocks_5_peers_line() {
                     }
 
                     let sn = SortitionDB::get_canonical_burn_chain_tip(
-                        &peers[0].sortdb.as_ref().unwrap().conn(),
+                        peers[0].sortdb.as_ref().unwrap().conn(),
                     )
                     .unwrap();
                     block_data.push((
@@ -1014,12 +988,9 @@ pub fn test_get_blocks_and_microblocks_5_peers_line() {
             |peer| {
                 // check peer health
                 // nothing should break
-                match peer.network.block_downloader {
-                    Some(ref dl) => {
-                        assert_eq!(dl.broken_peers.len(), 0);
-                        assert_eq!(dl.dead_peers.len(), 0);
-                    }
-                    None => {}
+                if let Some(ref dl) = peer.network.block_downloader {
+                    assert!(dl.broken_peers.is_empty());
+                    assert!(dl.dead_peers.is_empty());
                 }
                 true
             },
@@ -1060,7 +1031,7 @@ pub fn test_get_blocks_and_microblocks_overwhelmed_connections() {
                     peer_configs[i].connection_opts.max_http_clients = 1;
                 }
 
-                for n in neighbors.drain(..) {
+                for n in neighbors.into_iter() {
                     peer_configs[0].add_neighbor(&n);
                 }
             },
@@ -1081,7 +1052,7 @@ pub fn test_get_blocks_and_microblocks_overwhelmed_connections() {
                     }
 
                     let sn = SortitionDB::get_canonical_burn_chain_tip(
-                        &peers[0].sortdb.as_ref().unwrap().conn(),
+                        peers[0].sortdb.as_ref().unwrap().conn(),
                     )
                     .unwrap();
                     block_data.push((
@@ -1096,12 +1067,9 @@ pub fn test_get_blocks_and_microblocks_overwhelmed_connections() {
             |peer| {
                 // check peer health
                 // nothing should break
-                match peer.network.block_downloader {
-                    Some(ref dl) => {
-                        assert_eq!(dl.broken_peers.len(), 0);
-                        assert_eq!(dl.dead_peers.len(), 0);
-                    }
-                    None => {}
+                if let Some(ref dl) = peer.network.block_downloader {
+                    assert!(dl.broken_peers.is_empty());
+                    assert!(dl.dead_peers.is_empty());
                 }
                 true
             },
@@ -1139,7 +1107,7 @@ pub fn test_get_blocks_and_microblocks_overwhelmed_sockets() {
                     peer_configs[i].connection_opts.max_sockets = 10;
                 }
 
-                for n in neighbors.drain(..) {
+                for n in neighbors.into_iter() {
                     peer_configs[0].add_neighbor(&n);
                 }
             },
@@ -1160,7 +1128,7 @@ pub fn test_get_blocks_and_microblocks_overwhelmed_sockets() {
                     }
 
                     let sn = SortitionDB::get_canonical_burn_chain_tip(
-                        &peers[0].sortdb.as_ref().unwrap().conn(),
+                        peers[0].sortdb.as_ref().unwrap().conn(),
                     )
                     .unwrap();
                     block_data.push((
@@ -1175,12 +1143,9 @@ pub fn test_get_blocks_and_microblocks_overwhelmed_sockets() {
             |peer| {
                 // check peer health
                 // nothing should break
-                match peer.network.block_downloader {
-                    Some(ref dl) => {
-                        assert_eq!(dl.broken_peers.len(), 0);
-                        assert_eq!(dl.dead_peers.len(), 0);
-                    }
-                    None => {}
+                if let Some(ref dl) = peer.network.block_downloader {
+                    assert!(dl.broken_peers.is_empty());
+                    assert!(dl.dead_peers.is_empty());
                 }
                 true
             },
@@ -1248,7 +1213,7 @@ pub fn test_get_blocks_and_microblocks_ban_url() {
                 peers[0].next_burnchain_block_raw(burn_ops);
 
                 let sn = SortitionDB::get_canonical_burn_chain_tip(
-                    &peers[1].sortdb.as_ref().unwrap().conn(),
+                    peers[1].sortdb.as_ref().unwrap().conn(),
                 )
                 .unwrap();
                 block_data.push((
@@ -1262,11 +1227,8 @@ pub fn test_get_blocks_and_microblocks_ban_url() {
         |_| {},
         |peer| {
             let mut blocked = 0;
-            match peer.network.block_downloader {
-                Some(ref dl) => {
-                    blocked = dl.blocked_urls.len();
-                }
-                None => {}
+            if let Some(ref dl) = peer.network.block_downloader {
+                blocked = dl.blocked_urls.len();
             }
             if blocked >= 1 {
                 // NOTE: this is the success criterion
@@ -1376,7 +1338,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_multiple_microblock_desc
                         peers[0].next_burnchain_block_raw(burn_ops);
 
                         let sn = SortitionDB::get_canonical_burn_chain_tip(
-                            &peers[1].sortdb.as_ref().unwrap().conn(),
+                            peers[1].sortdb.as_ref().unwrap().conn(),
                         )
                         .unwrap();
 
@@ -1391,7 +1353,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_multiple_microblock_desc
                     } else {
                         test_debug!("Build child block {}", i);
                         let tip = SortitionDB::get_canonical_burn_chain_tip(
-                            &peers[1].sortdb.as_ref().unwrap().conn(),
+                            peers[1].sortdb.as_ref().unwrap().conn(),
                         )
                         .unwrap();
 
@@ -1466,7 +1428,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_multiple_microblock_desc
                         peers[0].next_burnchain_block_raw(burn_ops);
 
                         let sn = SortitionDB::get_canonical_burn_chain_tip(
-                            &peers[1].sortdb.as_ref().unwrap().conn(),
+                            peers[1].sortdb.as_ref().unwrap().conn(),
                         )
                         .unwrap();
 
@@ -1483,12 +1445,9 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_multiple_microblock_desc
             |peer| {
                 // check peer health
                 // nothing should break
-                match peer.network.block_downloader {
-                    Some(ref dl) => {
-                        assert_eq!(dl.broken_peers.len(), 0);
-                        assert_eq!(dl.dead_peers.len(), 0);
-                    }
-                    None => {}
+                if let Some(ref dl) = peer.network.block_downloader {
+                    assert!(dl.broken_peers.is_empty());
+                    assert!(dl.dead_peers.is_empty());
                 }
 
                 // no block advertisements (should be disabled)

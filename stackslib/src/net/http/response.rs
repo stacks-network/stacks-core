@@ -258,7 +258,7 @@ impl HttpResponsePreamble {
         keep_alive: bool,
         content_length: Option<u32>,
         content_type: HttpContentType,
-        mut keys: Vec<String>,
+        keys: Vec<String>,
         values: Vec<String>,
     ) -> HttpResponsePreamble {
         assert_eq!(keys.len(), values.len());
@@ -271,7 +271,7 @@ impl HttpResponsePreamble {
             keep_alive,
         );
 
-        for (k, v) in keys.drain(..).zip(values) {
+        for (k, v) in keys.into_iter().zip(values) {
             res.add_header(k, v);
         }
         res
@@ -522,14 +522,14 @@ impl StacksMessageCodec for HttpResponsePreamble {
                             )
                         })?;
                     if !value.is_ascii() {
-                        return Err(CodecError::DeserializeError(format!(
-                            "Invalid HTTP request: header value is not ASCII-US"
-                        )));
+                        return Err(CodecError::DeserializeError(
+                            "Invalid HTTP request: header value is not ASCII-US".to_string(),
+                        ));
                     }
                     if value.len() > HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize {
-                        return Err(CodecError::DeserializeError(format!(
-                            "Invalid HTTP request: header value is too big"
-                        )));
+                        return Err(CodecError::DeserializeError(
+                            "Invalid HTTP request: header value is too big".to_string(),
+                        ));
                     }
 
                     let key = resp.headers[i].name.to_string().to_lowercase();
@@ -670,7 +670,7 @@ impl HttpResponsePayload {
         match self {
             Self::Empty => Ok(()),
             Self::JSON(value) => serde_json::to_writer(fd, &value).map_err(Error::JsonError),
-            Self::Bytes(value) => fd.write_all(&value).map_err(Error::WriteError),
+            Self::Bytes(value) => fd.write_all(value).map_err(Error::WriteError),
             Self::Text(value) => fd.write_all(value.as_bytes()).map_err(Error::WriteError),
         }
     }

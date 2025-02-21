@@ -857,13 +857,10 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         let mut i = ptrs.len() - 1;
         loop {
             let ptr = &ptrs[i];
-            let proof_node = TrieMerkleProof::ptr_to_segment_proof_node(storage, &ptr, prev_chr)?;
+            let proof_node = TrieMerkleProof::ptr_to_segment_proof_node(storage, ptr, prev_chr)?;
 
             trace!(
-                "make_segment_proof: Add proof node from {:?} child 0x{:02x}: {:?}",
-                &ptr,
-                prev_chr,
-                &proof_node
+                "make_segment_proof: Add proof node from {ptr:?} child 0x{prev_chr:02x}: {proof_node:?}"
             );
 
             proof_segment.push(proof_node);
@@ -896,14 +893,12 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         for child_ptr in node.ptrs() {
             if child_ptr.id != TrieNodeID::Empty as u8 && child_ptr.chr == chr {
                 all_hashes.push(hash.clone());
+            } else if ih >= hashes.len() {
+                trace!("verify_get_hash: {} >= {}", ih, hashes.len());
+                return None;
             } else {
-                if ih >= hashes.len() {
-                    trace!("verify_get_hash: {} >= {}", ih, hashes.len());
-                    return None;
-                } else {
-                    all_hashes.push(hashes[ih].clone());
-                    ih += 1;
-                }
+                all_hashes.push(hashes[ih].clone());
+                ih += 1;
             }
         }
         if all_hashes.len() != count {
@@ -1125,7 +1120,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         root_hash: &TrieHash,
         root_to_block: &HashMap<TrieHash, T>,
     ) -> bool {
-        if !TrieMerkleProof::is_proof_well_formed(&proof, path) {
+        if !TrieMerkleProof::is_proof_well_formed(proof, path) {
             test_debug!("Invalid proof -- proof is not well-formed");
             return false;
         }
@@ -1215,12 +1210,12 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         };
 
         // next proof item should be part of a segment proof
-        match proof[i] {
-            TrieMerkleProofType::Shunt(_) => {
-                test_debug!("Malformed proof -- exepcted segment proof following first shunt proof head at {}", i);
-                return false;
-            }
-            _ => {}
+        if let TrieMerkleProofType::Shunt(_) = proof[i] {
+            test_debug!(
+                "Malformed proof -- exepcted segment proof following first shunt proof head at {}",
+                i
+            );
+            return false;
         }
 
         while i < proof.len() {
@@ -1355,7 +1350,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         root_hash: &TrieHash,
         root_to_block: &HashMap<TrieHash, T>,
     ) -> bool {
-        TrieMerkleProof::<T>::verify_proof(&self.0, &path, &marf_value, root_hash, root_to_block)
+        TrieMerkleProof::<T>::verify_proof(&self.0, path, marf_value, root_hash, root_to_block)
     }
 
     /// Walk down the trie pointed to by s until we reach a backptr or a leaf

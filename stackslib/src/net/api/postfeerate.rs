@@ -18,6 +18,7 @@ use std::io::{Read, Write};
 
 use clarity::vm::costs::ExecutionCost;
 use regex::{Captures, Regex};
+use serde_json::json;
 use stacks_common::codec::{StacksMessageCodec, MAX_PAYLOAD_LEN};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, ConsensusHash, StacksBlockId, StacksPublicKey,
@@ -118,13 +119,7 @@ impl RPCPostFeeRateRequestHandler {
         let scalar_cost =
             metric.from_cost_and_len(&estimated_cost, &stacks_epoch.block_limit, estimated_len);
         let fee_rates = fee_estimator.get_rate_estimates().map_err(|e| {
-            StacksHttpResponse::new_error(
-                &preamble,
-                &HttpBadRequest::new(format!(
-                    "Estimator RPC endpoint failed to estimate fees for tx: {:?}",
-                    &e
-                )),
-            )
+            StacksHttpResponse::new_error(preamble, &HttpBadRequest::new_json(e.into_json()))
         })?;
 
         let mut estimations = RPCFeeEstimate::estimate_fees(scalar_cost, fee_rates).to_vec();
@@ -243,11 +238,7 @@ impl RPCRequestHandler for RPCPostFeeRateRequestHandler {
                         .map_err(|e| {
                             StacksHttpResponse::new_error(
                                 &preamble,
-                                &HttpBadRequest::new(format!(
-                                    "Estimator RPC endpoint failed to estimate tx {}: {:?}",
-                                    &tx.name(),
-                                    &e
-                                )),
+                                &HttpBadRequest::new_json(e.into_json()),
                             )
                         })?;
 
@@ -263,9 +254,9 @@ impl RPCRequestHandler for RPCPostFeeRateRequestHandler {
                     debug!("Fee and cost estimation not configured on this stacks node");
                     Err(StacksHttpResponse::new_error(
                         &preamble,
-                        &HttpBadRequest::new(
-                            "Fee estimation not supported on this node".to_string(),
-                        ),
+                        &HttpBadRequest::new_json(json!(
+                            "Fee estimation not supported on this node"
+                        )),
                     ))
                 }
             });

@@ -48,7 +48,7 @@ fn make_preamble(query: &str) -> HttpRequestPreamble {
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
     let http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
-    let private_key = StacksPrivateKey::new();
+    let private_key = StacksPrivateKey::random();
     let signer_pubkey = StacksPublicKey::from_private(&private_key);
     let signer_pubkey_hex = signer_pubkey.to_hex();
     let cycle_num = thread_rng().next_u32() as u64;
@@ -108,7 +108,7 @@ fn test_try_make_response() {
     )
     .unwrap();
 
-    let random_private_key = StacksPrivateKey::new();
+    let random_private_key = StacksPrivateKey::random();
     let random_public_key = StacksPublicKey::from_private(&random_private_key);
 
     let nakamoto_chain_tip = rpc_test.canonical_tip.clone();

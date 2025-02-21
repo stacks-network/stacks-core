@@ -15,11 +15,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::io::{Read, Write};
-use std::{cmp, error, fmt, str};
+use std::{cmp, error, str};
 
-use hashbrown::HashMap;
 use lazy_static::lazy_static;
-use serde_json::Value as JSONValue;
 use stacks_common::codec::{Error as codec_error, StacksMessageCodec};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{hex_bytes, to_hex};
@@ -27,17 +25,12 @@ use stacks_common::util::retry::BoundReader;
 
 use super::{ListTypeData, TupleTypeSignature};
 use crate::vm::database::{ClarityDeserializable, ClaritySerializable};
-use crate::vm::errors::{
-    CheckErrors, Error as ClarityError, IncomparableError, InterpreterError, InterpreterResult,
-    RuntimeErrorType,
-};
+use crate::vm::errors::{CheckErrors, Error as ClarityError, IncomparableError, InterpreterError};
 use crate::vm::representations::{ClarityName, ContractName, MAX_STRING_LEN};
-use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
-    byte_len_of_serialization, BufferLength, CallableData, CharType, OptionalData, PrincipalData,
-    QualifiedContractIdentifier, ResponseData, SequenceData, SequenceSubtype,
-    StandardPrincipalData, StringSubtype, StringUTF8Length, TupleData, TypeSignature, Value,
-    BOUND_VALUE_SERIALIZATION_BYTES, MAX_TYPE_DEPTH, MAX_VALUE_SIZE,
+    BufferLength, CallableData, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier,
+    SequenceData, SequenceSubtype, StandardPrincipalData, StringSubtype, TupleData, TypeSignature,
+    Value, BOUND_VALUE_SERIALIZATION_BYTES, MAX_TYPE_DEPTH, MAX_VALUE_SIZE,
 };
 
 /// Errors that may occur in serialization or deserialization
@@ -54,6 +47,7 @@ pub enum SerializationError {
     DeserializeExpected(TypeSignature),
     LeftoverBytesInDeserialization,
     SerializationError(String),
+    UnexpectedSerialization,
 }
 
 lazy_static! {
@@ -97,6 +91,9 @@ impl std::fmt::Display for SerializationError {
                 "Deserialization expected the type of the input to be: {}",
                 e
             ),
+            SerializationError::UnexpectedSerialization => {
+                write!(f, "The serializer handled an input in an unexpected way")
+            }
             SerializationError::LeftoverBytesInDeserialization => {
                 write!(f, "Deserialization error: bytes left over in buffer")
             }
@@ -208,7 +205,7 @@ trait ClarityValueSerializable<T: std::marker::Sized> {
 
 impl ClarityValueSerializable<StandardPrincipalData> for StandardPrincipalData {
     fn serialize_write<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
-        w.write_all(&[self.0])?;
+        w.write_all(&[self.version()])?;
         w.write_all(&self.1)
     }
 
@@ -217,7 +214,8 @@ impl ClarityValueSerializable<StandardPrincipalData> for StandardPrincipalData {
         let mut data = [0; 20];
         r.read_exact(&mut version)?;
         r.read_exact(&mut data)?;
-        Ok(StandardPrincipalData(version[0], data))
+        StandardPrincipalData::new(version[0], data)
+            .map_err(|_| SerializationError::UnexpectedSerialization)
     }
 }
 
@@ -578,7 +576,6 @@ impl Value {
         top_expected_type: Option<&TypeSignature>,
         sanitize: bool,
     ) -> Result<Value, SerializationError> {
-        use super::PrincipalData::*;
         use super::Value::*;
 
         let mut stack = vec![DeserializeStackItem::TopLevel {
@@ -1381,9 +1378,7 @@ pub mod tests {
     use super::super::*;
     use super::SerializationError;
     use crate::vm::database::{ClarityDeserializable, ClaritySerializable, RollbackWrapper};
-    use crate::vm::errors::Error;
     use crate::vm::tests::test_clarity_versions;
-    use crate::vm::types::TypeSignature::{BoolType, IntType};
     use crate::vm::ClarityVersion;
 
     fn buff_type(size: u32) -> TypeSignature {
@@ -2120,16 +2115,16 @@ pub mod tests {
             ("03", Ok(Value::Bool(true))),
             ("04", Ok(Value::Bool(false))),
             ("050011deadbeef11ababffff11deadbeef11ababffff", Ok(
-                StandardPrincipalData(
+                StandardPrincipalData::new(
                     0x00,
                     [0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff,
-                     0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff]).into())),
+                     0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff]).unwrap().into())),
             ("060011deadbeef11ababffff11deadbeef11ababffff0461626364", Ok(
                 QualifiedContractIdentifier::new(
-                    StandardPrincipalData(
+                    StandardPrincipalData::new(
                         0x00,
                         [0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff,
-                         0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff]),
+                         0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff]).unwrap(),
                     "abcd".into()).into())),
             ("0700ffffffffffffffffffffffffffffffff", Ok(Value::okay(Value::Int(-1)).unwrap())),
             ("0800ffffffffffffffffffffffffffffffff", Ok(Value::error(Value::Int(-1)).unwrap())),

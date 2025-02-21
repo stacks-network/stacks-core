@@ -10,6 +10,7 @@
     "miner_pk_hash160": "0x6bc51b33e9f3626944eb879147e18111581f8f9b",
     "stacks_parent_ch": "0x697357c72da55b759b1d6b721676c92c69f0b490",
     "last_sortition_ch": "0x697357c72da55b759b1d6b721676c92c69f0b490",
-    "committed_block_hash": "0xeea47d6d639c565027110e192e308fb11656183d5c077bcd718d830652800183"
+    "committed_block_hash": "0xeea47d6d639c565027110e192e308fb11656183d5c077bcd718d830652800183",
+    "vrf_seed": "0x48b754acc291a5bfad1354ee19bbc471f14af2b21dc7eccc0f929bd16798defe"
   }
 ]

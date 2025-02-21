@@ -421,15 +421,13 @@ impl MempoolSync {
             // begin new sync
             self.mempool_sync_timeout =
                 get_epoch_time_secs() + network.get_connection_opts().mempool_sync_timeout;
-        } else {
-            if get_epoch_time_secs() > self.mempool_sync_timeout {
-                debug!(
-                    "{:?}: Mempool sync took too long; terminating",
-                    &network.get_local_peer()
-                );
-                self.mempool_sync_reset();
-                return (true, None);
-            }
+        } else if get_epoch_time_secs() > self.mempool_sync_timeout {
+            debug!(
+                "{:?}: Mempool sync took too long; terminating",
+                &network.get_local_peer()
+            );
+            self.mempool_sync_reset();
+            return (true, None);
         }
 
         // try advancing states until we get blocked.
@@ -499,7 +497,7 @@ impl MempoolSync {
                     // 3. ask for the remote peer's mempool's novel txs
                     // address must be resolvable
                     if !network.get_connection_opts().private_neighbors
-                        && PeerAddress::from_socketaddr(&addr).is_in_private_range()
+                        && PeerAddress::from_socketaddr(addr).is_in_private_range()
                     {
                         debug!(
                             "{:?}: Mempool sync skips {}, which has private IP",

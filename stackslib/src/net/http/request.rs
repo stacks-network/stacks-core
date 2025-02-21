@@ -117,7 +117,7 @@ impl HttpRequestPreamble {
         hostname: String,
         port: u16,
         keep_alive: bool,
-        mut keys: Vec<String>,
+        keys: Vec<String>,
         values: Vec<String>,
     ) -> HttpRequestPreamble {
         assert_eq!(keys.len(), values.len());
@@ -130,7 +130,7 @@ impl HttpRequestPreamble {
             keep_alive,
         );
 
-        for (k, v) in keys.drain(..).zip(values) {
+        for (k, v) in keys.into_iter().zip(values) {
             req.add_header(k, v);
         }
         req
@@ -273,29 +273,23 @@ impl StacksMessageCodec for HttpRequestPreamble {
             .map_err(CodecError::WriteError)?;
 
         // content-type
-        match self.content_type {
-            Some(ref c) => {
-                fd.write_all("Content-Type: ".as_bytes())
-                    .map_err(CodecError::WriteError)?;
-                fd.write_all(c.to_string().as_str().as_bytes())
-                    .map_err(CodecError::WriteError)?;
-                fd.write_all("\r\n".as_bytes())
-                    .map_err(CodecError::WriteError)?;
-            }
-            None => {}
+        if let Some(ref c) = self.content_type {
+            fd.write_all("Content-Type: ".as_bytes())
+                .map_err(CodecError::WriteError)?;
+            fd.write_all(c.to_string().as_str().as_bytes())
+                .map_err(CodecError::WriteError)?;
+            fd.write_all("\r\n".as_bytes())
+                .map_err(CodecError::WriteError)?;
         }
 
         // content-length
-        match self.content_length {
-            Some(l) => {
-                fd.write_all("Content-Length: ".as_bytes())
-                    .map_err(CodecError::WriteError)?;
-                fd.write_all(format!("{}", l).as_bytes())
-                    .map_err(CodecError::WriteError)?;
-                fd.write_all("\r\n".as_bytes())
-                    .map_err(CodecError::WriteError)?;
-            }
-            None => {}
+        if let Some(l) = self.content_length {
+            fd.write_all("Content-Length: ".as_bytes())
+                .map_err(CodecError::WriteError)?;
+            fd.write_all(format!("{}", l).as_bytes())
+                .map_err(CodecError::WriteError)?;
+            fd.write_all("\r\n".as_bytes())
+                .map_err(CodecError::WriteError)?;
         }
 
         // keep-alive
@@ -385,14 +379,14 @@ impl StacksMessageCodec for HttpRequestPreamble {
                         )
                     })?;
                     if !value.is_ascii() {
-                        return Err(CodecError::DeserializeError(format!(
-                            "Invalid HTTP request: header value is not ASCII-US"
-                        )));
+                        return Err(CodecError::DeserializeError(
+                            "Invalid HTTP request: header value is not ASCII-US".to_string(),
+                        ));
                     }
                     if value.len() > HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize {
-                        return Err(CodecError::DeserializeError(format!(
-                            "Invalid HTTP request: header value is too big"
-                        )));
+                        return Err(CodecError::DeserializeError(
+                            "Invalid HTTP request: header value is too big".to_string(),
+                        ));
                     }
 
                     let key = req.headers[i].name.to_string().to_lowercase();
@@ -543,7 +537,7 @@ impl HttpRequestContents {
                 }
                 kv
             })
-            .unwrap_or(HashMap::new())
+            .unwrap_or_default()
     }
 
     /// chain constructor -- add a query strings' values to the existing values, and also
@@ -655,7 +649,7 @@ impl HttpRequestContents {
         let buf = "".to_string();
         let mut serializer = form_urlencoded::Serializer::new(buf);
         for (k, v) in self.query_args.iter() {
-            serializer.append_pair(&k, &v);
+            serializer.append_pair(k, v);
         }
         serializer.finish()
     }

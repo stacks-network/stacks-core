@@ -18,6 +18,8 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
+#[cfg(test)]
+use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
@@ -330,7 +332,7 @@ impl RewardSetEventPayload {
 }
 
 #[cfg(test)]
-static TEST_EVENT_OBSERVER_SKIP_RETRY: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+static TEST_EVENT_OBSERVER_SKIP_RETRY: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
 impl EventObserver {
     fn init_db(db_path: &str) -> Result<Connection, db_error> {
@@ -440,11 +442,7 @@ impl EventObserver {
             Self::send_payload_directly(&payload, &url, timeout);
 
             #[cfg(test)]
-            if TEST_EVENT_OBSERVER_SKIP_RETRY
-                .lock()
-                .unwrap()
-                .unwrap_or(false)
-            {
+            if TEST_EVENT_OBSERVER_SKIP_RETRY.get() {
                 warn!("Fault injection: delete_payload");
                 return;
             }
@@ -509,11 +507,7 @@ impl EventObserver {
             }
 
             #[cfg(test)]
-            if TEST_EVENT_OBSERVER_SKIP_RETRY
-                .lock()
-                .unwrap()
-                .unwrap_or(false)
-            {
+            if TEST_EVENT_OBSERVER_SKIP_RETRY.get() {
                 warn!("Fault injection: skipping retry of payload");
                 return;
             }
@@ -593,6 +587,7 @@ impl EventObserver {
         rewards: Vec<(PoxAddress, u64)>,
         burns: u64,
         slot_holders: Vec<PoxAddress>,
+        consensus_hash: &ConsensusHash,
     ) -> serde_json::Value {
         let reward_recipients = rewards
             .into_iter()
@@ -614,7 +609,8 @@ impl EventObserver {
             "burn_block_height": burn_block_height,
             "reward_recipients": serde_json::Value::Array(reward_recipients),
             "reward_slot_holders": serde_json::Value::Array(reward_slot_holders),
-            "burn_amount": burns
+            "burn_amount": burns,
+            "consensus_hash": format!("0x{consensus_hash}"),
         })
     }
 
@@ -867,6 +863,7 @@ impl EventObserver {
             "reward_set": reward_set_value,
             "cycle_number": cycle_number_value,
             "tenure_height": coinbase_height,
+            "consensus_hash": format!("0x{}", metadata.consensus_hash),
         });
 
         let as_object_mut = payload.as_object_mut().unwrap();
@@ -1103,6 +1100,7 @@ impl BlockEventDispatcher for EventDispatcher {
         rewards: Vec<(PoxAddress, u64)>,
         burns: u64,
         recipient_info: Vec<PoxAddress>,
+        consensus_hash: &ConsensusHash,
     ) {
         self.process_burn_block(
             burn_block,
@@ -1110,6 +1108,7 @@ impl BlockEventDispatcher for EventDispatcher {
             rewards,
             burns,
             recipient_info,
+            consensus_hash,
         )
     }
 }
@@ -1146,6 +1145,7 @@ impl EventDispatcher {
         rewards: Vec<(PoxAddress, u64)>,
         burns: u64,
         recipient_info: Vec<PoxAddress>,
+        consensus_hash: &ConsensusHash,
     ) {
         // lazily assemble payload only if we have observers
         let interested_observers = self.filter_observers(&self.burn_block_observers_lookup, true);
@@ -1159,6 +1159,7 @@ impl EventDispatcher {
             rewards,
             burns,
             recipient_info,
+            consensus_hash,
         );
 
         for observer in interested_observers.iter() {
@@ -1315,7 +1316,7 @@ impl EventDispatcher {
             let mature_rewards = serde_json::Value::Array(mature_rewards_vec);
 
             #[cfg(any(test, feature = "testing"))]
-            if test_skip_block_announcement(&block) {
+            if test_skip_block_announcement(block) {
                 return;
             }
 
@@ -1752,6 +1753,7 @@ mod test {
     use std::time::Instant;
 
     use clarity::vm::costs::ExecutionCost;
+    use serial_test::serial;
     use stacks::burnchains::{PoxConstants, Txid};
     use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
     use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksHeaderInfo};
@@ -1842,7 +1844,7 @@ mod test {
             txs: vec![],
         };
         let mut metadata = StacksHeaderInfo::regtest_genesis();
-        metadata.anchored_header = StacksBlockHeaderTypes::Nakamoto(block_header.clone());
+        metadata.anchored_header = StacksBlockHeaderTypes::Nakamoto(block_header);
         let receipts = vec![];
         let parent_index_hash = StacksBlockId([0; 32]);
         let winner_txid = Txid([0; 32]);
@@ -1872,7 +1874,7 @@ mod test {
             &mblock_confirmed_consumed,
             &pox_constants,
             &None,
-            &Some(signer_bitvec.clone()),
+            &Some(signer_bitvec),
             block_timestamp,
             coinbase_height,
         );
@@ -2035,6 +2037,7 @@ mod test {
     }
 
     #[test]
+    #[serial]
     fn test_process_pending_payloads() {
         use mockito::Matcher;
 
@@ -2057,6 +2060,8 @@ mod test {
             .create();
 
         let url = &format!("{}/api", &server.url());
+
+        TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
         // Insert payload
         EventObserver::insert_payload(&conn, url, &payload, timeout)
@@ -2108,6 +2113,7 @@ mod test {
     }
 
     #[test]
+    #[serial]
     fn test_send_payload_with_db() {
         use mockito::Matcher;
 
@@ -2127,7 +2133,9 @@ mod test {
         let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
         let timeout = Duration::from_secs(5);
 
-        let observer = EventObserver::new(Some(working_dir.clone()), endpoint, timeout);
+        let observer = EventObserver::new(Some(working_dir), endpoint, timeout);
+
+        TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
         // Call send_payload
         observer.send_payload(&payload, "/test");
@@ -2255,6 +2263,7 @@ mod test {
     }
 
     #[test]
+    #[serial]
     fn test_send_payload_timeout() {
         let port = get_random_port();
         let timeout = Duration::from_secs(3);
@@ -2266,6 +2275,8 @@ mod test {
         let server = Server::http(format!("127.0.0.1:{port}")).unwrap();
         thread::spawn(move || {
             let mut attempt = 0;
+            // This exists to only keep request from being dropped
+            #[allow(clippy::collection_is_never_read)]
             let mut _request_holder = None;
             while let Ok(request) = server.recv() {
                 attempt += 1;
@@ -2317,6 +2328,7 @@ mod test {
     }
 
     #[test]
+    #[serial]
     fn test_send_payload_with_db_force_restart() {
         let port = get_random_port();
         let timeout = Duration::from_secs(3);
@@ -2331,6 +2343,8 @@ mod test {
         let server = Server::http(format!("127.0.0.1:{port}")).unwrap();
         thread::spawn(move || {
             let mut attempt = 0;
+            // This exists to only keep request from being dropped
+            #[allow(clippy::collection_is_never_read)]
             let mut _request_holder = None;
             while let Ok(mut request) = server.recv() {
                 attempt += 1;
@@ -2377,18 +2391,14 @@ mod test {
             }
         });
 
-        let observer = EventObserver::new(
-            Some(working_dir.clone()),
-            format!("127.0.0.1:{port}"),
-            timeout,
-        );
+        let observer = EventObserver::new(Some(working_dir), format!("127.0.0.1:{port}"), timeout);
 
         let payload = json!({"key": "value"});
         let payload2 = json!({"key": "value2"});
 
         // Disable retrying so that it sends the payload only once
         // and that payload will be ignored by the test server.
-        TEST_EVENT_OBSERVER_SKIP_RETRY.lock().unwrap().replace(true);
+        TEST_EVENT_OBSERVER_SKIP_RETRY.set(true);
 
         info!("Sending payload 1");
 
@@ -2396,10 +2406,7 @@ mod test {
         observer.send_payload(&payload, "/test");
 
         // Re-enable retrying
-        TEST_EVENT_OBSERVER_SKIP_RETRY
-            .lock()
-            .unwrap()
-            .replace(false);
+        TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
         info!("Sending payload 2");
 

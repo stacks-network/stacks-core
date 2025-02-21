@@ -130,7 +130,7 @@ impl DNSResolver {
     }
 
     pub fn resolve(&self, req: DNSRequest) -> DNSResponse {
-        if let Some(ref addrs) = self.hardcoded.get(&(req.host.clone(), req.port)) {
+        if let Some(addrs) = self.hardcoded.get(&(req.host.clone(), req.port)) {
             return DNSResponse::new(req, Ok(addrs.to_vec()));
         }
 
@@ -377,13 +377,10 @@ mod test {
         let mut resolved_addrs = None;
         loop {
             client.try_recv().unwrap();
-            match client.poll_lookup("www.google.com", 80).unwrap() {
-                Some(addrs) => {
-                    test_debug!("addrs: {:?}", &addrs);
-                    resolved_addrs = Some(addrs);
-                    break;
-                }
-                None => {}
+            if let Some(addrs) = client.poll_lookup("www.google.com", 80).unwrap() {
+                test_debug!("addrs: {:?}", &addrs);
+                resolved_addrs = Some(addrs);
+                break;
             }
             sleep_ms(100);
         }
@@ -420,16 +417,13 @@ mod test {
             client.try_recv().unwrap();
 
             for name in names.iter() {
-                if resolved_addrs.contains_key(&name.to_string()) {
+                if resolved_addrs.contains_key(*name) {
                     continue;
                 }
-                match client.poll_lookup(name, 80).unwrap() {
-                    Some(addrs) => {
-                        test_debug!("name {} addrs: {:?}", name, &addrs);
-                        resolved_addrs.insert(name.to_string(), addrs);
-                        break;
-                    }
-                    None => {}
+                if let Some(addrs) = client.poll_lookup(name, 80).unwrap() {
+                    test_debug!("name {name} addrs: {addrs:?}");
+                    resolved_addrs.insert(name.to_string(), addrs);
+                    break;
                 }
             }
 
@@ -452,13 +446,10 @@ mod test {
         let mut resolved_error = None;
         loop {
             client.try_recv().unwrap();
-            match client.poll_lookup("asdfjkl;", 80).unwrap() {
-                Some(resp) => {
-                    test_debug!("addrs: {:?}", &resp);
-                    resolved_error = Some(resp);
-                    break;
-                }
-                None => {}
+            if let Some(resp) = client.poll_lookup("asdfjkl;", 80).unwrap() {
+                test_debug!("addrs: {:?}", &resp);
+                resolved_error = Some(resp);
+                break;
             }
             sleep_ms(100);
         }
@@ -506,26 +497,12 @@ mod test {
             .queue_lookup("www.google.com", 80, get_epoch_time_ms() + 100)
             .unwrap();
         sleep_ms(200);
-        let mut resolved_err = None;
-        loop {
-            client.try_recv().unwrap();
-            match client.poll_lookup("www.google.com", 80) {
-                Ok(res) => {
-                    resolved_err = Some(res);
-                    break;
-                }
-                Err(e) => {
-                    eprintln!("err: {:?}", &e);
-                    assert!(false);
-                }
-            }
-            sleep_ms(100);
-        }
-        assert!(resolved_err.is_some());
-        eprintln!("{:?}", &resolved_err);
-        assert!(format!("{:?}", &resolved_err.unwrap())
-            .find("timed out")
-            .is_some());
+        client.try_recv().unwrap();
+        let resolved_err = client.poll_lookup("www.google.com", 80).unwrap().unwrap();
+        assert!(
+            format!("{resolved_err:?}").contains("timed out"),
+            "{resolved_err:?}"
+        );
         dns_thread_shutdown(client, thread_handle);
     }
 }

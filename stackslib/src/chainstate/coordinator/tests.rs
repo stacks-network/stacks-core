@@ -128,7 +128,7 @@ pub fn produce_burn_block<'a, I: Iterator<Item = &'a mut BurnchainDB>>(
 ) -> BurnchainHeaderHash {
     let BurnchainBlockData {
         header: par_header, ..
-    } = BurnchainDB::get_burnchain_block(&burnchain_db.conn(), par).unwrap();
+    } = BurnchainDB::get_burnchain_block(burnchain_db.conn(), par).unwrap();
     assert_eq!(&par_header.block_hash, par);
     let block_height = par_header.block_height + 1;
     for op in ops.iter_mut() {
@@ -159,7 +159,7 @@ fn produce_burn_block_do_not_set_height<'a, I: Iterator<Item = &'a mut Burnchain
 ) -> BurnchainHeaderHash {
     let BurnchainBlockData {
         header: par_header, ..
-    } = BurnchainDB::get_burnchain_block(&burnchain_db.conn(), par).unwrap();
+    } = BurnchainDB::get_burnchain_block(burnchain_db.conn(), par).unwrap();
     assert_eq!(&par_header.block_hash, par);
     let block_height = par_header.block_height + 1;
     let timestamp = par_header.timestamp + 1;
@@ -369,7 +369,7 @@ pub fn setup_states_with_epochs(
     );
 
     let block_limit = ExecutionCost::max_value();
-    let initial_balances = initial_balances.unwrap_or(vec![]);
+    let initial_balances = initial_balances.unwrap_or_default();
     for path in paths.iter() {
         let burnchain = get_burnchain(path, pox_consts.clone());
 
@@ -433,10 +433,8 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _block_timestamp: Option<u64>,
         _coinbase_height: u64,
     ) {
-        assert!(
-            false,
-            "We should never try to announce to the null dispatcher"
-        );
+        error!("We should never try to announce to the null dispatcher");
+        panic!();
     }
 
     fn announce_burn_block(
@@ -446,6 +444,7 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _rewards: Vec<(PoxAddress, u64)>,
         _burns: u64,
         _slot_holders: Vec<PoxAddress>,
+        _consensus_hash: &ConsensusHash,
     ) {
     }
 }
@@ -570,22 +569,12 @@ pub fn get_burnchain(path: &str, pox_consts: Option<PoxConstants>) -> Burnchain 
 
 pub fn get_sortition_db(path: &str, pox_consts: Option<PoxConstants>) -> SortitionDB {
     let burnchain = get_burnchain(path, pox_consts);
-    SortitionDB::open(
-        &burnchain.get_db_path(),
-        false,
-        burnchain.pox_constants.clone(),
-    )
-    .unwrap()
+    SortitionDB::open(&burnchain.get_db_path(), false, burnchain.pox_constants).unwrap()
 }
 
 pub fn get_rw_sortdb(path: &str, pox_consts: Option<PoxConstants>) -> SortitionDB {
     let burnchain = get_burnchain(path, pox_consts);
-    SortitionDB::open(
-        &burnchain.get_db_path(),
-        true,
-        burnchain.pox_constants.clone(),
-    )
-    .unwrap()
+    SortitionDB::open(&burnchain.get_db_path(), true, burnchain.pox_constants).unwrap()
 }
 
 pub fn get_burnchain_db(path: &str, pox_consts: Option<PoxConstants>) -> BurnchainDB {
@@ -594,7 +583,7 @@ pub fn get_burnchain_db(path: &str, pox_consts: Option<PoxConstants>) -> Burncha
 }
 
 pub fn get_chainstate_path_str(path: &str) -> String {
-    format!("{}/chainstate/", path)
+    format!("{path}/chainstate/")
 }
 
 pub fn get_chainstate(path: &str) -> StacksChainState {
@@ -902,7 +891,7 @@ fn make_stacks_block_with_input(
 
     eprintln!(
         "Find parents stacks header: {} in sortition {} (height {}, parent {}/{},{}, index block hash {})",
-        &parent_block, &parents_sortition.sortition_id, parents_sortition.block_height, &parents_sortition.consensus_hash, parent_block, parent_height, &StacksBlockHeader::make_index_block_hash(&parents_sortition.consensus_hash, &parent_block)
+        &parent_block, &parents_sortition.sortition_id, parents_sortition.block_height, &parents_sortition.consensus_hash, parent_block, parent_height, &StacksBlockHeader::make_index_block_hash(&parents_sortition.consensus_hash, parent_block)
     );
 
     let parent_vtxindex =
@@ -1022,10 +1011,10 @@ fn missed_block_commits_2_05() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::random()).collect();
 
-    let stacker = p2pkh_from(&StacksPrivateKey::new());
-    let rewards = pox_addr_from(&StacksPrivateKey::new());
+    let stacker = p2pkh_from(&StacksPrivateKey::random());
+    let rewards = pox_addr_from(&StacksPrivateKey::random());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![(stacker.clone().into(), balance)];
@@ -1048,7 +1037,7 @@ fn missed_block_commits_2_05() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -1056,7 +1045,7 @@ fn missed_block_commits_2_05() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
@@ -1222,12 +1211,10 @@ fn missed_block_commits_2_05() {
             // how many commit do we expect to see counted in the current window?
             let expected_window_commits = if ix >= (MINING_COMMITMENT_WINDOW as usize) {
                 (MINING_COMMITMENT_WINDOW - 1) as usize
+            } else if ix >= 3 {
+                ix
             } else {
-                if ix >= 3 {
-                    ix
-                } else {
-                    ix + 1
-                }
+                ix + 1
             };
             // there were 2 burn blocks before we started mining
             let expected_window_size = cmp::min(MINING_COMMITMENT_WINDOW as usize, ix + 3);
@@ -1344,10 +1331,10 @@ fn missed_block_commits_2_1() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::random()).collect();
 
-    let stacker = p2pkh_from(&StacksPrivateKey::new());
-    let rewards = pox_addr_from(&StacksPrivateKey::new());
+    let stacker = p2pkh_from(&StacksPrivateKey::random());
+    let rewards = pox_addr_from(&StacksPrivateKey::random());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![(stacker.clone().into(), balance)];
@@ -1370,7 +1357,7 @@ fn missed_block_commits_2_1() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -1378,7 +1365,7 @@ fn missed_block_commits_2_1() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
@@ -1551,12 +1538,10 @@ fn missed_block_commits_2_1() {
             // how many commits do we expect to see counted in the current window?
             let mut expected_window_commits = if ix >= (MINING_COMMITMENT_WINDOW as usize) {
                 (MINING_COMMITMENT_WINDOW - 1) as usize
+            } else if ix >= 3 {
+                ix
             } else {
-                if ix >= 3 {
-                    ix
-                } else {
-                    ix + 1
-                }
+                ix + 1
             };
             // there were 2 burn blocks before we started mining
             let expected_window_size = cmp::min(MINING_COMMITMENT_WINDOW as usize, ix + 3);
@@ -1690,10 +1675,10 @@ fn late_block_commits_2_1() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::random()).collect();
 
-    let stacker = p2pkh_from(&StacksPrivateKey::new());
-    let rewards = pox_addr_from(&StacksPrivateKey::new());
+    let stacker = p2pkh_from(&StacksPrivateKey::random());
+    let rewards = pox_addr_from(&StacksPrivateKey::random());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![(stacker.clone().into(), balance)];
@@ -1716,7 +1701,7 @@ fn late_block_commits_2_1() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -1724,7 +1709,7 @@ fn late_block_commits_2_1() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
@@ -1894,12 +1879,10 @@ fn late_block_commits_2_1() {
             // how many commit do we expect to see counted in the current window?
             let mut expected_window_commits = if ix >= (MINING_COMMITMENT_WINDOW as usize) {
                 (MINING_COMMITMENT_WINDOW - 1) as usize
+            } else if ix >= 3 {
+                ix
             } else {
-                if ix >= 3 {
-                    ix
-                } else {
-                    ix + 1
-                }
+                ix + 1
             };
             // there were 2 burn blocks before we started mining
             let expected_window_size = cmp::min(MINING_COMMITMENT_WINDOW as usize, ix + 3);
@@ -2020,7 +2003,7 @@ fn test_simple_setup() {
     let _r = std::fs::remove_dir_all(path_blinded);
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::random()).collect();
 
     setup_states(
         &[path, path_blinded],
@@ -2041,7 +2024,7 @@ fn test_simple_setup() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -2051,7 +2034,7 @@ fn test_simple_setup() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db_blind.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db_blind
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -2059,7 +2042,7 @@ fn test_simple_setup() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // at first, sortition_ids shouldn't have diverged
     //  but once the first reward cycle begins, they should diverge.
@@ -2231,11 +2214,11 @@ fn test_sortition_with_reward_set() {
     let _r = std::fs::remove_dir_all(path);
 
     let mut vrf_keys: Vec<_> = (0..150).map(|_| VRFPrivateKey::new()).collect();
-    let mut committers: Vec<_> = (0..150).map(|_| StacksPrivateKey::new()).collect();
+    let mut committers: Vec<_> = (0..150).map(|_| StacksPrivateKey::random()).collect();
 
     let reward_set_size = 4;
     let reward_set: Vec<_> = (0..reward_set_size)
-        .map(|_| pox_addr_from(&StacksPrivateKey::new()))
+        .map(|_| pox_addr_from(&StacksPrivateKey::random()))
         .collect();
 
     setup_states(
@@ -2255,7 +2238,7 @@ fn test_sortition_with_reward_set() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -2263,12 +2246,11 @@ fn test_sortition_with_reward_set() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     let mut started_first_reward_cycle = false;
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
-    let mut anchor_blocks = vec![];
 
     // split up the vrf keys and committers so that we have some that will be mining "correctly"
     //   and some that will be producing bad outputs
@@ -2405,7 +2387,7 @@ fn test_sortition_with_reward_set() {
                 vec![(pox_addr_from(miner_wrong_out), 0)]
             } else {
                 (0..OUTPUTS_PER_COMMIT)
-                    .map(|ix| (pox_addr_from(&StacksPrivateKey::new()), ix as u16))
+                    .map(|ix| (pox_addr_from(&StacksPrivateKey::random()), ix as u16))
                     .collect()
             };
             let bad_block_recipients = Some(RewardSetInfo {
@@ -2442,10 +2424,6 @@ fn test_sortition_with_reward_set() {
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             started_first_reward_cycle = true;
-            // store the anchor block for this sortition for later checking
-            let ic = sort_db.index_handle_at_tip();
-            let bhh = ic.get_last_anchor_block_hash().unwrap().unwrap();
-            anchor_blocks.push(bhh);
         }
 
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
@@ -2502,13 +2480,13 @@ fn test_sortition_with_burner_reward_set() {
     let _r = std::fs::remove_dir_all(path);
 
     let mut vrf_keys: Vec<_> = (0..150).map(|_| VRFPrivateKey::new()).collect();
-    let mut committers: Vec<_> = (0..150).map(|_| StacksPrivateKey::new()).collect();
+    let mut committers: Vec<_> = (0..150).map(|_| StacksPrivateKey::random()).collect();
 
     let reward_set_size = 3;
     let mut reward_set: Vec<_> = (0..reward_set_size - 1)
         .map(|_| PoxAddress::standard_burn_address(false))
         .collect();
-    reward_set.push(pox_addr_from(&StacksPrivateKey::new()));
+    reward_set.push(pox_addr_from(&StacksPrivateKey::random()));
 
     setup_states(
         &[path],
@@ -2527,7 +2505,7 @@ fn test_sortition_with_burner_reward_set() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -2535,12 +2513,11 @@ fn test_sortition_with_burner_reward_set() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     let mut started_first_reward_cycle = false;
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
-    let mut anchor_blocks = vec![];
 
     // split up the vrf keys and committers so that we have some that will be mining "correctly"
     //   and some that will be producing bad outputs
@@ -2651,7 +2628,7 @@ fn test_sortition_with_burner_reward_set() {
                 vec![(pox_addr_from(miner_wrong_out), 0)]
             } else {
                 (0..OUTPUTS_PER_COMMIT)
-                    .map(|ix| (pox_addr_from(&StacksPrivateKey::new()), ix as u16))
+                    .map(|ix| (pox_addr_from(&StacksPrivateKey::random()), ix as u16))
                     .collect()
             };
             let bad_block_recipients = Some(RewardSetInfo {
@@ -2688,10 +2665,6 @@ fn test_sortition_with_burner_reward_set() {
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             started_first_reward_cycle = true;
-            // store the anchor block for this sortition for later checking
-            let ic = sort_db.index_handle_at_tip();
-            let bhh = ic.get_last_anchor_block_hash().unwrap().unwrap();
-            anchor_blocks.push(bhh);
         }
 
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
@@ -2766,10 +2739,10 @@ fn test_pox_btc_ops() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::random()).collect();
 
-    let stacker = p2pkh_from(&StacksPrivateKey::new());
-    let rewards = pox_addr_from(&StacksPrivateKey::new());
+    let stacker = p2pkh_from(&StacksPrivateKey::random());
+    let rewards = pox_addr_from(&StacksPrivateKey::random());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![(stacker.clone().into(), balance)];
@@ -2791,7 +2764,7 @@ fn test_pox_btc_ops() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -2799,12 +2772,11 @@ fn test_pox_btc_ops() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     let mut started_first_reward_cycle = false;
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
-    let mut anchor_blocks = vec![];
 
     // track the reward set consumption
     let mut reward_cycle_count = 0;
@@ -2972,10 +2944,6 @@ fn test_pox_btc_ops() {
         if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             if new_burnchain_tip.block_height < sunset_ht {
                 started_first_reward_cycle = true;
-                // store the anchor block for this sortition for later checking
-                let ic = sort_db.index_handle_at_tip();
-                let bhh = ic.get_last_anchor_block_hash().unwrap().unwrap();
-                anchor_blocks.push(bhh);
             } else {
                 // store the anchor block for this sortition for later checking
                 let ic = sort_db.index_handle_at_tip();
@@ -3058,10 +3026,10 @@ fn test_stx_transfer_btc_ops() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::random()).collect();
 
-    let stacker = p2pkh_from(&StacksPrivateKey::new());
-    let recipient = p2pkh_from(&StacksPrivateKey::new());
+    let stacker = p2pkh_from(&StacksPrivateKey::random());
+    let recipient = p2pkh_from(&StacksPrivateKey::random());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let transfer_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![(stacker.clone().into(), balance)];
@@ -3083,7 +3051,7 @@ fn test_stx_transfer_btc_ops() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -3091,12 +3059,11 @@ fn test_stx_transfer_btc_ops() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     let mut started_first_reward_cycle = false;
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
-    let mut anchor_blocks = vec![];
 
     // track the reward set consumption
     let mut reward_recipients = HashSet::new();
@@ -3126,7 +3093,7 @@ fn test_stx_transfer_btc_ops() {
         if reward_cycle_info.is_some() {
             // did we process a reward set last cycle? check if the
             //  recipient set size matches our expectation
-            assert_eq!(reward_recipients.len(), 0);
+            assert!(reward_recipients.is_empty());
             // clear the reward recipients tracker, since those
             //  recipients are now eligible again in the new reward cycle
             reward_recipients.clear();
@@ -3319,10 +3286,6 @@ fn test_stx_transfer_btc_ops() {
         if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             if new_burnchain_tip.block_height < sunset_ht {
                 started_first_reward_cycle = true;
-                // store the anchor block for this sortition for later checking
-                let ic = sort_db.index_handle_at_tip();
-                let bhh = ic.get_last_anchor_block_hash().unwrap().unwrap();
-                anchor_blocks.push(bhh);
             } else {
                 // store the anchor block for this sortition for later checking
                 let ic = sort_db.index_handle_at_tip();
@@ -3489,11 +3452,11 @@ fn test_delegate_stx_btc_ops() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::random()).collect();
 
-    let first_del = p2pkh_from(&StacksPrivateKey::new());
-    let second_del = p2pkh_from(&StacksPrivateKey::new());
-    let delegator_addr = p2pkh_from(&StacksPrivateKey::new());
+    let first_del = p2pkh_from(&StacksPrivateKey::random());
+    let second_del = p2pkh_from(&StacksPrivateKey::random());
+    let delegator_addr = p2pkh_from(&StacksPrivateKey::random());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let delegated_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![
@@ -3510,7 +3473,7 @@ fn test_delegate_stx_btc_ops() {
         StacksEpochId::Epoch21,
     );
 
-    let mut coord = make_coordinator(path, Some(burnchain_conf.clone()));
+    let mut coord = make_coordinator(path, Some(burnchain_conf));
 
     coord.handle_new_burnchain_block().unwrap();
 
@@ -3518,7 +3481,7 @@ fn test_delegate_stx_btc_ops() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -3526,7 +3489,7 @@ fn test_delegate_stx_btc_ops() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
@@ -3796,10 +3759,10 @@ fn test_initial_coinbase_reward_distributions() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::random()).collect();
 
-    let stacker = p2pkh_from(&StacksPrivateKey::new());
-    let rewards = p2pkh_from(&StacksPrivateKey::new());
+    let stacker = p2pkh_from(&StacksPrivateKey::random());
+    let rewards = p2pkh_from(&StacksPrivateKey::random());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![(stacker.clone().into(), balance)];
@@ -3821,7 +3784,7 @@ fn test_initial_coinbase_reward_distributions() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -3829,7 +3792,7 @@ fn test_initial_coinbase_reward_distributions() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
@@ -4037,7 +4000,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..10).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
 
     setup_states(
         &[path],
@@ -4056,7 +4019,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -4064,7 +4027,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
@@ -4240,7 +4203,7 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..15).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..15).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..15).map(|_| StacksPrivateKey::random()).collect();
 
     setup_states(
         &[path],
@@ -4259,7 +4222,7 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -4267,7 +4230,7 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
@@ -4446,7 +4409,7 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..25).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..25).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..25).map(|_| StacksPrivateKey::random()).collect();
 
     setup_states(
         &[path],
@@ -4465,7 +4428,7 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -4473,7 +4436,7 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
@@ -4668,9 +4631,9 @@ fn atlas_stop_start() {
     let atlas_name: clarity::vm::ContractName = "atlas-test".into();
 
     let vrf_keys: Vec<_> = (0..15).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..15).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..15).map(|_| StacksPrivateKey::random()).collect();
 
-    let signer_sk = StacksPrivateKey::new();
+    let signer_sk = StacksPrivateKey::random();
     let signer_pk = p2pkh_from(&signer_sk);
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
@@ -4678,7 +4641,7 @@ fn atlas_stop_start() {
     let atlas_qci = QualifiedContractIdentifier::new(signer_pk.clone().into(), atlas_name.clone());
     // include our simple contract in the atlas config
     let mut atlas_config = AtlasConfig::new(false);
-    atlas_config.contracts.insert(atlas_qci.clone());
+    atlas_config.contracts.insert(atlas_qci);
 
     setup_states(
         &[path],
@@ -4701,7 +4664,7 @@ fn atlas_stop_start() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -4709,7 +4672,7 @@ fn atlas_stop_start() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
@@ -4741,7 +4704,7 @@ fn atlas_stop_start() {
                     TransactionVersion::Testnet,
                     TransactionAuth::from_p2pkh(&signer_sk).unwrap(),
                     TransactionPayload::ContractCall(TransactionContractCall {
-                        address: signer_pk.clone().into(),
+                        address: signer_pk.clone(),
                         contract_name: atlas_name.clone(),
                         function_name: "make-attach".into(),
                         function_args: vec![Value::buff_from(vec![ix; 20]).unwrap()],
@@ -4963,11 +4926,11 @@ fn test_epoch_verify_active_pox_contract() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..20).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..20).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..20).map(|_| StacksPrivateKey::random()).collect();
 
-    let stacker = p2pkh_from(&StacksPrivateKey::new());
-    let stacker_2 = p2pkh_from(&StacksPrivateKey::new());
-    let rewards = pox_addr_from(&StacksPrivateKey::new());
+    let stacker = p2pkh_from(&StacksPrivateKey::random());
+    let stacker_2 = p2pkh_from(&StacksPrivateKey::random());
+    let rewards = pox_addr_from(&StacksPrivateKey::random());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![
@@ -4998,7 +4961,7 @@ fn test_epoch_verify_active_pox_contract() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -5006,7 +4969,7 @@ fn test_epoch_verify_active_pox_contract() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
@@ -5265,12 +5228,12 @@ fn test_sortition_with_sunset() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let mut vrf_keys: Vec<_> = (0..200).map(|_| VRFPrivateKey::new()).collect();
-    let mut committers: Vec<_> = (0..200).map(|_| StacksPrivateKey::new()).collect();
+    let mut committers: Vec<_> = (0..200).map(|_| StacksPrivateKey::random()).collect();
 
     let reward_set_size = pox_consts.as_ref().unwrap().reward_slots() as usize;
     assert_eq!(reward_set_size, 6);
     let reward_set: Vec<_> = (0..reward_set_size)
-        .map(|_| pox_addr_from(&StacksPrivateKey::new()))
+        .map(|_| pox_addr_from(&StacksPrivateKey::random()))
         .collect();
 
     setup_states(
@@ -5290,7 +5253,7 @@ fn test_sortition_with_sunset() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -5298,12 +5261,11 @@ fn test_sortition_with_sunset() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     let mut started_first_reward_cycle = false;
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
-    let mut anchor_blocks = vec![];
 
     // split up the vrf keys and committers so that we have some that will be mining "correctly"
     //   and some that will be producing bad outputs
@@ -5364,7 +5326,7 @@ fn test_sortition_with_sunset() {
                         + (pox_consts.as_ref().unwrap().reward_cycle_length as u64)
                 {
                     eprintln!("End of PoX (beyond sunset height {} and in next reward cycle): reward set size is {}", burnchain_tip.block_height, reward_recipients.len());
-                    assert_eq!(reward_recipients.len(), 0);
+                    assert!(reward_recipients.is_empty());
                 } else if burnchain_tip.block_height > last_reward_cycle_block {
                     eprintln!(
                         "End of PoX (beyond sunset height {}): reward set size is {}",
@@ -5487,10 +5449,6 @@ fn test_sortition_with_sunset() {
         if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             if new_burnchain_tip.block_height < sunset_ht {
                 started_first_reward_cycle = true;
-                // store the anchor block for this sortition for later checking
-                let ic = sort_db.index_handle_at_tip();
-                let bhh = ic.get_last_anchor_block_hash().unwrap().unwrap();
-                anchor_blocks.push(bhh);
             } else {
                 // store the anchor block for this sortition for later checking
                 let ic = sort_db.index_handle_at_tip();
@@ -5577,12 +5535,12 @@ fn test_sortition_with_sunset_and_epoch_switch() {
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let mut vrf_keys: Vec<_> = (0..200).map(|_| VRFPrivateKey::new()).collect();
-    let mut committers: Vec<_> = (0..200).map(|_| StacksPrivateKey::new()).collect();
+    let mut committers: Vec<_> = (0..200).map(|_| StacksPrivateKey::random()).collect();
 
     let reward_set_size = pox_consts.as_ref().unwrap().reward_slots() as usize;
     assert_eq!(reward_set_size, 6);
     let reward_set: Vec<_> = (0..reward_set_size)
-        .map(|_| pox_addr_from(&StacksPrivateKey::new()))
+        .map(|_| pox_addr_from(&StacksPrivateKey::random()))
         .collect();
 
     setup_states_with_epochs(
@@ -5603,7 +5561,7 @@ fn test_sortition_with_sunset_and_epoch_switch() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -5611,12 +5569,11 @@ fn test_sortition_with_sunset_and_epoch_switch() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     let mut started_first_reward_cycle = false;
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
-    let mut anchor_blocks = vec![];
 
     // split up the vrf keys and committers so that we have some that will be mining "correctly"
     //   and some that will be producing bad outputs
@@ -5680,7 +5637,7 @@ fn test_sortition_with_sunset_and_epoch_switch() {
                             + (pox_consts.as_ref().unwrap().reward_cycle_length as u64)
                     {
                         eprintln!("End of PoX (beyond sunset height {} and in next reward cycle): reward set size is {}", burnchain_tip.block_height, reward_recipients.len());
-                        assert_eq!(reward_recipients.len(), 0);
+                        assert!(reward_recipients.is_empty());
                     } else if burnchain_tip.block_height > last_reward_cycle_block {
                         eprintln!(
                             "End of PoX (beyond sunset height {}): reward set size is {}",
@@ -5828,10 +5785,6 @@ fn test_sortition_with_sunset_and_epoch_switch() {
         if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
             if new_burnchain_tip.block_height < sunset_ht {
                 started_first_reward_cycle = true;
-                // store the anchor block for this sortition for later checking
-                let ic = sort_db.index_handle_at_tip();
-                let bhh = ic.get_last_anchor_block_hash().unwrap().unwrap();
-                anchor_blocks.push(bhh);
             } else {
                 // store the anchor block for this sortition for later checking
                 let ic = sort_db.index_handle_at_tip();
@@ -5928,7 +5881,7 @@ fn test_pox_processable_block_in_different_pox_forks() {
     let b_blind = get_burnchain(path_blinded, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..20).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..20).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..20).map(|_| StacksPrivateKey::random()).collect();
 
     setup_states_with_epochs(
         &[path, path_blinded],
@@ -5950,7 +5903,7 @@ fn test_pox_processable_block_in_different_pox_forks() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -5960,7 +5913,7 @@ fn test_pox_processable_block_in_different_pox_forks() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db_blind.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db_blind
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -5968,7 +5921,7 @@ fn test_pox_processable_block_in_different_pox_forks() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
@@ -6218,7 +6171,7 @@ fn test_pox_no_anchor_selected() {
     let _r = std::fs::remove_dir_all(path_blinded);
 
     let vrf_keys: Vec<_> = (0..10).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
 
     setup_states(
         &[path, path_blinded],
@@ -6239,7 +6192,7 @@ fn test_pox_no_anchor_selected() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -6249,7 +6202,7 @@ fn test_pox_no_anchor_selected() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db_blind.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db_blind
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -6257,7 +6210,7 @@ fn test_pox_no_anchor_selected() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // at first, sortition_ids shouldn't have diverged
     //  but once the first reward cycle begins, they should diverge.
@@ -6409,7 +6362,7 @@ fn test_pox_no_anchor_selected() {
             path_blinded,
             &sort_db_blind,
             &mut coord_blind,
-            &sort_id,
+            sort_id,
             block,
         );
     }
@@ -6433,7 +6386,7 @@ fn test_pox_fork_out_of_order() {
     let _r = std::fs::remove_dir_all(path_blinded);
 
     let vrf_keys: Vec<_> = (0..15).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..15).map(|_| StacksPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..15).map(|_| StacksPrivateKey::random()).collect();
 
     setup_states(
         &[path, path_blinded],
@@ -6454,7 +6407,7 @@ fn test_pox_fork_out_of_order() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -6464,7 +6417,7 @@ fn test_pox_fork_out_of_order() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db_blind.conn()).unwrap();
     assert_eq!(tip.block_height, 1);
-    assert_eq!(tip.sortition, false);
+    assert!(!tip.sortition);
     let (_, ops) = sort_db_blind
         .get_sortition_result(&tip.sortition_id)
         .unwrap()
@@ -6472,14 +6425,13 @@ fn test_pox_fork_out_of_order() {
 
     // we should have all the VRF registrations accepted
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
-    assert_eq!(ops.consumed_leader_keys.len(), 0);
+    assert!(ops.consumed_leader_keys.is_empty());
 
     // at first, sortition_ids shouldn't have diverged
     //  but once the first reward cycle begins, they should diverge.
     let mut sortition_ids_diverged = false;
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
-    let mut anchor_blocks = vec![];
 
     // setup:
     //  2 forks: 0 - 1 - 2 - 3 - 4 - 5 - 11 - 12 - 13 - 14 - 15
@@ -6560,8 +6512,6 @@ fn test_pox_fork_out_of_order() {
                 .unwrap()
                 .block_height
             );
-
-            anchor_blocks.push(bhh);
         }
 
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
@@ -6805,7 +6755,7 @@ fn reveal_block<T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProv
     block: &StacksBlock,
 ) {
     let mut chainstate = get_chainstate(chainstate_path);
-    let sortition = SortitionDB::get_block_snapshot(sort_db.conn(), &my_sortition)
+    let sortition = SortitionDB::get_block_snapshot(sort_db.conn(), my_sortition)
         .unwrap()
         .unwrap();
     preprocess_block(&mut chainstate, sort_db, &sortition, block.clone());
@@ -6881,7 +6831,7 @@ fn test_check_chainstate_db_versions() {
     let chainstate_v1 = StacksChainState::open_db_without_migrations(
         false,
         CHAIN_ID_TESTNET,
-        &StacksChainState::header_index_root_path(PathBuf::from(&chainstate_path))
+        StacksChainState::header_index_root_path(PathBuf::from(&chainstate_path))
             .to_str()
             .unwrap(),
     )
@@ -6903,13 +6853,8 @@ fn test_check_chainstate_db_versions() {
     );
 
     // should work just fine in epoch 2
-    assert!(
-        check_chainstate_db_versions(&[epoch_2.clone()], &sortdb_path, &chainstate_path).unwrap()
-    );
+    assert!(check_chainstate_db_versions(&[epoch_2], &sortdb_path, &chainstate_path).unwrap());
 
     // should fail in epoch 2.05
-    assert!(
-        !check_chainstate_db_versions(&[epoch_2_05.clone()], &sortdb_path, &chainstate_path)
-            .unwrap()
-    );
+    assert!(!check_chainstate_db_versions(&[epoch_2_05], &sortdb_path, &chainstate_path).unwrap());
 }
