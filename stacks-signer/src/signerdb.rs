@@ -826,8 +826,8 @@ impl SignerDb {
         try_deserialize(result)
     }
 
-    /// Return the count of globally signed blocks in a tenure (identified by its consensus hash)
-    pub fn get_globally_signed_block_count_in_tenure(
+    /// Return the count of globally accepted blocks in a tenure (identified by its consensus hash)
+    pub fn get_globally_accepted_block_count_in_tenure(
         &self,
         tenure: &ConsensusHash,
     ) -> Result<i64, DBError> {
@@ -2007,7 +2007,7 @@ mod tests {
         });
 
         assert_eq!(
-            db.get_globally_signed_block_count_in_tenure(&consensus_hash_1)
+            db.get_globally_accepted_block_count_in_tenure(&consensus_hash_1)
                 .unwrap(),
             0
         );
@@ -2018,7 +2018,7 @@ mod tests {
         db.insert_block(&block_info).unwrap();
 
         assert_eq!(
-            db.get_globally_signed_block_count_in_tenure(&consensus_hash_1)
+            db.get_globally_accepted_block_count_in_tenure(&consensus_hash_1)
                 .unwrap(),
             1
         );
@@ -2034,7 +2034,7 @@ mod tests {
         db.insert_block(&block_info).unwrap();
 
         assert_eq!(
-            db.get_globally_signed_block_count_in_tenure(&consensus_hash_1)
+            db.get_globally_accepted_block_count_in_tenure(&consensus_hash_1)
                 .unwrap(),
             3
         );
@@ -2046,7 +2046,7 @@ mod tests {
         db.insert_block(&block_info).unwrap();
 
         assert_eq!(
-            db.get_globally_signed_block_count_in_tenure(&consensus_hash_1)
+            db.get_globally_accepted_block_count_in_tenure(&consensus_hash_1)
                 .unwrap(),
             4
         );
@@ -2058,7 +2058,7 @@ mod tests {
         db.insert_block(&block_info).unwrap();
 
         assert_eq!(
-            db.get_globally_signed_block_count_in_tenure(&consensus_hash_1)
+            db.get_globally_accepted_block_count_in_tenure(&consensus_hash_1)
                 .unwrap(),
             4
         );
