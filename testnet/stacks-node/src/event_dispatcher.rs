@@ -90,7 +90,8 @@ struct EventObserver {
     endpoint: String,
     /// Timeout for sending events to this observer
     timeout: Duration,
-    /// force observers to not retry on error
+    /// If true, the stacks-node will not retry if event delivery fails for any reason.
+    /// WARNING: This should not be set on observers that require successful delivery of all events.
     disable_retries: bool,
 }
 
@@ -1689,6 +1690,10 @@ impl EventDispatcher {
             Duration::from_millis(conf.timeout_ms),
             conf.disable_retries,
         );
+
+        if conf.disable_retries {
+            warn!("Observer {} is configured in \"disable_retries\" mode: events are not granted to be delivered", conf.endpoint);
+        }
 
         let observer_index = self.registered_observers.len() as u16;
 
