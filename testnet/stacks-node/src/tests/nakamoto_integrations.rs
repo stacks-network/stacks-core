@@ -28,7 +28,7 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ClarityVersion, Value};
 use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
-use libsigner::v0::messages::SignerMessage as SignerMessageV0;
+use libsigner::v0::messages::{RejectReason, SignerMessage as SignerMessageV0};
 use libsigner::{SignerSession, StackerDBSession};
 use rusqlite::OptionalExtension;
 use stacks::burnchains::{MagicBytes, Txid};
@@ -1429,8 +1429,7 @@ fn wait_for_first_naka_block_commit(timeout_secs: u64, naka_commits_submitted: &
     let start = Instant::now();
     while naka_commits_submitted.load(Ordering::SeqCst) < 1 {
         if start.elapsed() > Duration::from_secs(timeout_secs) {
-            error!("Timed out waiting for block commit");
-            panic!();
+            panic!("Timed out waiting for block commit");
         }
         thread::sleep(Duration::from_millis(100));
     }
@@ -2818,10 +2817,9 @@ fn correct_burn_outs() {
         if let Err(e) =
             next_block_and_mine_commit(&mut btc_regtest_controller, 30, &naka_conf, &counters)
         {
-            warn!(
+            panic!(
                 "Error while minting a bitcoin block and waiting for stacks-node activity: {e:?}"
             );
-            panic!();
         }
 
         let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
@@ -3186,10 +3184,10 @@ fn block_proposal_api_endpoint() {
         };
         let start_time = Instant::now();
         while ix != 1 && response.status().as_u16() == HTTP_TOO_MANY {
-            if start_time.elapsed() > Duration::from_secs(30) {
-                error!("Took over 30 seconds to process pending proposal, panicking test");
-                panic!();
-            }
+            assert!(
+                start_time.elapsed() <= Duration::from_secs(30),
+                "Took over 30 seconds to process pending proposal, panicking test"
+            );
             info!("Waiting for prior request to finish processing, and then resubmitting");
             thread::sleep(Duration::from_secs(5));
             let request_builder = client
@@ -3236,10 +3234,10 @@ fn block_proposal_api_endpoint() {
     let mut proposal_responses = test_observer::get_proposal_responses();
     let start_time = Instant::now();
     while proposal_responses.len() < expected_proposal_responses.len() {
-        if start_time.elapsed() > Duration::from_secs(30) {
-            error!("Took over 30 seconds to process pending proposal, panicking test");
-            panic!();
-        }
+        assert!(
+            start_time.elapsed() <= Duration::from_secs(30),
+            "Took over 30 seconds to process pending proposal, panicking test"
+        );
         info!("Waiting for prior request to finish processing");
         thread::sleep(Duration::from_secs(5));
         proposal_responses = test_observer::get_proposal_responses();
@@ -4101,7 +4099,8 @@ fn follower_bootup_across_multiple_cycles() {
 
     debug!("Booted follower-thread");
 
-    wait_for(300, || {
+    // Wait a long time for the follower to catch up because CI is slow.
+    wait_for(600, || {
         sleep_ms(1000);
         let Ok(follower_node_info) = get_chain_info_result(&follower_conf) else {
             return Ok(false);
@@ -6572,7 +6571,7 @@ fn signer_chainstate() {
         if let Some((ref miner_pk, ref prior_tenure_first, ref prior_tenure_interims)) =
             last_tenures_proposals
         {
-            let valid = sortitions_view
+            let reject_code = sortitions_view
                 .check_proposal(
                     &signer_client,
                     &mut signer_db,
@@ -6580,17 +6579,19 @@ fn signer_chainstate() {
                     miner_pk,
                     true,
                 )
-                .unwrap();
-            assert!(
-                !valid,
+                .expect_err("Sortitions view should reject proposals from prior tenure");
+            assert_eq!(
+                reject_code,
+                RejectReason::NotLatestSortitionWinner,
                 "Sortitions view should reject proposals from prior tenure"
             );
             for block in prior_tenure_interims.iter() {
-                let valid = sortitions_view
+                let reject_code = sortitions_view
                     .check_proposal(&signer_client, &mut signer_db, block, miner_pk, true)
-                    .unwrap();
-                assert!(
-                    !valid,
+                    .expect_err("Sortitions view should reject proposals from prior tenure");
+                assert_eq!(
+                    reject_code,
+                    RejectReason::NotLatestSortitionWinner,
                     "Sortitions view should reject proposals from prior tenure"
                 );
             }
@@ -6616,7 +6617,7 @@ fn signer_chainstate() {
         let reward_cycle = burnchain
             .block_height_to_reward_cycle(burn_block_height)
             .unwrap();
-        let valid = sortitions_view
+        sortitions_view
             .check_proposal(
                 &signer_client,
                 &mut signer_db,
@@ -6624,12 +6625,7 @@ fn signer_chainstate() {
                 &proposal.1,
                 true,
             )
-            .unwrap();
-
-        assert!(
-            valid,
-            "Nakamoto integration test produced invalid block proposal"
-        );
+            .expect("Nakamoto integration test produced invalid block proposal");
         signer_db
             .insert_block(&BlockInfo {
                 block: proposal.0.clone(),
@@ -6672,7 +6668,7 @@ fn signer_chainstate() {
         // an intermediate block was produced. check the proposed block
         let proposal_interim = get_latest_block_proposal(&naka_conf, &sortdb).unwrap();
 
-        let valid = sortitions_view
+        sortitions_view
             .check_proposal(
                 &signer_client,
                 &mut signer_db,
@@ -6680,12 +6676,7 @@ fn signer_chainstate() {
                 &proposal_interim.1,
                 true,
             )
-            .unwrap();
-
-        assert!(
-            valid,
-            "Nakamoto integration test produced invalid block proposal"
-        );
+            .expect("Nakamoto integration test produced invalid block proposal");
         // force the view to refresh and check again
 
         // this config disallows any reorg due to poorly timed block commits
@@ -6705,7 +6696,7 @@ fn signer_chainstate() {
             .unwrap();
         let mut sortitions_view =
             SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
-        let valid = sortitions_view
+        sortitions_view
             .check_proposal(
                 &signer_client,
                 &mut signer_db,
@@ -6713,12 +6704,7 @@ fn signer_chainstate() {
                 &proposal_interim.1,
                 true,
             )
-            .unwrap();
-
-        assert!(
-            valid,
-            "Nakamoto integration test produced invalid block proposal"
-        );
+            .expect("Nakamoto integration test produced invalid block proposal");
 
         signer_db
             .insert_block(&BlockInfo {
@@ -6779,18 +6765,15 @@ fn signer_chainstate() {
         reorg_attempts_activity_timeout: Duration::from_secs(30),
     };
     let mut sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
-    assert!(
-        !sortitions_view
-            .check_proposal(
-                &signer_client,
-                &mut signer_db,
-                &sibling_block,
-                &miner_pk,
-                false,
-            )
-            .unwrap(),
-        "A sibling of a previously approved block must be rejected."
-    );
+    sortitions_view
+        .check_proposal(
+            &signer_client,
+            &mut signer_db,
+            &sibling_block,
+            &miner_pk,
+            false,
+        )
+        .expect_err("A sibling of a previously approved block must be rejected.");
 
     // Case: the block contains a tenure change, but blocks have already
     //  been signed in this tenure
@@ -6836,18 +6819,15 @@ fn signer_chainstate() {
         ],
     };
 
-    assert!(
-        !sortitions_view
-            .check_proposal(
-                &signer_client,
-                &mut signer_db,
-                &sibling_block,
-                &miner_pk,
-                false,
-            )
-            .unwrap(),
-        "A sibling of a previously approved block must be rejected."
-    );
+    sortitions_view
+        .check_proposal(
+            &signer_client,
+            &mut signer_db,
+            &sibling_block,
+            &miner_pk,
+            false,
+        )
+        .expect_err("A sibling of a previously approved block must be rejected.");
 
     // Case: the block contains a tenure change, but it doesn't confirm all the blocks of the parent tenure
     let reorg_to_block = first_tenure_blocks.as_ref().unwrap().first().unwrap();
@@ -6899,18 +6879,15 @@ fn signer_chainstate() {
         ],
     };
 
-    assert!(
-        !sortitions_view
-            .check_proposal(
-                &signer_client,
-                &mut signer_db,
-                &sibling_block,
-                &miner_pk,
-                false,
-            )
-            .unwrap(),
-        "A sibling of a previously approved block must be rejected."
-    );
+    sortitions_view
+        .check_proposal(
+            &signer_client,
+            &mut signer_db,
+            &sibling_block,
+            &miner_pk,
+            false,
+        )
+        .expect_err("A sibling of a previously approved block must be rejected.");
 
     // Case: the block contains a tenure change, but the parent tenure is a reorg
     let reorg_to_block = first_tenure_blocks.as_ref().unwrap().last().unwrap();
@@ -6964,18 +6941,15 @@ fn signer_chainstate() {
         ],
     };
 
-    assert!(
-        !sortitions_view
-            .check_proposal(
-                &signer_client,
-                &mut signer_db,
-                &sibling_block,
-                &miner_pk,
-                false,
-            )
-            .unwrap(),
-        "A sibling of a previously approved block must be rejected."
-    );
+    sortitions_view
+        .check_proposal(
+            &signer_client,
+            &mut signer_db,
+            &sibling_block,
+            &miner_pk,
+            false,
+        )
+        .expect_err("A sibling of a previously approved block must be rejected.");
 
     let start_sortition = &reorg_to_block.header.consensus_hash;
     let stop_sortition = &sortitions_view.cur_sortition.prior_sortition;
@@ -10683,10 +10657,7 @@ fn test_tenure_extend_from_flashblocks() {
         .collect();
     let initial_balances: Vec<_> = account_keys
         .iter()
-        .map(|privk| {
-            let address = to_addr(privk).into();
-            (address, 1_000_000)
-        })
+        .map(|privk| (to_addr(privk), 1_000_000))
         .collect();
 
     let deployer_sk = account_keys.pop().unwrap();
@@ -10708,11 +10679,6 @@ fn test_tenure_extend_from_flashblocks() {
     let btc_regtest_controller = &mut signer_test.running_nodes.btc_regtest_controller;
     let coord_channel = signer_test.running_nodes.coord_channel.clone();
     let counters = signer_test.running_nodes.counters.clone();
-    let nakamoto_test_skip_commit_op = signer_test
-        .running_nodes
-        .nakamoto_test_skip_commit_op
-        .clone();
-    let nakamoto_miner_directives = signer_test.running_nodes.nakamoto_miner_directives.clone();
 
     let tx_fee = 1_000;
 
@@ -10766,7 +10732,7 @@ fn test_tenure_extend_from_flashblocks() {
     next_block_and_mine_commit(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     // prevent the miner from sending another block-commit
-    nakamoto_test_skip_commit_op.set(true);
+    counters.naka_skip_commit_op.set(true);
 
     let info_before = get_chain_info(&naka_conf);
 
@@ -10799,7 +10765,7 @@ fn test_tenure_extend_from_flashblocks() {
     // mine another Bitcoin block right away, and force it to be a flash block
     btc_regtest_controller.bootstrap_chain(1);
 
-    let miner_directives_before = nakamoto_miner_directives.load(Ordering::SeqCst);
+    let miner_directives_before = counters.naka_miner_directives.load(Ordering::SeqCst);
 
     // unblock the relayer so it can process the flash block sortition.
     // Given the above, this will be an `Extend` tenure.
@@ -10858,13 +10824,12 @@ fn test_tenure_extend_from_flashblocks() {
     }
 
     // unstall miner thread and allow block-commits again
-    nakamoto_test_skip_commit_op.set(false);
+    counters.naka_skip_commit_op.set(false);
     TEST_MINE_STALL.set(false);
 
     // wait for the miner directive to be processed
     wait_for(60, || {
-        let directives_cnt = nakamoto_miner_directives.load(Ordering::SeqCst);
-        Ok(directives_cnt > miner_directives_before)
+        Ok(counters.naka_miner_directives.load(Ordering::SeqCst) > miner_directives_before)
     })
     .unwrap();
 

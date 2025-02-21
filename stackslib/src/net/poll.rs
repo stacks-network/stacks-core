@@ -621,7 +621,7 @@ mod test {
             in_use.insert(next_eid);
         }
 
-        assert_eq!(ns.event_map.len(), 0);
+        assert!(ns.event_map.is_empty());
 
         for _ in 0..20 {
             assert!(ns.make_next_event_id(count, &in_use).is_none());

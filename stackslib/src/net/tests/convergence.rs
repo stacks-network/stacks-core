@@ -976,21 +976,17 @@ fn run_topology_test_ex<F>(
         let mut rng = thread_rng();
         random_order.shuffle(&mut rng);
 
-        debug!("Random order = {:?}", &random_order);
+        debug!("Random order = {random_order:?}");
         for i in random_order.into_iter() {
             let _ = peers[i].step_with_ibd(false);
             let nk = peers[i].config.to_neighbor().addr;
-            debug!("Step peer {:?}", &nk);
+            debug!("Step peer {nk:?}");
 
             // allowed peers are still connected
             if let Some(peer_list) = initial_allowed.get(&nk) {
                 for pnk in peer_list.iter() {
                     if !peers[i].network.events.contains_key(&pnk.clone()) {
-                        error!(
-                            "{:?}: Perma-allowed peer {:?} not connected anymore",
-                            &nk, &pnk
-                        );
-                        assert!(false);
+                        panic!("{nk:?}: Perma-allowed peer {pnk:?} not connected anymore");
                     }
                 }
             };
@@ -999,8 +995,7 @@ fn run_topology_test_ex<F>(
             if let Some(peer_list) = initial_denied.get(&nk) {
                 for pnk in peer_list.iter() {
                     if peers[i].network.events.contains_key(&pnk.clone()) {
-                        error!("{:?}: Perma-denied peer {:?} connected", &nk, &pnk);
-                        assert!(false);
+                        panic!("{nk:?}: Perma-denied peer {pnk:?} connected");
                     }
                 }
             };
@@ -1009,8 +1004,7 @@ fn run_topology_test_ex<F>(
             let mut ports: HashSet<u16> = HashSet::new();
             for k in peers[i].network.events.keys() {
                 if ports.contains(&k.port) {
-                    error!("duplicate port {} from {:?}", k.port, k);
-                    assert!(false);
+                    panic!("duplicate port {} from {k:?}", k.port);
                 }
                 ports.insert(k.port);
             }
@@ -1057,12 +1051,12 @@ fn run_topology_test_ex<F>(
             break;
         }
 
-        test_debug!("Finished walking the network {} times", count);
+        test_debug!("Finished walking the network {count} times");
         dump_peers(peers);
         dump_peer_histograms(peers);
     }
 
-    test_debug!("Converged after {} calls to network.run()", count);
+    test_debug!("Converged after {count} calls to network.run()");
     dump_peers(peers);
     dump_peer_histograms(peers);
 
