@@ -1655,10 +1655,7 @@ fn pass_argument_to_wasm(
         }) => {
             // Callable types can just ignore the optional trait identifier, and
             // is handled like a qualified contract
-            let QualifiedContractIdentifier {
-                issuer,
-                name,
-            } = p;
+            let QualifiedContractIdentifier { issuer, name } = p;
             let v = issuer.version();
             let h = &issuer.1;
             let bytes: Vec<u8> = std::iter::once(v)
