@@ -220,6 +220,12 @@ impl SortitionsView {
                 "current_sortition_consensus_hash" => ?self.cur_sortition.consensus_hash,
             );
             self.cur_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
+
+            // If the current proposal is also for this current
+            // sortition, then we can return early here.
+            if self.cur_sortition.consensus_hash == block.header.consensus_hash {
+                return Err(RejectReason::InvalidMiner);
+            }
         } else if let Some(tip) = signer_db
             .get_canonical_tip()
             .map_err(SignerChainstateError::from)?
@@ -253,6 +259,12 @@ impl SortitionsView {
                     );
                     self.cur_sortition.miner_status =
                         SortitionMinerStatus::InvalidatedBeforeFirstBlock;
+
+                    // If the current proposal is also for this current
+                    // sortition, then we can return early here.
+                    if self.cur_sortition.consensus_hash == block.header.consensus_hash {
+                        return Err(RejectReason::ReorgNotAllowed);
+                    }
                 }
             }
         }
@@ -481,7 +493,7 @@ impl SortitionsView {
                         0
                     };
                     if Duration::from_secs(proposal_to_sortition)
-                        <= *first_proposal_burn_block_timing
+                        < *first_proposal_burn_block_timing
                     {
                         info!(
                             "Miner is not building off of most recent tenure. A tenure they reorg has already mined blocks, but the block was poorly timed, allowing the reorg.";
@@ -587,7 +599,7 @@ impl SortitionsView {
                     "proposed_chain_length" => block.header.chain_length,
                     "expected_at_least" => info.block.header.chain_length + 1,
                 );
-                if info.signed_group.map_or(true, |signed_time| {
+                if info.signed_group.is_none_or(|signed_time| {
                     signed_time + reorg_attempts_activity_timeout.as_secs() > get_epoch_time_secs()
                 }) {
                     // Note if there is no signed_group time, this is a locally accepted block (i.e. tenure_last_block_proposal_timeout has not been exceeded).
