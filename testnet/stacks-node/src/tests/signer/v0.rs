@@ -10234,7 +10234,7 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         block_n_height + 3
     );
 
-    info!("------------------------- Miner 1 Wins the Next Tenure, Mines N+1, got rejected' -------------------------");
+    info!("------------------------- Miner 1 Wins the Next Tenure, Mines N+1', got rejected' -------------------------");
     miners.btc_regtest_controller_mut().build_next_block(1);
 
     wait_for(60, || {
