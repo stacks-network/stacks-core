@@ -1636,24 +1636,6 @@ impl RelayerThread {
         });
         let mut last_committed = self.make_block_commit(&tip_block_ch, &tip_block_bh)?;
 
-        // last chance -- is this tenure still the canonical tip?
-        let (cur_stacks_tip_ch, _) = SortitionDB::get_canonical_stacks_chain_tip_hash(
-            self.sortdb.conn(),
-        )
-        .unwrap_or_else(|e| {
-            panic!("Failed to load canonical stacks tip: {e:?}");
-        });
-        if last_committed.get_tenure_id() != &cur_stacks_tip_ch {
-            info!(
-                "Stacks tenure changed prior to commit";
-                "current_stacks_tip_ch" => %cur_stacks_tip_ch,
-                "committed_tenure_ch" => %last_committed.get_tenure_id(),
-                "issue_commit_tip_ch" => %tip_block_ch,
-                "issue_commit_tip_bh" => %tip_block_bh
-            );
-            return Err(NakamotoNodeError::StacksTipChanged);
-        }
-
         let Some(tip_height) = NakamotoChainState::get_block_header(
             self.chainstate.db(),
             &StacksBlockId::new(&tip_block_ch, &tip_block_bh),
