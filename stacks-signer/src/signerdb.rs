@@ -21,7 +21,7 @@ use std::time::{Duration, SystemTime};
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::TransactionPayload;
 use blockstack_lib::util_lib::db::{
-    query_count, query_row, query_rows, sqlite_open, table_exists, tx_begin_immediate, u64_to_sql,
+    query_row, query_rows, sqlite_open, table_exists, tx_begin_immediate, u64_to_sql,
     Error as DBError,
 };
 #[cfg(any(test, feature = "testing"))]
@@ -831,9 +831,13 @@ impl SignerDb {
         &self,
         tenure: &ConsensusHash,
     ) -> Result<i64, DBError> {
-        let query = "SELECT COUNT(*) FROM blocks WHERE consensus_hash = ?1 AND state = ?2";
+        let query = "SELECT COALESCE((MAX(stacks_height) - MIN(stacks_height) + 1), 0) AS block_count FROM blocks WHERE consensus_hash = ?1 AND state = ?2";
         let args = params![tenure, &BlockState::GloballyAccepted.to_string()];
-        query_count(&self.db, query, args)
+        let block_count_opt: Option<i64> = query_row(&self.db, query, args)?;
+        match block_count_opt {
+            Some(block_count) => Ok(block_count),
+            None => Ok(0),
+        }
     }
 
     /// Return the last accepted block in a tenure (identified by its consensus hash).
