@@ -1692,7 +1692,7 @@ impl EventDispatcher {
         );
 
         if conf.disable_retries {
-            warn!("Observer {} is configured in \"disable_retries\" mode: events are not granted to be delivered", conf.endpoint);
+            warn!("Observer {} is configured in \"disable_retries\" mode: events are not guaranteed to be delivered", conf.endpoint);
         }
 
         let observer_index = self.registered_observers.len() as u16;
