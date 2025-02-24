@@ -2426,7 +2426,9 @@ fn miner_forking() {
             signer_config.first_proposal_burn_block_timing =
                 Duration::from_secs(first_proposal_burn_block_timing);
         },
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
         |_| {},
     );
 
