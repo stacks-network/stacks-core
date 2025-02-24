@@ -20,18 +20,22 @@ path = "./src/libcommon.rs"
 
 [dependencies]
 rand = { workspace = true }
-serde = { version = "1.0", features = ["derive"] }
-serde_derive = "1"
-sha3 = "0.10.1"
-ripemd = "0.1.1"
-lazy_static = "1.4.0"
-slog = { version = "2.5.2", features = [ "max_level_trace" ] }
-slog-term = "2.6.0"
-slog-json = { version = "2.3.0", optional = true }
-chrono = "0.4.19"
-libc = "0.2.82"
+serde = { workspace = true, features = ["derive"] }
+serde_derive = { workspace = true }
+sha3 = { workspace = true }
+ripemd = { workspace = true }
+lazy_static = { workspace = true }
+slog = { workspace = true, features = ["max_level_trace"] }
+slog-term = { workspace = true }
+slog-json = { workspace = true, optional = true }
+chrono = { workspace = true }
+libc = { workspace = true }
 hashbrown = { workspace = true }
 rusqlite = { workspace = true, optional = true }
+serde_json= { workspace = true, features = ["arbitrary_precision", "unbounded_depth"] }
+secp256k1= { workspace = true, features = ["serde", "recovery"] }
+curve25519-dalek= { workspace = true, features = ["serde"] }
+time= { workspace = true, features = ["std"] }
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"
@@ -42,24 +46,8 @@ winapi = { version = "0.3", features = ["consoleapi", "handleapi", "synchapi", "
 [target.'cfg(windows)'.dev-dependencies]
 winapi = { version = "0.3", features = ["fileapi", "processenv", "winnt"] }
 
-[dependencies.serde_json]
-version = "1.0"
-features = ["arbitrary_precision", "unbounded_depth"]
-
-[dependencies.secp256k1]
-version = "0.24.3"
-features = ["serde", "recovery"]
-
 [dependencies.ed25519-dalek]
 workspace = true
-
-[dependencies.curve25519-dalek]
-version = "=2.0.0"
-features = ["serde"]
-
-[dependencies.time]
-version = "0.2.23"
-features = ["std"]
 
 [dev-dependencies]
 rand_core = { workspace = true }
@@ -75,7 +63,7 @@ bech32_std = []
 bech32_strict = []
 
 [build-dependencies]
-toml = "0.5.6"
+toml = { workspace = true }
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }
