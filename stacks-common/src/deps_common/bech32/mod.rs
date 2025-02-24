@@ -168,7 +168,7 @@ impl<'a> Bech32Writer<'a> {
 
     fn polymod_step(&mut self, v: u5) {
         let b = (self.chk >> 25) as u8;
-        self.chk = (self.chk & 0x01ff_ffff) << 5 ^ (u32::from(*v.as_ref()));
+        self.chk = ((self.chk & 0x01ff_ffff) << 5) ^ (u32::from(*v.as_ref()));
 
         for (i, item) in GEN.iter().enumerate() {
             if (b >> i) & 1 == 1 {
@@ -616,7 +616,7 @@ fn polymod(values: &[u5]) -> u32 {
     let mut b: u8;
     for v in values {
         b = (chk >> 25) as u8;
-        chk = (chk & 0x01ff_ffff) << 5 ^ (u32::from(*v.as_ref()));
+        chk = ((chk & 0x01ff_ffff) << 5) ^ (u32::from(*v.as_ref()));
 
         for (i, item) in GEN.iter().enumerate() {
             if (b >> i) & 1 == 1 {
