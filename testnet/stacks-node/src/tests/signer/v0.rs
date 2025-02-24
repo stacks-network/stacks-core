@@ -10287,7 +10287,7 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         proposed_block.header.signer_signature_hash(),
         num_signers,
     )
-    .expect("Timed out waiting for a tenure extend proposal to be rejected");
+    .expect("Timed out waiting for a block proposal to be rejected");
 
     assert_eq!(
         get_chain_info(&conf_1).stacks_tip_height,
