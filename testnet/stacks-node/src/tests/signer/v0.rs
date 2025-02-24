@@ -10289,10 +10289,25 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
     )
     .expect("Timed out waiting for a block proposal to be rejected");
 
-    assert_eq!(
-        get_chain_info(&conf_1).stacks_tip_height,
-        block_n_height + 3
-    );
+    // check only 1 block from miner1 has been added after the epoch3 boot
+    let miner1_blocks_after_boot_to_epoch3 = get_nakamoto_headers(&conf_1)
+        .into_iter()
+        .filter(|block| {
+            // skip first nakamoto block
+            if block.stacks_block_height == stacks_height_before {
+                return false;
+            }
+            let nakamoto_block_header = block.anchored_header.as_stacks_nakamoto().unwrap();
+            miner_pk_1
+                .verify(
+                    nakamoto_block_header.miner_signature_hash().as_bytes(),
+                    &nakamoto_block_header.miner_signature,
+                )
+                .unwrap()
+        })
+        .count();
+
+    assert_eq!(miner1_blocks_after_boot_to_epoch3, 1);
 
     info!("------------------------- Shutdown -------------------------");
     miners.shutdown();
