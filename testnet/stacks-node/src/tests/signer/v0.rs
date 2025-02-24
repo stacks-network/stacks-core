@@ -10275,19 +10275,24 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         block_n_height + 3
     );
 
-    info!("------------------------- Miner 1 Wins the Next Tenure, Mines N+1', got rejected' -------------------------");
+    info!("------------------------- Miner 1 Wins the Next Tenure, Mines N+1', got rejected -------------------------");
     miners.btc_regtest_controller_mut().build_next_block(1);
 
-    wait_for(60, || {
-        Ok(miners
-            .signer_test
-            .running_nodes
-            .counters
-            .naka_rejected_blocks
-            .get()
-            > 0)
-    })
-    .unwrap();
+    // wait for a block N+1' proposal from miner1
+    let proposed_block = wait_for_block_proposal(30, block_n_height + 1, &miner_pk_1)
+        .expect("Timed out waiting for block proposal");
+    // check it has been rejected
+    wait_for_block_global_rejection(
+        30,
+        proposed_block.header.signer_signature_hash(),
+        num_signers,
+    )
+    .expect("Timed out waiting for a tenure extend proposal to be rejected");
+
+    assert_eq!(
+        get_chain_info(&conf_1).stacks_tip_height,
+        block_n_height + 3
+    );
 
     info!("------------------------- Shutdown -------------------------");
     miners.shutdown();
