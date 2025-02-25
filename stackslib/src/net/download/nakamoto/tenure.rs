@@ -345,10 +345,12 @@ impl TenureStartEnd {
                 rc,
                 pox_constants
                     .block_height_to_reward_cycle(first_burn_height, wt_start.burn_height)
-                    .expect(&format!(
-                        "FATAL: tenure from before system start ({} <= {})",
-                        wt_start.burn_height, first_burn_height
-                    )),
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "FATAL: tenure from before system start ({} <= {first_burn_height})",
+                            wt_start.burn_height
+                        )
+                    }),
                 wt.processed,
             );
             tenure_start_end.fetch_end_block = true;

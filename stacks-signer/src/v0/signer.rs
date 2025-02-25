@@ -207,6 +207,10 @@ impl SignerTrait<SignerMessage> for Signer {
                                 "block_height" => b.header.chain_length,
                                 "signer_sighash" => %b.header.signer_signature_hash(),
                             );
+                            #[cfg(any(test, feature = "testing"))]
+                            if self.test_skip_block_broadcast(b) {
+                                return;
+                            }
                             stacks_client.post_block_until_ok(self, b);
                         }
                         SignerMessage::MockProposal(mock_proposal) => {
@@ -353,7 +357,9 @@ impl Signer {
             block.header.signer_signature_hash(),
             signature,
             self.signer_db.calculate_tenure_extend_timestamp(
-                self.proposal_config.tenure_idle_timeout,
+                self.proposal_config
+                    .tenure_idle_timeout
+                    .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
                 block,
                 true,
             ),
@@ -371,7 +377,9 @@ impl Signer {
             &self.private_key,
             self.mainnet,
             self.signer_db.calculate_tenure_extend_timestamp(
-                self.proposal_config.tenure_idle_timeout,
+                self.proposal_config
+                    .tenure_idle_timeout
+                    .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
                 block,
                 false,
             ),
@@ -639,6 +647,7 @@ impl Signer {
                 &mut self.signer_db,
                 stacks_client,
                 self.proposal_config.tenure_last_block_proposal_timeout,
+                self.proposal_config.reorg_attempts_activity_timeout,
             ) {
                 Ok(true) => {}
                 Ok(false) => {
@@ -808,7 +817,9 @@ impl Signer {
             &self.private_key,
             self.mainnet,
             self.signer_db.calculate_tenure_extend_timestamp(
-                self.proposal_config.tenure_idle_timeout,
+                self.proposal_config
+                    .tenure_idle_timeout
+                    .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
                 &block_info.block,
                 false,
             ),
