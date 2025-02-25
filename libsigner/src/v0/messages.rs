@@ -539,7 +539,9 @@ RejectCodeTypePrefix {
     /// The block was rejected due to a mismatch with expected sortition view
     SortitionViewMismatch = 4,
     /// The block was rejected due to a testing directive
-    TestingDirective = 5
+    TestingDirective = 5,
+    /// The block was rejected due to an invalid reorg attempt
+    ReorgNotAllowed = 6
 });
 
 impl TryFrom<u8> for RejectCodeTypePrefix {
@@ -560,6 +562,7 @@ impl From<&RejectCode> for RejectCodeTypePrefix {
             RejectCode::NoSortitionView => RejectCodeTypePrefix::NoSortitionView,
             RejectCode::SortitionViewMismatch => RejectCodeTypePrefix::SortitionViewMismatch,
             RejectCode::TestingDirective => RejectCodeTypePrefix::TestingDirective,
+            RejectCode::ReorgNotAllowed => RejectCodeTypePrefix::ReorgNotAllowed,
         }
     }
 }
@@ -602,6 +605,8 @@ pub enum RejectCode {
     SortitionViewMismatch,
     /// The block was rejected due to a testing directive
     TestingDirective,
+    /// The block was rejected due to an invalid reorg attempt
+    ReorgNotAllowed,
 }
 
 impl From<&RejectReason> for RejectCode {
@@ -615,6 +620,7 @@ impl From<&RejectReason> for RejectCode {
             RejectReason::RejectedInPriorRound => RejectCode::RejectedInPriorRound,
             RejectReason::SortitionViewMismatch => RejectCode::SortitionViewMismatch,
             RejectReason::TestingDirective => RejectCode::TestingDirective,
+            RejectReason::ReorgNotAllowed => RejectCode::ReorgNotAllowed,
             // Newer reject reasons were expanded from SortitionViewMismatch
             _ => RejectCode::SortitionViewMismatch,
         }
@@ -761,6 +767,7 @@ impl From<&RejectCode> for RejectReason {
             RejectCode::NoSortitionView => RejectReason::NoSortitionView,
             RejectCode::SortitionViewMismatch => RejectReason::SortitionViewMismatch,
             RejectCode::TestingDirective => RejectReason::TestingDirective,
+            RejectCode::ReorgNotAllowed => RejectReason::ReorgNotAllowed,
         }
     }
 }
@@ -1271,7 +1278,8 @@ impl StacksMessageCodec for RejectCode {
             | RejectCode::RejectedInPriorRound
             | RejectCode::NoSortitionView
             | RejectCode::SortitionViewMismatch
-            | RejectCode::TestingDirective => {
+            | RejectCode::TestingDirective
+            | RejectCode::ReorgNotAllowed => {
                 // No additional data to serialize / deserialize
             }
         };
@@ -1297,6 +1305,7 @@ impl StacksMessageCodec for RejectCode {
             RejectCodeTypePrefix::NoSortitionView => RejectCode::NoSortitionView,
             RejectCodeTypePrefix::SortitionViewMismatch => RejectCode::SortitionViewMismatch,
             RejectCodeTypePrefix::TestingDirective => RejectCode::TestingDirective,
+            RejectCodeTypePrefix::ReorgNotAllowed => RejectCode::ReorgNotAllowed,
         };
         Ok(code)
     }
@@ -1387,6 +1396,9 @@ impl std::fmt::Display for RejectCode {
             }
             RejectCode::TestingDirective => {
                 write!(f, "The block was rejected due to a testing directive.")
+            }
+            RejectCode::ReorgNotAllowed => {
+                write!(f, "The block was rejected due to an invalid reorg attempt.")
             }
         }
     }

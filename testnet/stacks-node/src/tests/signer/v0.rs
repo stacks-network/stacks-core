@@ -1063,6 +1063,40 @@ fn wait_for_block_global_rejection(
     })
 }
 
+/// Waits for >30% of num_signers block rejection to be observed in the test_observer stackerdb chunks for a block
+/// with the provided signer signature hash and the specified reject_code
+fn wait_for_block_global_rejection_with_reject_code(
+    timeout_secs: u64,
+    block_signer_signature_hash: Sha512Trunc256Sum,
+    num_signers: usize,
+    reject_code: RejectCode,
+) -> Result<(), String> {
+    let mut found_rejections = HashSet::new();
+    wait_for(timeout_secs, || {
+        let chunks = test_observer::get_stackerdb_chunks();
+        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
+            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+            else {
+                continue;
+            };
+            if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
+                signer_signature_hash,
+                signature,
+                reason_code,
+                ..
+            })) = message
+            {
+                if signer_signature_hash == block_signer_signature_hash
+                    && reason_code == reject_code
+                {
+                    found_rejections.insert(signature);
+                }
+            }
+        }
+        Ok(found_rejections.len() >= num_signers * 3 / 10)
+    })
+}
+
 /// Waits for the provided number of block rejections to be observed in the test_observer stackerdb chunks for a block
 /// with the provided signer signature hash
 fn wait_for_block_rejections(
@@ -10282,12 +10316,13 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
     let proposed_block = wait_for_block_proposal(30, block_n_height + 1, &miner_pk_1)
         .expect("Timed out waiting for block proposal");
     // check it has been rejected
-    wait_for_block_global_rejection(
+    wait_for_block_global_rejection_with_reject_code(
         30,
         proposed_block.header.signer_signature_hash(),
         num_signers,
+        RejectCode::ReorgNotAllowed,
     )
-    .expect("Timed out waiting for a block proposal to be rejected");
+    .expect("Timed out waiting for a block proposal to be rejected due to invalid reorg");
 
     // check only 1 block from miner1 has been added after the epoch3 boot
     let miner1_blocks_after_boot_to_epoch3 = get_nakamoto_headers(&conf_1)
