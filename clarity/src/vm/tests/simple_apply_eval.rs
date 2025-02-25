@@ -1771,12 +1771,12 @@ fn test_chain_id() {
 #[test]
 #[serial]
 fn test_execution_time_expiration() {
-    *TEST_MAX_EXECUTION_TIME.lock().unwrap() = Duration::from_secs(0);
+    TEST_MAX_EXECUTION_TIME.set(Duration::from_secs(0));
 
     assert_eq!(
         vm_execute("(+ 1 1)").err().unwrap(),
         CheckErrors::ExecutionTimeExpired.into()
     );
 
-    *TEST_MAX_EXECUTION_TIME.lock().unwrap() = Duration::from_secs(MAX_EXECUTION_TIME_SECS);
+    TEST_MAX_EXECUTION_TIME.set(Duration::from_secs(MAX_EXECUTION_TIME_SECS));
 }

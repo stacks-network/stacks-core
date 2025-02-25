@@ -637,6 +637,7 @@ dependencies = [
  "serial_test",
  "slog",
  "stacks-common",
+ "stackslib",
  "time 0.2.27",
 ]
 

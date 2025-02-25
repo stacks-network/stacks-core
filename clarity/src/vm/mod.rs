@@ -54,9 +54,13 @@ pub mod test_util;
 pub mod clarity;
 
 use std::collections::BTreeMap;
+#[cfg(test)]
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use serde_json;
+#[cfg(test)]
+use stacks::util::tests::TestFlag;
 use stacks_common::types::StacksEpochId;
 
 use self::analysis::ContractAnalysis;
@@ -90,8 +94,8 @@ pub const MAX_CALL_STACK_DEPTH: usize = 64;
 pub const MAX_EXECUTION_TIME_SECS: u64 = 30;
 
 #[cfg(test)]
-static TEST_MAX_EXECUTION_TIME: std::sync::Mutex<Duration> =
-    std::sync::Mutex::new(Duration::from_secs(MAX_EXECUTION_TIME_SECS));
+static TEST_MAX_EXECUTION_TIME: LazyLock<TestFlag<Duration>> =
+    LazyLock::new(|| TestFlag::new(Duration::from_secs(MAX_EXECUTION_TIME_SECS)));
 
 #[derive(Debug, Clone)]
 pub struct ParsedContract {
@@ -316,7 +320,7 @@ fn check_max_execution_time_expired(global_context: &GlobalContext) -> bool {
 
 #[cfg(test)]
 fn check_max_execution_time_expired(global_context: &GlobalContext) -> bool {
-    global_context.execution_time_tracker.elapsed() > *TEST_MAX_EXECUTION_TIME.lock().unwrap()
+    global_context.execution_time_tracker.elapsed() > TEST_MAX_EXECUTION_TIME.get()
 }
 
 pub fn eval(
