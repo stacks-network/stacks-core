@@ -402,7 +402,7 @@ impl StackerDBListener {
                             "percent_rejected" => block.total_weight_rejected as f64 / self.total_weight as f64 * 100.0,
                             "weight_threshold" => self.weight_threshold,
                             "reason" => rejected_data.reason,
-                            "reason_code" => %rejected_data.reason_code,
+                            "reason_code" => ?rejected_data.reason_code,
                             "tenure_extend_timestamp" => rejected_data.response_data.tenure_extend_timestamp,
                             "server_version" => rejected_data.metadata.server_version,
                         );

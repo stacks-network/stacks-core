@@ -119,7 +119,7 @@ impl MinerStats {
             );
 
             assert_eq!(windowed_block_commits.len(), 1);
-            assert_eq!(windowed_missed_commits.len(), 0);
+            assert!(windowed_missed_commits.is_empty());
         }
 
         // reverse vecs so that windows are in ascending block height order

@@ -697,7 +697,7 @@ fn test_filter_orphan_block_commits() {
 
     assert_eq!(filtered_ops.len(), all_ops.len());
     assert_eq!(filtered_ops[0].len(), 1);
-    assert_eq!(filtered_ops[1].len(), 0);
+    assert!(filtered_ops[1].is_empty());
     assert_eq!(filtered_ops[2].len(), 1);
 }
 
@@ -757,7 +757,7 @@ fn test_filter_missed_block_commits() {
 
     assert_eq!(filtered_ops.len(), all_ops.len());
     assert_eq!(filtered_ops[0].len(), 1);
-    assert_eq!(filtered_ops[1].len(), 0);
+    assert!(filtered_ops[1].is_empty());
     assert_eq!(filtered_ops[2].len(), 1);
 }
 

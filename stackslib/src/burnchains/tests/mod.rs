@@ -893,14 +893,10 @@ fn verify_keys_accepted(node: &mut TestBurnchainNode, prev_keys: &[LeaderKeyRegi
         assert!(tx_opt.is_some());
 
         let tx = tx_opt.unwrap();
-        match tx {
-            BlockstackOperationType::LeaderKeyRegister(ref op) => {
-                assert_eq!(*op, *key);
-            }
-            _ => {
-                assert!(false);
-            }
-        }
+        let BlockstackOperationType::LeaderKeyRegister(op) = tx else {
+            panic!("Expected key registration tx");
+        };
+        assert_eq!(op, *key);
     }
 }
 
@@ -912,14 +908,10 @@ fn verify_commits_accepted(node: &TestBurnchainNode, next_block_commits: &[Leade
         assert!(tx_opt.is_some());
 
         let tx = tx_opt.unwrap();
-        match tx {
-            BlockstackOperationType::LeaderBlockCommit(ref op) => {
-                assert_eq!(*op, *commit);
-            }
-            _ => {
-                assert!(false);
-            }
-        }
+        let BlockstackOperationType::LeaderBlockCommit(op) = tx else {
+            panic!("Expected leader block commit tx");
+        };
+        assert_eq!(op, *commit);
     }
 }
 

@@ -3331,7 +3331,7 @@ pub mod test {
                     )
                 })
                 .unwrap();
-                assert_eq!(reward_addrs.len(), 0);
+                assert!(reward_addrs.is_empty());
 
                 // record the first reward cycle when Alice's tokens get stacked
                 let tip_burn_block_height =
@@ -3427,7 +3427,7 @@ pub mod test {
                     );
                 } else {
                     // no reward addresses
-                    assert_eq!(reward_addrs.len(), 0);
+                    assert!(reward_addrs.is_empty());
                 }
             }
         }
@@ -3583,7 +3583,7 @@ pub mod test {
                     )
                 })
                 .unwrap();
-                assert_eq!(reward_addrs.len(), 0);
+                assert!(reward_addrs.is_empty());
 
                 // record the first reward cycle when tokens get stacked
                 let tip_burn_block_height =
@@ -3683,10 +3683,10 @@ pub mod test {
                         );
                     }
 
-                    assert_eq!(all_addrbytes.len(), 0);
+                    assert!(all_addrbytes.is_empty());
                 } else {
                     // no reward addresses
-                    assert_eq!(reward_addrs.len(), 0);
+                    assert!(reward_addrs.is_empty());
                 }
             }
         }
@@ -3799,7 +3799,7 @@ pub mod test {
                     )
                 })
                 .unwrap();
-                assert_eq!(reward_addrs.len(), 0);
+                assert!(reward_addrs.is_empty());
 
                 // record the first reward cycle when Alice's tokens get stacked
                 let tip_burn_block_height =
@@ -3933,7 +3933,7 @@ pub mod test {
                         );
                         assert_eq!(contract_balance, 1024 * POX_THRESHOLD_STEPS_USTX);
 
-                        assert_eq!(reward_addrs.len(), 0);
+                        assert!(reward_addrs.is_empty());
 
                         // Lock-up is lazy -- state has not been updated
                         let contract_account = get_account(
@@ -3954,7 +3954,7 @@ pub mod test {
                     }
                 } else {
                     // no reward addresses
-                    assert_eq!(reward_addrs.len(), 0);
+                    assert!(reward_addrs.is_empty());
                 }
             }
         }
@@ -4079,7 +4079,7 @@ pub mod test {
                     )
                 })
                 .unwrap();
-                assert_eq!(reward_addrs.len(), 0);
+                assert!(reward_addrs.is_empty());
 
                 // record the first reward cycle when Alice's tokens get stacked
                 let tip_burn_block_height =
@@ -4170,7 +4170,7 @@ pub mod test {
                     assert_eq!(reward_addrs[0].1, (4 * 1024 * POX_THRESHOLD_STEPS_USTX) / 5);
                 } else {
                     // no reward addresses
-                    assert_eq!(reward_addrs.len(), 0);
+                    assert!(reward_addrs.is_empty());
                 }
             }
         }
@@ -4317,7 +4317,7 @@ pub mod test {
                     )
                 })
                 .unwrap();
-                assert_eq!(reward_addrs.len(), 0);
+                assert!(reward_addrs.is_empty());
 
                 // record the first reward cycle when Alice's tokens get stacked
                 let tip_burn_block_height =
@@ -4492,7 +4492,7 @@ pub mod test {
                     )
                 })
                 .unwrap();
-                assert_eq!(reward_addrs.len(), 0);
+                assert!(reward_addrs.is_empty());
 
                 // record the first reward cycle when Alice's tokens get stacked
                 let tip_burn_block_height =
@@ -4602,7 +4602,7 @@ pub mod test {
                         );
 
                         // empty reward cycle
-                        assert_eq!(reward_addrs.len(), 0);
+                        assert!(reward_addrs.is_empty());
 
                         // min STX is reset
                         assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
@@ -4624,7 +4624,7 @@ pub mod test {
                     }
                 } else {
                     // no reward addresses
-                    assert_eq!(reward_addrs.len(), 0);
+                    assert!(reward_addrs.is_empty());
                 }
             }
         }
@@ -4809,7 +4809,7 @@ pub mod test {
                 assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
 
                 // no reward addresses
-                assert_eq!(reward_addrs.len(), 0);
+                assert!(reward_addrs.is_empty());
 
                 // record the first reward cycle when Alice's tokens get stacked
                 first_reward_cycle = 1 + burnchain
@@ -4845,7 +4845,7 @@ pub mod test {
                 assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
 
                 // no reward addresses
-                assert_eq!(reward_addrs.len(), 0);
+                assert!(reward_addrs.is_empty());
 
                 // record the first reward cycle when Alice's tokens get stacked
                 second_reward_cycle = 1 + burnchain
@@ -4973,7 +4973,7 @@ pub mod test {
                     .is_none());
 
                     // empty reward cycle
-                    assert_eq!(reward_addrs.len(), 0);
+                    assert!(reward_addrs.is_empty());
 
                     // min STX is reset
                     assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
@@ -5106,7 +5106,7 @@ pub mod test {
                     .is_none());
 
                     // empty reward cycle
-                    assert_eq!(reward_addrs.len(), 0);
+                    assert!(reward_addrs.is_empty());
 
                     // min STX is reset
                     assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
@@ -5461,7 +5461,7 @@ pub mod test {
                     )
                 })
                 .unwrap();
-                assert_eq!(reward_addrs.len(), 0);
+                assert!(reward_addrs.is_empty());
 
                 // record the first reward cycle when Alice's tokens get stacked
                 reward_cycle = 1 + burnchain
@@ -5562,7 +5562,7 @@ pub mod test {
                     }
 
                     // empty reward cycle
-                    assert_eq!(reward_addrs.len(), 0);
+                    assert!(reward_addrs.is_empty());
 
                     // min STX is reset
                     assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
@@ -5768,7 +5768,7 @@ pub mod test {
                 assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
 
                 // no reward addresses
-                assert_eq!(reward_addrs.len(), 0);
+                assert!(reward_addrs.is_empty());
 
                 // record the first reward cycle when Alice's tokens get stacked
                 alice_reward_cycle = 1 + burnchain
@@ -5870,7 +5870,7 @@ pub mod test {
                     );
                 } else {
                     // no reward addresses
-                    assert_eq!(reward_addrs.len(), 0);
+                    assert!(reward_addrs.is_empty());
                 }
             }
         }

@@ -87,14 +87,8 @@ fn trie_cmp<T: MarfTrieId>(
     let (n1_data, n1_hash) = t1.data()[0].clone();
     let (n2_data, n2_hash) = t2.data()[0].clone();
 
-    if let TrieNodeType::Node256(_) = n1_data {
-    } else {
-        assert!(false)
-    }
-    if let TrieNodeType::Node256(_) = n2_data {
-    } else {
-        assert!(false)
-    }
+    assert!(matches!(n1_data, TrieNodeType::Node256(_)));
+    assert!(matches!(n2_data, TrieNodeType::Node256(_)));
 
     frontier_1.push_back((n1_data, n1_hash));
     frontier_2.push_back((n2_data, n2_hash));
@@ -109,12 +103,12 @@ fn trie_cmp<T: MarfTrieId>(
         let (n2_data, n2_hash) = frontier_2.pop_front().unwrap();
 
         if n1_hash != n2_hash {
-            debug!("root hash mismatch: {} != {}", &n1_hash, &n2_hash);
+            debug!("root hash mismatch: {n1_hash} != {n2_hash}");
             return false;
         }
 
         if !node_cmp(&n1_data, &n2_data) {
-            debug!("root node mismatch: {:?} != {:?}", &n1_data, &n2_data);
+            debug!("root node mismatch: {n1_data:?} != {n2_data:?}");
             return false;
         }
 
