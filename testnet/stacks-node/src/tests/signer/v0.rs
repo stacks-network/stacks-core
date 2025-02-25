@@ -10320,7 +10320,7 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         30,
         proposed_block.header.signer_signature_hash(),
         num_signers,
-        RejectCode::ReorgNotAllowed,
+        RejectCode::SortitionViewMismatch,
     )
     .expect("Timed out waiting for a block proposal to be rejected due to invalid reorg");
 
